@@ -26,6 +26,7 @@ pub mod errors;
 pub mod errors_table;
 pub mod freeze;
 pub mod history;
+pub mod metrics;
 pub mod migrate;
 pub mod ops_reads;
 pub mod posting;

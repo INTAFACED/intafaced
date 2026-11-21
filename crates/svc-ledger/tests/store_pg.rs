@@ -597,6 +597,62 @@ fn health_and_ready_say_what_the_database_says() {
     app.wire.end();
 }
 
+/// The two gauges on `GET /metrics` follow the latest `ok` reconciliation run in the book, as
+/// `reconcile-snapshot.test.ts`' "lastVerified, /health and the metric" case reads them; a run table that cannot be read
+/// leaves the gauges out and the scrape answers.
+#[test]
+fn metrics_gauges_follow_the_latest_ok_run_and_a_failed_read_leaves_them_out() {
+    let Some(db) = TestDb::new() else { return };
+    db.migrate(&FILES, false).unwrap();
+    let app = served(&db);
+    let scrape = |app: &App<LedgerDoor>| {
+        let a = app.route("GET", "/metrics", &[], "", "req-1");
+        assert_eq!(a.status, 200);
+        assert_eq!(
+            a.content_type,
+            service_kit::metrics::PROMETHEUS_CONTENT_TYPE
+        );
+        a.body
+    };
+    let never = scrape(&app);
+    assert!(
+        never.contains("# TYPE ledger_reconcile_last_verified_seq gauge\n"),
+        "{never}"
+    );
+    assert!(never.contains("ledger_reconcile_last_verified_seq{service=\"svc-ledger\"} 0\n"));
+    assert!(
+        never.contains(
+            "ledger_reconcile_last_verified_timestamp_seconds{service=\"svc-ledger\"} 0\n"
+        )
+    );
+
+    let mut c = db.client();
+    c.batch_execute(
+        "INSERT INTO ledger.reconcile_runs (started_at, finished_at, outcome, through_seq)
+         VALUES (now(), '2023-11-14T22:13:20.999Z', 'ok', 1),
+                (now(), '2023-11-14T22:13:21.5Z', 'incomplete', NULL)",
+    )
+    .unwrap();
+    let proved = scrape(&app);
+    assert!(
+        proved.contains("ledger_reconcile_last_verified_seq{service=\"svc-ledger\"} 1\n"),
+        "{proved}"
+    );
+    assert!(proved.contains(
+        "ledger_reconcile_last_verified_timestamp_seconds{service=\"svc-ledger\"} 1700000000\n"
+    ));
+
+    c.batch_execute("ALTER TABLE ledger.reconcile_runs RENAME TO reconcile_runs_hidden")
+        .unwrap();
+    let unread = scrape(&app);
+    assert!(
+        !unread.contains("ledger_reconcile_last_verified"),
+        "{unread}"
+    );
+    assert!(unread.contains("# TYPE intafaced_http_requests_total counter\n"));
+    app.wire.end();
+}
+
 // ── the down migrations' guards: services/svc-ledger/src/db/{durable-freeze,outbox,purpose-keyed-holds}-down.test.ts,
 // case for case ──────────────────────────────────────────────────────────────────────────────────────────────────────
 

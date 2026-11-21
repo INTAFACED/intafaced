@@ -1,0 +1,2650 @@
+{
+  "cases": [
+    {
+      "name": "empty",
+      "maxSeries": 2000,
+      "observations": [],
+      "size": 0,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\n"
+    },
+    {
+      "name": "every bucket edge",
+      "maxSeries": 2000,
+      "observations": [
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0012"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.005"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0050001"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.01"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.025"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.05"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.1"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.25"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.5"
+        },
+        { "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "1" },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "2.5"
+        },
+        { "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "5" },
+        { "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "10" },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "10.000001"
+        },
+        { "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "11" },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "1000000000"
+        }
+      ],
+      "size": 1,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 16\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.005\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.01\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.025\"} 5\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.05\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.1\"} 7\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.25\"} 8\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.5\"} 9\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"1\"} 10\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"2.5\"} 11\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"5\"} 12\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"10\"} 13\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 16\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 1000000040.4462011\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 16\n"
+    },
+    {
+      "name": "sums as JavaScript adds them",
+      "maxSeries": 2000,
+      "observations": [
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.1"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.2"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.3"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "1e-7"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.7"
+        }
+      ],
+      "size": 1,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\"} 5\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.005\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.01\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.025\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.05\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.1\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.25\"} 3\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.5\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"1\"} 5\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"2.5\"} 5\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"5\"} 5\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"10\"} 5\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 5\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\"} 1.3000001\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\"} 5\n"
+    },
+    {
+      "name": "broken clocks count as zero",
+      "maxSeries": 2000,
+      "observations": [
+        { "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" }, "seconds": "-1" },
+        { "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" }, "seconds": "-0" },
+        { "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" }, "seconds": "0" },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "NaN"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "Infinity"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "-Infinity"
+        }
+      ],
+      "size": 1,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\"} 6\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.005\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.01\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.025\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.05\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.1\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.25\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.5\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"1\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"2.5\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"5\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"10\"} 6\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"+Inf\"} 6\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\"} 0\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\"} 6\n"
+    },
+    {
+      "name": "tiny durations in exponent form",
+      "maxSeries": 2000,
+      "observations": [
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "1e-7"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "1e-9"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "5e-324"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "2.5e-8"
+        }
+      ],
+      "size": 1,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 4\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.005\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.01\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.025\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.05\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.1\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.25\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.5\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"1\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"2.5\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"5\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"10\"} 4\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 4\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 1.26e-7\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 4\n"
+    },
+    {
+      "name": "label values escape backslash, quote and line feed only",
+      "maxSeries": 2000,
+      "observations": [
+        {
+          "labels": { "service": "a\\b\"c\nd\teé😀", "module": "\\\\", "method": "GET", "status": "2xx", "outcome": "\"" },
+          "seconds": "0.001"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "_other", "status": "\n", "outcome": "none" },
+          "seconds": "0.002"
+        }
+      ],
+      "size": 2,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\nintafaced_http_requests_total{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\"} 1\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\"} 1\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"0.005\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"0.01\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"0.025\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"0.05\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"0.1\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"0.25\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"0.5\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"1\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"2.5\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"5\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"10\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\",le=\"+Inf\"} 1\nintafaced_http_request_duration_seconds_sum{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\"} 0.001\nintafaced_http_request_duration_seconds_count{service=\"a\\\\b\\\"c\\nd\teé😀\",module=\"\\\\\\\\\",method=\"GET\",status=\"2xx\",outcome=\"\\\"\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"0.005\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"0.01\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"0.025\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"0.05\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"0.1\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"0.25\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"0.5\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"1\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"2.5\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"5\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"10\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\",le=\"+Inf\"} 1\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\"} 0.002\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"_other\",status=\"\\n\",outcome=\"none\"} 1\n"
+    },
+    {
+      "name": "label sets whose joined keys meet are one series",
+      "maxSeries": 2000,
+      "observations": [
+        { "labels": { "service": "a\u0000b", "module": "c", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "0.001" },
+        { "labels": { "service": "a", "module": "b\u0000c", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "0.002" }
+      ],
+      "size": 1,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\nintafaced_http_requests_total{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 2\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.005\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.01\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.025\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.05\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.1\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.25\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.5\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"1\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"2.5\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"5\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"10\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 2\nintafaced_http_request_duration_seconds_sum{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 0.003\nintafaced_http_request_duration_seconds_count{service=\"a\u0000b\",module=\"c\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 2\n"
+    },
+    {
+      "name": "past the cap, one constant overflow series",
+      "maxSeries": 2,
+      "observations": [
+        { "labels": { "service": "svc-a", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "0.01" },
+        { "labels": { "service": "svc-b", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "0.02" },
+        { "labels": { "service": "svc-c", "module": "_local", "method": "PUT", "status": "4xx", "outcome": "none" }, "seconds": "0.03" },
+        { "labels": { "service": "svc-d", "module": "pay", "method": "DELETE", "status": "5xx", "outcome": "refused" }, "seconds": "0.04" },
+        { "labels": { "service": "svc-a", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "0.05" },
+        { "labels": { "service": "svc-b", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "6" },
+        { "labels": { "service": "svc-e", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" }, "seconds": "0.07" }
+      ],
+      "size": 3,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\nintafaced_http_requests_total{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 2\nintafaced_http_requests_total{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 2\nintafaced_http_requests_total{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\"} 3\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.005\"} 0\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.01\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.025\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.05\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.1\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.25\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.5\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"1\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"2.5\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"5\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"10\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 2\nintafaced_http_request_duration_seconds_sum{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 0.060000000000000005\nintafaced_http_request_duration_seconds_count{service=\"svc-a\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.005\"} 0\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.01\"} 0\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.025\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.05\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.1\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.25\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.5\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"1\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"2.5\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"5\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"10\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 2\nintafaced_http_request_duration_seconds_sum{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 6.02\nintafaced_http_request_duration_seconds_count{service=\"svc-b\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.005\"} 0\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.01\"} 0\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.025\"} 0\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.05\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.1\"} 3\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.25\"} 3\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.5\"} 3\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"1\"} 3\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"2.5\"} 3\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"5\"} 3\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"10\"} 3\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"+Inf\"} 3\nintafaced_http_request_duration_seconds_sum{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\"} 0.14\nintafaced_http_request_duration_seconds_count{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\"} 3\n"
+    },
+    {
+      "name": "a cap of zero",
+      "maxSeries": 0,
+      "observations": [
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.01"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02"
+        }
+      ],
+      "size": 1,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\nintafaced_http_requests_total{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\"} 2\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.005\"} 0\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.01\"} 1\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.025\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.05\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.1\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.25\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"0.5\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"1\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"2.5\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"5\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"10\"} 2\nintafaced_http_request_duration_seconds_bucket{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\",le=\"+Inf\"} 2\nintafaced_http_request_duration_seconds_sum{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\"} 0.03\nintafaced_http_request_duration_seconds_count{service=\"_overflow\",module=\"_overflow\",method=\"_overflow\",status=\"_overflow\",outcome=\"_overflow\"} 2\n"
+    },
+    {
+      "name": "six hundred requests",
+      "maxSeries": 2000,
+      "observations": [
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "2.307942549465224"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.11427869950421154"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "2.646775194676593"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00018413014803081752"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.029483856742735952"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.000009839032357558609"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00013139973676297813"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0012032178696244956"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "1.6822309910785407"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "13.725239583291113"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00886655028210953"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.15655962629243733"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.011551543974783272"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0022418194930069147"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.007128605211619288"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0013232322335243226"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0014736281472723931"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.010302374702878297"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.10484896344132721"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.8668262232095003"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0001714259229367599"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002906735838856548"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.022228283418808132"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.37500875629484653"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.028423074341844767"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.1507118479348719"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.1157071798341349"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0020037769367918373"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "28.050081075634807"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.002963342379312963"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.018488771023694426"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00009642698653042316"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "23.15324592171237"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.026529477168805896"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.24101831135340035"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00009970340067520737"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "15.91755356406793"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.01772503753658384"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00017983146181795747"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.01812887890264392"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.020698208108078688"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "5.374276363290846"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "12.889413863886148"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.006645163474604487"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.850854811957106"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00060176184726879"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.46710837283171713"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.2721775688230992"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "24.03725853888318"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "10.208817240782082"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0047730137826874856"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0004538348140195012"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.78511294699274"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0009788514166139066"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002113713642815128"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.029712772686034443"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "3.939611844252795"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.608553281519562"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00028464880355168133"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.020312892263755204"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0025741996010765437"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.09827157142572106"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.1220401622587815"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "21.59058418124914"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0007421430896501987"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00021039644186384977"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.20516110297758133"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.000008850899431854487"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.28218130802270025"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.014720221138559282"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.015420875495765356"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.04754973258823156"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0028077858060132715"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.2556181679014117"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00012093656763900071"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "25.865937424823642"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.024172093325760216"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00012511777351610363"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.008426588291767985"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00014165752083063126"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.2829004644183442"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00014458166481927037"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002875967261614278"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.24377539353445174"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.6150790227111429"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.021738450690172613"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00013188031597528607"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "19.34266934171319"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.23307191140484068"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.002001116661820561"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "1.1351579271722585"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0026244515022262934"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00005297886820044369"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.001839576023630798"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0007113366576377303"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.002443164959549904"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.017203560497146102"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.002970080264378339"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00028032847952563317"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "17.560404622927308"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.2526376228546724"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.12942354432307185"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0104031982133165"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.01752203403040767"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0000710527345072478"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.1305373000446707"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.232187809352763"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.006290754955261945"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.34750409214757383"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0002502200945746154"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.014099464605096727"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0007148817703127861"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.0923600259702653"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.030526795657351613"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.033772928011603656"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.18281128378584982"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "14.279123393353075"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0643694335129112"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.5452502130065113"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "1.9423224795609713"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00012884454808663578"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "18.84676402900368"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02970469168620184"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "22.565303659066558"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "23.96371798356995"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.021838893326930703"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.029055427783168854"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.23482803627848625"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0023037964801769706"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0010849134181626142"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.7676460531074554"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.7814887622371316"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00007651371841784567"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0009458087808452547"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "8.397387361619622"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "29.38538348302245"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002456423354102299"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02520963514689356"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00034730383311398327"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0018089118702337146"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00008069002234842629"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0017763402680866418"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "1.03628083714284"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.1158321350812912"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "4.585625070612878"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "1.7662462634034455"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "7.280601386446506"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.028989593731239438"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0016192427796777337"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.4975175401195884"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.000129708312288858"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.004081636313349009"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "2.324879542691633"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.006748819188214839"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00034668445517309007"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "3.8516741897910833"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.037658997788093986"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.017087071943096815"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "2.2238015534821898"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "2.699061054736376"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.146817238884978"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.02641457044053823"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02763176248641685"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.04310892457142473"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.017696633299347012"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.007427821657620371"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.019016736319754275"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00006440938822925091"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.009825744226109236"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "27.982901358045638"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.005334309046156705"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "25.244358060881495"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00006324338593985887"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "16.044794912450016"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "8.858465293888003"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.052289492636919024"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.000011425759526900947"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.015019724937155844"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.18888787825126202"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "4.087163927033544"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.007565752265509217"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "20.627448647283018"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "2.8752052097115666"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0002478885116055608"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "1.9196355573367327"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0016467576236464084"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.000030494148214347665"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.4523792630061507"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "8.934168533887714"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "15.939824762754142"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.2073700554901734"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00015603191815316677"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.11106678354553878"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.019207930611446503"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "2.1552318271715194"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0004554522642865777"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.019433970486279577"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "16.105706370435655"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0022391774898860603"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00028940987493842837"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0020900576978456226"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.15920647778548302"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "2.545710608828813"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.08936834586784244"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.023330161327030512"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00006268774042837321"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "1.4197031075600535"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "28.189784735441208"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00011679657984059303"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "1.439176578540355"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "2.0897915703244507"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.006001817481592297"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02579289562767372"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.2362776206340641"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0023773947937879712"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.03595666028559208"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "2.9742027826141566"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00019347029314376415"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.9332529448438436"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0000884557499550283"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.10417010576929897"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "7.846614676527679"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.6997483524028212"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.000019616589322686194"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "10.519376720767468"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02648523368407041"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00008560442340094597"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.8956316951662302"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00018616557230707257"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "20.8396423375234"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0015984661302063615"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.19262636583298443"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.06412999376188964"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.012163743549026551"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "2.812437939690426"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "2.585233929567039"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "2.08943317621015"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.002593167796265334"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.023957851419690996"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00029132296890020367"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0006500826242845506"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00009746149149723353"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.26240302075166255"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00020052829105407"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002998640671139583"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.006393233179114759"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.006983051954302937"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.1695222990587354"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.028119454763364048"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.001532492256257683"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.366506538586691"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.10924687301740049"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.05881662236060947"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.33506545750424266"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.2583170162979513"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "22.185396663844585"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0000032118062255904077"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.22819073949940505"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "13.247199144680053"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.010527823129668832"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.027163173607550564"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.013071279949508609"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00005226303732488305"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00013939363416284325"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00009206028997432441"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.08446807810105383"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "6.352689221967012"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.022520413203164936"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "17.54346122732386"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.013623594562523066"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002868902202928439"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00041905438899993895"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00051287858071737"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "1.4573179227299988"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "2.6165758792776614"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.421303872950375"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "2.097758434480056"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0912387385033071"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "2.529464734951034"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02806903833523393"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "2.178102896315977"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "2.932750121690333"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "27.86464958684519"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.14712545564398172"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00019714109839405865"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.004088907348923385"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "2.0265361689962447"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.24737539775669576"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.7148159618955106"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00017227245499379934"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.15672403138596566"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0015488450461998583"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.9239247045479715"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.020336019597016274"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.000035163603932596744"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.12645240258425475"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "16.34143342031166"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "25.098209702409804"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.1678264203714207"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.1531434732489288"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0028522911050822587"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00019028361733071508"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "11.907388607505709"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.19156737104058263"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.016304991755168884"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "9.474662658758461"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.001216035117628053"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.29584313454106453"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.011316477356012912"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.5267500071786344"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "13.592767326626927"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00045559391565620896"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "2.2397893003653735"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.09295756132341922"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.004217659004498274"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.4004315799102187"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00013019089715089649"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.02792085888795555"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02282880224520341"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00020424973033368588"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "26.851143788080662"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.000196084299730137"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "11.36461877496913"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "2.265861720778048"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.24148803090211007"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00016263011670671404"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "2.223239487502724"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0002398089375346899"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "19.09973022295162"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.21040068366564812"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "19.43498979555443"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00004511826764792204"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.5796792560722679"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0022923567364923655"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.01009854685747996"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0007290569096803666"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.7989649164956063"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.18646156084723772"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.009987018678802997"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.299220855999738"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.25271884573157877"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "3.634596629999578"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "4.730195088777691"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.024602629635483028"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "15.859939462970942"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0013293473515659572"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00005479220591951161"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.024389140214771034"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.36200881912373006"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0013284653085283934"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.025459939094726"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.022398331202566624"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "14.499713208060712"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00234550590114668"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.11321160506922753"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.037631768826395275"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "5.019126345869154"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.10575156561098992"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0006840992183424532"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "17.559483032673597"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00012980186983477325"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00013788252943195404"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00047992344503290955"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "13.99171027354896"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.01804796708514914"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.027180549348704515"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.22716842482332142"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002041454963386059"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0027361713114660235"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00019876966145820918"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.008774507534690203"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.21873083682730796"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "8.83135482436046"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.016283452450297775"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "9.528463839087635"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "3.7425570376217365"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.22275810919236394"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.2975703007075936"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00014873211302328856"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0013499006247147918"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "6.0593415959738195"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "10.484821829013526"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.1335866742068902"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00016151999048888684"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00004382197957020253"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.000058533142553642397"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.12008092787582428"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.015370733002200723"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0007881818299647421"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "19.089104658924043"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.062048477889038625"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.01983474349603057"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "2.770082128001377"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.019452382572926582"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "23.833627954591066"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "11.8404711317271"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00010678045952226967"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.2476439557503909"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "12.18537118518725"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "22.694938480854034"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0020818888682406396"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0045501494826748964"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00011532086853403598"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.6927786218002439"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.970118693774566"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.9577592923305929"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.1677785678068176"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "2.485291862860322"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "5.9728999505750835"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0010745362797752022"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.16092258088756353"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.020511008491739632"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.5978362574242055"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.20404555010609327"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.012932457926217465"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "19.524111337959766"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002000567811308429"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "17.483127345331013"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.02536023007007316"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0018893639082089065"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "1.8802552779670805"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0003715256354771554"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.004060143402311951"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0018272943031042814"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.7198400690685958"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.022735826396383347"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.7965172261465341"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "19.745756266638637"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00015807390490081162"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.29733943934552376"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.23895978669170292"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "10.641745403409004"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.001397763094631955"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00007642512735910715"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00024120116431731732"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00011420421721413732"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.2730642974143848"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0015974293439649048"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0002323740711668506"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.8154661674052477"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.025497349135112018"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0025585697502829136"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "23.297737904358655"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "1.6645086770877242"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002821530850371346"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.149565520696342"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "1.3557531314436346"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.022696552835404876"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.4095983754377812"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00002618179921992123"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0018781136807519943"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.058799863792955875"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.5565753614064306"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "2.2457762039266527"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.01749339426169172"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00009266903903335335"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0019628442793618887"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.06935703554190696"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.09089619324076921"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.13299606693908572"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.2275112026836723"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0017241782317869367"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0620926063740626"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.000131087301671505"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "2.1673144984524697"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.17724612546153368"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0006279478941578417"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "26.528968708589673"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00012790882063563915"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.014024579389952125"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.003634898050222546"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "11.212483439594507"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.023614051050972192"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.33845078805461526"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00021119777702260765"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "4.915157100185752"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.006102446629665793"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00017919316249899567"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "2.7578858288470656"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "18.194958306849003"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "18.59769495902583"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "9.125903625972569"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00005143127453047783"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0015536651853471995"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0007674594630952925"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.01941452210303396"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "17.716758570168167"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0006553198378533125"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.17365215166937562"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0013942883186973632"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.19571471095550808"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.07937813429161907"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.025639071890618655"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.013534248615615068"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0020454562793020157"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.001293402537703514"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.7959385875146836"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0006960755554027856"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00011168638360686601"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.8275155695155263"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.019017092732246964"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.028373226164840164"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.006668627844192088"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.18934831190854312"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0007306648276280611"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.013158711553551257"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "24.657254435587674"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "2.817888549529016"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0010199881063308568"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.13007020088844"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0031015955144539477"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.08887125179171562"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002467414180515334"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.008467480097897351"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0001278726645978168"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02773424223996699"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.16350999658461662"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.4777186936698854"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.013911144530866296"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0011212148722261192"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "17.001735388766974"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.24241984435357156"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.000022439795290119946"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.028939917488023638"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.1817588140955195"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "5.9514307184144855"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0000929980839136988"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.0008737022280693054"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02610905869631097"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "2.110899840015918"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.07207710568327458"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00275244611967355"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "20.566360575612634"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00019758759154938163"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00004998584522400052"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.03573902193456888"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "1.7777533389162272"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0012189802662469446"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.19477795057464392"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.9137687971815467"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "25.12020403286442"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.005799639928154647"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00020033905806485564"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00027990950234234335"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.012707404370885342"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "1.5697840978391469"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0025523368280846626"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00019917083317413928"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0045356425247155135"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.2483115693088621"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "23.226210346911103"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.01166782720014453"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0009349771037232131"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.016911376439966264"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.001040914657758549"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.21429209886118772"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00028880901911761613"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.029271665168926122"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00024902360478881746"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "1.1324599161744118"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "2.861361852614209"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0029521147725172347"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "8.596208591479808"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0002998611372895539"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "3.738734421785921"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.015013453750871122"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.15264096467290075"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "14.725643713027239"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0010447848967742174"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.16353025347925723"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.21617776521015913"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "1.0336730545386672"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "10.225949899759144"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.007777888658456505"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0018001317756716163"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0009058556221425534"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "1.2298312734346837"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.00029465667908079926"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0001262999736936763"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "3.733291933313012"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0016887947057839484"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.011955582476221027"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.10780364221427591"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.13688056077808142"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0019439839690458028"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.029623178341425957"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.07837724194396288"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.0000037273163907229903"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "5xx", "outcome": "none" },
+          "seconds": "0.013468244725372643"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "4xx", "outcome": "none" },
+          "seconds": "0.00398904390167445"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.012607297415379436"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.00017284892946481707"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.02718327044276521"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "15.142760169692338"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.004795297358650715"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "POST", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0016213091807439923"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "2.6553013098891824"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.0017063335343264043"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "GET", "status": "2xx", "outcome": "none" },
+          "seconds": "0.008066181822214276"
+        },
+        {
+          "labels": { "service": "svc-ledger", "module": "_local", "method": "HEAD", "status": "2xx", "outcome": "none" },
+          "seconds": "0.029329753015190363"
+        }
+      ],
+      "size": 5,
+      "render": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\"} 129\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\"} 127\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 120\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\"} 97\nintafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\"} 127\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"0.005\"} 47\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"0.01\"} 52\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"0.025\"} 66\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"0.05\"} 78\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"0.1\"} 80\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"0.25\"} 91\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"0.5\"} 97\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"1\"} 103\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"2.5\"} 114\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"5\"} 117\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"10\"} 118\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 129\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\"} 239.67939698028542\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\"} 129\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.005\"} 52\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.01\"} 54\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.025\"} 63\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.05\"} 66\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.1\"} 71\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.25\"} 87\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"0.5\"} 90\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"1\"} 93\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"2.5\"} 104\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"5\"} 109\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"10\"} 112\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"+Inf\"} 127\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\"} 353.9542123598479\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\"} 127\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.005\"} 34\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.01\"} 42\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.025\"} 55\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.05\"} 65\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.1\"} 71\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.25\"} 83\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"0.5\"} 90\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"1\"} 94\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"2.5\"} 97\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"5\"} 105\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"10\"} 110\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 120\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 258.34182171876563\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 120\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.005\"} 31\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.01\"} 33\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.025\"} 42\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.05\"} 47\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.1\"} 48\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.25\"} 62\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"0.5\"} 65\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"1\"} 69\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"2.5\"} 73\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"5\"} 75\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"10\"} 81\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 97\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\"} 389.35840970011253\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"2xx\",outcome=\"none\"} 97\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"0.005\"} 37\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"0.01\"} 41\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"0.025\"} 58\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"0.05\"} 65\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"0.1\"} 69\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"0.25\"} 84\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"0.5\"} 87\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"1\"} 91\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"2.5\"} 106\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"5\"} 113\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"10\"} 114\nintafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"+Inf\"} 127\nintafaced_http_request_duration_seconds_sum{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\"} 302.3340688429658\nintafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\"} 127\n"
+    }
+  ],
+  "statusClass": [
+    [0, "5xx"],
+    [1, "5xx"],
+    [99, "5xx"],
+    [100, "2xx"],
+    [101, "2xx"],
+    [199, "2xx"],
+    [200, "2xx"],
+    [204, "2xx"],
+    [299, "2xx"],
+    [300, "3xx"],
+    [304, "3xx"],
+    [399, "3xx"],
+    [400, "4xx"],
+    [404, "4xx"],
+    [499, "4xx"],
+    [500, "5xx"],
+    [503, "5xx"],
+    [599, "5xx"],
+    [600, "5xx"],
+    [999, "5xx"],
+    [65535, "5xx"]
+  ],
+  "methodLabel": [
+    ["GET", "GET"],
+    ["get", "GET"],
+    ["Head", "HEAD"],
+    ["POST", "POST"],
+    ["put", "PUT"],
+    ["PATCH", "PATCH"],
+    ["delete", "DELETE"],
+    ["OPTIONS", "OPTIONS"],
+    ["TRACE", "_other"],
+    ["CONNECT", "_other"],
+    ["PROPFIND", "_other"],
+    ["", "_other"],
+    ["GET ", "_other"],
+    ["ﬆ", "_other"]
+  ]
+}
