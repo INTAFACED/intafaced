@@ -598,6 +598,7 @@ const FEATURE_WORDS: Record<PartnerFeature, string> = {
   pots: 'pots',
   joint: 'joint accounts and shared pots',
   phone_wallet: 'adding a card to a phone wallet',
+  cash_leg: 'cash through a coin in Convert',
 };
 
 /**

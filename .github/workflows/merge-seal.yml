@@ -95,7 +95,7 @@ jobs:
     timeout-minutes: 85
     permissions:
       contents: read # the default branch's scripts
-      actions: read # CI's, the CI review's and the journeys' runs and jobs on the head
+      actions: write # read CI's, the CI review's and the journeys' runs and jobs on the head; re-run a Doctrine gates job main's lint change made stale (ci-jobs-seal.mjs staleRulesRerun)
       pull-requests: read # the changed files, title and body
       issues: read # the regression issues the journeys baseline names
     steps:

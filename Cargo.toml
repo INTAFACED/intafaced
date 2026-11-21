@@ -4,6 +4,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# Third-party crates kept here with a fix of ours (crates/vendor/<crate>/VENDORED.md says what and why): crates each
+# service names by path, never workspace members, so the workspace lints and formatting do not apply to them.
+exclude = ["crates/vendor"]
 
 [workspace.package]
 edition = "2024"

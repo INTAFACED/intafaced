@@ -16,7 +16,7 @@ use service_kit::edge::{EdgeKey, MIN_SECRET_LENGTH};
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
 use service_kit::nats::{JetStream, stream_config};
-use service_kit::s2s::{parse_keyring, s2s_from_env, system_seconds};
+use service_kit::s2s::{CallSigner, parse_keyring, s2s_from_env, system_seconds};
 use service_kit::s2s_verify::ServiceVerifier;
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
@@ -25,6 +25,8 @@ use svc_agents::boot;
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
 use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
+use svc_agents::metering::Metering;
+use svc_agents::metering::ports::{AffiliatesHttp, JetStreamBus, LedgerHttp, UsagePaymentHttp};
 use svc_agents::migrate;
 use svc_agents::timers::{self, Timer};
 
@@ -89,8 +91,59 @@ fn service_auth(env: &AgentsEnv) -> Result<ServiceAuth, String> {
     })
 }
 
-/// The door, built once from the environment, with the store.
-fn door(env: &AgentsEnv, store: Store) -> Result<AgentsDoor, String> {
+/// The meter as `index.ts` builds it: the ledger client (`LEDGER_URL` is required), how each person pays (svc-bank
+/// while `BANK_URL` is set, else everyone on the ledger charge), the affiliate legs (svc-identity while `IDENTITY_URL`
+/// is set, else none), and the bus; each outside call signed as svc-agents, with its own key when S2S is on.
+fn metering(
+    env: &AgentsEnv,
+    bus: Arc<JetStream>,
+    fetch: &Arc<dyn Fetch>,
+) -> Result<Metering, String> {
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = str_of("INTERNAL_SERVICE_SECRET");
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    let mut m = Metering::unwired(
+        &str_of("AGENTS_FEE_ASSET_ID"),
+        env.int("AGENTS_USAGE_WINDOW_MINUTES").unwrap_or(0),
+    );
+    m.enabled = env.flag("AGENTS_METERING_ENABLED").unwrap_or(false);
+    m.producer = str_of("SERVICE_NAME");
+    m.ledger = Box::new(LedgerHttp::new(
+        &str_of("LEDGER_URL"),
+        signer("svc-ledger"),
+        fetch.clone(),
+    ));
+    if let Some(url) = env.str("BANK_URL").filter(|u| !u.is_empty()) {
+        m.payment = Box::new(UsagePaymentHttp::new(
+            url,
+            signer("svc-bank"),
+            fetch.clone(),
+        ));
+    }
+    if let Some(url) = env.str("IDENTITY_URL").filter(|u| !u.is_empty()) {
+        m.affiliates = Box::new(AffiliatesHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        ));
+    }
+    m.bus = Box::new(JetStreamBus(bus));
+    Ok(m)
+}
+
+/// The door, built once from the environment, with the store and the meter.
+fn door(env: &AgentsEnv, store: Store, metering: Metering) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let door = AgentsDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
@@ -98,6 +151,7 @@ fn door(env: &AgentsEnv, store: Store) -> Result<AgentsDoor, String> {
         env: env.raw.clone(),
         now: system_now,
         store,
+        metering,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
@@ -149,10 +203,13 @@ fn serve(env: &AgentsEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Str
             .map(|()| js)
     })
     .map_err(|e| e.0)?;
+    let bus = Arc::new(bus);
+    let fetch: Arc<dyn Fetch> = Arc::new(UreqFetch::new());
     // Before the listener opens: `openSession` binds from `agent_definitions`, so a process with no rows 404s every run.
     let boot_agents = boot::boot_agents()?;
     let registered = boot::register_agents(&store, &boot_agents).map_err(|e| e.to_string())?;
-    let door = door(env, store)?;
+    let metering = metering(env, bus.clone(), &fetch)?;
+    let door = door(env, store, metering)?;
 
     let app = App {
         wire: door,

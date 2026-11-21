@@ -94,6 +94,7 @@ fn serve() -> AgentsDoor {
         env,
         now,
         store: Store::Down("svc-agents: the replay has no database".to_owned()),
+        metering: svc_agents::metering::Metering::unwired("USDC", 60),
     })
     .unwrap()
 }

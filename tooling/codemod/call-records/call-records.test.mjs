@@ -323,3 +323,133 @@ test("a guard behind the service's own function or const options is copied whole
   const { reasonOf } = await import('./report.mjs');
   assert.equal(reasonOf(access.ops), 'guard kept by hand (named, with its reason)');
 });
+
+test('portable: a refused z.unknown() is followed from the record to its source and becomes jsonValueSchema', async () => {
+  const { plan, parseWhy } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'views.ts'),
+    [
+      "import { z } from 'zod';",
+      'const shape = { id: z.string(), filter: z.unknown() };',
+      'export const viewSchema = z.object(shape).strict();',
+      'export const listSchema = z.object({ views: z.array(viewSchema), sort: z.unknown().nullable().optional(), n: z.number().refine((x) => x > 0) });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'views-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { listSchema } from './views.js';",
+      "export const R = defineProcedure({ name: 'x.views', input: NO_INPUT, output: listSchema });",
+      '',
+    ].join('\n'),
+  );
+  const why =
+    'x.views.output cannot be exported without losing meaning: x.views.output.views[].filter (z.unknown (no shape: accepts anything)); ' +
+    'x.views.output.sort (z.unknown (no shape: accepts anything)); x.views.output.n (.refine/.superRefine (a TypeScript predicate the export drops))';
+  assert.equal(parseWhy(why).findings.length, 3);
+  const { edits, left } = plan({ views: why }, [record]);
+  const f = edits.get(join(dir, 'views.ts'));
+  assert.deepEqual([...f.edits.values()].map((e) => e.text).sort(), ['jsonValueSchema', 'jsonValueSchema']);
+  // An answer's refinement with no words to quote stays, named.
+  assert.deepEqual(
+    left.map((l) => l.at),
+    ['x.views.output.n'],
+  );
+});
+
+test('portable: a leading lookahead that bars one character of the class after it has the same strings without it', async () => {
+  const { withoutLeadingLookahead } = await import('./portable.mjs');
+  const before = '^(?!-)[a-z0-9-]+(\\.[a-z0-9-]+)+$';
+  const after = withoutLeadingLookahead(before);
+  assert.equal(after, '^[a-z0-9][a-z0-9-]*(\\.[a-z0-9-]+)+$');
+  const a = new RegExp(before);
+  const b = new RegExp(after);
+  // Every string of up to 5 characters over the class, the dot and one outside character: both say the same.
+  const chars = ['a', '0', '-', '.', 'Z'];
+  const all = [''];
+  for (let n = 0; n < 5; n++)
+    for (const s of all.splice(0))
+      for (const c of chars) {
+        all.push(s + c);
+        all.push(s);
+      }
+  for (const s of new Set(all)) assert.equal(b.test(s), a.test(s), s);
+  // Followed from a record to the regex where it is written, through a named schema.
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'channels.ts'),
+    [
+      "import { z } from 'zod';",
+      `const domain = z.string().regex(/${before}/, 'a domain');`,
+      'export const channelsSchema = z.object({ domains: z.array(domain) });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'channels-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { channelsSchema } from './channels.js';",
+      "export const R = defineProcedure({ name: 'x.ch', output: channelsSchema });",
+      '',
+    ].join('\n'),
+  );
+  const why = `x.ch.output cannot be exported without losing meaning: x.ch.output.domains[] (regex /${before}/ uses lookaround or backreferences (not in Rust regex))`;
+  const { edits } = plan({ ch: why }, [record]);
+  assert.deepEqual(
+    [...edits.get(join(dir, 'channels.ts')).edits.values()].map((e) => e.text),
+    [`/${after}/`],
+  );
+  // A lookahead it has no plain form for stays.
+  assert.equal(withoutLeadingLookahead('^(?=a)[a-z]+$'), undefined);
+});
+
+test('portable: an answer refinement with a message is named in the record, once for every place one schema sits', async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'caps.ts'),
+    [
+      "import { z } from 'zod';",
+      "export const viewCapSchema = z.object({ cap: z.number().nullable() }).strict().refine((v) => v.cap !== 0, { message: 'a cap is never zero' });",
+      'export const listSchema = z.object({ personalCap: viewCapSchema, sharedCap: viewCapSchema });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'caps-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { listSchema } from './caps.js';",
+      "export const R = defineProcedure({ name: 'x.caps', input: NO_INPUT, output: listSchema, samples: [] });",
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const why = `x.caps.output cannot be exported without losing meaning: x.caps.output.personalCap ${refine}; x.caps.output.sharedCap ${refine}`;
+  const { edits, left } = plan({ caps: why }, [record]);
+  assert.deepEqual(left, []);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [', outputChecks: { view_cap_holds: { at: ["output.personalCap", "output.sharedCap"], says: "a cap is never zero" } }'],
+  );
+});
+
+test("portable: a service's wire replay samples a JSON-value schema as main's z.unknown(), once, in either sampler", async () => {
+  const { withReplayJson } = await import('./portable.mjs');
+  for (const head of [
+    'function sample(schema: Schema | undefined, defs: Record<string, Schema>, depth = 0): Json {',
+    'function sample(schema: unknown, depth = 0): unknown {',
+  ]) {
+    const src = ['const x = 1;', head, '  return null;', '}', ''].join('\n');
+    const once = withReplayJson(src);
+    assert.ok(once.includes(`${head}\n  if (acceptsAnyJson(schema)) return null;\n  return null;`));
+    assert.ok(once.includes('function acceptsAnyJson(schema: unknown): boolean'));
+    assert.equal(withReplayJson(once), once);
+  }
+  assert.equal(withReplayJson('const y = 2;\n'), undefined);
+});
