@@ -554,7 +554,7 @@ fn automations_wiring(env: &BankEnv) -> Result<automations::Wiring, String> {
     // `scheduledNotices: eventScheduledNotices(bus)`: the notices go out on the bus the transfers slice holds.
     w.rules = automations::rules::Wiring::on_the_bus();
     w.sorter = sorter_wiring(env);
-    Ok(w)
+    pay_and_own_moves_wiring(env, w)
 }
 
 /// `incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT`, read by the sorter and by the send's hand-off to it.
@@ -587,6 +587,42 @@ fn auto_invest_wiring(env: &BankEnv) -> Result<automations::auto_invest::Wiring,
         convert,
         batch_size: None,
     })
+}
+
+/// Parts `pay_yourself` and `own_moves` of slice `automations` (`index.ts`).
+///
+/// - `pay_yourself`: svc-trade's realised read (`createRealisedSource`), signed as svc-bank, five seconds a read.
+/// - `own_moves`: the pay-in partner's send to a wallet (`onrampPartnerFor`'s `deliver`: only the TEST stand-in on a dev
+///   or test stack with a loopback delivery address), the owner's destination sanctions list as published, and no
+///   deposit read (`index.ts` wires none).
+fn pay_and_own_moves_wiring(
+    env: &BankEnv,
+    mut wiring: automations::Wiring,
+) -> Result<automations::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let deliver = automations::own_moves::delivery::for_stack(
+        env.str("BANK_ONRAMP_PARTNER"),
+        env.str("BANK_PAYIN_SIM_DELIVER_URL"),
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+        Box::new(UreqFetch::new()),
+    )?;
+    wiring.pay_yourself = automations::pay_yourself::Wiring {
+        realised: Some(Box::new(
+            automations::pay_yourself::realised::TradeRealised::new(
+                env.str("TRADE_URL").unwrap_or_default(),
+                call_signer(env, "svc-trade")?,
+                Box::new(UreqFetch::new()),
+            ),
+        )),
+    };
+    wiring.own_moves = automations::own_moves::Wiring {
+        deliver: deliver
+            .map(|d| Box::new(d) as Box<dyn automations::own_moves::delivery::Delivery>),
+        sanctions: env.str("BANK_DESTINATION_SANCTIONS").map(str::to_owned),
+        deposits: None,
+    };
+    Ok(wiring)
 }
 
 /// The door, built once from the environment, with the store.
