@@ -11,18 +11,20 @@
  * swept, and the heir may retry. No IDENTITY_URL is the same refusal, never "claimable".
  */
 
+import type {
+  RecoveryClaimVerdict,
+  RecoveryClaimVerifyRequest,
+  RecoveryEstate,
+  ServiceAuthMode,
+  ServiceSigner,
+} from '@intafaced/contracts';
 import {
   RECOVERY_CLAIM_VERIFY_PATH,
   recoveryClaimVerdictSchema,
   recoveryEstatesPath,
   recoveryEstatesSchema,
-  serviceCallSigner,
-  type RecoveryClaimVerdict,
-  type RecoveryClaimVerifyRequest,
-  type RecoveryEstate,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/identity-recovery';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { BankError } from '../errors.js';
 
 export interface IdentityRecoveryPort {

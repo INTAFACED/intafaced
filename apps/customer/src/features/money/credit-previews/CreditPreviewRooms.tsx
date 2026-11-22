@@ -1,3 +1,9 @@
+// volt-room: /bank/loans/overdraft
+// volt-room: /bank/loans/personal
+// volt-room: /bank/loans/schedule
+// volt-room: /bank/cards/credit-card
+// volt-room: /bank/cards/credit
+// volt-room: /bank/business/loan
 import { useState, type ReactNode } from 'react';
 import { Button, Field, Segmented } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, RefusalBox, Table, type KeyValueRow, type Notice, type RoomState } from '@intafaced/ui/lit/templates';

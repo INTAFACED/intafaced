@@ -1,5 +1,6 @@
 // Written by `procedures:write` (scripts/procedure-registry.mjs) from every `defineProcedure` in src/. Do not edit by hand.
 import { ACADEMY_ABANDON_COURSE_PURCHASE } from './academy-abandon-course-purchase-procedures.js';
+
 import {
   ACADEMY_ADMIN_COURSES,
   ACADEMY_ADMIN_COURSE,
@@ -49,6 +50,7 @@ import {
   ACADEMY_ADMIN_ABORT_REPORT,
   ACADEMY_ADMIN_DELETE_REPORT,
 } from './academy-admin-procedures.js';
+
 import {
   ACADEMY_ADMIN_ASSIGNMENT,
   ACADEMY_ADMIN_WITHDRAW_ASSIGNMENT,
@@ -99,23 +101,47 @@ import {
   ACADEMY_ADMIN_CONFIRM_TEAM_CHANGE,
   ACADEMY_ADMIN_GRANT_CERT_EXCEPTION,
 } from './academy-admin-records.js';
+
+import { ACADEMY_AMBASSADOR_BADGE } from './academy-ambassador-badge-procedures.js';
+
 import { ACADEMY_AMBASSADOR_PAY_PLANE } from './academy-ambassador-pay-plane-procedures.js';
+
 import { ACADEMY_AMBASSADORS } from './academy-ambassadors-procedures.js';
+
 import { ACADEMY_APPLY_RESIDENCY } from './academy-apply-residency-procedures.js';
+
 import { ACADEMY_APPOINT_AMBASSADOR } from './academy-appoint-ambassador-procedures.js';
+
+import { ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS } from './academy-assessment-procedures.js';
+
 import { ACADEMY_AUTHORED_COURSE } from './academy-authored-course-procedures.js';
+
 import { ACADEMY_CERT_PATHS } from './academy-cert-paths-procedures.js';
+
 import { ACADEMY_CERT_VERIFY } from './academy-cert-verify-procedures.js';
+
 import { ACADEMY_CERT_XP_PLANE } from './academy-cert-xp-plane-procedures.js';
+
 import { ACADEMY_COURSE_CONVERSATIONS } from './academy-course-conversations-procedures.js';
+
 import { ACADEMY_COURSE_OUTLINE } from './academy-course-outline-procedures.js';
+
 import { ACADEMY_COURSE_PURCHASE } from './academy-course-purchase-procedures.js';
+
 import { ACADEMY_CURRICULUM_DEPTH } from './academy-curriculum-depth-procedures.js';
+
 import { ACADEMY_CURRICULUM_IMPORT_STATUS } from './academy-curriculum-import-status-procedures.js';
+
 import { ACADEMY_CURRICULUM_INVENTORY } from './academy-curriculum-inventory-procedures.js';
+
 import { ACADEMY_DECIDE_RESIDENCY } from './academy-decide-residency-procedures.js';
+
 import { ACADEMY_FREEZE_AMBASSADOR } from './academy-freeze-ambassador-procedures.js';
+
 import { ACADEMY_HEALTH } from './academy-health-procedures.js';
+
+import { ACADEMY_ITEM_VIDEO } from './academy-item-video-procedures.js';
+
 import {
   ACADEMY_ROOMS,
   ACADEMY_SESSION,
@@ -157,40 +183,241 @@ import {
   ACADEMY_PLANNER_SET_GOAL,
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
 } from './academy-learner-procedures.js';
+
 import { ACADEMY_MY_ACCESS_GRANTS } from './academy-my-access-grants-procedures.js';
+
 import { ACADEMY_MY_CERTS } from './academy-my-certs-procedures.js';
+
 import { ACADEMY_MY_COMPLETIONS } from './academy-my-completions-procedures.js';
+
+import { ACADEMY_MY_ENROLLMENTS } from './academy-my-enrollments-procedures.js';
+
 import { ACADEMY_MY_LEARNING } from './academy-my-learning-procedures.js';
+
+import { ACADEMY_MY_RESIDENCIES } from './academy-my-residencies-procedures.js';
+
 import { ACADEMY_OPEN_COURSE_CONVERSATION } from './academy-open-course-conversation-procedures.js';
+
 import { ACADEMY_OPEN_RESIDENCIES } from './academy-open-residencies-procedures.js';
+
+import { ACADEMY_PAPER_DRILL } from './academy-paper-drill-procedures.js';
+
 import { ACADEMY_PAPER_OPS_STATUS } from './academy-paper-ops-status-procedures.js';
+
 import { ACADEMY_PEER_REVIEW_FILE } from './academy-peer-review-file-procedures.js';
+
 import { ACADEMY_PEER_REVIEW } from './academy-peer-review-procedures.js';
+
 import { ACADEMY_PIN_LESSON } from './academy-pin-lesson-procedures.js';
+
 import { ACADEMY_INTERNAL_CURRICULUM } from './academy-procedures.js';
+
 import { ACADEMY_PROGRAMME } from './academy-programme-procedures.js';
+
 import { ACADEMY_PROGRAMMES } from './academy-programmes-procedures.js';
+
 import { ACADEMY_PUBLIC_AUTHORED_COURSE } from './academy-public-authored-course-procedures.js';
+
 import { ACADEMY_PUBLIC_AUTHORED_COURSES } from './academy-public-authored-courses-procedures.js';
+
 import { ACADEMY_PUBLIC_COURSE_BY_LINK } from './academy-public-course-by-link-procedures.js';
+
 import { ACADEMY_PUBLIC_COURSE } from './academy-public-course-procedures.js';
+
 import { ACADEMY_PUBLIC_COURSES } from './academy-public-courses-procedures.js';
+
 import { ACADEMY_PUBLIC_CURRICULUM_ITEM } from './academy-public-curriculum-item-procedures.js';
+
 import { ACADEMY_PUBLIC_CURRICULUM } from './academy-public-curriculum-procedures.js';
+
 import { ACADEMY_PUBLIC_CURRICULUM_RELATED } from './academy-public-curriculum-related-procedures.js';
+
 import { ACADEMY_PUBLIC_HUB } from './academy-public-hub-procedures.js';
+
 import { ACADEMY_PUBLIC_VIDEOS } from './academy-public-videos-procedures.js';
+
 import { ACADEMY_RESIDENCY_PAY_QUOTE } from './academy-residency-pay-quote-procedures.js';
+
 import { ACADEMY_SEASONS } from './academy-seasons-procedures.js';
+
 import { ACADEMY_SEND_COURSE_MESSAGE } from './academy-send-course-message-procedures.js';
+
 import { ACADEMY_STANDINGS } from './academy-standings-procedures.js';
+
 import { ACADEMY_STREAM_CREDENTIAL } from './academy-stream-credential-procedures.js';
+
 import { ACADEMY_UNDO_CURRICULUM_COMPLETE } from './academy-undo-curriculum-complete-procedures.js';
+
 import { ACADEMY_UNPIN_LESSON } from './academy-unpin-lesson-procedures.js';
+
 import { ACADEMY_UPLOAD_ASSIGNMENT_FILE } from './academy-upload-assignment-file-procedures.js';
+
+import { ACADEMY_VIDEO_PLAYBACK } from './academy-video-playback-procedures.js';
+
+import { ACADEMY_VIDEO_PLAYER } from './academy-video-player-procedures.js';
+
+import { ACADEMY_VIDEO_PROGRESS_GET, ACADEMY_VIDEO_PROGRESS_SET } from './academy-video-progress-procedures.js';
+
 import { ACADEMY_VIDEOS } from './academy-videos-procedures.js';
+
 import { ACADEMY_WITHDRAW_RESIDENCY } from './academy-withdraw-residency-procedures.js';
+
+import { AGENTS_AGENT_GET, AGENTS_AGENT_CATALOGUE } from './agents-agent-procedures.js';
+
+import { AGENTS_ANALYTICS_SUMMARY } from './agents-analytics-procedures.js';
+
+import { AGENTS_COACH_SESSION } from './agents-coach-procedures.js';
+
+import {
+  AGENTS_FLEET_REGISTRY,
+  AGENTS_FLEET_AUDIT,
+  AGENTS_FLEET_EXPORT,
+  AGENTS_FLEET_QUARANTINE,
+  AGENTS_FLEET_RESTORE,
+  AGENTS_FLEET_KILL_KIND,
+  AGENTS_FLEET_RESTORE_KIND,
+  AGENTS_FLEET_REASSIGN,
+} from './agents-fleet-procedures.js';
+
+import { AGENTS_GROWTH_PROPOSE } from './agents-growth-procedures.js';
+
+import { AGENTS_LAUNCH_ASSESS } from './agents-launch-procedures.js';
+
+import { AGENTS_LOG_MINE, AGENTS_LOG_COUNT, AGENTS_LOG_EXPORT } from './agents-log-procedures.js';
+
+import {
+  AGENTS_NAVIGATOR_ASK,
+  AGENTS_NAVIGATOR_ONCHAIN_SIGNER,
+  AGENTS_NAVIGATOR_ONCHAIN_BINDING,
+  AGENTS_NAVIGATOR_ONCHAIN_REVOKE,
+  AGENTS_NAVIGATOR_TRADING,
+  AGENTS_NAVIGATOR_ORDERS,
+} from './agents-navigator-procedures.js';
+
+import {
+  AGENTS_OPS_ALERTS_DESK,
+  AGENTS_OPS_ALERTS_POLICY,
+  AGENTS_OPS_ALERTS_EVALUATE,
+  AGENTS_OPS_ALERTS_CREATE_RULE,
+  AGENTS_OPS_ALERTS_SET_NOTIFICATIONS,
+  AGENTS_OPS_ALERTS_SET_OVERRIDE,
+  AGENTS_OPS_ALERTS_CHECK_RULE,
+} from './agents-ops-alerts-procedures.js';
+
+import {
+  AGENTS_OPS_LOG_REASONS,
+  AGENTS_OPS_LOG_TRANSCRIPT,
+  AGENTS_OPS_LOG_ACTIONS,
+  AGENTS_OPS_LOG_EXPORT,
+} from './agents-ops-log-procedures.js';
+
+import {
+  AGENTS_OWN_POLICY_GET,
+  AGENTS_OWN_ACCESS_GET,
+  AGENTS_OWN_ACCESS_GRANT,
+  AGENTS_OWN_TRADE_DRAFT,
+  AGENTS_OWN_SCHEDULES_CREATE,
+  AGENTS_OWN_TRIGGERS_CREATE,
+  AGENTS_OWN_CATALOGUE,
+  AGENTS_OWN_CREATE,
+  AGENTS_OWN_SAVE,
+  AGENTS_OWN_GET,
+  AGENTS_OWN_STATUS,
+  AGENTS_OWN_LIMITS_GET,
+  AGENTS_OWN_LIMITS_SET,
+  AGENTS_OWN_USAGE_LIMITS_GET,
+  AGENTS_OWN_USAGE_LIMITS_SET,
+  AGENTS_OWN_PAYMENT_METHOD_GET,
+  AGENTS_OWN_PAYMENT_METHOD_SET,
+  AGENTS_OWN_SESSION_OPEN,
+  AGENTS_OWN_RUN,
+  AGENTS_OWN_RUNS,
+  AGENTS_OWN_SESSION_CLOSE,
+  AGENTS_OWN_BACKGROUND_RUNS,
+  AGENTS_OWN_USAGE,
+  AGENTS_OWN_USAGE_BY_DAY,
+  AGENTS_OWN_PUBLICATION,
+  AGENTS_OWN_PUBLISH,
+  AGENTS_OWN_CO_OWNERS_LIST,
+  AGENTS_OWN_CO_OWNERS_ADD,
+  AGENTS_OWN_CO_OWNERS_REMOVE,
+  AGENTS_OWN_LIST,
+  AGENTS_OWN_SHARED_WITH_ME,
+  AGENTS_OWN_DELETE,
+  AGENTS_OWN_EVALS_GET,
+  AGENTS_OWN_EVALS_START,
+  AGENTS_OWN_RULES_LIST,
+  AGENTS_OWN_RULES_SAVE,
+  AGENTS_OWN_CONSENTS_LIST,
+  AGENTS_OWN_CONSENTS_REVOKE,
+  AGENTS_OWN_CONSENTS_GRANT,
+  AGENTS_OWN_IDENTITY_GET,
+  AGENTS_OWN_IDENTITY_ISSUE,
+  AGENTS_OWN_IDENTITY_REVOKE,
+  AGENTS_OWN_ASSISTANT_STATE,
+  AGENTS_OWN_ASSISTANT_DRAFT,
+  AGENTS_OWN_ASSISTANT_ACCEPT,
+  AGENTS_OWN_MEMORY_GET,
+  AGENTS_OWN_MEMORY_SET_ENABLED,
+  AGENTS_OWN_MEMORY_CLEAR,
+  AGENTS_OWN_PRIVACY_GET,
+  AGENTS_OWN_PRIVACY_KEEP_TRANSCRIPTS,
+  AGENTS_OWN_SHARE_GET,
+  AGENTS_OWN_SHARE_CHECK,
+  AGENTS_OWN_SHARE_SET,
+  AGENTS_OWN_REVIEWER_GET,
+  AGENTS_OWN_REVIEW_LIST,
+  AGENTS_OWN_REVIEWER_SET,
+  AGENTS_OWN_TEST_APPROVE,
+  AGENTS_OWN_BACKGROUND_RUN,
+  AGENTS_OWN_TEST_RUN,
+  AGENTS_OWN_TOOL_TEST,
+  AGENTS_OWN_TEST_RUNS,
+  AGENTS_OWN_ANALYTICS,
+} from './agents-own-procedures.js';
+
+import { AGENTS_ROUTES_DESK, AGENTS_ROUTES_PROPOSE, AGENTS_ROUTES_LIST } from './agents-routes-procedures.js';
+
+import {
+  AGENTS_RUN_BACKGROUND_GET,
+  AGENTS_RUN_BACKGROUND_PAUSE,
+  AGENTS_RUN_BACKGROUND_RESUME,
+  AGENTS_RUN_BACKGROUND_STOP,
+  AGENTS_RUN_BACKGROUND_ASK_MORE,
+  AGENTS_RUN_BACKGROUND_START,
+  AGENTS_RUN_COMPLETE,
+  AGENTS_RUN_TRACE,
+} from './agents-run-procedures.js';
+
+import {
+  AGENTS_SESSION_SELECT,
+  AGENTS_SESSION_SELECTED,
+  AGENTS_SESSION_LOG,
+  AGENTS_SESSION_DETAIL,
+  AGENTS_SESSION_CLOSE,
+  AGENTS_SESSION_OPEN,
+} from './agents-session-procedures.js';
+
+import {
+  AGENTS_TEAM_VIEW,
+  AGENTS_TEAM_GRANTS_SET,
+  AGENTS_TEAM_POOL_SET,
+  AGENTS_TEAM_PROJECTS_CREATE,
+  AGENTS_TEAM_RUNS_OPEN,
+  AGENTS_TEAM_RUNS_RUN,
+  AGENTS_TEAM_RUNS_CLOSE,
+  AGENTS_TEAM_ACTIONS_LIST,
+  AGENTS_TEAM_ACTIONS_HOLD,
+  AGENTS_TEAM_ACTIONS_APPROVE,
+  AGENTS_TEAM_USAGE,
+} from './agents-team-procedures.js';
+
+import { AGENTS_USAGE_CURRENT, AGENTS_USAGE_SUMMARY } from './agents-usage-procedures.js';
+
+import { AGENTS_WEBHOOK_REGISTER, AGENTS_WEBHOOK_LIST, AGENTS_WEBHOOK_DELIVERIES } from './agents-webhooks-procedures.js';
+
 import { BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ } from './bank-cash-leg-procedures.js';
+
 import {
   BANK_CREDIT_PREVIEWS_OVERVIEW,
   BANK_CREDIT_PREVIEWS_SCHEDULE,
@@ -202,6 +429,7 @@ import {
   BANK_CREDIT_CARD_APPLICATION,
   BANK_OPS_FRAUD_PREVIEW,
 } from './bank-credit-preview-procedures.js';
+
 import {
   BANK_DEPOSITS_ASSETS,
   BANK_DEPOSITS_ADDRESS,
@@ -211,6 +439,7 @@ import {
   BANK_DEPOSITS_PENDING,
   BANK_DEPOSITS_LIST,
 } from './bank-deposit-procedures.js';
+
 import {
   BANK_GLOBAL_PARTNER,
   BANK_GLOBAL_CORRIDORS_LIST,
@@ -227,6 +456,7 @@ import {
   BANK_GLOBAL_RECALL,
   BANK_GLOBAL_RECEIPT,
 } from './bank-global-procedures.js';
+
 import {
   BANK_PERSONAL_REQUEST_CREATE,
   BANK_PERSONAL_REQUEST_LIST,
@@ -238,7 +468,9 @@ import {
   BANK_PERSONAL_REQUEST_REPORT,
   BANK_PERSONAL_REQUEST_SAFETY,
 } from './bank-personal-request-procedures.js';
+
 import { BANK_SPACES_LIST } from './bank-spaces-list.js';
+
 import {
   BLUEPRINT_HEALTH,
   BLUEPRINT_ONBOARD,
@@ -254,6 +486,13 @@ import {
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
+
+import { CAMPAIGNS_DISTRIBUTION_MINE } from './campaigns-distribution-procedures.js';
+
+import { CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM } from './campaigns-drops-procedures.js';
+
+import { CAMPAIGNS_POINTS_PROGRAMME, CAMPAIGNS_POINTS_CONVERT, CAMPAIGNS_POINTS_REDEEM } from './campaigns-points-procedures.js';
+
 import {
   CAMPAIGNS_PARTICIPATION_JOIN,
   CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW,
@@ -289,6 +528,15 @@ import {
   CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_REQUEST,
   CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_DOWNLOAD,
 } from './campaigns-procedures.js';
+
+import { CAMPAIGNS_REFERRAL_INVITEES } from './campaigns-referral-procedures.js';
+
+import { CAMPAIGNS_REWARDS_MINE } from './campaigns-rewards-procedures.js';
+
+import { CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM } from './campaigns-tasks-procedures.js';
+
+import { CAMPAIGNS_TGE_CLAIM } from './campaigns-tge-procedures.js';
+
 import {
   DEX_HEALTH,
   DEX_QUOTE,
@@ -299,10 +547,103 @@ import {
   DEX_AUTH_LOGOUT_ALL,
   DEX_ORDERS_COUNT,
 } from './dex-procedures.js';
+
 import { EXECUTION_SPINE } from './execution-procedures.js';
+
 import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
+
+import {
+  IDENTITY_ACCOUNT_APPEAL_MINE,
+  IDENTITY_ACCOUNT_APPEAL_SUBMIT,
+  IDENTITY_ACCOUNT_APPEAL_SUBMIT_SIGNED_OUT,
+} from './identity-account-appeal-procedures.js';
+
+import {
+  IDENTITY_ACCOUNT_CLOSURE_STATUS,
+  IDENTITY_ACCOUNT_CLOSURE_CHECK,
+  IDENTITY_ACCOUNT_CLOSURE_REQUEST,
+  IDENTITY_ACCOUNT_CLOSURE_CANCEL,
+} from './identity-account-closure-procedures.js';
+
+import {
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
+  IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE,
+  IDENTITY_ACCOUNT_CONTROLS_TIERS,
+} from './identity-account-controls-procedures.js';
+
+import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from './identity-account-directory-procedures.js';
+
+import {
+  IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+  IDENTITY_ACCOUNT_COMPROMISED_MINE,
+  IDENTITY_ACCOUNT_COMPROMISED_START,
+  IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+  IDENTITY_ACCOUNT_SAFETY_READ,
+} from './identity-account-procedures.js';
+
 import { IDENTITY_ACTION_APPROVAL_LIST } from './identity-action-approval-procedures.js';
+
+import {
+  IDENTITY_ACTION_APPROVAL_REJECT,
+  IDENTITY_ACTION_APPROVAL_PROPOSE,
+  IDENTITY_ACTION_APPROVAL_APPROVE,
+  IDENTITY_ACTION_APPROVAL_POLICIES,
+  IDENTITY_ACTION_APPROVAL_REVOKE,
+} from './identity-action-approval-records.js';
+
+import {
+  IDENTITY_AFFILIATES_MY_PARTNER_APPLICATION,
+  IDENTITY_AFFILIATES_PARTNER_ELIGIBILITY,
+  IDENTITY_AFFILIATES_APPLY_PARTNER,
+  IDENTITY_AFFILIATES_MY_SUB_TREE,
+  IDENTITY_AFFILIATES_CREATE_SHARE,
+  IDENTITY_AFFILIATES_REVOKE_SHARE,
+  IDENTITY_AFFILIATES_MY_CODE,
+  IDENTITY_AFFILIATES_CREATE_CODE,
+  IDENTITY_AFFILIATES_MY_REFERRER,
+  IDENTITY_AFFILIATES_MY_LAPSE,
+  IDENTITY_AFFILIATES_MY_ANCESTORS,
+  IDENTITY_AFFILIATES_MY_ACCRUALS,
+  IDENTITY_AFFILIATES_SHARE_STATS,
+  IDENTITY_AFFILIATES_SHARE_TAG,
+  IDENTITY_AFFILIATES_ATTACH_WINDOW,
+  IDENTITY_AFFILIATES_MY_REBIND,
+  IDENTITY_AFFILIATES_WITHDRAW_REBIND,
+  IDENTITY_AFFILIATES_SHARE_TAG_HIT,
+} from './identity-affiliates-procedures.js';
+
+import { IDENTITY_API_KEY_OPS_REVOKE } from './identity-api-key-ops-procedures.js';
+
+import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from './identity-api-keys-procedures.js';
+
+import { IDENTITY_API_RATE_TIERS } from './identity-api-rate-tiers-procedures.js';
+
 import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from './identity-api-version-procedures.js';
+
+import {
+  IDENTITY_AUTH_CHALLENGE,
+  IDENTITY_AUTH_DEVICE_APPROVE,
+  IDENTITY_AUTH_DEVICE_COMPLETE,
+  IDENTITY_AUTH_CHANGE_PASSWORD,
+  IDENTITY_AUTH_SELF_FREEZE_STATUS,
+  IDENTITY_AUTH_SELF_FREEZE,
+  IDENTITY_AUTH_REQUEST_EMAIL_CONFIRMATION,
+  IDENTITY_AUTH_LOGIN_CODE_REQUEST,
+  IDENTITY_AUTH_LOGIN_WITH_CODE,
+  IDENTITY_AUTH_LOGIN_CODE_RESEND,
+  IDENTITY_AUTH_CONFIRM_EMAIL,
+  IDENTITY_AUTH_REQUEST_HANDLE_RECOVERY,
+  IDENTITY_AUTH_PASSWORD_RESET_LIMITS,
+  IDENTITY_AUTH_REQUEST_PASSWORD_RESET,
+  IDENTITY_AUTH_COMPLETE_PASSWORD_RESET,
+  IDENTITY_AUTH_SIGN_UP_PASSWORD_SCREENING,
+  IDENTITY_AUTH_SIGN_UP_START,
+  IDENTITY_AUTH_SIGN_UP_RESEND,
+  IDENTITY_AUTH_OAUTH_START,
+  IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
+} from './identity-auth-procedures.js';
+
 import {
   IDENTITY_DEVELOPER_KEYS_LIST,
   IDENTITY_DEVELOPER_KEYS_GET,
@@ -318,7 +659,21 @@ import {
   IDENTITY_DEVELOPER_KEYS_RECORD_CALL,
   IDENTITY_DEVELOPER_KEYS_HOLD_AGENT_ACTION,
 } from './identity-developer-keys-procedures.js';
+
+import {
+  IDENTITY_DEVELOPER_SANDBOXES_LIST,
+  IDENTITY_DEVELOPER_SANDBOXES_GET,
+  IDENTITY_DEVELOPER_SANDBOXES_CREATE,
+} from './identity-developer-sandboxes-procedures.js';
+
 import { IDENTITY_DEVELOPER_SUPPORT_KEYS, IDENTITY_DEVELOPER_SUPPORT_CALLS } from './identity-developer-support-procedures.js';
+
+import { IDENTITY_FACTOR_STATUS } from './identity-factor-status-procedures.js';
+
+import { IDENTITY_FREEZE_LINK_REDEEM } from './identity-freeze-link-procedures.js';
+
+import { IDENTITY_HANDLE_GET, IDENTITY_HANDLE_CHANGE, IDENTITY_HANDLE_SET_DISCOVERABLE } from './identity-handle-procedures.js';
+
 import {
   IDENTITY_ME,
   IDENTITY_USERS_RESOLVE_HANDLE,
@@ -327,6 +682,30 @@ import {
   IDENTITY_QR_MINE,
   IDENTITY_QR_RESOLVE,
 } from './identity-handles.js';
+
+import {
+  IDENTITY_KYC_HISTORY_FOR,
+  IDENTITY_KYC_SELFIE_LIST_FOR,
+  IDENTITY_KYC_SELFIE_DECIDE,
+  IDENTITY_KYC_PENDING,
+  IDENTITY_KYC_REJECT,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
+  IDENTITY_KYC_CAPABILITIES_GET_FOR,
+  IDENTITY_KYC_CAPABILITIES_SET,
+  IDENTITY_KYC_SUBMIT,
+  IDENTITY_KYC_ATTEMPTS_READ,
+  IDENTITY_KYC_CAPABILITIES_GET,
+  IDENTITY_KYC_HISTORY,
+  IDENTITY_KYC_LEVELS_DESCRIBE,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_READ,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT,
+  IDENTITY_KYC_SELFIE_READ,
+  IDENTITY_KYC_SELFIE_SUBMIT,
+  IDENTITY_KYC_SELFIE_HANDOFF_START,
+  IDENTITY_KYC_TRADING_CHECKS_READ,
+  IDENTITY_KYC_TRADING_CHECKS_RUN,
+} from './identity-kyc-procedures.js';
+
 import {
   IDENTITY_KYC_DOCUMENT_TYPES_READ,
   IDENTITY_KYC_PROFILE_READ,
@@ -334,6 +713,15 @@ import {
   IDENTITY_KYC_PROFILE_UPLOAD,
   IDENTITY_KYC_PROFILE_SUBMIT,
 } from './identity-kyc-profile-procedures.js';
+
+import { IDENTITY_LEARNER_CARD_LOOKUP } from './identity-learner-card-procedures.js';
+
+import { IDENTITY_LINK_PROVIDER_START } from './identity-link-provider-start-procedures.js';
+
+import { IDENTITY_LINK_SIGNIN_METHOD } from './identity-link-signin-method-procedures.js';
+
+import { IDENTITY_MFA_RESET_STATUS, IDENTITY_MFA_RESET_CANCEL } from './identity-mfa-reset-procedures.js';
+
 import {
   IDENTITY_OAUTH_APPS_REGISTER,
   IDENTITY_OAUTH_APPS_LIST,
@@ -345,7 +733,78 @@ import {
   IDENTITY_OAUTH_LIFETIMES,
   IDENTITY_OAUTH_TOKEN,
 } from './identity-oauth-procedures.js';
+
+import {
+  IDENTITY_PROFILE_GET,
+  IDENTITY_PROFILE_ANTI_PHISHING_GET,
+  IDENTITY_PROFILE_ANTI_PHISHING_SET,
+} from './identity-profile-procedures.js';
+
+import {
+  IDENTITY_RECEIVE_CONTACTS_LIST,
+  IDENTITY_RECEIVE_CONTACTS_ADD,
+  IDENTITY_RECEIVE_CONTACTS_VERIFY,
+  IDENTITY_RECEIVE_CONTACTS_REMOVE,
+} from './identity-receive-contacts-procedures.js';
+
 import { IDENTITY_RECIPIENTS_LIST, IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_REMOVE } from './identity-recipients-procedures.js';
+
+import { IDENTITY_REVOKE_ALL_API_KEYS } from './identity-revoke-all-api-keys-procedures.js';
+
+import { IDENTITY_REVOKE_OTHER_SESSIONS } from './identity-revoke-other-sessions-procedures.js';
+
+import { IDENTITY_REVOKE_SESSION_FAMILY } from './identity-revoke-session-family-procedures.js';
+
+import {
+  IDENTITY_SECURITY_LOCK_READ,
+  IDENTITY_SECURITY_LOCK_SET,
+  IDENTITY_SECURITY_LOCK_REQUEST_UNLOCK,
+} from './identity-security-lock-procedures.js';
+
+import { IDENTITY_SELF_FREEZE_MANAGE_LIFT } from './identity-self-freeze-manage-procedures.js';
+
+import { IDENTITY_SESSION_SETTINGS } from './identity-session-settings-procedures.js';
+
+import { IDENTITY_SET_IDLE_SIGNOUT } from './identity-set-idle-signout-procedures.js';
+
+import { IDENTITY_SIGNIN_METHODS } from './identity-signin-methods-procedures.js';
+
+import {
+  IDENTITY_SUB_ACCOUNTS_CREATE,
+  IDENTITY_SUB_ACCOUNTS_REVOKE,
+  IDENTITY_SUB_ACCOUNTS_DELETE_CHECK,
+  IDENTITY_SUB_ACCOUNTS_DELETE,
+  IDENTITY_SUB_ACCOUNTS_GET_FEATURES,
+  IDENTITY_SUB_ACCOUNTS_ASSETS,
+  IDENTITY_SUB_ACCOUNTS_SET_FEATURES,
+} from './identity-sub-accounts-procedures.js';
+
+import { IDENTITY_SUPPORT_RECOVERY_REDEEM } from './identity-support-recovery-procedures.js';
+
+import {
+  IDENTITY_TOTP_MANAGE_STATUS,
+  IDENTITY_TOTP_MANAGE_REPLACE_START,
+  IDENTITY_TOTP_MANAGE_DISABLE,
+  IDENTITY_TOTP_MANAGE_RENAME,
+} from './identity-totp-manage-procedures.js';
+
+import { IDENTITY_TOTP_ENROL } from './identity-totp-procedures.js';
+
+import {
+  IDENTITY_TRUSTED_DEVICES_LIST,
+  IDENTITY_TRUSTED_DEVICES_REMOVE,
+  IDENTITY_TRUSTED_DEVICES_APPROVE,
+  IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN,
+} from './identity-trusted-devices-procedures.js';
+
+import { IDENTITY_UNLINK_SIGNIN_METHOD } from './identity-unlink-signin-method-procedures.js';
+
+import { IDENTITY_WAITLIST_WAVES_LIST, IDENTITY_WAITLIST_WAVES_RELEASE, IDENTITY_WAITLIST_MINE } from './identity-waitlist-procedures.js';
+
+import { IDENTITY_WALLET_LINK_CHALLENGE } from './identity-wallet-link-challenge-procedures.js';
+
+import { IDENTITY_WEBAUTHN_REMOVE } from './identity-webauthn-procedures.js';
+
 import {
   INDEXER_EXPLORER_BLOCKS_LIST,
   INDEXER_EXPLORER_BLOCKS_GET,
@@ -365,6 +824,7 @@ import {
   INDEXER_BOOK,
   INDEXER_POSITIONS,
 } from './indexer-procedures.js';
+
 import {
   MARKET_APPLY_AS_VENDOR,
   MARKET_MINE,
@@ -401,6 +861,7 @@ import {
   MARKET_OPS_SALES,
   MARKET_OPS_TAKEDOWN_LISTING,
 } from './market-procedures.js';
+
 import {
   MINING_WORKERS_MINE,
   MINING_WORKERS_SET_DIFFICULTY,
@@ -420,9 +881,13 @@ import {
   MINING_POW,
   MINING_PROBE,
 } from './mining-procedures.js';
+
 import { NOTIFY_HEALTH } from './notify-health-procedures.js';
+
 import { NOTIFY_INBOX_POLICY } from './notify-inbox-policy.js';
+
 import { NOTIFY_NAV_METRICS_SEARCH_MISSES, NOTIFY_NAV_METRICS_SEARCH_MISS } from './notify-nav-metrics-procedures.js';
+
 import {
   NOTIFY_CHANNEL_SETTINGS,
   NOTIFY_TEMPLATES,
@@ -461,6 +926,7 @@ import {
   NOTIFY_UPCOMING_CHANGES,
   NOTIFY_LIST,
 } from './notify-notify-procedures.js';
+
 import {
   NOTIFY_UNREAD_COUNT,
   NOTIFY_MARK_READ,
@@ -473,7 +939,9 @@ import {
   NOTIFY_REMOVE_TARGET,
   NOTIFY_DELIVERIES,
 } from './notify-procedures.js';
+
 import { NOTIFY_RECONCILIATION_ALERT_FEED_LIST } from './notify-reconciliation-alert-feed-procedures.js';
+
 import {
   NOTIFY_STATUS_PAGE_POSTMORTEMS_FOR_INCIDENTS,
   NOTIFY_STATUS_PAGE_TEMPLATES_LIST,
@@ -494,7 +962,43 @@ import {
   NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT,
   NOTIFY_STATUS_PAGE_CONFIGURE,
 } from './notify-status-page-procedures.js';
+
+import { OPS_ALERTS_LIST, OPS_ALERTS_PERIODS, OPS_ALERTS_PLATFORM_INCIDENTS, OPS_ALERTS_GET } from './ops-alerts-procedures.js';
+
+import { OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD } from './ops-capital-procedures.js';
+
+import {
+  OPS_COMPLIANCE_INBOXES_SET_FAVOURITE,
+  OPS_COMPLIANCE_INBOXES_DEFINE,
+  OPS_COMPLIANCE_INBOXES_LIST,
+  OPS_COMPLIANCE_CASES_LIST,
+  OPS_COMPLIANCE_INBOXES_ACCESS,
+  OPS_COMPLIANCE_CASES_GET_BY_ID,
+  OPS_COMPLIANCE_CASES_NEXT,
+} from './ops-compliance-procedures.js';
+
+import { OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET } from './ops-console-mode-procedures.js';
+
+import { OPS_OUTREACH_PRIVACY_RETENTION_STATUS, OPS_OUTREACH_OWNERS, OPS_OUTREACH_LIST_WORKFLOW_AUDIT } from './ops-outreach-procedures.js';
+
+import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from './ops-preferences-procedures.js';
+
+import {
+  OPS_PROTOCOL_LISTING_POOLS_LIST,
+  OPS_PROTOCOL_LISTING_MARKETS_LIST,
+  OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+} from './ops-protocol-listing-procedures.js';
+
 import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } from './ops-public-procedures.js';
+
+import { OPS_RECORD_VENUE_COST } from './ops-record-venue-cost-procedures.js';
+
+import { OPS_RESTORE_WATERMARKS } from './ops-restore-procedures.js';
+
+import { OPS_STAFF_HOLDS_LIST } from './ops-staff-holds-procedures.js';
+
+import { OPS_VENUE_ECONOMICS } from './ops-venue-economics-procedures.js';
+
 import {
   P2P_DISPUTES_BACKLOG,
   P2P_DISPUTES_LIST,
@@ -503,7 +1007,9 @@ import {
   P2P_DISPUTES_OPEN,
   P2P_DISPUTES_APPEND_EVIDENCE,
 } from './p2p-disputes-procedures.js';
+
 import { P2P_OPS_OFFERS, P2P_OPS_TRADES, P2P_OPS_LATE_SETTLEMENTS, P2P_OPS_COUNTS, P2P_OPS_DISPUTE_RATE24H } from './p2p-ops-procedures.js';
+
 import {
   P2P_HEALTH,
   P2P_FIAT_LIST,
@@ -597,6 +1103,7 @@ import {
   P2P_INSTRUMENTS_REVEAL_MASKED,
   P2P_INSTRUMENTS_ACCESS_LOG,
 } from './p2p-procedures.js';
+
 import {
   PAY_ALLOWLIST_MODE,
   PAY_ALLOWLIST_POLICY,
@@ -612,7 +1119,34 @@ import {
   PAY_ALLOWLIST_LIST_CHANGES,
   PAY_ALLOWLIST_LIST_FOR_TEAM,
 } from './pay-allowlist-procedures.js';
+
+import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from './pay-checkout-procedures.js';
+
+import { PAY_DEPOSIT_CREDIT } from './pay-deposit-procedures.js';
+
 import { PAY_HALTS_OPERATOR_STATUS, PAY_HALTS_SET, PAY_HALTS_HISTORY, PAY_HALTS_PENDING_CLEARS } from './pay-halt-procedures.js';
+
+import {
+  PAY_KYB_DOCUMENTS_FILE,
+  PAY_KYB_REQUESTS_FILE,
+  PAY_KYB_REQUESTS_REVIEW_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+} from './pay-kyb-procedures.js';
+
+import { PAY_MERCHANT_STARTER_FEE, PAY_MERCHANT_ME } from './pay-merchant-procedures.js';
+
+import { PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY } from './pay-payment-procedures.js';
+
+import { PAY_RESOLVE_LINK } from './pay-resolve-link-procedures.js';
+
+import { PAY_SANDBOX_FUNDS_BALANCE, PAY_SANDBOX_FUNDS_FUND, PAY_SANDBOX_FUNDS_RESET } from './pay-sandbox-funds-procedures.js';
+
+import {
+  PAY_WITHDRAWAL_APPROVAL_LIST,
+  PAY_WITHDRAWAL_APPROVAL_GET,
+  PAY_WITHDRAWAL_APPROVAL_CANCEL,
+} from './pay-withdrawal-approval-procedures.js';
+
 import {
   PAY_WITHDRAWAL_LIMITS,
   PAY_WITHDRAWAL_TIER_LIMITS,
@@ -624,6 +1158,7 @@ import {
   PAY_WITHDRAWAL_GET,
   PAY_WITHDRAWAL_HISTORY,
 } from './pay-withdrawal-procedures.js';
+
 import {
   PROTOCOL_AMM_PAIRS,
   PROTOCOL_AMM_PRICES,
@@ -660,6 +1195,7 @@ import {
   PROTOCOL_AMM_POOL_FEES,
   PROTOCOL_AMM_REQUEST_PROTOCOL_FEE,
 } from './protocol-amm-procedures.js';
+
 import {
   PROTOCOL_ESCROW_STATUS,
   PROTOCOL_ESCROW_DEAL,
@@ -687,6 +1223,7 @@ import {
   PROTOCOL_CLAIM_LINK_LIST,
   PROTOCOL_TX_BUILD_REPLACEMENT,
 } from './protocol-chain-procedures.js';
+
 import {
   PROTOCOL_HEALTH,
   PROTOCOL_AUDIT_STATUS,
@@ -707,6 +1244,7 @@ import {
   PROTOCOL_REPRESENTATION_ACCEPT,
   PROTOCOL_SESSIONS_LIST,
 } from './protocol-procedures.js';
+
 import {
   PROTOCOL_WALLET_SESSION_CHALLENGE,
   PROTOCOL_WALLET_SESSION_OPEN,
@@ -741,13 +1279,16 @@ import {
   PROTOCOL_EMBEDDED_WALLET_STATUS,
   PROTOCOL_EMBEDDED_WALLET_CREATE,
 } from './protocol-wallet-procedures.js';
+
 import { QUANT_ALERT_LIST, QUANT_ALERT_CREATE } from './quant-alert-procedures.js';
+
 import {
   QUANT_APPROVAL_GET,
   QUANT_APPROVAL_POLICY_SET,
   QUANT_APPROVAL_REQUEST,
   QUANT_APPROVAL_DECIDE,
 } from './quant-approval-procedures.js';
+
 import {
   QUANT_BACKTEST_RUN,
   QUANT_BACKTEST_FEE,
@@ -758,8 +1299,11 @@ import {
   QUANT_BACKTEST_HISTORY,
   QUANT_BACKTEST_RENAME,
 } from './quant-backtest-procedures.js';
+
 import { QUANT_HEALTH } from './quant-health-procedures.js';
+
 import { QUANT_LAKE_CATALOGUE } from './quant-lake-procedures.js';
+
 import {
   QUANT_LIBRARY_OPTIONS,
   QUANT_LIBRARY_CHECK,
@@ -775,8 +1319,11 @@ import {
   QUANT_LIBRARY_LINEAGE,
   QUANT_LIBRARY_REVIEW,
 } from './quant-library-procedures.js';
+
 import { QUANT_LIMITS_GET } from './quant-limits-procedures.js';
+
 import { QUANT_LIVE_CHECK, QUANT_LIVE_DEPLOY } from './quant-live-procedures.js';
+
 import {
   QUANT_OPS_LIBRARY_QUEUE,
   QUANT_OPS_LIBRARY_HIDE,
@@ -791,10 +1338,15 @@ import {
   QUANT_OPS_SANDBOX_CORPUS,
   QUANT_OPS_LIFECYCLE_AUDIT,
 } from './quant-ops-procedures.js';
+
 import { QUANT_PAPER_START, QUANT_PAPER_STOP, QUANT_PAPER_LIST, QUANT_PAPER_GET } from './quant-paper-procedures.js';
+
 import { QUANT_PREVIEW_ACT } from './quant-preview-procedures.js';
+
 import { QUANT_QUICK_START } from './quant-quick-start-procedures.js';
+
 import { QUANT_QUOTA_GET } from './quant-quota-procedures.js';
+
 import {
   QUANT_BACKTEST_REPORT,
   QUANT_RESULT_SHARE_GET,
@@ -802,7 +1354,9 @@ import {
   QUANT_RESULT_SHARE_REVOKE,
   QUANT_RESULT_SHARE_PUBLIC,
 } from './quant-result-share-procedures.js';
+
 import { QUANT_SANDBOX_CAPABILITIES, QUANT_SANDBOX_RUN } from './quant-sandbox-procedures.js';
+
 import {
   QUANT_RISK_GET,
   QUANT_RISK_SET,
@@ -812,6 +1366,7 @@ import {
   QUANT_LIFECYCLE_GET,
   QUANT_LIFECYCLE_PROMOTE,
 } from './quant-strategy-settings-procedures.js';
+
 import {
   QUANT_STUDIO_LIST,
   QUANT_STUDIO_GET,
@@ -824,7 +1379,9 @@ import {
   QUANT_STUDIO_RESTORE,
   QUANT_STUDIO_LIST_DELETED,
 } from './quant-studio-procedures.js';
+
 import { QUANT_STUDIO_OPERATOR_LIST } from './quant-studio-records.js';
+
 import {
   QUANT_TEAM_GET,
   QUANT_TEAM_SET,
@@ -839,8 +1396,11 @@ import {
   QUANT_TEAM_ORDER,
   QUANT_TEAM_STOP,
 } from './quant-team-procedures.js';
+
 import { QUANT_TEMPLATE_LIST, QUANT_TEMPLATE_GET } from './quant-template-procedures.js';
+
 import { QUANT_TIER_LIST } from './quant-tier-procedures.js';
+
 import {
   SUPPORT_CATEGORIES,
   SUPPORT_CREATE,
@@ -865,6 +1425,7 @@ import {
   SUPPORT_MY_TICKET_PROPERTIES,
   SUPPORT_REQUEST_FORMS,
 } from './support-customer-procedures.js';
+
 import {
   SUPPORT_DESK_VIEWS_COUNTS,
   SUPPORT_DESK_PROPERTY_CHANGES,
@@ -912,6 +1473,7 @@ import {
   SUPPORT_DESK_UNPUBLISH_KB,
   SUPPORT_DESK_SET_KB_AUDIENCE,
 } from './support-desk-procedures.js';
+
 import {
   SUPPORT_KB_LIBRARY,
   SUPPORT_DESK_KB_TEMPLATES,
@@ -935,12 +1497,19 @@ import {
   SUPPORT_HELP_CENTRE,
   SUPPORT_DESK_HELP_CENTRE_TRANSLATIONS,
 } from './support-desk-settings-procedures.js';
+
 import { SUPPORT_LIST_QUEUE } from './support-list-queue-procedures.js';
+
 import { SUPPORT_OFFICIAL_CHANNELS } from './support-official-channels-procedures.js';
+
 import { SUPPORT_SAFETY_MINE, SUPPORT_SAFETY_MULE_POLICY } from './support-safety-procedures.js';
+
 import { SUPPORT_TICKET_CHARTS_LOOKUP } from './support-ticket-charts-lookup-procedures.js';
+
 import { SUPPORT_VIEWS_LIST } from './support-views-list-procedures.js';
+
 import { SUPPORT_VIEWS_SAVE } from './support-views-save-procedures.js';
+
 import {
   TAX_HEALTH,
   TAX_LOT_BOOK,
@@ -955,6 +1524,24 @@ import {
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
 } from './tax-procedures.js';
+
+import { TOKEN_DISTRIBUTE_REVENUE } from './token-distribute-revenue-procedures.js';
+
+import {
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+} from './token-launch-procedures.js';
+
+import { TOKEN_NEXT_EMISSION_EPOCH } from './token-next-emission-epoch-procedures.js';
+
 import {
   TOKEN_ACCESS_OF,
   TOKEN_LIST_STAKES,
@@ -984,9 +1571,64 @@ import {
   TOKEN_GOVERNANCE_ROLES_LIST,
   TOKEN_GOVERNANCE_SET_ROLE,
 } from './token-procedures.js';
+
+import {
+  TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
+  TRADE_ADMIN_AGENT_DESK_AUDIT,
+  TRADE_ADMIN_AGENT_DESK_CONNECTION,
+  TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+} from './trade-admin-procedures.js';
+
+import { TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT } from './trade-algo-procedures.js';
+
+import {
+  TRADE_BOTS_GRID_SETUP,
+  TRADE_BOTS_GRID_PRESETS,
+  TRADE_BOTS_GRID_STOP,
+  TRADE_BOTS_GRID_TOP_UP_FREE,
+  TRADE_BOTS_GRID_TOP_UP,
+  TRADE_BOTS_GRID_MODIFY,
+  TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+} from './trade-bots-procedures.js';
+
 import { TRADE_BUILDER_ACCOUNT_MODE } from './trade-builder-mode-procedures.js';
+
+import {
+  TRADE_CONVERT_PAIRS,
+  TRADE_CONVERT_LIMITS,
+  TRADE_CONVERT_LIMIT_PLACE,
+  TRADE_CONVERT_LIMIT_CANCEL,
+  TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_LIST,
+} from './trade-convert-procedures.js';
+
 import { COPY_MY_COPY_FEES } from './trade-copy-procedures.js';
+
+import {
+  TRADE_COPY_MY_LEAD_APPLICATION,
+  TRADE_COPY_LEAD_ELIGIBILITY,
+  TRADE_COPY_APPLY_TO_LEAD,
+  TRADE_COPY_MY_LEAD,
+  TRADE_COPY_LEADER_TRADES,
+  TRADE_COPY_FOLLOW,
+  TRADE_COPY_CHECK_VENUE_FOLLOW,
+  TRADE_COPY_AMEND_FOLLOW,
+  TRADE_COPY_GRANT_SESSION_KEY,
+  TRADE_COPY_KILL_SESSION_KEY,
+  TRADE_COPY_CLOSE_COPIED_POSITION,
+  TRADE_COPY_SKIP_LOG,
+  TRADE_COPY_LEAD_EARNINGS,
+  TRADE_COPY_LEAD_LEVEL,
+  TRADE_COPY_LEAD_MISSIONS,
+  TRADE_COPY_LEAD_TRADES,
+  TRADE_COPY_LEAD_COPIERS,
+  TRADE_COPY_PLATFORM_PAUSES,
+} from './trade-copy-records.js';
+
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
+
+import { TRADE_OTC_MAKERS_LIST, TRADE_OTC_ACCEPT, TRADE_OTC_SETTLE, TRADE_OTC_CONVERT_BOUNDS } from './trade-otc-procedures.js';
+
 import {
   RECURRING_CREATE,
   RECURRING_SUBMIT_PERMISSION,
@@ -995,11 +1637,18 @@ import {
   RECURRING_UPDATE,
   RECURRING_TERMINATE,
 } from './trade-recurring-procedures.js';
+
+import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from './trade-rfq-procedures.js';
+
+import { TRADE_SIGNALS_WEBHOOKS_CREATE } from './trade-signals-procedures.js';
+
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
+
 import type { ProcedureRecord } from './procedure.js';
 
-const part0: readonly ProcedureRecord[] = [
-  ACADEMY_ABANDON_COURSE_PURCHASE,
+const part_academy_abandon_course_purchase_procedures: readonly ProcedureRecord[] = [ACADEMY_ABANDON_COURSE_PURCHASE];
+
+const part_academy_admin_procedures: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_COURSES,
   ACADEMY_ADMIN_COURSE,
   ACADEMY_ADMIN_TOPICS,
@@ -1047,6 +1696,9 @@ const part0: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_REQUEST_REPORT,
   ACADEMY_ADMIN_ABORT_REPORT,
   ACADEMY_ADMIN_DELETE_REPORT,
+];
+
+const part_academy_admin_records: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_ASSIGNMENT,
   ACADEMY_ADMIN_WITHDRAW_ASSIGNMENT,
   ACADEMY_ADMIN_COURSE_GRADE_REPORTS,
@@ -1095,23 +1747,49 @@ const part0: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_PROPOSE_TEAM_CHANGE,
   ACADEMY_ADMIN_CONFIRM_TEAM_CHANGE,
   ACADEMY_ADMIN_GRANT_CERT_EXCEPTION,
-  ACADEMY_AMBASSADOR_PAY_PLANE,
-  ACADEMY_AMBASSADORS,
-  ACADEMY_APPLY_RESIDENCY,
-  ACADEMY_APPOINT_AMBASSADOR,
-  ACADEMY_AUTHORED_COURSE,
-  ACADEMY_CERT_PATHS,
-  ACADEMY_CERT_VERIFY,
-  ACADEMY_CERT_XP_PLANE,
-  ACADEMY_COURSE_CONVERSATIONS,
-  ACADEMY_COURSE_OUTLINE,
-  ACADEMY_COURSE_PURCHASE,
-  ACADEMY_CURRICULUM_DEPTH,
-  ACADEMY_CURRICULUM_IMPORT_STATUS,
-  ACADEMY_CURRICULUM_INVENTORY,
-  ACADEMY_DECIDE_RESIDENCY,
-  ACADEMY_FREEZE_AMBASSADOR,
-  ACADEMY_HEALTH,
+];
+
+const part_academy_ambassador_badge_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADOR_BADGE];
+
+const part_academy_ambassador_pay_plane_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADOR_PAY_PLANE];
+
+const part_academy_ambassadors_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADORS];
+
+const part_academy_apply_residency_procedures: readonly ProcedureRecord[] = [ACADEMY_APPLY_RESIDENCY];
+
+const part_academy_appoint_ambassador_procedures: readonly ProcedureRecord[] = [ACADEMY_APPOINT_AMBASSADOR];
+
+const part_academy_assessment_procedures: readonly ProcedureRecord[] = [ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS];
+
+const part_academy_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_AUTHORED_COURSE];
+
+const part_academy_cert_paths_procedures: readonly ProcedureRecord[] = [ACADEMY_CERT_PATHS];
+
+const part_academy_cert_verify_procedures: readonly ProcedureRecord[] = [ACADEMY_CERT_VERIFY];
+
+const part_academy_cert_xp_plane_procedures: readonly ProcedureRecord[] = [ACADEMY_CERT_XP_PLANE];
+
+const part_academy_course_conversations_procedures: readonly ProcedureRecord[] = [ACADEMY_COURSE_CONVERSATIONS];
+
+const part_academy_course_outline_procedures: readonly ProcedureRecord[] = [ACADEMY_COURSE_OUTLINE];
+
+const part_academy_course_purchase_procedures: readonly ProcedureRecord[] = [ACADEMY_COURSE_PURCHASE];
+
+const part_academy_curriculum_depth_procedures: readonly ProcedureRecord[] = [ACADEMY_CURRICULUM_DEPTH];
+
+const part_academy_curriculum_import_status_procedures: readonly ProcedureRecord[] = [ACADEMY_CURRICULUM_IMPORT_STATUS];
+
+const part_academy_curriculum_inventory_procedures: readonly ProcedureRecord[] = [ACADEMY_CURRICULUM_INVENTORY];
+
+const part_academy_decide_residency_procedures: readonly ProcedureRecord[] = [ACADEMY_DECIDE_RESIDENCY];
+
+const part_academy_freeze_ambassador_procedures: readonly ProcedureRecord[] = [ACADEMY_FREEZE_AMBASSADOR];
+
+const part_academy_health_procedures: readonly ProcedureRecord[] = [ACADEMY_HEALTH];
+
+const part_academy_item_video_procedures: readonly ProcedureRecord[] = [ACADEMY_ITEM_VIDEO];
+
+const part_academy_learner_procedures: readonly ProcedureRecord[] = [
   ACADEMY_ROOMS,
   ACADEMY_SESSION,
   ACADEMY_JOIN,
@@ -1151,42 +1829,247 @@ const part0: readonly ProcedureRecord[] = [
   ACADEMY_PLANNER_REMOVE_TODO,
   ACADEMY_PLANNER_SET_GOAL,
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
-  ACADEMY_MY_ACCESS_GRANTS,
-  ACADEMY_MY_CERTS,
-  ACADEMY_MY_COMPLETIONS,
-  ACADEMY_MY_LEARNING,
-  ACADEMY_OPEN_COURSE_CONVERSATION,
-  ACADEMY_OPEN_RESIDENCIES,
-  ACADEMY_PAPER_OPS_STATUS,
-  ACADEMY_PEER_REVIEW_FILE,
-  ACADEMY_PEER_REVIEW,
-  ACADEMY_PIN_LESSON,
-  ACADEMY_INTERNAL_CURRICULUM,
-  ACADEMY_PROGRAMME,
-  ACADEMY_PROGRAMMES,
-  ACADEMY_PUBLIC_AUTHORED_COURSE,
-  ACADEMY_PUBLIC_AUTHORED_COURSES,
-  ACADEMY_PUBLIC_COURSE_BY_LINK,
-  ACADEMY_PUBLIC_COURSE,
-  ACADEMY_PUBLIC_COURSES,
-  ACADEMY_PUBLIC_CURRICULUM_ITEM,
-  ACADEMY_PUBLIC_CURRICULUM,
-  ACADEMY_PUBLIC_CURRICULUM_RELATED,
-  ACADEMY_PUBLIC_HUB,
-  ACADEMY_PUBLIC_VIDEOS,
-  ACADEMY_RESIDENCY_PAY_QUOTE,
-  ACADEMY_SEASONS,
-  ACADEMY_SEND_COURSE_MESSAGE,
-  ACADEMY_STANDINGS,
-  ACADEMY_STREAM_CREDENTIAL,
-  ACADEMY_UNDO_CURRICULUM_COMPLETE,
-  ACADEMY_UNPIN_LESSON,
-  ACADEMY_UPLOAD_ASSIGNMENT_FILE,
-  ACADEMY_VIDEOS,
-  ACADEMY_WITHDRAW_RESIDENCY,
-  BANK_CASH_LEG_OFFERS,
-  BANK_CASH_LEG_CARRY,
-  BANK_CASH_LEG_READ,
+];
+
+const part_academy_my_access_grants_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_ACCESS_GRANTS];
+
+const part_academy_my_certs_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_CERTS];
+
+const part_academy_my_completions_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_COMPLETIONS];
+
+const part_academy_my_enrollments_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_ENROLLMENTS];
+
+const part_academy_my_learning_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_LEARNING];
+
+const part_academy_my_residencies_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_RESIDENCIES];
+
+const part_academy_open_course_conversation_procedures: readonly ProcedureRecord[] = [ACADEMY_OPEN_COURSE_CONVERSATION];
+
+const part_academy_open_residencies_procedures: readonly ProcedureRecord[] = [ACADEMY_OPEN_RESIDENCIES];
+
+const part_academy_paper_drill_procedures: readonly ProcedureRecord[] = [ACADEMY_PAPER_DRILL];
+
+const part_academy_paper_ops_status_procedures: readonly ProcedureRecord[] = [ACADEMY_PAPER_OPS_STATUS];
+
+const part_academy_peer_review_file_procedures: readonly ProcedureRecord[] = [ACADEMY_PEER_REVIEW_FILE];
+
+const part_academy_peer_review_procedures: readonly ProcedureRecord[] = [ACADEMY_PEER_REVIEW];
+
+const part_academy_pin_lesson_procedures: readonly ProcedureRecord[] = [ACADEMY_PIN_LESSON];
+
+const part_academy_procedures: readonly ProcedureRecord[] = [ACADEMY_INTERNAL_CURRICULUM];
+
+const part_academy_programme_procedures: readonly ProcedureRecord[] = [ACADEMY_PROGRAMME];
+
+const part_academy_programmes_procedures: readonly ProcedureRecord[] = [ACADEMY_PROGRAMMES];
+
+const part_academy_public_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_AUTHORED_COURSE];
+
+const part_academy_public_authored_courses_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_AUTHORED_COURSES];
+
+const part_academy_public_course_by_link_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_COURSE_BY_LINK];
+
+const part_academy_public_course_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_COURSE];
+
+const part_academy_public_courses_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_COURSES];
+
+const part_academy_public_curriculum_item_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_CURRICULUM_ITEM];
+
+const part_academy_public_curriculum_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_CURRICULUM];
+
+const part_academy_public_curriculum_related_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_CURRICULUM_RELATED];
+
+const part_academy_public_hub_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_HUB];
+
+const part_academy_public_videos_procedures: readonly ProcedureRecord[] = [ACADEMY_PUBLIC_VIDEOS];
+
+const part_academy_residency_pay_quote_procedures: readonly ProcedureRecord[] = [ACADEMY_RESIDENCY_PAY_QUOTE];
+
+const part_academy_seasons_procedures: readonly ProcedureRecord[] = [ACADEMY_SEASONS];
+
+const part_academy_send_course_message_procedures: readonly ProcedureRecord[] = [ACADEMY_SEND_COURSE_MESSAGE];
+
+const part_academy_standings_procedures: readonly ProcedureRecord[] = [ACADEMY_STANDINGS];
+
+const part_academy_stream_credential_procedures: readonly ProcedureRecord[] = [ACADEMY_STREAM_CREDENTIAL];
+
+const part_academy_undo_curriculum_complete_procedures: readonly ProcedureRecord[] = [ACADEMY_UNDO_CURRICULUM_COMPLETE];
+
+const part_academy_unpin_lesson_procedures: readonly ProcedureRecord[] = [ACADEMY_UNPIN_LESSON];
+
+const part_academy_upload_assignment_file_procedures: readonly ProcedureRecord[] = [ACADEMY_UPLOAD_ASSIGNMENT_FILE];
+
+const part_academy_video_playback_procedures: readonly ProcedureRecord[] = [ACADEMY_VIDEO_PLAYBACK];
+
+const part_academy_video_player_procedures: readonly ProcedureRecord[] = [ACADEMY_VIDEO_PLAYER];
+
+const part_academy_video_progress_procedures: readonly ProcedureRecord[] = [ACADEMY_VIDEO_PROGRESS_GET, ACADEMY_VIDEO_PROGRESS_SET];
+
+const part_academy_videos_procedures: readonly ProcedureRecord[] = [ACADEMY_VIDEOS];
+
+const part_academy_withdraw_residency_procedures: readonly ProcedureRecord[] = [ACADEMY_WITHDRAW_RESIDENCY];
+
+const part_agents_agent_procedures: readonly ProcedureRecord[] = [AGENTS_AGENT_GET, AGENTS_AGENT_CATALOGUE];
+
+const part_agents_analytics_procedures: readonly ProcedureRecord[] = [AGENTS_ANALYTICS_SUMMARY];
+
+const part_agents_coach_procedures: readonly ProcedureRecord[] = [AGENTS_COACH_SESSION];
+
+const part_agents_fleet_procedures: readonly ProcedureRecord[] = [
+  AGENTS_FLEET_REGISTRY,
+  AGENTS_FLEET_AUDIT,
+  AGENTS_FLEET_EXPORT,
+  AGENTS_FLEET_QUARANTINE,
+  AGENTS_FLEET_RESTORE,
+  AGENTS_FLEET_KILL_KIND,
+  AGENTS_FLEET_RESTORE_KIND,
+  AGENTS_FLEET_REASSIGN,
+];
+
+const part_agents_growth_procedures: readonly ProcedureRecord[] = [AGENTS_GROWTH_PROPOSE];
+
+const part_agents_launch_procedures: readonly ProcedureRecord[] = [AGENTS_LAUNCH_ASSESS];
+
+const part_agents_log_procedures: readonly ProcedureRecord[] = [AGENTS_LOG_MINE, AGENTS_LOG_COUNT, AGENTS_LOG_EXPORT];
+
+const part_agents_navigator_procedures: readonly ProcedureRecord[] = [
+  AGENTS_NAVIGATOR_ASK,
+  AGENTS_NAVIGATOR_ONCHAIN_SIGNER,
+  AGENTS_NAVIGATOR_ONCHAIN_BINDING,
+  AGENTS_NAVIGATOR_ONCHAIN_REVOKE,
+  AGENTS_NAVIGATOR_TRADING,
+  AGENTS_NAVIGATOR_ORDERS,
+];
+
+const part_agents_ops_alerts_procedures: readonly ProcedureRecord[] = [
+  AGENTS_OPS_ALERTS_DESK,
+  AGENTS_OPS_ALERTS_POLICY,
+  AGENTS_OPS_ALERTS_EVALUATE,
+  AGENTS_OPS_ALERTS_CREATE_RULE,
+  AGENTS_OPS_ALERTS_SET_NOTIFICATIONS,
+  AGENTS_OPS_ALERTS_SET_OVERRIDE,
+  AGENTS_OPS_ALERTS_CHECK_RULE,
+];
+
+const part_agents_ops_log_procedures: readonly ProcedureRecord[] = [
+  AGENTS_OPS_LOG_REASONS,
+  AGENTS_OPS_LOG_TRANSCRIPT,
+  AGENTS_OPS_LOG_ACTIONS,
+  AGENTS_OPS_LOG_EXPORT,
+];
+
+const part_agents_own_procedures: readonly ProcedureRecord[] = [
+  AGENTS_OWN_POLICY_GET,
+  AGENTS_OWN_ACCESS_GET,
+  AGENTS_OWN_ACCESS_GRANT,
+  AGENTS_OWN_TRADE_DRAFT,
+  AGENTS_OWN_SCHEDULES_CREATE,
+  AGENTS_OWN_TRIGGERS_CREATE,
+  AGENTS_OWN_CATALOGUE,
+  AGENTS_OWN_CREATE,
+  AGENTS_OWN_SAVE,
+  AGENTS_OWN_GET,
+  AGENTS_OWN_STATUS,
+  AGENTS_OWN_LIMITS_GET,
+  AGENTS_OWN_LIMITS_SET,
+  AGENTS_OWN_USAGE_LIMITS_GET,
+  AGENTS_OWN_USAGE_LIMITS_SET,
+  AGENTS_OWN_PAYMENT_METHOD_GET,
+  AGENTS_OWN_PAYMENT_METHOD_SET,
+  AGENTS_OWN_SESSION_OPEN,
+  AGENTS_OWN_RUN,
+  AGENTS_OWN_RUNS,
+  AGENTS_OWN_SESSION_CLOSE,
+  AGENTS_OWN_BACKGROUND_RUNS,
+  AGENTS_OWN_USAGE,
+  AGENTS_OWN_USAGE_BY_DAY,
+  AGENTS_OWN_PUBLICATION,
+  AGENTS_OWN_PUBLISH,
+  AGENTS_OWN_CO_OWNERS_LIST,
+  AGENTS_OWN_CO_OWNERS_ADD,
+  AGENTS_OWN_CO_OWNERS_REMOVE,
+  AGENTS_OWN_LIST,
+  AGENTS_OWN_SHARED_WITH_ME,
+  AGENTS_OWN_DELETE,
+  AGENTS_OWN_EVALS_GET,
+  AGENTS_OWN_EVALS_START,
+  AGENTS_OWN_RULES_LIST,
+  AGENTS_OWN_RULES_SAVE,
+  AGENTS_OWN_CONSENTS_LIST,
+  AGENTS_OWN_CONSENTS_REVOKE,
+  AGENTS_OWN_CONSENTS_GRANT,
+  AGENTS_OWN_IDENTITY_GET,
+  AGENTS_OWN_IDENTITY_ISSUE,
+  AGENTS_OWN_IDENTITY_REVOKE,
+  AGENTS_OWN_ASSISTANT_STATE,
+  AGENTS_OWN_ASSISTANT_DRAFT,
+  AGENTS_OWN_ASSISTANT_ACCEPT,
+  AGENTS_OWN_MEMORY_GET,
+  AGENTS_OWN_MEMORY_SET_ENABLED,
+  AGENTS_OWN_MEMORY_CLEAR,
+  AGENTS_OWN_PRIVACY_GET,
+  AGENTS_OWN_PRIVACY_KEEP_TRANSCRIPTS,
+  AGENTS_OWN_SHARE_GET,
+  AGENTS_OWN_SHARE_CHECK,
+  AGENTS_OWN_SHARE_SET,
+  AGENTS_OWN_REVIEWER_GET,
+  AGENTS_OWN_REVIEW_LIST,
+  AGENTS_OWN_REVIEWER_SET,
+  AGENTS_OWN_TEST_APPROVE,
+  AGENTS_OWN_BACKGROUND_RUN,
+  AGENTS_OWN_TEST_RUN,
+  AGENTS_OWN_TOOL_TEST,
+  AGENTS_OWN_TEST_RUNS,
+  AGENTS_OWN_ANALYTICS,
+];
+
+const part_agents_routes_procedures: readonly ProcedureRecord[] = [AGENTS_ROUTES_DESK, AGENTS_ROUTES_PROPOSE, AGENTS_ROUTES_LIST];
+
+const part_agents_run_procedures: readonly ProcedureRecord[] = [
+  AGENTS_RUN_BACKGROUND_GET,
+  AGENTS_RUN_BACKGROUND_PAUSE,
+  AGENTS_RUN_BACKGROUND_RESUME,
+  AGENTS_RUN_BACKGROUND_STOP,
+  AGENTS_RUN_BACKGROUND_ASK_MORE,
+  AGENTS_RUN_BACKGROUND_START,
+  AGENTS_RUN_COMPLETE,
+  AGENTS_RUN_TRACE,
+];
+
+const part_agents_session_procedures: readonly ProcedureRecord[] = [
+  AGENTS_SESSION_SELECT,
+  AGENTS_SESSION_SELECTED,
+  AGENTS_SESSION_LOG,
+  AGENTS_SESSION_DETAIL,
+  AGENTS_SESSION_CLOSE,
+  AGENTS_SESSION_OPEN,
+];
+
+const part_agents_team_procedures: readonly ProcedureRecord[] = [
+  AGENTS_TEAM_VIEW,
+  AGENTS_TEAM_GRANTS_SET,
+  AGENTS_TEAM_POOL_SET,
+  AGENTS_TEAM_PROJECTS_CREATE,
+  AGENTS_TEAM_RUNS_OPEN,
+  AGENTS_TEAM_RUNS_RUN,
+  AGENTS_TEAM_RUNS_CLOSE,
+  AGENTS_TEAM_ACTIONS_LIST,
+  AGENTS_TEAM_ACTIONS_HOLD,
+  AGENTS_TEAM_ACTIONS_APPROVE,
+  AGENTS_TEAM_USAGE,
+];
+
+const part_agents_usage_procedures: readonly ProcedureRecord[] = [AGENTS_USAGE_CURRENT, AGENTS_USAGE_SUMMARY];
+
+const part_agents_webhooks_procedures: readonly ProcedureRecord[] = [
+  AGENTS_WEBHOOK_REGISTER,
+  AGENTS_WEBHOOK_LIST,
+  AGENTS_WEBHOOK_DELIVERIES,
+];
+
+const part_bank_cash_leg_procedures: readonly ProcedureRecord[] = [BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ];
+
+const part_bank_credit_preview_procedures: readonly ProcedureRecord[] = [
   BANK_CREDIT_PREVIEWS_OVERVIEW,
   BANK_CREDIT_PREVIEWS_SCHEDULE,
   BANK_CREDIT_PREVIEWS_REVOLVING,
@@ -1196,15 +2079,19 @@ const part0: readonly ProcedureRecord[] = [
   BANK_CREDIT_CARD_PREVIEW,
   BANK_CREDIT_CARD_APPLICATION,
   BANK_OPS_FRAUD_PREVIEW,
+];
+
+const part_bank_deposit_procedures: readonly ProcedureRecord[] = [
   BANK_DEPOSITS_ASSETS,
   BANK_DEPOSITS_ADDRESS,
   BANK_DEPOSITS_ADDRESSES_LIST,
-];
-const part1: readonly ProcedureRecord[] = [
   BANK_DEPOSITS_ADDRESSES_CREATE,
   BANK_DEPOSITS_ADDRESSES_LABEL,
   BANK_DEPOSITS_PENDING,
   BANK_DEPOSITS_LIST,
+];
+
+const part_bank_global_procedures: readonly ProcedureRecord[] = [
   BANK_GLOBAL_PARTNER,
   BANK_GLOBAL_CORRIDORS_LIST,
   BANK_GLOBAL_RECIPIENTS_VALIDATE,
@@ -1219,6 +2106,9 @@ const part1: readonly ProcedureRecord[] = [
   BANK_GLOBAL_CANCEL,
   BANK_GLOBAL_RECALL,
   BANK_GLOBAL_RECEIPT,
+];
+
+const part_bank_personal_request_procedures: readonly ProcedureRecord[] = [
   BANK_PERSONAL_REQUEST_CREATE,
   BANK_PERSONAL_REQUEST_LIST,
   BANK_PERSONAL_REQUEST_GET,
@@ -1228,7 +2118,11 @@ const part1: readonly ProcedureRecord[] = [
   BANK_PERSONAL_REQUEST_REMINDERS,
   BANK_PERSONAL_REQUEST_REPORT,
   BANK_PERSONAL_REQUEST_SAFETY,
-  BANK_SPACES_LIST,
+];
+
+const part_bank_spaces_list: readonly ProcedureRecord[] = [BANK_SPACES_LIST];
+
+const part_blueprint_procedures: readonly ProcedureRecord[] = [
   BLUEPRINT_HEALTH,
   BLUEPRINT_ONBOARD,
   BLUEPRINT_ME,
@@ -1242,6 +2136,19 @@ const part1: readonly ProcedureRecord[] = [
   BLUEPRINT_MENTORS,
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
+];
+
+const part_campaigns_distribution_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_DISTRIBUTION_MINE];
+
+const part_campaigns_drops_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM];
+
+const part_campaigns_points_procedures: readonly ProcedureRecord[] = [
+  CAMPAIGNS_POINTS_PROGRAMME,
+  CAMPAIGNS_POINTS_CONVERT,
+  CAMPAIGNS_POINTS_REDEEM,
+];
+
+const part_campaigns_procedures: readonly ProcedureRecord[] = [
   CAMPAIGNS_PARTICIPATION_JOIN,
   CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW,
   CAMPAIGNS_COMPETITION_BOARD,
@@ -1275,6 +2182,17 @@ const part1: readonly ProcedureRecord[] = [
   CAMPAIGNS_OPS_CAMPAIGNS_CODES_PUBLISH,
   CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_REQUEST,
   CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_DOWNLOAD,
+];
+
+const part_campaigns_referral_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_REFERRAL_INVITEES];
+
+const part_campaigns_rewards_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_REWARDS_MINE];
+
+const part_campaigns_tasks_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM];
+
+const part_campaigns_tge_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_TGE_CLAIM];
+
+const part_dex_procedures: readonly ProcedureRecord[] = [
   DEX_HEALTH,
   DEX_QUOTE,
   DEX_AUTH_CHALLENGE,
@@ -1283,12 +2201,105 @@ const part1: readonly ProcedureRecord[] = [
   DEX_AUTH_LOGOUT,
   DEX_AUTH_LOGOUT_ALL,
   DEX_ORDERS_COUNT,
-  EXECUTION_SPINE,
-  FIX_ADAPTER_STATUS,
-  FIX_DROP_COPY_FILL,
-  IDENTITY_ACTION_APPROVAL_LIST,
-  IDENTITY_API_VERSION_GET,
-  IDENTITY_API_VERSION_SET,
+];
+
+const part_execution_procedures: readonly ProcedureRecord[] = [EXECUTION_SPINE];
+
+const part_fix_procedures: readonly ProcedureRecord[] = [FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL];
+
+const part_identity_account_appeal_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_ACCOUNT_APPEAL_MINE,
+  IDENTITY_ACCOUNT_APPEAL_SUBMIT,
+  IDENTITY_ACCOUNT_APPEAL_SUBMIT_SIGNED_OUT,
+];
+
+const part_identity_account_closure_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_ACCOUNT_CLOSURE_STATUS,
+  IDENTITY_ACCOUNT_CLOSURE_CHECK,
+  IDENTITY_ACCOUNT_CLOSURE_REQUEST,
+  IDENTITY_ACCOUNT_CLOSURE_CANCEL,
+];
+
+const part_identity_account_controls_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
+  IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE,
+  IDENTITY_ACCOUNT_CONTROLS_TIERS,
+];
+
+const part_identity_account_directory_procedures: readonly ProcedureRecord[] = [IDENTITY_ACCOUNT_DIRECTORY_HANDLES];
+
+const part_identity_account_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+  IDENTITY_ACCOUNT_COMPROMISED_MINE,
+  IDENTITY_ACCOUNT_COMPROMISED_START,
+  IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+  IDENTITY_ACCOUNT_SAFETY_READ,
+];
+
+const part_identity_action_approval_procedures: readonly ProcedureRecord[] = [IDENTITY_ACTION_APPROVAL_LIST];
+
+const part_identity_action_approval_records: readonly ProcedureRecord[] = [
+  IDENTITY_ACTION_APPROVAL_REJECT,
+  IDENTITY_ACTION_APPROVAL_PROPOSE,
+  IDENTITY_ACTION_APPROVAL_APPROVE,
+  IDENTITY_ACTION_APPROVAL_POLICIES,
+  IDENTITY_ACTION_APPROVAL_REVOKE,
+];
+
+const part_identity_affiliates_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_AFFILIATES_MY_PARTNER_APPLICATION,
+  IDENTITY_AFFILIATES_PARTNER_ELIGIBILITY,
+  IDENTITY_AFFILIATES_APPLY_PARTNER,
+  IDENTITY_AFFILIATES_MY_SUB_TREE,
+  IDENTITY_AFFILIATES_CREATE_SHARE,
+  IDENTITY_AFFILIATES_REVOKE_SHARE,
+  IDENTITY_AFFILIATES_MY_CODE,
+  IDENTITY_AFFILIATES_CREATE_CODE,
+  IDENTITY_AFFILIATES_MY_REFERRER,
+  IDENTITY_AFFILIATES_MY_LAPSE,
+  IDENTITY_AFFILIATES_MY_ANCESTORS,
+  IDENTITY_AFFILIATES_MY_ACCRUALS,
+  IDENTITY_AFFILIATES_SHARE_STATS,
+  IDENTITY_AFFILIATES_SHARE_TAG,
+  IDENTITY_AFFILIATES_ATTACH_WINDOW,
+  IDENTITY_AFFILIATES_MY_REBIND,
+  IDENTITY_AFFILIATES_WITHDRAW_REBIND,
+  IDENTITY_AFFILIATES_SHARE_TAG_HIT,
+];
+
+const part_identity_api_key_ops_procedures: readonly ProcedureRecord[] = [IDENTITY_API_KEY_OPS_REVOKE];
+
+const part_identity_api_keys_procedures: readonly ProcedureRecord[] = [IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE];
+
+const part_identity_api_rate_tiers_procedures: readonly ProcedureRecord[] = [IDENTITY_API_RATE_TIERS];
+
+const part_identity_api_version_procedures: readonly ProcedureRecord[] = [IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET];
+
+const part_identity_auth_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_AUTH_CHALLENGE,
+  IDENTITY_AUTH_DEVICE_APPROVE,
+  IDENTITY_AUTH_DEVICE_COMPLETE,
+  IDENTITY_AUTH_CHANGE_PASSWORD,
+  IDENTITY_AUTH_SELF_FREEZE_STATUS,
+  IDENTITY_AUTH_SELF_FREEZE,
+  IDENTITY_AUTH_REQUEST_EMAIL_CONFIRMATION,
+  IDENTITY_AUTH_LOGIN_CODE_REQUEST,
+  IDENTITY_AUTH_LOGIN_WITH_CODE,
+  IDENTITY_AUTH_LOGIN_CODE_RESEND,
+  IDENTITY_AUTH_CONFIRM_EMAIL,
+  IDENTITY_AUTH_REQUEST_HANDLE_RECOVERY,
+  IDENTITY_AUTH_PASSWORD_RESET_LIMITS,
+  IDENTITY_AUTH_REQUEST_PASSWORD_RESET,
+  IDENTITY_AUTH_COMPLETE_PASSWORD_RESET,
+  IDENTITY_AUTH_SIGN_UP_PASSWORD_SCREENING,
+  IDENTITY_AUTH_SIGN_UP_START,
+  IDENTITY_AUTH_SIGN_UP_RESEND,
+  IDENTITY_AUTH_OAUTH_START,
+  IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
+];
+
+const part_identity_developer_keys_procedures: readonly ProcedureRecord[] = [
   IDENTITY_DEVELOPER_KEYS_LIST,
   IDENTITY_DEVELOPER_KEYS_GET,
   IDENTITY_DEVELOPER_KEYS_REVOKE,
@@ -1302,19 +2313,78 @@ const part1: readonly ProcedureRecord[] = [
   IDENTITY_DEVELOPER_KEYS_CALLS,
   IDENTITY_DEVELOPER_KEYS_RECORD_CALL,
   IDENTITY_DEVELOPER_KEYS_HOLD_AGENT_ACTION,
+];
+
+const part_identity_developer_sandboxes_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_DEVELOPER_SANDBOXES_LIST,
+  IDENTITY_DEVELOPER_SANDBOXES_GET,
+  IDENTITY_DEVELOPER_SANDBOXES_CREATE,
+];
+
+const part_identity_developer_support_procedures: readonly ProcedureRecord[] = [
   IDENTITY_DEVELOPER_SUPPORT_KEYS,
   IDENTITY_DEVELOPER_SUPPORT_CALLS,
+];
+
+const part_identity_factor_status_procedures: readonly ProcedureRecord[] = [IDENTITY_FACTOR_STATUS];
+
+const part_identity_freeze_link_procedures: readonly ProcedureRecord[] = [IDENTITY_FREEZE_LINK_REDEEM];
+
+const part_identity_handle_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_HANDLE_GET,
+  IDENTITY_HANDLE_CHANGE,
+  IDENTITY_HANDLE_SET_DISCOVERABLE,
+];
+
+const part_identity_handles: readonly ProcedureRecord[] = [
   IDENTITY_ME,
   IDENTITY_USERS_RESOLVE_HANDLE,
   IDENTITY_USERS_SEARCH_PAYEES,
   IDENTITY_USERS_PAYEE_CARD,
   IDENTITY_QR_MINE,
   IDENTITY_QR_RESOLVE,
+];
+
+const part_identity_kyc_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_KYC_HISTORY_FOR,
+  IDENTITY_KYC_SELFIE_LIST_FOR,
+  IDENTITY_KYC_SELFIE_DECIDE,
+  IDENTITY_KYC_PENDING,
+  IDENTITY_KYC_REJECT,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
+  IDENTITY_KYC_CAPABILITIES_GET_FOR,
+  IDENTITY_KYC_CAPABILITIES_SET,
+  IDENTITY_KYC_SUBMIT,
+  IDENTITY_KYC_ATTEMPTS_READ,
+  IDENTITY_KYC_CAPABILITIES_GET,
+  IDENTITY_KYC_HISTORY,
+  IDENTITY_KYC_LEVELS_DESCRIBE,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_READ,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT,
+  IDENTITY_KYC_SELFIE_READ,
+  IDENTITY_KYC_SELFIE_SUBMIT,
+  IDENTITY_KYC_SELFIE_HANDOFF_START,
+  IDENTITY_KYC_TRADING_CHECKS_READ,
+  IDENTITY_KYC_TRADING_CHECKS_RUN,
+];
+
+const part_identity_kyc_profile_procedures: readonly ProcedureRecord[] = [
   IDENTITY_KYC_DOCUMENT_TYPES_READ,
   IDENTITY_KYC_PROFILE_READ,
   IDENTITY_KYC_PROFILE_START,
   IDENTITY_KYC_PROFILE_UPLOAD,
   IDENTITY_KYC_PROFILE_SUBMIT,
+];
+
+const part_identity_learner_card_procedures: readonly ProcedureRecord[] = [IDENTITY_LEARNER_CARD_LOOKUP];
+
+const part_identity_link_provider_start_procedures: readonly ProcedureRecord[] = [IDENTITY_LINK_PROVIDER_START];
+
+const part_identity_link_signin_method_procedures: readonly ProcedureRecord[] = [IDENTITY_LINK_SIGNIN_METHOD];
+
+const part_identity_mfa_reset_procedures: readonly ProcedureRecord[] = [IDENTITY_MFA_RESET_STATUS, IDENTITY_MFA_RESET_CANCEL];
+
+const part_identity_oauth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_OAUTH_APPS_REGISTER,
   IDENTITY_OAUTH_APPS_LIST,
   IDENTITY_OAUTH_APPS_ROLL_SECRET,
@@ -1324,9 +2394,88 @@ const part1: readonly ProcedureRecord[] = [
   IDENTITY_OAUTH_AUTHORIZE_DECIDE,
   IDENTITY_OAUTH_LIFETIMES,
   IDENTITY_OAUTH_TOKEN,
+];
+
+const part_identity_profile_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_PROFILE_GET,
+  IDENTITY_PROFILE_ANTI_PHISHING_GET,
+  IDENTITY_PROFILE_ANTI_PHISHING_SET,
+];
+
+const part_identity_receive_contacts_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_RECEIVE_CONTACTS_LIST,
+  IDENTITY_RECEIVE_CONTACTS_ADD,
+  IDENTITY_RECEIVE_CONTACTS_VERIFY,
+  IDENTITY_RECEIVE_CONTACTS_REMOVE,
+];
+
+const part_identity_recipients_procedures: readonly ProcedureRecord[] = [
   IDENTITY_RECIPIENTS_LIST,
   IDENTITY_RECIPIENTS_ADD,
   IDENTITY_RECIPIENTS_REMOVE,
+];
+
+const part_identity_revoke_all_api_keys_procedures: readonly ProcedureRecord[] = [IDENTITY_REVOKE_ALL_API_KEYS];
+
+const part_identity_revoke_other_sessions_procedures: readonly ProcedureRecord[] = [IDENTITY_REVOKE_OTHER_SESSIONS];
+
+const part_identity_revoke_session_family_procedures: readonly ProcedureRecord[] = [IDENTITY_REVOKE_SESSION_FAMILY];
+
+const part_identity_security_lock_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_SECURITY_LOCK_READ,
+  IDENTITY_SECURITY_LOCK_SET,
+  IDENTITY_SECURITY_LOCK_REQUEST_UNLOCK,
+];
+
+const part_identity_self_freeze_manage_procedures: readonly ProcedureRecord[] = [IDENTITY_SELF_FREEZE_MANAGE_LIFT];
+
+const part_identity_session_settings_procedures: readonly ProcedureRecord[] = [IDENTITY_SESSION_SETTINGS];
+
+const part_identity_set_idle_signout_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_IDLE_SIGNOUT];
+
+const part_identity_signin_methods_procedures: readonly ProcedureRecord[] = [IDENTITY_SIGNIN_METHODS];
+
+const part_identity_sub_accounts_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_SUB_ACCOUNTS_CREATE,
+  IDENTITY_SUB_ACCOUNTS_REVOKE,
+  IDENTITY_SUB_ACCOUNTS_DELETE_CHECK,
+  IDENTITY_SUB_ACCOUNTS_DELETE,
+  IDENTITY_SUB_ACCOUNTS_GET_FEATURES,
+  IDENTITY_SUB_ACCOUNTS_ASSETS,
+  IDENTITY_SUB_ACCOUNTS_SET_FEATURES,
+];
+
+const part_identity_support_recovery_procedures: readonly ProcedureRecord[] = [IDENTITY_SUPPORT_RECOVERY_REDEEM];
+
+const part_identity_totp_manage_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_TOTP_MANAGE_STATUS,
+  IDENTITY_TOTP_MANAGE_REPLACE_START,
+  IDENTITY_TOTP_MANAGE_DISABLE,
+  IDENTITY_TOTP_MANAGE_RENAME,
+];
+
+const part_identity_totp_procedures: readonly ProcedureRecord[] = [IDENTITY_TOTP_ENROL];
+
+const part_identity_trusted_devices_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_TRUSTED_DEVICES_LIST,
+  IDENTITY_TRUSTED_DEVICES_REMOVE,
+  IDENTITY_TRUSTED_DEVICES_APPROVE,
+  IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN,
+];
+
+const part_identity_unlink_signin_method_procedures: readonly ProcedureRecord[] = [IDENTITY_UNLINK_SIGNIN_METHOD];
+
+const part_identity_waitlist_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_WAITLIST_WAVES_LIST,
+  IDENTITY_WAITLIST_WAVES_RELEASE,
+  IDENTITY_WAITLIST_MINE,
+];
+
+const part_identity_wallet_link_challenge_procedures: readonly ProcedureRecord[] = [IDENTITY_WALLET_LINK_CHALLENGE];
+
+const part_identity_webauthn_procedures: readonly ProcedureRecord[] = [IDENTITY_WEBAUTHN_REMOVE];
+
+const part_indexer_procedures: readonly ProcedureRecord[] = [
   INDEXER_EXPLORER_BLOCKS_LIST,
   INDEXER_EXPLORER_BLOCKS_GET,
   INDEXER_EXPLORER_TXS_LIST,
@@ -1344,6 +2493,9 @@ const part1: readonly ProcedureRecord[] = [
   INDEXER_STATUS,
   INDEXER_BOOK,
   INDEXER_POSITIONS,
+];
+
+const part_market_procedures: readonly ProcedureRecord[] = [
   MARKET_APPLY_AS_VENDOR,
   MARKET_MINE,
   MARKET_RELEASE_SLOT,
@@ -1378,6 +2530,9 @@ const part1: readonly ProcedureRecord[] = [
   MARKET_VET,
   MARKET_OPS_SALES,
   MARKET_OPS_TAKEDOWN_LISTING,
+];
+
+const part_mining_procedures: readonly ProcedureRecord[] = [
   MINING_WORKERS_MINE,
   MINING_WORKERS_SET_DIFFICULTY,
   MINING_WORKERS_SET_MODE,
@@ -1395,14 +2550,17 @@ const part1: readonly ProcedureRecord[] = [
   MINING_CONNECTION,
   MINING_POW,
   MINING_PROBE,
-  NOTIFY_HEALTH,
-  NOTIFY_INBOX_POLICY,
-  NOTIFY_NAV_METRICS_SEARCH_MISSES,
-  NOTIFY_NAV_METRICS_SEARCH_MISS,
+];
+
+const part_notify_health_procedures: readonly ProcedureRecord[] = [NOTIFY_HEALTH];
+
+const part_notify_inbox_policy: readonly ProcedureRecord[] = [NOTIFY_INBOX_POLICY];
+
+const part_notify_nav_metrics_procedures: readonly ProcedureRecord[] = [NOTIFY_NAV_METRICS_SEARCH_MISSES, NOTIFY_NAV_METRICS_SEARCH_MISS];
+
+const part_notify_notify_procedures: readonly ProcedureRecord[] = [
   NOTIFY_CHANNEL_SETTINGS,
   NOTIFY_TEMPLATES,
-];
-const part2: readonly ProcedureRecord[] = [
   NOTIFY_OPERATOR_NOTICES,
   NOTIFY_DRAFT_NOTICE,
   NOTIFY_NOTICE_PROPOSAL,
@@ -1437,6 +2595,9 @@ const part2: readonly ProcedureRecord[] = [
   NOTIFY_CHANGELOG,
   NOTIFY_UPCOMING_CHANGES,
   NOTIFY_LIST,
+];
+
+const part_notify_procedures: readonly ProcedureRecord[] = [
   NOTIFY_UNREAD_COUNT,
   NOTIFY_MARK_READ,
   NOTIFY_MARK_ALL_READ,
@@ -1447,7 +2608,11 @@ const part2: readonly ProcedureRecord[] = [
   NOTIFY_VERIFY_TARGET,
   NOTIFY_REMOVE_TARGET,
   NOTIFY_DELIVERIES,
-  NOTIFY_RECONCILIATION_ALERT_FEED_LIST,
+];
+
+const part_notify_reconciliation_alert_feed_procedures: readonly ProcedureRecord[] = [NOTIFY_RECONCILIATION_ALERT_FEED_LIST];
+
+const part_notify_status_page_procedures: readonly ProcedureRecord[] = [
   NOTIFY_STATUS_PAGE_POSTMORTEMS_FOR_INCIDENTS,
   NOTIFY_STATUS_PAGE_TEMPLATES_LIST,
   NOTIFY_STATUS_PAGE_DEFINITION,
@@ -1466,20 +2631,71 @@ const part2: readonly ProcedureRecord[] = [
   NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_RESEND,
   NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT,
   NOTIFY_STATUS_PAGE_CONFIGURE,
-  OPS_HOME_CONFIG,
-  OPS_VALUATION_PRICES,
-  OPS_OUTREACH_PUBLIC_SETTINGS,
+];
+
+const part_ops_alerts_procedures: readonly ProcedureRecord[] = [
+  OPS_ALERTS_LIST,
+  OPS_ALERTS_PERIODS,
+  OPS_ALERTS_PLATFORM_INCIDENTS,
+  OPS_ALERTS_GET,
+];
+
+const part_ops_capital_procedures: readonly ProcedureRecord[] = [OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD];
+
+const part_ops_compliance_procedures: readonly ProcedureRecord[] = [
+  OPS_COMPLIANCE_INBOXES_SET_FAVOURITE,
+  OPS_COMPLIANCE_INBOXES_DEFINE,
+  OPS_COMPLIANCE_INBOXES_LIST,
+  OPS_COMPLIANCE_CASES_LIST,
+  OPS_COMPLIANCE_INBOXES_ACCESS,
+  OPS_COMPLIANCE_CASES_GET_BY_ID,
+  OPS_COMPLIANCE_CASES_NEXT,
+];
+
+const part_ops_console_mode_procedures: readonly ProcedureRecord[] = [OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET];
+
+const part_ops_outreach_procedures: readonly ProcedureRecord[] = [
+  OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+  OPS_OUTREACH_OWNERS,
+  OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+];
+
+const part_ops_preferences_procedures: readonly ProcedureRecord[] = [OPS_PREFERENCES_GET, OPS_PREFERENCES_SET];
+
+const part_ops_protocol_listing_procedures: readonly ProcedureRecord[] = [
+  OPS_PROTOCOL_LISTING_POOLS_LIST,
+  OPS_PROTOCOL_LISTING_MARKETS_LIST,
+  OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+];
+
+const part_ops_public_procedures: readonly ProcedureRecord[] = [OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS];
+
+const part_ops_record_venue_cost_procedures: readonly ProcedureRecord[] = [OPS_RECORD_VENUE_COST];
+
+const part_ops_restore_procedures: readonly ProcedureRecord[] = [OPS_RESTORE_WATERMARKS];
+
+const part_ops_staff_holds_procedures: readonly ProcedureRecord[] = [OPS_STAFF_HOLDS_LIST];
+
+const part_ops_venue_economics_procedures: readonly ProcedureRecord[] = [OPS_VENUE_ECONOMICS];
+
+const part_p2p_disputes_procedures: readonly ProcedureRecord[] = [
   P2P_DISPUTES_BACKLOG,
   P2P_DISPUTES_LIST,
   P2P_DISPUTES_ESCALATE,
   P2P_DISPUTES_GET,
   P2P_DISPUTES_OPEN,
   P2P_DISPUTES_APPEND_EVIDENCE,
+];
+
+const part_p2p_ops_procedures: readonly ProcedureRecord[] = [
   P2P_OPS_OFFERS,
   P2P_OPS_TRADES,
   P2P_OPS_LATE_SETTLEMENTS,
   P2P_OPS_COUNTS,
   P2P_OPS_DISPUTE_RATE24H,
+];
+
+const part_p2p_procedures: readonly ProcedureRecord[] = [
   P2P_HEALTH,
   P2P_FIAT_LIST,
   P2P_FEES_SCHEDULE,
@@ -1571,6 +2787,9 @@ const part2: readonly ProcedureRecord[] = [
   P2P_INSTRUMENTS_REVEAL,
   P2P_INSTRUMENTS_REVEAL_MASKED,
   P2P_INSTRUMENTS_ACCESS_LOG,
+];
+
+const part_pay_allowlist_procedures: readonly ProcedureRecord[] = [
   PAY_ALLOWLIST_MODE,
   PAY_ALLOWLIST_POLICY,
   PAY_ALLOWLIST_SET_MODE,
@@ -1584,10 +2803,45 @@ const part2: readonly ProcedureRecord[] = [
   PAY_ALLOWLIST_LIST_ENTRIES,
   PAY_ALLOWLIST_LIST_CHANGES,
   PAY_ALLOWLIST_LIST_FOR_TEAM,
+];
+
+const part_pay_checkout_procedures: readonly ProcedureRecord[] = [PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN];
+
+const part_pay_deposit_procedures: readonly ProcedureRecord[] = [PAY_DEPOSIT_CREDIT];
+
+const part_pay_halt_procedures: readonly ProcedureRecord[] = [
   PAY_HALTS_OPERATOR_STATUS,
   PAY_HALTS_SET,
   PAY_HALTS_HISTORY,
   PAY_HALTS_PENDING_CLEARS,
+];
+
+const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
+  PAY_KYB_DOCUMENTS_FILE,
+  PAY_KYB_REQUESTS_FILE,
+  PAY_KYB_REQUESTS_REVIEW_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+];
+
+const part_pay_merchant_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_STARTER_FEE, PAY_MERCHANT_ME];
+
+const part_pay_payment_procedures: readonly ProcedureRecord[] = [PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY];
+
+const part_pay_resolve_link_procedures: readonly ProcedureRecord[] = [PAY_RESOLVE_LINK];
+
+const part_pay_sandbox_funds_procedures: readonly ProcedureRecord[] = [
+  PAY_SANDBOX_FUNDS_BALANCE,
+  PAY_SANDBOX_FUNDS_FUND,
+  PAY_SANDBOX_FUNDS_RESET,
+];
+
+const part_pay_withdrawal_approval_procedures: readonly ProcedureRecord[] = [
+  PAY_WITHDRAWAL_APPROVAL_LIST,
+  PAY_WITHDRAWAL_APPROVAL_GET,
+  PAY_WITHDRAWAL_APPROVAL_CANCEL,
+];
+
+const part_pay_withdrawal_procedures: readonly ProcedureRecord[] = [
   PAY_WITHDRAWAL_LIMITS,
   PAY_WITHDRAWAL_TIER_LIMITS,
   PAY_WITHDRAWAL_NETWORK_RULES,
@@ -1597,6 +2851,9 @@ const part2: readonly ProcedureRecord[] = [
   PAY_WITHDRAWAL_CANCEL,
   PAY_WITHDRAWAL_GET,
   PAY_WITHDRAWAL_HISTORY,
+];
+
+const part_protocol_amm_procedures: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_PAIRS,
   PROTOCOL_AMM_PRICES,
   PROTOCOL_AMM_SWAP_SETTINGS,
@@ -1614,8 +2871,6 @@ const part2: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_V2_SETTINGS,
   PROTOCOL_AMM_APPROVAL_ROUTE,
   PROTOCOL_AMM_BUILD_PERMIT,
-];
-const part3: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_PATHS,
   PROTOCOL_AMM_BUILD_SWAP_V2,
   PROTOCOL_AMM_FEE_TIERS,
@@ -1633,6 +2888,9 @@ const part3: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_EXPLAIN_LIQUIDITY_CALL,
   PROTOCOL_AMM_POOL_FEES,
   PROTOCOL_AMM_REQUEST_PROTOCOL_FEE,
+];
+
+const part_protocol_chain_procedures: readonly ProcedureRecord[] = [
   PROTOCOL_ESCROW_STATUS,
   PROTOCOL_ESCROW_DEAL,
   PROTOCOL_ESCROW_BUILD,
@@ -1658,6 +2916,9 @@ const part3: readonly ProcedureRecord[] = [
   PROTOCOL_CLAIM_LINK_GET,
   PROTOCOL_CLAIM_LINK_LIST,
   PROTOCOL_TX_BUILD_REPLACEMENT,
+];
+
+const part_protocol_procedures: readonly ProcedureRecord[] = [
   PROTOCOL_HEALTH,
   PROTOCOL_AUDIT_STATUS,
   PROTOCOL_AUDIT_PRODUCTS,
@@ -1676,6 +2937,9 @@ const part3: readonly ProcedureRecord[] = [
   PROTOCOL_REPRESENTATION_STATUS,
   PROTOCOL_REPRESENTATION_ACCEPT,
   PROTOCOL_SESSIONS_LIST,
+];
+
+const part_protocol_wallet_procedures: readonly ProcedureRecord[] = [
   PROTOCOL_WALLET_SESSION_CHALLENGE,
   PROTOCOL_WALLET_SESSION_OPEN,
   PROTOCOL_ADDRESS_BOOK_LIST,
@@ -1708,12 +2972,18 @@ const part3: readonly ProcedureRecord[] = [
   PROTOCOL_VENUE_WALLET_AUTHORIZE,
   PROTOCOL_EMBEDDED_WALLET_STATUS,
   PROTOCOL_EMBEDDED_WALLET_CREATE,
-  QUANT_ALERT_LIST,
-  QUANT_ALERT_CREATE,
+];
+
+const part_quant_alert_procedures: readonly ProcedureRecord[] = [QUANT_ALERT_LIST, QUANT_ALERT_CREATE];
+
+const part_quant_approval_procedures: readonly ProcedureRecord[] = [
   QUANT_APPROVAL_GET,
   QUANT_APPROVAL_POLICY_SET,
   QUANT_APPROVAL_REQUEST,
   QUANT_APPROVAL_DECIDE,
+];
+
+const part_quant_backtest_procedures: readonly ProcedureRecord[] = [
   QUANT_BACKTEST_RUN,
   QUANT_BACKTEST_FEE,
   QUANT_BACKTEST_ACCOUNT_RULES,
@@ -1722,8 +2992,13 @@ const part3: readonly ProcedureRecord[] = [
   QUANT_BACKTEST_MONTE_CARLO,
   QUANT_BACKTEST_HISTORY,
   QUANT_BACKTEST_RENAME,
-  QUANT_HEALTH,
-  QUANT_LAKE_CATALOGUE,
+];
+
+const part_quant_health_procedures: readonly ProcedureRecord[] = [QUANT_HEALTH];
+
+const part_quant_lake_procedures: readonly ProcedureRecord[] = [QUANT_LAKE_CATALOGUE];
+
+const part_quant_library_procedures: readonly ProcedureRecord[] = [
   QUANT_LIBRARY_OPTIONS,
   QUANT_LIBRARY_CHECK,
   QUANT_LIBRARY_PUBLISH,
@@ -1737,9 +3012,13 @@ const part3: readonly ProcedureRecord[] = [
   QUANT_LIBRARY_CLONE,
   QUANT_LIBRARY_LINEAGE,
   QUANT_LIBRARY_REVIEW,
-  QUANT_LIMITS_GET,
-  QUANT_LIVE_CHECK,
-  QUANT_LIVE_DEPLOY,
+];
+
+const part_quant_limits_procedures: readonly ProcedureRecord[] = [QUANT_LIMITS_GET];
+
+const part_quant_live_procedures: readonly ProcedureRecord[] = [QUANT_LIVE_CHECK, QUANT_LIVE_DEPLOY];
+
+const part_quant_ops_procedures: readonly ProcedureRecord[] = [
   QUANT_OPS_LIBRARY_QUEUE,
   QUANT_OPS_LIBRARY_HIDE,
   QUANT_OPS_LIBRARY_UNHIDE,
@@ -1752,20 +3031,27 @@ const part3: readonly ProcedureRecord[] = [
   QUANT_OPS_QUOTA_ASSIGN,
   QUANT_OPS_SANDBOX_CORPUS,
   QUANT_OPS_LIFECYCLE_AUDIT,
-  QUANT_PAPER_START,
-  QUANT_PAPER_STOP,
-  QUANT_PAPER_LIST,
-  QUANT_PAPER_GET,
-  QUANT_PREVIEW_ACT,
-  QUANT_QUICK_START,
-  QUANT_QUOTA_GET,
+];
+
+const part_quant_paper_procedures: readonly ProcedureRecord[] = [QUANT_PAPER_START, QUANT_PAPER_STOP, QUANT_PAPER_LIST, QUANT_PAPER_GET];
+
+const part_quant_preview_procedures: readonly ProcedureRecord[] = [QUANT_PREVIEW_ACT];
+
+const part_quant_quick_start_procedures: readonly ProcedureRecord[] = [QUANT_QUICK_START];
+
+const part_quant_quota_procedures: readonly ProcedureRecord[] = [QUANT_QUOTA_GET];
+
+const part_quant_result_share_procedures: readonly ProcedureRecord[] = [
   QUANT_BACKTEST_REPORT,
   QUANT_RESULT_SHARE_GET,
   QUANT_RESULT_SHARE_CREATE,
   QUANT_RESULT_SHARE_REVOKE,
   QUANT_RESULT_SHARE_PUBLIC,
-  QUANT_SANDBOX_CAPABILITIES,
-  QUANT_SANDBOX_RUN,
+];
+
+const part_quant_sandbox_procedures: readonly ProcedureRecord[] = [QUANT_SANDBOX_CAPABILITIES, QUANT_SANDBOX_RUN];
+
+const part_quant_strategy_settings_procedures: readonly ProcedureRecord[] = [
   QUANT_RISK_GET,
   QUANT_RISK_SET,
   QUANT_RISK_TRADING,
@@ -1773,6 +3059,9 @@ const part3: readonly ProcedureRecord[] = [
   QUANT_NOTIFY_SET,
   QUANT_LIFECYCLE_GET,
   QUANT_LIFECYCLE_PROMOTE,
+];
+
+const part_quant_studio_procedures: readonly ProcedureRecord[] = [
   QUANT_STUDIO_LIST,
   QUANT_STUDIO_GET,
   QUANT_STUDIO_SAVE,
@@ -1783,7 +3072,11 @@ const part3: readonly ProcedureRecord[] = [
   QUANT_STUDIO_ORGANISE,
   QUANT_STUDIO_RESTORE,
   QUANT_STUDIO_LIST_DELETED,
-  QUANT_STUDIO_OPERATOR_LIST,
+];
+
+const part_quant_studio_records: readonly ProcedureRecord[] = [QUANT_STUDIO_OPERATOR_LIST];
+
+const part_quant_team_procedures: readonly ProcedureRecord[] = [
   QUANT_TEAM_GET,
   QUANT_TEAM_SET,
   QUANT_TEAM_REMOVE,
@@ -1796,9 +3089,13 @@ const part3: readonly ProcedureRecord[] = [
   QUANT_TEAM_PAPER_RUNS,
   QUANT_TEAM_ORDER,
   QUANT_TEAM_STOP,
-  QUANT_TEMPLATE_LIST,
-  QUANT_TEMPLATE_GET,
-  QUANT_TIER_LIST,
+];
+
+const part_quant_template_procedures: readonly ProcedureRecord[] = [QUANT_TEMPLATE_LIST, QUANT_TEMPLATE_GET];
+
+const part_quant_tier_procedures: readonly ProcedureRecord[] = [QUANT_TIER_LIST];
+
+const part_support_customer_procedures: readonly ProcedureRecord[] = [
   SUPPORT_CATEGORIES,
   SUPPORT_CREATE,
   SUPPORT_LIST_MINE,
@@ -1816,13 +3113,14 @@ const part3: readonly ProcedureRecord[] = [
   SUPPORT_ATTACH,
   SUPPORT_TICKET_ATTACHMENTS,
   SUPPORT_ATTACHMENT_DOWNLOAD,
-];
-const part4: readonly ProcedureRecord[] = [
   SUPPORT_ATTACHMENT_LIMITS,
   SUPPORT_KB_FEEDBACK,
   SUPPORT_KB_RELATED,
   SUPPORT_MY_TICKET_PROPERTIES,
   SUPPORT_REQUEST_FORMS,
+];
+
+const part_support_desk_procedures: readonly ProcedureRecord[] = [
   SUPPORT_DESK_VIEWS_COUNTS,
   SUPPORT_DESK_PROPERTY_CHANGES,
   SUPPORT_DESK_CASE_FILE,
@@ -1868,6 +3166,9 @@ const part4: readonly ProcedureRecord[] = [
   SUPPORT_DESK_PUBLISH_KB,
   SUPPORT_DESK_UNPUBLISH_KB,
   SUPPORT_DESK_SET_KB_AUDIENCE,
+];
+
+const part_support_desk_settings_procedures: readonly ProcedureRecord[] = [
   SUPPORT_KB_LIBRARY,
   SUPPORT_DESK_KB_TEMPLATES,
   SUPPORT_DESK_KB_HISTORY,
@@ -1889,13 +3190,21 @@ const part4: readonly ProcedureRecord[] = [
   SUPPORT_DESK_SET_CONTACT_CHANNELS,
   SUPPORT_HELP_CENTRE,
   SUPPORT_DESK_HELP_CENTRE_TRANSLATIONS,
-  SUPPORT_LIST_QUEUE,
-  SUPPORT_OFFICIAL_CHANNELS,
-  SUPPORT_SAFETY_MINE,
-  SUPPORT_SAFETY_MULE_POLICY,
-  SUPPORT_TICKET_CHARTS_LOOKUP,
-  SUPPORT_VIEWS_LIST,
-  SUPPORT_VIEWS_SAVE,
+];
+
+const part_support_list_queue_procedures: readonly ProcedureRecord[] = [SUPPORT_LIST_QUEUE];
+
+const part_support_official_channels_procedures: readonly ProcedureRecord[] = [SUPPORT_OFFICIAL_CHANNELS];
+
+const part_support_safety_procedures: readonly ProcedureRecord[] = [SUPPORT_SAFETY_MINE, SUPPORT_SAFETY_MULE_POLICY];
+
+const part_support_ticket_charts_lookup_procedures: readonly ProcedureRecord[] = [SUPPORT_TICKET_CHARTS_LOOKUP];
+
+const part_support_views_list_procedures: readonly ProcedureRecord[] = [SUPPORT_VIEWS_LIST];
+
+const part_support_views_save_procedures: readonly ProcedureRecord[] = [SUPPORT_VIEWS_SAVE];
+
+const part_tax_procedures: readonly ProcedureRecord[] = [
   TAX_HEALTH,
   TAX_LOT_BOOK,
   TAX_PNL_OVER_TIME,
@@ -1908,6 +3217,26 @@ const part4: readonly ProcedureRecord[] = [
   TAX_SET_INCLUDE_TRANSFERS,
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
+];
+
+const part_token_distribute_revenue_procedures: readonly ProcedureRecord[] = [TOKEN_DISTRIBUTE_REVENUE];
+
+const part_token_launch_procedures: readonly ProcedureRecord[] = [
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+];
+
+const part_token_next_emission_epoch_procedures: readonly ProcedureRecord[] = [TOKEN_NEXT_EMISSION_EPOCH];
+
+const part_token_procedures: readonly ProcedureRecord[] = [
   TOKEN_ACCESS_OF,
   TOKEN_LIST_STAKES,
   TOKEN_EMISSION_SCHEDULE,
@@ -1935,19 +3264,318 @@ const part4: readonly ProcedureRecord[] = [
   TOKEN_GOVERNANCE_SET_SETTINGS,
   TOKEN_GOVERNANCE_ROLES_LIST,
   TOKEN_GOVERNANCE_SET_ROLE,
-  TRADE_BUILDER_ACCOUNT_MODE,
-  COPY_MY_COPY_FEES,
-  GRID_SUBMIT_PERMISSION,
-  GRID_SET_EXITS,
-  GRID_SET_IDLE_YIELD,
+];
+
+const part_trade_admin_procedures: readonly ProcedureRecord[] = [
+  TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
+  TRADE_ADMIN_AGENT_DESK_AUDIT,
+  TRADE_ADMIN_AGENT_DESK_CONNECTION,
+  TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+];
+
+const part_trade_algo_procedures: readonly ProcedureRecord[] = [TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT];
+
+const part_trade_bots_procedures: readonly ProcedureRecord[] = [
+  TRADE_BOTS_GRID_SETUP,
+  TRADE_BOTS_GRID_PRESETS,
+  TRADE_BOTS_GRID_STOP,
+  TRADE_BOTS_GRID_TOP_UP_FREE,
+  TRADE_BOTS_GRID_TOP_UP,
+  TRADE_BOTS_GRID_MODIFY,
+  TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+];
+
+const part_trade_builder_mode_procedures: readonly ProcedureRecord[] = [TRADE_BUILDER_ACCOUNT_MODE];
+
+const part_trade_convert_procedures: readonly ProcedureRecord[] = [
+  TRADE_CONVERT_PAIRS,
+  TRADE_CONVERT_LIMITS,
+  TRADE_CONVERT_LIMIT_PLACE,
+  TRADE_CONVERT_LIMIT_CANCEL,
+  TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_LIST,
+];
+
+const part_trade_copy_procedures: readonly ProcedureRecord[] = [COPY_MY_COPY_FEES];
+
+const part_trade_copy_records: readonly ProcedureRecord[] = [
+  TRADE_COPY_MY_LEAD_APPLICATION,
+  TRADE_COPY_LEAD_ELIGIBILITY,
+  TRADE_COPY_APPLY_TO_LEAD,
+  TRADE_COPY_MY_LEAD,
+  TRADE_COPY_LEADER_TRADES,
+  TRADE_COPY_FOLLOW,
+  TRADE_COPY_CHECK_VENUE_FOLLOW,
+  TRADE_COPY_AMEND_FOLLOW,
+  TRADE_COPY_GRANT_SESSION_KEY,
+  TRADE_COPY_KILL_SESSION_KEY,
+  TRADE_COPY_CLOSE_COPIED_POSITION,
+  TRADE_COPY_SKIP_LOG,
+  TRADE_COPY_LEAD_EARNINGS,
+  TRADE_COPY_LEAD_LEVEL,
+  TRADE_COPY_LEAD_MISSIONS,
+  TRADE_COPY_LEAD_TRADES,
+  TRADE_COPY_LEAD_COPIERS,
+  TRADE_COPY_PLATFORM_PAUSES,
+];
+
+const part_trade_grid_procedures: readonly ProcedureRecord[] = [GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD];
+
+const part_trade_otc_procedures: readonly ProcedureRecord[] = [
+  TRADE_OTC_MAKERS_LIST,
+  TRADE_OTC_ACCEPT,
+  TRADE_OTC_SETTLE,
+  TRADE_OTC_CONVERT_BOUNDS,
+];
+
+const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
   RECURRING_CREATE,
   RECURRING_SUBMIT_PERMISSION,
   RECURRING_GET,
   RECURRING_LIST,
   RECURRING_UPDATE,
   RECURRING_TERMINATE,
-  WS_SBE_CONSUMERS,
 ];
 
+const part_trade_rfq_procedures: readonly ProcedureRecord[] = [TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE];
+
+const part_trade_signals_procedures: readonly ProcedureRecord[] = [TRADE_SIGNALS_WEBHOOKS_CREATE];
+
+const part_ws_procedures: readonly ProcedureRecord[] = [WS_SBE_CONSUMERS];
+
 /** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */
-export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [...part0, ...part1, ...part2, ...part3, ...part4];
+export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
+  ...part_academy_abandon_course_purchase_procedures,
+  ...part_academy_admin_procedures,
+  ...part_academy_admin_records,
+  ...part_academy_ambassador_badge_procedures,
+  ...part_academy_ambassador_pay_plane_procedures,
+  ...part_academy_ambassadors_procedures,
+  ...part_academy_apply_residency_procedures,
+  ...part_academy_appoint_ambassador_procedures,
+  ...part_academy_assessment_procedures,
+  ...part_academy_authored_course_procedures,
+  ...part_academy_cert_paths_procedures,
+  ...part_academy_cert_verify_procedures,
+  ...part_academy_cert_xp_plane_procedures,
+  ...part_academy_course_conversations_procedures,
+  ...part_academy_course_outline_procedures,
+  ...part_academy_course_purchase_procedures,
+  ...part_academy_curriculum_depth_procedures,
+  ...part_academy_curriculum_import_status_procedures,
+  ...part_academy_curriculum_inventory_procedures,
+  ...part_academy_decide_residency_procedures,
+  ...part_academy_freeze_ambassador_procedures,
+  ...part_academy_health_procedures,
+  ...part_academy_item_video_procedures,
+  ...part_academy_learner_procedures,
+  ...part_academy_my_access_grants_procedures,
+  ...part_academy_my_certs_procedures,
+  ...part_academy_my_completions_procedures,
+  ...part_academy_my_enrollments_procedures,
+  ...part_academy_my_learning_procedures,
+  ...part_academy_my_residencies_procedures,
+  ...part_academy_open_course_conversation_procedures,
+  ...part_academy_open_residencies_procedures,
+  ...part_academy_paper_drill_procedures,
+  ...part_academy_paper_ops_status_procedures,
+  ...part_academy_peer_review_file_procedures,
+  ...part_academy_peer_review_procedures,
+  ...part_academy_pin_lesson_procedures,
+  ...part_academy_procedures,
+  ...part_academy_programme_procedures,
+  ...part_academy_programmes_procedures,
+  ...part_academy_public_authored_course_procedures,
+  ...part_academy_public_authored_courses_procedures,
+  ...part_academy_public_course_by_link_procedures,
+  ...part_academy_public_course_procedures,
+  ...part_academy_public_courses_procedures,
+  ...part_academy_public_curriculum_item_procedures,
+  ...part_academy_public_curriculum_procedures,
+  ...part_academy_public_curriculum_related_procedures,
+  ...part_academy_public_hub_procedures,
+  ...part_academy_public_videos_procedures,
+  ...part_academy_residency_pay_quote_procedures,
+  ...part_academy_seasons_procedures,
+  ...part_academy_send_course_message_procedures,
+  ...part_academy_standings_procedures,
+  ...part_academy_stream_credential_procedures,
+  ...part_academy_undo_curriculum_complete_procedures,
+  ...part_academy_unpin_lesson_procedures,
+  ...part_academy_upload_assignment_file_procedures,
+  ...part_academy_video_playback_procedures,
+  ...part_academy_video_player_procedures,
+  ...part_academy_video_progress_procedures,
+  ...part_academy_videos_procedures,
+  ...part_academy_withdraw_residency_procedures,
+  ...part_agents_agent_procedures,
+  ...part_agents_analytics_procedures,
+  ...part_agents_coach_procedures,
+  ...part_agents_fleet_procedures,
+  ...part_agents_growth_procedures,
+  ...part_agents_launch_procedures,
+  ...part_agents_log_procedures,
+  ...part_agents_navigator_procedures,
+  ...part_agents_ops_alerts_procedures,
+  ...part_agents_ops_log_procedures,
+  ...part_agents_own_procedures,
+  ...part_agents_routes_procedures,
+  ...part_agents_run_procedures,
+  ...part_agents_session_procedures,
+  ...part_agents_team_procedures,
+  ...part_agents_usage_procedures,
+  ...part_agents_webhooks_procedures,
+  ...part_bank_cash_leg_procedures,
+  ...part_bank_credit_preview_procedures,
+  ...part_bank_deposit_procedures,
+  ...part_bank_global_procedures,
+  ...part_bank_personal_request_procedures,
+  ...part_bank_spaces_list,
+  ...part_blueprint_procedures,
+  ...part_campaigns_distribution_procedures,
+  ...part_campaigns_drops_procedures,
+  ...part_campaigns_points_procedures,
+  ...part_campaigns_procedures,
+  ...part_campaigns_referral_procedures,
+  ...part_campaigns_rewards_procedures,
+  ...part_campaigns_tasks_procedures,
+  ...part_campaigns_tge_procedures,
+  ...part_dex_procedures,
+  ...part_execution_procedures,
+  ...part_fix_procedures,
+  ...part_identity_account_appeal_procedures,
+  ...part_identity_account_closure_procedures,
+  ...part_identity_account_controls_procedures,
+  ...part_identity_account_directory_procedures,
+  ...part_identity_account_procedures,
+  ...part_identity_action_approval_procedures,
+  ...part_identity_action_approval_records,
+  ...part_identity_affiliates_procedures,
+  ...part_identity_api_key_ops_procedures,
+  ...part_identity_api_keys_procedures,
+  ...part_identity_api_rate_tiers_procedures,
+  ...part_identity_api_version_procedures,
+  ...part_identity_auth_procedures,
+  ...part_identity_developer_keys_procedures,
+  ...part_identity_developer_sandboxes_procedures,
+  ...part_identity_developer_support_procedures,
+  ...part_identity_factor_status_procedures,
+  ...part_identity_freeze_link_procedures,
+  ...part_identity_handle_procedures,
+  ...part_identity_handles,
+  ...part_identity_kyc_procedures,
+  ...part_identity_kyc_profile_procedures,
+  ...part_identity_learner_card_procedures,
+  ...part_identity_link_provider_start_procedures,
+  ...part_identity_link_signin_method_procedures,
+  ...part_identity_mfa_reset_procedures,
+  ...part_identity_oauth_procedures,
+  ...part_identity_profile_procedures,
+  ...part_identity_receive_contacts_procedures,
+  ...part_identity_recipients_procedures,
+  ...part_identity_revoke_all_api_keys_procedures,
+  ...part_identity_revoke_other_sessions_procedures,
+  ...part_identity_revoke_session_family_procedures,
+  ...part_identity_security_lock_procedures,
+  ...part_identity_self_freeze_manage_procedures,
+  ...part_identity_session_settings_procedures,
+  ...part_identity_set_idle_signout_procedures,
+  ...part_identity_signin_methods_procedures,
+  ...part_identity_sub_accounts_procedures,
+  ...part_identity_support_recovery_procedures,
+  ...part_identity_totp_manage_procedures,
+  ...part_identity_totp_procedures,
+  ...part_identity_trusted_devices_procedures,
+  ...part_identity_unlink_signin_method_procedures,
+  ...part_identity_waitlist_procedures,
+  ...part_identity_wallet_link_challenge_procedures,
+  ...part_identity_webauthn_procedures,
+  ...part_indexer_procedures,
+  ...part_market_procedures,
+  ...part_mining_procedures,
+  ...part_notify_health_procedures,
+  ...part_notify_inbox_policy,
+  ...part_notify_nav_metrics_procedures,
+  ...part_notify_notify_procedures,
+  ...part_notify_procedures,
+  ...part_notify_reconciliation_alert_feed_procedures,
+  ...part_notify_status_page_procedures,
+  ...part_ops_alerts_procedures,
+  ...part_ops_capital_procedures,
+  ...part_ops_compliance_procedures,
+  ...part_ops_console_mode_procedures,
+  ...part_ops_outreach_procedures,
+  ...part_ops_preferences_procedures,
+  ...part_ops_protocol_listing_procedures,
+  ...part_ops_public_procedures,
+  ...part_ops_record_venue_cost_procedures,
+  ...part_ops_restore_procedures,
+  ...part_ops_staff_holds_procedures,
+  ...part_ops_venue_economics_procedures,
+  ...part_p2p_disputes_procedures,
+  ...part_p2p_ops_procedures,
+  ...part_p2p_procedures,
+  ...part_pay_allowlist_procedures,
+  ...part_pay_checkout_procedures,
+  ...part_pay_deposit_procedures,
+  ...part_pay_halt_procedures,
+  ...part_pay_kyb_procedures,
+  ...part_pay_merchant_procedures,
+  ...part_pay_payment_procedures,
+  ...part_pay_resolve_link_procedures,
+  ...part_pay_sandbox_funds_procedures,
+  ...part_pay_withdrawal_approval_procedures,
+  ...part_pay_withdrawal_procedures,
+  ...part_protocol_amm_procedures,
+  ...part_protocol_chain_procedures,
+  ...part_protocol_procedures,
+  ...part_protocol_wallet_procedures,
+  ...part_quant_alert_procedures,
+  ...part_quant_approval_procedures,
+  ...part_quant_backtest_procedures,
+  ...part_quant_health_procedures,
+  ...part_quant_lake_procedures,
+  ...part_quant_library_procedures,
+  ...part_quant_limits_procedures,
+  ...part_quant_live_procedures,
+  ...part_quant_ops_procedures,
+  ...part_quant_paper_procedures,
+  ...part_quant_preview_procedures,
+  ...part_quant_quick_start_procedures,
+  ...part_quant_quota_procedures,
+  ...part_quant_result_share_procedures,
+  ...part_quant_sandbox_procedures,
+  ...part_quant_strategy_settings_procedures,
+  ...part_quant_studio_procedures,
+  ...part_quant_studio_records,
+  ...part_quant_team_procedures,
+  ...part_quant_template_procedures,
+  ...part_quant_tier_procedures,
+  ...part_support_customer_procedures,
+  ...part_support_desk_procedures,
+  ...part_support_desk_settings_procedures,
+  ...part_support_list_queue_procedures,
+  ...part_support_official_channels_procedures,
+  ...part_support_safety_procedures,
+  ...part_support_ticket_charts_lookup_procedures,
+  ...part_support_views_list_procedures,
+  ...part_support_views_save_procedures,
+  ...part_tax_procedures,
+  ...part_token_distribute_revenue_procedures,
+  ...part_token_launch_procedures,
+  ...part_token_next_emission_epoch_procedures,
+  ...part_token_procedures,
+  ...part_trade_admin_procedures,
+  ...part_trade_algo_procedures,
+  ...part_trade_bots_procedures,
+  ...part_trade_builder_mode_procedures,
+  ...part_trade_convert_procedures,
+  ...part_trade_copy_procedures,
+  ...part_trade_copy_records,
+  ...part_trade_grid_procedures,
+  ...part_trade_otc_procedures,
+  ...part_trade_recurring_procedures,
+  ...part_trade_rfq_procedures,
+  ...part_trade_signals_procedures,
+  ...part_ws_procedures,
+];

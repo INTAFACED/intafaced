@@ -1,4 +1,5 @@
-import { forwardedPrincipalHeaders, router, serviceProcedureFor } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router, serviceProcedureFor } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_DEACTIVATE,
@@ -36,7 +37,11 @@ export function voucherRoutes({ campaigns, vouchers, watch }: CampaignServices) 
 
       /** My vouchers (J-campaigns-08). */
       vouchers: router({
-        mine: mountRecord(CAMPAIGNS_VOUCHERS_MINE, async ({ ctx }) => vouchers.mine({ accountId: ctx.principal.userId }), refusalOf),
+        mine: mountRecord(
+          CAMPAIGNS_VOUCHERS_MINE,
+          async ({ ctx }) => vouchers.mine({ accountId: ctx.principal.userId, forwarded: forwardedPrincipalHeaders(ctx) }),
+          refusalOf,
+        ),
         validate: mountRecord(
           CAMPAIGNS_VOUCHERS_VALIDATE,
           async ({ ctx, input }) => vouchers.validate({ code: input.code, accountId: ctx.principal.userId, source: sourceOf(ctx) }),

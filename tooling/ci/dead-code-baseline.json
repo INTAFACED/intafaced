@@ -554,8 +554,6 @@
   "apps/customer/src/features/pay/portal/ui/Kpi.tsx#KpiTile",
   "apps/customer/src/features/pay/portal/ui/notLiveRoom.tsx",
   "apps/customer/src/features/preferences/account-record.ts#REPLY_UNKNOWN",
-  "apps/customer/src/features/protocol/ParkedProtocolRoom.tsx#NO_ANSWER_ATTEMPTS",
-  "apps/customer/src/features/protocol/ParkedProtocolRoom.tsx#NO_ANSWER_RETRY_MS",
   "apps/customer/src/features/protocol/ParkedProtocolRoom.tsx#ParkedProtocolRoomAt",
   "apps/customer/src/features/protocol/ParkedProtocolRoom.tsx#isProtocolSlug",
   "apps/customer/src/features/protocol/blockers.ts#standingBlockers",
@@ -3541,6 +3539,5 @@
   "tooling/scripts/setup-github.mjs",
   "tooling/scripts/tooling-tests.mjs#NEEDS_BUILD",
   "tooling/scripts/tooling-tests.mjs#tapCounts",
-  "tooling/scripts/tooling-tests.mjs#testFiles",
-  "tooling/tracker/features.mjs"
+  "tooling/scripts/tooling-tests.mjs#testFiles"
 ]

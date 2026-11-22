@@ -1,13 +1,11 @@
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { FounderAuthority } from '../../founder-authority.js';
 import { founderProcedure, type FounderContext } from '../../namespaces/founder-procedure.js';
 import { toTrpcError } from '../../router.js';
 import {
   decideInputSchema,
-  getInputSchema,
   listForTeamInputSchema,
-  listInputSchema,
   policyQueryInputSchema,
   policyViewSchema,
   proposeInputSchema,
@@ -16,6 +14,13 @@ import {
   settleResultSchema,
 } from './schemas.js';
 import type { WithdrawalApprovalService } from './service.js';
+import {
+  PAY_WITHDRAWAL_APPROVAL_LIST,
+  PAY_WITHDRAWAL_APPROVAL_GET,
+  PAY_WITHDRAWAL_APPROVAL_CANCEL,
+} from '@intafaced/contracts/pay-withdrawal-approval-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../../record-refusal.js';
 
 async function wrap<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -50,18 +55,21 @@ export function createWithdrawalApprovalRouter(service: WithdrawalApprovalServic
         .input(decideInputSchema)
         .output(requestViewSchema)
         .mutation(({ ctx, input }) => wrap(() => service.reject(ctx.principal.userId, input.requestId))),
-      cancel: scopedProcedure('trade:write', { module: 'ledger' })
-        .input(decideInputSchema)
-        .output(requestViewSchema)
-        .mutation(({ ctx, input }) => wrap(() => service.cancel(ctx.principal.userId, input.requestId))),
-      get: scopedProcedure('trade:read', { module: 'ledger' })
-        .input(getInputSchema)
-        .output(requestViewSchema)
-        .query(({ ctx, input }) => wrap(() => service.get(ctx.principal.userId, input.requestId))),
-      list: scopedProcedure('trade:read', { module: 'ledger' })
-        .input(listInputSchema)
-        .output(z.array(requestViewSchema))
-        .query(({ ctx, input }) => wrap(() => service.list(ctx.principal.userId, input))),
+      cancel: mountRecord(
+        PAY_WITHDRAWAL_APPROVAL_CANCEL,
+        ({ ctx, input }) => wrap(() => service.cancel(ctx.principal.userId, input.requestId)),
+        payRefusal,
+      ),
+      get: mountRecord(
+        PAY_WITHDRAWAL_APPROVAL_GET,
+        ({ ctx, input }) => wrap(() => service.get(ctx.principal.userId, input.requestId)),
+        payRefusal,
+      ),
+      list: mountRecord(
+        PAY_WITHDRAWAL_APPROVAL_LIST,
+        ({ ctx, input }) => wrap(() => service.list(ctx.principal.userId, input)),
+        payRefusal,
+      ),
       listForTeam: scopedProcedure('trade:read', { module: 'ledger' })
         .input(listForTeamInputSchema)
         .output(z.array(requestViewSchema))

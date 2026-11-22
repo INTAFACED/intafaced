@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
-import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { executeProcedure } from './procedures.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
@@ -91,6 +92,11 @@ import type { BackgroundSettings } from './own/background.js';
 import type { Cadence } from './own/automation.js';
 import type { LinkedWalletsPort } from './own/payment-method.js';
 import type { RetentionPeriods } from './own/memory.js';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { AGENTS_WEBHOOK_DELIVERIES, AGENTS_WEBHOOK_LIST, AGENTS_WEBHOOK_REGISTER } from '@intafaced/contracts/agents-webhooks-procedures';
+import { agentsRefusal } from './record-refusal.js';
+import { RunWebhookConflict, type RunWebhooks } from './webhooks/run-webhooks.js';
+import { WebhookUrlRefusal } from './webhooks/webhook-url-guard.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -319,6 +325,8 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export interface AgentsRouterDeps {
+  /** The run webhooks (J-agents-12 #5); absent, every webhook call refuses `agents.webhooks_unwired`. */
+  readonly runWebhooks?: RunWebhooks | null;
   readonly runtime: AgentRuntime;
   /** The owner's values for the operator agent log. Absent, every value is blank and each read refuses its code. */
   readonly opsLog?: OpsLogSettings;
@@ -431,6 +439,19 @@ export interface AgentsRouterDeps {
  */
 function personReadProcedure() {
   return scopedProcedure('agents:read', { module: 'agents', person: true, ownSession: 'agents.select_person_only' });
+}
+
+/** One run webhook call: unwired refuses by name, and each refusal leaves as its typed code. */
+async function webhookCall<T>(deps: AgentsRouterDeps, fn: (hooks: RunWebhooks) => Promise<T>): Promise<T> {
+  const hooks = deps.runWebhooks;
+  if (!hooks) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'agents.webhooks_unwired' });
+  try {
+    return await fn(hooks);
+  } catch (err) {
+    if (err instanceof WebhookUrlRefusal) throw new TRPCError({ code: 'BAD_REQUEST', message: err.code, cause: err });
+    if (err instanceof RunWebhookConflict) throw new TRPCError({ code: 'CONFLICT', message: err.code, cause: err });
+    throw err;
+  }
 }
 
 export function createAgentsRouter(deps: AgentsRouterDeps) {
@@ -980,6 +1001,25 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
         ),
 
       events: sessionEventsRoute(deps, { guard, ownedSession }),
+    }),
+
+    /** Webhooks for the runs a person started in their own session, registered and read with their key (J-agents-12 #5). */
+    webhook: router({
+      register: mountRecord(
+        AGENTS_WEBHOOK_REGISTER,
+        ({ ctx, input }) => webhookCall(deps, (hooks) => hooks.register(ctx.principal.userId, input)),
+        agentsRefusal,
+      ),
+      list: mountRecord(
+        AGENTS_WEBHOOK_LIST,
+        ({ ctx, input }) => webhookCall(deps, (hooks) => hooks.list(ctx.principal.userId, input.limit)),
+        agentsRefusal,
+      ),
+      deliveries: mountRecord(
+        AGENTS_WEBHOOK_DELIVERIES,
+        ({ ctx, input }) => webhookCall(deps, (hooks) => hooks.deliveries(ctx.principal.userId, input)),
+        agentsRefusal,
+      ),
     }),
 
     run: router({

@@ -51,7 +51,8 @@
       "dependsOn": ["^build", "@intafaced/db#build"],
       "outputs": ["coverage/**"],
       "cache": false,
-      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"],
+      "passThroughEnv": ["GITHUB_BASE_REF"]
     },
     "@intafaced/svc-matching#test": {
       "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
@@ -133,13 +134,27 @@
       "cache": false
     },
     "@intafaced/admin#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/exchange-contract#build",
+        "@intafaced/greeks-adapter#build",
+        "@intafaced/ledger-client#build",
+        "@intafaced/market-data#build",
+        "@intafaced/quant-honesty#build",
+        "@intafaced/service-kit#build",
+        "@intafaced/telemetry#build",
+        "@intafaced/venue-adapter#build",
+        "@intafaced/venue-contracts#build",
+        "@intafaced/venue-sim#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/greeks-adapter/**",
+        "$TURBO_ROOT$/packages/ledger-client/**",
         "$TURBO_ROOT$/packages/market-data/**",
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/service-kit/**",
@@ -156,18 +171,33 @@
         "$TURBO_ROOT$/services/svc-protocol/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
     "@intafaced/admin#build": {
-      "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "dependsOn": [
+        "^build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/exchange-contract#build",
+        "@intafaced/greeks-adapter#build",
+        "@intafaced/ledger-client#build",
+        "@intafaced/market-data#build",
+        "@intafaced/quant-honesty#build",
+        "@intafaced/service-kit#build",
+        "@intafaced/telemetry#build",
+        "@intafaced/venue-adapter#build",
+        "@intafaced/venue-contracts#build",
+        "@intafaced/venue-sim#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/greeks-adapter/**",
+        "$TURBO_ROOT$/packages/ledger-client/**",
         "$TURBO_ROOT$/packages/market-data/**",
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/service-kit/**",
@@ -184,13 +214,23 @@
         "$TURBO_ROOT$/services/svc-protocol/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
     "@intafaced/config#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/auth#build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/contracts#build",
+        "@intafaced/i18n#build",
+        "@intafaced/ledger-client#build",
+        "@intafaced/quant-honesty#build",
+        "@intafaced/telemetry#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/auth/**",
@@ -205,9 +245,19 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
-    "@intafaced/contracts#typecheck": {
-      "dependsOn": ["^build"],
+    "@intafaced/connect-data-lake#typecheck": {
       "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/contracts#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/invitation/**",
@@ -216,8 +266,22 @@
       ]
     },
     "@intafaced/customer#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/db#build",
+        "@intafaced/events#build",
+        "@intafaced/greeks-adapter#build",
+        "@intafaced/market-data#build",
+        "@intafaced/quant-honesty#build",
+        "@intafaced/sbe-codec#build",
+        "@intafaced/service-kit#build",
+        "@intafaced/telemetry#build",
+        "@intafaced/venue-adapter#build",
+        "@intafaced/venue-contracts#build",
+        "@intafaced/venue-sim#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
@@ -252,8 +316,22 @@
       ]
     },
     "@intafaced/customer#build": {
-      "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "dependsOn": [
+        "^build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/db#build",
+        "@intafaced/events#build",
+        "@intafaced/greeks-adapter#build",
+        "@intafaced/market-data#build",
+        "@intafaced/quant-honesty#build",
+        "@intafaced/sbe-codec#build",
+        "@intafaced/service-kit#build",
+        "@intafaced/telemetry#build",
+        "@intafaced/venue-adapter#build",
+        "@intafaced/venue-contracts#build",
+        "@intafaced/venue-sim#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
@@ -287,9 +365,47 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
-    "@intafaced/i18n#typecheck": {
-      "dependsOn": ["^build"],
+    "@intafaced/execution-house-tenant#typecheck": {
       "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/execution-mm#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/i18n#typecheck": {
+      "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/auth#build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/contracts#build",
+        "@intafaced/db#build",
+        "@intafaced/events#build",
+        "@intafaced/exchange-contract#build",
+        "@intafaced/ledger-client#build",
+        "@intafaced/market-data#build",
+        "@intafaced/quant-honesty#build",
+        "@intafaced/safe-regex#build",
+        "@intafaced/sbe-codec#build",
+        "@intafaced/service-kit#build",
+        "@intafaced/telemetry#build",
+        "@intafaced/ui#build",
+        "@intafaced/venue-adapter#build",
+        "@intafaced/venue-contracts#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/admin/**",
@@ -332,8 +448,23 @@
       ]
     },
     "@intafaced/ledger-client#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/db#build",
+        "@intafaced/events#build",
+        "@intafaced/exchange-contract#build",
+        "@intafaced/greeks-adapter#build",
+        "@intafaced/i18n#build",
+        "@intafaced/market-data#build",
+        "@intafaced/safe-regex#build",
+        "@intafaced/service-kit#build",
+        "@intafaced/telemetry#build",
+        "@intafaced/venue-adapter#build",
+        "@intafaced/venue-contracts#build",
+        "@intafaced/venue-sim#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
@@ -355,13 +486,34 @@
         "$TURBO_ROOT$/services/svc-mining-pool/**",
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/quant-honesty#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
     "@intafaced/sdk-ts#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/auth#build",
+        "@intafaced/config#build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/contracts#build",
+        "@intafaced/i18n#build",
+        "@intafaced/ledger-client#build",
+        "@intafaced/quant-honesty#build",
+        "@intafaced/telemetry#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/auth/**",
@@ -378,8 +530,8 @@
       ]
     },
     "@intafaced/svc-agents#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": ["^build", "@intafaced/i18n#build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/i18n/**",
@@ -388,8 +540,17 @@
       ]
     },
     "@intafaced/svc-edge#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/db#build",
+        "@intafaced/events#build",
+        "@intafaced/exchange-contract#build",
+        "@intafaced/money-math#build",
+        "@intafaced/safe-regex#build",
+        "@intafaced/sbe-codec#build",
+        "@intafaced/ui#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/customer/**",
@@ -406,8 +567,18 @@
       ]
     },
     "@intafaced/svc-identity#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/exchange-contract#build",
+        "@intafaced/greeks-adapter#build",
+        "@intafaced/market-data#build",
+        "@intafaced/quant-honesty#build",
+        "@intafaced/venue-adapter#build",
+        "@intafaced/venue-contracts#build",
+        "@intafaced/venue-sim#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
@@ -425,8 +596,15 @@
       ]
     },
     "@intafaced/svc-indexer#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/exchange-contract#build",
+        "@intafaced/market-data#build",
+        "@intafaced/venue-adapter#build",
+        "@intafaced/venue-contracts#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
@@ -440,8 +618,15 @@
       ]
     },
     "@intafaced/svc-indexer#build": {
-      "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "dependsOn": [
+        "^build",
+        "@intafaced/connect-data-lake#build",
+        "@intafaced/exchange-contract#build",
+        "@intafaced/market-data#build",
+        "@intafaced/venue-adapter#build",
+        "@intafaced/venue-contracts#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
@@ -455,8 +640,8 @@
       ]
     },
     "@intafaced/svc-notify#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": ["^build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/tooling/scripts/local-test-notice.*",
@@ -465,8 +650,8 @@
       ]
     },
     "@intafaced/svc-p2p#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": ["^build", "@intafaced/service-kit#build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/service-kit/**",
@@ -476,8 +661,8 @@
       ]
     },
     "@intafaced/svc-support#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": ["^build", "@intafaced/connect-data-lake#build", "@intafaced/ledger-client#build", "@intafaced/quant-honesty#build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
@@ -489,8 +674,8 @@
       ]
     },
     "@intafaced/svc-support#build": {
-      "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "dependsOn": ["^build", "@intafaced/connect-data-lake#build", "@intafaced/ledger-client#build", "@intafaced/quant-honesty#build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
@@ -502,8 +687,8 @@
       ]
     },
     "@intafaced/svc-trade#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": ["^build", "@intafaced/i18n#build", "@intafaced/ui#build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/admin/**",
@@ -515,8 +700,20 @@
       ]
     },
     "@intafaced/ui#typecheck": {
-      "dependsOn": ["^build"],
       "outputs": [],
+      "dependsOn": [
+        "^build",
+        "@intafaced/auth#build",
+        "@intafaced/config#build",
+        "@intafaced/contracts#build",
+        "@intafaced/db#build",
+        "@intafaced/events#build",
+        "@intafaced/exchange-contract#build",
+        "@intafaced/i18n#build",
+        "@intafaced/ledger-client#build",
+        "@intafaced/money-math#build",
+        "@intafaced/safe-regex#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/admin/**",
@@ -537,6 +734,16 @@
         "$TURBO_ROOT$/tooling/scripts/look-codemod.*",
         "$TURBO_ROOT$/tooling/trade/inside.*",
         "$TURBO_ROOT$/tooling/trade/inside/**",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/venue-adapter#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]

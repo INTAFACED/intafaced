@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
+import type { OwnAgentLiveEngine, OwnAgentRunRow } from '@intafaced/contracts';
 import {
-  forwardedPrincipalHeaders,
   OWN_AGENT_DATA_CLASSES,
   OWN_AGENT_RULE_CHOICES,
   ownAgentApprovalApprovedSchema,
@@ -16,7 +16,6 @@ import {
   ownAgentTestApproveSchema,
   ownAgentTestRunStartSchema,
   ownAgentToolTestStartSchema,
-  type OwnAgentLiveEngine,
   ownAgentHoldsSchema,
   ownAgentTestRunSchema,
   ownAgentRuleSchema,
@@ -36,7 +35,6 @@ import {
   ownAgentRunResultSchema,
   ownAgentInboxRowSchema,
   ownAgentRunRowSchema,
-  type OwnAgentRunRow,
   ownAgentSchema,
   ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
@@ -69,13 +67,10 @@ import {
   ownAgentTokenCallerSchema,
   ownAgentTokenCallSchema,
   ownAgentTokenSchema,
-  publicProcedure,
-  router,
-  scopedProcedure,
-  serviceProcedureFor,
-  TRPCError,
-  asAssetId,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/agents-own';
+import { asAssetId } from '@intafaced/contracts/asset-id';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { publicProcedure, router, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
 import { draftOrder } from './trade-draft.js';

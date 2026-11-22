@@ -8,38 +8,34 @@ import { z } from 'zod';
 import { decimalSchema } from '../../../shared/money';
 import {
   algoParentFields,
-  algoResultSchema,
   algoListSchema,
   algoPolicySchema,
-  otcMakersSchema,
   deskStatusSchema,
   rfqBoardSchema,
-  convertBoundsSchema,
   optionsPolicySchema,
   greeksSchema,
   batchSchema,
   icebergAnswerSchema,
-  previewSizesSchema,
 } from '@intafaced/contracts/trade-rooms';
 import type { ApiClient } from '../../../shared/api';
-import { algoProgressSchema, algoSchema, otcFillSchema, otcQuoteSchema } from '../../../features/trade/tool-api';
+import { algoSchema, otcFillSchema, otcQuoteSchema } from '../../../features/trade/tool-api';
 import { listingSchema } from '../../../features/trade/trade-api';
+import { TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT } from '@intafaced/contracts/trade-algo-procedures';
+import { TRADE_OTC_MAKERS_LIST, TRADE_OTC_SETTLE, TRADE_OTC_CONVERT_BOUNDS } from '@intafaced/contracts/trade-otc-procedures';
+import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from '@intafaced/contracts/trade-rfq-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
-export { algoProgressSchema, otcFillSchema, otcQuoteSchema };
+export { otcFillSchema, otcQuoteSchema };
 export {
-  algoResultSchema,
   algoListSchema,
   algoPolicySchema,
-  otcMakersSchema,
   deskStatusSchema,
   rfqBoardSchema,
-  convertBoundsSchema,
   optionsPolicySchema,
   greeksSchema,
   batchItemSchema,
   batchSchema,
   icebergAnswerSchema,
-  previewSizesSchema,
 } from '@intafaced/contracts/trade-rooms';
 export type {
   AlgoResult,
@@ -62,7 +58,7 @@ export type PovBasis = 'traded_volume' | 'opposite_liquidity';
 /** Schedules the room lists at a time. The service refuses a list read without a limit. */
 export const ALGO_LIST_PAGE = 50;
 export type AlgoParent = z.infer<typeof algoParentSchema>;
-export type AlgoProgress = z.infer<typeof algoProgressSchema>;
+export type AlgoProgress = ProcedureOutput<typeof TRADE_ALGO_PROGRESS>;
 
 /** `otc.convertQuote`: a desk quote for a conversion, with the owner's settle window (null when blank). */
 export const otcConvertQuoteSchema = otcQuoteSchema.extend({
@@ -147,32 +143,26 @@ export function createRoomApi(api: ApiClient) {
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     algoCreate: (input: CreateTwapInput) => api.mutate('trade', 'algo.createTwap', input, algoParentSchema),
     algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoParentSchema, { signal }),
-    algoPreviewSizes: (input: PreviewSizesInput) => api.query('trade', 'algo.previewTwapSizes', input, previewSizesSchema),
-    algoResult: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.result', { algoId }, algoResultSchema, { signal }),
+    algoPreviewSizes: (input: PreviewSizesInput) => api.call(TRADE_ALGO_PREVIEW_TWAP_SIZES, input),
+    algoResult: (algoId: string, signal?: AbortSignal) => api.call(TRADE_ALGO_RESULT, { algoId }, { signal }),
     algoList: (signal?: AbortSignal) => api.query('trade', 'algo.list', { limit: ALGO_LIST_PAGE }, algoListSchema, { signal }),
-    algoProgress: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.progress', { algoId }, algoProgressSchema, { signal }),
+    algoProgress: (algoId: string, signal?: AbortSignal) => api.call(TRADE_ALGO_PROGRESS, { algoId }, { signal }),
     algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) =>
       api.mutate('trade', `algo.${action}`, { algoId }, algoParentSchema),
     deskStatus: (signal?: AbortSignal) => api.query('trade', 'otc.deskStatus', undefined, deskStatusSchema, { signal }),
-    otcMakers: (signal?: AbortSignal) => api.query('trade', 'otc.makers.list', undefined, otcMakersSchema, { signal }),
-    otcConvertBounds: (signal?: AbortSignal) => api.query('trade', 'otc.convertBounds', undefined, convertBoundsSchema, { signal }),
+    otcMakers: (signal?: AbortSignal) => api.call(TRADE_OTC_MAKERS_LIST, undefined, { signal }),
+    otcConvertBounds: (signal?: AbortSignal) => api.call(TRADE_OTC_CONVERT_BOUNDS, undefined, { signal }),
     otcConvertQuote: (input: { flow: 'convert'; side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string }) =>
       api.mutate('trade', 'otc.convertQuote', input, otcConvertQuoteSchema),
     rfqQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerIds: string[]; makerId?: string }) =>
       api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
-    rfqGet: (quoteId: string, signal?: AbortSignal) => api.query('trade', 'rfq.get', { quoteId }, otcQuoteSchema, { signal }),
+    rfqGet: (quoteId: string, signal?: AbortSignal) => api.call(TRADE_RFQ_GET, { quoteId }, { signal }),
     rfqBoard: (window: { from: string; to: string; limit: number }, signal?: AbortSignal) =>
       api.query('trade', 'rfq.board', window, rfqBoardSchema, { signal }),
     /** `assertedPrice` can only cause a refusal (last look is forbidden); it never sets the fill price. */
-    rfqAccept: (quoteId: string, assertedPrice: string) => api.mutate('trade', 'rfq.accept', { quoteId, assertedPrice }, otcQuoteSchema),
-    rfqExpire: (quoteId: string) => api.mutate('trade', 'rfq.expire', { quoteId }, otcQuoteSchema),
-    otcSettle: (quoteId: string) =>
-      api.mutate(
-        'trade',
-        'otc.settle',
-        { quoteId },
-        otcFillSchema.extend({ fillId: z.string(), takerOrderId: z.string(), makerOrderId: z.string() }),
-      ),
+    rfqAccept: (quoteId: string, assertedPrice: string) => api.call(TRADE_RFQ_ACCEPT, { quoteId, assertedPrice }),
+    rfqExpire: (quoteId: string) => api.call(TRADE_RFQ_EXPIRE, { quoteId }),
+    otcSettle: (quoteId: string) => api.call(TRADE_OTC_SETTLE, { quoteId }),
     optionsPolicy: (signal?: AbortSignal) => api.query('trade', 'options.policy', undefined, optionsPolicySchema, { signal }),
     markets: (signal?: AbortSignal) => api.rest('/markets', z.array(listedMarketSchema), { query: { limit: 500 }, signal }),
     greeks: (input: GreeksInput, signal?: AbortSignal) =>

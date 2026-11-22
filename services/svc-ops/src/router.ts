@@ -1,21 +1,12 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { VALUATION_PRICES_UNSET, type HomeConfig, type ValuationPrices } from '@intafaced/contracts';
+import type { HomeConfig, ValuationPrices } from '@intafaced/contracts';
+import { VALUATION_PRICES_UNSET } from '@intafaced/contracts/valuation-prices';
 import { createHomeConfigRouter, homeConfigFromEnv } from './home-config.js';
 import { createValuationPricesRouter } from './valuation-prices.js';
-import {
-  opsCostEntryInputSchema,
-  opsCostEntrySchema,
-  opsVenueEconomicsSchema,
-  operatorProcedure,
-  publicProcedure,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+import { operatorProcedure, publicProcedure, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   OPS_CONTACTS_LIST_LIMIT_UNSET,
-  OPS_CUSTODY_CHAIN_UNWIRED,
-  OPS_CUSTODY_KEYS_FORBIDDEN,
   OPS_CUSTODY_KEYS_UNPUBLISHED,
   OPS_CUSTODY_LEDGER_UNWIRED,
   OPS_CUSTODY_LIST_LIMIT_UNSET,
@@ -26,14 +17,12 @@ import {
   OPS_CUSTODY_WRAP_UNSET,
   OPS_CUSTODY_FREEZE_UNSET,
   OPS_CUSTODY_FROZEN,
-  OPS_FUNDRAISING_CHAIN_UNWIRED,
   OPS_FUNDRAISING_LIST_LIMIT_UNSET,
   OPS_FUNDRAISING_MILESTONES_LIST_LIMIT_UNSET,
   OPS_PAYROLL_INVENT_FORBIDDEN,
   OPS_PROJECTS_LIST_LIMIT_UNSET,
   OPS_STRUCTURED_LIST_LIMIT_UNSET,
   OPS_TEAM_LIST_LIMIT_UNSET,
-  OPS_WAREHOUSE_UNWIRED,
   OpsError,
   OPS_COST_STORAGE_UNCONFIGURED,
   OPS_FEE_REVENUE_UNCONFIGURED,
@@ -92,6 +81,11 @@ import type { RestoreArchiveProbeResult } from './restore/archive-probe.js';
 import type { RestoreDesk } from './restore/desk.js';
 import { costFingerprint, type VenueCostStore } from './venue-cost-store.js';
 import { composeVenueEconomics, parseCostEntry, parseCostPeriod, periodWindow, readRevenue } from './venue-economics.js';
+import { OPS_RECORD_VENUE_COST } from '@intafaced/contracts/ops-record-venue-cost-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from './refusal.js';
+import { OPS_RESTORE_WATERMARKS } from '@intafaced/contracts/ops-restore-procedures';
+import { OPS_VENUE_ECONOMICS } from '@intafaced/contracts/ops-venue-economics-procedures';
 
 /**
  * Page size. Optional so omit reaches the named refuse
@@ -633,35 +627,9 @@ export function createOpsRouter(
     }),
 
     restore: router({
-      watermarks: scopedProcedure('admin:read', guards)
-        .output(
-          z.object({
-            asOf: z.string(),
-            archive: z.object({
-              configured: z.boolean(),
-              probed: z.literal(false),
-              code: z.enum([OPS_RESTORE_ARCHIVE_UNCONFIGURED, OPS_RESTORE_ARCHIVE_UNPROBED]),
-            }),
-            watermarks: z
-              .object({
-                stamped: z.boolean(),
-                rows: z.array(
-                  z.object({
-                    service: z.string(),
-                    kind: z.string(),
-                    watermark: z.string(),
-                    recordedAt: z.string(),
-                    recordedBy: z.string(),
-                    approverId: z.string(),
-                  }),
-                ),
-              })
-              .nullable(),
-            storage: z.object({ configured: z.boolean(), code: z.literal(OPS_RESTORE_STORAGE_UNCONFIGURED).optional() }),
-            restored: z.literal(false),
-          }),
-        )
-        .query(async () => {
+      watermarks: mountRecord(
+        OPS_RESTORE_WATERMARKS,
+        async () => {
           try {
             const store = desks.restoreStamps;
             const read = restoreWatermarksRead(desks.restoreArchiveUrl, store ? await store.list() : [], now());
@@ -671,7 +639,9 @@ export function createOpsRouter(
           } catch (err) {
             mapError(err);
           }
-        }),
+        },
+        opsRefusal,
+      ),
       // A blank URL is unconfigured. A probe that fails or is unwired stays unprobed. A manifest is listed as returned.
       backups: scopedProcedure('admin:read', guards).query(async () => {
         const archive = archivePosture(desks.restoreArchiveUrl);
@@ -806,10 +776,9 @@ export function createOpsRouter(
     }),
 
     // admin:read, not ops:read: the report is operator-only, and ops:read is held by ordinary sessions.
-    venueEconomics: scopedProcedure('admin:read', guards)
-      .input(z.object({ period: z.string() }))
-      .output(opsVenueEconomicsSchema)
-      .query(async ({ input }) => {
+    venueEconomics: mountRecord(
+      OPS_VENUE_ECONOMICS,
+      async ({ input }) => {
         try {
           const store = requireVenueCosts(desks.venueCosts);
           const period = parseCostPeriod(input.period);
@@ -822,11 +791,12 @@ export function createOpsRouter(
         } catch (err) {
           mapError(err);
         }
-      }),
-    recordVenueCost: scopedProcedure('admin:write', guards)
-      .input(opsCostEntryInputSchema)
-      .output(opsCostEntrySchema)
-      .mutation(async ({ ctx, input }) => {
+      },
+      opsRefusal,
+    ),
+    recordVenueCost: mountRecord(
+      OPS_RECORD_VENUE_COST,
+      async ({ ctx, input }) => {
         try {
           const fields = parseCostEntry(input);
           const store = requireVenueCosts(desks.venueCosts);
@@ -851,7 +821,9 @@ export function createOpsRouter(
         } catch (err) {
           return deskError(err);
         }
-      }),
+      },
+      opsRefusal,
+    ),
 
     protocolListing: createProtocolListingRouter(desks.protocolListing),
 
@@ -907,13 +879,3 @@ export function createOpsRouter(
 }
 
 export type OpsRouter = ReturnType<typeof createOpsRouter>;
-
-/** Grep anchor for the shell golden. */
-export const WAREHOUSE_UNWIRED = OPS_WAREHOUSE_UNWIRED;
-export const PAYROLL_INVENT_FORBIDDEN = OPS_PAYROLL_INVENT_FORBIDDEN;
-export const FUNDRAISING_CHAIN_UNWIRED = OPS_FUNDRAISING_CHAIN_UNWIRED;
-export const CUSTODY_WRAP_UNSET = OPS_CUSTODY_WRAP_UNSET;
-export const CUSTODY_CHAIN_UNWIRED = OPS_CUSTODY_CHAIN_UNWIRED;
-export const CUSTODY_KEYS_FORBIDDEN = OPS_CUSTODY_KEYS_FORBIDDEN;
-export const CUSTODY_FREEZE_UNSET = OPS_CUSTODY_FREEZE_UNSET;
-export const CUSTODY_FROZEN = OPS_CUSTODY_FROZEN;

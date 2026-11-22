@@ -50,6 +50,7 @@
  *   (back)    GH_TOKEN GITHUB_REPOSITORY STEPS BAD BACK RUN_URL;  (confirm-files) STEPS BAD   (writes GITHUB_OUTPUT)
  *   (spent)   GH_TOKEN GITHUB_REPOSITORY RUN_ID
  */
+import { runJobs } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -62,6 +63,7 @@ import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
 import { moneyGuardAt } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
@@ -250,6 +252,7 @@ function client(token) {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+    countCall(res);
     const text = await res.text();
     // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop.
     if (res.status === 403 || res.status === 429)
@@ -1146,8 +1149,8 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
   const lines = ['### Journeys revert, as each shard ends', ''];
   const start = now();
   for (;;) {
-    const { json } = await gh('GET', `/repos/${repo}/actions/runs/${env.RUN_ID}/jobs?filter=latest&per_page=100`);
-    const jobs = json?.jobs ?? [];
+    const jobs =
+      (await runJobs(`/repos/${repo}/actions/runs/${env.RUN_ID}/jobs?filter=latest`, async (p) => (await gh('GET', p)).json)) ?? [];
     for (const { shard } of endedShards(jobs, seen)) {
       seen.add(shard);
       const report = await runReport(gh, repo, env.RUN_ID, env.GH_TOKEN, { shards: [shard] });

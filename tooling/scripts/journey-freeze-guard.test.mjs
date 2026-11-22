@@ -2,11 +2,16 @@
 // Run: node --test tooling/scripts/journey-freeze-guard.test.mjs (also by the tooling-tests Doctrine gate).
 // Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { freezeVerdict, guardPostingFreeze, leakedFreezePlan, postingFromHealth } from './journey-freeze-guard.mjs';
+import { FOUNDER_VAULT_NAME } from './local-test-facts.mjs';
+import { draftFounderVault } from './local-test-founders.mjs';
+import { POSTING_FREEZE_REASON, setPostingFreeze } from './local-test-gates.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const JOURNEYS = join(ROOT, 'apps/customer/tests/real-app');
@@ -113,10 +118,110 @@ test('lift-leaked lifts only a LOCAL TEST freeze', () => {
   assert.equal(leakedFreezePlan(null).action, 'refuse');
 });
 
-test('the posting-freeze lift-leaked command uses that plan and names itself when it refuses', () => {
-  const gates = readFileSync(join(ROOT, 'tooling/scripts/local-test-gates.mjs'), 'utf8');
-  assert.match(gates, /'lift-leaked'\s*\n?\s*\? await setPostingFreeze\(ctx, false, leakedFreezePlan, 'lift-leaked'\)/);
-  assert.match(gates, /throw new Error\(`posting-freeze \$\{verb\} refused: \$\{step\.why\}`\)/);
+/**
+ * A LOCAL TEST stack as setPostingFreeze sees it: founder a and b in the vault, Edge answering sign-ins, the ledger's
+ * freeze record (`state`), the two-person approval and the unfreeze door, with every call it gets recorded.
+ */
+function freezeStack(state) {
+  const stateDir = mkdtempSync(join(tmpdir(), 'freeze-lift-'));
+  const vault = draftFounderVault();
+  vault.founders.forEach((f, i) => Object.assign(f, { userId: `founder-${i}`, totpSecret: `SECRET${i}`, totpConfirmed: true }));
+  writeFileSync(join(stateDir, FOUNDER_VAULT_NAME), JSON.stringify(vault));
+  const calls = [];
+  let record = { ...state };
+  const ok = (data) => ({ status: 200, json: { result: { data } } });
+  const ctx = {
+    paths: { stateDir },
+    sessionCache: null,
+    clock: () => 100 * 30_000,
+    sleep: async () => {},
+    log: () => {},
+    totp: { totp: (secret, { at }) => `${secret}@${at.getTime() / 30_000}` },
+    secrets: { jwt: 'jwt' },
+    tokens: { issueAccessToken: async (claims) => ({ token: `minted:${claims.userId}:${claims.scopes.join(',')}` }) },
+    edge: {
+      async mutate(svc, proc, input) {
+        calls.push(`${svc} ${proc}`);
+        if (proc === 'auth.login') {
+          const who = input.identifier === vault.founders[0].email ? 0 : 1;
+          const sid = Buffer.from(JSON.stringify({ sid: `sess-${who}` })).toString('base64url');
+          return ok({ userId: `founder-${who}`, accessToken: `h.${sid}.s` });
+        }
+        if (proc === 'actionApproval.propose') return ok({ approvalId: 'A1', operationId: 'O1' });
+        if (proc === 'actionApproval.approve') return ok({ status: 'APPROVED' });
+        throw new Error(`unexpected ${svc} ${proc}`);
+      },
+      async call(method, route, body) {
+        calls.push(`${method} ${route}`);
+        if (method === 'GET' && route === '/admin/ledger/freeze') return { status: 200, json: record };
+        if (method === 'POST' && route === '/admin/ledger/unfreeze') {
+          assert.equal(body.approvalId, 'A1', 'the unfreeze carries the approval');
+          record = { frozen: false, version: 'v8', reason: null, actor: 'founder-0' };
+          return { status: 200, json: { frozen: false, actor: 'founder-0', confirmOperatorId: 'founder-1' } };
+        }
+        throw new Error(`unexpected ${method} ${route}`);
+      },
+    },
+  };
+  return { ctx, calls, done: () => rmSync(stateDir, { recursive: true, force: true }) };
+}
+
+test('posting-freeze lift-leaked lifts a journey freeze and refuses any other, naming itself, before founder b signs in', async () => {
+  // A freeze a journey left on: lifted through the two founders, and the ledger's own record says posting is open.
+  const journey = { frozen: true, version: 'v7', reason: 'LOCAL TEST J-identity-08 #7 posting freeze', actor: 'founder-0' };
+  {
+    const s = freezeStack(journey);
+    try {
+      const r = await setPostingFreeze(s.ctx, false, leakedFreezePlan, 'lift-leaked');
+      assert.deepEqual(r, { frozen: false, changed: true, actor: 'founder-0', approvalId: 'A1' });
+      assert.ok(s.calls.includes('POST /admin/ledger/unfreeze'), s.calls.join('; '));
+      assert.equal(s.calls.filter((c) => c === 'identity auth.login').length, 2, 'both founders sign in');
+    } finally {
+      s.done();
+    }
+  }
+  // The same freeze is not this tool's own (POSTING_FREEZE_REASON), so plain `off` refuses it: lift-leaked is its own plan.
+  {
+    const s = freezeStack(journey);
+    try {
+      await assert.rejects(setPostingFreeze(s.ctx, false), /^Error: posting-freeze off refused: the ledger is frozen for another reason/);
+    } finally {
+      s.done();
+    }
+  }
+  // Not a LOCAL TEST freeze (a reconciliation self-freeze): refused by name; nothing is proposed or lifted.
+  for (const state of [
+    { frozen: true, version: 'v7', reason: 'reconciliation self-freeze: residual 4.20', actor: 'svc-ledger' },
+    { frozen: true, reason: 'LOCAL TEST x' },
+  ]) {
+    const s = freezeStack(state);
+    try {
+      await assert.rejects(setPostingFreeze(s.ctx, false, leakedFreezePlan, 'lift-leaked'), (err) => {
+        assert.match(err.message, /^posting-freeze lift-leaked refused: \S/);
+        return true;
+      });
+      assert.deepEqual(s.calls, ['identity auth.login', 'GET /admin/ledger/freeze'], 'founder a reads; nothing else is asked');
+    } finally {
+      s.done();
+    }
+  }
+  assert.ok(POSTING_FREEZE_REASON.startsWith('LOCAL TEST'));
+});
+
+test('the gates command takes lift-leaked as a posting-freeze verb, and refuses an unknown one before touching the stack', () => {
+  const gates = join(ROOT, 'tooling/scripts/local-test-gates.mjs');
+  const home = mkdtempSync(join(tmpdir(), 'freeze-cli-'));
+  try {
+    const env = { ...process.env, HOME: home, LOCAL_STACK_STATE: join(home, 'no-stack') };
+    const bad = spawnSync(process.execPath, [gates, 'posting-freeze', 'lift'], { env, encoding: 'utf8' });
+    assert.equal(bad.status, 2);
+    assert.match(bad.stderr, /usage: local-test-gates\.mjs posting-freeze on\|off\|lift-leaked/);
+    const lift = spawnSync(process.execPath, [gates, 'posting-freeze', 'lift-leaked'], { env, encoding: 'utf8' });
+    assert.equal(lift.status, 1, 'past the usage check, it refuses on the missing stack');
+    assert.match(lift.stderr, /refusing: state directory .* not found/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 /** Every module under the journeys folder, in subfolders too. */

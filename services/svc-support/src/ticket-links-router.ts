@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   SUPPORT_DESK_TICKET_LINKS,

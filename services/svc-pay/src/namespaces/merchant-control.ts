@@ -1,8 +1,5 @@
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
-  anyScopeProcedure,
   merchantControlGetInputSchema,
   merchantControlProfileSchema,
   merchantControlApprovalListInputSchema,
@@ -19,7 +16,8 @@ import {
   merchantLimitWithdrawInputSchema,
   merchantLimitWithdrawResultSchema,
   payoutApprovalSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-control';
+import { router, scopedProcedure, anyScopeProcedure } from '@intafaced/contracts/trpc';
 import type { Principal } from '@intafaced/auth';
 import { ControlError } from '../control/errors.js';
 import type { ControlService } from '../control/service.js';
@@ -29,7 +27,7 @@ import { approvalCancelInputSchema, approvalRequestInputSchema, pricingPreviewIn
 import { guarded } from './control-errors.js';
 import { teamMemberWrite } from '../team-member-write.js';
 import { notBuilt } from './errors.js';
-import { merchantReserveViewSchema, payControlUsageSchema, payPricingQuoteSchema } from '@intafaced/contracts';
+import { merchantReserveViewSchema, payControlUsageSchema, payPricingQuoteSchema } from '@intafaced/contracts/merchant-control';
 import { refuseTopUpUnwired } from '../merchant-pay-dev-out/top-up.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { projectTierList } from '../team-read-projection.js';

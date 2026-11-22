@@ -7,7 +7,7 @@
  * `handle_unresolved`. A missing IDENTITY_URL refuses; it is not "no handle".
  * The page carries no user id.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';

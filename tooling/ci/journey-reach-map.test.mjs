@@ -39,8 +39,8 @@ import {
 } from './journey-reach-map.mjs';
 import { checkoutHead, journeyTouch } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, reachInputs, sealPull } from './journey-seal.mjs';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -384,6 +384,38 @@ test('planted: only an unbuilt step of main’s baseline, and the tests skipped 
     ).full[BANK],
     /speaks for it/,
   );
+});
+
+test('planted: a test with no step title red in every run excuses its run; one red in only some runs, or a step skipped after it, does not (project-state#3676)', () => {
+  const every = (over) => build([3, 2, 1].map((id) => stepsRun(id, over)));
+  // TAX's `starts:` red in every run, its steps green: each run counts, with every record of the file.
+  const recs = [rec(TAX, { served: ['tax GET'] }), rec(TAX, { served: ['support GET'] }), rec(TAX, { served: ['edge GET'] })];
+  const red = every({ [TAX]: { fail: ['starts:'], recs } });
+  assert.equal(red.full[TAX], undefined);
+  assert.ok(reachOf(red, 'services', 'services/svc-support').includes(TAX), 'the passing steps’ records are its reach');
+  // Red in two runs, green in the third: flaky, so the red runs don't count; the green run speaks, with its own records.
+  const some = build([
+    stepsRun(3, { [TAX]: { fail: ['starts:'], recs } }),
+    stepsRun(2, { [TAX]: { fail: ['starts:'], recs } }),
+    stepsRun(1),
+  ]);
+  assert.equal(some.full[TAX], undefined);
+  assert.ok(!reachOf(some, 'services', 'services/svc-support').includes(TAX), 'a flaky red run adds nothing');
+  // Red in every run with its steps skipped: full. So is a red `starts:` followed by a skipped test with no step title:
+  // a skip is excused only after an unbuilt step.
+  assert.match(every({ [TAX]: { fail: ['starts:'], skip: ['#'] } }).full[TAX], /no run the map is built from speaks for it/);
+  const STEPLESS = { [TAX]: { fail: ['starts:'], skip: ['#3'] } };
+  const stepless = build(
+    [3, 2, 1].map((id) => {
+      const r = stepsRun(id, STEPLESS);
+      const spec = r.report.suites.find((x) => x.file === TAX).suites[0].specs.find((x) => x.title.includes('#3'));
+      spec.title = spec.title.replace('#3 step', 'ends: the stack');
+      return r;
+    }),
+  );
+  assert.match(stepless.full[TAX], /no run the map is built from speaks for it/, 'a skipped `ends:` is not excused');
+  // A red step beside it still needs its own excuse: #1 is not in the baseline.
+  assert.match(every({ [TAX]: { fail: ['starts:', '#1'] } }).full[TAX], /speaks for it/);
 });
 
 test('planted: a red unbuilt step another run lacks, or a spec with no test, excuses nothing (project-state#1574)', () => {
@@ -1286,14 +1318,82 @@ test('planted: verify reads the workspace inputs from the checkout it is given, 
     assert.deepEqual(pr.dependents['packages/ledger-client']?.includes('packages/venue-new'), true);
     // The default (this checkout) does not see it: reading the base's workspaces was the bug.
     assert.equal(workspaceInputs().money.includes('packages/venue-new'), false);
+    // The verify command passes `--workspace` through to the build it compares against, and that build reads its workspace
+    // inputs from the root it is given: run as CI runs it, with a stand-in gh serving three whole main runs at this HEAD.
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim();
+    const files = execFileSync('git', ['ls-tree', '--name-only', `${head}:apps/customer/tests/real-app`], {
+      cwd: ROOT_DIR,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter((f) => /^J-.*\.pw\.mjs$/.test(f));
+    const wholeReport = {
+      suites: files.map((f) => ({
+        file: f,
+        specs: [
+          {
+            title: 'reaches',
+            file: f,
+            tests: [{ status: 'expected', results: [{ status: 'passed', attachments: [{ name: 'journey-reach', body: b64(rec(f)) }] }] }],
+          },
+        ],
+      })),
+    };
+    const ghRun = (id, at) => ({
+      id,
+      path: '.github/workflows/real-app-journeys.yml',
+      status: 'completed',
+      conclusion: 'success',
+      head_branch: 'main',
+      event: 'push',
+      head_sha: head,
+      created_at: at,
+      head_repository: { full_name: REPO },
+    });
+    const runs = [ghRun(13, '2026-11-20T03:00:00Z'), ghRun(12, '2026-11-20T02:00:00Z'), ghRun(11, '2026-11-20T01:00:00Z')];
+    const bin = mkdtempSync(join(tmpdir(), 'reach-gh-'));
+    try {
+      writeFileSync(join(bin, 'report.json'), JSON.stringify(wholeReport));
+      writeFileSync(join(bin, 'runs.json'), JSON.stringify(runs));
+      writeFileSync(
+        join(bin, 'gh'),
+        `#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const args = process.argv.slice(2);
+const runs = JSON.parse(fs.readFileSync(${JSON.stringify(join(bin, 'runs.json'))}, 'utf8'));
+if (args[0] === 'api') {
+  const one = /actions\\/runs\\/(\\d+)$/.exec(args[1]);
+  if (one) process.stdout.write(JSON.stringify(runs.find((r) => r.id === Number(one[1]))));
+  else process.stdout.write(JSON.stringify({ workflow_runs: runs }));
+} else if (args[0] === 'run' && args[1] === 'download') {
+  fs.copyFileSync(${JSON.stringify(join(bin, 'report.json'))}, path.join(args[args.indexOf('-D') + 1], 'report.json'));
+} else process.exit(1);
+`,
+      );
+      chmodSync(join(bin, 'gh'), 0o755);
+      const reach = (...args) =>
+        spawnSync(process.execPath, [join(ROOT_DIR, 'tooling/ci/journey-reach-map.mjs'), ...args], {
+          cwd: ROOT_DIR,
+          encoding: 'utf8',
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        });
+      const map = join(bin, 'map.json');
+      const built = reach('build', '--until', '13', '--out', map);
+      assert.equal(built.status, 0, built.stdout + built.stderr);
+      assert.equal(JSON.parse(readFileSync(map, 'utf8')).mode, 'reach', 'the control: three whole runs build a reach map');
+      const same = reach('verify', '--map', map);
+      assert.equal(same.status, 0, `the map this checkout builds verifies against it: ${same.stdout}`);
+      const other = reach('verify', '--map', map, '--workspace', dir);
+      assert.equal(other.status, 1, other.stdout);
+      assert.match(other.stdout, /FAIL: the map differs from the one built from main's runs up to run 13 in: [^\n]*\bmoney\b/);
+      assert.match(other.stdout, /\(only what main's code holds/, "only the keys read from the given checkout's code differ");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  // The verify command passes `--workspace` through to the build it compares against.
-  const src = readFileSync(join(ROOT_DIR, 'tooling/ci/journey-reach-map.mjs'), 'utf8');
-  assert.match(src, /opt\('--workspace'\)/);
-  assert.match(src, /buildFromMain\(\{ until, root \}\)/);
-  assert.match(src, /const inputs = workspaceInputs\(root\);/, 'the build reads its workspace inputs from the root it is given');
 });
 
 // ---- The map main's map workflow built, instead of a committed copy nobody refreshes (the OG, project-state#1574, 23:51 UTC 9 Nov) ----

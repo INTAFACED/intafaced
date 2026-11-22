@@ -1,6 +1,6 @@
 import { z } from 'zod';
+import type { IdentityAccountControlInput, Context } from '@intafaced/contracts';
 import {
-  scopedProcedure,
   accountControlInputSchema,
   identityAccountControlInputSchema,
   accountControlLookupInputSchema,
@@ -18,8 +18,6 @@ import {
   accountArchiveHistoryInputSchema,
   accountArchiveStateSchema,
   accountArchiveResultSchema,
-  accountArchiveProposalsSchema,
-  accountTierListSchema,
   accountTierMoveInputSchema,
   accountTierLookupInputSchema,
   accountTierHistoryInputSchema,
@@ -31,7 +29,6 @@ import {
   accountLimitsHistoryInputSchema,
   accountLimitsLookupInputSchema,
   accountLimitsStateSchema,
-  customerDetailDecisionInputSchema,
   customerDetailReviewSchema,
   customerDetailReviewsInputSchema,
   customerDetailsEditInputSchema,
@@ -42,13 +39,8 @@ import {
   serviceOperatorEntitlementInputSchema,
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
-  router,
-  protectedProcedure,
-  serviceProcedure,
-  TRPCError,
-  type IdentityAccountControlInput,
-  type Context,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
+import { scopedProcedure, router, protectedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { FounderControlError, founderEntitlementChangeSchema, type FounderControls } from './founder-controls.js';
 import type { AccountLimitsDesk } from './account-limits.js';
 import type { CustomerDetailsDesk } from './customer-details.js';
@@ -58,6 +50,13 @@ import {
   RestrictedListLimitUnsetError,
   type RestrictedAccountPage,
 } from './restricted-accounts.js';
+import {
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
+  IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE,
+  IDENTITY_ACCOUNT_CONTROLS_TIERS,
+} from '@intafaced/contracts/identity-account-controls-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 export type FounderControlsPort = Pick<
   FounderControls,
@@ -200,15 +199,13 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         .input(accountArchiveHistoryInputSchema)
         .output(z.array(accountArchiveResultSchema))
         .query(({ ctx, input }) => controlCall(() => controls.archiveHistory(ctx, input))),
-      archiveProposals: protectedProcedure
-        .input(z.object({}).strict())
-        .output(accountArchiveProposalsSchema)
-        .query(({ ctx }) => controlCall(() => controls.archiveProposals(ctx))),
+      archiveProposals: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
+        ({ ctx }) => controlCall(() => controls.archiveProposals(ctx)),
+        codedRefusal,
+      ),
       // Account product tiers (J-ops-console-04 #11): the owner's tier list, and a move a second live founder approved.
-      tiers: protectedProcedure
-        .input(z.object({}).strict())
-        .output(accountTierListSchema)
-        .query(({ ctx }) => controlCall(() => controls.tiers(ctx))),
+      tiers: mountRecord(IDENTITY_ACCOUNT_CONTROLS_TIERS, ({ ctx }) => controlCall(() => controls.tiers(ctx)), codedRefusal),
       tierMove: protectedProcedure
         .input(accountTierMoveInputSchema)
         .output(accountTierResultSchema)
@@ -231,10 +228,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         .input(customerDetailsEditInputSchema)
         .output(customerDetailsResultSchema)
         .mutation(({ ctx, input }) => controlCall(() => detailsDesk(details).edit(ctx, input))),
-      detailsDecide: protectedProcedure
-        .input(customerDetailDecisionInputSchema)
-        .output(customerDetailsResultSchema)
-        .mutation(({ ctx, input }) => controlCall(() => detailsDesk(details).decide(ctx, input))),
+      detailsDecide: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE,
+        ({ ctx, input }) => controlCall(() => detailsDesk(details).decide(ctx, input)),
+        codedRefusal,
+      ),
       detailsReviews: protectedProcedure
         .input(customerDetailReviewsInputSchema)
         .output(z.array(customerDetailReviewSchema))

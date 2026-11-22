@@ -35,7 +35,7 @@ import { consumeFounderApproval, type ApprovalConsumer } from '../operator-desks
 import { alertTargets, repeatNotice, sameFrozenFigures, type AlertTarget, type NoticeOutcome } from './decide.js';
 import { queueAlertEvent } from './events.js';
 import type { CorrectiveTxPort } from './transactions-client.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 const SOURCE = 'ledger.reconciliation_evaluations';
 /** The actor the timeline names for what the feed did; a person is always their own user id. */

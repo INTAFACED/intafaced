@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
-import { Bars, Parts } from '../components/b2-charts.js';
+import { Bars, Coverage, Parts } from '../components/b2-charts.js';
+import { BrandSample, Meter } from '../components/b2-basics.js';
 import { LegalSlotsSwitch, Region, Review, RoomFrame } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
@@ -75,6 +76,27 @@ describe('bars', () => {
     );
     expect(out).toContain('data-negative="true"');
     expect(out).not.toMatch(/height="0"/);
+  });
+});
+
+describe('coverage', () => {
+  it('places each covered range where it falls in the window and leaves the gaps empty', () => {
+    const out = html(
+      <Coverage
+        label="ticks"
+        from="2026-01-01T00:00:00Z"
+        to="2026-01-01T10:00:00Z"
+        rangeTestId="range"
+        ranges={[
+          { from: '2026-01-01T00:00:00Z', to: '2026-01-01T02:00:00Z' },
+          { from: '2026-01-01T05:00:00Z', to: '2026-01-01T10:00:00Z' },
+        ]}
+      />,
+    );
+    expect(out).toContain('role="img"');
+    expect(out).toContain('inset-inline-start:0%;inline-size:20%');
+    expect(out).toContain('inset-inline-start:50%;inline-size:50%');
+    expect(out.match(/data-testid="range"/g)).toHaveLength(2);
   });
 });
 
@@ -493,5 +515,38 @@ describe('states never contradict themselves', () => {
 describe('gallery fixtures are shaped as the API sends them', () => {
   it('holdings are decimal strings, as ledgerHoldingSchema requires', () => {
     for (const h of HOLDINGS) expect(h.amount).toMatch(/^\d+(\.\d+)?$/);
+  });
+});
+
+describe("a limit's use and a brand sample", () => {
+  it('Meter reads as a progress bar with its words, clamps the fill and marks full by a state', () => {
+    const half = html(<Meter label="Daily intake" value={62.4} text="62% used" />);
+    expect(half).toContain('role="progressbar"');
+    expect(half).toContain('aria-label="Daily intake"');
+    expect(half).toContain('aria-valuenow="62"');
+    expect(half).toContain('aria-valuetext="62% used"');
+    expect(half).toContain('inline-size:62.4%');
+    expect(half).toContain('<span class="lt-sr">62% used</span>');
+    expect(half).not.toContain('data-full');
+    const over = html(<Meter label="Daily intake" value={140} text="Limit reached" />);
+    expect(over).toContain('data-full="true"');
+    expect(over).toContain('inline-size:100%');
+    expect(over).toContain('aria-valuenow="100"');
+  });
+
+  it('BrandSample takes only a #rrggbb colour, as custom properties on a named figure', () => {
+    const out = html(
+      <BrandSample label="Checkout preview" accent="#ff6600" onAccent="#000000">
+        <span className="lt-brand-button">Pay</span>
+      </BrandSample>,
+    );
+    expect(out).toContain('<figure class="lt-brand" aria-label="Checkout preview" style="--lt-brand:#ff6600;--lt-on-brand:#000000">');
+    const bad = html(
+      <BrandSample label="Checkout preview" accent="red;background:url(x)" onAccent="#000000">
+        <span />
+      </BrandSample>,
+    );
+    expect(bad).not.toContain('url(x)');
+    expect(bad).not.toContain('--lt-brand:');
   });
 });

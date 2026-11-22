@@ -63,6 +63,8 @@ export const researchCopy = defineCopy('quant-research', {
   apLiveAllowed: 'Version {version} may go live.',
   apLiveBlocked: 'Version {version} can’t go live until a different member approves it.',
   apRequest: 'Ask for a review of version {version}',
+  apAgain:
+    'Version {version} has no review that still counts: the strategy changed after its last review. Ask a teammate to review version {version}.',
   apRequestUnset: 'Set your account’s policy first.',
   apNone: 'No version has been sent for review.',
   apColVersion: 'Version',

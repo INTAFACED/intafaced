@@ -80,6 +80,7 @@
  *                                                              env's TITLE and GITHUB_HEAD_REF when not given, which is
  *                                                              how real-app-journeys.yml's touch step passes them)
  */
+import { runJobsSync } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { githubFetch, githubToken } from './github-fetch.mjs';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -101,6 +102,7 @@ import {
   runsBehind,
   subscribesVia,
 } from './journey-reach-map.mjs';
+import { countCall } from './api-count.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -121,14 +123,19 @@ export const JOURNEY_CI = [
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
   'tooling/ci/journey-reach-map.mjs',
   'tooling/ci/journey-reach-map.json',
+  // What finds the journeys run's reach among tooling no rule places (quietTooling).
+  'tooling/ci/tooling-reach.mjs',
   'tooling/ci/post-merge-trust.mjs',
   'tooling/ci/review-marker.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
   'tooling/ci/factory-switch.mjs',
   // The seal's scripts word a spent API budget with it (judge down).
   'tooling/ci/api-budget.mjs',
+  'tooling/ci/api-count.mjs',
   // The seal's scripts and main-first.mjs call GitHub through it.
   'tooling/ci/github-fetch.mjs',
+  // Every reader of a run's jobs reads them through it, in pages GitHub answers after a re-run.
+  'tooling/ci/run-jobs.mjs',
   // real-app-journeys.yml's `Main's journeys first` job runs it.
   'tooling/ci/main-first.mjs',
   // Main trust's post-merge job runs it after each journeys run on main, and main-bisect.yml's journeys revert jobs.
@@ -407,7 +414,7 @@ const narrowHelper = (p) => {
 };
 
 /** Text with a path split over `'a', 'b'` arguments or a line of comment joined up, so each spelling reads as one path. */
-const joinedPaths = (t) =>
+export const joinedPaths = (t) =>
   String(t)
     .replace(/['"`]\s*,\s*['"`]/g, '/')
     .replace(/\/[ \t]*\r?\n[ \t]*(?:\/\/|\*)[ \t]*/g, '/');
@@ -481,8 +488,30 @@ function kindOf(p) {
   // A Rust service's crate is that service: the map reads it as the service's own path (CRATE).
   const crate = CRATE.exec(p);
   if (crate) return { kind: 'full', why: PRODUCT, product: true, as: `services/${crate[1]}/${crate[2]}` };
-  return { kind: 'full', why: 'a path no rule places, so the safe default' };
+  return { kind: 'full', why: UNPLACED };
 }
+
+/** Why a path no rule above places is full: the safe default. */
+export const UNPLACED = 'a path no rule places, so the safe default';
+
+/**
+ * A tooling file no rule places that no journeys run reaches: `reach` is tooling-reach.mjs's `journeys` list for the
+ * tree judged, the pull request's head (nothing the journeys workflow, its actions, the stack, the seed, tooling/scripts,
+ * a journey file or any app, service, package or crate file names reads it). A change made only of these and of paths
+ * that run no journeys runs no journeys (journeyTouch); beside any other path it stays the safe default, so a pull
+ * request that touches product code, the stack or a journey keeps its pick. With no list (`null`: not scanned, or the
+ * scan failed), or a path with a character no tracked path holds, nothing is quiet. (Failure it prevents: #9552,
+ * tooling/design/RECIPE.md and a tooling script, ran 64 journey files on 18 shards, about 23 minutes a push, on 22 Nov
+ * 2026.)
+ */
+export function quietTooling(path, reach = null) {
+  const p = String(path);
+  if (!reach || !/^tooling\/[A-Za-z0-9_.@/-]+$/.test(p) || kindOf(p).why !== UNPLACED) return false;
+  return !reach.some((e) => (e.endsWith('/') || e.endsWith('*') ? p.startsWith(e.replace(/[*]$/, '')) : e === p));
+}
+
+/** Whether a change could be quiet (quietTooling), so a caller scans the tree only then: it holds tooling no rule places. */
+export const mayBeQuiet = (paths) => [...(paths ?? [])].some((p) => String(p).startsWith('tooling/') && kindOf(String(p)).why === UNPLACED);
 
 /**
  * What a pull request with these changed paths must run. `atHead(file)`: whether a journey test file still exists at
@@ -494,9 +523,15 @@ function kindOf(p) {
  * paths run the named journeys besides what the map selects for them (its always-run list included), or the named
  * journeys alone when `reach` is null, and `named` says why. With
  * it, a service's own stack file adds the journeys that use it, when nothing else is full (`stack` lists those paths,
- * `importers` those journeys); otherwise it is full like any other.
+ * `importers` those journeys); otherwise it is full like any other. `tooling`: the head's tooling reach (quietTooling),
+ * or null.
  */
-export function journeyTouch(paths, atHead = () => true, reach = null, named = null) {
+export function journeyTouch(paths, atHead = () => true, reach = null, named = null, tooling = null) {
+  // Only tooling no journeys run reaches, beside paths that run none: no journeys (quietTooling).
+  const all = [...new Set(paths ?? [])];
+  const quiet = (p) => quietTooling(p, tooling);
+  if (all.length && all.some(quiet) && all.every((p) => quiet(p) || pathKind(p).kind === 'none'))
+    return { mode: 'none', full: [], files: [] };
   const full = [];
   const product = [];
   const stack = [];
@@ -854,6 +889,7 @@ async function mergeBaseReader() {
 function behindFromApi(map) {
   try {
     const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+    countCall();
     const out = execFileSync(
       'gh',
       ['api', `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=100`],
@@ -865,8 +901,10 @@ function behindFromApi(map) {
   }
 }
 
-const ghApi = (path, encoding = 'utf8') =>
-  execFileSync('gh', ['api', path], { encoding, maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] });
+const ghApi = (path, encoding = 'utf8') => {
+  countCall();
+  return execFileSync('gh', ['api', path], { encoding, maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] });
+};
 
 /**
  * When this journeys run reads main's touched-journeys map: the creation of the first pull request run of this workflow
@@ -923,7 +961,7 @@ function reuseMain() {
         r?.status === 'completed' &&
         DISPATCH_TITLE.test(String(r.display_title ?? ''))
       ) {
-        const jobs = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?per_page=100`)).jobs ?? [];
+        const jobs = runJobsSync(`repos/${repo}/actions/runs/${Number(r.id)}/jobs`, (p) => JSON.parse(ghApi(p))) ?? [];
         if (jobs.some((j) => SHARD_JOB.test(String(j?.name)) && ['success', 'failure'].includes(j?.conclusion))) ranShards.add(r.id);
       }
     const journeyFiles = checkoutJourneyFiles();
@@ -989,7 +1027,7 @@ function readPicks(repo, sha, runs, self) {
         const arts = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/artifacts?name=${PICK_ARTIFACT}&per_page=20`)).artifacts;
         let touch = null;
         try {
-          touch = touchStarted(JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?filter=latest&per_page=100`)).jobs);
+          touch = touchStarted(runJobsSync(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?filter=latest`, (p) => JSON.parse(ghApi(p))));
         } catch {}
         const art = currentPickArtifact(r, arts, touch);
         if (!art) continue;
@@ -1069,8 +1107,16 @@ async function main() {
     journeyFiles: checkoutJourneyFiles(),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
+  // Tooling no journeys run reaches, by this checkout's tree (the pull request's head; tooling-reach.mjs), scanned only
+  // when the change holds tooling no rule places. A scan that can't run or read leaves today's pick.
+  let tooling = null;
+  if (mayBeQuiet(paths))
+    try {
+      const { checkoutTree, reachOf } = await import('./tooling-reach.mjs');
+      tooling = reachOf(checkoutTree(process.cwd()))?.journeys ?? null;
+    } catch {}
   // What a pull request runs: never the full suite (pullPick).
-  const t = pullPick(paths, journeyTouch(paths, atHead, reach, named), { atHead, reach, named });
+  const t = pullPick(paths, journeyTouch(paths, atHead, reach, named, tooling), { atHead, reach, named });
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (t.bounded && args.includes('--json')) console.error(`journey-touch: ${t.bounded}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));
@@ -1088,4 +1134,10 @@ async function main() {
   } else console.log('none: no journeys run executes or reads what this change touches');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main();
+// Not awaited at the top level: main() imports tooling-reach.mjs, which imports this file, and that import would wait on
+// this file's own evaluation, which would wait on main(), a cycle that never settles (node exits 13).
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
+  main().catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  });

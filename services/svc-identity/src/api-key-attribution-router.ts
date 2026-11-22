@@ -1,6 +1,6 @@
 import { keyRateLimitSchema } from '@intafaced/contracts/api-rate-limits';
 import { z } from 'zod';
-import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError, assertDelegateCannotGrant, type AuthService } from './auth/auth-service.js';
 import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
 import { ATTRIBUTION_MISSING, AttributionError, attributedSurfaces, requireAttribution } from './auth/four-eyes.js';

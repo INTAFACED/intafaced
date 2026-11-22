@@ -2,8 +2,8 @@
 import { z } from 'zod';
 
 const count = z.number().int().min(0);
-export const checklistKey = z.enum(['second_factor', 'passkey', 'authenticator', 'recovery_codes']);
-export const floorAction = z.enum(['money_out', 'security_change']);
+const checklistKey = z.enum(['second_factor', 'passkey', 'authenticator', 'recovery_codes']);
+const floorAction = z.enum(['money_out', 'security_change']);
 
 /** `factorStatus`: the caller's own sign-in methods and the derived checklist. `policy` null means no owner setting. */
 export const factorStatus = z.object({

@@ -1,4 +1,5 @@
-import { QUANT_SANDBOX_LIMITS, router } from '@intafaced/contracts';
+import { QUANT_SANDBOX_LIMITS } from '@intafaced/contracts/quant-algo';
+import { router } from '@intafaced/contracts/trpc';
 import { toTrpc, type QuantCore, quantRefusal } from './core.js';
 import { QUANT_LIMITS_GET } from '@intafaced/contracts/quant-limits-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
