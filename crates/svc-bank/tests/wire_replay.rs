@@ -173,8 +173,9 @@ fn serve() -> BankDoor {
         store: svc_bank::db::Store::Down("replay stub: sql".to_owned()),
     })
     .unwrap()
-    // The replay's `activity` options: the cursor secret, which a statement is signed with too.
+    // The TypeScript replay's `activity` options: a history port (a stub that throws) and the cursor secret.
     .with_activity(svc_bank::activity::Wiring {
+        pages: Box::new(svc_bank::activity::pages::NoPages),
         cursor_secret: Some(INTERNAL.to_owned()),
         ..svc_bank::activity::Wiring::none()
     })
