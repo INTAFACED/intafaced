@@ -1,3 +1,5 @@
+// volt-room: /pay/subscriptions/new
+// volt-room: portal:subscription-new
 import { useState } from 'react';
 import { z } from 'zod';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';

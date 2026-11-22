@@ -1,3 +1,5 @@
+// volt-room: /pay/invoices/new
+// volt-room: portal:invoice-new
 import { useState } from 'react';
 import { Button, Field, TextArea } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, Table } from '@intafaced/ui/lit/templates';

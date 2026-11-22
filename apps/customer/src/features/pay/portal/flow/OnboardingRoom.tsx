@@ -1,3 +1,8 @@
+// volt-room: /pay/onboarding
+// volt-room: /pay/onboarding/business
+// volt-room: /pay/onboarding/verification
+// volt-room: /pay/onboarding/go-live
+// volt-room: portal:onboarding
 import { useState } from 'react';
 import { Field } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';

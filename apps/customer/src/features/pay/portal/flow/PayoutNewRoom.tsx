@@ -1,3 +1,5 @@
+// volt-room: /pay/payouts/new
+// volt-room: portal:payout-new
 import { useState } from 'react';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../../shared/resource';
