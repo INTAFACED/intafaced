@@ -26,6 +26,6 @@ export function quantModeRoute(
       />
     ),
     // Drawn on its own desk template, which carries the title and description itself.
-    framed: true,
+    bare: true,
   };
 }
