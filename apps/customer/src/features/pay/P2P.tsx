@@ -31,6 +31,9 @@ import { OwnCompletion } from './personal/CompletionRates';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
 import { MethodsRoom } from './personal/MethodsRoom';
+import { P2PBoard } from './p2p-board/Board';
+// The other P2P rooms still draw the offer list's old look until they move to Volt.
+import './p2p-offer.css';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -58,6 +61,18 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   // Payment methods is on its settings template, which draws its own title and the P2P rooms.
   if (showMethods && !tradeId && current !== '/chat' && !showOrders && !publish && !showAccess)
     return <MethodsRoom pay={pay} userId={userId} />;
+  // The offer board is on its overview template, which draws its own title and the P2P rooms.
+  if (
+    !tradeId &&
+    current !== '/chat' &&
+    current !== '/checkuser' &&
+    !showOrders &&
+    !publish &&
+    !showAccess &&
+    !showMine &&
+    !(current === '/uc/ad/update')
+  )
+    return <P2PBoard pay={pay} userId={userId} offerOpen={Boolean(params.get('offerId'))} />;
   return (
     <Page
       eyebrow={payCopy.t('personalPay')}

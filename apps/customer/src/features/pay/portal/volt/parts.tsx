@@ -4,12 +4,16 @@
  * `../components.tsx` and `../ui/`, so a page moves onto the kit without a test or a journey noticing; the logic (what a
  * refusal says, how old figures are) stays where it was and is only called from here.
  */
-import { useState, type ReactNode } from 'react';
+import { Children, isValidElement, useId, useState, type ReactElement, type ReactNode } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
-import { Button, Select } from '@intafaced/ui/lit';
+import { Button, Figure, Select } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { useSaidOnce } from '../components';
+import { usePreferences } from '../../../../shared/preferences';
+import type { AssetAmount, Freshness as FreshnessRead, HaltScope, HaltStatus } from '../schemas';
+import { useMoneyReason } from '../access/MoneyAction';
+import type { MoneyKind, PayoutAct } from '../access/money-step';
 import { portalCopy } from '../copy';
 import { chromeCopy } from '../chrome/copy';
 import type { AllowlistCode } from '../chrome/NotLiveCard';
@@ -23,7 +27,7 @@ import { ageSeconds } from '../ui/Freshness';
 import type { KpiTileProps } from '../ui/Kpi';
 import type { ChipKind } from '../ui/status-vocabulary';
 import { statusWords, type StatusEntity, type StatusTone } from '../ui/StatusChip';
-import { STALE_AFTER_SECONDS } from '../model';
+import { STALE_AFTER_SECONDS, activeHalts, lagParts, staleness } from '../model';
 import type { TimelineEvent } from '../ui/Timeline';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -546,5 +550,163 @@ export function TestTag() {
     <span className="lt-test" title={t('testValueTip')}>
       {t('testValue')}
     </span>
+  );
+}
+
+/**
+ * A page's headline figure: the amount and its asset in the kit's hero size (`HeroNumber` on the old pages). With balances
+ * hidden it is masked, as every balance is, and read out as hidden.
+ */
+export function HeroFigure({ value, asset, testId }: { value: string; asset: string; testId?: string }) {
+  const { hideBalances } = usePreferences();
+  if (hideBalances)
+    return (
+      <span data-testid={testId} data-hidden="" aria-label="Hidden">
+        ••••
+      </span>
+    );
+  return (
+    <span data-testid={testId}>
+      <Figure
+        size="hero"
+        parts={[
+          { type: 'integer', value: formatMoney(value, asset) },
+          { type: 'literal', value: ' ' },
+          { type: 'unit', value: asset },
+        ]}
+      />
+    </span>
+  );
+}
+
+/** One line per asset (`MoneyLines` in `../components`). Two assets are never added together; none is a dash, not zero. */
+export function MoneyLines({ items, emptyLabel, test = false }: { items: readonly AssetAmount[]; emptyLabel?: string; test?: boolean }) {
+  const { t } = portalCopy.useCopy();
+  if (items.length === 0)
+    return (
+      // The test id names "no rows in this period", which a journey reads apart from a measured figure.
+      <span data-testid="pp-none" title={emptyLabel ?? t('noPaymentsInPeriod')}>
+        —
+      </span>
+    );
+  return (
+    <span className="lt-lines">
+      {items.map((item) => (
+        <span key={item.assetCode}>
+          <MoneyText value={item.amount} asset={item.assetCode} test={test} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Whether `HaltNotice` has anything to say: a pause in force, or a pause store that could not be read. */
+export function haltShows(resource: Resource<HaltStatus>, scopes: readonly HaltScope[]): boolean {
+  if (resource.status === 'loading') return false;
+  if (resource.status === 'failed') return true;
+  const { unreadable, halts } = activeHalts(resource.data, scopes);
+  return unreadable || halts.length > 0;
+}
+
+/** Operation pauses (`HaltBanner` in `../components`): which operation is paused and since when. An unreadable pause store counts as paused. */
+export function HaltNotice({ resource, scopes }: { resource: Resource<HaltStatus>; scopes: readonly HaltScope[] }) {
+  const { t } = portalCopy.useCopy();
+  if (resource.status === 'loading') return null;
+  // A refused or failed read (a team member's read is refused too) is not "nothing is paused": say we could not check.
+  if (resource.status === 'failed')
+    return (
+      <p className="lt-refusal" data-refusal="unreachable" role="alert">
+        {t('haltCheckFailed', { ops: scopes.map((s) => t(`haltOpName_${s}` as 'haltOpName_intake')).join(t('haltOr')) })}
+      </p>
+    );
+  const { unreadable, halts } = activeHalts(resource.data, scopes);
+  if (unreadable)
+    return (
+      <p className="lt-refusal" data-refusal="unreachable" role="alert">
+        {t('haltUnreadable')}
+      </p>
+    );
+  if (halts.length === 0) return null;
+  return (
+    <div className="lt-refusal" data-refusal="refused" role="alert">
+      {halts.map((h) => {
+        const where =
+          h.level === 'merchant' ? t('haltYours') : h.level === 'rail' ? t('haltRail', { rail: h.railId ?? '' }) : t('haltGlobal');
+        return (
+          <p key={`${h.scope}:${h.level}:${h.railId ?? ''}`}>
+            <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {where}{' '}
+            {h.changedAt ? (
+              <>
+                {t('haltSince')} <DateTime value={h.changedAt} />.{' '}
+              </>
+            ) : null}
+            {t('haltEffect')}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+const STALE_LOOK = 'lt-stale';
+const HINT_LOOK = 'lt-hint';
+
+/** "As of" and lag on every metric (`AsOf` in `../components`). Unknown freshness is stated, never dressed as live. */
+export function AsOf({ freshness }: { freshness: FreshnessRead }) {
+  const { t } = portalCopy.useCopy();
+  const state = staleness(freshness);
+  if (state.kind === 'unknown')
+    return (
+      <p className="lt-stale" role="status">
+        {t('asOfUnknown')}
+      </p>
+    );
+  const look = state.kind === 'stale' ? STALE_LOOK : HINT_LOOK;
+  const lag = lagParts(state.lagSeconds);
+  const lagText =
+    lag.unit === 'seconds'
+      ? t('lagSeconds', { n: lag.n })
+      : lag.unit === 'minutes'
+        ? t('lagMinutes', { n: lag.n })
+        : t('lagHours', { n: lag.n });
+  return (
+    <p className={look} role="status">
+      {t('asOf')} <DateTime value={freshness.asOf!} /> · {lagText}
+      {state.kind === 'stale' && <> · {t('staleWarning')}</>}
+    </p>
+  );
+}
+
+/** When a list was read (`ReadAt` in `../components`). */
+export function ReadAt({ at }: { at: string | null }) {
+  const { t } = portalCopy.useCopy();
+  if (!at) return null;
+  return (
+    <p className="lt-hint" role="status">
+      {t('readAt')} <DateTime value={at} />
+    </p>
+  );
+}
+
+/**
+ * A control that sends money out (`MoneyAction` in `../access/MoneyAction`): drawn as given when the session carries the
+ * scope, otherwise the same words as a switched-off kit button with the reason beside it. Nothing here guesses that money
+ * may move.
+ */
+export function MoneyAction({ kind, act, children }: { kind: MoneyKind; act?: PayoutAct; children: ReactElement }) {
+  const reason = useMoneyReason(kind, act);
+  const reasonId = useId();
+  if (!reason) return children;
+  if (!isValidElement(children)) return null;
+  const label = Children.toArray((children as ReactElement<{ children?: ReactNode }>).props.children);
+  return (
+    <div className="lt-actions">
+      <Button tone="secondary" disabled aria-describedby={reasonId}>
+        {label}
+      </Button>
+      <small id={reasonId} className="lt-hint">
+        {reason}
+      </small>
+    </div>
   );
 }
