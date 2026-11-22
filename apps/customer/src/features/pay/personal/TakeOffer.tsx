@@ -15,7 +15,7 @@ import { p2pDepth } from './p2p-depth-copy';
 import { TraderName, useTraders } from './Trader';
 import { P2PEligibilityPanel, StaySafe } from './Eligibility';
 import { TakeSettlementNotice } from './Settlement';
-import { StepUpConfirm } from '../../money';
+import { KitStepUpConfirm } from '../../money';
 import { ContractEscrowChoice, useContractEscrowChoice } from './ContractEscrow';
 import { WalletProvider } from '../../protocol';
 import { contractEscrowCopy as escrowCopy } from './contract-escrow-copy';
@@ -788,7 +788,7 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
                   ) : confirmedUntil === null ? (
                     <>
                       {busy ? <p className="lt-hint">{t('takePlacing')}</p> : null}
-                      <StepUpConfirm
+                      <KitStepUpConfirm
                         request={() => stepUpRequest(review)}
                         words={{
                           why: t('takeStepUpWhy'),
