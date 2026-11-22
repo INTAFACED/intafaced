@@ -35,7 +35,7 @@ export function BreakingChangesNotice() {
         <UpcomingView data={resource.data} language={requestedLocale} />
       )}
       <a className="lt-link" href="/developers/changelog">
-        {t('changelogBack')} →
+        {t('changelogBack')}
       </a>
     </section>
   );
