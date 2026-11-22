@@ -17,6 +17,8 @@
 //! The `spreads` slice adds options and combos to the book (`book::order_book`'s option and combo layers), owner-listed
 //! spreads with their own books (`book::spread`, the spread layer, the engine's listings and `spreadFilled`), the
 //! identity approval a listing spends (`approval`), and the spread doors (`door::spreads`).
+//! The `venue` slice adds the mode switches, the venue halt, dead sessions and the surveillance evidence
+//! (`engine::venue`), their doors (`door::venue`), and the identity approval each switch spends (`approval`).
 
 pub mod approval;
 pub mod book;

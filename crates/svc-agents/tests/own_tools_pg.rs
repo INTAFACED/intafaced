@@ -346,6 +346,7 @@ impl World {
             background: svc_agents::background::Settings::default(),
             own: self.own(baseline, ttl, reviewer),
             team: svc_agents::team::Team::unwired(),
+            ops: svc_agents::ops::Ops::unwired(),
         })
         .unwrap();
         People {

@@ -1,8 +1,10 @@
 // The paper-run helpers J-algo-dev-04's files share (J-algo-dev-04.pw.mjs, -start, -alerts): one TEST developer's
-// signal-rules strategy on 1 minute bars of BTC/USDT, its paper runs and its fill notices, read through Edge. Every figure
-// is paper; nothing here moves money.
+// signal-rules strategy on 1 minute bars of BTC/USDT, its paper runs and its fill notices, read through Edge, and the TEST
+// venue trading BTC-USDC, whose own prints a paper run prices from. Every figure is paper or TEST; nothing here moves money.
+import { randomBytes } from 'node:crypto';
 import { expect } from './journey.mjs';
 import { api } from './stack.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, venueRecord } from './venue.mjs';
 
 export const NAME = 'TEST paper alerts';
 export const LABEL = 'Paper — not live performance';
@@ -88,4 +90,50 @@ export async function stopRun(who, runId) {
   const res = await client.post('/api/quant/trpc/paper.stop', { runId });
   expect(res.status, `paper.stop: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(200);
   expect(dataOf(res.body).state).toBe('stopped');
+}
+
+/** The venue's spot market on BTC, which a paper run of BTC/USDT prices from (svc-trade `/api/v1/venue/spot-candles`). */
+export const VENUE_MARKET = 'BTC-USDC';
+
+/**
+ * Another TEST trader trading the TEST venue's BTC-USDC, as an outside participant would, so the venue's own prints make
+ * the candles a paper run prices from: each `trade()` is 0.001 BTC bought from the seeded ask in an even minute and sold
+ * to the seeded bid in an odd one, so the closes alternate and the strategy's averages cross. A step that waits for fills
+ * calls it on each round of its poll, so every minute it waits through has prints. Funded once, after the file's venue
+ * door is on (venueForThisFile). A trade the venue does not take fails the step with the venue's answer.
+ */
+export function venueTape(test, name) {
+  const owner = otherTraderKey(name).address.toLowerCase();
+  const ref = `${name}:${process.env.JOURNEY_RUN_ID ?? 'local'}`;
+  let n = 0;
+  test.beforeAll(async () => {
+    await testDeposit(owner, 'USDC', '1000000', `deposit:paper-tape:${ref}:usdc`);
+    await testDeposit(owner, 'BTC', '10', `deposit:paper-tape:${ref}:btc`);
+  });
+  return {
+    owner,
+    async trade() {
+      const buy = Math.floor(Date.now() / 60_000) % 2 === 0;
+      n += 1;
+      const answer = await otherTraderRun(name, {
+        kind: 'place_order',
+        symbol: VENUE_MARKET,
+        side: buy ? 'buy' : 'sell',
+        type: 'limit',
+        amount: '0.001',
+        price: buy ? '61000' : '59000',
+        timeInForce: 'IOC',
+        reduceOnly: false,
+        clientOrderKey: `order:${owner}:paper-tape-${n}-${randomBytes(4).toString('hex')}`,
+        builderFee: null,
+      });
+      expect(answer, JSON.stringify(answer).slice(0, 300)).toMatchObject({ accepted: true });
+    },
+  };
+}
+
+/** The TEST venue's own 1 minute candles of BTC-USDC, read from the venue itself, never through our door: by open time. */
+export async function venueCandles(owner) {
+  const body = await venueRecord(owner, '/candles', { symbol: VENUE_MARKET, interval: '1m', limit: 500 });
+  return new Map(body.value.map((c) => [Date.parse(c.openAt), c]));
 }
