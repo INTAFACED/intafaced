@@ -119,6 +119,21 @@ test("a route the recording lacks refuses the push and names the rewrite (#9519'
   }
 });
 
+test('a push that also changes a shared package runs no replay and builds nothing: CI judges it (#9599)', () => {
+  const p = plant({
+    change: { 'services/svc-trade/src/a.ts': 'export const a = 1;\n', 'packages/contracts/src/b.ts': 'export const b = 1;\n' },
+    pnpm: 'exit 1',
+  });
+  try {
+    const r = p.run();
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /changes a shared package.*left to CI/);
+    assert.equal(p.ran(), '');
+  } finally {
+    p.done();
+  }
+});
+
 test('a replay that answers as recorded lets the push go', () => {
   const p = plant({ change: { 'services/svc-trade/src/a.ts': 'export const a = 1;\n' }, pnpm: 'exit 0' });
   try {

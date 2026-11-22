@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
  * The wire replays .githooks/pre-push runs: for each service this push changes that keeps a wire replay
- * (`services/<service>/src/wire-replay.test.ts`), the replay itself, after a build of the packages it reads (turbo's
- * shared cache makes that a second when they are unchanged), under one time limit.
+ * (`services/<service>/src/wire-replay.test.ts`), the replay itself, after a build of the packages it reads, under one
+ * time limit. A push that changes a shared package (`packages/`) runs no replay: its packages would build here, the CPU
+ * the hook stopped spending on 22 Nov (#9599), and CI's Tests job judges it. Otherwise the packages are main's, already
+ * in turbo's shared cache, and the build step takes about a second.
  *
  *   exit 0  the push changes no service with a replay (decided from the file names alone), or every replay passed;
  *   exit 1  a replay answered other than its recording: vitest prints the calls that differ above, and this names the
@@ -12,7 +14,7 @@
  * Failure it prevents: a new route whose answers the replay had not recorded, first seen as a red Tests job minutes after
  * the push, then a second push with the recording rewritten: svc-trade's GET /api/v1/venue/deposit-routes (#9297,
  * e4b1c05a79, 21 Nov) and GET /api/v1/venue/margin-rules (#9519, 43ca732ccc, 21 Nov) (project-state#3682). svc-trade's
- * replay takes about 7 s here. A change in a shared package can change a replay's answers too; that is left to CI.
+ * replay takes about 7 s here; svc-edge's, the slowest, 21 s.
  *
  * WIRE_REPLAY_WRITE is never passed on: the hook judges the recording and never rewrites it.
  *
@@ -24,7 +26,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const LIMIT_SECONDS = 180;
+const LIMIT_SECONDS = 60;
 const REPLAY = 'src/wire-replay.test.ts';
 
 /** The services (folder names under services/) whose files `files` changes and that keep a wire replay, sorted. */
@@ -73,6 +75,10 @@ async function main() {
   }
   const services = replaysFor(files);
   if (!services.length) return 0;
+  if (files.some((f) => f.startsWith('packages/'))) {
+    console.log('wire replay: this push changes a shared package, so the replays would build it here; left to CI');
+    return 0;
+  }
   if (!existsSync(join(ROOT, 'node_modules', '.bin', 'turbo'))) {
     console.error(
       "  ✖ the wire replay needs this worktree's install — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline",
