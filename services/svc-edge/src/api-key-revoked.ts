@@ -4,7 +4,7 @@
  * Consume GET /internal/api-keys/:id — no second store. Never invent live.
  */
 
-import { apiKeyOwnershipSchema } from '@intafaced/contracts';
+import { apiKeyOwnershipSchema } from '@intafaced/contracts/identity';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 
 export class ApiKeyRevokedError extends Error {

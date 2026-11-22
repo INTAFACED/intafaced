@@ -1,14 +1,8 @@
 import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import {
-  isScheduleKey,
-  isScheduleOpen,
-  nextScheduleTransition,
-  TRADING_SCHEDULES,
-  upcomingMaintenanceFor,
-  type TradingSchedule,
-  type UpcomingMaintenance,
-} from '@intafaced/contracts';
+import type { TradingSchedule, UpcomingMaintenance } from '@intafaced/contracts';
+import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES } from '@intafaced/contracts/instruments';
+import { upcomingMaintenanceFor } from '@intafaced/contracts/market-maintenance';
 import { TIMEFRAMES, timeframeSchema, RATE_LIMITS, type Timeframe } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';

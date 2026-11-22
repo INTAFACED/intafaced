@@ -1,4 +1,4 @@
-import { kycTierSchema } from '@intafaced/contracts';
+import { kycTierSchema } from '@intafaced/contracts/identity';
 import { z } from 'zod';
 
 /**

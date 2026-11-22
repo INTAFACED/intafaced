@@ -1,11 +1,5 @@
-import {
-  QUANT_EQUITY_STOP_POLICIES,
-  QUANT_RISK_CAPS,
-  type QuantEquityStopPolicy,
-  type QuantRiskCap,
-  type QuantRiskCaps,
-  type QuantRiskScreen,
-} from '@intafaced/contracts';
+import type { QuantEquityStopPolicy, QuantRiskCap, QuantRiskCaps, QuantRiskScreen } from '@intafaced/contracts';
+import { QUANT_EQUITY_STOP_POLICIES, QUANT_RISK_CAPS } from '@intafaced/contracts/quant-algo';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { QUANT_RISK_CAP_INVALID, QUANT_RISK_CAP_UNSET, QuantError } from '../errors.js';
 import { BLANK_CAPS, type StoredRisk } from './repository.js';

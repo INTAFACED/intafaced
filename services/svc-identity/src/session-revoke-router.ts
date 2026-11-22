@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { revokeNamedSession, RevokeSessionError } from './auth/revoke-session.js';
 import { SESSION_CURRENT_USE_LOGOUT } from './session-families-router.js';

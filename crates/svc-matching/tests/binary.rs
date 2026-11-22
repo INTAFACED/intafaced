@@ -115,6 +115,7 @@ fn the_binary_replays_fails_the_hold_check_closed_serves_its_state_and_drains_on
             snapshot_every: 0,
             sink: Box::new(MemorySnapshotSink::default()),
             enabled: true,
+            spread_fills: true,
         });
         let rest = EngineOrder::new(
             "11111111-1111-4111-8111-111111111111",

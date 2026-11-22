@@ -10,21 +10,23 @@
  * No kind carries money, an account or an identity copy; a decimal answer is a decimal string with no currency.
  */
 import { type Queryable, requireConnection } from '@intafaced/db';
+import type {
+  SupportCreateForm,
+  SupportField,
+  SupportFieldDefineInput,
+  SupportFieldKind,
+  SupportFieldValue,
+  SupportForm,
+  SupportFormDefineInput,
+  SupportRequestForms,
+  SupportTicketFieldValues,
+} from '@intafaced/contracts';
 import {
   SUPPORT_FIELD_KINDS,
   supportFieldDefinitionProblem,
   supportFormValuesProblem,
   supportFormValuesTrimmed,
-  type SupportCreateForm,
-  type SupportField,
-  type SupportFieldDefineInput,
-  type SupportFieldKind,
-  type SupportFieldValue,
-  type SupportForm,
-  type SupportFormDefineInput,
-  type SupportRequestForms,
-  type SupportTicketFieldValues,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-forms';
 
 export class RequestFormError extends Error {
   constructor(

@@ -13,7 +13,7 @@ import {
   payVersionSchema,
   payoutApprovalSchema,
   payPayoutFeeSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-control';
 
 /**
  * Wire shapes W1 needs beyond packages/contracts/src/merchant-control.ts.

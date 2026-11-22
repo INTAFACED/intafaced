@@ -151,6 +151,8 @@ fn serve(
         snapshot_every: u64::try_from(env.int("MATCHING_SNAPSHOT_EVERY").unwrap_or(0)).unwrap_or(0),
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: env.flag("MATCHING_ENGINE_ENABLED"),
+        // `spreadFillPublisherFor(bus)`: spread fills go out on the same bus, as `matching.spread.filled`.
+        spread_fills: true,
     });
 
     let keys = s2s(env)?;

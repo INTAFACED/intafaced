@@ -3,7 +3,8 @@
  * (J-copy-bots-otc-07 #1 #2): trade owns the listing, so identity never reads it. Timeout 3 seconds, one retry.
  * Anything other than a well-formed 2xx is `unavailable`, which the mint refuses, never treats as "a lead".
  */
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 const TIMEOUT_MS = 3_000;
 const ATTEMPTS = 2;

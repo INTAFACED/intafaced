@@ -6,7 +6,8 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { TRUSTED_DEVICE_READ_PATH, type ServiceBodyBindMode, type TrustedDeviceState } from '@intafaced/contracts';
+import type { ServiceBodyBindMode, TrustedDeviceState } from '@intafaced/contracts';
+import { TRUSTED_DEVICE_READ_PATH } from '@intafaced/contracts/identity';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 
 /** The services allowed to read a customer's trusted devices. */
