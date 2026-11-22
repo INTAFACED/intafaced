@@ -407,7 +407,8 @@ export function KpiStrip({ label, tiles }: { label: string; tiles: readonly KpiT
             <span>
               {tile.label} <em>{tile.period}</em>
             </span>{' '}
-            <strong>{tile.value}</strong>
+            {/* The old tile's value hook, as a test id: the merchant journeys read a figure by it. */}
+            <strong data-testid="pp-kpi-value">{tile.value}</strong>
             {tile.note && (
               <>
                 {' '}
