@@ -78,7 +78,7 @@ import {
   usePageLimit,
   type ActionSpec,
 } from './components';
-import { AutoInvestRules } from './repeat-buy/repeat-buy';
+import { EarnRules } from './EarnRules';
 
 import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
 
@@ -712,7 +712,7 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
         </Section>
       </div>
       <p className="muted money-caption">{earnCopy.t('unavailableHistory')}</p>
-      <AutoInvestRules open={open} />
+      <EarnRules open={open} />
     </BankPage>
   );
 }
