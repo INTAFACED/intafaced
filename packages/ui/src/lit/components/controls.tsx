@@ -107,7 +107,7 @@ export type InputProps = TextInputProps | DecimalInputProps;
  * A single-line input. `kind="decimal"` keeps the old kit's money rules: a character that would make the value invalid
  * is refused, a paste is cleaned and cut to `precision`, the arrows step by `tick` in exact arithmetic.
  */
-export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(props, ref) {
+export function Input(props: InputProps) {
   const field = React.useContext(FormFieldContext);
   const { trailing, invalid: invalidProp, align, disabled: disabledProp, readOnly, onBlur, onKeyDown, onPaste } = props;
   const isDecimal = props.kind === 'decimal';
@@ -116,7 +116,6 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
   const describedBy = [props['aria-describedby'], field?.describedBy].filter(Boolean).join(' ') || undefined;
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const pendingCaret = React.useRef<number | null>(null);
-  React.useImperativeHandle(ref, () => inputRef.current as HTMLInputElement);
   React.useLayoutEffect(() => {
     if (pendingCaret.current !== null && inputRef.current) {
       const pos = Math.max(0, Math.min(pendingCaret.current, inputRef.current.value.length));
@@ -225,7 +224,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
       {trailing ? <span data-part="trailing">{trailing}</span> : null}
     </div>
   );
-});
+}
 
 export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'checked' | 'className' | 'style'> & {
   checked: boolean;
