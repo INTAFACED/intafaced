@@ -266,7 +266,7 @@ function MyQueue({ market, mine }: { market: FlowMarket; mine: readonly Order[] 
       {resting.length === 0 ? (
         <p className="lt-note">{t('My queue none')}</p>
       ) : (
-        <ul className="lt-list lt-list-rule">
+        <ul className="lt-list lt-list-tight lt-list-rule">
           {resting.map((order) => (
             <QueueRow key={order.id} market={market} order={order} />
           ))}

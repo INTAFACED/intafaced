@@ -337,7 +337,7 @@ export function DeskLayoutMenu({
               {saved.value.layouts.length === 0 ? (
                 <p className="lt-note">{l('No layouts')}</p>
               ) : (
-                <ul className="lt-list lt-list-rule">
+                <ul className="lt-list lt-list-tight lt-list-rule">
                   {saved.value.layouts.map((layout) => (
                     <li key={layout.id} className="lt-row" data-layout-id={layout.id}>
                       <span className="lt-strong">{layout.name}</span>{' '}
@@ -442,7 +442,7 @@ export function DeskLayoutMenu({
                 saved.value.deleted.length === 0 ? (
                   <p className="lt-note">{l('Nothing deleted')}</p>
                 ) : (
-                  <ul className="lt-list lt-list-rule" aria-label={l('Recently deleted')}>
+                  <ul className="lt-list lt-list-tight lt-list-rule" aria-label={l('Recently deleted')}>
                     {saved.value.deleted.map((layout) => (
                       <li key={layout.id} className="lt-row" data-deleted-id={layout.id}>
                         <span className="lt-strong">{layout.name}</span>{' '}

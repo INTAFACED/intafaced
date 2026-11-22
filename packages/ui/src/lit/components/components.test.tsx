@@ -390,6 +390,69 @@ describe('b2 controls the desk rooms use', () => {
     expect(out).toContain('type="text"');
   });
 
+  it('DecimalInput given a label draws its own field: named by the label alone, the unit beside it, hint and error describing it', () => {
+    const out = html(
+      <B2.DecimalInput
+        id="px"
+        label="Limit price"
+        unit="USDT"
+        value="500"
+        onValueChange={() => undefined}
+        precision={2}
+        hint="Step 0.5"
+        error="Too far"
+      />,
+    );
+    expect(out).toContain('<label for="px">Limit price</label>');
+    expect(out).toContain('<span class="lt-field-unit">USDT</span>');
+    expect(out).toContain('aria-describedby="px-hint px-error"');
+    expect(out).toContain('aria-invalid="true"');
+    expect(out).toContain('<small id="px-hint">Step 0.5</small>');
+    expect(out).toContain('<small id="px-error" role="alert">Too far</small>');
+    // Without a label it stays the bare box a room puts in its own field.
+    expect(html(<B2.DecimalInput aria-label="Size" value="1" onValueChange={() => undefined} precision={2} />)).toMatch(/^<input /);
+  });
+
+  it('Sheet with a description draws it under the title and is described by it', () => {
+    const out = html(
+      <B2.Sheet open={false} role="alertdialog" title="Place this order?" description="Buy 1 at 500" onClose={() => undefined}>
+        <button type="button">Go back</button>
+      </B2.Sheet>,
+    );
+    const id = /aria-describedby="([^"]+)"/.exec(out)?.[1];
+    expect(id).toBeTruthy();
+    expect(out).toContain(`<p id="${id}" class="lt-description">Buy 1 at 500</p>`);
+    expect(
+      html(
+        <B2.Sheet open={false} title="Details" onClose={() => undefined}>
+          x
+        </B2.Sheet>,
+      ),
+    ).not.toContain('aria-describedby');
+  });
+
+  it('Table sorts by a header button with aria-sort, and marks its empty row', () => {
+    const columns = [
+      { key: 'name', label: 'Name', cell: (r: { name: string }) => r.name, sortType: 'text' as const },
+      { key: 'size', label: 'Size', cell: () => '1' },
+    ];
+    const out = html(
+      <Table
+        caption="Rows"
+        columns={columns}
+        rows={[{ name: 'a' }]}
+        rowKey={(r) => r.name}
+        sort={{ columnId: 'name', direction: 'asc' }}
+        onSort={() => undefined}
+      />,
+    );
+    expect(out).toMatch(/<th scope="col" data-align="start" aria-sort="ascending"><button type="button" class="lt-sort">Name/);
+    expect(out).toContain('<th scope="col" data-align="start">Size</th>');
+    expect(html(<Table caption="Rows" columns={columns} rows={[]} rowKey={(r) => r.name} empty="Nothing here" />)).toContain(
+      '<tr data-empty=""><td colSpan="2">Nothing here</td></tr>',
+    );
+  });
+
   it('KeyValue marks each row, so a reader finds a value by its label', () => {
     expect(html(<B2.KeyValue rows={[{ label: 'Start price', value: '0.99' }]} />)).toContain('<div data-slot="key-value-row">');
     expect(html(<B2.TestTag />)).toBe('<span class="lt-test">TEST</span>');

@@ -160,7 +160,7 @@ function VenueQueue({
       {resting.length === 0 ? (
         <p className="lt-note">{t('My queue none')}</p>
       ) : (
-        <ul className="lt-list lt-list-rule">
+        <ul className="lt-list lt-list-tight lt-list-rule">
           {resting.map((row) => (
             <VenueQueueRow
               key={row.id}

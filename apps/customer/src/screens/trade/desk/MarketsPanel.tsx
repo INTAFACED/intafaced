@@ -107,7 +107,7 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
     );
   } else {
     list = (
-      <ul data-testid="dk-mk-list" className="lt-list lt-list-rule">
+      <ul data-testid="dk-mk-list" className="lt-list lt-list-tight lt-list-rule">
         {rows.map((market) => {
           const ticker = tickerMap?.[market.symbol];
           const favorite = isFavorite(market.symbol);

@@ -4,6 +4,9 @@
  * stacked form. Selection, when given, is a real link or button per row, so it works by keyboard.
  */
 import * as React from 'react';
+import { ariaSortOf, nextSort, sortRows, type SortState, type SortType } from '../../components/table-logic.js';
+
+export { nextSort, sortRows, type SortState, type SortType };
 
 export interface Column<Row> {
   key: string;
@@ -15,6 +18,8 @@ export interface Column<Row> {
   pro?: boolean;
   /** References, addresses: left-to-right even in a right-to-left page. */
   ltr?: boolean;
+  /** Its header sorts the table (the room sorts the rows with `sortRows` and passes `sort`); `decimal` for figures. */
+  sortType?: SortType;
 }
 
 export interface TableProps<Row> {
@@ -31,12 +36,28 @@ export interface TableProps<Row> {
    * row (not on a control inside it), Enter or Space picks it, and the arrow keys, Home and End move between rows.
    */
   onSelect?: (key: string) => void;
+  /** The sort in force; a column with `sortType` gets a header button that asks `onSort` for the next one. */
+  sort?: SortState | null;
+  onSort?: (next: SortState) => void;
   /** Shown in the body when there are no rows (an honest empty line, never a blank table). */
   empty?: React.ReactNode;
 }
 
-export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', rowHref, selected, onSelect, empty }: TableProps<Row>) {
+export function Table<Row>({
+  caption,
+  columns,
+  rows,
+  rowKey,
+  mode = 'simple',
+  rowHref,
+  selected,
+  onSelect,
+  sort,
+  onSort,
+  empty,
+}: TableProps<Row>) {
   const cols = columns.filter((c) => mode === 'pro' || !c.pro);
+  const sorts = sort !== undefined && onSort !== undefined;
   const body = React.useRef<HTMLTableSectionElement>(null);
   const keys = rows.map(rowKey);
   const stop = Math.max(0, selected === undefined ? 0 : keys.indexOf(selected));
@@ -56,15 +77,29 @@ export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', ro
       <thead>
         <tr>
           {cols.map((c) => (
-            <th key={c.key} scope="col" data-align={c.align ?? 'start'}>
-              {c.label}
+            <th
+              key={c.key}
+              scope="col"
+              data-align={c.align ?? 'start'}
+              aria-sort={sorts && c.sortType ? ariaSortOf(sort ?? null, c.key) : undefined}
+            >
+              {sorts && c.sortType ? (
+                <button type="button" className="lt-sort" onClick={() => onSort(nextSort(sort ?? null, c.key, c.sortType))}>
+                  {c.label}
+                  <span className="lt-sort-mark" aria-hidden="true">
+                    {ariaSortOf(sort ?? null, c.key) === 'ascending' ? '▲' : ariaSortOf(sort ?? null, c.key) === 'descending' ? '▼' : ''}
+                  </span>
+                </button>
+              ) : (
+                c.label
+              )}
             </th>
           ))}
         </tr>
       </thead>
       <tbody ref={body}>
         {rows.length === 0 && empty !== undefined ? (
-          <tr>
+          <tr data-empty="">
             <td colSpan={cols.length}>{empty}</td>
           </tr>
         ) : null}

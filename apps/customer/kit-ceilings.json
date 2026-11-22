@@ -355,22 +355,6 @@
     "apps/customer/src/screens/trade/futures/TriggerFacts.tsx": 1,
     "apps/customer/src/screens/trade/futures/TriggersTable.tsx": 2,
     "apps/customer/src/screens/trade/margin/index.tsx": 14,
-    "apps/customer/src/screens/trade/options/ChainTab.tsx": 1,
-    "apps/customer/src/screens/trade/options/index.tsx": 1,
-    "apps/customer/src/screens/trade/options/OrdersTab.tsx": 7,
-    "apps/customer/src/screens/trade/options/PayoffChart.tsx": 1,
-    "apps/customer/src/screens/trade/options/RulesTab.tsx": 4,
-    "apps/customer/src/screens/trade/options/SettlementTab.tsx": 4,
-    "apps/customer/src/screens/trade/options/StrategyTab.tsx": 11,
-    "apps/customer/src/screens/trade/options/Ticket.tsx": 10,
-    "apps/customer/src/screens/trade/otc/ConfirmDialog.tsx": 1,
-    "apps/customer/src/screens/trade/otc/DeskStatusStrip.tsx": 6,
-    "apps/customer/src/screens/trade/otc/index.tsx": 2,
-    "apps/customer/src/screens/trade/otc/InfoTabs.tsx": 9,
-    "apps/customer/src/screens/trade/otc/QuoteCard.tsx": 9,
-    "apps/customer/src/screens/trade/otc/QuotesTable.tsx": 3,
-    "apps/customer/src/screens/trade/otc/RequestForm.tsx": 10,
-    "apps/customer/src/screens/trade/otc/RfqBoard.tsx": 10,
     "apps/customer/src/screens/trade/rooms/RoomNotices.tsx": 5
   }
 }

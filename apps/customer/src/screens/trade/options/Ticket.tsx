@@ -1,31 +1,9 @@
 import { useEffect, useState } from 'react';
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  Field,
-  Input,
-  KeyValue,
-  SegmentedControl,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Switch,
-  dec,
-  fmtAmount,
-  formatAsOf,
-  type Loadable,
-} from '../rooms/ui';
+import { Button, Segmented, Switch } from '@intafaced/ui/lit';
+import { DecimalInput, KeyValue, Select, Sheet } from '@intafaced/ui/lit/templates';
+import { dec, fmtAmount, formatAsOf, type Loadable } from '../rooms/ui';
 import type { ListedMarket, OptionsPolicy } from '../rooms/api';
 import { roomWords, type Words } from '../rooms/refusals';
-import { Refusal } from '../rooms/RoomNotices';
 import { useNow } from '../rooms/read';
 import type { RoomWriter } from '../rooms/write';
 import { draftSchema, type Draft, type Preview } from '../../../features/trade/trade-api';
@@ -34,6 +12,7 @@ import { placesOf } from '../desk/text';
 import { optionsCopy } from './copy';
 import { isComplete, isOpen } from './ChainTab';
 import { ticketBlock, ticketCost, timeLeft, type Side } from './model';
+import { kvRow, Refusal } from './notices';
 
 type Tif = 'GTC' | 'IOC' | 'FOK';
 interface Review {
@@ -161,22 +140,21 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
   const rows = reviewCost
     ? paperNothingHeld
       ? [
-          { label: reviewCost.direction === 'pay' ? t('Premium you pay') : t('Premium you receive'), value: money(reviewCost.premium) },
-          { label: t('Fee, estimate'), value: reviewCost.fee ? `${fmtAmount(reviewCost.fee, { places: 8 })} ${quote}` : null },
-          { label: t('Held by the service'), value: t('Paper nothing held') },
+          kvRow(reviewCost.direction === 'pay' ? t('Premium you pay') : t('Premium you receive'), money(reviewCost.premium)),
+          kvRow(t('Fee, estimate'), reviewCost.fee ? `${fmtAmount(reviewCost.fee, { places: 8 })} ${quote}` : null),
+          kvRow(t('Held by the service'), t('Paper nothing held')),
         ]
       : [
-          { label: reviewCost.direction === 'pay' ? t('Premium you pay') : t('Premium you receive'), value: money(reviewCost.premium) },
-          { label: t('Collateral held, estimate'), value: reviewCost.collateral ? money(reviewCost.collateral) : t('None for a buy') },
-          { label: t('Fee, estimate'), value: reviewCost.fee ? `${fmtAmount(reviewCost.fee, { places: 8 })} ${quote}` : null },
-          {
-            label: t('Held by the service'),
-            value:
-              review?.preview.holdAmount && review.preview.holdAsset
-                ? `${fmtAmount(review.preview.holdAmount, { places: 8 })} ${review.preview.holdAsset}`
-                : null,
-          },
-          { label: t('Total to commit'), value: money(reviewCost.total) },
+          kvRow(reviewCost.direction === 'pay' ? t('Premium you pay') : t('Premium you receive'), money(reviewCost.premium)),
+          kvRow(t('Collateral held, estimate'), reviewCost.collateral ? money(reviewCost.collateral) : t('None for a buy')),
+          kvRow(t('Fee, estimate'), reviewCost.fee ? `${fmtAmount(reviewCost.fee, { places: 8 })} ${quote}` : null),
+          kvRow(
+            t('Held by the service'),
+            review?.preview.holdAmount && review.preview.holdAsset
+              ? `${fmtAmount(review.preview.holdAmount, { places: 8 })} ${review.preview.holdAsset}`
+              : null,
+          ),
+          kvRow(t('Total to commit'), money(reviewCost.total)),
         ]
     : [];
   const expiryAt = market?.expiryDatetime ? Date.parse(market.expiryDatetime) : Number.NaN;
@@ -185,145 +163,148 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
     : `${formatAsOf(expiryAt, { now })} ${timeLeft(market?.expiryDatetime, now) ? t('in {time}', { time: timeLeft(market?.expiryDatetime, now)! }) : t('Expired')}`;
 
   return (
-    <section aria-label={t('Order ticket')} className="flex flex-col gap-3 rounded-sm border border-line bg-panel p-4">
-      <h2 className="m-0 text-md font-medium text-fg">{t('Order ticket')}</h2>
+    <section aria-label={t('Order ticket')} className="lt-stack">
+      <h2 className="lt-heading">{t('Order ticket')}</h2>
       {market ? (
         <KeyValue
-          density="dense"
-          items={[
-            { label: t('Contract'), value: market.symbol, mono: true },
-            { label: t('Call or put'), value: market.optionType ? (market.optionType === 'call' ? t('Call') : t('Put')) : null },
-            { label: t('Strike'), value: market.strike ? fmtAmount(market.strike, { places: 8 }) : null },
-            { label: t('Expires'), value: expiresText },
-            { label: t('Settles in'), value: market.settle },
-            { label: t('Kind'), value: market.paper ? t('Paper') : t('Live') },
+          rows={[
+            { ...kvRow(t('Contract'), market.symbol), ltr: true },
+            kvRow(t('Call or put'), market.optionType ? (market.optionType === 'call' ? t('Call') : t('Put')) : null),
+            kvRow(t('Strike'), market.strike ? fmtAmount(market.strike, { places: 8 }) : null),
+            kvRow(t('Expires'), expiresText),
+            kvRow(t('Settles in'), market.settle),
+            kvRow(t('Kind'), market.paper ? t('Paper') : t('Live')),
           ]}
         />
       ) : (
-        <p className="m-0 text-sm text-fg-2">{t('Pick a contract')}</p>
+        <p className="lt-hint">{t('Pick a contract')}</p>
       )}
 
-      <SegmentedControl
-        aria-label={t('Buy or sell')}
-        size={40}
-        fullWidth
+      <Segmented
+        label={t('Buy or sell')}
         value={side}
-        onValueChange={(v) => setSide(v as Side)}
-        items={[
-          { value: 'buy', label: t('Buy'), tone: 'up' },
-          { value: 'sell', label: t('Sell'), tone: 'down' },
+        onChange={(v) => setSide(v as Side)}
+        options={[
+          { value: 'buy', label: t('Buy') },
+          { value: 'sell', label: t('Sell') },
         ]}
       />
-      <p className="m-0 text-xs text-fg-2">{t('Limit only')}</p>
+      <p className="lt-hint">{t('Limit only')}</p>
 
-      <Field density="dense" label={t('Size in contracts')} hint={market ? t('Step {step}', { step: market.precision.amount }) : undefined}>
-        <Input
-          kind="decimal"
-          precision={market ? placesOf(market.precision.amount) : 8}
-          value={size}
-          onValueChange={setSize}
-          disabled={!market}
-        />
-      </Field>
-      <Field density="dense" label={t('Limit price')} hint={market ? t('Step {step}', { step: market.precision.price }) : undefined}>
-        <Input
-          kind="decimal"
-          precision={market ? placesOf(market.precision.price) : 8}
-          value={price}
-          onValueChange={setPrice}
-          trailing={quote}
-          disabled={!market}
-        />
-      </Field>
-      <Field density="dense" label={t('Time in force')}>
+      <DecimalInput
+        label={t('Size in contracts')}
+        hint={market ? t('Step {step}', { step: market.precision.amount }) : undefined}
+        precision={market ? placesOf(market.precision.amount) : 8}
+        value={size}
+        onValueChange={setSize}
+        disabled={!market}
+      />
+      <DecimalInput
+        label={t('Limit price')}
+        hint={market ? t('Step {step}', { step: market.precision.price }) : undefined}
+        precision={market ? placesOf(market.precision.price) : 8}
+        value={price}
+        onValueChange={setPrice}
+        unit={quote || undefined}
+        disabled={!market}
+      />
+      <div className="lt-field">
+        <span aria-hidden="true">{t('Time in force')}</span>
         <Select
-          items={{ GTC: t('Good till cancelled'), IOC: t('Fill now or cancel'), FOK: t('Fill all or cancel') }}
+          label={t('Time in force')}
           value={tif}
-          onValueChange={(v) => v && setTif(v as Tif)}
-        >
-          <SelectTrigger size={32} aria-label={t('Time in force')} className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="GTC">{t('Good till cancelled')}</SelectItem>
-            <SelectItem value="IOC">{t('Fill now or cancel')}</SelectItem>
-            <SelectItem value="FOK">{t('Fill all or cancel')}</SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
-      <div className="flex flex-col gap-1">
-        <label className="flex items-center justify-between gap-3 text-sm text-fg">
-          {t('Post only')}
-          <Switch checked={postOnly} onCheckedChange={setPostOnly} disabled={tif !== 'GTC'} aria-label={t('Post only')} />
-        </label>
-        <p className="m-0 text-xs text-fg-2">{tif !== 'GTC' ? t('Post only needs good till cancelled') : t('Post only hint')}</p>
+          onChange={(v) => setTif(v as Tif)}
+          options={[
+            { value: 'GTC', label: t('Good till cancelled') },
+            { value: 'IOC', label: t('Fill now or cancel') },
+            { value: 'FOK', label: t('Fill all or cancel') },
+          ]}
+        />
+      </div>
+      <div className="lt-stack">
+        <div className="lt-toolbar">
+          <span>{t('Post only')}</span>
+          <Switch checked={postOnly} onChange={setPostOnly} disabled={tif !== 'GTC'} label={t('Post only')} />
+        </div>
+        <p className="lt-hint">{tif !== 'GTC' ? t('Post only needs good till cancelled') : t('Post only hint')}</p>
       </div>
 
       {block ? (
-        <p role="status" className="m-0 text-sm text-warn">
+        <p role="status" className="lt-alert">
           {t(`Block ${block}`)}
         </p>
       ) : null}
-      {failure ? <Refusal words={failure} size="inline" /> : null}
+      {failure ? <Refusal words={failure} /> : null}
 
       {review && reviewCost ? (
-        <div className="flex flex-col gap-2">
-          <h3 className="m-0 text-base font-medium text-fg">{t('Cost before you confirm')}</h3>
-          <KeyValue density="dense" items={rows} />
-          <p className="m-0 text-xs text-fg-2">{paperNothingHeld ? t('Paper cost note') : t('Cost note')}</p>
+        <div className="lt-stack">
+          <h3 className="lt-heading">{t('Cost before you confirm')}</h3>
+          <KeyValue rows={rows} />
+          <p className="lt-hint">{paperNothingHeld ? t('Paper cost note') : t('Cost note')}</p>
         </div>
       ) : null}
 
       {review ? (
         <Button
-          variant={side === 'buy' ? 'buy' : 'sell'}
-          size={40}
-          fullWidth
-          loading={writer.busy}
-          disabled={block !== null}
+          tone="primary"
+          size="lg"
+          block
+          aria-busy={writer.busy || undefined}
+          disabled={block !== null || writer.busy}
           onClick={() => setOpen(true)}
         >
           {t('Place order')}
         </Button>
       ) : (
-        <Button variant="secondary" size={40} fullWidth loading={reviewing} disabled={block !== null} onClick={() => void startReview()}>
+        <Button
+          size="lg"
+          block
+          aria-busy={reviewing || undefined}
+          disabled={block !== null || reviewing}
+          onClick={() => void startReview()}
+        >
           {t('Review order')}
         </Button>
       )}
 
-      <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent>
+      <Sheet
+        role="alertdialog"
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t('Confirm order title')}
+        description={
+          open && review && reviewCost
+            ? t(paperNothingHeld ? 'Confirm paper body' : 'Confirm order body', {
+                side: side === 'buy' ? t('Buy') : t('Sell'),
+                size: fmtAmount(review.draft.amount, { places: 8 }),
+                contract: review.draft.symbol,
+                price: `${fmtAmount(review.draft.price ?? null, { places: 8 })} ${quote}`,
+                total: money(reviewCost.total),
+                kind: market?.paper ? t('Paper') : t('Live'),
+              })
+            : undefined
+        }
+      >
+        {open ? (
           <form
+            className="lt-stack"
             onSubmit={(event) => {
               event.preventDefault();
               void place();
             }}
           >
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Confirm order title')}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {review && reviewCost
-                  ? t(paperNothingHeld ? 'Confirm paper body' : 'Confirm order body', {
-                      side: side === 'buy' ? t('Buy') : t('Sell'),
-                      size: fmtAmount(review.draft.amount, { places: 8 }),
-                      contract: review.draft.symbol,
-                      price: `${fmtAmount(review.draft.price ?? null, { places: 8 })} ${quote}`,
-                      total: money(reviewCost.total),
-                      kind: market?.paper ? t('Paper') : t('Live'),
-                    })
-                  : ''}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <KeyValue density="dense" items={rows} />
-            <AlertDialogFooter>
-              <AlertDialogClose render={<Button variant="secondary" size={40} type="button" />}>{t('Go back')}</AlertDialogClose>
-              <Button type="submit" size={40} variant={side === 'buy' ? 'buy' : 'sell'} autoFocus>
+            <KeyValue rows={rows} />
+            <div className="lt-actions">
+              <Button size="lg" onClick={() => setOpen(false)}>
+                {t('Go back')}
+              </Button>
+              <Button type="submit" size="lg" tone="primary" data-autofocus="">
                 {t('Place order')}
               </Button>
-            </AlertDialogFooter>
+            </div>
           </form>
-        </AlertDialogContent>
-      </AlertDialog>
+        ) : null}
+      </Sheet>
     </section>
   );
 }

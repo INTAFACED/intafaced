@@ -197,7 +197,7 @@ export function CancelMany({
                 >
                   {t('Cancel batch summary', { done: outcome.done, count: outcome.count })}
                 </p>
-                <ul className="lt-list">
+                <ul className="lt-list lt-list-tight">
                   {outcome.rows.map((row) => (
                     <li key={row.key} className={NOTE[row.tone]}>
                       {row.label}: {row.text}

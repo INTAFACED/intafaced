@@ -61,7 +61,7 @@ export const FeedStatus = memo(function FeedStatus({ symbol }: { symbol: string 
       </PopoverTrigger>
       <PopoverContent align="end" data-testid="dk-feed-pop" className="lt-stack">
         <p className="lt-pop-title">{t('Status title')}</p>
-        <ul className="lt-list lt-list-rule">
+        <ul className="lt-list lt-list-tight lt-list-rule">
           <li className="lt-row lt-row-between" data-state={paused ? 'old' : 'ok'}>
             <span>{t('Status placing')}</span>
             <span className="lt-quiet">{paused ? t('Status paused') : t('Status ready')}</span>
