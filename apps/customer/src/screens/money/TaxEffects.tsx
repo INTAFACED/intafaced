@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { ACTIVITY_KINDS, Button, refusalCopy, StateBlock, type ActivityKind } from './deps';
+import { Button, StateBlock } from './ui-deps';
+import { ACTIVITY_KINDS, refusalCopy, type ActivityKind } from './deps';
 import { moneyCopy } from './copy';
 import { titleOf } from './activity-view';
 import { groupKindsByEffect, type KnownEffect } from './tax-effects';
@@ -71,7 +72,7 @@ export function TaxEffects() {
 
   const open = state.kind !== 'closed';
   let body: React.ReactNode = null;
-  if (state.kind === 'loading') body = <p className="money-detail__note">{t('Tax effect loading')}</p>;
+  if (state.kind === 'loading') body = <p className="lt-hint">{t('Tax effect loading')}</p>;
   else if (state.kind === 'failed')
     body = <StateBlock kind="error" title={t('Tax effect failed')} onRetry={() => void load()} retryLabel={t('Try again')} />;
   else if (state.kind === 'refused') {
@@ -89,7 +90,7 @@ export function TaxEffects() {
     body = (
       <>
         {state.test && (
-          <p className="money-detail__note" data-label="tax-effects-test">
+          <p className="lt-hint" data-label="tax-effects-test">
             {t('Tax effect test map')}
           </p>
         )}
@@ -127,7 +128,7 @@ export function TaxEffects() {
       >
         {open ? t('Hide tax effect groups') : t('Group by tax effect')}
       </Button>
-      {open && <p className="money-detail__note">{t('Tax effect note')}</p>}
+      {open && <p className="lt-hint">{t('Tax effect note')}</p>}
       {body}
     </section>
   );

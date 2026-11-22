@@ -18,7 +18,7 @@ export function StandingFacts({ instruction }: { instruction: StandingInstructio
         <dt>
           <Copy k="amount" />
         </dt>
-        <dd className="numeric" lang="zxx" dir="ltr">
+        <dd className="lt-num" lang="zxx" dir="ltr">
           {funds(instruction.amount, instruction.assetId)}
         </dd>
       </div>
@@ -111,7 +111,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
         <h3>
           <Copy k="returned" />
         </h3>
-        <p className="money-caption">
+        <p className="lt-muted">
           <Copy k="oldest" params={{ limit }} />
         </p>
       </header>
@@ -171,7 +171,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                           <dt className="money-execution-label">
                             <Copy k="quantity" />
                           </dt>
-                          <dd className="numeric" lang="zxx" dir="ltr">
+                          <dd className="lt-num" lang="zxx" dir="ltr">
                             {funds(row.amount, asset)}
                           </dd>
                         </dl>
@@ -180,13 +180,13 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                             <dt className="money-visually-hidden">
                               <Copy k="refusal" />
                             </dt>
-                            <dd className="money-caption" lang="zxx" dir="ltr">
+                            <dd className="lt-muted" lang="zxx" dir="ltr">
                               {row.rejectionCode === '' ? <Copy k="emptyReference" /> : row.rejectionCode}
                             </dd>
                           </dl>
                         )}
                         {row.partnerMoveId !== null && (
-                          <dl className="money-execution-ledger" data-testid="money-execution-partner">
+                          <dl className="money-execution-partner" data-testid="money-execution-partner">
                             <dt>
                               <Copy k="partnerMove" />
                             </dt>
@@ -224,10 +224,10 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                 </div>
               )}
               <div className="money-execution-continuation">
-                <p className="money-caption" role="status">
+                <p className="lt-muted" role="status">
                   <Copy k="count" params={{ count: rows.length, limit }} />
                 </p>
-                <p className="money-caption">
+                <p className="lt-muted">
                   <Copy k="window" />
                 </p>
                 {rows.length >= limit &&
@@ -241,7 +241,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                       <Copy k="more" params={{ limit: limit + 50 }} />
                     </Button>
                   ) : (
-                    <p className="money-caption">
+                    <p className="lt-muted">
                       <Copy k="cap" />
                     </p>
                   ))}

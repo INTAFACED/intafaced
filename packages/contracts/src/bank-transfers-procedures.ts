@@ -195,3 +195,18 @@ export const BANK_TRANSFERS_TO_USER = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+export const BANK_TRANSFERS_CANCEL = defineProcedure({
+  ...base,
+  name: 'bank.transfers.cancel',
+  kind: 'mutation',
+  path: 'transfers.cancel',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ scheduleId: z.string().guid() }),
+  output: z.object({ cancelled: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

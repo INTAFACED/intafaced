@@ -7,8 +7,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod community_support;
-mod support;
+use crate::community_support;
 
 use community_support::{arr, code, data, door, exec, get, n, query, refused, s, setup};
 use service_kit::json::Json;

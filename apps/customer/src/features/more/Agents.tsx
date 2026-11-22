@@ -2,14 +2,15 @@ import { copy, t as copyText, Text } from './copy';
 import { agentConnectCopy } from './agent-connect-copy';
 import { agentSessionCopy as sessionCopy } from './agents-session-copy';
 import { usePreferences } from '../../shared/preferences';
-import './agents-session.css';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Field, Panel, Tabs } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { SectionTabs } from '@intafaced/ui/lit/templates';
+import { FailureNote, ScrollTable, Section } from './volt-parts';
 import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
 import { Campaigns } from './Campaigns';
 import { AgentsCatalogue, refusalKeyWords, refusalWords } from './AgentsCatalogue';
@@ -136,13 +137,39 @@ function actionList(limit: number, selected?: Inspection | null) {
       }
     });
 }
-export function Agents({ paper = false }: { paper?: boolean }) {
+/** The room's sections: each is a view of this one room, not an address of its own. */
+export type AgentTab = 'Catalogue' | 'Sessions' | 'Activity' | 'Dashboard' | 'Usage' | 'Coach' | 'Product boundaries' | 'Campaigns';
+const TABS: readonly AgentTab[] = ['Catalogue', 'Sessions', 'Activity', 'Dashboard', 'Usage', 'Coach', 'Product boundaries', 'Campaigns'];
+
+/** The room's "Agent sections" row: one button per section, the open one pressed. */
+export function AgentSectionTabs({ tab, onTab }: { tab: AgentTab; onTab: (tab: AgentTab) => void }) {
+  const labels: Readonly<Record<AgentTab, string>> = {
+    Catalogue: agentsCatalogueCopy.t('tabCatalogue'),
+    Sessions: copyText('agents.sessions'),
+    Activity: copyText('agents.activity'),
+    Dashboard: agentsReviewCopy.t('tabDashboard'),
+    Usage: agentsReviewCopy.t('tabUsage'),
+    Coach: copyText('agents.coach'),
+    'Product boundaries': copyText('agents.product.boundaries'),
+    Campaigns: copyText('agents.campaigns'),
+  };
+  return (
+    <SectionTabs<AgentTab>
+      items={TABS.map((value) => ({ value, label: labels[value] }))}
+      value={tab}
+      onChange={onTab}
+      label={copyText('agents.agent.sections')}
+    />
+  );
+}
+
+/** The open section of the Agents room, with every read, session and run it holds. */
+export function AgentsSections({ paper = false, tab, onTab: setTab }: { paper?: boolean; tab: AgentTab; onTab: (tab: AgentTab) => void }) {
   const api = useApi(),
     { userId } = useSession(),
     preferences = usePreferences(),
     action = useAction('agents');
-  const [tab, setTab] = useState('Catalogue'),
-    [agent, setAgent] = useState('navigator'),
+  const [agent, setAgent] = useState('navigator'),
     [activeRecord, setActive] = useState<z.infer<typeof sessionSchema> | null>(null),
     [task, setTask] = useState(''),
     [ask, setAsk] = useState(''),
@@ -470,23 +497,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     });
   }
   return (
-    <div className="more-grid agents-room">
-      <Tabs
-        items={['Catalogue', 'Sessions', 'Activity', 'Dashboard', 'Usage', 'Coach', 'Product boundaries', 'Campaigns']}
-        labels={{
-          Catalogue: agentsCatalogueCopy.t('tabCatalogue'),
-          Sessions: copyText('agents.sessions'),
-          Activity: copyText('agents.activity'),
-          Dashboard: agentsReviewCopy.t('tabDashboard'),
-          Usage: agentsReviewCopy.t('tabUsage'),
-          Coach: copyText('agents.coach'),
-          'Product boundaries': copyText('agents.product.boundaries'),
-          Campaigns: copyText('agents.campaigns'),
-        }}
-        value={tab}
-        onChange={setTab}
-        label={copyText('agents.agent.sections')}
-      />
+    <div className="lt-stack">
       {tab === 'Catalogue' ? (
         <AgentsCatalogue
           log={log.resource}
@@ -499,10 +510,10 @@ export function Agents({ paper = false }: { paper?: boolean }) {
         />
       ) : tab === 'Sessions' ? (
         <>
-          <div className="agent-session-journey">
-            <Panel title={sessionCopy.t('records')} role="region" aria-label={sessionCopy.t('records')}>
-              <p className="muted">{sessionCopy.t('intro')}</p>
-              <Button variant="secondary" onClick={log.reload}>
+          <div className="lt-grid">
+            <Section className="lt-region" title={sessionCopy.t('records')} role="region" aria-label={sessionCopy.t('records')}>
+              <p className="lt-muted">{sessionCopy.t('intro')}</p>
+              <Button tone="secondary" onClick={log.reload}>
                 {sessionCopy.t('refreshRecords')}
               </Button>
               <Read resource={log.resource} retry={log.reload} empty={copyText('agents.no.agent.actions.have.been.recorded')}>
@@ -513,7 +524,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   const visible = sessions.filter((row) => !sessionFilter || row.agentId === sessionFilter);
                   return (
                     <>
-                      <label className="field">
+                      <label className="lt-field">
                         <span>{sessionCopy.t('filter')}</span>
                         <select value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)}>
                           <option value="">{sessionCopy.t('allAgents')}</option>
@@ -525,7 +536,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         </select>
                       </label>
                       {visible.length ? (
-                        <DataTable
+                        <ScrollTable
                           headers={[
                             copyText('agents.agent'),
                             sessionCopy.t('lastAction'),
@@ -544,17 +555,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                               <td lang="zxx">{row.sessionId}</td>
                               <td>{sessionTime(row.occurredAt, preferences)}</td>
                               <td>
-                                <Button
-                                  variant="secondary"
-                                  aria-pressed={selectedSession?.id === row.sessionId}
-                                  onClick={() => inspect(row)}
-                                >
+                                <Button tone="secondary" aria-pressed={selectedSession?.id === row.sessionId} onClick={() => inspect(row)}>
                                   {sessionCopy.t('inspect')}
                                 </Button>
                               </td>
                             </tr>
                           ))}
-                        </DataTable>
+                        </ScrollTable>
                       ) : (
                         <p role="status">{sessionCopy.t('noMatch')}</p>
                       )}
@@ -563,9 +570,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   );
                 }}
               </Read>
-              <p className="muted">{sessionCopy.t('coverage')}</p>
-            </Panel>
-            <Panel title={sessionCopy.t('selected')} role="region" aria-label={sessionCopy.t('selected')}>
+              <p className="lt-muted">{sessionCopy.t('coverage')}</p>
+            </Section>
+            <Section className="lt-region" title={sessionCopy.t('selected')} role="region" aria-label={sessionCopy.t('selected')}>
               {selectedSession ? (
                 <>
                   <p>
@@ -573,13 +580,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     <br />
                     <code lang="zxx">{selectedSession.id}</code>
                   </p>
-                  <p className="muted">{sessionCopy.t('readOnly')}</p>
+                  <p className="lt-muted">{sessionCopy.t('readOnly')}</p>
                   {selectedSession.agentId === 'navigator' ? (
                     <NavigatorOrders sessionId={selectedSession.id} revision={ordersRevision} />
                   ) : null}
                   {selectNotKept ? <p role="status">{sessionCopy.t('selectionLocal')}</p> : null}
                   <Button
-                    variant="secondary"
+                    tone="secondary"
                     onClick={() => {
                       selectedHistory.reload();
                       selectedUsage.reload();
@@ -595,7 +602,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             [
                               copyText('agents.pending.window.charge'),
                               <span
-                                className="agent-exact"
+                                className="lt-num lt-wrap"
                                 lang={preferences.hideBalances ? sessionCopy.forLocale(preferences.language).languageFor('hidden') : 'zxx'}
                               >
                                 {preferences.hideBalances ? sessionCopy.t('hidden') : `${displayAmount(usage.pending)} ${usage.assetId}`}
@@ -604,7 +611,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             [
                               sessionCopy.t('accrued'),
                               <span
-                                className="agent-exact"
+                                className="lt-num lt-wrap"
                                 lang={preferences.hideBalances ? sessionCopy.forLocale(preferences.language).languageFor('hidden') : 'zxx'}
                               >
                                 {preferences.hideBalances
@@ -617,7 +624,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       )
                     }
                   </Read>
-                  <p className="muted">{sessionCopy.t('usageBoundary')}</p>
+                  <p className="lt-muted">{sessionCopy.t('usageBoundary')}</p>
                   <Read resource={steadyDetail} retry={selectedDetail.reload}>
                     {(detail) =>
                       detail ? (
@@ -646,7 +653,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       ) : null
                     }
                   </Read>
-                  {closeFailure ? <Failure result={closeFailure} /> : null}
+                  {closeFailure ? <FailureNote result={closeFailure} /> : null}
                   <Read resource={steadyHistory} retry={selectedHistory.reload} empty={copyText('agents.no.actions.in.this.session')}>
                     {(rows) => (
                       <>
@@ -655,19 +662,19 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       </>
                     )}
                   </Read>
-                  <p className="muted">{sessionCopy.t('original')}</p>
-                  <p className="muted">{sessionCopy.t('resultBoundary')}</p>
+                  <p className="lt-muted">{sessionCopy.t('original')}</p>
+                  <p className="lt-muted">{sessionCopy.t('resultBoundary')}</p>
                 </>
               ) : (
-                <p className="muted">{sessionCopy.t('choose')}</p>
+                <p className="lt-muted">{sessionCopy.t('choose')}</p>
               )}
               {action.feedback}
-            </Panel>
+            </Section>
           </div>
-          <p className="muted">{sessionCopy.t('permission')}</p>
-          <div className="more-columns">
+          <p className="lt-muted">{sessionCopy.t('permission')}</p>
+          <div className="lt-grid">
             <div>
-              <Panel title={copyText('agents.agent.permissions')}>
+              <Section className="lt-region" title={copyText('agents.agent.permissions')}>
                 <Select label={copyText('agents.product.agent')} value={agent} onChange={setAgent} options={SESSION_AGENT_IDS} />
                 <Read resource={guard.resource} retry={guard.reload} empty={copyText('agents.this.agent.is.not.registered.in.the')}>
                   {(g) =>
@@ -688,7 +695,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             ],
                           ]}
                         />
-                        <DataTable
+                        <ScrollTable
                           headers={[copyText('agents.tool'), copyText('agents.access'), copyText('agents.approval')]}
                           label={copyText('agents.agent.tool.permissions')}
                         >
@@ -699,11 +706,12 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                               <td>{t.requiresApproval ? copyText('agents.required') : copyText('agents.no.additional.approval')}</td>
                             </tr>
                           ))}
-                        </DataTable>
-                        <p className="muted">
+                        </ScrollTable>
+                        <p className="lt-muted">
                           <Text k="agents.opening.a.session.permits.engine.tasks.within" />
                         </p>
                         <Button
+                          tone="primary"
                           disabled={
                             action.disabled ||
                             Boolean(active && active.status === 'open') ||
@@ -789,7 +797,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         >
                           <Text k="agents.review.session" />
                         </Button>
-                        <Button variant="secondary" aria-expanded={estimating} onClick={() => setEstimating((open) => !open)}>
+                        <Button tone="secondary" aria-expanded={estimating} onClick={() => setEstimating((open) => !open)}>
                           {agentsCatalogueCopy.t('estimateButton')}
                         </Button>
                         {estimating ? (
@@ -810,11 +818,11 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     ) : null
                   }
                 </Read>
-              </Panel>
-              <Panel title={copyText('agents.published.routing.prices')}>
+              </Section>
+              <Section className="lt-region" title={copyText('agents.published.routing.prices')}>
                 <Read resource={routes.resource} retry={routes.reload} empty={copyText('agents.no.engine.routes.are.published')}>
                   {(rows) => (
-                    <DataTable
+                    <ScrollTable
                       headers={[
                         copyText('agents.task'),
                         copyText('agents.capability'),
@@ -839,12 +847,17 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                           </td>
                         </tr>
                       ))}
-                    </DataTable>
+                    </ScrollTable>
                   )}
                 </Read>
-              </Panel>
+              </Section>
             </div>
-            <Panel title={copyText('agents.session.workspace')} role="region" aria-label={copyText('agents.session.workspace')}>
+            <Section
+              className="lt-region"
+              title={copyText('agents.session.workspace')}
+              role="region"
+              aria-label={copyText('agents.session.workspace')}
+            >
               {active ? (
                 <>
                   <p>
@@ -884,6 +897,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   />
                   {background ? null : (
                     <Button
+                      tone="primary"
                       disabled={action.disabled || active.status !== 'open' || !ask.trim() || !selectedRoute}
                       onClick={() => {
                         if (!selectedRoute || !defs) return;
@@ -918,7 +932,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     agent === 'navigator' ? (
                       <NavigatorTradeRefusalView failure={askFailure} trading={trading} />
                     ) : (
-                      <Failure result={askFailure} />
+                      <FailureNote result={askFailure} />
                     )
                   ) : null}
                   {placed ? <NavigatorOrderView order={placed} /> : null}
@@ -963,13 +977,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         {reply.provenance ? (
                           <ResearchReply text={reply.text} provenance={reply.provenance} />
                         ) : (
-                          <p data-testid="more-body" className="more-body" lang="und">
+                          <p data-testid="more-body" className="lt-pre-wrap" lang="und">
                             {reply.text}
                           </p>
                         )}
                       </section>
                       {reply.provenance ? <ResearchProvenance provenance={reply.provenance} /> : null}
-                      <p className="muted">
+                      <p className="lt-muted">
                         {reply.metered
                           ? copyText('agents.metered.cost', { value1: reply.cost, value2: reply.assetId })
                           : copyText('agents.the.service.labeled.this.response.unmetered')}{' '}
@@ -978,7 +992,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     </>
                   )}
                   <Button
-                    variant="secondary"
+                    tone="secondary"
                     disabled={action.disabled || active.status !== 'open'}
                     onClick={() => {
                       const expected = { ...currentContext.current };
@@ -1027,11 +1041,11 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   </Read>
                 </>
               ) : (
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k="agents.review.a.registered.agent.and.open.its" />
                 </p>
               )}
-            </Panel>
+            </Section>
           </div>
         </>
       ) : tab === 'Activity' ? (
@@ -1045,7 +1059,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
       ) : tab === 'Usage' ? (
         <AgentsUsage />
       ) : tab === 'Coach' ? (
-        <Panel title={copyText('agents.curriculum.coach')}>
+        <Section className="lt-region" title={copyText('agents.curriculum.coach')}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -1058,7 +1072,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               onChange={(e) => setCoachAsk(e.target.value)}
               maxLength={2000}
             />
-            <Button type="submit" variant="secondary">
+            <Button type="submit" tone="secondary">
               <Text k="agents.find.grounded.lessons" />
             </Button>
           </form>
@@ -1079,7 +1093,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   <ul>
                     {c.citations.map((r) => (
                       <li key={r.slug}>
-                        <a className="text-link" href={`/academy/${encodeURIComponent(r.slug)}`}>
+                        <a className="lt-link" href={`/academy/${encodeURIComponent(r.slug)}`}>
                           {r.title}
                         </a>
                       </li>
@@ -1089,11 +1103,11 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               )
             }
           </Read>
-        </Panel>
+        </Section>
       ) : tab === 'Campaigns' ? (
         <Campaigns />
       ) : (
-        <Panel title={copyText('agents.product.agent.boundaries')}>
+        <Section className="lt-region" title={copyText('agents.product.agent.boundaries')}>
           <Details
             items={[
               [
@@ -1107,16 +1121,16 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               [copyText('agents.launch.and.risk.drafts'), copyText('agents.draft.assessment.is.not.issuance.screening.list')],
             ]}
           />
-          <a className="text-link" href={preservePaperHref('/trade/copy', paper)}>
+          <a className="lt-link" href={preservePaperHref('/trade/copy', paper)}>
             <Text k="agents.open.copy" />
           </a>
-          <a className="text-link" href="/support">
+          <a className="lt-link" href="/support">
             <Text k="agents.open.support" />
           </a>
-          <a className="text-link" href="/agents/connect">
+          <a className="lt-link" href="/agents/connect">
             <agentConnectCopy.Copy k="title" />
           </a>
-        </Panel>
+        </Section>
       )}
       {action.dialog}
     </div>
@@ -1124,7 +1138,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
 }
 function Activity({ rows }: { rows: z.infer<typeof actionSchema>[] }) {
   return (
-    <DataTable
+    <ScrollTable
       headers={[
         copyText('agents.time'),
         copyText('agents.agent.session'),
@@ -1139,7 +1153,7 @@ function Activity({ rows }: { rows: z.infer<typeof actionSchema>[] }) {
           <td>{r.occurredAt}</td>
           <td>
             {r.agentId}
-            <small className="more-receipt">{r.sessionId}</small>
+            <small className="lt-mono lt-muted">{r.sessionId}</small>
           </td>
           <td>
             {r.sequence}. {r.kind}
@@ -1155,7 +1169,7 @@ function Activity({ rows }: { rows: z.infer<typeof actionSchema>[] }) {
           </td>
         </tr>
       ))}
-    </DataTable>
+    </ScrollTable>
   );
 }
 
@@ -1170,7 +1184,7 @@ function SessionHistory({ rows }: { rows: AgentAction[] }) {
   const preferences = usePreferences();
   const authored = sessionCopy.forLocale(preferences.language);
   return (
-    <ol className="agent-session-history" aria-label={copyText('agents.agent.audit.activity')}>
+    <ol className="lt-rows" aria-label={copyText('agents.agent.audit.activity')}>
       {rows.map((row) => (
         <li key={row.id}>
           <strong>
@@ -1238,7 +1252,7 @@ function CostEstimate({
       <p data-testid="worst-case">
         {cap && assetId && parseAmount(cap) > 0n ? t('worstCase', { amount: displayAmount(cap), asset: assetId }) : t('worstCaseNoCap')}
       </p>
-      <p className="muted">{t('worstCaseBasis')}</p>
+      <p className="lt-muted">{t('worstCaseBasis')}</p>
       <p>
         {history === undefined
           ? t('historyUnloaded')
@@ -1270,15 +1284,15 @@ function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow
   const { t } = agentsCatalogueCopy.useCopy();
   const preferences = usePreferences();
   return (
-    <DataTable headers={[t('runRequest'), t('runTask'), t('runStatus'), t('runCost')]} label={t('runs')}>
+    <ScrollTable headers={[t('runRequest'), t('runTask'), t('runStatus'), t('runCost')]} label={t('runs')}>
       {rows.map((row) => (
         <tr key={row.requestId}>
           {/* Four columns, long ids wrapping and "Send again" under the status: the row fits the session workspace's
               column, so its request, status and cost stay in view (J-agents-01 #5). */}
-          <td lang="zxx" className="break-all">
+          <td lang="zxx" className="lt-wrap">
             {row.requestId}
           </td>
-          <td lang="zxx" className="break-all">
+          <td lang="zxx" className="lt-wrap">
             {row.task}
           </td>
           <td>
@@ -1286,7 +1300,7 @@ function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow
             {row.code ? <small lang="zxx"> {row.code}</small> : null}
             {row.status === 'completed' ? (
               <div>
-                <Button variant="secondary" onClick={() => onSendAgain(row)}>
+                <Button tone="secondary" onClick={() => onSendAgain(row)}>
                   {t('sendAgain')}
                 </Button>
               </div>
@@ -1303,7 +1317,7 @@ function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow
           </td>
         </tr>
       ))}
-    </DataTable>
+    </ScrollTable>
   );
 }
 
@@ -1323,7 +1337,7 @@ function SessionWindows({
   const preferences = usePreferences();
   return (
     <>
-      <DataTable headers={[t('windowId'), t('windowState'), t('windowCost'), t('chargeKey'), t('paidFrom')]} label={t('usageWindows')}>
+      <ScrollTable headers={[t('windowId'), t('windowState'), t('windowCost'), t('chargeKey'), t('paidFrom')]} label={t('usageWindows')}>
         {detail.windows.map((window) => (
           <tr key={window.windowId}>
             <td lang="zxx">{window.windowId}</td>
@@ -1345,9 +1359,9 @@ function SessionWindows({
             </td>
           </tr>
         ))}
-      </DataTable>
+      </ScrollTable>
       {detail.session.status === 'open' ? (
-        <Button variant="secondary" disabled={closing} onClick={onClose}>
+        <Button tone="secondary" disabled={closing} onClick={onClose}>
           {t('closeSession')}
         </Button>
       ) : (

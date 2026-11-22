@@ -486,7 +486,7 @@ async function ready(page, row, rows, locale = 'en', hidden = false, requested =
   const panel = selection(page, locale),
     returned = historyRegion(page, locale);
   await expect(panel.locator('.money-standing-reference dd')).toHaveText(row.id);
-  await expect(panel.locator('.money-standing-facts .numeric')).toHaveText(
+  await expect(panel.locator('.money-standing-facts :is(.numeric, .lt-num)')).toHaveText(
     hidden ? `•••• ${row.assetId}` : exactFunds(row.amount, row.assetId),
   );
   await expect(panel.locator('.money-standing-facts time')).toHaveAttribute('datetime', row.nextRunAt);
@@ -644,7 +644,7 @@ test('current execution reads recover from real-shaped refusals and respect owne
     ]) {
       state.executionReply = async () => refusal();
       await refreshOutcomes(page);
-      await expect(historyRegion(page).locator('.failure')).toBeVisible();
+      await expect(historyRegion(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
       await expect(historyRegion(page).getByRole('article')).toHaveCount(0);
       await snapshot(page, state, `standing-${name}-before-retry`);
       state.executionReply = normal;
@@ -690,7 +690,7 @@ test('current execution reads recover from real-shaped refusals and respect owne
       data: [{ occurrence: 0, amount: 'NaN', status: 'settled', ledgerTxId: null, rejectionCode: null }],
     });
     await refreshOutcomes(page);
-    await expect(historyRegion(page).locator('.failure')).toBeVisible();
+    await expect(historyRegion(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
     await expect(historyRegion(page).getByRole('article')).toHaveCount(0);
     state.executionReply = normal;
     await retryOutcomes(page);
@@ -913,7 +913,7 @@ test('late and retired instruction controls preserve current URL, actor, dialog 
         const normal = state.executionReply;
         state.executionReply = async () => readRefusals.unavailable();
         await refreshOutcomes(page);
-        await expect(historyRegion(page).locator('.failure')).toBeVisible();
+        await expect(historyRegion(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
         expect(await readBankOriginalRaw(page)).toBe(bankOriginalRaw);
         state.executionReply = normal;
         await retryOutcomes(page);

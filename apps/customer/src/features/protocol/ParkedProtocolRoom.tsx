@@ -1,139 +1,29 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { SwapForm } from './swap/SwapForm';
 import { navigate } from '../../app/location';
 import { useApi } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Page, Panel, Stat, Tabs } from '../../shared/ui';
+import { EmptyState, Page, Panel, Stat, Tabs } from '../../shared/ui';
 import { Actions, Answer, flag, orNone, Rows, toSource } from './volt/answer';
-import { createProtocolApi, type DexQuote } from './api';
+import { createProtocolApi } from './api';
 import { chainReasonWords, networkLabel, SUBNAV, tabFromSubPath, type ProtocolSnapshot, type Slug } from './blockers';
 import { protocolCopy as copy } from './copy';
-import { type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
+import { type ChainRef, NetworkPanel } from './NetworkPanels';
 import { ChainHome } from './explorer/ChainHome';
 import { TokensNav } from './tokens/TokensRoom';
 import { BridgeRoutes } from './rails/BridgeRoutes';
-import { VenueFunds } from './venue/VenueFunds';
-import { LendPanel } from './lend/LendPanel';
+import { VenueRoom } from './venue/VenueRoom';
+import { LendRoom } from './lend/LendRoom';
 import './explorer/explorer.css';
 import './protocol.css';
 import { AuditRoom } from './audit/AuditRoom';
 
-type Translate = ReturnType<typeof copy.forLocale>['t'];
-
-export { Actions, Answer, NoAnswerNote, toSource } from './volt/answer';
+export { Answer, NoAnswerNote } from './volt/answer';
 
 const slugs: readonly Slug[] = ['chain', 'dex', 'protocol'];
 export function isProtocolSlug(value: string | undefined): value is Slug {
   return slugs.includes(value as Slug);
-}
-
-function QuoteDesk({ api, t }: { api: ReturnType<typeof createProtocolApi>; t: Translate }) {
-  const [symbol, setSymbol] = useState(''),
-    [side, setSide] = useState<'buy' | 'sell'>('buy'),
-    [qty, setQty] = useState('');
-  const [state, setState] = useState<
-    | { status: 'idle' }
-    | { status: 'loading' }
-    | { status: 'ready'; data: DexQuote }
-    | { status: 'failed'; failure: Extract<ApiResult<DexQuote>, { ok: false }> }
-  >({
-    status: 'idle',
-  });
-  const valid = symbol.trim() !== '' && /^\d+(\.\d{1,18})?$/.test(qty.trim());
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!valid || state.status === 'loading') return;
-    setState({ status: 'loading' });
-    const result = await api.dexQuote({ symbol: symbol.trim(), side, qty: qty.trim() });
-    setState(result.ok ? { status: 'ready', data: result.data } : { status: 'failed', failure: result });
-  }
-  return (
-    <Panel title={t('quoteTitle')}>
-      <p className="muted">{t('quoteNote')}</p>
-      <form className="protocol-quote" onSubmit={(event) => void submit(event)}>
-        <Field
-          label={t('symbol')}
-          hint={t('symbolHint')}
-          value={symbol}
-          onChange={(event) => setSymbol(event.target.value)}
-          autoComplete="off"
-        />
-        <Tabs
-          label={t('side')}
-          items={['buy', 'sell']}
-          value={side}
-          onChange={(value) => setSide(value === 'sell' ? 'sell' : 'buy')}
-          labels={{ buy: t('buy'), sell: t('sell') }}
-        />
-        <Field
-          label={t('quantity')}
-          hint={t('quantityHint')}
-          value={qty}
-          inputMode="decimal"
-          onChange={(event) => setQty(event.target.value)}
-          autoComplete="off"
-        />
-        <Button type="submit" disabled={!valid || state.status === 'loading'}>
-          {state.status === 'loading' ? t('quoting') : t('getQuote')}
-        </Button>
-      </form>
-      {state.status === 'loading' && <Loading label={t('quoting')} />}
-      {state.status === 'failed' && (
-        <div className="protocol-refuse">
-          <p className="protocol-refuse__title">{t('quoteRefused')}</p>
-          <Failure result={state.failure} />
-        </div>
-      )}
-      {state.status === 'ready' && <QuoteResult quote={state.data} t={t} />}
-    </Panel>
-  );
-}
-
-function QuoteResult({ quote, t }: { quote: DexQuote; t: Translate }) {
-  return (
-    <div className="protocol-quote__result">
-      <Rows
-        t={t}
-        rows={[
-          [t('routeKind'), quote.route.kind],
-          [t('filled'), quote.route.filledQty],
-          [t('unfilled'), quote.route.unfilledQty],
-          [t('totalQuote'), quote.route.totalQuoteAmount],
-          [t('executable'), quote.executable ? t('executableYes') : t('executableNo')],
-          [t('nonExecutable'), orNone(t, quote.nonExecutableReason)],
-        ]}
-      />
-      {quote.degraded && <p className="muted">{t('degraded')}</p>}
-      {quote.singleVenue && <p className="muted">{t('singleVenue')}</p>}
-      {quote.route.legs.length > 0 && (
-        <DataTable label={t('route')} headers={[t('hdr_venue'), t('hdr_kind'), t('hdr_qty'), t('hdr_amount'), t('hdr_price')]}>
-          {quote.route.legs.map((leg, index) => (
-            <tr key={`${leg.venue}-${index}`}>
-              <td>{leg.venue}</td>
-              <td>{leg.kind}</td>
-              <td className="numeric">{leg.qty}</td>
-              <td className="numeric">{leg.quoteAmount}</td>
-              <td className="numeric">{leg.effectivePrice}</td>
-            </tr>
-          ))}
-        </DataTable>
-      )}
-      {quote.unavailable.length > 0 && (
-        <>
-          <h3>{t('venuesUnavailable')}</h3>
-          <ul>
-            {quote.unavailable.map((entry) => (
-              <li key={entry.venueId}>
-                {entry.venueId}: {entry.reason}. {entry.detail}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </div>
-  );
 }
 
 /**
@@ -201,37 +91,6 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </Answer>
     </Panel>
   );
-  const venuePanel = (
-    <Panel title={t('venueTitle')}>
-      <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
-        {(i) => (
-          <>
-            <Rows
-              t={t}
-              rows={[
-                [t('clobKind'), i.clob.kind],
-                [t('clobLive'), flag(t, i.clob.live)],
-              ]}
-            />
-            <p className="muted">{t('venueNote')}</p>
-          </>
-        )}
-      </Answer>
-      <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
-        {(d) => (
-          <Rows
-            t={t}
-            rows={[
-              [t('ammWired'), flag(t, d.ammVenueWired)],
-              [t('externalWired'), flag(t, d.externalVenueWired)],
-              [t('internalBook'), flag(t, d.internalBook.enabled)],
-            ]}
-          />
-        )}
-      </Answer>
-    </Panel>
-  );
-
   let body: ReactNode = null;
   if (slug === 'chain' && tab === 'status')
     body = (
@@ -247,16 +106,6 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       <Panel title={t('positionsTitle')}>
         <EmptyState title={t('positionsEmpty')} />
       </Panel>
-    );
-  else if (slug === 'dex' && tab === 'lend') body = <LendPanel api={api} t={t} />;
-  else if (slug === 'dex' && tab === 'venue')
-    body = (
-      <>
-        {venuePanel}
-        <VenueFunds api={api} t={t} />
-        <QuoteDesk api={api} t={t} />
-        <SupportedNetworksPanel t={t} chain={chainRef} />
-      </>
     );
   else if (slug === 'protocol' && tab === 'overview')
     body = (
@@ -280,7 +129,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   else if (slug === 'protocol' && tab === 'rails')
     body = (
       <Panel title={t('railsTitle')}>
-        <p className="muted">{t('railsNote')}</p>
+        <p className="lt-muted">{t('railsNote')}</p>
         <div className="protocol-rails">
           <Stat label={t('railBase')} value={t('railBaseState')} />
           <Stat label={t('railIntachain')} value={t('railIntachainState')} />
@@ -298,6 +147,9 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
 
   // The audit tab is drawn on its own reading template, its sections as links (features/protocol/audit/AuditRoom.tsx).
   if (tab === 'audit' && slug !== 'dex') return <AuditRoom slug={slug} api={api} audit={audit} />;
+  // The lend and venue tabs are drawn on their own monitor template (features/protocol/lend, features/protocol/venue).
+  if (slug === 'dex' && tab === 'lend') return <LendRoom />;
+  if (slug === 'dex' && tab === 'venue') return <VenueRoom />;
   return (
     <div className="legacy-room protocol-room" lang={copy.forLocale(language).renderedLocale}>
       <Page

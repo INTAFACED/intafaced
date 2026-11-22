@@ -295,6 +295,20 @@ describe('account home (BK-acct-01) and the space limit (BK-pots-01)', () => {
       expect(await api.currencies.remove({ assetId: 'USDC' })).toEqual({ assetId: 'USDC', removed: true });
     });
 
+    it('opens the partner’s currency account once for a person the partner holds money for, and makes no label while it is down', async () => {
+      const partner = testPartner();
+      partner.set(ADA, { custody: 'off', down: true });
+      const { api } = as(ADA, { ...allowed, testPartner: partner });
+      expect(codeOf(await api.currencies.add({ assetId: 'USDC' }).catch((e: unknown) => e))).toBe('bank.partner_unavailable');
+      expect(await primaries(ADA)).toEqual([]);
+      expect(partner.record(ADA).accounts).toEqual([]);
+      partner.set(ADA, { down: false });
+      await api.currencies.add({ assetId: 'USDC' });
+      await api.currencies.add({ assetId: 'USDC' });
+      expect(partner.record(ADA).accounts.map((a) => [a.account.assetId, a.account.spaceId, a.amount])).toEqual([['USDC', null, 0n]]);
+      expect(await primaries(ADA)).toEqual([{ asset_id: 'USDC', removed: false }]);
+    });
+
     it('touches only the caller’s own currencies', async () => {
       await as(BOB, allowed).api.currencies.add({ assetId: 'USDC' });
       await as(ADA, allowed).api.currencies.remove({ assetId: 'USDC' });

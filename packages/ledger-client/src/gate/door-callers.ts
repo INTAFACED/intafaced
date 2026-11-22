@@ -31,7 +31,7 @@ export const LEDGER_DOOR_CALLERS = {
   post: POSTERS,
   /**
    * Post a recipe by name and inputs (`@intafaced/ledger-client/post-recipe`): from its record, which names the services
-   * granted a recipe on that door; `post-recipe-door.test.ts` holds the two equal.
+   * granted a recipe on that door; `post-recipe-client.test.ts` holds each to a grant.
    */
   postRecipe: LEDGER_POST_RECIPE.access.callers,
   balance: READERS,

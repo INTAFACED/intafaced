@@ -8,61 +8,8 @@ import { p2pChatCopy } from './p2p-chat-copy';
 import { p2pDepth } from './p2p-depth-copy';
 import { TradeStatus } from './P2PDepth';
 import { TraderName, useTraders } from './Trader';
+import { FailureText } from './p2p-failure-text';
 import { ChatStore, MAX_CHAT_TEXT, chatTime, senderRole, type ChatState, type PendingMessage, type ServiceFailure } from './p2p-chat-model';
-
-type ChatT = ReturnType<typeof p2pChatCopy.useCopy>['t'];
-
-/** The plain sentence for a kind of refusal. No service text and no code ever reaches the customer. */
-export function failureText(t: ChatT, kind: ServiceFailure): string {
-  switch (kind) {
-    case 'signIn':
-      return t('failSignIn');
-    case 'notParty':
-      return t('failNotParty');
-    case 'readOnly':
-      return t('failReadOnly');
-    case 'verify':
-      return t('failVerify');
-    case 'region':
-      return t('failRegion');
-    case 'textRequired':
-      return t('failTextRequired');
-    case 'attachment':
-      return t('failAttachment');
-    case 'self':
-      return t('failSelf');
-    case 'conflict':
-      return t('failConflict');
-    case 'inProgress':
-      return t('failInProgress');
-    case 'unconfirmed':
-      return t('failUnconfirmed');
-    case 'noService':
-      return t('failNoService');
-    case 'viewChanged':
-      return t('failViewChanged');
-    case 'generic':
-      return t('failGeneric');
-  }
-}
-
-/** A refusal in words, with the way forward when there is one (verification is a page of its own). */
-export function FailureText({ kind }: { kind: ServiceFailure }) {
-  const { t } = p2pChatCopy.useCopy();
-  return (
-    <>
-      {failureText(t, kind)}
-      {kind === 'verify' ? (
-        <>
-          {' '}
-          <a className="text-link" href="/verification">
-            {t('failVerifyLink')}
-          </a>
-        </>
-      ) : null}
-    </>
-  );
-}
 
 /** Sending the same words again cannot help after these; the person edits or drops the message instead. */
 const NOT_RETRIABLE: ReadonlySet<ServiceFailure> = new Set(['notParty', 'textRequired', 'attachment', 'region', 'verify', 'self']);
@@ -86,7 +33,9 @@ function PendingItem({
       <div className="p2p-chat-msg" data-own="true" data-status={item.status} data-testid="chat-pending">
         <div className="p2p-chat-meta">
           <strong>{t('roleYou')}</strong>
-          <span className="muted">{item.status === 'sending' ? t('sending') : unconfirmed ? t('unconfirmedTitle') : t('failedTitle')}</span>
+          <span className="lt-muted">
+            {item.status === 'sending' ? t('sending') : unconfirmed ? t('unconfirmedTitle') : t('failedTitle')}
+          </span>
         </div>
         <p className="p2p-chat-text" lang="und">
           {item.text}
@@ -100,7 +49,7 @@ function PendingItem({
                 <FailureText kind={item.failure} />
               ) : null}
             </p>
-            <div className="actions">
+            <div className="lt-actions">
               {retriable ? (
                 <Button variant="secondary" size={32} onClick={() => onResend(item.clientId)}>
                   {unconfirmed ? t('checkAndSend') : t('sendAgain')}
@@ -191,10 +140,10 @@ export function ChatView({
     <div className="p2p-chat" data-testid="order-chat" lang={languageFor('title')} dir={directionFor('title')}>
       <div className="p2p-chat-head" data-testid="chat-head">
         <strong>{me ? counterparty : t('buyerAndSeller')}</strong>
-        {me ? <span className="muted">{me === 'buyer' ? t('roleSeller') : t('roleBuyer')}</span> : null}
+        {me ? <span className="lt-muted">{me === 'buyer' ? t('roleSeller') : t('roleBuyer')}</span> : null}
         <TradeStatus status={trade.status} />
       </div>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       {me === 'seller' && (trade.status === 'escrowed' || trade.status === 'fiat_sent') ? (
         <p className="p2p-chat-warning" role="note" data-testid="chat-seller-warning">
           {t('sellerWarning')}
@@ -233,7 +182,7 @@ export function ChatView({
             }}
           >
             {count === 0 ? (
-              <p className="muted" data-testid="chat-empty">
+              <p className="lt-muted" data-testid="chat-empty">
                 {depth.t('chatEmpty')} {t('emptyHint')}
               </p>
             ) : (
@@ -258,7 +207,7 @@ export function ChatView({
                                   ? t('roleSeller')
                                   : t('roleModerator')}
                           </strong>
-                          <time className="muted" dateTime={message.createdAt} title={message.createdAt} lang={requestedLocale}>
+                          <time className="lt-muted" dateTime={message.createdAt} title={message.createdAt} lang={requestedLocale}>
                             {chatTime(message.createdAt, requestedLocale, now)}
                           </time>
                         </div>
@@ -286,12 +235,12 @@ export function ChatView({
         </p>
       ) : null}
       {state.lastNotified === false ? (
-        <p className="muted" role="status" data-testid="chat-not-notified">
+        <p className="lt-muted" role="status" data-testid="chat-not-notified">
           {t('notifiedOff')}
         </p>
       ) : null}
       {closed ? (
-        <p className="muted" data-testid="chat-closed">
+        <p className="lt-muted" data-testid="chat-closed">
           {trade.status === 'cancelled' ? t('closedCancelledNote') : t('closedReleasedNote')}
         </p>
       ) : null}
@@ -345,11 +294,11 @@ export function ChatView({
         {hint} <span>{t('charCount', { used: draft.length, max: MAX_CHAT_TEXT })}</span>
       </p>
       <div className="p2p-chat-notes">
-        <p className="muted">{t('liveNote')}</p>
-        <p className="muted">{t('attachmentsOff')}</p>
-        <p className="muted">{t('systemOff', { path: depth.t('escrowTitle') })}</p>
+        <p className="lt-muted">{t('liveNote')}</p>
+        <p className="lt-muted">{t('attachmentsOff')}</p>
+        <p className="lt-muted">{t('systemOff', { path: depth.t('escrowTitle') })}</p>
       </div>
-      <div className="actions">
+      <div className="lt-actions">
         <Button variant="ghost" onClick={onRefresh}>
           {t('refresh')}
         </Button>

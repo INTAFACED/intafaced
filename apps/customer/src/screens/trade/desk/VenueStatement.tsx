@@ -101,7 +101,7 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
                 <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
               </label>
             </div>
-            <p className="dk-note">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
+            <p className="lt-hint">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
             {asked.status === 'refused' ? (
               <p className="dk-note dk-note--bad" role="alert">
                 {asked.text}
@@ -118,7 +118,7 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
             ) : null}
             {job?.sha256 ? <p className="dk-note dk-note-ref">{d('Statement fingerprint', { sha: job.sha256 })}</p> : null}
             {saved ? (
-              <p className="dk-note" role="status">
+              <p className="lt-hint" role="status">
                 {saved}
               </p>
             ) : null}

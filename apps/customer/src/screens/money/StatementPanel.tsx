@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Download } from 'lucide-react';
-import { Button, refusalCopy } from './deps';
+import { Button } from './ui-deps';
+import { refusalCopy } from './deps';
 import { moneyCopy } from './copy';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from './statement-model';
 import { useSession } from '../../features/session/session';
@@ -67,9 +68,9 @@ export function StatementPanel() {
       }}
     >
       <h2 className="money-statement__h">{t('Statement')}</h2>
-      <p className="money-detail__note">{t('Statement hint')}</p>
-      <p className="money-detail__note">
-        <a className="text-link" href="/bank/statements">
+      <p className="lt-hint">{t('Statement hint')}</p>
+      <p className="lt-hint">
+        <a className="lt-link" href="/bank/statements">
           {centre.t('activityLink')}
         </a>{' '}
         {centre.t('activityLinkHint')}
@@ -91,7 +92,7 @@ export function StatementPanel() {
           {t('Download statement')}
         </Button>
       </div>
-      <p className="money-detail__note" role="status" aria-live="polite">
+      <p className="lt-hint" role="status" aria-live="polite">
         {problem ??
           (busy
             ? t('Statement preparing')

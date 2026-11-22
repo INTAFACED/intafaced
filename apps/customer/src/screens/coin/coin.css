@@ -435,15 +435,15 @@
     padding: var(--if-space-2) 0 var(--if-space-3);
     overflow-x: auto;
   }
-  .coin-recent__card .dk-table th:first-child,
-  .coin-recent__card .dk-table td:first-child {
+  .coin-recent__card .lt-table th:first-child,
+  .coin-recent__card .lt-table td:first-child {
     padding-left: var(--if-space-6);
   }
-  .coin-recent__card .dk-table th:last-child,
-  .coin-recent__card .dk-table td:last-child {
+  .coin-recent__card .lt-table th:last-child,
+  .coin-recent__card .lt-table td:last-child {
     padding-right: var(--if-space-6);
   }
-  .coin-recent__card .dk-bt-skeleton {
+  .coin-recent__card [data-kind='loading'] {
     padding: var(--if-space-3) var(--if-space-6);
   }
   .coin-recent__empty {

@@ -112,7 +112,7 @@ export function PaymentViewsBar({
           review={
             <>
               <Field label={t('pv_name')} value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
-              <label className="field">
+              <label className="lt-field">
                 <span>
                   <input type="checkbox" checked={mayShare && shared} disabled={!mayShare} onChange={(e) => setShared(e.target.checked)} />{' '}
                   {t('pv_share')}
@@ -151,12 +151,12 @@ export function PaymentViewsBar({
         )}
       </div>
       <div>
-        <button type="button" className="text-link" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <button type="button" className="lt-link" aria-expanded={open} onClick={() => setOpen(!open)}>
           {t('pv_columns')}
         </button>
         {open && (
           <fieldset className="pp-filter-row">
-            <legend className="muted">{t('pv_columnsLegend')}</legend>
+            <legend className="lt-muted">{t('pv_columnsLegend')}</legend>
             {PAYMENT_VIEW_COLUMNS.map((col) => {
               const on = columns.includes(col);
               const last = on && columns.length === 1;
@@ -196,10 +196,10 @@ export function PayerEmailCell({ portal, payment }: { portal: PortalApi; payment
   const [reason, setReason] = useState('');
   const [clear, setClear] = useState<string | null>(null);
   const masked = payment.customerEmail ?? null;
-  if (!masked) return <span className="muted">{t('pay_emailNone')}</span>;
+  if (!masked) return <span className="lt-muted">{t('pay_emailNone')}</span>;
   if (clear !== null) return <span data-testid="payer-email-clear">{clear}</span>;
   return (
-    <span className="pp-actions">
+    <span className="lt-actions">
       <span data-testid="payer-email-masked">{masked}</span>
       {canUnmask && (
         <PortalReview
@@ -208,7 +208,7 @@ export function PayerEmailCell({ portal, payment }: { portal: PortalApi; payment
           ready={reason.trim().length >= PAYMENT_UNMASK_REASON_MIN}
           notReadyReason={t('pay_unmaskReasonShort')}
           review={
-            <label className="field">
+            <label className="lt-field">
               <span>{t('pay_unmaskReason')} *</span>
               <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={3} />
               <small>{t('pay_unmaskReasonHint')}</small>

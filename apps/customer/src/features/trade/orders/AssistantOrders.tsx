@@ -113,9 +113,9 @@ export function AssistantOrders({ t, revision }: { t: OrdersT; revision: number 
                 <tr key={row.actionKey} data-venue-client-order-id={row.venueClientOrderId ?? ''} data-action-key={row.actionKey}>
                   <td>{row.order?.symbol ?? t('notKnown')}</td>
                   <td>{row.order ? (row.order.side === 'buy' ? t('sideBuy') : t('sideSell')) : t('notKnown')}</td>
-                  <td className="numeric">{row.order ? displayAmount(row.order.amount) : t('notKnown')}</td>
-                  <td className="numeric">{row.order ? displayAmount(row.order.filled) : t('notKnown')}</td>
-                  <td className="numeric">{row.order?.averagePrice ? displayAmount(row.order.averagePrice) : t('notKnown')}</td>
+                  <td className="lt-num">{row.order ? displayAmount(row.order.amount) : t('notKnown')}</td>
+                  <td className="lt-num">{row.order ? displayAmount(row.order.filled) : t('notKnown')}</td>
+                  <td className="lt-num">{row.order?.averagePrice ? displayAmount(row.order.averagePrice) : t('notKnown')}</td>
                   <td data-order-status={row.order?.status ?? row.state}>{statusWords(row, t)}</td>
                   <td>
                     <span className="pill" data-placed-by="assistant">

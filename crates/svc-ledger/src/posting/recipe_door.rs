@@ -13,8 +13,10 @@
 //!    fault, a 500.
 //!
 //! The legs are `packages/ledger-client/src/recipes/academy-purchase.ts`'s, `charge.ts`'s (`chargeEarn`,
-//! `chargeCollect`) and `recipes/index.ts` `feeCharge`'s (its asset mode), held to them case for case by
-//! `tests/post_recipe_parity.rs` (what the TypeScript door hands its ledger for each recorded body and caller).
+//! `chargeCollect`), `recipes/index.ts` `feeCharge`'s (its asset mode), `bank.ts` `bankTransfer`'s and its earn
+//! recipes' (`earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`), and `pay-received-hold.ts`'s, held to them
+//! case for case by `tests/post_recipe_parity.rs` (what the TypeScript door
+//! hands its ledger for each recorded body and caller).
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, MAX_AMOUNT, format_amount, is_js_whitespace, parse_amount};
@@ -26,12 +28,20 @@ use crate::posting::Posting;
 use crate::posting::gate::{Caller, grant_for};
 
 /// `POST_RECIPE_NAMES`: the recipes the door posts, in the record's order.
-pub const NAMES: [&str; 5] = [
+pub const NAMES: [&str; 13] = [
     "academyPurchase",
     "academyPurchaseRefund",
     "feeCharge",
     "chargeEarn",
     "chargeCollect",
+    "bankTransfer",
+    "payReceivedHold",
+    "payReceivedRelease",
+    "payReceivedReturn",
+    "earnDeposit",
+    "earnWithdraw",
+    "earnPoolFund",
+    "earnInterest",
 ];
 
 /// `ACADEMY_PURCHASE_MODULE`.
@@ -165,13 +175,37 @@ pub fn answer(
 
 // ── The recipes on the door (`academy-purchase.ts`) ────────────────────────────────────────────────────────────────
 
-/// One leg of a post, before it is written for the wire.
+/// One leg of a post, before it is written for the wire: its account as the recipe names it.
 struct Leg {
-    owner_type: &'static str,
-    owner_id: String,
-    asset_id: String,
+    account: Json,
     direction: &'static str,
     amount: Amount,
+}
+
+/// An available account (`AccountRef` with no purpose).
+fn available(owner_type: &str, owner_id: &str, asset_id: &str) -> Json {
+    Json::obj([
+        ("ownerType", Json::str(owner_type)),
+        ("ownerId", Json::str(owner_id)),
+        ("assetId", Json::str(asset_id)),
+        ("kind", Json::str("available")),
+    ])
+}
+
+impl Leg {
+    fn available(
+        owner_type: &str,
+        owner_id: &str,
+        asset_id: &str,
+        direction: &'static str,
+        amount: Amount,
+    ) -> Leg {
+        Leg {
+            account: available(owner_type, owner_id, asset_id),
+            direction,
+            amount,
+        }
+    }
 }
 
 /// A recipe's `PostRequest`.
@@ -191,15 +225,7 @@ impl Request {
             .iter()
             .map(|e| {
                 Json::obj([
-                    (
-                        "account",
-                        Json::obj([
-                            ("ownerType", Json::str(e.owner_type)),
-                            ("ownerId", Json::str(e.owner_id.clone())),
-                            ("assetId", Json::str(e.asset_id.clone())),
-                            ("kind", Json::str("available")),
-                        ]),
-                    ),
+                    ("account", e.account.clone()),
                     ("direction", Json::str(e.direction)),
                     ("amount", Json::str(format_amount(e.amount))),
                 ])
@@ -226,6 +252,13 @@ fn build(named: &str, input: &Json) -> Result<Request, String> {
         "feeCharge" => return fee_charge(input),
         "chargeEarn" => return charge_earn(input),
         "chargeCollect" => return charge_collect(input),
+        "bankTransfer" => return bank_transfer(input),
+        "payReceivedHold" | "payReceivedRelease" | "payReceivedReturn" => {
+            return received_hold(named, input);
+        }
+        "earnDeposit" | "earnWithdraw" => return earn_position(named, input),
+        "earnPoolFund" => return earn_pool_fund(input),
+        "earnInterest" => return earn_interest(input),
         _ => {}
     }
     // `parseAmount(i.amount)` runs before the recipe, so a figure the book cannot hold is refused first.
@@ -357,20 +390,16 @@ fn academy(
         ));
     }
     let s = |v: &str| Json::str(v.to_owned());
-    let house = |direction| Leg {
-        owner_type: "house",
-        owner_id: format!("fees:{ACADEMY}"),
-        asset_id: asset_id.to_owned(),
-        direction,
-        amount,
+    let house = |direction| {
+        Leg::available(
+            "house",
+            &format!("fees:{ACADEMY}"),
+            asset_id,
+            direction,
+            amount,
+        )
     };
-    let at_place = |direction| Leg {
-        owner_type: "treasury",
-        owner_id: place.clone(),
-        asset_id: asset_id.to_owned(),
-        direction,
-        amount,
-    };
+    let at_place = |direction| Leg::available("treasury", &place, asset_id, direction, amount);
     Ok(if refund {
         Request {
             idempotency_key: key,
@@ -465,24 +494,24 @@ fn receivable(
     direction: &'static str,
     amount: Amount,
 ) -> Leg {
-    Leg {
-        owner_type: "treasury",
-        owner_id: format!("charge-receivable:{module}.{user_id}"),
-        asset_id: asset_id.to_owned(),
+    Leg::available(
+        "treasury",
+        &format!("charge-receivable:{module}.{user_id}"),
+        asset_id,
         direction,
         amount,
-    }
+    )
 }
 
 /// `houseFees(module, assetId)`.
 fn house_fees(module: &str, asset_id: &str, direction: &'static str, amount: Amount) -> Leg {
-    Leg {
-        owner_type: "house",
-        owner_id: format!("fees:{module}"),
-        asset_id: asset_id.to_owned(),
+    Leg::available(
+        "house",
+        &format!("fees:{module}"),
+        asset_id,
         direction,
         amount,
-    }
+    )
 }
 
 /// `feeCharge({ ...i, amount: parseAmount(i.amount) })` in its asset mode: the person's available down, the module's fee
@@ -504,13 +533,7 @@ fn fee_charge(input: &Json) -> Result<Request, String> {
         reason,
         meta: vec![("mode".to_owned(), Json::str("asset"))],
         entries: vec![
-            Leg {
-                owner_type: "user",
-                owner_id: field(input, "userId").to_owned(),
-                asset_id: asset_id.to_owned(),
-                direction: "credit",
-                amount,
-            },
+            Leg::available("user", field(input, "userId"), asset_id, "credit", amount),
             house_fees(module, asset_id, "debit", amount),
         ],
     })
@@ -610,13 +633,389 @@ fn charge_collect(input: &Json) -> Result<Request, String> {
         ],
         entries: vec![
             receivable(module, user_id, asset_id, "debit", amount),
+            Leg::available("treasury", &place, asset_id, "credit", amount),
+        ],
+    })
+}
+
+// ── svc-bank's transfer (`bank.ts` `bankTransfer`) ─────────────────────────────────────────────────────────────────
+
+/// `accountKey(ref)`: owner, asset, kind and the trimmed purpose (`accountPurpose`).
+fn account_key(account: &Json) -> String {
+    format!(
+        "{}:{}:{}:{}:{}",
+        field(account, "ownerType"),
+        field(account, "ownerId"),
+        field(account, "assetId"),
+        field(account, "kind"),
+        js_trim(field(account, "purpose"))
+    )
+}
+
+/// `KEY_SPACE_KIND`: a standing order fires `scheduled`; every other key space books `manual`.
+fn key_space_kind(space: &str) -> &'static str {
+    if space == "sched" {
+        "scheduled"
+    } else {
+        "manual"
+    }
+}
+
+/// `bankTransfer({ ...i, amount: parseAmount(i.amount) })`: the source account down (credit), the destination up
+/// (debit), under `bank.transfer.<space>:<transferId>:<occurrence>`. The record names a key space every time, so the
+/// legacy shared key is never built here.
+fn bank_transfer(input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    if amount <= 0 {
+        return Err("transfer amount must be positive".to_owned());
+    }
+    let from = input.get("from").cloned().unwrap_or(Json::Null);
+    let to = input.get("to").cloned().unwrap_or(Json::Null);
+    let (from_asset, to_asset) = (field(&from, "assetId"), field(&to, "assetId"));
+    if from_asset != to_asset {
+        return Err(format!(
+            "A transfer cannot change asset ({from_asset} \u{2192} {to_asset}); route it through a conversion instead"
+        ));
+    }
+    if account_key(&from) == account_key(&to) {
+        return Err("A transfer must have two different accounts".to_owned());
+    }
+    if field(&from, "kind") != "available" || field(&to, "kind") != "available" {
+        return Err(
+            "Transfers move between available accounts only \u{2014} locks have their own recipes"
+                .to_owned(),
+        );
+    }
+    // The record took a whole number from zero (`requireOccurrence` never refuses it); written as JavaScript writes it.
+    let occurrence = input.get("occurrence").cloned().unwrap_or(Json::Null);
+    let kind = field(input, "kind");
+    let space = field(input, "keySpace");
+    if key_space_kind(space) != kind {
+        return Err(format!(
+            "Key space {space} does not go with a {kind} transfer"
+        ));
+    }
+    let transfer_id = field(input, "transferId");
+    if js_trim(transfer_id).is_empty() {
+        return Err("A bank transfer needs a transfer id".to_owned());
+    }
+    let mut meta = vec![
+        ("transferId".to_owned(), Json::str(transfer_id)),
+        ("occurrence".to_owned(), occurrence.clone()),
+    ];
+    // A sweep keeps the ordinary transfer reason; the meta names it a sweep.
+    if space == "recovery" {
+        meta.push(("keySpace".to_owned(), Json::str(space)));
+    }
+    Ok(Request {
+        idempotency_key: format!(
+            "bank.transfer.{space}:{transfer_id}:{}",
+            occurrence.compact()
+        ),
+        module: "bank".to_owned(),
+        reason: if kind == "scheduled" {
+            "bank.transfer.scheduled"
+        } else {
+            "bank.transfer.manual"
+        }
+        .to_owned(),
+        meta,
+        entries: vec![
             Leg {
-                owner_type: "treasury",
-                owner_id: place,
-                asset_id: asset_id.to_owned(),
+                account: from,
                 direction: "credit",
                 amount,
             },
+            Leg {
+                account: to,
+                direction: "debit",
+                amount,
+            },
         ],
+    })
+}
+
+// ── svc-bank's holds on received funds (`pay-received-hold.ts`) ────────────────────────────────────────────────────
+
+/// `requireText`: present and not blank, trimmed.
+fn require_text<'a>(input: &'a Json, name: &str) -> Result<&'a str, String> {
+    let value = js_trim(field(input, name));
+    if value.is_empty() {
+        return Err(format!("{name} is required for a hold on received funds"));
+    }
+    Ok(value)
+}
+
+/// `payReceivedHold`, `payReceivedRelease` and `payReceivedReturn`, the amounts made the recipe's numbers first
+/// (`parseAmount(i.amount)`, then `parseAmount(i.heldAmount)`). The hold moves the recipient's available into its own
+/// pot `pay:recv:<holdId>`; a release moves the whole pot back; a return moves it to the payer.
+fn received_hold(named: &str, input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    let action = match named {
+        "payReceivedRelease" => Some("release"),
+        "payReceivedReturn" => Some("return"),
+        _ => None,
+    };
+    match action {
+        None => {
+            if amount <= 0 {
+                return Err("received-funds hold amount must be positive".to_owned());
+            }
+        }
+        // `requireWhole`: release and return each move the whole hold (RH-2).
+        Some(action) => {
+            let held = parse_amount(field(input, "heldAmount"))?;
+            if amount <= 0 {
+                return Err(format!("received-funds {action} amount must be positive"));
+            }
+            if held <= 0 {
+                return Err("held amount must be positive".to_owned());
+            }
+            if amount != held {
+                return Err(format!(
+                    "pay.recv.partial_{action}: a hold on received funds is released or returned whole, never in part"
+                ));
+            }
+        }
+    }
+    let hold_id = require_text(input, "holdId")?;
+    let user_id = require_text(input, "userId")?;
+    let asset_id = require_text(input, "assetId")?;
+    let pot = Json::obj([
+        ("ownerType", Json::str("user")),
+        ("ownerId", Json::str(user_id)),
+        ("assetId", Json::str(asset_id)),
+        ("kind", Json::str("hold")),
+        ("purpose", Json::str(format!("pay:recv:{hold_id}"))),
+    ]);
+    let leg = |account: Json, direction| Leg {
+        account,
+        direction,
+        amount,
+    };
+    let mut meta = vec![("holdId".to_owned(), Json::str(hold_id))];
+    let (key, reason, entries) = match action {
+        None => (
+            format!("pay.recv.hold:{hold_id}"),
+            "pay.recv.held",
+            vec![
+                leg(available("user", user_id, asset_id), "credit"),
+                leg(pot, "debit"),
+            ],
+        ),
+        Some("release") => (
+            format!("pay.recv.release:{hold_id}"),
+            "pay.recv.released",
+            vec![
+                leg(pot, "credit"),
+                leg(available("user", user_id, asset_id), "debit"),
+            ],
+        ),
+        Some(_) => {
+            let payer = require_text(input, "payerUserId")?;
+            if payer == user_id {
+                return Err(
+                    "A return goes to the payer; the recipient is released, not returned to"
+                        .to_owned(),
+                );
+            }
+            meta.push(("payerUserId".to_owned(), Json::str(payer)));
+            (
+                format!("pay.recv.return:{hold_id}"),
+                "pay.recv.returned",
+                vec![
+                    leg(pot, "credit"),
+                    leg(available("user", payer, asset_id), "debit"),
+                ],
+            )
+        }
+    };
+    Ok(Request {
+        idempotency_key: key,
+        module: "bank".to_owned(),
+        reason: reason.to_owned(),
+        meta,
+        entries,
+    })
+}
+
+// ── svc-bank's earn pools (`bank.ts` `earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`) ──────────────────
+
+/// `earnPoolReserve(poolId, assetId)`: the pool's yield reserve, `moduleAccount('bank', 'earn:<poolId>', assetId)`.
+fn earn_pool_reserve(pool_id: &str, asset_id: &str) -> Json {
+    available("module", &format!("bank:earn:{pool_id}"), asset_id)
+}
+
+/// `earnDeposit` (into the position's stake pot) and `earnWithdraw` (back out), the amount made the recipe's number
+/// first. The pot is `earnStakeAccount(userId, assetId, positionId)`: the user's own `stake`, purpose
+/// `bank:earn:<positionId>` (a UUID, so `userStake`'s trim changes nothing).
+fn earn_position(named: &str, input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    let withdraw = named == "earnWithdraw";
+    if amount <= 0 {
+        return Err(if withdraw {
+            "earn withdrawal amount must be positive"
+        } else {
+            "earn deposit amount must be positive"
+        }
+        .to_owned());
+    }
+    let position_id = field(input, "positionId");
+    let pool_id = field(input, "poolId");
+    let user_id = field(input, "userId");
+    let asset_id = field(input, "assetId");
+    let stake = Json::obj([
+        ("ownerType", Json::str("user")),
+        ("ownerId", Json::str(user_id)),
+        ("assetId", Json::str(asset_id)),
+        ("kind", Json::str("stake")),
+        ("purpose", Json::str(format!("bank:earn:{position_id}"))),
+    ]);
+    let user = available("user", user_id, asset_id);
+    let leg = |account: Json, direction| Leg {
+        account,
+        direction,
+        amount,
+    };
+    let (key, reason, entries) = if withdraw {
+        (
+            format!("bank.earn.withdraw:{position_id}"),
+            "bank.earn.withdrawn",
+            vec![leg(stake, "credit"), leg(user, "debit")],
+        )
+    } else {
+        (
+            format!("bank.earn.deposit:{position_id}"),
+            "bank.earn.deposited",
+            vec![leg(user, "credit"), leg(stake, "debit")],
+        )
+    };
+    Ok(Request {
+        idempotency_key: key,
+        module: "bank".to_owned(),
+        reason: reason.to_owned(),
+        meta: vec![
+            ("positionId".to_owned(), Json::str(position_id)),
+            ("poolId".to_owned(), Json::str(pool_id)),
+        ],
+        entries,
+    })
+}
+
+/// `earnPoolFund` with no `from` (the record has none): the bank's own fee revenue down, the pool's reserve up.
+fn earn_pool_fund(input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    if amount <= 0 {
+        return Err("pool funding amount must be positive".to_owned());
+    }
+    let pool_id = field(input, "poolId");
+    let funding_id = field(input, "fundingId");
+    let asset_id = field(input, "assetId");
+    Ok(Request {
+        idempotency_key: format!("bank.earn.fund:{pool_id}:{funding_id}"),
+        module: "bank".to_owned(),
+        reason: "bank.earn.pool.funded".to_owned(),
+        meta: vec![
+            ("poolId".to_owned(), Json::str(pool_id)),
+            ("fundingId".to_owned(), Json::str(funding_id)),
+        ],
+        entries: vec![
+            house_fees("bank", asset_id, "credit", amount),
+            Leg {
+                account: earn_pool_reserve(pool_id, asset_id),
+                direction: "debit",
+                amount,
+            },
+        ],
+    })
+}
+
+/// `daysInGregorianMonth`: the month's length in the written year, or none for a month that is not one.
+fn days_in_gregorian_month(year: u32, month: u32) -> Option<u32> {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
+        4 | 6 | 9 | 11 => Some(30),
+        2 => Some(
+            if year.is_multiple_of(400) || (year.is_multiple_of(4) && !year.is_multiple_of(100)) {
+                29
+            } else {
+                28
+            },
+        ),
+        _ => None,
+    }
+}
+
+/// `accrualCalendarDay`: `YYYY-MM-DD` in ASCII digits, a day the written month has.
+fn is_accrual_calendar_day(date: &str) -> bool {
+    let b = date.as_bytes();
+    let digits = |r: std::ops::Range<usize>| {
+        b.get(r.clone())
+            .filter(|d| d.iter().all(u8::is_ascii_digit))
+            .map(|d| d.iter().fold(0u32, |n, c| n * 10 + u32::from(c - b'0')))
+    };
+    if b.len() != 10 || b.get(4) != Some(&b'-') || b.get(7) != Some(&b'-') {
+        return false;
+    }
+    let (Some(year), Some(month), Some(day)) = (digits(0..4), digits(5..7), digits(8..10)) else {
+        return false;
+    };
+    day >= 1 && days_in_gregorian_month(year, month).is_some_and(|length| day <= length)
+}
+
+/// `earnInterest`, each payout's amount made the recipe's number and the day's total held to the book first (the door's
+/// `parseAmount(sum(...))`), then the recipe: a real calendar day, at least one recipient, each payout above zero. The
+/// pool's reserve down by the total; each person's available up by theirs, in the order sent.
+fn earn_interest(input: &Json) -> Result<Request, String> {
+    let sent = match input.get("payouts") {
+        Some(Json::Array(items)) => items.as_slice(),
+        _ => &[],
+    };
+    let mut payouts = Vec::with_capacity(sent.len());
+    for p in sent {
+        payouts.push((field(p, "userId"), parse_amount(field(p, "amount"))?));
+    }
+    // Every amount is zero or more, so a running total past the book's bound is a final total past it.
+    let total = payouts
+        .iter()
+        .try_fold(0 as Amount, |t, (_, a)| {
+            t.checked_add(*a).filter(|t| *t <= MAX_AMOUNT)
+        })
+        .ok_or_else(|| "Amount does not fit numeric(38,18)".to_owned())?;
+    let pool_id = field(input, "poolId");
+    let date = field(input, "date");
+    let asset_id = field(input, "assetId");
+    if !is_accrual_calendar_day(date) {
+        return Err(format!("Accrual date must be YYYY-MM-DD, got \"{date}\""));
+    }
+    if payouts.is_empty() {
+        return Err("An interest accrual with no recipients is not a transaction".to_owned());
+    }
+    if let Some((user_id, _)) = payouts.iter().find(|(_, a)| *a <= 0) {
+        return Err(format!("interest for {user_id} must be positive"));
+    }
+    let mut entries = vec![Leg {
+        account: earn_pool_reserve(pool_id, asset_id),
+        direction: "credit",
+        amount: total,
+    }];
+    entries.extend(payouts.iter().map(|(user_id, amount)| Leg {
+        account: available("user", user_id, asset_id),
+        direction: "debit",
+        amount: *amount,
+    }));
+    Ok(Request {
+        idempotency_key: format!("bank.interest:{pool_id}:{date}"),
+        module: "bank".to_owned(),
+        reason: "bank.earn.interest".to_owned(),
+        meta: vec![
+            ("poolId".to_owned(), Json::str(pool_id)),
+            ("date".to_owned(), Json::str(date)),
+            (
+                "recipients".to_owned(),
+                Json::int(i64::try_from(payouts.len()).unwrap_or(i64::MAX)),
+            ),
+        ],
+        entries,
     })
 }

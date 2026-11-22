@@ -181,11 +181,11 @@ export function CodeSignIn() {
     <section className="public-auth-code" aria-labelledby={`${problemId}-title`}>
       <h2 id={`${problemId}-title`}>{pending ? t('checkEmail') : t('title')}</h2>
       {pending ? (
-        <form method="post" className="form-stack" onSubmit={confirm}>
-          <p role="status" className="muted">
+        <form method="post" className="lt-stack" onSubmit={confirm}>
+          <p role="status" className="lt-muted">
             {t('checkEmailBody', { name: pending.name })}
           </p>
-          {resent && <p className="muted">{t('resent')}</p>}
+          {resent && <p className="lt-muted">{t('resent')}</p>}
           <Field
             label={t('code')}
             name="loginCode"
@@ -205,7 +205,7 @@ export function CodeSignIn() {
           <Button variant="secondary" disabled={busy || wait > 0} onClick={() => void resend()}>
             {t('resend')}
           </Button>
-          {wait > 0 && <small className="muted">{t('resendIn', { seconds: wait })}</small>}
+          {wait > 0 && <small className="lt-muted">{t('resendIn', { seconds: wait })}</small>}
           <Button
             variant="ghost"
             disabled={busy}
@@ -219,8 +219,8 @@ export function CodeSignIn() {
           </Button>
         </form>
       ) : (
-        <form method="post" className="form-stack" onSubmit={request}>
-          <p className="muted">{t('intro')}</p>
+        <form method="post" className="lt-stack" onSubmit={request}>
+          <p className="lt-muted">{t('intro')}</p>
           <Field label={t('identifier')} name="codeIdentifier" autoComplete="username" maxLength={320} required disabled={busy} />
           <Button variant="secondary" type="submit" disabled={busy || restoring}>
             {busy ? t('sending') : t('send')}
@@ -231,7 +231,7 @@ export function CodeSignIn() {
         <div id={problemId} className="pub-notice" role="alert">
           <p>{problem}</p>
           {code === 'auth.account_frozen' && (
-            <a className="text-link" href="/help">
+            <a className="lt-link" href="/help">
               {t('stateHelp')}
             </a>
           )}
