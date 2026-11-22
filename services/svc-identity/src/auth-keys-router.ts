@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
-import { isInteractiveFounderPrincipal } from './auth/action-approval-audience.js';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { founderProcedure, type Founders } from './founder-procedure.js';
 import { AuthKeyError, type AuthKeyRing } from './auth/auth-key-ring.js';
 
 const stateOut = z.object({
@@ -21,13 +21,8 @@ const approval = {
  * second-factor session may read or change it; rotate and remove-old also consume a four-eyes approval.
  * Key material is never returned or logged: only ids.
  */
-export function createAuthKeysRouter(ring: AuthKeyRing, founders: { isFounder(userId: string): Promise<boolean> }) {
-  const founder = protectedProcedure.use(async ({ ctx, next }) => {
-    const p = ctx.principal;
-    if (!isInteractiveFounderPrincipal(p) || !(await founders.isFounder(p.userId)))
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'operator.denied' });
-    return next();
-  });
+export function createAuthKeysRouter(ring: AuthKeyRing, founders: Founders) {
+  const founder = founderProcedure(founders);
   const map = (err: unknown): never => {
     if (err instanceof AuthKeyError)
       throw new TRPCError({

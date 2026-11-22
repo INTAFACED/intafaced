@@ -4,7 +4,7 @@ import {
   approvalPolicySetInputSchema,
   approvalPolicySetResultSchema,
 } from '@intafaced/contracts/action-approval-policy';
-import { protectedProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
+import { publicProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   staffAcceptInputSchema,
   staffAcceptResultSchema,
@@ -13,7 +13,7 @@ import {
   staffInviteResultSchema,
   staffListSchema,
 } from '@intafaced/contracts/identity-staff';
-import { isInteractiveFounderPrincipal } from '../auth/action-approval-audience.js';
+import { founderProcedure, type Founders } from '../founder-procedure.js';
 import type { ActionApprovalService } from '../auth/action-approval-service.js';
 import { AuthError } from '../auth/auth-service.js';
 import { PolicyRowError, type ConsolePolicyRows } from './policy-rows.js';
@@ -32,14 +32,9 @@ export function createStaffRouter(deps: {
   readonly rows: ConsolePolicyRows;
   readonly directory: StaffDirectory;
   readonly approvals: Pick<ActionApprovalService, 'consume'>;
-  readonly founders: { isFounder(userId: string): Promise<boolean> };
+  readonly founders: Founders;
 }) {
-  const founder = protectedProcedure.use(async ({ ctx, next }) => {
-    const p = ctx.principal;
-    if (!isInteractiveFounderPrincipal(p) || !(await deps.founders.isFounder(p.userId)))
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'operator.denied' });
-    return next();
-  });
+  const founder = founderProcedure(deps.founders);
   const map = (err: unknown): never => {
     if (err instanceof PolicyRowError || err instanceof StaffDirectoryError || err instanceof AuthError) {
       throw new TRPCError({ code: PRECONDITION.test(err.code) ? 'PRECONDITION_FAILED' : 'BAD_REQUEST', message: err.code, cause: err });

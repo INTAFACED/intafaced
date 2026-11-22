@@ -829,6 +829,80 @@ test("a guard whose one check runs inside the service's own error mapper names i
   );
 });
 
+test("a procedure on the service's own founderProcedure names caller founder and mounts with that guard; a near shape is read as what it is", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const { founderPartsFor } = await import('./founder-guard.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-founder-'));
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(
+    join(dir, 'src/founder-procedure.ts'),
+    [
+      "import { middleware, protectedProcedure } from '@intafaced/contracts/trpc';",
+      'export function founderProcedure(authority) {',
+      '  const guard = async ({ ctx, next }) => next({ ctx: { ...ctx, founderUserId: await authority(ctx) } });',
+      '  return protectedProcedure.use(middleware(guard));',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  // The same name, built on a scope: not the founder guard.
+  writeFileSync(
+    join(dir, 'src/other.ts'),
+    "import { scopedProcedure } from '@intafaced/contracts';\nexport function founderProcedure(a) { return scopedProcedure('admin:read'); }\n",
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';",
+      "import { founderProcedure } from './founder-procedure.js';",
+      "import { founderProcedure as scopeFounder } from './other.js';",
+      'type Founder = ReturnType<typeof founderProcedure>;',
+      'const typed = (founder: Founder) => router({ inner: founder.output(o).query(h) });',
+      'const untyped = (founder) => router({ inner: founder.output(o).query(h) });',
+      'export function createSvcRouter(deps) {',
+      '  const founder = founderProcedure(deps.founderAuthority);',
+      '  const lookalike = protectedProcedure.use(async ({ ctx, next }) => {',
+      "    if (!(await deps.isFounder(ctx))) throw new TRPCError({ code: 'FORBIDDEN' });",
+      '    return next();',
+      '  });',
+      '  return router({',
+      '    list: founder.output(o).query(h),',
+      '    direct: founderProcedure(deps.founderAuthority).input(i).output(o).mutation(h),',
+      '    typed: typed(founder),',
+      '    untyped: untyped(founder),',
+      '    named: scopeFounder(deps.founderAuthority).output(o).query(h),',
+      '    lookalike: lookalike.output(o).query(h),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const chains = new Map([...found].map(([path, proc]) => [path, chainOf(proc)]));
+  const access = Object.fromEntries(
+    [...chains].map(([path, c]) => [path, c.problems.length ? c.problems.join('; ') : `${c.guard.text} ${c.guard.founder ?? ''}`.trim()]),
+  );
+  assert.deepEqual(access, {
+    // The record names the founder; the mount is handed the guard expression the procedure stood on, where it stood.
+    list: "{ caller: 'founder' } founder",
+    direct: "{ caller: 'founder' } founderProcedure(deps.founderAuthority)",
+    'typed.inner': "{ caller: 'founder' } founder",
+    // A parameter nothing says is the founder guard, a scope guard under the same name, a founder check of its own: none is.
+    'untyped.inner': 'guard founder (param) is not one a record names',
+    named: "{ caller: 'scope', scope: 'admin:read' }",
+    lookalike: 'guard use() chained: not one a record names',
+  });
+  const file = join(dir, 'src/router.ts');
+  const guard = chains.get('list').guard;
+  assert.deepEqual(founderPartsFor(file, guard, { name: 'payRefusal', file: join(dir, 'src/errors.ts'), exported: true }), {
+    name: '{ refusalOf: payRefusal, founder: founder }',
+    file,
+    imports: [{ file: join(dir, 'src/errors.ts'), name: 'payRefusal' }],
+  });
+  // No refusal reader: the call stays.
+  assert.equal(founderPartsFor(file, guard, undefined), undefined);
+});
+
 test("a record naming its service's own check mounts with the router file's parts, else with its refusal reader and the check's export", async () => {
   const { partsFor } = await import('./guard-check.mjs');
   const guard = {

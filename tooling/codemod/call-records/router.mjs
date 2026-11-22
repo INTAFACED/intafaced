@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, load, resolveRelative, walk } from './ast.mjs';
 import { boundParams, exportOf } from './defined.mjs';
+import { founderAccess } from './founder-guard.mjs';
 import { checkedUse, withCheck } from './guard-check.mjs';
 import { wrappedInScope, wrappedUse } from './wrapped-check.mjs';
 
@@ -242,7 +243,8 @@ export function chainOf(proc) {
     } else break;
     cur = cur.callee.object;
   }
-  const guard = guardOf(p, cur, problems);
+  // The service's founder guard is named on the record and handed to the mount where the procedure stood (founder-guard.mjs).
+  const guard = founderAccess(p, cur) ?? guardOf(p, cur, problems);
   // A wrapped check is written where the record mounts: it must read there what it read at its guard.
   if (guard?.check?.inline && !wrappedInScope(p, node, guard.check))
     problems.push('guard use() chained: its wrapped check reads a name that means something else where the record mounts');
@@ -264,14 +266,6 @@ const KEPT_GUARDS = new Map([
     "is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
   ],
   ['personProcedure', 'refuses anyone but the person with no scope to name; a record has no caller for it yet'],
-  [
-    'founderProcedure',
-    "is the service's founder guard: its record mounts behind ServiceParts.founder, which the codemod's mount does not hand over yet",
-  ],
-  [
-    'founder',
-    "is the service's founder guard: its record mounts behind ServiceParts.founder, which the codemod's mount does not hand over yet",
-  ],
 ]);
 
 /** What an expression stands for, through parentheses, `as const`, a guard function's bound parameters and local consts. */
