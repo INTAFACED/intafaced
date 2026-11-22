@@ -106,12 +106,9 @@ export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const rampsReads = {
   'ramps.programme': rampProgrammeSchema,
-  'ramps.fiatSettle': z.object({ canSettle: z.literal(true), onrampRailId: z.string(), offrampRailId: z.string() }),
   'ramps.onramps': z.array(onrampSchema),
   'ramps.offramps': z.array(offrampSchema),
   // svc-bank `bank.ramps.destinations.list`: the customer's own saved wallets and bank accounts. No asset or network field.
-  'ramps.destinations.list': z.array(destinationSchema),
-  'ramps.destinations.networks': z.array(withdrawAssetSchema),
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */

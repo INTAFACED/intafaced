@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { globalSendSchema } from './bank-global-procedures.js';
 import { amountString, limitField, operatorHoldView } from './bank-call-schemas.js';
@@ -83,7 +84,7 @@ export const BANK_GLOBAL_OPS_SUMMARY = defineProcedure({
       returned: z.number(),
       refunded: z.number(),
     }),
-    volumes: z.array(z.object({ status: z.string(), assetId: z.string(), count: z.number(), amount: amountString })),
+    volumes: z.array(z.object({ status: z.string(), assetId: assetIdSchema, count: z.number(), amount: amountString })),
     rails: z.object({
       corridors: z.enum(['unset', 'live']),
       fx: z.enum(['unset', 'live']),

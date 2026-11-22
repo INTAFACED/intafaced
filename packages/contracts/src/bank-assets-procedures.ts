@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { ASSET_ACTIONS, ASSET_STATES, REGISTRY_ASSET_KINDS } from './bank-call-schemas.js';
 
@@ -24,7 +25,7 @@ export const BANK_ASSETS_LIST = defineProcedure({
     assets: z.array(
       z
         .object({
-          assetId: z.string(),
+          assetId: assetIdSchema,
           kind: z.enum(REGISTRY_ASSET_KINDS),
           precision: z.number().int().nonnegative(),
           networks: z.array(

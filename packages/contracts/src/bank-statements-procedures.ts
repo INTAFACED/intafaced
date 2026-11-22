@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { jobOutput, lineTotalOutput, requestInput, STATEMENT_REPORTS, statementOutput } from './bank-call-schemas.js';
 
@@ -18,7 +19,7 @@ export const BANK_STATEMENTS_EXPORT = defineProcedure({
     .object({
       from: z.string().datetime({ offset: true }),
       to: z.string().datetime({ offset: true }),
-      assetId: z.string().min(1).max(16).optional(),
+      assetId: assetIdSchema.min(1).max(16).optional(),
       /** One of the caller's own named spaces: only its lines (BK-pots-02). */
       spaceId: z.string().guid().optional(),
       format: z.enum(['csv', 'pdf']),
@@ -121,7 +122,7 @@ export const BANK_STATEMENTS_TOTALS = defineProcedure({
     .object({
       from: z.string().datetime({ offset: true }),
       to: z.string().datetime({ offset: true }),
-      assetId: z.string().min(1).max(16).optional(),
+      assetId: assetIdSchema.min(1).max(16).optional(),
     })
     .strict(),
   output: z.object({ totals: z.array(lineTotalOutput), lines: z.number().int().nonnegative() }),

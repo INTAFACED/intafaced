@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 
@@ -17,70 +18,10 @@ export const BUSINESS_ROLES = ['admin', 'maker', 'checker', 'signer', 'editor', 
 export const businessAccountOutput = z.object({
   id: z.string(),
   name: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   spendThreshold: amountString,
   status: z.enum(['active', 'closed']),
   createdAt: z.string(),
-});
-
-export const BANK_BUSINESS_PENDING = defineProcedure({
-  ...base,
-  name: 'bank.business.pending',
-  kind: 'query',
-  path: 'business.pending',
-  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
-  refusals: {},
-  input: z.object({
-    accountId: z.string().guid(),
-    /**
-     * Page size. Optional so omit reaches `bank.business_pending_list_limit_unset`
-     * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
-     */
-    limit: z.number().int().min(1).max(200).optional(),
-  }),
-  output: z.array(
-    z.object({
-      id: z.string(),
-      accountId: z.string(),
-      makerHandle: z.string().nullable(),
-      makerHandleReason: z.enum(['handle_unresolved']).nullable(),
-      receiverOwnerHandle: z.string().nullable(),
-      receiverOwnerHandleReason: z.enum(['handle_unresolved']).nullable(),
-      receiverOwnerName: z.string().nullable(),
-      fromSpaceId: z.string(),
-      toSpaceId: z.string(),
-      assetId: z.string(),
-      amount: amountString,
-      status: z.enum(['pending', 'approved', 'rejected', 'cancelled']),
-      transferId: z.string().nullable(),
-      holdLedgerTxId: z.string().nullable(),
-      ledgerTxId: z.string().nullable(),
-      createdAt: z.string(),
-    }),
-  ),
-  samples: [
-    { verdict: 'accept', input: { accountId: '11111111-1111-4111-8111-111111111111' } },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
-
-/**
- * Atomic multi-recipient payroll. One ledger post. Cross-asset lines
- * refuse `bank.business_payroll_rate_unset` — rates are owner law, never invented.
- */
-export const BANK_BUSINESS_MY_ROLE = defineProcedure({
-  ...base,
-  name: 'bank.business.myRole',
-  kind: 'query',
-  path: 'business.myRole',
-  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
-  refusals: {},
-  input: z.object({ accountId: z.string().guid() }),
-  output: z.object({ role: z.enum(BUSINESS_ROLES) }),
-  samples: [
-    { verdict: 'accept', input: { accountId: '11111111-1111-4111-8111-111111111111' } },
-    { verdict: 'refuse', input: 42 },
-  ],
 });
 
 export const BANK_BUSINESS_LIST = defineProcedure({
@@ -115,7 +56,7 @@ export const BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE = defineProcedure({
   refusals: {},
   input: z.object({
     accountId: z.string().guid(),
-    assetId: z.string().min(1).max(16),
+    assetId: assetIdSchema.min(1).max(16),
     handle: z.string().max(64).optional(),
     email: z.string().max(320).optional(),
   }),
@@ -124,45 +65,12 @@ export const BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE = defineProcedure({
     z.object({
       found: z.literal(true),
       handle: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       spaceId: z.string().guid().nullable(),
     }),
   ]),
   samples: [
     { verdict: 'accept', input: { accountId: '11111111-1111-4111-8111-111111111111', assetId: 'USDC' } },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
-
-export const BANK_BUSINESS_MEMBERS = defineProcedure({
-  ...base,
-  name: 'bank.business.members',
-  kind: 'query',
-  path: 'business.members',
-  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
-  refusals: {},
-  input: z.object({ accountId: z.string().guid() }),
-  output: z.object({
-    members: z.array(
-      z.object({
-        accountId: z.string(),
-        userId: z.string(),
-        role: z.enum(BUSINESS_ROLES),
-        handle: z.string(),
-      }),
-    ),
-    pendingControls: z.array(
-      z.object({
-        requestId: z.string(),
-        kind: z.enum(['set_threshold', 'close']),
-        spendThreshold: amountString.nullable(),
-        proposedByHandle: z.string(),
-        createdAt: z.string(),
-      }),
-    ),
-  }),
-  samples: [
-    { verdict: 'accept', input: { accountId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

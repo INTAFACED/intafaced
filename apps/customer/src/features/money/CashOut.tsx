@@ -4,18 +4,12 @@ import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import { cashOutCopy } from './cash-out-copy';
-import { date, funds, useBankRead, useBankRecord } from './components';
+import { date, funds, useBankRead } from './components';
 import { type CashOutQuote, type CashOutReceipt, type CashOutRequest } from './contracts';
 import { DepthPanel, Fact } from './DepthParts';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import './bank-depth.css';
-import {
-  BANK_CASH_OUT_REQUESTS,
-  BANK_CASH_OUT_RECEIPT,
-  BANK_CASH_OUT_QUOTE,
-  BANK_CASH_OUT_START,
-} from '@intafaced/contracts/bank-cash-out-procedures';
-import { BANK_LINKED_ACCOUNTS_LIST } from '@intafaced/contracts/bank-linked-accounts-procedures';
+import { BANK_CASH_OUT_RECEIPT, BANK_CASH_OUT_START } from '@intafaced/contracts/bank-cash-out-procedures';
 
 /**
  * Cash out to a linked bank account (J-bank-03): the amount, one of the person's linked accounts, and what the bank
@@ -302,7 +296,7 @@ export function RequestRows({ rows, load }: { rows: readonly CashOutRequest[]; l
 function Requests() {
   const { t } = cashOutCopy.useCopy();
   const { api } = useSession();
-  const read = useBankRecord(BANK_CASH_OUT_REQUESTS, { limit: 20 });
+  const read = useBankRead('cashOut.requests', { limit: 20 });
   const { resource } = read;
   const load: LoadReceipt = (requestId) => api.call(BANK_CASH_OUT_RECEIPT, { requestId });
   return (
@@ -325,7 +319,7 @@ export function CashOut() {
   const { t } = cashOutCopy.useCopy();
   const { api, profiles } = useSession();
   const currencies = useBankRead('currencies.list', { profile: profiles.active });
-  const linked = useBankRecord(BANK_LINKED_ACCOUNTS_LIST, undefined);
+  const linked = useBankRead('linkedAccounts.list', undefined);
   const assets = currencies.resource.status === 'ready' ? currencies.resource.data.currencies.map((c) => c.assetId) : [];
   const accounts = linked.resource.status === 'ready' ? linked.resource.data.accounts : [];
   const [assetId, setAssetId] = useState('');
@@ -337,7 +331,7 @@ export function CashOut() {
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [outcome, setOutcome] = useState<CashOutRequest | null>(null);
   const [revision, setRevision] = useState(0);
-  const quote = useBankRecord(BANK_CASH_OUT_QUOTE, ask, ask !== null);
+  const quote = useBankRead('cashOut.quote', ask, ask !== null);
   const assetField = useId();
   const accountField = useId();
 

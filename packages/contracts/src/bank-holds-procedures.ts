@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -19,7 +20,7 @@ export const holdView = z.object({
   state: z.enum(['placing', 'held', 'releasing', 'released', 'returning', 'returned', 'lapsed']),
   reasonClass: z.literal('stranger'),
   amount: amountString,
-  assetId: z.string(),
+  assetId: assetIdSchema,
   fromHandle: z.string().nullable(),
   note: z.string().nullable(),
   createdAt: z.string(),

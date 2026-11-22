@@ -24,7 +24,6 @@ import {
 } from './components';
 import { spaceInflowCopy } from './space-inflow-copy';
 import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
-import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_STATEMENTS_EXPORT } from '@intafaced/contracts/bank-statements-procedures';
 
 const LIST_LIMIT = 50;
@@ -41,7 +40,7 @@ const monthOf = (at: Date) => `${at.getUTCFullYear()}-${String(at.getUTCMonth() 
 export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Space[]; open: (spec: ActionSpec) => void }) {
   const { t } = spaceInflowCopy.useCopy();
   // Read for this space only, so an order or a round-up is never lost behind other ones on a page.
-  const orders = useBankRecord(BANK_TRANSFERS_LIST_SCHEDULES, { limit: LIST_LIMIT, toSpaceId: space.id });
+  const orders = useBankRead('transfers.listSchedules', { limit: LIST_LIMIT, toSpaceId: space.id });
   const rules = useBankRecord(BANK_AUTO_INVEST_LIST, { limit: LIST_LIMIT, targetSpaceId: space.id });
   const policy = useBankRead('autoInvest.policy', undefined);
   const main = spaces.find((row) => row.kind === 'primary' && row.assetId === space.assetId);

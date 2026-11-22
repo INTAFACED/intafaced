@@ -79,24 +79,15 @@ export const ruleSchema = z.object({
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const earnReads = {
-  'earn.pools': z.array(earnPoolSchema),
   'earn.pool': earnPoolPageSchema,
   'earn.rateHistory': rateHistorySchema,
-  'earn.positions': z.array(positionSchema),
   /** The owner's staking risk wording (BK-earn-04); unpublished refuses `bank.earn_risk_wording_unset`. */
-  'earn.riskDisclosure': z.object({ slashing: z.string(), ownership: z.string() }),
-  'earn.interestHistory': z.object({
-    days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), amount: money, ledgerTxId: z.string() })),
-    total: money,
-    unitemisedDays: z.number().int(),
-  }),
   'autoInvest.policy': z.object({
     enabled: z.boolean(),
     convertWired: z.boolean(),
     dcaRequiresConvert: z.literal(true),
     inventsRates: z.literal(false),
   }),
-  'autoInvest.list': z.array(ruleSchema),
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */

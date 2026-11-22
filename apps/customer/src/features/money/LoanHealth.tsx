@@ -1,16 +1,17 @@
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import type { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { parseAmount } from '../../shared/money';
 import { Button } from '../../shared/ui';
-import { bankReads, type loanSchema } from './contracts';
+import { type loanSchema } from './contracts';
 import { amount, bps, type ActionSpec } from './components';
 import { loanCopy } from './loan-copy';
 import './loan.css';
-import { BANK_LOANS_LIST, BANK_LOANS_RELEASABLE } from '@intafaced/contracts/bank-loans-procedures';
+import { BANK_LOANS_HEALTH, BANK_LOANS_LIST, BANK_LOANS_RELEASABLE } from '@intafaced/contracts/bank-loans-procedures';
 
 type Loan = z.infer<typeof loanSchema>;
-type Health = z.infer<(typeof bankReads)['loans.health']>;
+type Health = ProcedureOutput<typeof BANK_LOANS_HEALTH>;
 type LoanAction = 'repay' | 'addCollateral' | 'releaseExcess' | 'close';
 const statuses = ['pending', 'active', 'margin_call', 'liquidating', 'repaid', 'liquidated'];
 

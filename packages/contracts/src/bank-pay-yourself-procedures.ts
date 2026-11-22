@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 
@@ -17,7 +18,7 @@ export const moveView = z.object({
   id: z.string(),
   moveKey: z.string(),
   source: z.enum(['manual', 'rule']),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: z.string(),
   status: z.enum(['prepared', 'sent']),
   owner: z.string().nullable(),
@@ -46,7 +47,7 @@ export const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday',
 export const ruleView = z.object({
   id: z.string(),
   weekday: z.enum(WEEKDAYS),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   cap: z.string(),
   lastRunAt: z.string().nullable(),
   nextRunAt: z.string(),

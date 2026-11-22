@@ -1,7 +1,7 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
-import { stepUpApprovalField } from './bank-cards-procedures.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `transfers.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -17,7 +17,7 @@ export const heldSendOutput = z.object({
   status: z.enum(['in_review', 'released', 'rejected']),
   reasonClass: z.enum(SEND_REVIEW_REASONS),
   amount: amountString,
-  assetId: z.string(),
+  assetId: assetIdSchema,
   note: z.string().nullable(),
   reference: z.string().nullable(),
   requestId: z.string().guid().nullable(),
@@ -49,55 +49,13 @@ export const BANK_TRANSFERS_EXECUTIONS = defineProcedure({
       amount: amountString,
       status: z.string(),
       ledgerTxId: z.string().nullable(),
-      /** The partner bank's reference when it made this occurrence's move (OWNER 226). Null on the ledger path. */
+      /** The partner bank's reference when it made this occurrence's move. Null on the ledger path. */
       partnerMoveId: z.string().nullable(),
       rejectionCode: z.string().nullable(),
     }),
   ),
   samples: [
     { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
-
-export const BANK_TRANSFERS_LIST_SCHEDULES = defineProcedure({
-  ...base,
-  name: 'bank.transfers.listSchedules',
-  kind: 'query',
-  path: 'transfers.listSchedules',
-  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
-  refusals: {},
-  input: z
-    .object({
-      /**
-       * Page size. Optional so omit reaches `bank.schedules_list_limit_unset`
-       * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
-       */
-      limit: z.number().int().min(1).max(200).optional(),
-      /** Only the orders paying into this one of the caller's own spaces (BK-pots-02). */
-      toSpaceId: z.string().guid().optional(),
-    })
-    .optional(),
-  output: z.array(
-    z.object({
-      id: z.string(),
-      assetId: z.string(),
-      amount: amountString,
-      cadence: z.string(),
-      startsAt: z.string(),
-      endsAt: z.string().nullable(),
-      nextRunAt: z.string(),
-      status: z.string(),
-      /** The revision an edit must name. */
-      revision: z.number().int(),
-      /** The caller's own space the order pays from. */
-      fromSpaceId: z.string(),
-      /** The caller's own space it pays into, or null when it pays another person. */
-      toSpaceId: z.string().nullable(),
-    }),
-  ),
-  samples: [
-    { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
   ],
 });
@@ -113,9 +71,9 @@ export const BANK_TRANSFERS_QUOTE = defineProcedure({
   path: 'transfers.quote',
   access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
   refusals: {},
-  input: z.object({ assetId: z.string().min(1).max(16), amount: amountString }),
+  input: z.object({ assetId: assetIdSchema.min(1).max(16), amount: amountString }),
   output: z.object({
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount: amountString,
     perTransferLimit: amountString,
     dailyLimit: amountString,
@@ -153,44 +111,6 @@ export const BANK_TRANSFERS_HELD = defineProcedure({
   output: heldSendOutput,
   samples: [
     { verdict: 'accept', input: { transferId: 'ethereum' } },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
-
-export const BANK_TRANSFERS_TO_USER = defineProcedure({
-  ...base,
-  name: 'bank.transfers.toUser',
-  kind: 'mutation',
-  path: 'transfers.toUser',
-  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
-  refusals: {},
-  input: z.object({
-    transferId: z.string().min(8).max(64),
-    fromSpaceId: z.string().guid(),
-    toUserId: z.string().min(1).max(64),
-    amount: amountString,
-    /** Recipient-visible plain text. Omitted means no note. */
-    note: z.string().max(140).optional(),
-    /** Printable payment reference. Omitted means none. */
-    reference: z.string().max(64).optional(),
-    /** Settles this open payment request. One payment, one request. */
-    requestId: z.string().guid().optional(),
-    stepUpApprovalId: stepUpApprovalField,
-  }),
-  output: z.object({
-    /** The ledger transaction on the custodial layer; null when the partner bank moved it (OWNER 226). */
-    ledgerTxId: z.string().nullable(),
-    partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
-    amount: amountString,
-    note: z.string().nullable(),
-    reference: z.string().nullable(),
-    requestId: z.string().guid().nullable(),
-  }),
-  samples: [
-    {
-      verdict: 'accept',
-      input: { transferId: 'ethereum', fromSpaceId: '11111111-1111-4111-8111-111111111111', toUserId: 'USDC', amount: '1' },
-    },
     { verdict: 'refuse', input: 42 },
   ],
 });

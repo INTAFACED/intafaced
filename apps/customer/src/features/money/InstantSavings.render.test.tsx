@@ -17,9 +17,15 @@ const OTHER_POOL = '22222222-2222-4222-8222-222222222222';
 let reads: Record<string, { status: 'ready'; data: unknown } | { status: 'failed'; failure: unknown }>;
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
+  const useBankRead = (procedure: string, _input?: unknown, _enabled?: boolean) => ({
+    resource: reads[procedure] ?? { status: 'loading' },
+    reload: () => undefined,
+  });
   return {
     ...real,
-    useBankRead: (procedure: string) => ({ resource: reads[procedure] ?? { status: 'loading' }, reload: () => undefined }),
+    useBankRead,
+    // A room that reads by record reaches the same double, by the record's path.
+    useBankRecord: (record: { path: string }, input?: unknown, enabled?: boolean) => useBankRead(record.path, input, enabled),
   };
 });
 vi.mock('../session', async (original) => ({

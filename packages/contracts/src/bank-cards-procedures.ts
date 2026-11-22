@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 
@@ -115,7 +116,7 @@ export const deliveryOutput = z.object({
 export const cardOutput = z.object({
   id: z.string(),
   /** Which balance the card draws on. Every posting against it is in this asset. */
-  assetId: z.string(),
+  assetId: assetIdSchema,
   /**
    * What merchants charge this card in (§18).
    *
@@ -167,7 +168,7 @@ export const CARD_TIERS = ['none', 'standard', 'metal', 'obsidian'] as const;
 /**
  * THE CARD PARTNER'S UNKNOWNS (CUSTODY-DELTA §1.3 and §4, row "TEST partner card"), and they are the partner's.
  *
- * INTAFACED holds no customer money (OWNER 226): the card and its money sit with Phantom's partner, who is not named yet.
+ * INTAFACED holds no customer money: the card and its money sit with Phantom's partner, who is not named yet.
  * Four things only that partner can answer, so each is a fact the issuer adapter REPORTS, never one this service decides:
  *
  *   · `custodyMode`: does the partner hold the person's crypto to spend it (`partner_holds`), or does the card pull from the
@@ -197,7 +198,7 @@ export const payFromOutput = z.object({
   settlementAssetId: z.string().nullable(),
   assets: z.array(
     z.object({
-      assetId: z.string(),
+      assetId: assetIdSchema,
       state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
       partnerBalance: decimalOrNull,
       rate: decimalOrNull,
@@ -239,14 +240,14 @@ export const fraudReportOutput = z.object({
 });
 
 /**
- * The card partner's figures for one cardholder and asset, as it reports them (OWNER 226; `cards/partner-card-holds.ts`).
+ * The card partner's figures for one cardholder and asset, as it reports them (`cards/partner-card-holds.ts`).
  * `test` is true on the TEST partner card. Each null is "not known", never 0.
  */
 export const partnerFiguresOutput = z
   .object({
     test: z.boolean(),
     mode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     available: z.string().nullable(),
     held: z.string().nullable(),
   })
@@ -266,7 +267,7 @@ export const partnerHoldReportOutput = z
     open: z.string(),
     expiresAt: z.string().nullable(),
     /** The asset the partner holds it in, when it says. */
-    assetId: z.string().optional(),
+    assetId: assetIdSchema.optional(),
     /** A hold by a pay-from order (J-bank-29): the merchant's amount, the partner's rate and the rate's time. */
     conversion: z
       .object({ settlementAssetId: z.string(), settlementAmount: z.string(), rate: z.string(), rateAsOf: z.string() })
@@ -299,36 +300,6 @@ export const BANK_CARDS_CONTROLS_GET = defineProcedure({
   output: cardControlsOutput,
   samples: [
     { verdict: 'accept', input: { cardId: '11111111-1111-4111-8111-111111111111' } },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
-
-export const BANK_CARDS_CONTROLS_BLOCK = defineProcedure({
-  ...base,
-  name: 'bank.cards.controls.block',
-  kind: 'mutation',
-  path: 'cards.controls.block',
-  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
-  refusals: {},
-  input: z.object({ cardId: z.string().guid(), kind: z.enum(CARD_CONTROL_KINDS), value: z.string().min(1).max(64) }),
-  output: cardControlsOutput,
-  samples: [
-    { verdict: 'accept', input: { cardId: '11111111-1111-4111-8111-111111111111', kind: 'category', value: 'USDC' } },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
-
-export const BANK_CARDS_CONTROLS_LIFT = defineProcedure({
-  ...base,
-  name: 'bank.cards.controls.lift',
-  kind: 'mutation',
-  path: 'cards.controls.lift',
-  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
-  refusals: {},
-  input: z.object({ cardId: z.string().guid(), controlId: z.string().guid() }),
-  output: cardControlsOutput,
-  samples: [
-    { verdict: 'accept', input: { cardId: '11111111-1111-4111-8111-111111111111', controlId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });
@@ -376,7 +347,7 @@ export const BANK_CARDS_AUTHORIZATIONS = defineProcedure({
        * balance on a partner-held capture, and our ledger posts nothing. Null when there is none.
        */
       refund: z.object({ amount: amountString, status: z.enum(['pending', 'settled', 'rejected']), at: z.string() }).nullable(),
-      /** Whose book held it (OWNER 226): `ledger`, or `partner` (the card partner held it; our ledger posted nothing). */
+      /** Whose book held it: `ledger`, or `partner` (the card partner held it; our ledger posted nothing). */
       heldBy: z.enum(['ledger', 'partner']),
       /**
        * A payment taken by the person's pay-from order (J-bank-29 #3 to #7): the order the partner walked, and, once it
@@ -386,7 +357,7 @@ export const BANK_CARDS_AUTHORIZATIONS = defineProcedure({
       payFrom: z
         .object({
           order: z.array(z.string()),
-          assetId: z.string().nullable(),
+          assetId: assetIdSchema.nullable(),
           captured: amountString.nullable(),
           returned: amountString.nullable(),
         })
@@ -568,7 +539,7 @@ export const BANK_CARDS_CASHBACK = defineProcedure({
   output: z.object({
     tier: z.enum(CARD_TIERS),
     rateBps: z.number().int().nullable(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     rates: z.array(z.object({ tier: z.enum(CARD_TIERS), bps: z.number().int() })),
     paid: amountString,
     unpaid: amountString,
@@ -689,51 +660,6 @@ export const BANK_CARDS_ACCEPT_TERMS = defineProcedure({
   output: z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }),
   samples: [
     { verdict: 'accept', input: { termsVersion: 'USDC', textHash: 'USDC' } },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
-
-/**
- * Order a card: virtual (optionally single-use or n-use) or physical with a design, a delivery speed and an address.
- * `cardId` is the request, so a retry is the same card. Step-up, when the owner's rule is on, binds every term of the
- * order (`bank.step_up.cards.order`).
- */
-export const BANK_CARDS_ORDER = defineProcedure({
-  ...base,
-  name: 'bank.cards.order',
-  kind: 'mutation',
-  path: 'cards.order',
-  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
-  refusals: {},
-  input: z.object({
-    cardId: z.string().guid(),
-    country: z
-      .string()
-      .trim()
-      .regex(/^[A-Za-z]{2}$/),
-    termsVersion: z.string().min(1).max(64),
-    assetId: z.string().min(1).max(16),
-    perAuthorizationLimit: amountString,
-    cardType: z.enum(['virtual', 'physical']),
-    usesAllowed: z.number().int().min(1).max(1000).nullable().optional(),
-    designId: z.string().min(1).max(32).optional(),
-    deliverySpeed: z.enum(DELIVERY_SPEEDS).optional(),
-    shippingAddress: shippingAddressInput.optional(),
-    stepUpApprovalId: stepUpApprovalField,
-  }),
-  output: cardOutput,
-  samples: [
-    {
-      verdict: 'accept',
-      input: {
-        cardId: '11111111-1111-4111-8111-111111111111',
-        country: 'en',
-        termsVersion: 'USDC',
-        assetId: 'USDC',
-        perAuthorizationLimit: '1',
-        cardType: 'virtual',
-      },
-    },
     { verdict: 'refuse', input: 42 },
   ],
 });

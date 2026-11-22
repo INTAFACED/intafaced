@@ -276,20 +276,7 @@ export const paymentsReads = {
   'cashOut.requests': z.array(cashOutRequestSchema),
   'railSends.requirements': railRequirementsSchema,
   'safety.regionNotice': regionNoticeSchema,
-  'railSends.list': z.array(railSendSchema),
-  'railSends.payees': z.array(railPayeeSchema),
   'transfers.listSchedules': z.array(scheduleSchema),
-  'transfers.executions': z.array(
-    z.object({
-      occurrence: z.number().int(),
-      amount: money,
-      status: z.string(),
-      ledgerTxId: z.string().nullable(),
-      /** The partner bank's move for this occurrence when it holds the money (OWNER 226); null on the ledger path. */
-      partnerMoveId: z.string().nullable().default(null),
-      rejectionCode: z.string().nullable(),
-    }),
-  ),
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */

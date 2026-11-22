@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -16,7 +17,7 @@ export const BANK_DORMANCY_NOTICES = defineProcedure({
   input: NO_INPUT,
   output: z.array(
     z.object({
-      assetId: z.string(),
+      assetId: assetIdSchema,
       fee: z.string(),
       debitDate: z.string(),
       inactiveDays: z.number().int(),

@@ -10,12 +10,15 @@ let book: Resource<Destination[]> = { status: 'loading' };
 let networks: Resource<WithdrawAsset[]> = { status: 'loading' };
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
+  const useBankRead = (procedure: string, _input?: unknown, _enabled?: boolean) => ({
+    resource: procedure === 'ramps.destinations.networks' ? networks : book,
+    reload: () => undefined,
+  });
   return {
     ...real,
-    useBankRead: (procedure: string) => ({
-      resource: procedure === 'ramps.destinations.networks' ? networks : book,
-      reload: () => undefined,
-    }),
+    useBankRead,
+    // A room that reads by record reaches the same double, by the record's path.
+    useBankRecord: (record: { path: string }, input?: unknown, enabled?: boolean) => useBankRead(record.path, input, enabled),
   };
 });
 vi.mock('../session', async (original) => ({

@@ -119,8 +119,6 @@ import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 import { BANK_EARN_POOLS, BANK_EARN_POSITIONS } from '@intafaced/contracts/bank-earn-procedures';
 import { BANK_LOANS_PRODUCTS, BANK_LOANS_LIST, BANK_LOANS_HEALTH } from '@intafaced/contracts/bank-loans-procedures';
-import { BANK_ANALYTICS_SPEND } from '@intafaced/contracts/bank-analytics-procedures';
-import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_SPACES_UNNAMED } from '@intafaced/contracts/bank-spaces-procedures';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
@@ -498,7 +496,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
   const serial = useRef(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const listHeading = useRef<HTMLSpanElement>(null);
-  const query = useBankRecord(BANK_TRANSFERS_LIST_SCHEDULES, { limit });
+  const query = useBankRead('transfers.listSchedules', { limit });
   const rows = query.resource.status === 'ready' ? query.resource.data : [];
   const instruction = selected ? currentInstruction(rows, selected.id) : undefined;
   const other = instruction ? rows.filter((row) => row.id !== instruction.id) : rows;
@@ -1770,7 +1768,7 @@ function Analytics() {
     }
     return { assetId, ...periodRange(preset, new Date(Math.floor(Date.now() / 60_000) * 60_000)) };
   }, [assetId, preset, useCustom, custom.from, custom.to]);
-  const query = useBankRecord(BANK_ANALYTICS_SPEND, range, Boolean(range));
+  const query = useBankRead('analytics.spend', range, Boolean(range));
   const presetLabel = (value: PeriodPreset) =>
     depth.t(value === '7d' ? 'period7d' : value === '30d' ? 'period30d' : value === 'month' ? 'periodMonth' : 'periodLastMonth');
   return (

@@ -20,12 +20,15 @@ let list: z.infer<typeof sorterListSchema>;
 let runs: z.infer<typeof sorterRunSchema>[] = [];
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
+  const useBankRead = (procedure: string, _input?: unknown, _enabled?: boolean) => ({
+    resource: { status: 'ready', data: procedure === 'sorter.list' ? list : runs },
+    reload: () => undefined,
+  });
   return {
     ...real,
-    useBankRead: (procedure: string) => ({
-      resource: { status: 'ready', data: procedure === 'sorter.list' ? list : runs },
-      reload: () => undefined,
-    }),
+    useBankRead,
+    // A room that reads by record reaches the same double, by the record's path.
+    useBankRecord: (record: { path: string }, input?: unknown, enabled?: boolean) => useBankRead(record.path, input, enabled),
   };
 });
 import { IncomeSorter } from './IncomeSorter';

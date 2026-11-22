@@ -21,9 +21,15 @@ const INVITE = '33333333-3333-4333-8333-333333333333';
 let reads: Record<string, { status: 'ready'; data: unknown }>;
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
+  const useBankRead = (procedure: string, _input?: unknown, _enabled?: boolean) => ({
+    resource: reads[procedure] ?? { status: 'loading' },
+    reload: () => undefined,
+  });
   return {
     ...real,
-    useBankRead: (procedure: string) => ({ resource: reads[procedure] ?? { status: 'loading' }, reload: () => undefined }),
+    useBankRead,
+    // A room that reads by record reaches the same double, by the record's path.
+    useBankRecord: (record: { path: string }, input?: unknown, enabled?: boolean) => useBankRead(record.path, input, enabled),
   };
 });
 import { SharedPots } from './SharedPots';

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -16,7 +17,7 @@ export const claim = z.object({
 
 export const account = z.object({
   ownerType: z.enum(['user', 'subaccount']),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   kind: z.string(),
   spaceId: z.string().nullable(),
   spaceName: z.string().nullable(),

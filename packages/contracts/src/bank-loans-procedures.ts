@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 
@@ -24,7 +25,7 @@ export const BANK_LOANS_PRODUCTS = defineProcedure({
   access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
   refusals: {},
   input: z.object({
-    assetId: z.string().min(1).max(16).optional(),
+    assetId: assetIdSchema.min(1).max(16).optional(),
     /**
      * Page size. Optional so omit reaches `bank.loan_products_list_limit_unset`
      * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.

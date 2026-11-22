@@ -1,6 +1,13 @@
 import 'server-only';
-import { bankCardProgrammeDeskSchema, bankCardProgrammeFiguresSchema, type BankCardProgrammeFigures } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, partFrom, type Part, founderRecordCall } from '@/lib/desk';
+import {
+  bankCardAuthorizationDetailSchema,
+  bankCardholderDetailSchema,
+  bankCardholdersSchema,
+  bankCardProgrammeDeskSchema,
+  bankCardProgrammeFiguresSchema,
+  type BankCardProgrammeFigures,
+} from '@intafaced/contracts';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part, founderRecordRead } from '@/lib/desk';
 import { refusalWords, type Authorization, type Cardholder, type CardholderDetail, type Desk } from './model';
 import {
   BANK_OPS_CARD_PROGRAMME_CARDHOLDERS,
@@ -20,12 +27,12 @@ export async function readDesk(ctx: FounderCallContext): Promise<{ asOf: string;
 }
 
 export async function searchCardholders(ctx: FounderCallContext, query: string): Promise<Part<Cardholder[]>> {
-  const result = await founderRecordCall(ctx, BANK_OPS_CARD_PROGRAMME_CARDHOLDERS, { query });
+  const result = await founderRecordRead(ctx, BANK_OPS_CARD_PROGRAMME_CARDHOLDERS, { query }, parseWith(bankCardholdersSchema));
   return partFrom(result, (d) => d, labels);
 }
 
 export async function readAuthorization(ctx: FounderCallContext, id: string): Promise<{ asOf: string; part: Part<Authorization> }> {
-  const result = await founderRecordCall(ctx, BANK_OPS_CARD_PROGRAMME_AUTHORIZATION, { id });
+  const result = await founderRecordRead(ctx, BANK_OPS_CARD_PROGRAMME_AUTHORIZATION, { id }, parseWith(bankCardAuthorizationDetailSchema));
   return { asOf: new Date().toISOString(), part: partFrom(result, (d) => d, labels) };
 }
 
@@ -33,7 +40,7 @@ export async function readCardholder(
   ctx: FounderCallContext,
   cardholderId: string,
 ): Promise<{ asOf: string; part: Part<CardholderDetail> }> {
-  const result = await founderRecordCall(ctx, BANK_OPS_CARD_PROGRAMME_CARDHOLDER, { cardholderId });
+  const result = await founderRecordRead(ctx, BANK_OPS_CARD_PROGRAMME_CARDHOLDER, { cardholderId }, parseWith(bankCardholderDetailSchema));
   return { asOf: new Date().toISOString(), part: partFrom(result, (d) => d, labels) };
 }
 

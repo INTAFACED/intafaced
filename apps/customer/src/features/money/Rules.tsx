@@ -4,11 +4,11 @@ import { useSession } from '../session';
 import { CATEGORY_CHANNELS, type CategoryPrefRow } from '../../screens/notifications/notify-api';
 import { useCategoryPrefs } from '../../screens/notifications/use-category-prefs';
 import { useSpaces, useBankRecord } from './components';
-import { reminderLeadChoices, type ReminderRule } from './contracts';
+import { reminderLeadChoices, rulesWrites, type ReminderRule } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { rulesCopy } from './rules-copy';
 import './bank-depth.css';
-import { BANK_RULES_SET_REMINDER, BANK_RULES_CREATE_MONEY_RULE, BANK_RULES_GET } from '@intafaced/contracts/bank-rules-procedures';
+import { BANK_RULES_SET_REMINDER, BANK_RULES_GET } from '@intafaced/contracts/bank-rules-procedures';
 
 /**
  * `/bank/rules` (J-bank-06 #6, BK-acct-10): the person's payment reminder rule (how long before each standing order
@@ -193,14 +193,19 @@ function MoneyRulePanel({ code }: { code: string }) {
     if (!complete) return setSaid(t('moneyIncomplete'));
     setBusy(true);
     setSaid(null);
-    const answer = await api.call(BANK_RULES_CREATE_MONEY_RULE, {
-      name: form.name.trim(),
-      fromSpaceId: form.from,
-      toSpaceId: form.to,
-      trigger: form.trigger === 'date' ? { kind: 'date', cadence: form.cadence } : { kind: 'balance', above: form.above },
-      amount: form.amount,
-      clientRequestId: `money-rule:${requestId}`,
-    });
+    const answer = await api.mutate(
+      'bank',
+      'rules.createMoneyRule',
+      {
+        name: form.name.trim(),
+        fromSpaceId: form.from,
+        toSpaceId: form.to,
+        trigger: form.trigger === 'date' ? { kind: 'date', cadence: form.cadence } : { kind: 'balance', above: form.above },
+        amount: form.amount,
+        clientRequestId: `money-rule:${requestId}`,
+      },
+      rulesWrites.createMoneyRule,
+    );
     setBusy(false);
     if (answer.ok) return;
     const words = answer.code === 'bank.rule_terms_unset' ? t('moneyRefused') : answer.message;

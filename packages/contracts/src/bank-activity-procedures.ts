@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -39,7 +40,7 @@ export const ACTIVITY_DEFAULT_LIMIT = 50;
  *
  * ORDER HOLD vs RELEASE. Classified only from the ledger's own `module/reason`
  * (`trade / order.hold`, `order.hold.amend`, `order.hold.released`), never from
- * amounts or timing. Spot orders and Convert (#4678) post the same recipes.
+ * amounts or timing. Spot orders and Convert post the same recipes.
  * A fill spends from the hold account, not `available`, so fill legs stay `trade`.
  * Added after the first six-kind release: a client that does not know these two
  * kinds must treat an unknown kind as `other`.
@@ -93,7 +94,7 @@ export const activityListInput = z
   .object({
     limit: z.number().int().min(1).max(ACTIVITY_MAX_LIMIT).default(ACTIVITY_DEFAULT_LIMIT),
     cursor: z.string().min(1).max(16_384).optional(),
-    assetId: z.string().min(1).max(16).optional(),
+    assetId: assetIdSchema.min(1).max(16).optional(),
     kind: z.array(z.enum(ACTIVITY_KINDS)).min(1).max(ACTIVITY_KINDS.length).optional(),
     direction: z.enum(['in', 'out']).optional(),
     from: z.string().datetime({ offset: true }).optional(),
@@ -141,26 +142,11 @@ export const activityItem = z.object({
   dispute: z.object({ id: z.string().guid(), status: z.literal('open'), reason: z.string().max(500) }).optional(),
   /** The crypto address a withdrawal went to, when one was recorded. Omitted on every other line. */
   address: z.string().min(1).max(256).optional(),
-  /** Set on a line the partner bank reports (OWNER 226): whose record it is, TEST on the TEST partner. */
+  /** Set on a line the partner bank reports: whose record it is, TEST on the TEST partner. */
   heldAt: z.object({ label: z.string() }).optional(),
 });
 
 export const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
-
-export const BANK_ACTIVITY_LIST = defineProcedure({
-  ...base,
-  name: 'bank.activity.list',
-  kind: 'query',
-  path: 'activity.list',
-  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
-  refusals: {},
-  input: activityListInput,
-  output: activityListOutput,
-  samples: [
-    { verdict: 'accept', input: {} },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
 
 /**
  * Lines grouped by how they are taxed. Refuses while the owner has not set the effect of each kind; on a test stack

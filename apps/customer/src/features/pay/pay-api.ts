@@ -105,8 +105,7 @@ import { PAY_MERCHANT_ME } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedures';
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
 import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
-import { BANK_TRANSFERS_QUOTE, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
-import { callAs } from '../../shared/api';
+import { BANK_TRANSFERS_QUOTE } from '@intafaced/contracts/bank-transfers-procedures';
 
 /** Future session integration seam, not a claim inferred from a JWT mode or merchant KYB.
  * Only supply this from an authoritative verified company membership/merchant association.
@@ -582,9 +581,9 @@ export function createPersonalPayApi(
       return guard.run(
         `${userId}:send`,
         () =>
-          callAs(
-            api,
-            BANK_TRANSFERS_TO_USER,
+          api.mutate(
+            'bank',
+            'transfers.toUser',
             parsed.data,
             s.sendOutput.refine(
               (data) => parseAmount(data.amount) === parseAmount(parsed.data.amount),

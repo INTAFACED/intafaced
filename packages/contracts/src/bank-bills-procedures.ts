@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString, billView, limitField } from './bank-call-schemas.js';
 
@@ -18,7 +19,7 @@ export const BANK_BILLS_OPS_SUMMARY = defineProcedure({
   output: z.object({
     asOf: z.string(),
     counts: z.object({ submitted: z.number(), accepted: z.number(), paid: z.number(), failed: z.number(), returned: z.number() }),
-    volumes: z.array(z.object({ status: z.string(), assetId: z.string(), count: z.number(), amount: amountString })),
+    volumes: z.array(z.object({ status: z.string(), assetId: assetIdSchema, count: z.number(), amount: amountString })),
     rails: z.object({
       billerDirectory: z.enum(['unset', 'live']),
       lookup: z.enum(['unset', 'live']),

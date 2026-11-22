@@ -2,17 +2,13 @@ import { useState, type FormEvent } from 'react';
 import { Button, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { useSession } from '../session';
-import { date, useBankRecord } from './components';
+import { date, useBankRead } from './components';
 import { type LinkedAccount } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { linkedAccountsCopy } from './linked-accounts-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import './bank-depth.css';
-import {
-  BANK_LINKED_ACCOUNTS_LIST,
-  BANK_LINKED_ACCOUNTS_LINK,
-  BANK_LINKED_ACCOUNTS_REMOVE,
-} from '@intafaced/contracts/bank-linked-accounts-procedures';
+import { BANK_LINKED_ACCOUNTS_LINK, BANK_LINKED_ACCOUNTS_REMOVE } from '@intafaced/contracts/bank-linked-accounts-procedures';
 
 /**
  * Linked bank accounts (J-bank-02 #6): the person's own accounts at other banks, each listed with its state and whether
@@ -221,7 +217,7 @@ function LinkForm({ onLinked }: { onLinked: () => void }) {
 export function LinkedAccounts() {
   const { t } = linkedAccountsCopy.useCopy();
   const { api } = useSession();
-  const list = useBankRecord(BANK_LINKED_ACCOUNTS_LIST, undefined);
+  const list = useBankRead('linkedAccounts.list', undefined);
   const [removing, setRemoving] = useState<LinkedAccount | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   return (

@@ -1,3 +1,4 @@
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { DecisionMerchant, DeclineReason } from './CardBlocks';
 import type { z } from 'zod';
@@ -6,7 +7,7 @@ import { displayAmount } from '../../shared/money';
 import { currentOwnerRecord, ReportedTime, useBankView } from './bank-context';
 import { cardCopy } from './card-copy';
 import { bps, Continuation, funds, ResourceView, Section, usePageLimit, type ActionSpec, useBankRecord } from './components';
-import type { bankReads, cardSchema } from './contracts';
+import type { cardSchema } from './contracts';
 import { t as copyText, Text } from './copy';
 import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
@@ -18,7 +19,7 @@ import { cardFeedCopy } from './card-feed-copy';
 import { BANK_CARDS_PROGRAMME, BANK_CARDS_AUTHORIZATIONS, BANK_CARDS_LIST } from '@intafaced/contracts/bank-cards-procedures';
 
 type CardRecord = z.infer<typeof cardSchema>;
-type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
+type CardDecision = ProcedureOutput<typeof BANK_CARDS_AUTHORIZATIONS>[number];
 
 export function CardReference({ id }: { id: string }) {
   const { Copy } = cardCopy.useCopy();

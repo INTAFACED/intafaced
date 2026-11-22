@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -36,7 +37,7 @@ export const intent = z
   .object({
     requestId: z.string(),
     fromSpaceId: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount: z.string(),
     rail,
     recipient: z.string(),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -10,7 +11,7 @@ export const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/);
 
 export const sorterView = z.object({
   id: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   status: z.enum(['active', 'cancelled']),
   legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int() })),
   createdAt: z.string(),

@@ -3,7 +3,6 @@ import {
   type BANK_SUPPORTED_ASSET_ACTIONS,
   type BANK_SUPPORTED_ASSET_STATES,
   type bankSupportedAssetSchema,
-  bankSupportedAssetsSchema,
 } from '@intafaced/contracts/bank-money-room';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';

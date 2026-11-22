@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { destinationViewOutput, rampProgrammeOutput } from './bank-call-schemas.js';
 
@@ -71,7 +72,7 @@ export const BANK_RAMPS_DESTINATIONS_NETWORKS = defineProcedure({
   output: z.array(
     z
       .object({
-        assetId: z.string(),
+        assetId: assetIdSchema,
         precision: z.number().int(),
         networks: z.array(z.object({ networkId: z.string(), label: z.string() }).strict()),
         defaultNetworkId: z.string().nullable(),
@@ -241,7 +242,7 @@ export const BANK_RAMPS_DESTINATIONS_SAVE = defineProcedure({
   refusals: {},
   input: z
     .object({
-      assetId: z.string().min(1).max(16),
+      assetId: assetIdSchema.min(1).max(16),
       network: z.string().min(2).max(32),
       ref: z.string().min(1).max(256),
       tag: z.string().min(1).max(64).optional(),

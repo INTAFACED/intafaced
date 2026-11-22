@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 
@@ -10,7 +11,7 @@ const base = { service: 'svc-bank', module: 'bank', transport: 'trpc' } as const
 export const autoInvestRuleOutput = z.object({
   id: z.string(),
   kind: z.enum(['threshold_sweep', 'dca', 'card_roundup']),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   threshold: amountString.nullable(),
   targetPoolId: z.string().nullable(),
   targetSpaceId: z.string().nullable(),

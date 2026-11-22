@@ -275,16 +275,13 @@ export type SalaryCredit = z.infer<typeof salaryCreditSchema>;
 export const accountsReads = {
   'salary.details': salaryDetailsSchema,
   'salary.form': salaryFormSchema,
-  'salary.credits': z.array(salaryCreditSchema),
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
   'addMoney.methods': addMoneyMethodsSchema,
-  'addMoney.requests': z.array(addMoneyRequestSchema),
   'addMoney.request': addMoneyRequestSchema,
   'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
-  'recovery.estates': z.object({ estates: z.array(recoveryEstateSchema) }),
   'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
 } as const;

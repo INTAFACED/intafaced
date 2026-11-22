@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { GLOBAL_HOLD_STATES } from './bank-global-procedures.js';
 import { LINKED_ACCOUNT_STATES, LINKED_ACCOUNT_BLOCKERS } from './bank-cash-out-procedures.js';
 
@@ -53,7 +54,7 @@ export const destinationViewOutput = z.object({
   kind: z.enum(['crypto', 'bank']),
   ref: z.string(),
   refMasked: z.string(),
-  assetId: z.string().nullable(),
+  assetId: assetIdSchema.nullable(),
   network: z.string().nullable(),
   tag: z.string().nullable(),
   origin: z.enum(['legacy', 'customer']),
@@ -80,7 +81,7 @@ export const billView = z.object({
   billerId: z.string(),
   reference: z.string(),
   amount: amountString,
-  assetId: z.string(),
+  assetId: assetIdSchema,
   fromSpaceId: z.string(),
   status: z.enum(['submitted', 'accepted', 'paid', 'failed', 'returned']),
   failureCode: z.string().nullable(),
@@ -101,7 +102,7 @@ export const onramp = z.object({
   quoteId: z.string(),
   method: z.enum(ONRAMP_METHODS),
   /** What the person receives, in `assetId`: the quote's receive amount. */
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: z.string(),
   payAmount: z.string(),
   fee: z.string(),
@@ -114,7 +115,7 @@ export const onramp = z.object({
 
 export const request = z.object({
   requestId: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: z.string(),
   method: z.enum(ONRAMP_METHODS),
   country: z.string(),
@@ -160,7 +161,7 @@ export const plan = z.object({
   name: z.string(),
   tier: z.string(),
   price: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   period: z.literal('month'),
 });
 
@@ -172,7 +173,7 @@ export const plan = z.object({
  */
 export const hold = z.object({
   id: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: z.string(),
   paidBy: z.enum(['card', 'bank_pull']),
   releaseAt: z.string(),
@@ -190,7 +191,7 @@ export const legView = z.object({
 
 export const salaryCreditView = z.object({
   networkId: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: z.string(),
   originatorName: z.string(),
   state: z.enum(['pending', 'received', 'returned', 'reversed']),
@@ -203,7 +204,7 @@ export const salaryCreditView = z.object({
   legs: z.array(legView),
 });
 
-export const pot = z.object({ id: z.string(), name: z.string(), assetId: z.string() });
+export const pot = z.object({ id: z.string(), name: z.string(), assetId: assetIdSchema });
 
 export const card = z.object({
   cardId: z.string(),
@@ -271,7 +272,7 @@ export const statementOutput = z.object({
     holderUserId: z.string().guid(),
     from: z.string(),
     to: z.string(),
-    assetId: z.string().nullable(),
+    assetId: assetIdSchema.nullable(),
     spaceId: z.string().nullable(),
     report: z.enum(['statement', 'ledger', 'trades']),
     rowCount: z.number().int().nonnegative(),
@@ -284,7 +285,7 @@ export const requestInput = z
   .object({
     from: z.string().datetime({ offset: true }),
     to: z.string().datetime({ offset: true }),
-    assetId: z.string().min(1).max(16).optional(),
+    assetId: assetIdSchema.min(1).max(16).optional(),
     spaceId: z.string().guid().optional(),
     format: z.enum(['csv', 'pdf']),
     report: z.enum(STATEMENT_REPORTS).optional(),
@@ -297,7 +298,7 @@ export const jobOutput = z.object({
   format: z.enum(['csv', 'pdf']),
   from: z.string(),
   to: z.string(),
-  assetId: z.string().nullable(),
+  assetId: assetIdSchema.nullable(),
   spaceId: z.string().nullable(),
   state: z.enum(['queued', 'rendering', 'ready', 'failed']),
   attempts: z.number().int().nonnegative(),
@@ -361,7 +362,7 @@ export const allocationOutput = z.object({
 });
 
 export const balanceEntriesOutput = z.object({
-  assetId: z.string(),
+  assetId: assetIdSchema,
   entries: z.array(
     z.object({
       entryId: z.string().nullable(),
@@ -416,7 +417,7 @@ export const portfolioSummaryOutput = z.object({
 export const balanceBreakdownOutput = z.object({
   assets: z.array(
     z.object({
-      assetId: z.string(),
+      assetId: assetIdSchema,
       total: signedAmountString,
       available: signedAmountString,
       locked: z.array(

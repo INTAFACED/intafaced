@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -27,7 +28,7 @@ export const salaryRailsOutput = z.object({
 /**
  * THE RAMP PARTNER'S OWN REPORT (J-bank-28 #3, BK-ord-01).
  *
- * Ramp orders are the partner's (OWNER 226): the partner opens each payment, the payer approves it on the partner's page,
+ * Ramp orders are the partner's: the partner opens each payment, the payer approves it on the partner's page,
  * and the partner says it was paid or sent back. So the finance desk reads ramp metrics from the partner's own report,
  * never from svc-bank's rows: orders by the state the partner gives them, the partner's health, and the orders whose
  * quote ran out at the partner before the payer approved. With no partner wired there is no report, and the desk says
@@ -57,7 +58,7 @@ export const rampMetricsOutput = z.object({
 
 export const refundLine = z.object({
   collectionId: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: z.string(),
   moveId: z.string(),
   refundedAt: z.string(),
@@ -79,7 +80,7 @@ export const directDebitMandatesOutput = z.object({
           knownAt: z.string(),
           creditorName: z.string().nullable(),
           reference: z.string().nullable(),
-          assetId: z.string().nullable(),
+          assetId: assetIdSchema.nullable(),
           refunds: z.array(refundLine),
           failures: z.array(failureLine),
         }),
@@ -98,7 +99,7 @@ export const directDebitMandatesOutput = z.object({
  * the case. Every step is a row in the case's timeline with who did it and when; evidence added after the representment was
  * submitted is kept with its own time and marked so.
  *
- * The money is the partner's (OWNER 226). A provisional credit is the partner's credit to its own cardholder: the partner
+ * The money is the partner's. A provisional credit is the partner's credit to its own cardholder: the partner
  * answers with its reference and the amount it credited, and the cardholder's available, as the partner reports it, rises
  * by that amount. Who bears a fraud loss is the partner's terms at the moment of the decision, or "not known"; it is never
  * assumed to be the partner. Nothing here posts to the ledger, and no figure here is summed into a balance.
@@ -126,7 +127,7 @@ export const summary = z.object({
   cardId: z.string().guid(),
   userId: z.string(),
   authorizationRef: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: amountString,
   reason: z.string(),
   state,
@@ -189,7 +190,13 @@ export const cardholder = z.object({
   createdAt: z.string(),
 });
 
-export const cardRef = z.object({ id: z.string().guid(), panTail: z.string(), status: z.string(), assetId: z.string(), test: z.boolean() });
+export const cardRef = z.object({
+  id: z.string().guid(),
+  panTail: z.string(),
+  status: z.string(),
+  assetId: assetIdSchema,
+  test: z.boolean(),
+});
 
 export const amount = z.string().regex(/^\d+(\.\d{1,18})?$/);
 
@@ -326,7 +333,7 @@ export const BANK_OPS_CARD_PROGRAMME_AUTHORIZATION = defineProcedure({
     cardId: z.string().guid(),
     authorizationRef: z.string(),
     panTail: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount,
     channel: z.string(),
     merchantCategory: z.string().nullable(),
@@ -357,7 +364,7 @@ export const BANK_OPS_CARD_PROGRAMME_CARDHOLDER = defineProcedure({
     cards: z.array(cardRef),
     funds: z.array(
       z.object({
-        assetId: z.string(),
+        assetId: assetIdSchema,
         appHeld: amount,
         appCaptured: amount,
         appFigure: amount,
@@ -487,7 +494,7 @@ export const BANK_OPS_CUSTOMER_BALANCES = defineProcedure({
     userId: z.string(),
     assets: z.array(
       z.object({
-        assetId: z.string(),
+        assetId: assetIdSchema,
         total: signedAmount,
         available: signedAmount,
         hold: signedAmount,
@@ -513,13 +520,13 @@ export const BANK_OPS_CUSTOMER_BALANCE_ENTRIES = defineProcedure({
   input: z
     .object({
       userId: z.string().guid(),
-      assetId: z.string().min(1).max(16),
+      assetId: assetIdSchema.min(1).max(16),
       cursor: z.string().min(1).max(16).optional(),
       limit: z.number().int().min(1).max(BALANCE_ENTRIES_MAX_LIMIT).default(BALANCE_ENTRIES_DEFAULT_LIMIT),
     })
     .strict(),
   output: z.object({
-    assetId: z.string(),
+    assetId: assetIdSchema,
     entries: z.array(
       z.object({
         entryId: z.string().nullable(),

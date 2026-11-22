@@ -22,12 +22,15 @@ let asked: Array<[string, unknown, boolean]>;
 let reloaded: string[] = [];
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
+  const useBankRead = (procedure: string, input: unknown, enabled = true) => {
+    asked.push([procedure, input, enabled]);
+    return { resource: (enabled && reads[procedure]) || { status: 'loading' }, reload: () => void reloaded.push(procedure) };
+  };
   return {
     ...real,
-    useBankRead: (procedure: string, input: unknown, enabled = true) => {
-      asked.push([procedure, input, enabled]);
-      return { resource: (enabled && reads[procedure]) || { status: 'loading' }, reload: () => void reloaded.push(procedure) };
-    },
+    useBankRead,
+    // A room that reads by record reaches the same double, by the record's path.
+    useBankRecord: (record: { path: string }, input?: unknown, enabled?: boolean) => useBankRead(record.path, input, enabled),
   };
 });
 import { LoanApply } from './LoanApply';

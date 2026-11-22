@@ -71,12 +71,15 @@ const ASSETS: WithdrawAsset[] = [
 ];
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
+  const useBankRead = (procedure: string, _input?: unknown, _enabled?: boolean) =>
+    procedure === 'ramps.destinations.networks'
+      ? { resource: { status: 'ready', data: ASSETS }, reload: () => undefined }
+      : { resource: { status: 'ready', data: [ROW] }, reload: () => undefined };
   return {
     ...real,
-    useBankRead: (procedure: string) =>
-      procedure === 'ramps.destinations.networks'
-        ? { resource: { status: 'ready', data: ASSETS }, reload: () => undefined }
-        : { resource: { status: 'ready', data: [ROW] }, reload: () => undefined },
+    useBankRead,
+    // A room that reads by record reaches the same double, by the record's path.
+    useBankRecord: (record: { path: string }, input?: unknown, enabled?: boolean) => useBankRead(record.path, input, enabled),
   };
 });
 import { WithdrawForm } from './WithdrawForm';

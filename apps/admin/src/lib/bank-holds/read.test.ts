@@ -8,6 +8,11 @@ vi.mock('@/lib/desk', async (importOriginal) => ({
     calls.push({ procedure, input });
     return { kind: 'unavailable', uncertain: false, requestId: null };
   },
+  // A read by record reaches the same double, by the record's path.
+  founderRecordRead: async (_ctx: unknown, record: { path: string }, input: unknown) => {
+    calls.push({ procedure: record.path, input });
+    return { kind: 'unavailable', uncertain: false, requestId: null };
+  },
 }));
 
 describe('readHoldDesk', () => {

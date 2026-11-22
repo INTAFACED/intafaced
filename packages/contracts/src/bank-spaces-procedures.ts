@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 
@@ -16,6 +17,6 @@ export const BANK_SPACES_UNNAMED = defineProcedure({
   access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
   refusals: {},
   input: NO_INPUT,
-  output: z.array(z.object({ assetId: z.string(), balance: amountString })),
+  output: z.array(z.object({ assetId: assetIdSchema, balance: amountString })),
   samples: [{ verdict: 'accept' }],
 });

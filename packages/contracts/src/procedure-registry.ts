@@ -416,7 +416,7 @@ import { AGENTS_USAGE_CURRENT, AGENTS_USAGE_SUMMARY } from './agents-usage-proce
 
 import { AGENTS_WEBHOOK_REGISTER, AGENTS_WEBHOOK_LIST, AGENTS_WEBHOOK_DELIVERIES } from './agents-webhooks-procedures.js';
 
-import { BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS } from './bank-activity-procedures.js';
+import { BANK_ACTIVITY_TAX_EFFECTS } from './bank-activity-procedures.js';
 
 import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS } from './bank-add-money-procedures.js';
 
@@ -444,19 +444,11 @@ import {
 
 import { BANK_BUSINESS_CARDS_RECEIPTS_ZIP } from './bank-business-cards-procedures.js';
 
-import {
-  BANK_BUSINESS_PENDING,
-  BANK_BUSINESS_MY_ROLE,
-  BANK_BUSINESS_LIST,
-  BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE,
-  BANK_BUSINESS_MEMBERS,
-} from './bank-business-procedures.js';
+import { BANK_BUSINESS_LIST, BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE } from './bank-business-procedures.js';
 
 import {
   BANK_CARDS_PROGRAMME,
   BANK_CARDS_CONTROLS_GET,
-  BANK_CARDS_CONTROLS_BLOCK,
-  BANK_CARDS_CONTROLS_LIFT,
   BANK_CARDS_AUTHORIZATIONS,
   BANK_CARDS_RECURRING,
   BANK_CARDS_USES,
@@ -469,7 +461,6 @@ import {
   BANK_CARDS_SET_PAY_FROM_ORDER,
   BANK_CARDS_CATALOGUE,
   BANK_CARDS_ACCEPT_TERMS,
-  BANK_CARDS_ORDER,
   BANK_CARDS_THREE_DS_LIST,
   BANK_CARDS_THREE_DS_ANSWER,
   BANK_CARDS_FRAUD_LIST,
@@ -486,7 +477,7 @@ import {
 
 import { BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ } from './bank-cash-leg-procedures.js';
 
-import { BANK_CASH_OUT_REQUESTS, BANK_CASH_OUT_RECEIPT, BANK_CASH_OUT_QUOTE, BANK_CASH_OUT_START } from './bank-cash-out-procedures.js';
+import { BANK_CASH_OUT_RECEIPT, BANK_CASH_OUT_START } from './bank-cash-out-procedures.js';
 
 import {
   BANK_CREDIT_PREVIEWS_OVERVIEW,
@@ -562,7 +553,7 @@ import { BANK_HEALTH } from './bank-health-procedures.js';
 
 import { BANK_HOLDS_RULE, BANK_HOLDS_SET_RULE, BANK_HOLDS_WAITING, BANK_HOLDS_ACCEPT, BANK_HOLDS_DENY } from './bank-holds-procedures.js';
 
-import { BANK_LINKED_ACCOUNTS_LIST, BANK_LINKED_ACCOUNTS_LINK, BANK_LINKED_ACCOUNTS_REMOVE } from './bank-linked-accounts-procedures.js';
+import { BANK_LINKED_ACCOUNTS_LINK, BANK_LINKED_ACCOUNTS_REMOVE } from './bank-linked-accounts-procedures.js';
 
 import {
   BANK_LOANS_PRODUCTS,
@@ -645,7 +636,7 @@ import {
 
 import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES } from './bank-recovery-procedures.js';
 
-import { BANK_RULES_SET_REMINDER, BANK_RULES_CREATE_MONEY_RULE, BANK_RULES_GET } from './bank-rules-procedures.js';
+import { BANK_RULES_SET_REMINDER, BANK_RULES_GET } from './bank-rules-procedures.js';
 
 import { BANK_SAFETY_REGION_NOTICE } from './bank-safety-procedures.js';
 
@@ -669,13 +660,7 @@ import {
   BANK_STATEMENTS_TOTALS,
 } from './bank-statements-procedures.js';
 
-import {
-  BANK_TRANSFERS_EXECUTIONS,
-  BANK_TRANSFERS_LIST_SCHEDULES,
-  BANK_TRANSFERS_QUOTE,
-  BANK_TRANSFERS_HELD,
-  BANK_TRANSFERS_TO_USER,
-} from './bank-transfers-procedures.js';
+import { BANK_TRANSFERS_EXECUTIONS, BANK_TRANSFERS_QUOTE, BANK_TRANSFERS_HELD } from './bank-transfers-procedures.js';
 
 import {
   BLUEPRINT_HEALTH,
@@ -2268,7 +2253,7 @@ const part_agents_webhooks_procedures: readonly ProcedureRecord[] = [
   AGENTS_WEBHOOK_DELIVERIES,
 ];
 
-const part_bank_activity_procedures: readonly ProcedureRecord[] = [BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS];
+const part_bank_activity_procedures: readonly ProcedureRecord[] = [BANK_ACTIVITY_TAX_EFFECTS];
 
 const part_bank_add_money_procedures: readonly ProcedureRecord[] = [BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS];
 
@@ -2296,19 +2281,11 @@ const part_bank_business_books_procedures: readonly ProcedureRecord[] = [
 
 const part_bank_business_cards_procedures: readonly ProcedureRecord[] = [BANK_BUSINESS_CARDS_RECEIPTS_ZIP];
 
-const part_bank_business_procedures: readonly ProcedureRecord[] = [
-  BANK_BUSINESS_PENDING,
-  BANK_BUSINESS_MY_ROLE,
-  BANK_BUSINESS_LIST,
-  BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE,
-  BANK_BUSINESS_MEMBERS,
-];
+const part_bank_business_procedures: readonly ProcedureRecord[] = [BANK_BUSINESS_LIST, BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE];
 
 const part_bank_cards_procedures: readonly ProcedureRecord[] = [
   BANK_CARDS_PROGRAMME,
   BANK_CARDS_CONTROLS_GET,
-  BANK_CARDS_CONTROLS_BLOCK,
-  BANK_CARDS_CONTROLS_LIFT,
   BANK_CARDS_AUTHORIZATIONS,
   BANK_CARDS_RECURRING,
   BANK_CARDS_USES,
@@ -2321,7 +2298,6 @@ const part_bank_cards_procedures: readonly ProcedureRecord[] = [
   BANK_CARDS_SET_PAY_FROM_ORDER,
   BANK_CARDS_CATALOGUE,
   BANK_CARDS_ACCEPT_TERMS,
-  BANK_CARDS_ORDER,
   BANK_CARDS_THREE_DS_LIST,
   BANK_CARDS_THREE_DS_ANSWER,
   BANK_CARDS_FRAUD_LIST,
@@ -2338,12 +2314,7 @@ const part_bank_cards_procedures: readonly ProcedureRecord[] = [
 
 const part_bank_cash_leg_procedures: readonly ProcedureRecord[] = [BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ];
 
-const part_bank_cash_out_procedures: readonly ProcedureRecord[] = [
-  BANK_CASH_OUT_REQUESTS,
-  BANK_CASH_OUT_RECEIPT,
-  BANK_CASH_OUT_QUOTE,
-  BANK_CASH_OUT_START,
-];
+const part_bank_cash_out_procedures: readonly ProcedureRecord[] = [BANK_CASH_OUT_RECEIPT, BANK_CASH_OUT_START];
 
 const part_bank_credit_preview_procedures: readonly ProcedureRecord[] = [
   BANK_CREDIT_PREVIEWS_OVERVIEW,
@@ -2425,11 +2396,7 @@ const part_bank_holds_procedures: readonly ProcedureRecord[] = [
   BANK_HOLDS_DENY,
 ];
 
-const part_bank_linked_accounts_procedures: readonly ProcedureRecord[] = [
-  BANK_LINKED_ACCOUNTS_LIST,
-  BANK_LINKED_ACCOUNTS_LINK,
-  BANK_LINKED_ACCOUNTS_REMOVE,
-];
+const part_bank_linked_accounts_procedures: readonly ProcedureRecord[] = [BANK_LINKED_ACCOUNTS_LINK, BANK_LINKED_ACCOUNTS_REMOVE];
 
 const part_bank_loans_procedures: readonly ProcedureRecord[] = [
   BANK_LOANS_PRODUCTS,
@@ -2516,7 +2483,7 @@ const part_bank_ramps_procedures: readonly ProcedureRecord[] = [
 
 const part_bank_recovery_procedures: readonly ProcedureRecord[] = [BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES];
 
-const part_bank_rules_procedures: readonly ProcedureRecord[] = [BANK_RULES_SET_REMINDER, BANK_RULES_CREATE_MONEY_RULE, BANK_RULES_GET];
+const part_bank_rules_procedures: readonly ProcedureRecord[] = [BANK_RULES_SET_REMINDER, BANK_RULES_GET];
 
 const part_bank_safety_procedures: readonly ProcedureRecord[] = [BANK_SAFETY_REGION_NOTICE];
 
@@ -2540,13 +2507,7 @@ const part_bank_statements_procedures: readonly ProcedureRecord[] = [
   BANK_STATEMENTS_TOTALS,
 ];
 
-const part_bank_transfers_procedures: readonly ProcedureRecord[] = [
-  BANK_TRANSFERS_EXECUTIONS,
-  BANK_TRANSFERS_LIST_SCHEDULES,
-  BANK_TRANSFERS_QUOTE,
-  BANK_TRANSFERS_HELD,
-  BANK_TRANSFERS_TO_USER,
-];
+const part_bank_transfers_procedures: readonly ProcedureRecord[] = [BANK_TRANSFERS_EXECUTIONS, BANK_TRANSFERS_QUOTE, BANK_TRANSFERS_HELD];
 
 const part_blueprint_procedures: readonly ProcedureRecord[] = [
   BLUEPRINT_HEALTH,

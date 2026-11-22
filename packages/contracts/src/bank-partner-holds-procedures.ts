@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { hold } from './bank-call-schemas.js';
 
@@ -24,7 +25,7 @@ export const BANK_PARTNER_HOLDS = defineProcedure({
       asOf: z.string().nullable(),
       balances: z.array(
         z.object({
-          assetId: z.string(),
+          assetId: assetIdSchema,
           balance: z.string().nullable(),
           balanceAsOf: z.string().nullable(),
           heldBack: z.string().nullable(),
