@@ -80,7 +80,7 @@ import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { createMoneyClient, transferQuoteSchema } from '../money';
+import { createMoneyClient } from '../money';
 import { createMerchantRefundApi } from './merchant-refund-api';
 import * as s from './schemas';
 import { shareCopy } from './personal/p2p-share-copy';
@@ -105,6 +105,8 @@ import { PAY_MERCHANT_ME } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedures';
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
 import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
+import { BANK_TRANSFERS_QUOTE, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
+import { callAs } from '../../shared/api';
 
 /** Future session integration seam, not a claim inferred from a JWT mode or merchant KYB.
  * Only supply this from an authoritative verified company membership/merchant association.
@@ -554,7 +556,7 @@ export function createPersonalPayApi(
     spaces,
     /** Published limits and fee for this send. Refuses `bank.personal_transfer_terms_unset` while none are published. */
     quote: (input: { assetId: string; amount: string }, signal?: AbortSignal) =>
-      signedIn() ? Promise.resolve(signedIn()!) : api.query('bank', 'transfers.quote', input, transferQuoteSchema, { signal }),
+      signedIn() ? Promise.resolve(signedIn()!) : api.call(BANK_TRANSFERS_QUOTE, input, { signal }),
     async send(input: z.infer<typeof s.sendInput>, isCurrent?: () => boolean, recoveryCurrent?: () => boolean) {
       if (isCurrent && !isCurrent()) return sendContextChanged();
       const denied = signedIn();
@@ -580,9 +582,9 @@ export function createPersonalPayApi(
       return guard.run(
         `${userId}:send`,
         () =>
-          api.mutate(
-            'bank',
-            'transfers.toUser',
+          callAs(
+            api,
+            BANK_TRANSFERS_TO_USER,
             parsed.data,
             s.sendOutput.refine(
               (data) => parseAmount(data.amount) === parseAmount(parsed.data.amount),

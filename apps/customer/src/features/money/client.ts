@@ -1,12 +1,13 @@
 import { t as copyText } from './copy';
 import { BANK_SPACES_LIST, type BankSpace } from '@intafaced/contracts/bank-spaces-list';
-import { bankTransferReplySchema, bankUnnamedBalancesSchema } from '@intafaced/contracts/bank-money-room';
+import { bankTransferReplySchema } from '@intafaced/contracts/bank-money-room';
 import { balanceEntrySchema, balancesSchema as exchangeBalancesSchema } from '@intafaced/exchange-contract/schemas';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { transferDepthCopy } from './transfer-depth-copy';
 import { cleanText, messageEchoed, noteProblem, referenceProblem } from './transfer-message';
+import { BANK_SPACES_UNNAMED } from '@intafaced/contracts/bank-spaces-procedures';
 
 /**
  * Money's check over each row of `bank` `spaces.list` (the record in `@intafaced/contracts/bank-spaces-list`): a ledger
@@ -92,7 +93,7 @@ export function createMoneyClient(api: ApiClient) {
       const [balances, spaces, unnamed] = await Promise.all([
         this.balances(signal),
         this.spaces(limit, signal),
-        api.query('bank', 'spaces.unnamed', undefined, bankUnnamedBalancesSchema, { signal }),
+        api.call(BANK_SPACES_UNNAMED, undefined, { signal }),
       ]);
       const projection = new Map<string, string>();
       const conflicts = new Set<string>();
