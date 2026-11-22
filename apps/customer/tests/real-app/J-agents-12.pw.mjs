@@ -785,9 +785,9 @@ test(`${J} #5 registers a webhook with the key: one signed delivery per finished
       ok(await as(kept('otherAccount'), '/api/agents/trpc/session.close', { sessionId: otherSession }, 'POST'));
     }
 
-    // Exactly one delivery per finished run, and nothing more after a further wait: no run from before the register,
-    // none of someone else's.
-    // The service's own record of what it owes this endpoint is written when each run ends: exactly these three.
+    // Exactly one delivery per finished run: no run from before the register, none of someone else's. The service's own
+    // record of what it owes this endpoint is written when each run ends: exactly these three, each posted once
+    // (`attempts: 1` below), so a late duplicate post shows there, not in a wait.
     const owed = ok(await call(onKey, 'webhook.deliveries', { endpointId, limit: 500 }));
     expect(owed.map(({ runId }) => runId).sort()).toEqual([completed.runId, refusedRunId, background.runId].sort());
     await expect.poll(() => mine().length, { message: `${J} #5: three deliveries`, timeout: 30_000 }).toBe(3);
