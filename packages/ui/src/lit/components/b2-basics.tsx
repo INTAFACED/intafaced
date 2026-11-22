@@ -225,11 +225,42 @@ export function nextTabIndex(index: number, key: string, count: number): number 
   return null;
 }
 
+/** What a keyboard can reach inside a panel. */
+const PANEL_CONTROL = 'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Whether a tab's panel is itself a Tab stop: only while it holds nothing a keyboard can reach, so Tab from the tab
+ * still lands in it. A panel with controls leaves the stop to its first control, never to the whole (often tall) panel,
+ * whose focus ring would run under the phone's dock.
+ */
+export function panelIsTabStop(panel: Pick<ParentNode, 'querySelector'>): boolean {
+  return panel.querySelector(PANEL_CONTROL) === null;
+}
+
 /** The panel an in-page tab shows. Only the shown panel is rendered, so a hidden one reads nothing. */
 export function TabPanel({ id, value, current, children }: { id: string; value: string; current: string; children: React.ReactNode }) {
-  if (value !== current) return null;
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [stop, setStop] = React.useState(true);
+  const shown = value === current;
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const read = () => setStop(panelIsTabStop(el));
+    read();
+    const watch = new MutationObserver(read);
+    watch.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['tabindex', 'href'] });
+    return () => watch.disconnect();
+  }, [shown]);
+  if (!shown) return null;
   return (
-    <div className="lt-tab-panel" role="tabpanel" id={`${id}-panel-${value}`} aria-labelledby={`${id}-tab-${value}`} tabIndex={0}>
+    <div
+      ref={ref}
+      className="lt-tab-panel"
+      role="tabpanel"
+      id={`${id}-panel-${value}`}
+      aria-labelledby={`${id}-tab-${value}`}
+      tabIndex={stop ? 0 : undefined}
+    >
       {children}
     </div>
   );

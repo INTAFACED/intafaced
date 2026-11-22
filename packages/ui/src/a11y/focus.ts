@@ -15,18 +15,29 @@ export const OBSCURED_BOTTOM_VAR = '--a11y-obscured-bottom';
 export interface Bar {
   readonly edge: string | null;
   readonly height: number;
+  /**
+   * How far the bar sits from its edge (a floating dock stands off the bottom). A control can't show in that gap
+   * either, so the bar covers from its far side to the edge.
+   */
+  readonly offset?: number;
 }
 
-/** The space covered at each edge: bars stack, so their heights add up. */
+const size = (n: number | undefined): number => (n !== undefined && Number.isFinite(n) && n > 0 ? n : 0);
+
+/**
+ * The space covered at each edge: bars stack, so their heights add up, and a bar standing off its edge covers the gap
+ * under it too, so the edge is covered at least to the bar's far side.
+ */
 export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: number } {
-  let top = 0;
-  let bottom = 0;
+  const sum = { top: 0, bottom: 0 };
+  const reach = { top: 0, bottom: 0 };
   for (const bar of bars) {
-    const height = Number.isFinite(bar.height) && bar.height > 0 ? bar.height : 0;
-    if (bar.edge === 'top') top += height;
-    else if (bar.edge === 'bottom') bottom += height;
+    if (bar.edge !== 'top' && bar.edge !== 'bottom') continue;
+    const height = size(bar.height);
+    sum[bar.edge] += height;
+    if (height > 0) reach[bar.edge] = Math.max(reach[bar.edge], size(bar.offset) + height);
   }
-  return { top, bottom };
+  return { top: Math.max(sum.top, reach.top), bottom: Math.max(sum.bottom, reach.bottom) };
 }
 
 /**
@@ -40,7 +51,11 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   let last = '';
   const measure = (): void => {
     const { top, bottom } = obscuredInsets(
-      bars.map((el) => ({ edge: el.getAttribute(OBSCURES_ATTRIBUTE), height: el.getBoundingClientRect().height })),
+      bars.map((el) => {
+        const box = el.getBoundingClientRect();
+        const edge = el.getAttribute(OBSCURES_ATTRIBUTE);
+        return { edge, height: box.height, offset: edge === 'bottom' ? innerHeight - box.bottom : box.top };
+      }),
     );
     const next = `${top}|${bottom}`;
     if (next === last) return;
@@ -68,8 +83,11 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   });
   mutations.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: [OBSCURES_ATTRIBUTE] });
   observeBars();
+  // A bottom bar's offset is measured from the viewport's foot, which moves when the viewport resizes.
+  addEventListener('resize', measure);
 
   return () => {
+    removeEventListener('resize', measure);
     mutations.disconnect();
     resize.disconnect();
     root.style.removeProperty(OBSCURED_TOP_VAR);

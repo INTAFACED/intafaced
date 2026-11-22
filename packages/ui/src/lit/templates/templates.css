@@ -925,7 +925,10 @@
   }
 }
 
+/* A tab keeps its whole name: the row scrolls instead (the 24 px target floor would otherwise let it shrink under
+   its words, so the names overlap). */
 .lt-tab {
+  flex: none;
   display: inline-flex;
   align-items: center;
   min-block-size: var(--lit-control-h);

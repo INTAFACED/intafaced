@@ -321,6 +321,35 @@ describe('b2 controls the desk rooms use', () => {
     ).toMatch(/role="tabpanel" id="exec-panel-b" aria-labelledby="exec-tab-b"/);
   });
 
+  it('a tab panel is a Tab stop only while it holds nothing a keyboard can reach', () => {
+    const asked: string[] = [];
+    const panel = (found: boolean) => ({
+      querySelector: (selector: string) => {
+        asked.push(selector);
+        return found ? ({} as Element) : null;
+      },
+    });
+    expect(B2.panelIsTabStop(panel(false))).toBe(true);
+    expect(B2.panelIsTabStop(panel(true))).toBe(false);
+    for (const reach of ['a[href]', 'button', 'input', 'select', 'textarea', '[tabindex]:not([tabindex="-1"])'])
+      expect(asked[0]).toContain(reach);
+    // Before it can look (server render), the panel starts as a stop, so Tab never skips a panel of plain text.
+    expect(
+      html(
+        <B2.TabPanel id="exec" value="b" current="b">
+          shown
+        </B2.TabPanel>,
+      ),
+    ).toContain('tabindex="0"');
+  });
+
+  it('a tab keeps its whole name and a Segmented label sits centred on its fill', () => {
+    const tab = /\.lt-tab \{([^}]*)\}/.exec(readFileSync(join(here, '../templates/templates.css'), 'utf8'))?.[1] ?? '';
+    expect(tab).toMatch(/flex: none;/);
+    const seg = /\.lit-segmented button \{([^}]*)\}/.exec(readFileSync(join(here, 'components.css'), 'utf8'))?.[1] ?? '';
+    expect(seg).toMatch(/text-align: center;/);
+  });
+
   it('Table with onSelect is a grid of pickable rows; with no rows it shows its empty line', () => {
     const cols = [{ key: 'id', label: 'Id', cell: (r: { id: string }) => r.id }];
     const grid = html(
