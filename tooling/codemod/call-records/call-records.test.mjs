@@ -1638,3 +1638,19 @@ test('a wrapper that sends the call name it is handed, or a spec whose procedure
     assert.ok(!some.of(file).edits.some((e) => /CONTACTS_|callAs\(api, procedure, input/.test(e.text)));
   }
 });
+
+// A wrapper that takes its call name is one site per caller, while the rule counts its sender once and a caller only
+// where it names the call in a `procedure:` property. On main at a67176909 the report counted 931 sites to the rule's 928:
+// RecoveryKeys.tsx (3 `procedure:` callers, +1), LostPhoneRoom.tsx and AgentAccess.tsx (3 plain-string callers each, -2).
+test("the report adds a wrapper's sender the rule counts and drops the callers it does not, so its totals meet the rule", async () => {
+  const { wrapperSenders } = await import('./report.mjs');
+  const caller = (key, type) => ({ shape: 'wrapper', node: { type }, wrapper: { key } });
+  const sites = [
+    { shape: 'query', node: { type: 'CallExpression' } },
+    ...['a', 'b', 'c'].map(() => caller('recovery:send', 'Property')),
+    ...['a', 'b', 'c'].map(() => caller('lost-phone:change', 'CallExpression')),
+    ...['a', 'b', 'c'].map(() => caller('agent-access:change', 'CallExpression')),
+  ];
+  assert.equal(wrapperSenders(sites), 1 - 2 - 2);
+  assert.equal(wrapperSenders(sites.slice(0, 1)), 0, 'no wrapper, nothing to add');
+});

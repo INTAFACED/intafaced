@@ -46,7 +46,24 @@ afterEach(() => {
 });
 
 const POOLS = [
-  { id: 'p1', assetId: 'USDC', kind: 'flexible', name: 'Flexible USDC', aprBps: 450, termDays: null, minDeposit: '10.00000000' },
+  // svc-bank's whole pool row: the desk reads it through the `earn.pools` record, which checks every field the bank sends.
+  {
+    id: 'p1',
+    assetId: 'USDC',
+    kind: 'flexible',
+    name: 'Flexible USDC',
+    aprBps: 450,
+    termDays: null,
+    minDeposit: '10.00000000',
+    payoutEvery: 'day',
+    compounding: 'simple',
+    rewardAssetId: 'USDC',
+    yieldSource: 'pool_reserve',
+    rateBands: null,
+    commissionBps: null,
+    capacity: null,
+    unbondingDays: null,
+  },
 ];
 
 describe('GET bank desk', () => {

@@ -4,7 +4,7 @@ import { DepthPanel, DisabledAction, Fact, ChannelSwitch } from './DepthParts';
 import { cardDepthCopy } from './card-depth-copy';
 import { Button } from '../../shared/ui';
 import { funds, type ActionField, type ActionSpec } from './components';
-import { bankReads, type cardSchema } from './contracts';
+import { type cardSchema } from './contracts';
 import { maskedPan } from './card-controls';
 import {
   buildChannelsInput,
@@ -24,6 +24,7 @@ import {
 import { t as copyText } from './copy';
 import { useSession } from '../session';
 import './bank-depth.css';
+import { BANK_CARDS_LIST } from '@intafaced/contracts/bank-cards-procedures';
 
 type CardRecord = z.infer<typeof cardSchema>;
 
@@ -46,7 +47,7 @@ export function freshCardCheck(
 function useFreshCard(card: CardRecord) {
   const { api } = useSession();
   const copy = cardDepthCopy.useCopy();
-  return freshCardCheck(() => api.query('bank', 'cards.list', { limit: 200 }, bankReads['cards.list']), card, copy);
+  return freshCardCheck(() => api.call(BANK_CARDS_LIST, { limit: 200 }), card, copy);
 }
 
 /** A limit as the customer reads it: the exact figure in the card's asset, or "No limit" for a cap that is not set. */

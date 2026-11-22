@@ -2,9 +2,10 @@ import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
-import { amount, bps, date, positiveMoney, useBankRead, type ActionSpec } from '../components';
+import { amount, bps, date, positiveMoney, useBankRead, type ActionSpec, useBankRecord } from '../components';
 import { LOAN_ELIGIBILITY_KEYS, type LoanEligibility, type LoanFees, type LoanQuote } from '../contracts';
 import { loanApplyCopy } from '../loan-apply-copy';
+import { BANK_LOANS_PRODUCTS, BANK_LOANS_ELIGIBILITY } from '@intafaced/contracts/bank-loans-procedures';
 
 /**
  * `/bank/loans/apply?product=<id>` (J-bank-09 #1 to #4, BK-loan-01): choose a loan, see its limits, work out the
@@ -171,12 +172,12 @@ function FeeLines({ fees, principal }: { fees: LoanFees; principal: string | nul
 
 function ProductApplication({ productId, open }: { productId: string; open: (spec: ActionSpec) => void }) {
   const { t } = loanApplyCopy.useCopy();
-  const products = useBankRead('loans.products', { limit: 200 });
+  const products = useBankRecord(BANK_LOANS_PRODUCTS, { limit: 200 });
   const [typed, setTyped] = useState('');
   const [asked, setAsked] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
   const quote = useBankRead('loans.quote', { productId, principal: asked ?? '0' }, asked !== null);
-  const eligibility = useBankRead('loans.eligibility', { productId });
+  const eligibility = useBankRecord(BANK_LOANS_ELIGIBILITY, { productId });
   const fees = useBankRead('loans.fees', asked === null ? { productId } : { productId, principal: asked });
 
   if (products.resource.status === 'loading') return <Loading />;
@@ -310,7 +311,7 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
 /** The page: a loan picker, then the chosen loan's application. */
 export function LoanApply({ productId, open }: { productId: string | null; open: (spec: ActionSpec) => void }) {
   const { t } = loanApplyCopy.useCopy();
-  const products = useBankRead('loans.products', { limit: 200 });
+  const products = useBankRecord(BANK_LOANS_PRODUCTS, { limit: 200 });
   const [chosen, setChosen] = useState<string | null>(productId);
   return (
     <div data-testid="loan-apply">
