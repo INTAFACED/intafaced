@@ -58,7 +58,6 @@
     "apps/customer/src/features/money/DepositFunding.tsx": 2,
     "apps/customer/src/features/money/DepositRecords.tsx": 4,
     "apps/customer/src/features/money/DepositTravelRule.tsx": 2,
-    "apps/customer/src/features/money/EarnCompare.tsx": 1,
     "apps/customer/src/features/money/LoanApply.tsx": 2,
     "apps/customer/src/features/money/lost-phone/LostPhoneRoom.tsx": 5,
     "apps/customer/src/features/money/rail-form.tsx": 1,

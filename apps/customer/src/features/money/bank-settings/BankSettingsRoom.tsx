@@ -3,7 +3,9 @@ import { Button } from '@intafaced/ui/lit';
 import { SettingsTemplate, Tabs, type RoomState } from '@intafaced/ui/lit/templates';
 import { uiCopy } from '../../../shared/ui-copy';
 import { t as copyText } from '../copy';
-import { bankLabels, bankRoomHref, bankRooms, type BankRoom } from './bank-rooms';
+import { bankLabels, bankRoomHref, bankRooms } from '../bank-frame/bank-rooms';
+
+type BankRoom = (typeof bankRooms)[number];
 
 /**
  * A bank room on the settings template: its title and description, the bank's rooms (the one it sits in marked), a

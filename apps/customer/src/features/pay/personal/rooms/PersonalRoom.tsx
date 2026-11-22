@@ -61,25 +61,6 @@ function Rows({ rows }: { rows: ReadonlyArray<readonly [string, ReactNode]> }) {
   );
 }
 
-/** A control that cannot run yet: visible, off, and tied to the reason on screen. */
-function Off({ children, describedBy }: { children: ReactNode; describedBy: string }) {
-  return (
-    <Button type="button" variant="secondary" size={40} disabled aria-describedby={describedBy}>
-      {children}
-    </Button>
-  );
-}
-
-function Section({ title, empty, off, describedBy }: { title: string; empty: string; off: string; describedBy: string }) {
-  return (
-    <div className="pay-block">
-      <h3 className="pay-section-title">{title}</h3>
-      <p className="pay-empty">{empty}</p>
-      <Off describedBy={describedBy}>{off}</Off>
-    </div>
-  );
-}
-
 function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
   const { t } = roomsCopy.useCopy();
   const { userId } = useSession();
