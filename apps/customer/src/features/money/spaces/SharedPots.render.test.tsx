@@ -2,8 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Space } from './client';
-import type { ActionSpec } from './components';
+import type { Space } from '../client';
+import type { ActionSpec } from '../components';
 
 /**
  * Shared pots on the Spaces page (BK-acct-09, J-bank-07 #6): blank bank values said in words, an invite to the person
@@ -11,16 +11,16 @@ import type { ActionSpec } from './components';
  * with its open invites, the card linked to a pot that its holders can freeze, and the log naming who did what.
  */
 
-vi.mock('../../shared/preferences', async (original) => {
-  const real = await original<typeof import('../../shared/preferences')>();
+vi.mock('../../../shared/preferences', async (original) => {
+  const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 const POT = '11111111-1111-4111-8111-111111111111';
 const MINE = '22222222-2222-4222-8222-222222222222';
 const INVITE = '33333333-3333-4333-8333-333333333333';
 let reads: Record<string, { status: 'ready'; data: unknown }>;
-vi.mock('./components', async (original) => {
-  const real = await original<typeof import('./components')>();
+vi.mock('../components', async (original) => {
+  const real = await original<typeof import('../components')>();
   // The room reads by its records now: each record's read is served from the same answers, by its path.
   const useBankRead = (procedure: string) => ({ resource: reads[procedure] ?? { status: 'loading' }, reload: () => undefined });
   return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
