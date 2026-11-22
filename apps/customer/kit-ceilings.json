@@ -180,7 +180,6 @@
     "apps/customer/src/features/public/AuthForm.tsx": 1,
     "apps/customer/src/features/public/FeesPage.tsx": 1,
     "apps/customer/src/features/public/MyTierPage.tsx": 1,
-    "apps/customer/src/features/public/ReferrerChange.tsx": 1,
     "apps/customer/src/features/public/SignUp.tsx": 6,
     "apps/customer/src/features/public/StatusSubscription.tsx": 3,
     "apps/customer/src/features/public/VipApply.tsx": 4,

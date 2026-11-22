@@ -13,7 +13,6 @@
   "/status/manage",
   "/status/unsubscribe",
   "/support/guest/verify",
-  "/invite",
   "/developers/sandbox/:sandboxId",
   "/developers/sandbox/:sandboxId/keys/new",
   "/home",
