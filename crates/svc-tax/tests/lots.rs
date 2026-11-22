@@ -6,7 +6,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod common;
+use crate::common;
 
 use common::{amt, date, some, text};
 use svc_tax::lots::{LotMethod, LotMovement, run_lots};
