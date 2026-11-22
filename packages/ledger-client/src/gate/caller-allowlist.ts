@@ -40,9 +40,9 @@ export const LEDGER_POST_ALLOWLIST = {
     academyPurchaseRefund: g('academy', 'crates/svc-academy/src/learner/purchases/mod.rs'),
   },
   'svc-agents': {
-    feeCharge: g('agents', 'services/svc-agents/src/metering/meter.ts'),
-    chargeEarn: g('agents', 'services/svc-agents/src/metering/meter.ts'),
-    chargeCollect: g('agents', 'services/svc-agents/src/metering/meter.ts'),
+    feeCharge: g('agents', 'crates/svc-agents/src/metering/meter.rs'),
+    chargeEarn: g('agents', 'crates/svc-agents/src/metering/meter.rs'),
+    chargeCollect: g('agents', 'crates/svc-agents/src/metering/meter.rs'),
   },
   'svc-bank': {
     bankTransfer: g('bank', 'services/svc-bank/src/transfers/transfer-service.ts'),

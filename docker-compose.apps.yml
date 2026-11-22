@@ -1408,17 +1408,38 @@ services:
     # published to the host and never reachable through svc-edge.
     expose: ['4400']
 
+  # svc-agents' own `agents` schema migrations, applied once by its Rust binary as its own role (svc_agents), before the
+  # service starts, as svc-ledger-migrate does for the ledger.
+  svc-agents-migrate:
+    image: intafaced/svc-agents:dev
+    build:
+      context: .
+      dockerfile: crates/svc-agents/Dockerfile
+    container_name: intafaced-svc-agents-migrate
+    restart: 'no'
+    command: ['/app/svc-agents', 'migrate']
+    environment:
+      DATABASE_URL: postgres://svc_agents:${SVC_AGENTS_DB_PASSWORD:-svc_agents}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Rust binary (crates/svc-agents), its own image, like svc-ledger's.
   svc-agents:
-    <<: *app
+    image: intafaced/svc-agents:dev
+    build:
+      context: .
+      dockerfile: crates/svc-agents/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-agents
-    command: ['node', 'services/svc-agents/dist/index.js']
+    command: ['/app/svc-agents']
     environment:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-agents
       HTTP_PORT: '4008'
       DATABASE_URL: postgres://svc_agents:${SVC_AGENTS_DB_PASSWORD:-svc_agents}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
-      # Affiliate accrue + payout after usage feeCharge. env.ts is optional with
+      # Affiliate accrue + payout after usage feeCharge. env.rs is optional with
       # no localhost default (unset = noop). Compose pins identity on the fleet
       # network. Never invents rates; identity owns the payout door.
       IDENTITY_URL: http://svc-identity:4002
@@ -1449,10 +1470,10 @@ services:
       # Billing window: no git default — blank refuses (never 60). Owner may
       # set 60 explicitly (see .env.example). Same `:?` shape as pay
       # confirmations so compose-up fails instead of publishing a 60-minute
-      # bill window. Window must divide 1440 (env.ts). Timeout still 60000.
+      # bill window. Window must divide 1440 (env.rs). Timeout still 60000.
       AGENTS_USAGE_WINDOW_MINUTES: ${AGENTS_USAGE_WINDOW_MINUTES:?missing — copy .env.example to .env}
       AGENTS_UPSTREAM_TIMEOUT_MS: ${AGENTS_UPSTREAM_TIMEOUT_MS:-60000}
-      # Upstream auth header name + prefix (env.ts defaults x-api-key / empty).
+      # Upstream auth header name + prefix (env.rs defaults x-api-key / empty).
       # Without compose pass-through a host `.env` pin never reaches the container.
       AGENTS_UPSTREAM_AUTH_HEADER: ${AGENTS_UPSTREAM_AUTH_HEADER:-x-api-key}
       AGENTS_UPSTREAM_AUTH_PREFIX: ${AGENTS_UPSTREAM_AUTH_PREFIX:-}
@@ -1500,9 +1521,15 @@ services:
       LIVE_TRADE_COPY_LEADER_IDS:
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4008']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4008/health']
     depends_on:
-      <<: [*needs-schema, *needs-bus]
+      <<: *needs-bus
+      postgres:
+        condition: service_healthy
+      svc-agents-migrate:
+        condition: service_completed_successfully
       svc-ledger:
         condition: service_healthy
 

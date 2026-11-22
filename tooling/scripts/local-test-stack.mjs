@@ -785,7 +785,6 @@ const BACKEND_PKGS = [
   'svc-trade',
   'svc-pay',
   'svc-token',
-  'svc-agents',
   'svc-p2p',
   'svc-notify',
   'svc-support',
@@ -1188,7 +1187,7 @@ function javaBin() {
   return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
 }
 
-// ── Rust services (svc-tax, svc-academy, svc-ledger, svc-matching) ───────────────────────────────────
+// ── Rust services (svc-tax, svc-academy, svc-ledger, svc-matching, svc-agents) ───────────────────────────────────
 
 /** The stack's Rust services: each `local-stack-services/<name>.mjs` that says `rust: true` runs `crates/svc-<name>`. */
 function rustServices() {
@@ -1363,7 +1362,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
 // one per core (they were 19 runs of about a second each, one after another).
 async function migrate(secrets, schemas = SCHEMAS) {
   await inPool(schemas, os.availableParallelism(), (s) =>
-    // A Rust service (svc-tax, svc-academy, svc-ledger) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
+    // A Rust service (svc-tax, svc-academy, svc-ledger, svc-agents) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
     // the rest are Node packages.
     rustServices().includes(serviceOfSchema(s))
       ? runPnpmAsync(['migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) }, rustBin(serviceOfSchema(s)))
@@ -1425,9 +1424,13 @@ CREATE SCHEMA IF NOT EXISTS agents AUTHORIZATION svc_agents;
 GRANT USAGE ON SCHEMA public TO svc_agents;`,
     { db: AGENTS_EMPTY_CATALOGUE_DB },
   );
-  await runPnpmAsync(['--filter', '@intafaced/svc-agents', 'db:migrate'], 'migrate-agents-empty-catalogue', {
-    DATABASE_URL: onEmptyAgentsDb(dbUrl('svc_agents', secrets)),
-  });
+  // The Rust binary applies its own migrations (`svc-agents migrate`), as `migrate` runs it for the stack's database.
+  await runPnpmAsync(
+    ['migrate'],
+    'migrate-agents-empty-catalogue',
+    { DATABASE_URL: onEmptyAgentsDb(dbUrl('svc_agents', secrets)) },
+    rustBin('agents'),
+  );
 }
 
 /** With svc-agents up on the empty-catalogue database: every agent its boot stored there taken out, so none is published. */
@@ -1998,7 +2001,7 @@ export async function startNodeService(def, { stop = stopForNewBuild } = {}) {
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); a Rust one (svc-tax,
-  // svc-academy, svc-ledger) runs its binary (ensureRustBinaries); every other one is Node.
+  // svc-academy, svc-ledger, svc-agents) runs its binary (ensureRustBinaries); every other one is Node.
   // A Node service records which of its own files ran, for the touched-journeys map (service-reach.mjs).
   const node = !def.java && !def.rust ? nodeServiceReach(codeReachDir(STATE), def.name, env) : null;
   const argv = def.java
