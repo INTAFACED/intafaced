@@ -4,9 +4,7 @@ import { membershipOfferSchema } from '@intafaced/contracts/identity-account-roo
 import type { ApiClient } from '../../shared/api';
 import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-// membership.render.test.tsx finds this room's failure by the old kit's `.failure` class, so its Failure stays until that test moves.
-import { Failure } from '../../shared/ui';
-import { Loading } from './kit-parts';
+import { Failure, Loading } from './kit-parts';
 import { membershipCopy as copy } from './membership-copy';
 
 /**

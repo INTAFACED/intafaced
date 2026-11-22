@@ -436,10 +436,10 @@ export function Account() {
                       <EmptyState title={t('empty')} body={t('emptyBody')} />
                     ) : (
                       <>
-                        {/* J-copy-bots-otc-01 finds a subaccount by `li.subaccounts__row`. */}
+                        {/* J-copy-bots-otc-01 finds a subaccount by its `subaccounts__row` test id. */}
                         <ul aria-label={t('list')}>
                           {resource.data.map((row) => (
-                            <li className="subaccounts__row" key={row.id}>
+                            <li data-testid="subaccounts__row" key={row.id}>
                               <div>
                                 <strong lang="und">{row.label}</strong>
                                 {row.nickname !== null && (
