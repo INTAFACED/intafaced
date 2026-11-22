@@ -343,3 +343,28 @@ describe('one part per role', () => {
     expect(mainOwned.filter((name) => !definedTwice().some(([n]) => n === name))).toEqual([]);
   });
 });
+
+describe('the kit style sheets close every rule they open', () => {
+  // A merge that keeps both sides' rules can drop the closing brace they shared; the unit tests read rules by regex and
+  // pass, while the app's build refuses the sheet ("Missing closing }"). Comments and quoted strings are skipped.
+  const depthErrors = (text: string) => {
+    const bare = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/'[^'\n]*'|"[^"\n]*"/g, "''");
+    let depth = 0;
+    for (const ch of bare) {
+      if (ch === '{') depth += 1;
+      if (ch === '}') depth -= 1;
+      if (depth < 0) return 'a } with no rule open';
+    }
+    return depth === 0 ? null : `${depth} rule(s) left open`;
+  };
+  const sheets = ['lit.css', 'fonts.css', 'components/components.css', 'templates/templates.css', 'templates/__gallery__/gallery.css'];
+
+  it.each(sheets)('%s', (sheet) => {
+    expect(depthErrors(readFileSync(join(here, sheet), 'utf8'))).toBeNull();
+  });
+
+  it('finds a rule left open', () => {
+    expect(depthErrors('.a {\n  color: red;\n.b {\n  color: blue;\n}\n')).toBe('1 rule(s) left open');
+    expect(depthErrors('/* { */ .a { content: "{"; }')).toBeNull();
+  });
+});
