@@ -203,6 +203,23 @@ export function Checkbox({ children, onCheckedChange, className, ...rest }: Chec
   );
 }
 
+export type RadioProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'children'> & {
+  /** The words beside the dot. Choices that share a `name` are one group: put them in a `role="radiogroup"` or a fieldset. */
+  children: React.ReactNode;
+  /** Called when this choice becomes the chosen one. */
+  onSelect?: () => void;
+};
+
+/** One choice of a few, the browser's own round control in the kit's accent, with its words on one row. */
+export function Radio({ children, onSelect, className, ...rest }: RadioProps) {
+  return (
+    <label className={clsx('lt-field', className)}>
+      <input type="radio" {...rest} onChange={(e) => e.target.checked && onSelect?.()} />
+      <span>{children}</span>
+    </label>
+  );
+}
+
 export type TextAreaProps = Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange' | 'children'> & {
   label: string;
   /** The line under the box: a hint, or why what was typed is refused (with `aria-invalid`). */

@@ -20,6 +20,7 @@ import {
   RiskMoment,
   Select,
   Surface,
+  Radio,
   TextArea,
   type DoorLink,
 } from './index.js';
@@ -166,6 +167,17 @@ describe('components', () => {
     expect(out).toMatch(/^<label class="lt-field"><input [^>]*type="checkbox"[^>]*\/><span>Allowed<\/span><\/label>$/);
     expect(out).toContain('checked=""');
     expect(out).toContain('aria-label="Allow Runner"');
+  });
+
+  it('Radio is a native round choice named by its words, one of a group by its name', () => {
+    const out = html(
+      <Radio name="kind" value="virtual" checked readOnly>
+        Virtual
+      </Radio>,
+    );
+    expect(out).toMatch(/^<label class="lt-field"><input type="radio" [^>]*name="kind"[^>]*\/><span>Virtual<\/span><\/label>$/);
+    expect(out).toContain('checked=""');
+    expect(out).toContain('value="virtual"');
   });
 
   it('TextArea is a labelled native text box whose hint describes it and whose change hands back the text', () => {
