@@ -1,6 +1,6 @@
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
-import { Button, DataTable, Tabs } from '../../../shared/ui';
+import { Button, Segmented } from '@intafaced/ui/lit';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -100,8 +100,8 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   const markets = usePolled((signal) => venue.markets(signal), 'venue-markets', 5_000);
   if (!status.available) {
     return (
-      <div data-testid="if-futures" className="if-desk" data-venue="on">
-        <p className="lt-refusal" role="alert" data-testid="venue-down">
+      <div data-testid="if-futures" className="lt-stack" data-venue="on">
+        <p className="lt-callout lt-callout-bad" role="alert" data-testid="venue-down">
           {v('Venue unavailable', { detail: status.refusal.detail })}
         </p>
       </div>
@@ -110,16 +110,16 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   const perps = (markets.data?.value ?? []).filter((m) => m.kind === 'perpetual');
   const down = markets.failure?.code === 'trade.venue.venue_down';
   return (
-    <div data-testid="if-futures" className="if-desk" data-venue="on">
+    <div data-testid="if-futures" className="lt-stack" data-venue="on">
       <VenueHeader status={status} title={t('Futures on venue')} />
       <ActionLimitWarning venueName={status.venue.displayName} />
       {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
-      <section className="dk-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
-        <h2 className="dk-tab-title">{t('Contracts')}</h2>
+      <section className="lt-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
+        <h2 className="lt-panel-title">{t('Contracts')}</h2>
         {markets.data && perps.length === 0 ? (
           <div data-testid="venue-no-contract">
             <p>{t('No contract')}</p>
-            <p className="lt-muted">{t('No contract reason', { venue: status.venue.displayName })}</p>
+            <p className="lt-quiet">{t('No contract reason', { venue: status.venue.displayName })}</p>
           </div>
         ) : null}
       </section>
@@ -141,8 +141,8 @@ function GatedList({ status }: { status: VenueUp }) {
   const gated = usePolled((signal) => venue.gatedList(signal), 'venue-gated-list', 5_000);
   const rows: VenueGatedContract[] = gated.data?.value ?? [];
   return (
-    <section className="dk-panel" aria-label={t('Gated list')} data-testid="venue-gated-list">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Gated list')} data-testid="venue-gated-list">
+      <h2 className="lt-panel-title">
         {t('Gated list')} <TestMark test={status.test} />
       </h2>
       <ReadProblem failure={gated.failure} venueName={status.venue.displayName} />
@@ -163,7 +163,7 @@ function GatedList({ status }: { status: VenueUp }) {
         ))}
       </ul>
       {gated.data ? (
-        <p className="lt-muted" data-testid="venue-gated-as-of">
+        <p className="lt-quiet" data-testid="venue-gated-as-of">
           {asOfText(gated.data.asOf)}
         </p>
       ) : null}
@@ -186,7 +186,7 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
         {perps.map((m) => (
           <li key={m.symbol}>
             <Button
-              variant={m.symbol === market.symbol ? 'primary' : 'secondary'}
+              tone={m.symbol === market.symbol ? 'primary' : 'secondary'}
               aria-pressed={m.symbol === market.symbol}
               onClick={() => setChosen(m.symbol)}
             >
@@ -241,11 +241,11 @@ function ContractStrip({ market, test }: { market: VenueMarket; test: boolean })
   const { t } = futuresVenueCopy.useCopy();
   const funding = market.funding.known ? market.funding.value : null;
   return (
-    <section className="dk-panel" aria-label={t('Contract strip')} data-testid="venue-contract-strip">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Contract strip')} data-testid="venue-contract-strip">
+      <h2 className="lt-panel-title">
         {market.symbol} <TestMark test={test} />
       </h2>
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('Family')}</dt>
           <dd data-testid="venue-family">{t('family_perpetual')}</dd>
@@ -327,8 +327,8 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
   const text = (value: MaybeKnown<string>) => (value.known ? value.value : t('Not published'));
   const feed = market.feed.known ? market.feed.value : null;
   return (
-    <section className="dk-panel" aria-label={t('Market rules', { symbol: market.symbol })} data-testid="venue-market-rules">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Market rules', { symbol: market.symbol })} data-testid="venue-market-rules">
+      <h2 className="lt-panel-title">
         {t('Market rules', { symbol: market.symbol })} <TestMark test={test} />
       </h2>
       {feed?.state === 'stale' ? (
@@ -340,7 +340,7 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
           })}
         </p>
       ) : null}
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('Listed by')}</dt>
           <dd data-testid="venue-listing" data-listing={market.listedBy.known ? market.listedBy.value.kind : 'unknown'}>
@@ -463,7 +463,7 @@ function SessionRules({ session, symbol, venueName }: { session: VenueSession; s
           {t('Off-hours notice', { venue: venueName, home: session.homeMarket, symbol, rule: text(session.offHoursRule) })}
         </p>
       ) : null}
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('Home market')}</dt>
           <dd data-testid="venue-home-market">{t(closed ? 'session_off_hours' : 'session_open', { home: session.homeMarket })}</dd>
@@ -545,13 +545,13 @@ function MarketMarginStep({ market, owner, run, test }: { market: VenueMarket; o
 
   const held = read.data?.value ?? null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('Market margin')} data-testid="venue-market-margin">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Market margin')} data-testid="venue-market-margin">
+      <h2 className="lt-panel-title">
         {t('Market margin')} <TestMark test={test} />
       </h2>
       <p data-testid="venue-market-margin-note">{t('Market margin note', { name: rule.name, symbol: market.symbol })}</p>
       <ReadProblem failure={read.failure} venueName={rule.name} />
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('Market margin name')}</dt>
           <dd data-testid="venue-market-margin-name">{rule.name}</dd>
@@ -595,12 +595,14 @@ function MarketMarginStep({ market, owner, run, test }: { market: VenueMarket; o
           onChange={(e) => setAmount(e.target.value)}
         />
       </label>
-      <Button onClick={() => void move('into_market')}>{t('Market margin in')}</Button>
-      <Button variant="secondary" onClick={() => void move('out_of_market')}>
+      <Button tone="primary" onClick={() => void move('into_market')}>
+        {t('Market margin in')}
+      </Button>
+      <Button tone="secondary" onClick={() => void move('out_of_market')}>
         {t('Market margin out')}
       </Button>
       {problem ? (
-        <p className="lt-refusal" role="alert">
+        <p className="lt-callout lt-callout-bad" role="alert">
           {problem}
         </p>
       ) : null}
@@ -651,8 +653,8 @@ function MarginStep({
 
   const set = current.data?.value ?? null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('Margin step')} data-testid="venue-margin">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Margin step')} data-testid="venue-margin">
+      <h2 className="lt-panel-title">
         {t('Margin step')} <TestMark test={test} />
       </h2>
       <div role="radiogroup" aria-label={t('Margin mode')}>
@@ -687,11 +689,11 @@ function MarginStep({
         <span>{t('Leverage x')}</span>
         <input inputMode="numeric" aria-label={t('Leverage x')} value={times} onChange={(e) => setTimes(e.target.value)} />
       </label>
-      <Button disabled={disabled} onClick={() => void sign()}>
+      <Button tone="primary" disabled={disabled} onClick={() => void sign()}>
         {t('Sign leverage')}
       </Button>
       {problem ? (
-        <p className="lt-refusal" role="alert">
+        <p className="lt-callout lt-callout-bad" role="alert">
           {problem}
         </p>
       ) : null}
@@ -859,23 +861,25 @@ function Ticket({
   const perp = review?.preview.value.perpetual ?? null;
   const total = review ? totalToCommit(review.preview.value) : null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('Ticket')} data-testid="venue-ticket">
-      <h2 className="dk-tab-title">{t('Ticket')}</h2>
-      <Tabs
-        items={['buy', 'sell']}
+    <section className="lt-panel" aria-label={t('Ticket')} data-testid="venue-ticket">
+      <h2 className="lt-panel-title">{t('Ticket')}</h2>
+      <Segmented
+        options={[
+          { value: 'buy', label: t('Long') },
+          { value: 'sell', label: t('Short') },
+        ]}
         value={side}
         onChange={(s) => setSide(s as 'buy' | 'sell')}
         label={t('Ticket')}
-        labels={{ buy: t('Long'), sell: t('Short') }}
       />
       <div role="group" aria-label={t('Order types')} data-testid="venue-order-types">
         {offered.map((x) => (
-          <Button key={x} variant={type === x ? 'primary' : 'secondary'} aria-pressed={type === x} onClick={() => setType(x)}>
+          <Button key={x} tone={type === x ? 'primary' : 'secondary'} aria-pressed={type === x} onClick={() => setType(x)}>
             {word(v, 'type', x)}
           </Button>
         ))}
         {RESTING_TYPES.filter((x) => !market.orderTypes.includes(x)).map((x) => (
-          <Button key={x} variant="secondary" disabled aria-disabled="true" data-not-offered={x}>
+          <Button key={x} tone="secondary" disabled aria-disabled="true" data-not-offered={x}>
             {word(v, 'type', x)}: {v('Not offered')}
           </Button>
         ))}
@@ -929,11 +933,11 @@ function Ticket({
           ))}
         </select>
       </label>
-      <Button disabled={disabled} onClick={() => void openReview()}>
+      <Button tone="primary" disabled={disabled} onClick={() => void openReview()}>
         {side === 'buy' ? t('Review long') : t('Review short')}
       </Button>
       {problem ? (
-        <p className="lt-refusal" role="alert">
+        <p className="lt-callout lt-callout-bad" role="alert">
           {problem}
         </p>
       ) : null}
@@ -1035,10 +1039,10 @@ function AttachedLine({ attached }: { attached: Attached }) {
           : '';
   if (attached.state === 'failed') {
     return (
-      <div role="alert" className="lt-refusal" data-testid="venue-attached-failed">
+      <div role="alert" className="lt-callout lt-callout-bad" data-testid="venue-attached-failed">
         {attached.set.length > 0 ? <p>{setWords(attached.set, attached.filled)}</p> : null}
         <p>{t('Attach failed', { kind: t(`kind_${attached.kind}`).toLowerCase(), detail: attached.refusal.message })}</p>
-        {attached.refusal.code ? <p className="lt-muted">{t('Code', { code: attached.refusal.code })}</p> : null}
+        {attached.refusal.code ? <p className="lt-quiet">{t('Code', { code: attached.refusal.code })}</p> : null}
       </div>
     );
   }
@@ -1113,13 +1117,17 @@ function Blotter({
   const open = account.openOrders.data?.value ?? [];
   const positions = account.positions.data;
   return (
-    <section className="dk-panel" data-testid="venue-blotter">
-      <Tabs
-        items={['positions', 'orders', 'history', 'funding']}
+    <section className="lt-panel" data-testid="venue-blotter">
+      <Segmented
+        options={[
+          { value: 'positions', label: t('Positions') },
+          { value: 'orders', label: t('Orders') },
+          { value: 'history', label: t('History') },
+          { value: 'funding', label: t('Funding') },
+        ]}
         value={tab}
         onChange={(x) => setTab(x as typeof tab)}
         label={t('Positions')}
-        labels={{ positions: t('Positions'), orders: t('Orders'), history: t('History'), funding: t('Funding') }}
       />
       {tab === 'funding' ? <VenueFunding market={market} owner={owner} venueName={status.venue.displayName} test={status.test} /> : null}
       {tab === 'positions' ? (
@@ -1240,64 +1248,68 @@ function PositionsTable({
     <div data-testid="venue-positions">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="lt-muted">{t('No positions')}</p>
+        <p className="lt-quiet">{t('No positions')}</p>
       ) : (
-        <DataTable
-          label={t('Positions')}
-          headers={[
-            v('Market'),
-            v('Side'),
-            t('Size', { asset: market.baseAsset }),
-            t('Entry'),
-            t('Mark'),
-            t('Unrealised'),
-            t('Margin'),
-            t('Leverage'),
-            t('Liquidation price'),
-            '',
-          ]}
-        >
-          {rows.map((row) => (
-            <tr key={row.symbol} data-symbol={row.symbol}>
-              <td>{row.symbol}</td>
-              <td>{word(v, 'side', row.side)}</td>
-              <td className="lt-num" data-cell="size">
-                {row.size}
-              </td>
-              <td className="lt-num" data-cell="entry">
-                {row.entryPrice}
-              </td>
-              <td className="lt-num" data-cell="mark">
-                {row.markPrice}
-              </td>
-              <td className="lt-num" data-cell="unrealised">
-                {row.unrealisedPnl}
-              </td>
-              <td className="lt-num" data-cell="margin">
-                {row.margin}
-              </td>
-              <td className="lt-num" data-cell="leverage">
-                {`${leverageTimes(row.leverageBps)}x ${t(`mode_${row.marginMode}`)}`}
-              </td>
-              <td className="lt-num" data-cell="liquidation">
-                <Known value={row.liquidationPrice} render={(x) => x} />
-              </td>
-              <td>
-                <CloseControl position={row} market={market} owner={owner} run={run} onDone={onDone} />
-                {row.symbol === market.symbol ? (
-                  <>
-                    <Button variant="secondary" onClick={() => setOpen({ kind: 'protect', position: row })}>
-                      {p('Protect button', { symbol: row.symbol })}
-                    </Button>{' '}
-                    <Button variant="secondary" onClick={() => setOpen({ kind: 'reverse', position: row })}>
-                      {p('Reverse button', { symbol: row.symbol })}
-                    </Button>
-                  </>
-                ) : null}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Positions')}>
+          <table className="lt-table lt-table-dense">
+            <thead>
+              <tr>
+                <th scope="col">{v('Market')}</th>
+                <th scope="col">{v('Side')}</th>
+                <th scope="col">{t('Size', { asset: market.baseAsset })}</th>
+                <th scope="col">{t('Entry')}</th>
+                <th scope="col">{t('Mark')}</th>
+                <th scope="col">{t('Unrealised')}</th>
+                <th scope="col">{t('Margin')}</th>
+                <th scope="col">{t('Leverage')}</th>
+                <th scope="col">{t('Liquidation price')}</th>
+                <th scope="col">{''}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.symbol} data-symbol={row.symbol}>
+                  <td>{row.symbol}</td>
+                  <td>{word(v, 'side', row.side)}</td>
+                  <td className="lt-num" data-cell="size">
+                    {row.size}
+                  </td>
+                  <td className="lt-num" data-cell="entry">
+                    {row.entryPrice}
+                  </td>
+                  <td className="lt-num" data-cell="mark">
+                    {row.markPrice}
+                  </td>
+                  <td className="lt-num" data-cell="unrealised">
+                    {row.unrealisedPnl}
+                  </td>
+                  <td className="lt-num" data-cell="margin">
+                    {row.margin}
+                  </td>
+                  <td className="lt-num" data-cell="leverage">
+                    {`${leverageTimes(row.leverageBps)}x ${t(`mode_${row.marginMode}`)}`}
+                  </td>
+                  <td className="lt-num" data-cell="liquidation">
+                    <Known value={row.liquidationPrice} render={(x) => x} />
+                  </td>
+                  <td>
+                    <CloseControl position={row} market={market} owner={owner} run={run} onDone={onDone} />
+                    {row.symbol === market.symbol ? (
+                      <>
+                        <Button tone="secondary" onClick={() => setOpen({ kind: 'protect', position: row })}>
+                          {p('Protect button', { symbol: row.symbol })}
+                        </Button>{' '}
+                        <Button tone="secondary" onClick={() => setOpen({ kind: 'reverse', position: row })}>
+                          {p('Reverse button', { symbol: row.symbol })}
+                        </Button>
+                      </>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <AsOfLine asOf={positions?.asOf ?? null} />
       {open && dialogMarket && open.kind === 'protect' ? (
@@ -1408,7 +1420,7 @@ function CloseControl({
           onChange={(e) => setPercent(e.target.value)}
         />
       </label>
-      <Button disabled={unknown !== null} onClick={() => void close()}>
+      <Button tone="primary" disabled={unknown !== null} onClick={() => void close()}>
         {t('Close button', { percent })}
       </Button>
       {result ? (
@@ -1444,22 +1456,34 @@ function History({ fills, test }: { fills: AsOf<VenueFill[]> | null; test: boole
   return (
     <div data-testid="venue-history">
       {bySymbol.size > 0 ? (
-        <DataTable label={t('Closed positions')} headers={[v('Market'), v('Realised result'), v('Venue fee'), v('Our builder fee')]}>
-          {[...bySymbol.entries()].map(([symbol, list]) => (
-            <tr key={symbol} data-closed={symbol}>
-              <td>{symbol}</td>
-              <td className="lt-num" data-cell="realised">
-                {sumSigned(list.filter((f) => f.realisedPnl !== null).map((f) => f.realisedPnl!))}
-              </td>
-              <td className="lt-num" data-cell="venue-fees">
-                {sumSigned(list.map((f) => f.venueFee))}
-              </td>
-              <td className="lt-num" data-cell="builder-fees">
-                {sumDecimals(list.map((f) => f.builderFee))}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Closed positions')}>
+          <table className="lt-table lt-table-dense">
+            <thead>
+              <tr>
+                <th scope="col">{v('Market')}</th>
+                <th scope="col">{v('Realised result')}</th>
+                <th scope="col">{v('Venue fee')}</th>
+                <th scope="col">{v('Our builder fee')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...bySymbol.entries()].map(([symbol, list]) => (
+                <tr key={symbol} data-closed={symbol}>
+                  <td>{symbol}</td>
+                  <td className="lt-num" data-cell="realised">
+                    {sumSigned(list.filter((f) => f.realisedPnl !== null).map((f) => f.realisedPnl!))}
+                  </td>
+                  <td className="lt-num" data-cell="venue-fees">
+                    {sumSigned(list.map((f) => f.venueFee))}
+                  </td>
+                  <td className="lt-num" data-cell="builder-fees">
+                    {sumDecimals(list.map((f) => f.builderFee))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
       <FillsTable fills={fills} test={test} />
     </div>
@@ -1482,42 +1506,48 @@ function Settlements({ owner, test }: { owner: string; test: boolean }) {
   if (rows.length === 0) return null;
   return (
     <div data-testid="venue-settlements">
-      <DataTable
-        label={t('Settlements')}
-        headers={[
-          t('Settlement market'),
-          t('Settlement why'),
-          t('Settlement position'),
-          t('Settlement price'),
-          t('Settlement result'),
-          t('Settlement cancelled'),
-          t('Settlement time'),
-        ]}
-      >
-        {rows.map((s) => (
-          <tr key={`${s.symbol}:${s.settledAt}`} data-settled={s.symbol} data-kind={s.kind} data-at={s.settledAt}>
-            <td>
-              {s.symbol} <TestMark test={test} />
-            </td>
-            <td data-cell="why">{t(`settlement_${s.kind}`)}</td>
-            <td className="lt-num" data-cell="position">
-              {s.side === null ? t('Settlement no position') : t('Settlement position value', { side: t(`side_${s.side}`), size: s.size })}
-            </td>
-            <td className="lt-num" data-cell="price">
-              {s.price}
-            </td>
-            <td className="lt-num" data-cell="realised">
-              {s.realisedPnl}
-            </td>
-            <td className="lt-num" data-cell="cancelled">
-              {String(s.cancelledOrders.length)}
-            </td>
-            <td data-cell="time">
-              <time dateTime={s.settledAt}>{s.settledAt}</time>
-            </td>
-          </tr>
-        ))}
-      </DataTable>
+      <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Settlements')}>
+        <table className="lt-table lt-table-dense">
+          <thead>
+            <tr>
+              <th scope="col">{t('Settlement market')}</th>
+              <th scope="col">{t('Settlement why')}</th>
+              <th scope="col">{t('Settlement position')}</th>
+              <th scope="col">{t('Settlement price')}</th>
+              <th scope="col">{t('Settlement result')}</th>
+              <th scope="col">{t('Settlement cancelled')}</th>
+              <th scope="col">{t('Settlement time')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => (
+              <tr key={`${s.symbol}:${s.settledAt}`} data-settled={s.symbol} data-kind={s.kind} data-at={s.settledAt}>
+                <td>
+                  {s.symbol} <TestMark test={test} />
+                </td>
+                <td data-cell="why">{t(`settlement_${s.kind}`)}</td>
+                <td className="lt-num" data-cell="position">
+                  {s.side === null
+                    ? t('Settlement no position')
+                    : t('Settlement position value', { side: t(`side_${s.side}`), size: s.size })}
+                </td>
+                <td className="lt-num" data-cell="price">
+                  {s.price}
+                </td>
+                <td className="lt-num" data-cell="realised">
+                  {s.realisedPnl}
+                </td>
+                <td className="lt-num" data-cell="cancelled">
+                  {String(s.cancelledOrders.length)}
+                </td>
+                <td data-cell="time">
+                  <time dateTime={s.settledAt}>{s.settledAt}</time>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

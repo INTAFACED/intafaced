@@ -1,54 +1,34 @@
 import { useState } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import {
-  Amount,
-  Badge,
-  Button,
-  ChangeText,
-  EmptyState,
-  Money,
-  Price,
-  StateBlock,
-  StatusChip,
-  Table,
-  type TableColumn,
-} from '@intafaced/ui';
+import { Amount, Badge, Button, ChangeText, Price, StateBlock } from '@intafaced/ui/lit';
+import { FreshnessChip, Table, type Column } from '@intafaced/ui/lit/templates';
 import type { BalanceEntry } from '../../../data/derive';
 import { fmtAmount, fmtPctPoints, fmtPrice } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import { positionsCopy } from './positions-copy';
 import { STALE_AFTER_MS, useFuturesRefresh, type MarginCalls, type RiskStops } from './data';
-import { isStale, closeAllPlan, stableOrder, type Band } from './model';
+import { isStale, closeAllPlan, stableOrder } from './model';
 import { CloseAllDialog, PositionRowActions } from './PositionDialogs';
 import { barWidth, freeFor, rowOf, signedAmount } from './positions-logic';
 import { futuresRefusal, isPlaneOff } from './refusals';
+import { RegionNote } from './notes';
 
 type T = ReturnType<typeof positionsCopy.useCopy>['t'];
-
-// A bar is shape + word + number; the tone only tints it.
-const bandTone: Record<Band, string> = {
-  ok: 'bg-lime',
-  watch: 'bg-warn',
-  danger: 'bg-error',
-  liquidation: 'bg-error',
-  unknown: 'bg-line',
-};
 
 function RatioCell({ position, t }: { position: Position; t: T }) {
   const { health } = rowOf(position);
   const width = barWidth(health);
   if (health.marginRatioPct === null)
     return (
-      <span title={health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : undefined} className="lt-muted">
+      <span title={health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : undefined} className="lt-quiet">
         —<span className="lt-sr">{health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : ''}</span>
       </span>
     );
   return (
-    <span className="inline-flex items-center justify-end gap-2">
+    <span className="lt-row lt-row-end lt-row-nowrap">
       <span>{t('Ratio value', { pct: health.marginRatioPct, band: t(`Band ${health.band}`) })}</span>
-      <span aria-hidden="true" className="h-1.5 w-10 shrink-0 overflow-hidden rounded-pill bg-field">
-        <span className={`block h-full ${bandTone[health.band]}`} style={{ width: width ?? '0%' }} />
-      </span>
+      {/* A bar is shape + word + number: the words before it say the ratio and its band. */}
+      <meter aria-hidden="true" className="lt-meter" min={0} max={100} value={Number.parseInt(width ?? '0', 10)} data-band={health.band} />
     </span>
   );
 }
@@ -68,7 +48,7 @@ function RiskStopLine({ stop, t }: { stop: RiskStops[string] | undefined; t: T }
         ? t('Risk stop cell no price', { level: stop.level ?? '—' })
         : t('Risk stop cell', { level: stop.level ?? '—', price: fmtPrice(stop.triggerPrice, null) });
   return (
-    <span data-testid="risk-stop" className="block text-2xs text-fg-2">
+    <span data-testid="risk-stop" className="lt-note">
       {text}
     </span>
   );
@@ -80,8 +60,8 @@ function StateCell({ position, called, t }: { position: Position; called: boolea
   const kind = row.state === 'open' ? 'live' : row.state === 'closing' ? 'stale' : 'unknown';
   const word = row.state === 'closing' ? t('State closing') : t(`State ${row.state}`);
   return (
-    <span className="flex flex-col items-start gap-0.5">
-      <StatusChip kind={kind} density="dense" labels={{ [kind]: word }} reason={row.closingReason ?? undefined} />
+    <span className="lt-stack-tight lt-tight">
+      <FreshnessChip asOf={null} staleAfterMs={0} kind={kind} labels={{ [kind]: word }} reason={row.closingReason ?? undefined} />
       {called ? <Badge tone="warn">{t('Positions margin call badge')}</Badge> : null}
     </span>
   );
@@ -124,15 +104,13 @@ export function PositionsTable({
     if (positions.status === 'error') positions.retry();
   };
 
-  const columns: TableColumn<Position>[] = [
+  const columns: Column<Position>[] = [
     {
-      id: 'contract',
-      header: t('Col contract'),
-      pin: 'start',
-      width: 220,
+      key: 'contract',
+      label: t('Col contract'),
       cell: (p) => (
-        <span className="flex items-center gap-2 whitespace-nowrap">
-          <span className="font-medium">{p.symbol}</span>
+        <span className="lt-row lt-row-nowrap">
+          <span className="lt-strong">{p.symbol}</span>
           <Badge tone={p.side === 'long' ? 'up' : 'down'}>
             {p.side === 'long' ? t('Side long') : t('Side short')}
             {p.leverage === null ? '' : ` ${fmtAmount(p.leverage, { places: 2 })}x`}
@@ -140,16 +118,15 @@ export function PositionsTable({
         </span>
       ),
     },
-    { id: 'size', header: t('Col size'), numeric: true, width: 80, cell: (p) => <Amount value={fmtAmount(p.contracts, { places: 8 })} /> },
-    { id: 'entry', header: t('Col entry'), numeric: true, width: 90, cell: (p) => <Price value={fmtPrice(p.entryPrice, null)} /> },
+    { key: 'size', label: t('Col size'), align: 'end', cell: (p) => <Amount value={fmtAmount(p.contracts, { places: 8 })} /> },
+    { key: 'entry', label: t('Col entry'), align: 'end', cell: (p) => <Price value={fmtPrice(p.entryPrice, null)} /> },
     {
-      id: 'mark',
-      width: 90,
-      header: t('Col mark'),
-      numeric: true,
+      key: 'mark',
+      label: t('Col mark'),
+      align: 'end',
       cell: (p) =>
         p.markPrice === null ? (
-          <span title={t('Positions mark unavailable')} className="lt-muted">
+          <span title={t('Positions mark unavailable')} className="lt-quiet">
             —
           </span>
         ) : (
@@ -157,14 +134,13 @@ export function PositionsTable({
         ),
     },
     {
-      id: 'pnl',
-      header: t('Col pnl'),
-      numeric: true,
-      width: 130,
+      key: 'pnl',
+      label: t('Col pnl'),
+      align: 'end',
       cell: (p) => {
         const value = signedAmount(p.unrealizedPnl, 4);
         return value === null ? (
-          <span title={t('Positions mark unavailable')} className="lt-muted">
+          <span title={t('Positions mark unavailable')} className="lt-quiet">
             —
           </span>
         ) : (
@@ -173,17 +149,15 @@ export function PositionsTable({
       },
     },
     {
-      id: 'margin',
-      width: 90,
-      header: t('Col margin'),
-      numeric: true,
-      cell: (p) => <Money value={p.collateral === null ? null : fmtAmount(p.collateral, { places: 4 })} />,
+      key: 'margin',
+      label: t('Col margin'),
+      align: 'end',
+      cell: (p) => <Amount data-slot="money" value={p.collateral === null ? null : fmtAmount(p.collateral, { places: 4 })} />,
     },
     {
-      id: 'ratio',
-      header: t('Col ratio'),
-      numeric: true,
-      width: 150,
+      key: 'ratio',
+      label: t('Col ratio'),
+      align: 'end',
       cell: (p) => (
         <>
           <RatioCell position={p} t={t} />
@@ -192,22 +166,19 @@ export function PositionsTable({
       ),
     },
     {
-      id: 'liq',
-      width: 100,
-      header: t('Col liquidation'),
-      numeric: true,
+      key: 'liq',
+      label: t('Col liquidation'),
+      align: 'end',
       cell: (p) => <Price value={p.liquidationPrice === null ? null : fmtPrice(p.liquidationPrice, null)} />,
     },
     {
-      id: 'state',
-      header: t('Col state'),
-      width: 100,
+      key: 'state',
+      label: t('Col state'),
       cell: (p) => <StateCell position={p} called={p.id !== null && calls?.[p.id] != null} t={t} />,
     },
     {
-      id: 'actions',
-      header: t('Col actions'),
-      width: 150,
+      key: 'actions',
+      label: t('Col actions'),
       cell: (p) => (
         <PositionRowActions
           position={p}
@@ -227,19 +198,17 @@ export function PositionsTable({
   const refused = positions.status === 'refused' ? positions.code : null;
   const emptyState =
     refused === null ? undefined : refused === 'auth.required' ? (
-      <EmptyState
+      <RegionNote
         variant="refused"
-        size="inline"
         title={t('Positions signed out title')}
         reason={t('Positions signed out reason')}
         action={{ label: t('Positions sign in'), href: `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}` }}
       />
     ) : isPlaneOff(refused) ? (
-      <EmptyState variant="unavailable" size="inline" title={t('Positions plane off title')} reason={t('Positions plane off reason')} />
+      <RegionNote variant="unavailable" title={t('Positions plane off title')} reason={t('Positions plane off reason')} />
     ) : (
-      <EmptyState
+      <RegionNote
         variant="refused"
-        size="inline"
         title={futuresRefusal({ code: refused }).title}
         reason={futuresRefusal({ code: refused }).body}
         code={refused}
@@ -247,9 +216,9 @@ export function PositionsTable({
     );
 
   return (
-    <section aria-label={t('Positions table label')} className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <StatusChip
+    <section aria-label={t('Positions table label')} className="lt-stack">
+      <div className="lt-row lt-row-between">
+        <FreshnessChip
           kind={positions.status === 'refused' ? 'refused' : undefined}
           asOf={positions.status === 'ready' ? positions.asOf : null}
           now={now}
@@ -263,36 +232,39 @@ export function PositionsTable({
             refused: t('Positions chip refused'),
           }}
         />
-        <div className="flex flex-wrap items-center gap-2">
-          {closeAllOff ? <span className="text-2xs text-fg-2">{t('Close all off', { reason: closeAllOff })}</span> : null}
-          <Button variant="secondary" size={28} onClick={refreshNow}>
+        <div className="lt-row">
+          {closeAllOff ? <span className="lt-note">{t('Close all off', { reason: closeAllOff })}</span> : null}
+          <Button tone="secondary" size="sm" onClick={refreshNow}>
             {t('Positions refresh')}
           </Button>
-          <Button variant="sell" size={28} disabled={closeAllOff !== null} onClick={() => setCloseAll(true)}>
+          <Button tone="down" size="sm" disabled={closeAllOff !== null} onClick={() => setCloseAll(true)}>
             {t('Positions close all')}
           </Button>
         </div>
       </div>
-      {stale ? <p className="text-2xs text-warn">{t('Positions stale note')}</p> : null}
-      <div className={stale ? 'overflow-x-auto opacity-70' : 'overflow-x-auto'}>
-        <Table
-          label={t('Positions table label')}
-          density="dense"
-          className="min-w-[1060px]"
-          columns={columns}
-          rows={rows}
-          getRowId={(p) => rowOf(p).id}
-          status={positions.status === 'loading' ? 'loading' : positions.status === 'error' ? 'error' : 'ready'}
-          emptyState={
-            emptyState ??
-            (positions.status === 'empty' || positions.status === 'ready' ? (
-              <EmptyState size="inline" title={t('Positions empty title')} reason={t('Positions empty body')} />
-            ) : undefined)
-          }
-          errorState={<StateBlock kind="error" title={t('Positions error title')} onRetry={refreshNow} retryLabel={t('Positions retry')} />}
-          onRowActivate={onOpen}
-        />
-      </div>
+      {stale ? <p className="lt-note lt-note-warn">{t('Positions stale note')}</p> : null}
+      {/* The table keeps its columns in every state; loading, a failed read and an empty list sit in its body. */}
+      <Table
+        caption={t('Positions table label')}
+        mode="pro"
+        dense
+        columns={columns}
+        rows={rows}
+        rowKey={(p) => rowOf(p).id}
+        onSelect={(key) => {
+          const picked = rows.find((p) => rowOf(p).id === key);
+          if (picked) onOpen(picked);
+        }}
+        empty={
+          positions.status === 'loading' ? (
+            <StateBlock kind="loading" rows={3} label={t('Positions table label')} />
+          ) : positions.status === 'error' ? (
+            <StateBlock kind="error" title={t('Positions error title')} onRetry={refreshNow} retryLabel={t('Positions retry')} />
+          ) : (
+            (emptyState ?? <RegionNote title={t('Positions empty title')} reason={t('Positions empty body')} />)
+          )
+        }
+      />
       {closeAll ? (
         <CloseAllDialog
           positions={rows}

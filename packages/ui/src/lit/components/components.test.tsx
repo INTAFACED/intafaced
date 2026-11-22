@@ -547,6 +547,30 @@ describe('b2 controls the desk rooms use', () => {
     expect(unknown).toContain('<span class="lt-sr">Could not be read</span>');
     expect(html(<B2.FreshnessChip asOf={at} now={at + 500} staleAfterMs={10_000} refused />)).toContain('>Refused<');
   });
+
+  it('FreshnessChip takes a fixed kind and the room\'s own words for each kind and for "as of"', () => {
+    const at = Date.UTC(2026, 10, 22, 10, 0, 0);
+    // A lifecycle state drawn in the chip's shapes: the kind is the room's, not the read's age.
+    const closing = html(<B2.FreshnessChip asOf={null} staleAfterMs={0} kind="stale" labels={{ stale: 'Closing' }} reason="Liquidation" />);
+    expect(closing).toContain('data-freshness="stale"');
+    expect(closing).toContain('<span data-part="word">Closing</span>');
+    expect(closing).toContain('<span class="lt-sr">Liquidation</span>');
+    const asOf = html(
+      <B2.FreshnessChip
+        asOf={at}
+        now={at + 500}
+        staleAfterMs={10_000}
+        showAsOf
+        asOfLabel="read at"
+        timeZone="UTC"
+        labels={{ live: 'Positions live' }}
+      />,
+    );
+    expect(asOf).toContain('>Positions live<');
+    expect(asOf).toContain(' · read at <time');
+    // Without them the chip reads as it always has.
+    expect(html(<B2.FreshnessChip asOf={at} now={at + 500} staleAfterMs={10_000} showAsOf />)).toContain(' · as of <time');
+  });
 });
 
 describe('b2 parts carry what the spot desk needs, so it uses them and no second kit', () => {
