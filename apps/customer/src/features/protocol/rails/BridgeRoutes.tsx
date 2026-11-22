@@ -9,8 +9,7 @@ import {
 import type { ApiClient } from '../../../shared/api';
 import { useBackoffPoll } from '../../../shared/backoff-poll';
 import { useResource } from '../../../shared/resource';
-import { Button, Tag } from '@intafaced/ui/lit';
-import { DataTable, EmptyState, Failure, Field, Loading, Panel } from '../volt/parts';
+import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../../shared/ui';
 import { protocolCopy as copy } from '../copy';
 import { useWallet, type Sequence } from '../wallet/WalletProvider';
 
@@ -64,7 +63,9 @@ export function BridgeRoutes({ api, t }: { api: ApiClient; t: Translate }) {
             <tr>
               <td colSpan={headers.length} data-code={BRIDGE_ROUTES_UNSET}>
                 <p>{t('bridgeRoutesUnset')}</p>
-                <Tag data-blocker="owner.decision">{t('ownerDecision')}</Tag>
+                <span className="badge" data-blocker="owner.decision">
+                  {t('ownerDecision')}
+                </span>
               </td>
             </tr>
           ) : resource.status === 'failed' ? (
@@ -87,7 +88,7 @@ export function BridgeRoutes({ api, t }: { api: ApiClient; t: Translate }) {
         <Button disabled={blocked !== undefined || starting} title={blocked} onClick={() => setStarting(true)}>
           {t('startTransfer')}
         </Button>
-        {blocked !== undefined && <p className="lt-hint">{blocked}</p>}
+        {blocked !== undefined && <p className="muted">{blocked}</p>}
         {starting && account && list.length > 0 && <TransferForm api={api} t={t} routes={list} account={account} />}
       </Panel>
       <Panel title={t('bridgeTransfers')}>
@@ -149,7 +150,7 @@ function TransferForm({ api, t, routes, account }: { api: ApiClient; t: Translat
     options: Array<{ value: string | number; label: string }>,
     set: (v: string) => void,
   ) => (
-    <label className="lt-field">
+    <label className="field">
       <span id={`${ids}-${label}`}>{label}</span>
       <select aria-labelledby={`${ids}-${label}`} value={String(value)} onChange={(event) => set(event.target.value)}>
         {options.map((o) => (
@@ -162,7 +163,7 @@ function TransferForm({ api, t, routes, account }: { api: ApiClient; t: Translat
   );
 
   return (
-    <form className="lt-stack" aria-label={t('bridgeForm')} onSubmit={(event) => void review(event)}>
+    <form className="protocol-quote" aria-label={t('bridgeForm')} onSubmit={(event) => void review(event)}>
       {select(
         t('hdr_from'),
         from,
@@ -198,7 +199,7 @@ function TransferForm({ api, t, routes, account }: { api: ApiClient; t: Translat
         autoComplete="off"
         onChange={(event) => setAmount(event.target.value)}
       />
-      <p className="lt-hint">{t('bridgeLead')}</p>
+      <p className="muted">{t('bridgeLead')}</p>
       <Button type="submit" disabled={busy || amount.trim() === '' || token === ''}>
         {t('bridgeReview')}
       </Button>
@@ -278,7 +279,7 @@ function Transfers({ api, t, account }: { api: ApiClient; t: Translate; account:
   return (
     <>
       {state.failure && (
-        <p className="lt-refusal" role="alert">
+        <p className="protocol-refuse" role="alert">
           {state.failure}
         </p>
       )}
@@ -319,18 +320,18 @@ function TransfersTable({
           <tr key={row.id} data-state={row.state}>
             <td>{row.from.name}</td>
             <td>{row.to.name}</td>
-            <td className="lt-mono">
+            <td className="numeric">
               {row.amount} {row.token}
             </td>
             <td>
               <p>{t(STATE_KEY[row.state])}</p>
               {row.burnTx && (
-                <p className="lt-hint lt-mono">
+                <p className="muted numeric">
                   {t('bridgeBurnTx')} <code>{row.burnTx}</code>
                 </p>
               )}
               {onAct && (row.state === 'awaiting_burn' || row.mintCall) && (
-                <Button tone="secondary" disabled={signing !== null} onClick={() => onAct(row)}>
+                <Button variant="secondary" disabled={signing !== null} onClick={() => onAct(row)}>
                   {row.state === 'awaiting_burn' ? t('bridgeSignBurn') : t('bridgeSignMint')}
                 </Button>
               )}

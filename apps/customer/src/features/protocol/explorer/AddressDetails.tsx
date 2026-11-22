@@ -3,8 +3,7 @@ import { formatUnits } from 'viem';
 import { useApi } from '../../session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { Button } from '@intafaced/ui/lit';
-import { DataTable, EmptyState, Loading } from '../volt/parts';
+import { Button, DataTable, EmptyState, Loading } from '../../../shared/ui';
 import { networkLabel } from '../blockers';
 import { TabList } from '../tokens/TabList';
 import { AddressTxs } from './AddressTxs';
@@ -12,6 +11,7 @@ import { explorerCopy, type ExplorerTranslate } from './copy';
 import { nativeAmount } from './decode';
 import { createExplorerApi, type ExplorerAddressInternalPage } from './explorer-api';
 import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from './parts';
+import './explorer.css';
 
 /**
  * The live parts of an address page (D-explorer-03): its kind and balance, the tokens it holds, the value moved to or
@@ -52,7 +52,7 @@ export function AddressSummary({ address, labels }: { address: string; labels: {
       <BlockerNote
         title={t('summaryRefused', { reason: refusalWords(resource.failure, t) })}
         action={
-          <Button tone="secondary" onClick={summary.reload}>
+          <Button variant="secondary" onClick={summary.reload}>
             {t('retry')}
           </Button>
         }
@@ -66,12 +66,12 @@ export function AddressSummary({ address, labels }: { address: string; labels: {
     } else {
       kind = data.kind === 'contract' ? t('kindContract') : t('kindAccount');
       balance = t('balanceNative', { amount: nativeAmount(data.balance) });
-      note = <p className="lt-hint">{t('summaryAsOf', { height: String(data.asOfHeight) })}</p>;
+      note = <p className="muted">{t('summaryAsOf', { height: String(data.asOfHeight) })}</p>;
     }
   }
   return (
     <>
-      <dl className="lt-kv">
+      <dl className="protocol-facts">
         <div>
           <dt>{labels.address}</dt>
           <dd>{address}</dd>
@@ -125,7 +125,7 @@ export function AddressHoldings({ address }: { address: string }) {
         <BlockerNote
           title={t('holdingsRefused', { reason: refusalWords(resource.failure, t) })}
           action={
-            <Button tone="secondary" onClick={holdings.reload}>
+            <Button variant="secondary" onClick={holdings.reload}>
               {t('retry')}
             </Button>
           }
@@ -157,12 +157,12 @@ export function AddressHoldings({ address }: { address: string }) {
         {body}
       </DataTable>
       {page && page.unpriced > 0 && (
-        <p className="lt-hint" data-testid="address-unpriced">
+        <p className="muted" data-testid="address-unpriced">
           {page.unpriced === 1 ? t('holdingsUnpricedOne') : t('holdingsUnpricedMany', { count: page.unpriced })}
         </p>
       )}
-      {page?.more && <p className="lt-hint">{t('holdingsMore')}</p>}
-      {page && page.asOfHeight !== null && <p className="lt-hint">{t('summaryAsOf', { height: String(page.asOfHeight) })}</p>}
+      {page?.more && <p className="muted">{t('holdingsMore')}</p>}
+      {page && page.asOfHeight !== null && <p className="muted">{t('summaryAsOf', { height: String(page.asOfHeight) })}</p>}
     </>
   );
 }
@@ -228,7 +228,7 @@ export function AddressInternal({ address }: { address: string }) {
         <BlockerNote
           title={t('internalRefused', { reason: refusalWords(resource.failure, t) })}
           action={
-            <Button tone="secondary" onClick={internal.reload}>
+            <Button variant="secondary" onClick={internal.reload}>
               {t('retry')}
             </Button>
           }
@@ -272,9 +272,9 @@ export function AddressInternal({ address }: { address: string }) {
       <DataTable label={t('tabInternal')} headers={headers}>
         {body}
       </DataTable>
-      {page && page.asOfHeight !== null && <p className="lt-hint">{t('addressTxsAsOf', { height: String(page.asOfHeight) })}</p>}
+      {page && page.asOfHeight !== null && <p className="muted">{t('addressTxsAsOf', { height: String(page.asOfHeight) })}</p>}
       {page?.nextCursor && (
-        <Button tone="secondary" onClick={() => setCursor(page.nextCursor)}>
+        <Button variant="secondary" onClick={() => setCursor(page.nextCursor)}>
           {t('moreTxs')}
         </Button>
       )}
@@ -343,7 +343,7 @@ export function PastBalance({ address }: { address: string }) {
         <BlockerNote
           title={t('pastBalanceRefused', { reason: refusalWords(resource.failure, t) })}
           action={
-            <Button tone="secondary" onClick={past.reload}>
+            <Button variant="secondary" onClick={past.reload}>
               {t('retry')}
             </Button>
           }
@@ -367,15 +367,13 @@ export function PastBalance({ address }: { address: string }) {
     }
   }
   return (
-    <form onSubmit={submit} aria-label={t('pastBalance')}>
-      <label className="lt-field">
+    <form className="protocol-quote" onSubmit={submit} aria-label={t('pastBalance')}>
+      <label>
         <span>{t('pastBalanceInput')}</span>
         <input type="text" inputMode="text" value={text} onChange={(event) => setText(event.target.value)} />
       </label>
-      <div className="lt-actions">
-        <Button type="submit" tone="primary">
-          {t('pastBalanceShow')}
-        </Button>
+      <div className="actions">
+        <Button type="submit">{t('pastBalanceShow')}</Button>
       </div>
       {invalid && <p role="alert">{t('pastBalanceInvalid')}</p>}
       {!invalid && result !== null && (

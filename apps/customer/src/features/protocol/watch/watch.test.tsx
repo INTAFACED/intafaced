@@ -38,7 +38,7 @@ describe('Address page', () => {
     session.userId = null;
     list = { status: 'signed-out' };
     const html = renderToStaticMarkup(<AddressPage address={ADDRESS} />);
-    expect(html).toMatch(new RegExp(`<h1[^>]*>Address ${ADDRESS}</h1>`));
+    expect(html).toContain(`<h1>Address ${ADDRESS}</h1>`);
     expect(html).toContain('This explorer holds no funds');
     expect(html).toContain('aria-label="Summary"');
     expect(html).toContain('aria-label="Transactions"');

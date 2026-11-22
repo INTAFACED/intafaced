@@ -1,20 +1,40 @@
-// volt-room: /chain/address/:address
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { upsertAddressWatch, WATCH_NOTE_MAX, WATCH_TAG_MAX, type AddressWatch } from '@intafaced/contracts/protocol-watch-preferences';
-import { Button } from '@intafaced/ui/lit';
-import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
+import { Button, Dialog, EmptyState, Page, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../session';
+import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
 import { AddressActivity, AddressHoldings, AddressSummary, PastBalance } from '../explorer/AddressDetails';
-import { Banner } from '../volt/frame';
-import { Dialog, EmptyState, Panel } from '../volt/parts';
 import { useAccountAddressWatches } from './account-lists';
 import { AddressRisk } from './AddressRisk';
 import { watchCopy, type WatchTranslate } from './copy';
+import '../protocol.css';
 
 type AddressWatches = ReturnType<typeof useAccountAddressWatches>;
+
+/** Shell of a Web3 page: the read-only banner and the Not INTACHAIN pill every protocol room carries. */
+export function WatchShell({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  const { language } = usePreferences();
+  const room = protocolCopy.forLocale(language).t;
+  return (
+    <div className="legacy-room protocol-room" lang={watchCopy.forLocale(language).renderedLocale}>
+      <Page
+        title={title}
+        description={description}
+        eyebrow={
+          <>
+            <span>{room('bannerLine')}</span>
+            <span className="badge protocol-pill">{room('bannerPill')}</span>
+          </>
+        }
+      >
+        {children}
+      </Page>
+    </div>
+  );
+}
 
 function WatchDialog({
   address,
@@ -42,25 +62,25 @@ function WatchDialog({
   }
   return (
     <Dialog title={t('watch')} onClose={onClose}>
-      <form onSubmit={save}>
-        <label className="lt-field">
+      <form className="protocol-quote" onSubmit={save}>
+        <label>
           <span>{t('watchTag')}</span>
           <input type="text" value={tag} maxLength={WATCH_TAG_MAX} onChange={(event) => setTag(event.target.value)} />
         </label>
-        <label className="lt-field">
+        <label>
           <span>{t('watchNote')}</span>
           <textarea value={note} maxLength={WATCH_NOTE_MAX} onChange={(event) => setNote(event.target.value)} />
         </label>
-        <small className="lt-hint">{t('watchNoteHint')}</small>
+        <small className="muted">{t('watchNoteHint')}</small>
         {state === 'tag' && <p role="alert">{t('watchTagRequired')}</p>}
         {state === 'not-saved' && <p role="alert">{t('watchFailed')}</p>}
         {state === 'full' && <p role="alert">{t('watchFull')}</p>}
         {state === 'unknown' && <p role="alert">{t('watchUnknown')}</p>}
-        <div className="lt-actions">
-          <Button type="submit" tone="primary" disabled={state === 'saving'}>
+        <div className="actions">
+          <Button type="submit" disabled={state === 'saving'}>
             {t('watchSave')}
           </Button>
-          <Button tone="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             {t('watchCancel')}
           </Button>
         </div>
@@ -82,11 +102,11 @@ function WatchPanel({ address, t }: { address: string; t: WatchTranslate }) {
     );
   const mine = list.status === 'ready' ? list.items.find((watch) => watch.address === address.toLowerCase()) : undefined;
   return (
-    <div>
+    <div className="tokens-watch">
       {list.status === 'failed' && (
-        <p className="lt-hint">
+        <p className="muted">
           {t('watchReadFailed')}{' '}
-          <Button tone="secondary" onClick={list.reload}>
+          <Button variant="secondary" onClick={list.reload}>
             {t('tryAgain')}
           </Button>
         </p>
@@ -96,7 +116,7 @@ function WatchPanel({ address, t }: { address: string; t: WatchTranslate }) {
           {t('watchedAs', { tag: mine.tag })} {mine.note && t('yourNote', { note: mine.note })}
         </p>
       )}
-      <Button tone="secondary" disabled={list.status !== 'ready'} onClick={() => setOpen(true)}>
+      <Button variant="secondary" disabled={list.status !== 'ready'} onClick={() => setOpen(true)}>
         {t('watch')}
       </Button>
       <a href="/chain/watchlist">{t('openWatchlist')}</a>
@@ -112,72 +132,50 @@ function WatchPanel({ address, t }: { address: string; t: WatchTranslate }) {
  */
 export function AddressPage({ address }: { address: string | undefined }) {
   const { language } = usePreferences();
-  const { t, renderedLocale } = watchCopy.forLocale(language);
+  const { t } = watchCopy.forLocale(language);
   const valid = address !== undefined && ADDRESS_SHAPE.test(address);
-  const back = (
-    <Button tone="secondary" onClick={() => navigate('/chain')}>
-      {t('back')}
-    </Button>
-  );
   if (!valid)
     return (
-      <div lang={renderedLocale}>
-        <MonitorTemplate
-          title={t('notFoundTitle')}
-          state={{ kind: 'ready' }}
-          figures={[]}
-          panels={
-            <>
-              <Banner />
-              <Panel title={t('notFoundTitle')}>
-                <div data-code="protocol.not_found" role="status">
-                  <EmptyState title={t('notFoundBody')} />
-                </div>
-              </Panel>
-            </>
-          }
-          related={back}
-        />
-      </div>
+      <WatchShell title={t('notFoundTitle')}>
+        <Panel title={t('notFoundTitle')}>
+          <div data-code="protocol.not_found" role="status">
+            <EmptyState title={t('notFoundBody')} />
+          </div>
+        </Panel>
+        <Button variant="secondary" onClick={() => navigate('/chain')}>
+          {t('back')}
+        </Button>
+      </WatchShell>
     );
   return (
-    <div lang={renderedLocale}>
-      <MonitorTemplate
-        title={t('pageTitle', { address })}
-        description={t('noFunds')}
-        state={{ kind: 'ready' }}
-        figures={[]}
-        actions={<WatchPanel address={address} t={t} />}
-        panels={
-          <>
-            <Banner />
-            <AddressRisk key={`risk-${address}`} address={address} />
-            <section aria-label={t('summary')}>
-              <Panel title={t('summary')}>
-                <AddressSummary
-                  key={address}
-                  address={address}
-                  labels={{ address: t('summaryAddress'), kind: t('summaryKind'), balance: t('summaryBalance') }}
-                />
-              </Panel>
-            </section>
-            <Panel title={t('transactions')}>
-              <AddressActivity key={address} address={address} />
-            </Panel>
-            <section aria-label={t('holdings')}>
-              <Panel title={t('holdings')}>
-                <AddressHoldings key={address} address={address} />
-              </Panel>
-            </section>
-            <section aria-label={t('pastBalance')}>
-              <Panel title={t('pastBalance')}>
-                <PastBalance key={address} address={address} />
-              </Panel>
-            </section>
-          </>
-        }
-        related={back}
-      />
-    </div>
+    <WatchShell title={t('pageTitle', { address })} description={t('noFunds')}>
+      <WatchPanel address={address} t={t} />
+      <AddressRisk key={`risk-${address}`} address={address} />
+      <section aria-label={t('summary')}>
+        <Panel title={t('summary')}>
+          <AddressSummary
+            key={address}
+            address={address}
+            labels={{ address: t('summaryAddress'), kind: t('summaryKind'), balance: t('summaryBalance') }}
+          />
+        </Panel>
+      </section>
+      <Panel title={t('transactions')}>
+        <AddressActivity key={address} address={address} />
+      </Panel>
+      <section aria-label={t('holdings')}>
+        <Panel title={t('holdings')}>
+          <AddressHoldings key={address} address={address} />
+        </Panel>
+      </section>
+      <section aria-label={t('pastBalance')}>
+        <Panel title={t('pastBalance')}>
+          <PastBalance key={address} address={address} />
+        </Panel>
+      </section>
+      <Button variant="secondary" onClick={() => navigate('/chain')}>
+        {t('back')}
+      </Button>
+    </WatchShell>
   );
 }
