@@ -54,7 +54,7 @@ export function focusScroll(
  * press also moves focus, onto the control under the pointer: scrolling then would move the page mid-press, under a drag.
  * An engine that can't read `:focus-visible` counts every focus as the keyboard's.
  */
-export function isKeyboardFocus(el: Pick<Element, 'matches'>): boolean {
+export function isKeyboardFocus(el: { matches(selector: string): boolean }): boolean {
   try {
     return el.matches(':focus-visible');
   } catch {
