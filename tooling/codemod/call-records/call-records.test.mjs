@@ -397,6 +397,58 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
   );
 });
 
+test("the Business API's calls, named by their call alone, are svc-pay's and move to its record form; a near shape stays", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const pay = 'apps/customer/src/features/pay';
+  put(`${pay}/pay-api.ts`, ['export function createBusinessPayApi() { return {}; }', 'export type BusinessPayApi = {};']);
+  put(`${pay}/Room.tsx`, [
+    "import { createBusinessPayApi, type BusinessPayApi } from './pay-api';",
+    'export function Balance({ pay }: { pay: BusinessPayApi }) {',
+    "  return pay.query('merchant.balances', { merchantId }, balanceSchema, signal);",
+    '}',
+    'export function Capture() {',
+    '  const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api]);',
+    "  return pay.mutate('payment.capture', { paymentId }, paymentSchema, 'pay:write', `payment:${paymentId}`, 'captured');",
+    '}',
+    // Near: a call that names its service first, and a query on something that is not the Business API.
+    "export const named = (api) => api.query('pay', 'merchant.me', undefined, meSchema);",
+    "export const other = (portal: PortalApi) => portal.query('merchant.listLinks', { merchantId }, linksSchema, signal);",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => s.shape !== 'keyed-schema');
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind]).sort(),
+    [
+      ['payMutate', 'pay', 'payment.capture', 'mutation'],
+      ['payQuery', 'pay', 'merchant.balances', 'query'],
+      ['query', 'merchant.listLinks', undefined, 'query'],
+      ['query', 'pay', 'merchant.me', 'query'],
+    ].sort(),
+  );
+  const of = (path) => sites.find((s) => s.path === path);
+  for (const path of ['merchant.balances', 'payment.capture']) assert.equal(of(path).problem, undefined);
+  assert.equal(text(load(of('merchant.balances').file), schemaArgOf(of('merchant.balances'))), 'balanceSchema');
+  const moved = (s, name) => {
+    const changes = new Changes();
+    rewriteSite(changes, s, name, '@intafaced/contracts/x');
+    return applyEdits(load(s.file).src, changes.of(s.file).edits);
+  };
+  assert.match(
+    moved(of('merchant.balances'), 'PAY_MERCHANT_BALANCES'),
+    /return pay\.queryRecord\(PAY_MERCHANT_BALANCES, \{ merchantId \}, signal\);$/m,
+  );
+  assert.match(
+    moved(of('payment.capture'), 'PAY_PAYMENT_CAPTURE'),
+    /return pay\.mutateRecord\(PAY_PAYMENT_CAPTURE, \{ paymentId \}, 'pay:write', `payment:\$\{paymentId\}`, 'captured'\);$/m,
+  );
+});
+
 test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
   const { reasonOf } = await import('./report.mjs');
   assert.equal(

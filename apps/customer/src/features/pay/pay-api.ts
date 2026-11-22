@@ -78,7 +78,8 @@ import {
 } from '@intafaced/contracts/p2p-procedures';
 import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
-import type { ApiClient, ApiResult } from '../../shared/api';
+import type { ApiClient, ApiResult, AppProcedure } from '../../shared/api';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import { parseAmount } from '../../shared/money';
 import { createMoneyClient, transferQuoteSchema } from '../money';
 import { createMerchantRefundApi } from './merchant-refund-api';
@@ -124,6 +125,10 @@ export type PayBusinessAuthority = {
    */
   confirmable?: readonly ('pay:refund' | 'pay:payout')[];
 };
+
+/** A record the Business API sends to svc-pay. */
+type PayRecord = AppProcedure & { readonly module: 'pay' };
+type PayScope = 'pay:write' | 'pay:refund' | 'pay:payout';
 
 type PayOriginal = { status: 'uncertain'; reference?: string; path?: string; priceId?: string };
 function decodePayOriginal(raw: string): PayOriginal {
@@ -1427,10 +1432,11 @@ export function createBusinessPayApi(
       return payRefusal('theMerchantMustBeActiveAndIts', { code: 'pay.business_merchant_inactive' });
     return { ok: true as const, data: result.data };
   }
-  async function query<T>(procedure: string, input: unknown, schema: ZodType<T>, signal?: AbortSignal): Promise<ApiResult<T>> {
+  /** One read for this merchant: the merchant checked first, and an answer row naming another merchant refused. */
+  async function ownRead<T>(send: () => Promise<ApiResult<T>>, signal?: AbortSignal): Promise<ApiResult<T>> {
     const checked = await merchant(signal);
     if (!checked.ok) return checked;
-    const result = await api.query('pay', procedure, input, schema, { signal });
+    const result = await send();
     if (result.ok) {
       const rows: unknown[] = Array.isArray(result.data) ? result.data : [result.data];
       if (rows.some((row) => row && typeof row === 'object' && 'merchantId' in row && row.merchantId !== authority!.merchantId))
@@ -1441,6 +1447,16 @@ export function createBusinessPayApi(
     }
     return result;
   }
+  function query<T>(procedure: string, input: unknown, schema: ZodType<T>, signal?: AbortSignal): Promise<ApiResult<T>> {
+    return ownRead(() => api.query('pay', procedure, input, schema, { signal }), signal);
+  }
+  /** `query` by the call's written record: its path, input type and answer come from the record svc-pay mounts. */
+  function queryRecord<R extends PayRecord>(record: R, input: ProcedureInput<R>, signal?: AbortSignal) {
+    return ownRead(() => api.call(record, input, { signal }), signal);
+  }
+  /** An outcome that names a merchant must name this one. */
+  const ownOutcome = (data: unknown) =>
+    !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId;
   /**
    * `subscription.create` and `merchant.createLink` take `idempotencyKey` on the procedure input.
    * `api.mutate` has no header slot, so this is not an Idempotency-Key header.
@@ -1451,11 +1467,27 @@ export function createBusinessPayApi(
    * on that mandate uses a fresh attempt id. An uncertain or aborted replay
    * keeps the stored id and original path.
    */
-  async function mutate<T>(
+  function mutate<T>(
     procedure: string,
     input: unknown,
     schema: ZodType<T>,
-    scope: 'pay:write' | 'pay:refund' | 'pay:payout',
+    scope: PayScope,
+    operation: string,
+    reference?: string,
+  ): Promise<ApiResult<T>> {
+    const outcome = schema.refine(ownOutcome, 'The mutation outcome belongs to another merchant.');
+    return ownMutation(procedure, (body) => api.mutate('pay', procedure, body, outcome), input, scope, operation, reference);
+  }
+  /** `mutate` by the call's written record: its path, input type and answer come from the record svc-pay mounts. */
+  function mutateRecord<R extends PayRecord>(record: R, input: ProcedureInput<R>, scope: PayScope, operation: string, reference?: string) {
+    const send = (body: unknown) => api.call(record, body as ProcedureInput<R>, { accept: ownOutcome });
+    return ownMutation(record.path, send, input, scope, operation, reference);
+  }
+  async function ownMutation<T>(
+    procedure: string,
+    send: (body: unknown) => Promise<ApiResult<T>>,
+    input: unknown,
+    scope: PayScope,
     operation: string,
     reference?: string,
   ): Promise<ApiResult<T>> {
@@ -1464,23 +1496,18 @@ export function createBusinessPayApi(
     const checked = await merchant();
     if (!checked.ok) return checked;
     const lockId = `${userId}:${operation}`;
-    const outcome = schema.refine(
-      (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
-      'The mutation outcome belongs to another merchant.',
-    );
     // Pause, resume, and cancel store the expected status in the journal.
     // subscription.create ignores that argument: its reference is the attempt id below.
-    if (procedure !== 'subscription.create' && procedure !== 'merchant.createLink')
-      return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
+    if (procedure !== 'subscription.create' && procedure !== 'merchant.createLink') return guard.run(lockId, () => send(input), reference);
     const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
     // A replay sends the body the first attempt sent: its charge path and, for a subscription, its catalogue price.
     const sendAttempt = async (attemptId: string, path?: string, priceId?: string): Promise<ApiResult<T>> => {
-      const result = await api.mutate(
-        'pay',
-        procedure,
-        { ...fields, ...(path ? { path } : {}), ...(priceId ? { priceId } : {}), idempotencyKey: `${lockId}:${attemptId}` },
-        outcome,
-      );
+      const result = await send({
+        ...fields,
+        ...(path ? { path } : {}),
+        ...(priceId ? { priceId } : {}),
+        idempotencyKey: `${lockId}:${attemptId}`,
+      });
       if (!result.ok && ['pay.idempotency_conflict', 'pay.subscription_mandate_open'].includes(result.code ?? ''))
         return {
           ...result,
@@ -1534,7 +1561,9 @@ export function createBusinessPayApi(
   return {
     merchant,
     query,
+    queryRecord,
     mutate,
+    mutateRecord,
     refund: createMerchantRefundApi({ api, userId, authority, access, merchant, ports: refundPorts }),
     access,
     guard,
