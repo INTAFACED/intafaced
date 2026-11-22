@@ -24,6 +24,7 @@ import {
   text,
   walk,
 } from './ast.mjs';
+import { answerFromCallers } from './answer.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
@@ -169,10 +170,14 @@ function plan(opts) {
     }
     const proc = procs.get(path);
     if (!proc) {
+      // A path the reader found but could not take as one procedure is named with its own reason.
+      const own = unread.find((u) => u.path === path);
       for (const s of list)
         hand.push({
           site: s,
-          why: `${opts.service} has no procedure ${path} the codemod can read${unread.length ? ` (${unread.length} router parts unread)` : ''}`,
+          why: own
+            ? `${opts.service} ${path}: ${own.why}`
+            : `${opts.service} has no procedure ${path} the codemod can read${unread.length ? ` (${unread.length} router parts unread)` : ''}`,
         });
       continue;
     }
@@ -186,6 +191,16 @@ function plan(opts) {
       continue;
     }
     const chain = chainOf(proc);
+    if (!chain.output) {
+      // No answer schema in the router: the record takes its callers' own, or the reason it can't names the caller.
+      const taken = answerFromCallers(REPO, list, { schemaOf: schemaArgOf, checksOf: answerChecks });
+      const at = chain.problems.findIndex((x) => x.startsWith('no .output()'));
+      if (taken.output) {
+        chain.problems.splice(at, 1);
+        chain.output = taken.output.node;
+        chain.outputP = taken.output.p;
+      } else chain.problems[at] = `no .output(), and the callers' own can't stand for it: ${taken.why}`;
+    }
     let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard);
     if (door) {
       // The door is the wire: its kind and access stand for the router's, which only checks them against it; a guard
@@ -279,7 +294,7 @@ function build(opts, planned) {
   for (const [file, recs] of groups) {
     const roots = recs.flatMap((r) => [
       { p: r.proc.p, node: r.chain.input, where: `${r.path} input` },
-      { p: r.proc.p, node: r.chain.output, where: `${r.path} output` },
+      { p: r.chain.outputP ?? r.proc.p, node: r.chain.output, where: `${r.path} output` },
     ]);
     const closure = closureOf(REPO, roots);
     if (closure.problems.length) {
@@ -447,7 +462,7 @@ function tables(changes, planned, done) {
 }
 
 /** The schema a caller parses the answer with, or undefined. */
-function schemaArgOf(s) {
+export function schemaArgOf(s) {
   if (s.shape === 'desk-read' || s.shape === 'ops-entry') return undefined;
   const a = s.node.arguments;
   if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
@@ -652,7 +667,7 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
       `  access: ${r.chain.guard.text},`,
       `  refusals: ${r.reader.refusals ? JSON.stringify(r.reader.refusals).replace(/"/g, "'").replace(/','/g, "', '").replace(/':'/g, "': '") : '{}'},`,
       `  input: ${r.chain.input ? exactInput(p, r.chain.input, lines, r.path) : 'NO_INPUT'},`,
-      `  output: ${text(p, r.chain.output)},`,
+      `  output: ${text(r.chain.outputP ?? p, r.chain.output)},`,
       `  samples: ${r.chain.input ? "[{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]" : "[{ verdict: 'accept' }]"},`,
       '});',
       '',
@@ -779,7 +794,15 @@ function write(result) {
     touched.push(file);
   }
   for (const [file, ch] of result.changes.files) if (ch.schemas) retype(file, ch.schemas);
-  for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneSchemas(file);
+  // Each prune can leave the other something unread (a schema gone frees the list it enumerated), so both run until neither does.
+  for (const file of touched) {
+    if (file.startsWith(CONTRACTS)) continue;
+    for (let was = ''; was !== readFileSync(file, 'utf8');) {
+      was = readFileSync(file, 'utf8');
+      pruneSchemas(file);
+      pruneBuilders(file);
+    }
+  }
   // A schema a moved caller imported from another file of its app may now have no importer: that file is pruned too.
   const sources = new Set();
   for (const file of touched) {
@@ -996,8 +1019,12 @@ export function pruneSchemas(file) {
         ? stmt.declarations[0]
         : undefined;
     };
-    // The file's own schema consts, to a fixpoint: a const built on another (`ref.nullable()`) is one too.
+    // The file's own schema consts, to a fixpoint: a const built on another (`ref.nullable()`) is one too, and so is one
+    // built on a schema it imports by a schema's name (`decimalSchema.nullable()`): reading a binding runs nothing.
     const schemas = new Set(['z']);
+    for (const top of p.program.body)
+      if (top.type === 'ImportDeclaration')
+        for (const sp of top.specifiers ?? []) if (/[sS]chema$/.test(sp.local.name)) schemas.add(sp.local.name);
     for (let grew = true; grew;) {
       grew = false;
       for (const top of p.program.body) {
@@ -1023,6 +1050,40 @@ export function pruneSchemas(file) {
       if (read && exported) edits.push({ start: top.start, end: stmt.start, text: '' });
       else if (!read) edits.push({ start: statementStart(p, top), end: statementEnd(p, top), text: '' });
     }
+    if (!edits.length) return;
+    writeFileSync(file, applyEdits(p.src, edits));
+  }
+}
+
+/** A literal, or one read `as const`. */
+const plain = (n) => n?.type === 'Literal' || (n?.type === 'TSAsExpression' && n.expression.type === 'Literal');
+
+/**
+ * The consts only the moved calls read: a router's procedure builder (`scopedProcedure('admin:read', guards)`), the
+ * literal guard object it took, or a caller's literal list a removed schema enumerated (`['a', 'b'] as const`). A name
+ * read anywhere else in the file, or exported, stays.
+ */
+export function pruneBuilders(file) {
+  for (;;) {
+    forget(file);
+    const p = load(file);
+    const edits = [];
+    walk(p.program, (n, parent) => {
+      if (n.type !== 'VariableDeclaration' || n.kind !== 'const' || n.declarations.length !== 1) return;
+      if (parent?.type === 'ExportNamedDeclaration' || /For(In|Of)?Statement$/.test(parent?.type ?? '')) return false;
+      const d = n.declarations[0];
+      const init = d.init?.type === 'TSAsExpression' ? d.init.expression : d.init;
+      const builder = init?.type === 'CallExpression' && init.callee.type === 'Identifier' && /Procedure(For)?$/.test(init.callee.name);
+      const guard =
+        init?.type === 'ObjectExpression' &&
+        init.properties.length > 0 &&
+        init.properties.every((q) => q.type === 'Property' && !q.computed && plain(q.value));
+      const list = init?.type === 'ArrayExpression' && init.elements.length > 0 && init.elements.every(plain);
+      if (d.id.type !== 'Identifier' || !(builder || guard || list)) return false;
+      if (!usedOutside(p, d.id.name, [{ start: n.start, end: n.end }]))
+        edits.push({ start: statementStart(p, n), end: statementEnd(p, n), text: '' });
+      return false;
+    });
     if (!edits.length) return;
     writeFileSync(file, applyEdits(p.src, edits));
   }

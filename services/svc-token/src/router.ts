@@ -84,6 +84,10 @@ import {
 } from '@intafaced/contracts/token-procedures';
 import { createLaunchRouter, type LaunchRouterOptions } from './launch/router.js';
 import type { LaunchService } from './launch/launch-service.js';
+import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { tokenRefusal } from './refusal.js';
+import { TOKEN_NEXT_EMISSION_EPOCH } from '@intafaced/contracts/token-next-emission-epoch-procedures';
 
 /** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
 export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
@@ -588,9 +592,11 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    nextEmissionEpoch: scopedProcedure('token:read')
-      .output(z.object({ epoch: z.number().int().nonnegative() }))
-      .query(async () => guard(async () => ({ epoch: await token.nextEmissionEpoch() }))),
+    nextEmissionEpoch: mountRecord(
+      TOKEN_NEXT_EMISSION_EPOCH,
+      async () => guard(async () => ({ epoch: await token.nextEmissionEpoch() })),
+      tokenRefusal,
+    ),
 
     emissionSchedule: mountTokenRecord(TOKEN_EMISSION_SCHEDULE, ({ input }) => guard(async () => token.emissionSchedule(input.count))),
 
@@ -722,44 +728,9 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         ),
     }),
 
-    distributeRevenue: scopedProcedure('admin:treasury')
-      .input(
-        z.object({
-          windowId: z.string().min(1).max(128),
-          sources: z
-            .array(
-              z.object({
-                module: z.string().min(1).max(64),
-                amount: amountString,
-              }),
-            )
-            .min(1),
-          /**
-           * Typed-in second name is not approval. Nullish so MFA runs first;
-           * missing/blank refuse `action_approval.missing`, not a schema dump.
-           */
-          confirmOperatorId: z.string().max(128).nullish(),
-          approvalId: z.string().max(128).nullish(),
-          operationId: z.string().max(128).nullish(),
-        }),
-      )
-      .output(
-        z.object({
-          windowId: z.string(),
-          /** Value moved BY THIS CALL. A re-run that posts nothing reports 0. */
-          distributed: amountString,
-          recipients: z.number().int().nonnegative(),
-          skipped: z.number().int().nonnegative(),
-          /**
-           * Planned payouts this call found already posted — the operator's only
-           * way to tell "this window was already settled" from "this window has
-           * just paid out again", which the previous shape could not express.
-           */
-          alreadyPaid: z.number().int().nonnegative(),
-          confirmOperatorId: z.string(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) =>
+    distributeRevenue: mountRecord(
+      TOKEN_DISTRIBUTE_REVENUE,
+      async ({ ctx, input }) =>
         guard(async () => {
           const consumed = await consumeTokenApproval(
             approvals,
@@ -785,7 +756,8 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             confirmOperatorId,
           };
         }),
-      ),
+      tokenRefusal,
+    ),
 
     /**
      * The published fee-decay schedule (§4.3): stake thresholds to fee discount bps, the ladder `accessOf` reads.

@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
@@ -57,7 +57,7 @@ async function openQBankAdmin(): Promise<{ url: string; stop: () => Promise<void
     return { url: envUrl, stop: async () => undefined };
   }
   try {
-    const container = await new PostgreSqlContainer(Q_BANK_IMAGE)
+    const container = await testPostgres(Q_BANK_IMAGE)
       .withDatabase('intafaced_qbank_card_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
