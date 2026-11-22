@@ -32,7 +32,7 @@ fn feature_words(feature: &str) -> &'static str {
 }
 
 /// `assertPartnerOffers`: the partner down refuses first, then a feature it does not offer; without it, nothing.
-fn offers(partner: &PartnerWiring, user_id: &str, feature: &str) -> Result<(), Refusal> {
+pub fn offers(partner: &PartnerWiring, user_id: &str, feature: &str) -> Result<(), Refusal> {
     let Some(p) = partner.partner.as_ref() else {
         return Ok(());
     };
