@@ -1,6 +1,6 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, Tabs, SectionTabs, Checkbox, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, Tabs, SectionTabs, Disclosure, Checkbox, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
@@ -176,6 +176,56 @@ export function SectionTabs<T extends string>({
           {t.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+export interface DisclosureItem {
+  /** Names the section in `defaultOpen`; stable across renders. */
+  value: string;
+  title: React.ReactNode;
+  body: React.ReactNode;
+}
+
+/**
+ * Sections that fold: each one's heading is a button that opens and closes it, and its open body is a region named by
+ * that heading. One is open at a time unless `multiple`; `defaultOpen` names the ones open at first. A closed body is
+ * not drawn, so nothing folded away is read out or reached by Tab.
+ */
+export function Disclosure({
+  items,
+  defaultOpen = [],
+  multiple = false,
+}: {
+  items: readonly DisclosureItem[];
+  defaultOpen?: readonly string[];
+  multiple?: boolean;
+}) {
+  const [open, setOpen] = React.useState<readonly string[]>(defaultOpen);
+  const base = React.useId();
+  const toggle = (value: string) =>
+    setOpen((now) => (now.includes(value) ? now.filter((v) => v !== value) : multiple ? [...now, value] : [value]));
+  return (
+    <div className="lt-disclosure">
+      {items.map((item, i) => {
+        const isOpen = open.includes(item.value);
+        const head = `${base}-${i}-head`;
+        const body = `${base}-${i}-body`;
+        return (
+          <div key={item.value} className="lt-disclosure-item" data-open={isOpen || undefined}>
+            <h3 className="lt-disclosure-head">
+              <button type="button" id={head} aria-expanded={isOpen} aria-controls={body} onClick={() => toggle(item.value)}>
+                {item.title}
+              </button>
+            </h3>
+            {isOpen ? (
+              <div id={body} role="region" aria-labelledby={head} className="lt-disclosure-body">
+                {item.body}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

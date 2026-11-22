@@ -316,6 +316,7 @@ export const components = {
   StatusChip: '(B2) Money status: pending, failed, done, unknown, with words not colour alone',
   Tabs: "(B2) A door's room row",
   SectionTabs: "(B2) A room's own sections as pressed buttons, the Tabs row for sections the room switches itself",
+  Disclosure: '(B2) Sections that fold: a heading button each, the open body a region named by it',
   Checkbox: '(B2) A tick with its words on one row',
   LineChart: '(B2) Price or value over time',
   AreaChart: '(B2) Value over time with a lit fill',
