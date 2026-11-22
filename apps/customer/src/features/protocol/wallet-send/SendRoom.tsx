@@ -1,3 +1,4 @@
+// volt-room: /wallet/send
 import { Button, EmptyState, Field, Tag } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, SectionTabs } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';

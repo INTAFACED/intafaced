@@ -1,3 +1,4 @@
+// volt-room: /agents/new
 import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { agentBuilderCopy } from '../agent-builder-copy';

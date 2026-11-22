@@ -1,3 +1,4 @@
+// volt-room: /cannot-sign-in
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { ContactCard } from './ContactCard';
 import { supportRecoveryCopy } from './support-recovery-copy';

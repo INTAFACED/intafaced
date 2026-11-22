@@ -1,8 +1,18 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, founderRecordRead } from '@/lib/desk';
+import { type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import { customerReference, refusalOf, resolveCustomer } from '@/lib/agents-log';
 import type { FleetAction } from './model';
 import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from '@intafaced/contracts/identity-account-directory-procedures';
+import {
+  AGENTS_FLEET_REGISTRY,
+  AGENTS_FLEET_AUDIT,
+  AGENTS_FLEET_EXPORT,
+  AGENTS_FLEET_QUARANTINE,
+  AGENTS_FLEET_RESTORE,
+  AGENTS_FLEET_KILL_KIND,
+  AGENTS_FLEET_RESTORE_KIND,
+  AGENTS_FLEET_REASSIGN,
+} from '@intafaced/contracts/agents-fleet-procedures';
 
 /**
  * The agent fleet desk's hops (AG-registry-01, AG-control-02), always as the signed-in founder through svc-edge:
@@ -105,13 +115,13 @@ const filterOf = (action: Extract<FleetAction, { action: 'registry' | 'export' }
 export async function runFleet(ctx: FounderCallContext, action: FleetAction): Promise<FleetAnswer> {
   switch (action.action) {
     case 'registry': {
-      const result = await founderCall(ctx, 'agents', 'fleet.registry', 'GET', filterOf(action), parseRegistry);
+      const result = await founderRecordRead(ctx, AGENTS_FLEET_REGISTRY, filterOf(action), parseRegistry);
       if (result.kind !== 'ok') return refusalOf(result);
       const { handles, unread } = await handlesFor(ctx, registryIds(result.data.rows as Json[]));
       return { kind: 'ok', data: { ...result.data, handles, handlesUnread: unread, me: ctx.session.userId.toLowerCase() } };
     }
     case 'audit': {
-      const result = await founderCall(ctx, 'agents', 'fleet.audit', 'GET', {}, parseAudit);
+      const result = await founderRecordRead(ctx, AGENTS_FLEET_AUDIT, undefined, parseAudit);
       if (result.kind !== 'ok') return refusalOf(result);
       const rows = result.data.rows as Json[];
       const { handles, unread } = await handlesFor(
@@ -121,39 +131,25 @@ export async function runFleet(ctx: FounderCallContext, action: FleetAction): Pr
       return { kind: 'ok', data: { ...result.data, handles, handlesUnread: unread } };
     }
     case 'export': {
-      const result = await founderCall(
-        ctx,
-        'agents',
-        'fleet.export',
-        'POST',
-        { ...filterOf(action), requestId: action.requestId },
-        parseExport,
-      );
+      const result = await founderRecordRead(ctx, AGENTS_FLEET_EXPORT, { ...filterOf(action), requestId: action.requestId }, parseExport);
       return result.kind === 'ok' ? { kind: 'ok', data: result.data } : refusalOf(result);
     }
     case 'quarantine': {
       const input = { ref: action.ref, requestId: action.requestId, ...(action.reason ? { reason: action.reason } : {}) };
-      const result = await founderCall(ctx, 'agents', 'fleet.quarantine', 'POST', input, parseAny);
+      const result = await founderRecordRead(ctx, AGENTS_FLEET_QUARANTINE, input, parseAny);
       return result.kind === 'ok' ? { kind: 'ok', data: result.data } : refusalOf(result);
     }
     case 'restore': {
-      const result = await founderCall(ctx, 'agents', 'fleet.restore', 'POST', { ref: action.ref, requestId: action.requestId }, parseAny);
+      const result = await founderRecordRead(ctx, AGENTS_FLEET_RESTORE, { ref: action.ref, requestId: action.requestId }, parseAny);
       return result.kind === 'ok' ? { kind: 'ok', data: result.data } : refusalOf(result);
     }
     case 'killKind': {
       const input = { kind: action.kind, requestId: action.requestId, ...(action.reason ? { reason: action.reason } : {}) };
-      const result = await founderCall(ctx, 'agents', 'fleet.killKind', 'POST', input, parseAny);
+      const result = await founderRecordRead(ctx, AGENTS_FLEET_KILL_KIND, input, parseAny);
       return result.kind === 'ok' ? { kind: 'ok', data: result.data } : refusalOf(result);
     }
     case 'restoreKind': {
-      const result = await founderCall(
-        ctx,
-        'agents',
-        'fleet.restoreKind',
-        'POST',
-        { kind: action.kind, requestId: action.requestId },
-        parseAny,
-      );
+      const result = await founderRecordRead(ctx, AGENTS_FLEET_RESTORE_KIND, { kind: action.kind, requestId: action.requestId }, parseAny);
       return result.kind === 'ok' ? { kind: 'ok', data: result.data } : refusalOf(result);
     }
     case 'reassign': {
@@ -162,7 +158,7 @@ export async function runFleet(ctx: FounderCallContext, action: FleetAction): Pr
       const owner = await resolveCustomer(ctx, ref);
       if (owner.kind !== 'ok') return owner;
       const input = { ref: action.ref, ownerId: owner.userId, requestId: action.requestId };
-      const result = await founderCall(ctx, 'agents', 'fleet.reassign', 'POST', input, parseAny);
+      const result = await founderRecordRead(ctx, AGENTS_FLEET_REASSIGN, input, parseAny);
       return result.kind === 'ok' ? { kind: 'ok', data: result.data } : refusalOf(result);
     }
   }

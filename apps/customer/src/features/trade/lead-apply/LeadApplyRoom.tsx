@@ -1,5 +1,5 @@
+// volt-room: /copy/lead/apply
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
 import { Button, Field } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, formatMoney } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
@@ -7,18 +7,15 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { leadApplyCopy } from './lead-apply-copy';
-import { leadApplicationSchema, leadEligibilitySchema } from '@intafaced/contracts/trade-copy-room';
+import {
+  TRADE_COPY_MY_LEAD_APPLICATION,
+  TRADE_COPY_LEAD_ELIGIBILITY,
+  TRADE_COPY_APPLY_TO_LEAD,
+} from '@intafaced/contracts/trade-copy-records';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
-/**
- * Apply to lead (CB-copy-12), on the flow template. The person's newest application is read from svc-trade
- * (`copy.myLeadApplication`); an application is sent with `copy.applyToLead`, one open application per person, and
- * the same submit again answers with the same application. Founders decide it in the console's Copy trading desk.
- */
-
-const mineSchema = leadApplicationSchema;
-type Mine = z.infer<typeof mineSchema>;
-const eligibilitySchema = leadEligibilitySchema;
-type Eligibility = z.infer<typeof eligibilitySchema>;
+type Mine = ProcedureOutput<typeof TRADE_COPY_APPLY_TO_LEAD>;
+type Eligibility = ProcedureOutput<typeof TRADE_COPY_LEAD_ELIGIBILITY>;
 
 type T = ReturnType<typeof leadApplyCopy.useCopy>['t'];
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -76,16 +73,12 @@ export function LeadApplyRoom() {
   const { api, userId } = useSession();
   const mine = useResource(
     (signal) =>
-      userId
-        ? api.query('trade', 'copy.myLeadApplication', undefined, mineSchema.nullable(), { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(TRADE_COPY_MY_LEAD_APPLICATION, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `lead-apply:${userId ?? 'out'}`,
   );
   const terms = useResource(
     (signal) =>
-      userId
-        ? api.query('trade', 'copy.leadEligibility', undefined, eligibilitySchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(TRADE_COPY_LEAD_ELIGIBILITY, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `lead-terms:${userId ?? 'out'}`,
   );
   const eligibility = terms.resource.status === 'ready' ? terms.resource.data : null;
@@ -120,7 +113,7 @@ export function LeadApplyRoom() {
     sending.current = true;
     setBusy(true);
     setRefusal(null);
-    const out = await api.mutate('trade', 'copy.applyToLead', { displayName: name.trim() }, mineSchema);
+    const out = await api.call(TRADE_COPY_APPLY_TO_LEAD, { displayName: name.trim() });
     if (out.ok) {
       sending.current = false;
       setBusy(false);
@@ -128,7 +121,7 @@ export function LeadApplyRoom() {
       return;
     }
     // The refusal names what svc-trade measured now (whom you follow, the threshold), so read the terms again first.
-    const now = await api.query('trade', 'copy.leadEligibility', undefined, eligibilitySchema);
+    const now = await api.call(TRADE_COPY_LEAD_ELIGIBILITY, undefined);
     sending.current = false;
     setBusy(false);
     setRefusal(applyRefusal(out, t, now.ok ? now.data : eligibility));

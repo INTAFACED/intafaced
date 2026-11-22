@@ -7,18 +7,17 @@ import { navigate } from '../../app/location';
 import { Read } from './common';
 import { agentBuilderCopy } from './agent-builder-copy';
 import { identityWordsKey } from './new-agent/assistant-words';
+import { type OwnAgent, type OwnAgentProposal, type OwnAgentToken } from '@intafaced/contracts/agents-own';
 import {
-  ownAgentAssistantSchema,
-  ownAgentCatalogueSchema as catalogueSchema,
-  ownAgentIdentitySchema,
-  ownAgentIssuedTokenSchema,
-  ownAgentProposalSchema,
-  ownAgentSchema,
-  ownAgentTokenSchema,
-  type OwnAgent,
-  type OwnAgentProposal,
-  type OwnAgentToken,
-} from '@intafaced/contracts/agents-own';
+  AGENTS_OWN_CATALOGUE,
+  AGENTS_OWN_CREATE,
+  AGENTS_OWN_IDENTITY_GET,
+  AGENTS_OWN_IDENTITY_ISSUE,
+  AGENTS_OWN_IDENTITY_REVOKE,
+  AGENTS_OWN_ASSISTANT_STATE,
+  AGENTS_OWN_ASSISTANT_DRAFT,
+  AGENTS_OWN_ASSISTANT_ACCEPT,
+} from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Identity page (AG-identity-01; J-agents-03 #5), and the calls of the New agent room (`new-agent/`):
@@ -45,10 +44,7 @@ function Answer({ failed, t }: { failed: Failed; t: Words }) {
 export function IdentityPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.identity.get', { id: agent.id }, ownAgentIdentitySchema, { signal }),
-    `own-identity:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_IDENTITY_GET, { id: agent.id }, { signal }), `own-identity:${agent.id}`);
   // The token after this visit's issue or revoke; undefined until one, so the read is shown.
   const [changed, setChanged] = useState<OwnAgentToken | undefined>(undefined);
   const [secret, setSecret] = useState<string | null>(null);
@@ -60,7 +56,7 @@ export function IdentityPage({ agent }: { agent: OwnAgent }) {
     setBusy(true);
     setRefused(null);
     setStatus(null);
-    const res = await api.mutate('agents', 'own.identity.issue', { id: agent.id }, ownAgentIssuedTokenSchema);
+    const res = await api.call(AGENTS_OWN_IDENTITY_ISSUE, { id: agent.id });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setChanged(res.data.token);
@@ -70,7 +66,7 @@ export function IdentityPage({ agent }: { agent: OwnAgent }) {
     setBusy(true);
     setRefused(null);
     setStatus(null);
-    const res = await api.mutate('agents', 'own.identity.revoke', { id: agent.id }, ownAgentTokenSchema);
+    const res = await api.call(AGENTS_OWN_IDENTITY_REVOKE, { id: agent.id });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setChanged(res.data);
@@ -155,14 +151,14 @@ export function useAgentPicker() {
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
   // The templates the service offers (AG-catalogue-02): a template it does not offer has no button.
-  const catalogue = useResource((signal) => api.query('agents', 'own.catalogue', undefined, catalogueSchema, { signal }), 'own-catalogue');
+  const catalogue = useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
   // This visit's key for each template: pressing again after an answer that never arrived returns the draft the first
   // press made, rather than a second one. Each visit to the picker is a new draft.
   const visit = useRef(`picker:${crypto.randomUUID()}`);
   async function start(template: string) {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.create', { template, createKey: `${visit.current}:${template}` }, ownAgentSchema);
+    const res = await api.call(AGENTS_OWN_CREATE, { template, createKey: `${visit.current}:${template}` });
     setBusy(false);
     if (res.ok) navigate(`/agents/${res.data.id}`, true);
     else setRefused(res);
@@ -177,10 +173,7 @@ export function useAgentPicker() {
  */
 export function useAssistant() {
   const api = useApi();
-  const state = useResource(
-    (signal) => api.query('agents', 'own.assistant.state', undefined, ownAgentAssistantSchema, { signal }),
-    'own-assistant',
-  );
+  const state = useResource((signal) => api.call(AGENTS_OWN_ASSISTANT_STATE, undefined, { signal }), 'own-assistant');
   const [description, setDescription] = useState('');
   const [proposal, setProposal] = useState<OwnAgentProposal | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
@@ -193,7 +186,7 @@ export function useAssistant() {
     setBusy(true);
     setRefused(null);
     setProposal(null);
-    const res = await api.mutate('agents', 'own.assistant.draft', { description }, ownAgentProposalSchema);
+    const res = await api.call(AGENTS_OWN_ASSISTANT_DRAFT, { description });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     acceptKey.current = `accept:${crypto.randomUUID()}`;
@@ -202,12 +195,12 @@ export function useAssistant() {
   async function accept(shown: OwnAgentProposal) {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.assistant.accept',
-      { name: shown.name, instructions: shown.instructions, tools: shown.tools, acceptKey: acceptKey.current },
-      ownAgentSchema,
-    );
+    const res = await api.call(AGENTS_OWN_ASSISTANT_ACCEPT, {
+      name: shown.name,
+      instructions: shown.instructions,
+      tools: shown.tools,
+      acceptKey: acceptKey.current,
+    });
     setBusy(false);
     if (res.ok) navigate(`/agents/${res.data.id}`, true);
     else setRefused(res);

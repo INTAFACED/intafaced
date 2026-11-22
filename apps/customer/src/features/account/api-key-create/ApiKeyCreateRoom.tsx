@@ -1,3 +1,4 @@
+// volt-room: /uc/safe/api-keys/new
 import { useId, useState, type FormEvent } from 'react';
 import type { ApiKeyCreateOutput, ApiKeyList, ApiKeyScopeEntry } from '@intafaced/contracts/api-keys';
 import { Button, ChoiceGroup, Field, Select, TextArea } from '@intafaced/ui/lit';

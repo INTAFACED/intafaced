@@ -1,3 +1,4 @@
+// volt-room: /bank/loans/apply
 import { FlowTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import type { ActionSpec } from '../components';
 import { useBankNav } from '../bank-nav';

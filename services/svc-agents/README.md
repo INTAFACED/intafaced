@@ -55,6 +55,18 @@ Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an 
 | `usage.settleSession` | `admin:write`    | `{ sessionId }`                                                           | settles every open / sealed-unbilled window. Idempotent                                                               |
 | `log.mine`            | `agents:read`    | `{ limit }`                                                               | **the user-visible log** (§8.2)                                                                                       |
 
+### Run webhooks (AG-sessions-04, J-agents-12 #5)
+
+| Procedure            | Scope         | Input                            | Output                                                                     |
+| -------------------- | ------------- | -------------------------------- | -------------------------------------------------------------------------- |
+| `webhook.register`   | `agents:read` | `{ endpointId, url }`            | the endpoint; its signing secret on the register that made it, never again |
+| `webhook.list`       | `agents:read` | `{ limit }`                      | the caller's endpoints                                                     |
+| `webhook.deliveries` | `agents:read` | `{ endpointId?, runId?, limit }` | each delivery with its attempts and the endpoint's last answer             |
+
+Recorded in `packages/contracts/src/agents-webhooks-procedures.ts`. A key may register: registering starts and changes no run. Every run the caller started in their own session that ends afterwards (a room run completed, refused or failed; a background run completed, stopped or failed) is written as one delivery per endpoint in the transaction that ends it, and posted once, signed `v1=` HMAC-SHA256 of `<timestamp>.<body>` with the endpoint's secret, carrying the run's ids, state, reply, cost and refusal codes, never the prompt. The URL guard is svc-pay's (https and a public address; loopback over http on dev and test stacks only). Tables: `run_webhook_endpoints`, `run_webhook_deliveries` (migration `20261121224407`).
+
+A key or a sub-account calling a person-only call (`session.open`, `run.complete`, `run.background.*` and the like) is refused with the call's own code (`agents.execute_person_only`) before its scope is checked.
+
 ### Agents a person builds (AG-builder-01)
 
 | Procedure       | Scope                 | Input                                              | Output                                                                                                     |

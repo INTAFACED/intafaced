@@ -837,7 +837,7 @@ fn refuses_a_delegated_key_it_cannot_open_a_session_or_run() {
     let Answer::Refused { body, .. } = &opened else {
         unreachable!()
     };
-    assert!(body.contains("scope.interactive_only"), "{body}");
+    assert!(body.contains("agents.execute_person_only"), "{body}");
     assert_eq!(w.own_sessions(), 0);
     let session = p.session(&id);
     let ran = p.run_as(Who::Key, &id, &session, "own-key");
@@ -845,7 +845,7 @@ fn refuses_a_delegated_key_it_cannot_open_a_session_or_run() {
     let Answer::Refused { body, .. } = &ran else {
         unreachable!()
     };
-    assert!(body.contains("scope.interactive_only"), "{body}");
+    assert!(body.contains("agents.execute_person_only"), "{body}");
     assert_eq!(w.calls(), 0);
     assert!(w.holds().is_empty());
 }

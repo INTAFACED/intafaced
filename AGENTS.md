@@ -20,10 +20,14 @@ Within the floor, these win over any agent's or reviewer's preference.
 - **Standing green light:** push branches, open PRs, delete files through a PR, and merge once the checks allow it. Nothing waits for a person.
 - **One PR may carry one whole journey across services.** Keep a journey together when it can be reviewed and reverted safely, money and security code included.
 - **Money, security and supply-chain code are reviewed like every other PR** (supply chain: `.github/`, the lockfile, `.npmrc`, `pnpm-workspace.yaml`, Dockerfiles, `.dockerignore`, compose files, `tsconfig.base.json`, `tooling/infra/`) until Launch hardening, the phase that must pass before any real money moves. Gate files and look baselines keep their extra review.
-- **One automatic review per PR, the CI review, and proof in CI:** no `/code-review` of the author's own, no council, no review round before opening; journeys prove in CI on the PR's head, never a local run. The CI review's own rules change through a normal PR.
+- **One automatic review per PR, the CI review, and proof in CI:** no `/code-review` of the author's own, no council, no review round before opening; journeys prove in CI on the PR's head, never a local run. The CI review's own rules change through a normal PR. The Codex bot's comment is advice (owner, 22 Nov): fix a real P0 or P1 it finds, never wait for it.
 - **The front end is React** (`apps/customer` with Vite, `apps/admin` with Next.js).
 - **Nothing is hidden.** Parked means visible with its real blocker named. No "coming soon": every room gets its full layout and every control, with an honest empty or refusal state. `/chain`, `/dex` and `/protocol` stay visible with honest labels. Never call Base INTACHAIN mainnet, and never set `audited: true` (the audit is external).
 - **The owner has chosen the look's direction and kit** (project-state `design/new-look`; the beta is dark only) **and walks the beta once, on a live link.** Between those the kit and its checks decide, and nothing asks the owner. Customer rooms take their look only from `packages/ui` role tokens (`.claude/rules/design.md`; `tooling/ci/look-drift.mjs`).
+
+## Code Review Rules
+
+For the Codex review bot: flag only P0 and P1, a bug that breaks a journey step's words, a money, custody, permission or count invariant, or security; quote the line and the intent it breaks. No style, naming, comments, refactors or new checks.
 
 ## How work flows
 
