@@ -3,7 +3,8 @@ import { httpNavigatorSender, navigatorMarketSchema, viemNavigatorChain } from '
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
-import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';

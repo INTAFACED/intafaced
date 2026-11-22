@@ -1,11 +1,6 @@
 import type { Sql } from 'postgres';
-import {
-  OWN_AGENT_EVAL_LIMITS,
-  type OwnAgentEvalCase,
-  type OwnAgentEvalResult,
-  type OwnAgentEvalRun,
-  type OwnAgentEvalRunSummary,
-} from '@intafaced/contracts';
+import type { OwnAgentEvalCase, OwnAgentEvalResult, OwnAgentEvalRun, OwnAgentEvalRunSummary } from '@intafaced/contracts';
+import { OWN_AGENT_EVAL_LIMITS } from '@intafaced/contracts/agents-own';
 import { OwnAgentRefusal } from './catalog.js';
 
 /**

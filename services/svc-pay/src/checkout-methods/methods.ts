@@ -1,14 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import {
-  CHECKOUT_METHODS,
-  checkoutMethodRuleSchema,
-  type CheckoutMethodOffer,
-  type CheckoutMethodRule,
-  type CheckoutMethods,
-  type CheckoutMethodsPreviewInput,
-  type CheckoutMethodsSaveInput,
+import type {
+  CheckoutMethodOffer,
+  CheckoutMethodRule,
+  CheckoutMethods,
+  CheckoutMethodsPreviewInput,
+  CheckoutMethodsSaveInput,
 } from '@intafaced/contracts';
+import { CHECKOUT_METHODS, checkoutMethodRuleSchema } from '@intafaced/contracts/merchant-checkout-methods';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { iso } from '../merchant-ops/money.js';

@@ -3,7 +3,8 @@
  * show with an <img>. Built by this service from the same page a visitor reads; no script, no personal data, no
  * third-party frame. Cached no longer than the staleness window, and not at all while that window is unset.
  */
-import { STATUS_BADGE_LABELS, STATUS_BADGE_MAX_AGE_SECONDS, type StatusBadge, type StatusPage } from '@intafaced/contracts';
+import type { StatusBadge, StatusPage } from '@intafaced/contracts';
+import { STATUS_BADGE_LABELS, STATUS_BADGE_MAX_AGE_SECONDS } from '@intafaced/contracts/status-page';
 
 /** The badge for the whole page (componentId null) or one component; null when the page defines no such component. */
 export function statusBadge(page: StatusPage, componentId: string | null): StatusBadge | null {

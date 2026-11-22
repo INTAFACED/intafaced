@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
-import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { executeProcedure } from './procedures.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';

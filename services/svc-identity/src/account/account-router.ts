@@ -2,7 +2,7 @@
  * `account.email.*`, `account.phone.*` and `account.compromised.*` (compromise-router.ts). Customer sessions only.
  */
 import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
 import { ContactError, type ContactDeps, type ContactLog } from './contact-common.js';
 import { EmailChange } from './email-change.js';

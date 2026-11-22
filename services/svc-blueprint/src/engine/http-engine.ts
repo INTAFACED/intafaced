@@ -1,4 +1,4 @@
-import { blueprintProfileSchema } from '@intafaced/contracts';
+import { blueprintProfileSchema } from '@intafaced/contracts/blueprint';
 import { z } from 'zod';
 import {
   EngineProtocolError,

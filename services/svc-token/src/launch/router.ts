@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { formatAmount } from '@intafaced/ledger-client';
 import { ActionApprovalConsumeError, consumeTokenApproval, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { DualControlError, requireDualControl } from '../dual-control.js';

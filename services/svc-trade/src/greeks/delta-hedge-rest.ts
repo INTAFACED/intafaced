@@ -6,7 +6,8 @@
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
-import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { checkAutoDeltaHedge, DELTA_HEDGE_PATH } from './delta-hedge.js';
 import type { EdgeTrust } from '../edge-trust.js';
 import { privateWrite } from '../route-inventory.js';

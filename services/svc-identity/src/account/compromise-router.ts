@@ -3,7 +3,7 @@
  * Shapes and refusals: `@intafaced/contracts/identity-compromise`. Customer sessions only; an API key or sub-account
  * is refused. The case moves no money.
  */
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   compromiseMineOutputSchema,
   compromiseReportInputSchema,

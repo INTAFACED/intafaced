@@ -1,13 +1,10 @@
 import { z } from 'zod';
 import {
-  router,
-  publicProcedure,
-  scopedProcedure,
-  serviceProcedureFor,
   BANK_APPROVER_ELIGIBILITY_CALLERS,
   bankApproverEligibilityInputSchema,
   bankApproverEligibilitySchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-approver-eligibility';
+import { router, publicProcedure, scopedProcedure, serviceProcedureFor } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BUSINESS_ROLES, describeBusinessPolicy } from '../business/business-policy.js';
 import {

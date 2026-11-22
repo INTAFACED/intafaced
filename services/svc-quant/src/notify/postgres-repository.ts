@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { QUANT_NOTIFY_CHANNELS, type QuantNotifyChannel } from '@intafaced/contracts';
+import type { QuantNotifyChannel } from '@intafaced/contracts';
+import { QUANT_NOTIFY_CHANNELS } from '@intafaced/contracts/quant-algo';
 import { QuantError } from '../errors.js';
 import type { NotifyRepository, StoredAlert } from './repository.js';
 

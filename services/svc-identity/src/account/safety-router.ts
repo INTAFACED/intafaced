@@ -2,7 +2,7 @@
  * `account.safety.*` (BK-safe-01, J-bank-18 #4): the person's own step-up extras and location signal. Shapes and
  * refusals: `@intafaced/contracts/identity-safety`. Customer sessions only; an API key or sub-account is refused.
  */
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   clearExtraControlsInputSchema,
   safetyChangeOutputSchema,

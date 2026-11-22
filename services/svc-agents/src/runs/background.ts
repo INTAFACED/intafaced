@@ -7,7 +7,7 @@ import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '
 import { AgentError } from '../errors.js';
 import { UsageOwedError } from '../metering/meter.js';
 import type { AgentRuntime } from '../runtime.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import { enqueueRunFinished, finishedEventId } from '../webhooks/run-webhooks.js';
 
 /**

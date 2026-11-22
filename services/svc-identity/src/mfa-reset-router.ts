@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { mfaResetCancelSchema, mfaResetStatusSchema, mfaResetViewSchema } from '@intafaced/contracts/identity';
 import type { AuthService } from './auth/auth-service.js';
 import { MfaResetError } from './auth/mfa-reset.js';

@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { hasScope, type Principal } from '@intafaced/auth';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { AgentError } from '../errors.js';
 import { UserSpendStore } from './store.js';
 

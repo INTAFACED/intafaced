@@ -13,7 +13,8 @@
  * what it is and is marked TEST instead of carrying a sampled figure.
  */
 
-import { PREVIEW_LABEL, previewRefusal, type PreviewRefusal } from '@intafaced/contracts';
+import type { PreviewRefusal } from '@intafaced/contracts';
+import { PREVIEW_LABEL, previewRefusal } from '@intafaced/contracts/preview-refusal';
 import { CREDIT_CARD_TABS, CREDIT_CARD_VARIANTS } from '@intafaced/contracts/bank-credit-preview-procedures';
 
 const CREDIT_CARD_PREVIEW_LABEL = PREVIEW_LABEL;

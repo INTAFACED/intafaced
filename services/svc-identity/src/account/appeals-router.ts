@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Context } from '@intafaced/contracts';
 import {
   appealDecideInputSchema,
   appealForStaffSchema,
@@ -6,12 +7,8 @@ import {
   appealsMineSchema,
   appealSubmitInputSchema,
   appealSubmitSignedOutInputSchema,
-  publicProcedure,
-  router,
-  scopedProcedure,
-  TRPCError,
-  type Context,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/identity-appeals';
+import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { AppealError, type AccountAppeals, type AppealErrorCode } from './appeals.js';
 import { userCopy } from '../user-copy.js';
 import type { AuthService } from '../auth/auth-service.js';

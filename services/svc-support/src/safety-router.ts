@@ -1,7 +1,5 @@
 import { TRPCError } from '@trpc/server';
 import {
-  router,
-  scopedProcedure,
   SUPPORT_BEREAVEMENT_DATE_INVALID,
   SUPPORT_SAFETY_KEY_REUSED,
   SUPPORT_SCAM_TRANSFER_NOT_YOURS,
@@ -10,7 +8,8 @@ import {
   supportScamReportInputSchema,
   supportComplaintInputSchema,
   supportSafetyAcknowledgementSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-safety';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { SafetyCases } from './safety-cases.js';
 import { SupportError } from './support-service.js';
 import { mapError } from './router.js';
