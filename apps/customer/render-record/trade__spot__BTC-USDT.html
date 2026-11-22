@@ -214,7 +214,7 @@
 <button type="button" aria-label="Sort by 24h change">Last price / 24h change</button>
 </div>
 <div class="lt-scroll-tall">
-<ul data-testid="dk-mk-list" class="lt-list lt-list-rule">
+<ul data-testid="dk-mk-list" class="lt-list lt-list-tight lt-list-rule">
 <li data-testid="dk-mk-row" class="lt-row lt-row-nowrap" data-selected="true">
 <button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Add BTC-USDT to favorites">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
@@ -342,14 +342,12 @@
 </section>
 <section class="lt-region" data-region="chart" aria-label="Chart">
 <div data-testid="dk-centre" class="lt-stack" data-widget="chart">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" data-testid="dk-chart" data-featureset="styles=candles,line studies=off drawings=off templates=off" class="lt-tabset lt-panel">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" class="lt-panel-tabs">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_6_" data-composite-item-active="" data-slot="tabs-tab" class="lt-panel-tab" aria-controls="base-ui-_r_7_">Chart</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_8_" data-slot="tabs-tab" class="lt-panel-tab">Info</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="lt-panel-tabs-mark" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
+<div data-testid="dk-chart" data-featureset="styles=candles,line studies=off drawings=off templates=off" class="lt-panel">
+<div class="lt-tabs" role="tablist">
+<button type="button" role="tab" id="dk-chart-tab-chart" aria-controls="dk-chart-panel-chart" aria-selected="true" tabindex="0" class="lt-tab">Chart</button>
+<button type="button" role="tab" id="dk-chart-tab-info" aria-controls="dk-chart-panel-info" aria-selected="false" tabindex="-1" class="lt-tab">Info</button>
 </div>
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_7_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="lt-tab-panel" aria-labelledby="base-ui-_r_6_">
+<div class="lt-tab-panel" role="tabpanel" id="dk-chart-panel-chart" aria-labelledby="dk-chart-tab-chart">
 <div class="lt-stack">
 <div class="lt-row lt-row-between">
 <div class="lt-chips" role="group" aria-label="Chart intervals">
@@ -359,7 +357,7 @@
 <button type="button" aria-pressed="false">1h</button>
 <button type="button" aria-pressed="false">4h</button>
 <button type="button" aria-pressed="false">1D</button>
-<button type="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_9_" data-slot="menu-trigger" data-testid="dk-more">More<span aria-hidden="true"> ▾</span>
+<button type="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_6_" data-slot="menu-trigger" data-testid="dk-more">More<span aria-hidden="true"> ▾</span>
 </button>
 </div>
 <div class="lt-row">
@@ -408,9 +406,9 @@
 </div>
 </div>
 <div class="lt-row" role="group" aria-label="Trade from the chart" data-testid="of-chart-trade">
-<button data-testid="of-chart-sell" data-price="" aria-describedby="_r_10_-spread" disabled="" type="button" class="lit-button" data-slot="button" data-variant="down" data-tone="down" data-size="sm">Sell —</button>
-<span id="_r_10_-spread" class="lt-num lt-note" data-testid="of-chart-spread" data-spread="">Spread —</span>
-<button data-testid="of-chart-buy" data-price="" aria-describedby="_r_10_-spread" disabled="" type="button" class="lit-button" data-slot="button" data-variant="up" data-tone="up" data-size="sm">Buy —</button>
+<button data-testid="of-chart-sell" data-price="" aria-describedby="_r_7_-spread" disabled="" type="button" class="lit-button" data-slot="button" data-variant="down" data-tone="down" data-size="sm">Sell —</button>
+<span id="_r_7_-spread" class="lt-num lt-note" data-testid="of-chart-spread" data-spread="">Spread —</span>
+<button data-testid="of-chart-buy" data-price="" aria-describedby="_r_7_-spread" disabled="" type="button" class="lit-button" data-slot="button" data-variant="up" data-tone="up" data-size="sm">Buy —</button>
 <label class="lt-field">
 <span>Order kind</span>
 <select>
@@ -431,14 +429,11 @@
 </section>
 <section class="lt-region" data-region="book" aria-label="Order book">
 <div data-testid="dk-book" class="lt-stack" data-widget="book">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="lt-tabset">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" class="lt-panel-tabs">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_11_" data-composite-item-active="" data-slot="tabs-tab" class="lt-panel-tab" aria-controls="base-ui-_r_12_">Order book</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_13_" data-slot="tabs-tab" class="lt-panel-tab">Last trades</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="lt-panel-tabs-mark" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
+<div class="lt-tabs" role="tablist">
+<button type="button" role="tab" id="dk-book-tab-book" aria-controls="dk-book-panel-book" aria-selected="true" tabindex="0" class="lt-tab">Order book</button>
+<button type="button" role="tab" id="dk-book-tab-trades" aria-controls="dk-book-panel-trades" aria-selected="false" tabindex="-1" class="lt-tab">Last trades</button>
 </div>
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_12_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="lt-tab-panel" aria-labelledby="base-ui-_r_11_">
+<div class="lt-tab-panel" role="tabpanel" id="dk-book-panel-book" aria-labelledby="dk-book-tab-book">
 <div data-testid="dk-bk" class="lt-stack">
 <div class="lt-row lt-row-between">
 <div class="lt-row" role="group" aria-label="Order book">
@@ -491,16 +486,13 @@
 </svg>
 </button>
 </div>
-<button type="button" tabindex="0" id="base-ui-_r_14_" role="combobox" aria-expanded="false" aria-haspopup="listbox" data-slot="select-trigger" data-size="sm" aria-label="Group prices by" class="lt-select">
-<span data-slot="select-value" class="lt-select-value">0.01</span>
-<span aria-hidden="true" class="lt-select-icon">
-<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-</path>
-</svg>
+<div class="lt-select">
+<button type="button" role="combobox" class="lt-select-button" data-size="sm" aria-label="Group prices by" aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_8_-list">
+<span>0.01</span>
+<span class="lt-select-mark" aria-hidden="true">
 </span>
 </button>
-<input id="base-ui-_r_14_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="0">
+</div>
 </div>
 <div data-slot="state-block" data-kind="error" role="alert" class="lt-state">
 <p class="lt-state-title">Couldn’t load the order book.</p>
@@ -509,54 +501,45 @@
 </div>
 </div>
 </div>
-</div>
 </section>
 <section class="lt-region" data-region="ticket" aria-label="Order">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" data-testid="dk-order" class="lt-tabset lt-panel">
+<div data-testid="dk-order" class="lt-panel">
 <div class="lt-row">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" aria-label="Order type" class="lt-panel-tabs">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_15_" data-composite-item-active="" data-slot="tabs-tab" class="lt-panel-tab" aria-controls="base-ui-_r_16_">Limit</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_17_" data-slot="tabs-tab" class="lt-panel-tab">Stop-limit</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_18_" data-slot="tabs-tab" class="lt-panel-tab">Stop-market</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_19_" data-slot="tabs-tab" class="lt-panel-tab">OCO</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_20_" data-slot="tabs-tab" class="lt-panel-tab">Bracket</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_21_" data-slot="tabs-tab" class="lt-panel-tab">OTO</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_22_" data-slot="tabs-tab" class="lt-panel-tab">Market</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="lt-panel-tabs-mark" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
+<div class="lt-tabs" role="tablist" aria-label="Order type">
+<button type="button" role="tab" id="dk-type-tab-limit" aria-controls="dk-type-panel-limit" aria-selected="true" tabindex="0" class="lt-tab">Limit</button>
+<button type="button" role="tab" id="dk-type-tab-stop_limit" aria-controls="dk-type-panel-stop_limit" aria-selected="false" tabindex="-1" class="lt-tab">Stop-limit</button>
+<button type="button" role="tab" id="dk-type-tab-stop_market" aria-controls="dk-type-panel-stop_market" aria-selected="false" tabindex="-1" class="lt-tab">Stop-market</button>
+<button type="button" role="tab" id="dk-type-tab-oco" aria-controls="dk-type-panel-oco" aria-selected="false" tabindex="-1" class="lt-tab">OCO</button>
+<button type="button" role="tab" id="dk-type-tab-bracket" aria-controls="dk-type-panel-bracket" aria-selected="false" tabindex="-1" class="lt-tab">Bracket</button>
+<button type="button" role="tab" id="dk-type-tab-oto" aria-controls="dk-type-panel-oto" aria-selected="false" tabindex="-1" class="lt-tab">OTO</button>
+<button type="button" role="tab" id="dk-type-tab-market" aria-controls="dk-type-panel-market" aria-selected="false" tabindex="-1" class="lt-tab">Market</button>
 </div>
-<button type="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_23_" data-slot="menu-trigger" aria-label="Other order types (not available)" class="lt-icon-button">More<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
+<button type="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_9_" data-slot="menu-trigger" aria-label="Other order types (not available)" class="lt-icon-button">More<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
 <path d="m6 9 6 6 6-6">
 </path>
 </svg>
 </button>
 <div class="lt-field">
 <span class="lt-label" id="lt-label">Time in force</span>
-<button type="button" tabindex="0" id="base-ui-_r_24_" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="lt-label" data-slot="select-trigger" data-size="sm" title="Stays on the book until it fills or you cancel it." class="lt-select lt-grow">
-<span data-slot="select-value" class="lt-select-value">Good till cancelled</span>
-<span aria-hidden="true" class="lt-select-icon">
-<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-</path>
-</svg>
+<div class="lt-select lt-grow">
+<button type="button" role="combobox" class="lt-select-button" data-size="sm" aria-labelledby="lt-label" title="Stays on the book until it fills or you cancel it." aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_10_-list">
+<span>Good till cancelled</span>
+<span class="lt-select-mark" aria-hidden="true">
 </span>
 </button>
-<input id="base-ui-_r_24_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="GTC">
+</div>
 </div>
 </div>
 <div class="lt-row">
 <div class="lt-field">
 <span class="lt-label" id="dk-stp-label">If it meets my own order</span>
-<button type="button" tabindex="0" id="base-ui-_r_25_" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="dk-stp-label" data-slot="select-trigger" data-size="sm" aria-describedby="dk-stp-note" title="Your resting order is cancelled and this order carries on against everyone else." class="lt-select lt-grow">
-<span data-slot="select-value" class="lt-select-value">Cancel my resting order</span>
-<span aria-hidden="true" class="lt-select-icon">
-<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-</path>
-</svg>
+<div class="lt-select lt-grow">
+<button type="button" role="combobox" class="lt-select-button" data-size="sm" aria-labelledby="dk-stp-label" aria-describedby="dk-stp-note" title="Your resting order is cancelled and this order carries on against everyone else." aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_11_-list">
+<span>Cancel my resting order</span>
+<span class="lt-select-mark" aria-hidden="true">
 </span>
 </button>
-<input id="base-ui-_r_25_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="cancel_maker">
+</div>
 <span class="lt-note" id="dk-stp-note">The other two are off: the matching engine only cancels the resting order.</span>
 </div>
 <label class="lt-field" title="Your own label. It shows on the order and in your history.">
@@ -594,15 +577,15 @@
 </dl>
 <a class="lt-link" href="/rulebook">Read the trading rulebook</a>
 </details>
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_16_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="lt-tab-panel lt-stack" aria-labelledby="base-ui-_r_15_">
+<div class="lt-tab-panel lt-stack" role="tabpanel" id="dk-type-panel-limit" aria-labelledby="dk-type-tab-limit">
 <div class="lt-cols-2">
 <form data-testid="dk-form" class="lt-stack" data-side="buy" aria-label="Buy BTC">
-<div data-slot="amount-input" data-size="desk" class="lt-amount">
-<div class="lt-amount-box">
-<label id="base-ui-_r_26_" for="base-ui-_r_27_" class="lt-amount-label">Price</label>
-<input id="base-ui-_r_27_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Price" placeholder="0.00" class="lt-amount-input" type="text" value="" aria-labelledby="base-ui-_r_26_">
-<span class="lt-amount-unit">USDT</span>
-<span class="lt-amount-steps">
+<div class="lt-field" data-unit="">
+<label for="_r_12_">Price</label>
+<div class="lt-field-row">
+<input placeholder="0.00" aria-label="Price" id="_r_12_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">USDT</span>
+<span class="lt-field-steps">
 <button type="button" tabindex="-1" aria-label="Raise the price one step">
 <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
 <path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -618,11 +601,11 @@
 </span>
 </div>
 </div>
-<div data-slot="amount-input" data-size="desk" class="lt-amount">
-<div class="lt-amount-box">
-<label id="base-ui-_r_28_" for="base-ui-_r_29_" class="lt-amount-label">Amount</label>
-<input id="base-ui-_r_29_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Amount" placeholder="0" class="lt-amount-input" type="text" value="" aria-labelledby="base-ui-_r_28_">
-<span class="lt-amount-unit">BTC</span>
+<div class="lt-field" data-unit="">
+<label for="_r_13_">Amount</label>
+<div class="lt-field-row">
+<input placeholder="0" aria-label="Amount" id="_r_13_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">BTC</span>
 </div>
 </div>
 <div class="lt-chips" role="group" aria-label="Amount">
@@ -631,11 +614,11 @@
 <button type="button" aria-label="75% of max">75%</button>
 <button type="button" aria-label="100% of max">100%</button>
 </div>
-<div data-slot="amount-input" data-size="desk" class="lt-amount">
-<div class="lt-amount-box">
-<label id="base-ui-_r_30_" for="base-ui-_r_31_" class="lt-amount-label">Total</label>
-<input id="base-ui-_r_31_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Total" placeholder="0" class="lt-amount-input" type="text" value="" aria-labelledby="base-ui-_r_30_">
-<span class="lt-amount-unit">USDT</span>
+<div class="lt-field" data-unit="">
+<label for="_r_14_">Total</label>
+<div class="lt-field-row">
+<input placeholder="0" aria-label="Total" id="_r_14_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">USDT</span>
 </div>
 </div>
 <dl data-testid="dk-avail" class="lt-kv">
@@ -663,12 +646,12 @@
 </div>
 </form>
 <form data-testid="dk-form" class="lt-stack" data-side="sell" aria-label="Sell BTC">
-<div data-slot="amount-input" data-size="desk" class="lt-amount">
-<div class="lt-amount-box">
-<label id="base-ui-_r_32_" for="base-ui-_r_33_" class="lt-amount-label">Price</label>
-<input id="base-ui-_r_33_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Price" placeholder="0.00" class="lt-amount-input" type="text" value="" aria-labelledby="base-ui-_r_32_">
-<span class="lt-amount-unit">USDT</span>
-<span class="lt-amount-steps">
+<div class="lt-field" data-unit="">
+<label for="_r_15_">Price</label>
+<div class="lt-field-row">
+<input placeholder="0.00" aria-label="Price" id="_r_15_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">USDT</span>
+<span class="lt-field-steps">
 <button type="button" tabindex="-1" aria-label="Raise the price one step">
 <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
 <path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -684,12 +667,12 @@
 </span>
 </div>
 </div>
-<div data-slot="amount-input" data-size="desk" class="lt-amount">
-<div class="lt-amount-box">
-<label id="base-ui-_r_34_" for="base-ui-_r_35_" class="lt-amount-label">Amount</label>
-<input id="base-ui-_r_35_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Amount" placeholder="0" class="lt-amount-input" type="text" value="" aria-labelledby="base-ui-_r_34_">
-<span class="lt-amount-unit">BTC</span>
-<button type="button" class="lt-amount-key">Max</button>
+<div class="lt-field" data-unit="">
+<label for="_r_16_">Amount</label>
+<div class="lt-field-row">
+<input placeholder="0" aria-label="Amount" id="_r_16_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">BTC</span>
+<button type="button" class="lt-field-key">Max</button>
 </div>
 </div>
 <div class="lt-chips" role="group" aria-label="Amount">
@@ -698,11 +681,11 @@
 <button type="button" aria-label="75% of max">75%</button>
 <button type="button" aria-label="100% of max">100%</button>
 </div>
-<div data-slot="amount-input" data-size="desk" class="lt-amount">
-<div class="lt-amount-box">
-<label id="base-ui-_r_36_" for="base-ui-_r_37_" class="lt-amount-label">Total</label>
-<input id="base-ui-_r_37_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Total" placeholder="0" class="lt-amount-input" type="text" value="" aria-labelledby="base-ui-_r_36_">
-<span class="lt-amount-unit">USDT</span>
+<div class="lt-field" data-unit="">
+<label for="_r_17_">Total</label>
+<div class="lt-field-row">
+<input placeholder="0" aria-label="Total" id="_r_17_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">USDT</span>
 </div>
 </div>
 <dl data-testid="dk-avail" class="lt-kv">
@@ -734,23 +717,21 @@
 </div>
 </section>
 <section class="lt-region" data-region="orders" aria-label="Orders and positions">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="lt-tabset lt-panel">
+<div class="lt-panel">
 <div data-testid="dk-bottom-head" class="lt-panel-head">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" aria-label="Orders and trades" class="lt-panel-tabs lt-grow">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_38_" data-composite-item-active="" data-slot="tabs-tab" class="lt-panel-tab" aria-controls="base-ui-_r_39_">Open orders</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_40_" data-slot="tabs-tab" class="lt-panel-tab">Order history</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_41_" data-slot="tabs-tab" class="lt-panel-tab">Trade history</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_42_" data-slot="tabs-tab" class="lt-panel-tab">Assets</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_43_" data-slot="tabs-tab" class="lt-panel-tab">Ledger</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_44_" data-slot="tabs-tab" class="lt-panel-tab">Positions</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="lt-panel-tabs-mark" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
+<div class="lt-tabs lt-grow" role="tablist" aria-label="Orders and trades">
+<button type="button" role="tab" id="dk-bottom-tab-open" aria-controls="dk-bottom-panel-open" aria-selected="true" tabindex="0" class="lt-tab">Open orders</button>
+<button type="button" role="tab" id="dk-bottom-tab-history" aria-controls="dk-bottom-panel-history" aria-selected="false" tabindex="-1" class="lt-tab">Order history</button>
+<button type="button" role="tab" id="dk-bottom-tab-trades" aria-controls="dk-bottom-panel-trades" aria-selected="false" tabindex="-1" class="lt-tab">Trade history</button>
+<button type="button" role="tab" id="dk-bottom-tab-assets" aria-controls="dk-bottom-panel-assets" aria-selected="false" tabindex="-1" class="lt-tab">Assets</button>
+<button type="button" role="tab" id="dk-bottom-tab-ledger" aria-controls="dk-bottom-panel-ledger" aria-selected="false" tabindex="-1" class="lt-tab">Ledger</button>
+<button type="button" role="tab" id="dk-bottom-tab-positions" aria-controls="dk-bottom-panel-positions" aria-selected="false" tabindex="-1" class="lt-tab">Positions</button>
 </div>
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Cancel orders…</button>
 <button aria-haspopup="dialog" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Auto-cancel: couldn’t check</button>
 <a class="lt-link" href="/money/activity?tab=orders">View all</a>
 </div>
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_39_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" data-testid="dk-bottom-body" class="lt-tab-panel" aria-labelledby="base-ui-_r_38_">
+<div class="lt-tab-panel" data-testid="dk-bottom-body" role="tabpanel" id="dk-bottom-panel-open" aria-labelledby="dk-bottom-tab-open">
 <div class="lt-table-scroll" tabindex="0" role="region" aria-label="Open orders">
 <table data-testid="dk-table" class="lt-table lt-table-dense">
 <thead>
@@ -794,7 +775,7 @@
 <span class="lt-row">
 <button aria-label="Cancel buy order for 0.00008 BTC" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Cancel</button>
 </span>
-</span> <button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_45_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="lt-link">Changes</button>
+</span> <button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_18_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="lt-link">Changes</button>
 </td>
 </tr>
 </tbody>
