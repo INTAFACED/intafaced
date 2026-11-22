@@ -2,10 +2,11 @@ import { QUANT_BACKTEST_MONTE_CARLO } from '@intafaced/contracts/quant-backtest-
 import type { QuantMonteCarlo } from '@intafaced/contracts/quant-research';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useApi } from '../session';
 import { researchCopy } from './research-copy';
 import { refusalCode } from './StrategyTeam';
+import { KitFailure, KitTable } from './kit-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const PERCENTILES = ['p5', 'p25', 'p50', 'p75', 'p95'] as const;
@@ -46,7 +47,7 @@ export function MonteCarloPanel({ runId }: { runId: string }) {
   return (
     <section aria-label={t('mcTitle')} data-testid="quant-montecarlo">
       <h4>{t('mcTitle')}</h4>
-      <p className="muted">{t('mcIntro')}</p>
+      <p className="lt-hint">{t('mcIntro')}</p>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -60,7 +61,7 @@ export function MonteCarloPanel({ runId }: { runId: string }) {
           inputMode="numeric"
           hint={seed && !validSeed ? t('mcSeedInvalid') : undefined}
         />
-        <Button type="submit" disabled={busy || !validSeed}>
+        <Button tone="primary" type="submit" disabled={busy || !validSeed}>
           {t('mcRun')}
         </Button>
       </form>
@@ -69,14 +70,14 @@ export function MonteCarloPanel({ runId }: { runId: string }) {
           {refused.text}
         </p>
       )}
-      {failure && <Failure result={failure} />}
+      {failure && <KitFailure result={failure} />}
       {result && (
         <div data-testid="quant-montecarlo-result" data-runs={result.runs} data-seed={result.seed} data-trips={result.roundTrips}>
-          <p className="more-badge" data-testid="quant-montecarlo-label">
+          <p className="lt-badge" data-testid="quant-montecarlo-label">
             {result.claimLabel}
           </p>
           <p>{t('mcPaths', { runs: result.runs, trips: result.roundTrips, seed: result.seed, cash: result.startCash })}</p>
-          <DataTable label={t('mcTitle')} headers={[t('mcPercentile'), t('mcDrawdown'), t('mcFinal')]}>
+          <KitTable label={t('mcTitle')} headers={[t('mcPercentile'), t('mcDrawdown'), t('mcFinal')]}>
             {PERCENTILES.map((p) => (
               <tr
                 key={p}
@@ -92,7 +93,7 @@ export function MonteCarloPanel({ runId }: { runId: string }) {
                 <td lang="zxx">{result.finalEquity[p]}</td>
               </tr>
             ))}
-          </DataTable>
+          </KitTable>
           <p data-testid="quant-montecarlo-ruin" data-percent={result.ruinProbabilityPercent ?? ''} data-level={result.ruinLevel ?? ''}>
             {result.ruinProbabilityPercent === null
               ? t('mcRuinUnset')

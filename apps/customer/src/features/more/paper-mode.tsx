@@ -11,15 +11,15 @@ export function PaperRoom({ paper, liveHref, children }: { paper: boolean; liveH
   if (!paper) return <>{children}</>;
   return (
     <PaperMode.Provider value={true}>
-      <section className="more-paper-banner" role="note" data-paper="simulated" aria-labelledby="more-paper-title">
-        <span className="more-paper-label" lang={languageFor('paperLabel')}>
+      <section className="lt-callout" role="note" data-paper="simulated" aria-labelledby="more-paper-title">
+        <span className="lt-badge" lang={languageFor('paperLabel')}>
           {t('paperLabel')}
         </span>
         <h2 id="more-paper-title" lang={languageFor('paperTitle')}>
           {t('paperTitle')}
         </h2>
         <p lang={languageFor('paperBody')}>{t('paperBody')}</p>
-        <a className="text-link" href={liveHref} lang={languageFor('paperExit')}>
+        <a className="lt-link" href={liveHref} lang={languageFor('paperExit')}>
           {t('paperExit')}
         </a>
       </section>

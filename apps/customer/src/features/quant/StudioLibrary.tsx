@@ -1,5 +1,5 @@
 import type { QuantStrategyHead } from '@intafaced/contracts/quant-algo';
-import { Button, EmptyState, Panel } from '../../shared/ui';
+import { Button, EmptyState } from '@intafaced/ui/lit';
 import { StrategyTable } from './StrategyTable';
 import { studioCopy } from './studio-copy';
 
@@ -16,21 +16,22 @@ export function StudioLibrary({
 }) {
   const { t } = studioCopy.useCopy();
   return (
-    <Panel title={t('libraryTitle')}>
+    <section className="lt-panel">
+      <h2 className="lt-panel-title">{t('libraryTitle')}</h2>
       <StrategyTable
         label={t('libraryTitle')}
         reloadKey={`studio:${revision}`}
-        empty={<EmptyState title={t('libraryNone')}>{t('libraryNoneBody')}</EmptyState>}
+        empty={<EmptyState title={t('libraryNone')} body={t('libraryNoneBody')} />}
         action={(s) =>
           s.id === activeId ? (
-            <span className="muted">{t('opened')}</span>
+            <span className="lt-hint">{t('opened')}</span>
           ) : (
-            <Button variant="secondary" onClick={() => onOpen(s)}>
+            <Button tone="secondary" onClick={() => onOpen(s)}>
               {t('open', { name: s.name })}
             </Button>
           )
         }
       />
-    </Panel>
+    </section>
   );
 }
