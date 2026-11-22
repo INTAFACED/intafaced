@@ -243,6 +243,8 @@ pub struct BankDoor {
     loans: crate::loans::Wiring,
     /// Slice `activity`'s history reads, cursor secret and owner values (`activity::Wiring`).
     activity: crate::activity::Wiring,
+    /// Slice `global`'s ports and owner values (`global::Wiring`); every port unset until handed in.
+    global: crate::global::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -293,6 +295,7 @@ impl BankDoor {
             cards: crate::cards::Wiring::none(),
             loans: crate::loans::Wiring::none(),
             activity: crate::activity::Wiring::none(),
+            global: crate::global::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -372,6 +375,12 @@ impl BankDoor {
     /// Slice `loans`'s wiring, built by the binary from the environment.
     pub fn with_loans(mut self, wiring: crate::loans::Wiring) -> BankDoor {
         self.loans = wiring;
+        self
+    }
+
+    /// Slice `global`'s wiring, built by the binary from the environment.
+    pub fn with_global(mut self, wiring: crate::global::Wiring) -> BankDoor {
+        self.global = wiring;
         self
     }
 
@@ -511,6 +520,15 @@ impl BankDoor {
                 ctx,
             )
             .unwrap_or_else(|| Err(not_ported(Slice::Transfers))),
+            Slice::Global => crate::global::router::answer(
+                &self.global,
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::Global))),
             Slice::OpsDesk => crate::ops_desk::answer(
                 &self.transfers,
                 &self.spaces,

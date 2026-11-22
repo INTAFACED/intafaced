@@ -542,6 +542,31 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Slice `global`'s wiring (`index.ts`'s `global` and its owner values): unset ports unless the TEST stand-in was
+/// chosen, which refuses to start outside dev or test (the raw `APP_ENV` and `NODE_ENV`).
+fn global_wiring(env: &BankEnv) -> Result<svc_bank::global::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let own = |k: &str| env.str(k).map(str::to_owned);
+    Ok(svc_bank::global::Wiring {
+        ports: svc_bank::global::sim::ports_for(
+            env.str("BANK_GLOBAL_PARTNER").unwrap_or("none"),
+            env.str("BANK_GLOBAL_SIM_JSON"),
+            raw("APP_ENV"),
+            raw("NODE_ENV"),
+            system_now,
+        )?,
+        settings: svc_bank::global::Settings {
+            send_field_rules: own("BANK_SEND_FIELD_RULES_JSON"),
+            payee_controls: own("BANK_PAYEE_CONTROLS_JSON"),
+            exchange_allowance: own("BANK_EXCHANGE_ALLOWANCE_JSON"),
+            proof_limits: own("BANK_PROOF_LIMITS_JSON"),
+            hold_cancel_hours: own("BANK_GLOBAL_HOLD_CANCEL_HOURS"),
+            refund_fee: own("BANK_GLOBAL_REFUND_FEE"),
+            receipt_secret: own("INTERNAL_SERVICE_SECRET"),
+        },
+    })
+}
+
 /// The door, built once from the environment, with the store.
 fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -565,7 +590,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_earn(earn_settings(env))
     .with_cards(cards)
     .with_loans(loans_wiring(env)?)
-    .with_activity(activity_wiring(env)?);
+    .with_activity(activity_wiring(env)?)
+    .with_global(global_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(
