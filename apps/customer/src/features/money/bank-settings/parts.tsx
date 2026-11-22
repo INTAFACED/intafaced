@@ -35,7 +35,7 @@ export interface FailureWords {
   retry: boolean;
 }
 
-export function failureWords(
+function failureWords(
   result: Failed,
   ui: { t: UiT; languageFor: (key: never) => string | undefined; requestedLocale: Parameters<typeof uiMessage>[1] },
 ): FailureWords {
@@ -248,36 +248,6 @@ export function Continuation({ count, limit, onMore }: { count: number; limit: n
           {Math.min(200, limit + 50)}
         </Button>
       )}
-    </div>
-  );
-}
-
-/** A table in the kit's look, scrolled on its own and named as a region so a reader (and a test) finds it. */
-export function Grid({
-  headers,
-  children,
-  label,
-  testId,
-}: {
-  headers: readonly ReactNode[];
-  children: ReactNode;
-  label: string;
-  testId?: string;
-}) {
-  return (
-    <div tabIndex={0} role="region" aria-label={label}>
-      <table className="lt-table" data-testid={testId}>
-        <thead>
-          <tr>
-            {headers.map((head, index) => (
-              <th key={index} scope="col">
-                {head}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
     </div>
   );
 }

@@ -1,16 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
-import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session';
-import { confirmWithStepUp, factorStatus, type StepUpBegin, type StepUpMethod } from '../../account';
-import { stepUpRefusalKeys } from '../use-withdraw-step-up';
+import type { StepUpBegin } from '../../account';
+import { useStepUpConfirm, type StepUpWords } from '../StepUpConfirm';
 import { withdrawStepUpCopy } from '../withdraw-step-up-copy';
 import { Loading } from './parts';
 
-const refusalKeys = { ...stepUpRefusalKeys, 'stepUp.no_passkey': 'noPasskey' } as const;
-
 /**
- * `StepUpConfirm` drawn from the Volt kit: the same words, controls, names and test ids.
+ * `StepUpConfirm` drawn from the Volt kit: the same words, controls, names and test ids, and the same `useStepUpConfirm`.
  *
  * "Confirm it's you" inside a review (J-bank-04 #4): a fresh 6-digit authenticator code or a passkey buys one
  * single-use approval for exactly the request under review (`stepUp.begin` names its fields), which goes to `onApproved`
@@ -25,49 +20,12 @@ export function StepUpInline({
   onApproved,
 }: {
   request: () => StepUpBegin;
-  words: { why: string; code: string; codeHint: string; codeShort: string; noFactor: string; sendWithout: string };
+  words: StepUpWords;
   disabled: boolean;
   onApproved: (stepUpApprovalId: string | null) => void;
 }) {
-  const { api, userId } = useSession();
   const { t } = withdrawStepUpCopy.useCopy();
-  const factors = useResource((signal) => api.query('identity', 'factorStatus', undefined, factorStatus, { signal }), `factors:${userId}`);
-  const [code, setCode] = useState('');
-  const [busy, setBusy] = useState<'code' | 'passkey' | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const alive = useRef<AbortController | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    alive.current = controller;
-    return () => controller.abort();
-  }, []);
-
-  async function confirm(method: StepUpMethod, how: 'code' | 'passkey') {
-    if (busy || disabled) return;
-    setBusy(how);
-    setProblem(null);
-    const approved = await confirmWithStepUp(api, request(), method, alive.current?.signal);
-    if (alive.current?.signal.aborted ?? true) return;
-    setBusy(null);
-    setCode('');
-    if (!approved.ok) {
-      if (approved.code === 'stepUp.code_malformed') return setProblem(words.codeShort);
-      const key = approved.code ? refusalKeys[approved.code as keyof typeof refusalKeys] : undefined;
-      setProblem(key ? t(key) : approved.message || t('failed'));
-      return;
-    }
-    onApproved(approved.data.stepUpApprovalId);
-  }
-  function withCode(event: FormEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!/^\d{6}$/.test(code)) {
-      setProblem(words.codeShort);
-      return;
-    }
-    void confirm({ totpCode: code }, 'code');
-  }
-  const status = factors.resource;
+  const { factors: status, code, setCode, busy, problem, confirm, withCode } = useStepUpConfirm({ request, words, disabled, onApproved });
   if (status.status === 'loading') return <Loading label={t('checking')} />;
   // Unreadable factors still offer the confirmation: a refusal from it says what is missing.
   const none = status.status === 'ready' && !status.data.authenticator.on && status.data.passkeys.count === 0;

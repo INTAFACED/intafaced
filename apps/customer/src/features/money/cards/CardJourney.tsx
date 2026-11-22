@@ -36,7 +36,7 @@ export function Refusal({ failure }: { failure: Failed }) {
 }
 
 /** A request id that is the same for the same card and the same report: retrying a report is the same report. */
-export async function reportId(cardId: string, reason: string): Promise<string> {
+async function reportId(cardId: string, reason: string): Promise<string> {
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`card-report:${cardId}:${reason}`)));
   bytes[6] = (bytes[6]! & 0x0f) | 0x50;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
@@ -347,7 +347,7 @@ export function CardJourney({ card, reload }: { card: CardRecord; reload: () => 
 const TIER_KEY = { none: 'tierNone', standard: 'tierStandard', metal: 'tierMetal', obsidian: 'tierObsidian' } as const;
 
 /** Basis points as a percentage, exactly: 125 is "1.25", 100 is "1". */
-export function percentOf(bps: number): string {
+function percentOf(bps: number): string {
   const whole = Math.floor(bps / 100);
   const part = String(bps % 100)
     .padStart(2, '0')

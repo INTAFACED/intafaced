@@ -7,7 +7,7 @@ import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { Panel } from '../bank-settings/parts';
 
 /** Words for the limits, fees and plan room (BK-acct-04, J-bank-16 #6). No limit, fee or price is written here. */
-export const limitsCopy = defineCopy('bank-limits', {
+const limitsCopy = defineCopy('bank-limits', {
   title: 'Limits, fees and plan',
   description: 'What you can send today, the fees the bank has published and your plan.',
   sectionsLabel: 'Limits sections',
@@ -73,7 +73,7 @@ export function LimitsPage() {
 }
 
 /** `/bank/limits`: today's send limit and what is left of it, the fee schedules, and the person's plan. */
-export function LimitsRoom() {
+function LimitsRoom() {
   const { t } = limitsCopy.useCopy();
   const held = useHoldings();
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];

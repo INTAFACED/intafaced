@@ -72,7 +72,7 @@ const ADDRESS_LINES: ReadonlyArray<{ key: keyof AddressDraft; label: CopyKey; op
 ];
 
 /** The delivery address on one line, as the review and the confirmation read it back. */
-export function addressLine(address: AddressDraft): string {
+function addressLine(address: AddressDraft): string {
   const wire = wireAddress(address);
   return [
     wire.name,

@@ -1,5 +1,5 @@
 import { bankAccountOnboardingSchema as onboardingSchema } from '@intafaced/contracts/bank-money-room';
-import { bankAccountCopy, useAccountRead } from './bank-account/account-read';
+import { bankAccountCopy, useAccountRead } from './bank-account/BankAccountRoom';
 import './bank-depth.css';
 
 /**

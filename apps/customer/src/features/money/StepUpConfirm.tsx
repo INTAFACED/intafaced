@@ -8,21 +8,17 @@ import { withdrawStepUpCopy } from './withdraw-step-up-copy';
 
 const refusalKeys = { ...stepUpRefusalKeys, 'stepUp.no_passkey': 'noPasskey' } as const;
 
-/**
- * "Confirm it's you" inside a review (J-bank-04 #4): a fresh 6-digit authenticator code or a passkey buys one
- * single-use approval for exactly the request under review (`stepUp.begin` names its fields), which goes to `onApproved`
- * and is sent with that one request. A wrong code never ends the session and nothing is sent until the approval exists.
- * A person with no authenticator app and no passkey cannot give one: the request then goes without it (null), and the
- * bank alone decides whether it needs one, refusing with nothing sent if it does.
- */
-export function StepUpConfirm({
+export type StepUpWords = { why: string; code: string; codeHint: string; codeShort: string; noFactor: string; sendWithout: string };
+
+/** What "Confirm it's you" needs, apart from how it is drawn: the person's factors, the code typed, and the confirmation. */
+export function useStepUpConfirm({
   request,
   words,
   disabled,
   onApproved,
 }: {
   request: () => StepUpBegin;
-  words: { why: string; code: string; codeHint: string; codeShort: string; noFactor: string; sendWithout: string };
+  words: StepUpWords;
   disabled: boolean;
   onApproved: (stepUpApprovalId: string | null) => void;
 }) {
@@ -64,7 +60,29 @@ export function StepUpConfirm({
     }
     void confirm({ totpCode: code }, 'code');
   }
-  const status = factors.resource;
+  return { factors: factors.resource, code, setCode, busy, problem, confirm, withCode };
+}
+
+/**
+ * "Confirm it's you" inside a review (J-bank-04 #4): a fresh 6-digit authenticator code or a passkey buys one
+ * single-use approval for exactly the request under review (`stepUp.begin` names its fields), which goes to `onApproved`
+ * and is sent with that one request. A wrong code never ends the session and nothing is sent until the approval exists.
+ * A person with no authenticator app and no passkey cannot give one: the request then goes without it (null), and the
+ * bank alone decides whether it needs one, refusing with nothing sent if it does.
+ */
+export function StepUpConfirm({
+  request,
+  words,
+  disabled,
+  onApproved,
+}: {
+  request: () => StepUpBegin;
+  words: StepUpWords;
+  disabled: boolean;
+  onApproved: (stepUpApprovalId: string | null) => void;
+}) {
+  const { t } = withdrawStepUpCopy.useCopy();
+  const { factors: status, code, setCode, busy, problem, confirm, withCode } = useStepUpConfirm({ request, words, disabled, onApproved });
   if (status.status === 'loading') return <Loading label={t('checking')} />;
   // Unreadable factors still offer the confirmation: a refusal from it says what is missing.
   const none = status.status === 'ready' && !status.data.authenticator.on && status.data.passkeys.count === 0;

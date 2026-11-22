@@ -23,7 +23,7 @@ import { loanDetailCopy } from '../loan-detail-copy';
 type Copy = ReturnType<typeof loanDetailCopy.useCopy>['t'];
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
-export const PROJECTION_DAYS = [7, 30, 90, 180, 365] as const;
+const PROJECTION_DAYS = [7, 30, 90, 180, 365] as const;
 type Days = (typeof PROJECTION_DAYS)[number];
 const DECIMAL = /^\d+(\.\d{1,18})?$/;
 
@@ -375,7 +375,7 @@ const CHECK_KINDS = [
 const CHECK_PROBLEMS = ['missing', 'key', 'entries', 'balance'] as const;
 
 /** One difference the bank found, in words: which move, and how the ledger differs. */
-export function ledgerMismatch(t: Copy, m: { kind: string; ref: string; problem: string }): string {
+function ledgerMismatch(t: Copy, m: { kind: string; ref: string; problem: string }): string {
   const what = (CHECK_KINDS as readonly string[]).includes(m.kind)
     ? t(`ck_${m.kind as (typeof CHECK_KINDS)[number]}`, { ref: m.ref })
     : t('ck_other', { ref: m.ref });

@@ -99,7 +99,7 @@ export function LinkedAccountTable({ rows, onRemove }: { rows: readonly LinkedAc
   );
 }
 
-export function LinkedAccountList({
+function LinkedAccountList({
   resource,
   reload,
   onRemove,
