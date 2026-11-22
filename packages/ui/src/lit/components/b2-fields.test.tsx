@@ -22,6 +22,20 @@ describe('kit fields', () => {
     expect(out).toBe('<div class="lt-field"><label for="a">Ask</label><textarea maxLength="20" id="a" rows="5">hi</textarea></div>');
   });
 
+  it('SelectField: an option in its own language carries its lang', () => {
+    const out = html(
+      <SelectField id="l" label="Language" value="de" onChange={none} options={[{ value: 'de', label: 'Deutsch', lang: 'de' }]} />,
+    );
+    expect(out).toContain('<option value="de" lang="de" selected="">Deutsch</option>');
+  });
+
+  it("TextAreaField: a refusal takes the hint's place, is announced and marks the box invalid", () => {
+    const out = html(<TextAreaField id="c" label="Comment" value="" onChange={none} hint="Optional" error="Write a few words" />);
+    expect(out).toBe(
+      '<div class="lt-field"><label for="c">Comment</label><textarea id="c" aria-describedby="c-hint" aria-invalid="true" rows="5"></textarea><small id="c-hint" role="alert">Write a few words</small></div>',
+    );
+  });
+
   it('TextField: the hint sits outside the label and describes the input', () => {
     const out = html(<TextField id="n" label="Name" value="x" onChange={none} hint="Your own" />);
     expect(out).toBe(

@@ -9,6 +9,8 @@ import * as React from 'react';
 export interface ChoiceOption {
   value: string;
   label: string;
+  /** The option's own language, when its words are not in the page's (a language list names each in itself). */
+  lang?: string;
 }
 
 /** The control's id, and the hint's when there is one: the hint describes the control and never joins its name. */
@@ -42,7 +44,7 @@ export function SelectField({ label, value, onChange, options, hint, id, ...rest
         {options.map((o) => {
           const option = typeof o === 'string' ? { value: o, label: o } : o;
           return (
-            <option key={option.value} value={option.value}>
+            <option key={option.value} value={option.value} lang={option.lang}>
               {option.label}
             </option>
           );
@@ -58,11 +60,13 @@ export type TextAreaFieldProps = Omit<React.TextareaHTMLAttributes<HTMLTextAreaE
   value: string;
   onChange: (value: string) => void;
   hint?: React.ReactNode;
+  /** Why what was typed is refused: shown in the hint's place, announced, and it marks the box invalid. */
+  error?: React.ReactNode;
 };
 
 /** A long answer, with its label above it. */
-export function TextAreaField({ label, value, onChange, hint, id, rows = 5, ...rest }: TextAreaFieldProps) {
-  const ids = useIds(id, hint, rest['aria-describedby']);
+export function TextAreaField({ label, value, onChange, hint, error, id, rows = 5, ...rest }: TextAreaFieldProps) {
+  const ids = useIds(id, error || hint, rest['aria-describedby']);
   return (
     <div className="lt-field">
       <label htmlFor={ids.controlId}>{label}</label>
@@ -70,11 +74,18 @@ export function TextAreaField({ label, value, onChange, hint, id, rows = 5, ...r
         {...rest}
         id={ids.controlId}
         aria-describedby={ids.describedBy}
+        aria-invalid={error ? true : rest['aria-invalid']}
         rows={rows}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
-      <Hint id={ids.hintId} hint={hint} />
+      {error ? (
+        <small id={ids.hintId} role="alert">
+          {error}
+        </small>
+      ) : (
+        <Hint id={ids.hintId} hint={hint} />
+      )}
     </div>
   );
 }
