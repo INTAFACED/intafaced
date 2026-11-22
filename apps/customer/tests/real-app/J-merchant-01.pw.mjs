@@ -346,7 +346,8 @@ test(`${J} #5 the team page lists the five built-in roles and every permission e
   // Each permission row, in the service's order: the five cells say Yes exactly where its heldBy names the role.
   const order = ['owner', 'admin', 'finance', 'developer', 'viewer'];
   const expected = catalogue.areas.flatMap((g) => g.permissions.map((p) => order.map((r) => (p.heldBy.includes(r) ? 'Yes' : 'No'))));
-  const matrix = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Every permission, by role' }) });
+  // The section the heading titles, its nearest one: the settings template wraps every section in a region section of its own.
+  const matrix = page.getByRole('heading', { name: 'Every permission, by role' }).locator('xpath=ancestor::section[1]');
   await expect(matrix.locator('tbody tr')).toHaveCount(expected.length);
   const shown = await matrix
     .locator('tbody tr')
