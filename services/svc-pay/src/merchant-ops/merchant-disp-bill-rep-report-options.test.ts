@@ -38,6 +38,21 @@ describe('M-rep-01 zoned report periods', () => {
     expect(f.to).toBe('2026-11-02T05:00:00.000Z');
   });
 
+  it('starts the export on the requested day when local midnight is skipped (America/Santiago, 6 Sep 2026)', () => {
+    const filters = zonedFilters({}, { fromDay: '2026-09-06', toDay: '2026-09-06', timeZone: 'America/Santiago' }, NOW);
+    expect(filters).toEqual({ from: '2026-09-06T04:00:00.000Z', to: '2026-09-07T03:00:00.000Z' });
+    // The last instant of 5 Sep local stays out; the first of 6 Sep is in.
+    expect(zonedMidnight('2026-09-06', 'America/Santiago').getTime()).toBe(Date.parse('2026-09-06T04:00:00Z'));
+  });
+
+  it('a skipped midnight in an older year begins the day at the transition (America/Sao_Paulo, 4 Nov 2018)', () => {
+    expect(zonedMidnight('2018-11-04', 'America/Sao_Paulo').toISOString()).toBe('2018-11-04T03:00:00.000Z');
+  });
+
+  it('a repeated midnight begins the day at its first occurrence (America/Havana, 1 Nov 2026)', () => {
+    expect(zonedMidnight('2026-11-01', 'America/Havana').toISOString()).toBe('2026-11-01T04:00:00.000Z');
+  });
+
   it('UTC is identity and keeps other filters', () => {
     expect(zonedFilters({ assetId: 'USDT' }, { fromDay: '2026-12-01', toDay: '2026-12-03', timeZone: 'UTC' }, NOW)).toEqual({
       assetId: 'USDT',
