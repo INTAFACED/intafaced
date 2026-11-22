@@ -142,6 +142,8 @@ pub struct Ctx<'a> {
     /// `ctx.service`: the verified calling service, if any.
     pub service: Option<&'a str>,
     pub region: &'a str,
+    /// The jurisdiction check the door runs (`checkAccess`), for a handler that reports it (`safety.regionNotice`).
+    pub jurisdiction: &'a Jurisdiction,
     pub now: Instant,
 }
 
@@ -555,6 +557,7 @@ impl BankDoor {
             principal: principal.as_ref(),
             service: service.as_deref(),
             region: &region,
+            jurisdiction: &self.jurisdiction,
             now,
         })
     }

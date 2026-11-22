@@ -22,7 +22,9 @@ pub mod schedules;
 pub mod step_up;
 pub mod terms;
 
-use service_kit::approvals::{ConsumeError, ConsumeInput, Consumed, IdentityClient};
+use service_kit::approvals::{
+    ConsumeError, ConsumeInput, Consumed, Facts, IdentityClient, PrincipalBinding,
+};
 
 use ports::{Bus, ExtraControls, NoBus, NoIdentity, PartyHandles, RecipientState, SecurityLock};
 
@@ -69,12 +71,22 @@ impl Default for Settings {
 
 /// `ActionApprovalConsumer`: svc-identity's consume of a person's own approval.
 pub trait Approvals: Send + Sync {
-    fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, ConsumeError>;
+    /// Consumes one approval, bound to the person and session when it is their own, and answers it with its kind and
+    /// expiry.
+    fn consume(
+        &self,
+        input: &ConsumeInput<'_>,
+        principal: Option<PrincipalBinding<'_>>,
+    ) -> Result<(Consumed, Facts), ConsumeError>;
 }
 
 impl Approvals for IdentityClient {
-    fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, ConsumeError> {
-        IdentityClient::consume(self, input)
+    fn consume(
+        &self,
+        input: &ConsumeInput<'_>,
+        principal: Option<PrincipalBinding<'_>>,
+    ) -> Result<(Consumed, Facts), ConsumeError> {
+        self.consume_for(input, principal)
     }
 }
 
@@ -82,9 +94,13 @@ impl Approvals for IdentityClient {
 pub struct NoApprovals;
 
 impl Approvals for NoApprovals {
-    fn consume(&self, _input: &ConsumeInput<'_>) -> Result<Consumed, ConsumeError> {
-        Err(ConsumeError::Thrown(
-            "IDENTITY_URL is unset, so svc-bank cannot consume an approval".to_owned(),
+    fn consume(
+        &self,
+        _input: &ConsumeInput<'_>,
+        _principal: Option<PrincipalBinding<'_>>,
+    ) -> Result<(Consumed, Facts), ConsumeError> {
+        Err(ConsumeError::Refused(
+            "IDENTITY_URL is unpublished; bank ops do not invent a second person".to_owned(),
         ))
     }
 }
