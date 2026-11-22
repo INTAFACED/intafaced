@@ -1,9 +1,8 @@
-// The only file in this screen that knows where the shared pieces come from: the kit in @intafaced/ui and the
+// The only file in this screen that knows where the shared pieces come from: the Volt kit in @intafaced/ui/lit and the
 // data layer in ../../../data (the same pattern as the Home screen).
 export {
   Amount,
   Button,
-  buttonVariants,
   ChangeText,
   CoinIcon,
   Menu,
@@ -15,23 +14,21 @@ export {
   PopoverTrigger,
   Pct,
   Price,
-  SegmentedControl,
+  Segmented,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Skeleton,
   StateBlock,
   StatusTag,
-  Tabs,
-  TabsList,
-  TabsPanel,
-  TabsTab,
+  TabSet as Tabs,
+  TabList as TabsList,
+  TabPanel as TabsPanel,
+  Tab as TabsTab,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  AmountInput,
   AlertDialog,
   AlertDialogContent,
   AlertDialogDescription,
@@ -39,7 +36,11 @@ export {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogClose,
-} from '@intafaced/ui';
+  Bone,
+  AmountInput,
+} from '@intafaced/ui/lit';
+// The desk's loading shapes: Volt draws a placeholder by its shape (rows, figure, chart, form), never a size in pixels.
+export { Skeleton, type SkeletonShape } from '@intafaced/ui/lit/templates';
 
 export {
   direction,

@@ -1,7 +1,7 @@
 import type { VenueMarket, VenueSelfTradeMode } from '../../../features/trade/venue-api';
 import { word } from '../../../features/trade/venue/VenueKit';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
-import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
+import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@intafaced/ui/lit';
 import { spotVenueCopy } from './venue-copy';
 import {
   OTHER_ORDER_TYPES,
@@ -26,9 +26,9 @@ export function NotOfferedTypes({ market }: { market: VenueMarket }) {
   const missing = OTHER_ORDER_TYPES.filter((x) => !market.orderTypes.includes(x));
   if (missing.length === 0) return null;
   return (
-    <div role="group" aria-label={t('Order types more')} data-testid="venue-order-types" className="dk-order-opts">
+    <div role="group" aria-label={t('Order types more')} data-testid="venue-order-types" className="lt-row">
       {missing.map((x) => (
-        <Button key={x} variant="secondary" size={32} disabled aria-disabled="true" data-not-offered={x}>
+        <Button key={x} tone="secondary" size="sm" disabled aria-disabled="true" data-not-offered={x}>
           {word(v, 'type', x)}: {v('Not offered')}
         </Button>
       ))}
@@ -52,8 +52,8 @@ export function VenueTifSelect({ market, tif, onTif }: { market: VenueMarket; ti
   const v = venueCopy.useCopy().t;
   const items = Object.fromEntries(TIME_IN_FORCE_NAMES.map((name) => [name, tifLabel(v, t('Tif engine'), market, name)]));
   return (
-    <div className="dk-tif dk-opt" data-testid="venue-tif">
-      <span className="dk-tif-label" id="venue-tif-label">
+    <div className="lt-field" data-testid="venue-tif">
+      <span className="lt-label" id="venue-tif-label">
         {t('Time in force')}
       </span>
       <Select
@@ -64,7 +64,7 @@ export function VenueTifSelect({ market, tif, onTif }: { market: VenueMarket; ti
           if (offered && offered !== tif) onTif(offered);
         }}
       >
-        <SelectTrigger size={32} className="dk-tif-trigger" aria-labelledby="venue-tif-label">
+        <SelectTrigger size="sm" aria-labelledby="venue-tif-label">
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="start">
@@ -88,12 +88,12 @@ export function VenueSelfTradeSelect({ market }: { market: VenueMarket }) {
     mode === rule ? word(v, 'stp', mode) : `${word(v, 'stp', mode)} · ${rule === null ? v('Not published') : v('Not offered')}`;
   const items = Object.fromEntries(SELF_TRADE_MODES.map((mode) => [mode, label(mode)]));
   return (
-    <div className="dk-tif dk-opt" data-testid="venue-self-trade">
-      <span className="dk-tif-label" id="venue-stp-label">
+    <div className="lt-field" data-testid="venue-self-trade">
+      <span className="lt-label" id="venue-stp-label">
         {t('Self trade')}
       </span>
       <Select items={items} value={rule ?? ''}>
-        <SelectTrigger size={32} className="dk-tif-trigger" aria-labelledby="venue-stp-label" aria-describedby="venue-stp-note">
+        <SelectTrigger size="sm" aria-labelledby="venue-stp-label" aria-describedby="venue-stp-note">
           <SelectValue placeholder={v('Not published')} />
         </SelectTrigger>
         <SelectContent align="start">
@@ -104,7 +104,7 @@ export function VenueSelfTradeSelect({ market }: { market: VenueMarket }) {
           ))}
         </SelectContent>
       </Select>
-      <span className="dk-opt-note" id="venue-stp-note">
+      <span className="lt-note" id="venue-stp-note">
         {t('Self trade note')}
       </span>
     </div>
@@ -125,13 +125,13 @@ export function UnitFlag({
 }) {
   const { t } = spotVenueCopy.useCopy();
   return (
-    <div role="group" aria-label={t('Amount in')} className="dk-order-opts" data-testid="venue-unit">
+    <div role="group" aria-label={t('Amount in')} className="lt-row" data-testid="venue-unit">
       {(['base', 'quote'] as const).map((x) => (
         <Button
           key={x}
           type="button"
-          size={32}
-          variant={unit === x ? 'primary' : 'secondary'}
+          size="sm"
+          tone={unit === x ? 'primary' : 'secondary'}
           aria-pressed={unit === x}
           onClick={() => onUnit(x)}
         >

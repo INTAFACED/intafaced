@@ -1,5 +1,5 @@
 import { deskCopy } from './copy';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
+import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@intafaced/ui/lit';
 import { isFiltering, NO_HISTORY_FILTER, type HistoryFilter } from './history-filter';
 
 type Key = keyof HistoryFilter;
@@ -34,13 +34,13 @@ export function HistoryFilters({ filter, onFilter }: { filter: HistoryFilter; on
   };
   const heading = { side: t('History filter side'), type: t('History filter type'), status: t('History filter status') } as const;
   return (
-    <div className="dk-hfilters" role="group" aria-label={t('Order history')}>
+    <div className="lt-row" role="group" aria-label={t('Order history')}>
       {OPTIONS.map(({ key, values }) => {
         const items = Object.fromEntries(values.map((value) => [value, word(key, value)]));
         const id = `dk-hfilter-${key}`;
         return (
-          <div className="dk-hfilter" key={key}>
-            <span className="dk-tif-label" id={id}>
+          <div className="lt-stack-tight" key={key}>
+            <span className="lt-label" id={id}>
               {heading[key]}
             </span>
             <Select
@@ -48,7 +48,7 @@ export function HistoryFilters({ filter, onFilter }: { filter: HistoryFilter; on
               value={filter[key]}
               onValueChange={(next) => (next && next !== filter[key] ? onFilter({ ...filter, [key]: next } as HistoryFilter) : undefined)}
             >
-              <SelectTrigger size={32} className="dk-hfilter-trigger" aria-labelledby={id}>
+              <SelectTrigger size="sm" aria-labelledby={id}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start">
@@ -63,9 +63,9 @@ export function HistoryFilters({ filter, onFilter }: { filter: HistoryFilter; on
         );
       })}
       {isFiltering(filter) ? (
-        <button type="button" className="dk-hfilter-clear" onClick={() => onFilter(NO_HISTORY_FILTER)}>
+        <Button tone="quiet" size="sm" onClick={() => onFilter(NO_HISTORY_FILTER)}>
           {t('History filter clear')}
-        </button>
+        </Button>
       ) : null}
     </div>
   );

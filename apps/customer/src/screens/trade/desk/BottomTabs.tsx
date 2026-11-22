@@ -7,7 +7,8 @@ import { deskCopy } from './copy';
 import { useClosedOrders, useRefreshPrivate } from './data';
 import { HistoryFilters } from './HistoryFilters';
 import { filterHistory, NO_HISTORY_FILTER, type HistoryFilter } from './history-filter';
-import { Amount, fmtAmount, isHiddenPath, StateBlock, Tabs, TabsList, TabsPanel, TabsTab, type Loadable } from './deps';
+import { Amount, Button, StateBlock, Tab as TabsTab, TabList, TabPanel as TabsPanel, TabSet } from '@intafaced/ui/lit';
+import { fmtAmount, isHiddenPath, type Loadable } from './deps';
 import { floorToLot } from './order-math';
 import { flattenOn, type DeskMarket } from './market';
 import { CancelAll } from './CancelAll';
@@ -86,16 +87,16 @@ export const BottomTabs = memo(function BottomTabs({
   );
 
   return (
-    <Tabs value={tab} onValueChange={(value) => onTab(value as Tab)} className="dk-panel dk-bottom">
-      <div data-testid="dk-bottom-head" className="dk-bottom-head">
-        <TabsList divider className="dk-tabs dk-tabs--grow" aria-label={t('Orders and trades')}>
+    <TabSet value={tab} onValueChange={(value) => onTab(value as Tab)} className="lt-panel">
+      <div data-testid="dk-bottom-head" className="lt-panel-head">
+        <TabList className="lt-grow" aria-label={t('Orders and trades')}>
           <TabsTab value="open">{t('Open orders')}</TabsTab>
           <TabsTab value="history">{t('Order history')}</TabsTab>
           <TabsTab value="trades">{t('Trade history')}</TabsTab>
           <TabsTab value="assets">{t('Assets')}</TabsTab>
           {userId ? <TabsTab value="ledger">{t('Ledger tab')}</TabsTab> : null}
           <TabsTab value="positions">{t('Positions')}</TabsTab>
-        </TabsList>
+        </TabList>
         {tab === 'open' && openOrders.status === 'ready' ? (
           <>
             <CancelAll symbol={market.symbol} orders={openOrders.data} onDone={refresh} />
@@ -111,17 +112,17 @@ export const BottomTabs = memo(function BottomTabs({
         ) : null}
         {userId ? <DeadMan onChanged={refresh} /> : null}
         {showAll && userId ? (
-          <a className="dk-viewall" href={tab === 'trades' ? '/money/activity?tab=trades' : '/money/activity?tab=orders'}>
+          <a className="lt-link" href={tab === 'trades' ? '/money/activity?tab=trades' : '/money/activity?tab=orders'}>
             {t('View all')}
           </a>
         ) : null}
       </div>
-      <TabsPanel value="open" data-testid="dk-bottom-body" className="dk-bottom-body">
+      <TabsPanel value="open" data-testid="dk-bottom-body">
         <LoadState load={openOrders} thing="orders">
           {(rows) => (rows.length === 0 ? <StateBlock kind="empty" title={t('No open orders')} /> : orderTable(rows, true))}
         </LoadState>
       </TabsPanel>
-      <TabsPanel value="history" data-testid="dk-bottom-body" className="dk-bottom-body">
+      <TabsPanel value="history" data-testid="dk-bottom-body">
         <LoadState load={closed} thing="orders">
           {(rows) => {
             if (rows.length === 0) return <StateBlock kind="empty" title={t('No order history')} />;
@@ -135,77 +136,79 @@ export const BottomTabs = memo(function BottomTabs({
           }}
         </LoadState>
       </TabsPanel>
-      <TabsPanel value="trades" data-testid="dk-bottom-body" className="dk-bottom-body">
+      <TabsPanel value="trades" data-testid="dk-bottom-body">
         <LoadState load={fills} thing="trades">
           {(rows) =>
             rows.length === 0 ? <StateBlock kind="empty" title={t('No trade history')} /> : <FillsTable rows={rows} precision={precision} />
           }
         </LoadState>
       </TabsPanel>
-      <TabsPanel value="assets" data-testid="dk-bottom-body" className="dk-bottom-body">
+      <TabsPanel value="assets" data-testid="dk-bottom-body">
         <LoadState load={balances} thing="assets">
           {(held) => {
             const assets = [market.base, market.quote];
             return (
-              <table data-testid="dk-table" className="dk-table">
-                <thead>
-                  <tr>
-                    <th>{t('Asset')}</th>
-                    <th className="dk-num">{t('Total held')}</th>
-                    <th className="dk-num">{t('Available2')}</th>
-                    <th className="dk-num">{t('In orders')}</th>
-                    <th>{t('Action')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {assets.map((asset) => {
-                    const entry = held[asset];
-                    return (
-                      <tr key={asset}>
-                        <td>{asset}</td>
-                        <td className="dk-num if-num">
-                          <Amount value={fmtAmount(entry?.total ?? '0', { places: 8 })} />
-                        </td>
-                        <td className="dk-num if-num">
-                          <Amount value={fmtAmount(entry?.free ?? '0', { places: 8 })} />
-                        </td>
-                        <td className="dk-num if-num">
-                          <Amount value={fmtAmount(entry?.used ?? '0', { places: 8 })} />
-                        </td>
-                        <td>
-                          {asset === market.base &&
-                          userId &&
-                          flattenOn(market) &&
-                          floorToLot(entry?.free ?? '0', market.lotSize) !== null ? (
-                            <button
-                              type="button"
-                              className="dk-cancel-all"
-                              onClick={() => onFlatten(entry?.free ?? '0')}
-                              aria-label={t('Flatten label', {
-                                asset,
-                                amount: fmtAmount(entry?.free ?? '0', { places: 8 }),
-                                pair: market.symbol,
-                              })}
-                            >
-                              {t('Flatten')}
-                            </button>
-                          ) : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div className="lt-table-scroll">
+                <table data-testid="dk-table" className="lt-table lt-table-dense">
+                  <thead>
+                    <tr>
+                      <th>{t('Asset')}</th>
+                      <th className="lt-end">{t('Total held')}</th>
+                      <th className="lt-end">{t('Available2')}</th>
+                      <th className="lt-end">{t('In orders')}</th>
+                      <th>{t('Action')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assets.map((asset) => {
+                      const entry = held[asset];
+                      return (
+                        <tr key={asset}>
+                          <td>{asset}</td>
+                          <td className="lt-end lt-num">
+                            <Amount value={fmtAmount(entry?.total ?? '0', { places: 8 })} />
+                          </td>
+                          <td className="lt-end lt-num">
+                            <Amount value={fmtAmount(entry?.free ?? '0', { places: 8 })} />
+                          </td>
+                          <td className="lt-end lt-num">
+                            <Amount value={fmtAmount(entry?.used ?? '0', { places: 8 })} />
+                          </td>
+                          <td>
+                            {asset === market.base &&
+                            userId &&
+                            flattenOn(market) &&
+                            floorToLot(entry?.free ?? '0', market.lotSize) !== null ? (
+                              <Button
+                                tone="secondary"
+                                size="sm"
+                                onClick={() => onFlatten(entry?.free ?? '0')}
+                                aria-label={t('Flatten label', {
+                                  asset,
+                                  amount: fmtAmount(entry?.free ?? '0', { places: 8 }),
+                                  pair: market.symbol,
+                                })}
+                              >
+                                {t('Flatten')}
+                              </Button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             );
           }}
         </LoadState>
       </TabsPanel>
       {userId ? (
-        <TabsPanel value="ledger" data-testid="dk-bottom-body" className="dk-bottom-body">
+        <TabsPanel value="ledger" data-testid="dk-bottom-body">
           {tab === 'ledger' ? <LedgerTab balances={balances} /> : null}
         </TabsPanel>
       ) : null}
-      <TabsPanel value="positions" data-testid="dk-bottom-body" className="dk-bottom-body">
+      <TabsPanel value="positions" data-testid="dk-bottom-body">
         <StateBlock kind="empty" title={t('Positions not applicable')} body={t('Positions not applicable note')} />
       </TabsPanel>
       {editing && editingMarket ? (
@@ -215,6 +218,6 @@ export const BottomTabs = memo(function BottomTabs({
           <EditOrder order={editing} market={editingMarket} onDone={refresh} onClose={() => setEditing(null)} />
         )
       ) : null}
-    </Tabs>
+    </TabSet>
   );
 });

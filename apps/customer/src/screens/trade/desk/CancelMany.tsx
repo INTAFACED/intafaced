@@ -11,9 +11,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
-  fmtAmount,
-  refusalCopy,
-} from './deps';
+} from '@intafaced/ui/lit';
+import { fmtAmount, refusalCopy } from './deps';
+
+/** A note's classes by its tone. */
+const NOTE = { good: 'lt-note lt-note-good', bad: 'lt-note lt-note-bad' } as const;
+const toneOf = (good: boolean): keyof typeof NOTE => (good ? 'good' : 'bad');
 
 type Scope = 'selected' | 'spot' | 'everything';
 type Outcome =
@@ -138,7 +141,7 @@ export function CancelMany({
   }
   const canConfirm = scope !== 'selected' || (chosen.length > 0 && chosen.length <= BATCH_CANCEL_MAX);
   const option = (value: Scope, text: string, disabled = false, note?: string) => (
-    <label className="dk-scope">
+    <label className="lt-field">
       <input
         type="radio"
         name="dk-cancel-scope"
@@ -149,24 +152,24 @@ export function CancelMany({
       />
       <span>
         {text}
-        {note ? <span className="dk-scope-note">{note}</span> : null}
+        {note ? <span className="lt-note">{note}</span> : null}
       </span>
     </label>
   );
   return (
     <>
-      <button type="button" className="dk-cancel-all" onClick={start}>
+      <Button tone="secondary" size="sm" onClick={start}>
         {t('Cancel orders')}
-      </button>
+      </Button>
       <AlertDialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
         {open ? (
-          <AlertDialogContent className="dk-review">
+          <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{t('Cancel orders title')}</AlertDialogTitle>
               <AlertDialogDescription>{t('Cancel orders intro')}</AlertDialogDescription>
             </AlertDialogHeader>
             {outcome ? null : (
-              <fieldset className="dk-scopes" aria-label={t('Cancel orders title')}>
+              <fieldset className="lt-stack-tight" aria-label={t('Cancel orders title')}>
                 {option(
                   'selected',
                   chosen.length > 0 ? t('Cancel scope selected', { count: chosen.length }) : t('Cancel scope selected none'),
@@ -180,7 +183,7 @@ export function CancelMany({
             {outcome?.kind === 'all' ? (
               <p
                 data-testid={outcome.tone === 'good' ? undefined : 'dk-note--bad'}
-                className={outcome.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
+                className={NOTE[outcome.tone]}
                 role={outcome.tone === 'good' ? 'status' : 'alert'}
               >
                 {outcome.text}
@@ -190,13 +193,13 @@ export function CancelMany({
               <div role="status">
                 <p
                   data-testid={outcome.done === outcome.count ? undefined : 'dk-note--bad'}
-                  className={outcome.done === outcome.count ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
+                  className={NOTE[toneOf(outcome.done === outcome.count)]}
                 >
                   {t('Cancel batch summary', { done: outcome.done, count: outcome.count })}
                 </p>
-                <ul className="dk-batch">
+                <ul className="lt-list">
                   {outcome.rows.map((row) => (
-                    <li key={row.key} className={row.tone === 'good' ? 'dk-batch-good' : 'dk-batch-bad'}>
+                    <li key={row.key} className={NOTE[row.tone]}>
                       {row.label}: {row.text}
                     </li>
                   ))}
@@ -204,11 +207,11 @@ export function CancelMany({
               </div>
             ) : null}
             <AlertDialogFooter>
-              <Button variant="secondary" size={40} disabled={busy} onClick={close}>
+              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
                 {outcome ? t('Edit close') : t('Keep orders')}
               </Button>
               {outcome ? null : (
-                <Button variant="primary" shape="pill" size={40} loading={busy} disabled={!canConfirm} onClick={() => void confirm()}>
+                <Button loading={busy} tone="primary" size="md" disabled={!canConfirm} onClick={() => void confirm()}>
                   {t('Cancel orders confirm')}
                 </Button>
               )}

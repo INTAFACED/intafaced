@@ -3,25 +3,11 @@ import type { ApiResult } from '../../shared/api';
 import { Button, Dialog, Field } from '../../shared/ui';
 import { useSession } from '../session';
 import { isStepUpCode, mintWithdrawToken, type WithdrawStepUpMethod } from './withdraw-step-up';
-import { withdrawStepUpCopy } from './withdraw-step-up-copy';
+import { stepUpRefusalKeys, withdrawStepUpCopy } from './withdraw-step-up-copy';
+
+export { stepUpRefusalKeys };
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-type Key = Parameters<ReturnType<typeof withdrawStepUpCopy.useCopy>['t']>[0];
-
-/** Identity's step-up refusals in plain words: shared by every "Confirm it's you" in the money rooms. */
-export const stepUpRefusalKeys: Record<string, Key> = {
-  'auth.mfa_invalid': 'codeBad',
-  'auth.mfa_not_enrolled': 'noAuthenticator',
-  'auth.webauthn_not_enrolled': 'noPasskey',
-  'auth.webauthn_invalid': 'passkeyBad',
-  'portal.passkey_stopped': 'passkeyStopped',
-  'portal.passkey_unavailable': 'passkeyUnavailable',
-  'portal.passkey_failed': 'passkeyFailed',
-  'portal.passkey_unreadable': 'passkeyFailed',
-  'stepUp.code_malformed': 'codeShort',
-  'stepUp.scope_missing': 'failed',
-};
-
 /**
  * The shared "Confirm it's you" for anything that needs `trade:withdraw` (the withdrawal address list today; the bank
  * address book and the withdraw page next). The person answers with a passkey, an authenticator code or a recovery

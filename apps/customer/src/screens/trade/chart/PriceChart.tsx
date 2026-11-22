@@ -335,30 +335,29 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
   const legend = focus ? legendValues(focus, tickSize, language) : null;
 
   return (
-    <div className="pc-root" role="img" aria-label={labels.chart}>
-      <div ref={host} data-testid="pc-host" className="pc-host" />
+    <div className="lt-stack-tight" role="img" aria-label={labels.chart}>
       {legend && focus ? (
-        <div data-testid="pc-legend" className="pc-legend" aria-hidden="true">
-          <span className="pc-time">{formatTime(Math.floor(focus.t / 1000))}</span>
-          <span className="pc-ohlc">
+        <div data-testid="pc-legend" className="lt-row lt-note lt-num" aria-hidden="true">
+          <span>{formatTime(Math.floor(focus.t / 1000))}</span>
+          <span className="pc-ohlc" data-testid="pc-ohlc">
             {labels.open} <b>{legend.open}</b>
           </span>
-          <span className="pc-ohlc">
+          <span className="pc-ohlc" data-testid="pc-ohlc">
             {labels.high} <b>{legend.high}</b>
           </span>
-          <span className="pc-ohlc">
+          <span className="pc-ohlc" data-testid="pc-ohlc">
             {labels.low} <b>{legend.low}</b>
           </span>
-          <span className="pc-ohlc">
+          <span className="pc-ohlc" data-testid="pc-ohlc">
             {labels.close} <b>{legend.close}</b>
           </span>
-          <span className="pc-change" data-direction={legend.direction}>
+          <span className="lt-signed" data-direction={legend.direction}>
             {labels.change} {legend.change}
           </span>
           {mode === 'candles' ? (
-            <span className="pc-ma">
+            <span className="lt-row">
               {MA_PERIODS.map((p, i) => (
-                <span key={p} className={`pc-ma-${i + 1}`}>
+                <span key={p} className="lt-quiet" data-line={i + 1}>
                   MA({p})
                 </span>
               ))}
@@ -366,6 +365,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
           ) : null}
         </div>
       ) : null}
+      <div ref={host} data-testid="pc-host" className="lt-canvas" />
     </div>
   );
 }

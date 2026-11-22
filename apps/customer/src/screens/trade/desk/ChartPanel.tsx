@@ -101,7 +101,12 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, 
   };
 
   let body: React.ReactNode;
-  if (candles.status === 'loading') body = <Skeleton data-testid="dk-chart-skeleton" className="dk-chart-skeleton bg-field" />;
+  if (candles.status === 'loading')
+    body = (
+      <div data-testid="dk-chart-skeleton">
+        <Skeleton shape="chart" />
+      </div>
+    );
   else if (candles.status === 'empty') body = <StateBlock kind="empty" title={t('No trades in this period')} />;
   else if (candles.status === 'error')
     body = <StateBlock kind="error" title={t('Couldn’t load the chart')} onRetry={candles.retry} retryLabel={t('Try again')} />;
@@ -130,64 +135,69 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, 
       onValueChange={(value) => setTab(value as 'chart' | 'info')}
       data-testid="dk-chart"
       data-featureset={describeFeatureset(FEATURESETS['spot-desk'])}
-      className="dk-panel dk-chart"
+      className="lt-panel"
       ref={panel}
     >
-      <TabsList divider className="dk-tabs">
+      <TabsList>
         <TabsTab value="chart">{t('Chart')}</TabsTab>
         <TabsTab value="info">{t('Info')}</TabsTab>
       </TabsList>
-      <TabsPanel value="chart" className="dk-chart-body">
-        <div className="dk-chart-bar">
-          <div className="dk-chips" role="group" aria-label={t('Chart intervals')}>
-            {CHART_INTERVALS.map((id) => (
-              <button key={id} type="button" aria-pressed={interval === id} onClick={() => setSetting({ ...setting, interval: id })}>
-                {intervalLabel(id)}
-              </button>
-            ))}
-            <Menu>
-              <MenuTrigger className="dk-more" data-active={moreActive || undefined}>
-                {moreActive ? intervalLabel(interval) : t('More intervals')}
-                <span aria-hidden="true"> ▾</span>
-              </MenuTrigger>
-              <MenuContent align="start">
-                {MORE_INTERVALS.map((id) => (
-                  <MenuItem key={id} onClick={() => setSetting({ ...setting, interval: id })}>
-                    {intervalLabel(id)}
-                  </MenuItem>
-                ))}
-              </MenuContent>
-            </Menu>
-          </div>
-          <div className="dk-chips dk-chips--right">
-            {onToggleDom ? (
-              <button type="button" aria-pressed={domOpen === true} data-testid="dk-open-dom" onClick={onToggleDom}>
-                {domOpen ? flow.t('Close DOM') : flow.t('Open DOM')}
-              </button>
-            ) : null}
-            <div role="group" className="dk-chips" aria-label={t('Chart style')}>
-              <button type="button" aria-pressed={mode === 'candles'} onClick={() => setSetting({ ...setting, mode: 'candles' })}>
-                {t('Candles')}
-              </button>
-              <button type="button" aria-pressed={mode === 'line'} onClick={() => setSetting({ ...setting, mode: 'line' })}>
-                {t('Line')}
+      <TabsPanel value="chart">
+        <div className="lt-stack">
+          <div className="lt-row lt-row-between">
+            <div className="lt-chips" role="group" aria-label={t('Chart intervals')}>
+              {CHART_INTERVALS.map((id) => (
+                <button key={id} type="button" aria-pressed={interval === id} onClick={() => setSetting({ ...setting, interval: id })}>
+                  {intervalLabel(id)}
+                </button>
+              ))}
+              <Menu>
+                <MenuTrigger className="dk-more" data-testid="dk-more" data-active={moreActive || undefined}>
+                  {moreActive ? intervalLabel(interval) : t('More intervals')}
+                  <span aria-hidden="true"> ▾</span>
+                </MenuTrigger>
+                <MenuContent align="start">
+                  {MORE_INTERVALS.map((id) => (
+                    <MenuItem key={id} onClick={() => setSetting({ ...setting, interval: id })}>
+                      {intervalLabel(id)}
+                    </MenuItem>
+                  ))}
+                </MenuContent>
+              </Menu>
+            </div>
+            <div className="lt-row">
+              {onToggleDom ? (
+                <button type="button" aria-pressed={domOpen === true} data-testid="dk-open-dom" onClick={onToggleDom}>
+                  {domOpen ? flow.t('Close DOM') : flow.t('Open DOM')}
+                </button>
+              ) : null}
+              <div role="group" className="lt-chips" aria-label={t('Chart style')}>
+                <button type="button" aria-pressed={mode === 'candles'} onClick={() => setSetting({ ...setting, mode: 'candles' })}>
+                  {t('Candles')}
+                </button>
+                <button type="button" aria-pressed={mode === 'line'} onClick={() => setSetting({ ...setting, mode: 'line' })}>
+                  {t('Line')}
+                </button>
+              </div>
+              <button
+                type="button"
+                className="lt-icon-button"
+                aria-label={full ? t('Exit full screen') : t('Full screen')}
+                onClick={toggleFull}
+              >
+                {full ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
               </button>
             </div>
-            <button type="button" className="dk-icon-btn" aria-label={full ? t('Exit full screen') : t('Full screen')} onClick={toggleFull}>
-              {full ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
-            </button>
           </div>
-        </div>
-        <div className="dk-chart-canvas">
-          {body}
+          <div className="lt-canvas">{body}</div>
           {trade}
         </div>
       </TabsPanel>
-      <TabsPanel value="info" className="dk-chart-body">
-        <div data-testid="dk-info" className="dk-info">
-          <h2>{t('Market rules')}</h2>
+      <TabsPanel value="info">
+        <div data-testid="dk-info" className="lt-stack">
+          <h2 className="lt-panel-title">{t('Market rules')}</h2>
           <MarketRulesList market={market} />
-          <p>{t('Fee rule')}</p>
+          <p className="lt-note">{t('Fee rule')}</p>
         </div>
       </TabsPanel>
     </Tabs>

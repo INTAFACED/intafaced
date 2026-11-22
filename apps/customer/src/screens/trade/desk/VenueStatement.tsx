@@ -10,11 +10,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
-  refusalCopy,
-} from './deps';
+} from '@intafaced/ui/lit';
+import { refusalCopy } from '../../../data';
 import { sha256Hex, statementRange, todayEnd } from './ledger';
 import { clockMinutes } from './time';
 import { spotVenueCopy } from './venue-copy';
+
+/** A note's kit classes: plain, or the refusal tone. */
+const NOTE = { plain: 'lt-note', bad: 'lt-note lt-note-bad' } as const;
 
 type Asked = { status: 'idle' } | { status: 'busy' } | { status: 'job'; job: VenueStatementJob } | { status: 'refused'; text: string };
 
@@ -69,11 +72,12 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
   }
 
   const job = asked.status === 'job' ? asked.job : null;
+  const jobFailed = job?.status === 'failed';
   return (
     <>
       <Button
-        variant="secondary"
-        size={32}
+        tone="secondary"
+        size="sm"
         disabled={!owner}
         onClick={() => {
           setAsOf(new Date());
@@ -86,29 +90,29 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
       </Button>
       <AlertDialog open={open} onOpenChange={(next) => setOpen(next)}>
         {open ? (
-          <AlertDialogContent className="dk-review">
+          <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{t('Statement title')}</AlertDialogTitle>
               <AlertDialogDescription>{t('Statement intro', { venue: status.venue.displayName })}</AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="dk-statement-days">
-              <label>
+            <div className="lt-cols-2">
+              <label className="lt-field">
                 <span>{d('Statement from')}</span>
                 <input type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
               </label>
-              <label>
+              <label className="lt-field">
                 <span>{d('Statement to')}</span>
                 <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
               </label>
             </div>
-            <p className="dk-note">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
+            <p className="lt-note">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
             {asked.status === 'refused' ? (
-              <p className="dk-note dk-note--bad" role="alert">
+              <p className="lt-note lt-note-bad" role="alert">
                 {asked.text}
               </p>
             ) : null}
             {job ? (
-              <p className={job.status === 'failed' ? 'dk-note dk-note--bad' : 'dk-note'} role="status">
+              <p className={jobFailed ? NOTE.bad : NOTE.plain} role="status">
                 {job.status === 'finished' && job.rows
                   ? t('Statement ready', { orders: job.rows.orders, trades: job.rows.trades, movements: job.rows.movements, id: job.id })
                   : job.status === 'failed'
@@ -116,22 +120,22 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
                     : d('Statement pending')}
               </p>
             ) : null}
-            {job?.sha256 ? <p className="dk-note dk-note-ref">{d('Statement fingerprint', { sha: job.sha256 })}</p> : null}
+            {job?.sha256 ? <p className="lt-note lt-ref">{d('Statement fingerprint', { sha: job.sha256 })}</p> : null}
             {saved ? (
-              <p className="dk-note" role="status">
+              <p className="lt-note" role="status">
                 {saved}
               </p>
             ) : null}
             <AlertDialogFooter>
-              <Button variant="secondary" size={40} onClick={() => setOpen(false)}>
+              <Button tone="secondary" onClick={() => setOpen(false)}>
                 {d('Dead man close')}
               </Button>
               {job?.status === 'finished' ? (
-                <Button variant="secondary" size={40} onClick={() => void save(job)}>
+                <Button tone="secondary" onClick={() => void save(job)}>
                   {d('Statement download')}
                 </Button>
               ) : null}
-              <Button variant="primary" shape="pill" size={40} loading={asked.status === 'busy'} onClick={() => void ask()}>
+              <Button loading={asked.status === 'busy'} tone="primary" onClick={() => void ask()}>
                 {job?.status === 'pending' ? d('Statement check again') : d('Statement request')}
               </Button>
             </AlertDialogFooter>

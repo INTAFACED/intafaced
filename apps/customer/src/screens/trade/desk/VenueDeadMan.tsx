@@ -11,7 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
-} from './deps';
+} from '@intafaced/ui/lit';
 import { deadManChoices, otherSeconds } from './dead-man';
 import { clockSeconds } from './time';
 import { spotVenueCopy } from './venue-copy';
@@ -19,6 +19,9 @@ import { useAsk } from './VenueOrderChanges';
 
 type T = ReturnType<typeof spotVenueCopy.useCopy>['t'];
 type Note = { tone: 'good' | 'bad'; text: string } | null;
+
+/** A note's look by its tone. */
+const NOTE_CLASS = { good: 'lt-note lt-note-good', bad: 'lt-note lt-note-bad' } as const;
 
 /**
  * The dead-man switch on the launch model (J-cex-spot-07 #1 to #4): the venue's own scheduled cancel. The person picks one
@@ -105,39 +108,38 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
   const armed = cancelsAt !== null;
   return (
     <>
-      <button type="button" className="dk-cancel-all" aria-haspopup="dialog" data-testid="venue-dead-man" onClick={() => setOpen(true)}>
+      <Button tone="secondary" size="sm" aria-haspopup="dialog" data-testid="venue-dead-man" onClick={() => setOpen(true)}>
         {label}
-      </button>
+      </Button>
       <AlertDialog open={open && !signing} onOpenChange={(next) => (next ? setOpen(true) : close())}>
         {open ? (
-          <AlertDialogContent className="dk-review">
+          <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{t('Dead man title')}</AlertDialogTitle>
               <AlertDialogDescription>{t('Dead man intro', { venue: status.venue.displayName })}</AlertDialogDescription>
             </AlertDialogHeader>
             {!offered ? (
-              <p className="dk-note dk-note--bad" role="status" data-testid="venue-dead-man-not-offered">
+              <p className="lt-note lt-note-bad" role="status" data-testid="venue-dead-man-not-offered">
                 {t('Dead man not offered', { venue: status.venue.displayName })}
               </p>
             ) : choices.length === 0 ? (
-              <p className="dk-note dk-note--bad" role="status">
+              <p className="lt-note lt-note-bad" role="status">
                 {t('Dead man not published')}
               </p>
             ) : (
-              <fieldset className="dk-scopes" aria-label={t('Dead man after')}>
+              <fieldset className="lt-field" aria-label={t('Dead man after')}>
                 {choices.map((s) => (
-                  <label key={s} className="dk-scope">
+                  <label key={s} className="lt-field">
                     <input type="radio" name="venue-dead-man" checked={picked === s && choice !== 'other'} onChange={() => setChoice(s)} />
                     <span>{t('Dead man seconds', { count: s })}</span>
                   </label>
                 ))}
-                <label className="dk-scope">
+                <label className="lt-field">
                   <input type="radio" name="venue-dead-man" checked={choice === 'other'} onChange={() => setChoice('other')} />
                   <span>{t('Dead man other')}</span>
                 </label>
                 {choice === 'other' ? (
                   <input
-                    className="dk-deadman-other"
                     inputMode="numeric"
                     aria-label={t('Dead man other seconds')}
                     value={other}
@@ -147,33 +149,29 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
               </fieldset>
             )}
             {armed && !shown ? (
-              <p className="dk-note" role="status">
+              <p className="lt-note" role="status">
                 {t('Dead man armed', { time: clockSeconds(cancelsAt, timeZone) })}
               </p>
             ) : null}
             {shown ? (
-              <p
-                className={shown.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
-                role={shown.tone === 'good' ? 'status' : 'alert'}
-              >
+              <p className={NOTE_CLASS[shown.tone]} role={shown.tone === 'good' ? 'status' : 'alert'}>
                 {shown.text}
               </p>
             ) : null}
             <AlertDialogFooter>
-              <Button variant="secondary" size={40} disabled={busy} onClick={close}>
+              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
                 {t('Dead man close')}
               </Button>
               {offered && armed ? (
-                <Button variant="secondary" size={40} loading={busy} onClick={() => void send(0)}>
+                <Button loading={busy} tone="secondary" size="md" onClick={() => void send(0)}>
                   {t('Dead man disarm')}
                 </Button>
               ) : null}
               {offered && choices.length > 0 ? (
                 <Button
-                  variant="primary"
-                  shape="pill"
-                  size={40}
                   loading={busy}
+                  tone="primary"
+                  size="md"
                   disabled={picked === null || !owner}
                   onClick={() => picked !== null && void send(picked)}
                 >

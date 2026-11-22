@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
-import { DataTable } from '../../../shared/ui';
+import { DataTable, StateBlock, Tab, TabList, TabPanel, TabSet } from '@intafaced/ui/lit';
 import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -12,7 +12,6 @@ import { CHART_INTERVALS, type ChartInterval } from '../chart/candles';
 import { PriceChart } from '../chart/PriceChart';
 import type { ChartOrderHost } from '../../charts/chart-host';
 import { deskCopy } from './copy';
-import { StateBlock, Tabs, TabsList, TabsPanel, TabsTab } from './deps';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
 
@@ -106,45 +105,43 @@ export function VenueMarketPanel({
   const price = (value: string) => displayAmount(value);
 
   return (
-    <section className="dk-panel form-stack" aria-label={t('Venue market')} data-testid="venue-market" data-market={market.symbol}>
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Venue market')} data-testid="venue-market" data-market={market.symbol}>
+      <h2 className="lt-panel-title">
         {t('Venue market')} <TestMark test={test} />
       </h2>
       <ReadProblem failure={failure} venueName={venueName} />
-      <dl className="dk-stats dk-venue-ticker" data-testid="venue-ticker">
-        <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Last price')}</dt>
-          <dd className="dk-stat-value numeric" data-testid="venue-last" data-trade-id={last?.tradeId}>
+      <dl className="lt-stats" data-testid="venue-ticker">
+        <div>
+          <dt>{t('Last price')}</dt>
+          <dd className="lt-num" data-testid="venue-last" data-trade-id={last?.tradeId}>
             {last ? `${price(last.price)} ${market.quoteAsset}` : t('No print')}
           </dd>
         </div>
-        <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Best bid')}</dt>
-          <dd className="dk-stat-value numeric" data-testid="venue-best-bid">
+        <div>
+          <dt>{t('Best bid')}</dt>
+          <dd className="lt-num" data-testid="venue-best-bid">
             {bid ? price(bid.price) : t('Side empty')}
           </dd>
         </div>
-        <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Best ask')}</dt>
-          <dd className="dk-stat-value numeric" data-testid="venue-best-ask">
+        <div>
+          <dt>{t('Best ask')}</dt>
+          <dd className="lt-num" data-testid="venue-best-ask">
             {ask ? price(ask.price) : t('Side empty')}
           </dd>
         </div>
-        <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Market data as of')}</dt>
-          <dd className="dk-stat-value" data-testid="venue-market-as-of">
-            {book.data ? asOfText(book.data.asOf) : '…'}
-          </dd>
+        <div>
+          <dt>{t('Market data as of')}</dt>
+          <dd data-testid="venue-market-as-of">{book.data ? asOfText(book.data.asOf) : '…'}</dd>
         </div>
       </dl>
 
       {/* The chart with the book and tape beside it, as today's desk sets them. */}
-      <div className="dk-venue-market">
-        <div className="dk-venue-chart">
+      <div className="lt-cols-2">
+        <div className="lt-stack">
           {/* A flex column, as today's desk chart is (ChartPanel): the canvas takes the height the bar and Buy/Sell leave. */}
-          <div className="dk-chart dk-chart--venue" data-testid="venue-chart">
-            <div className="dk-chart-bar">
-              <div className="dk-chips" role="group" aria-label={d('Chart intervals')}>
+          <div className="lt-stack" data-testid="venue-chart">
+            <div className="lt-row lt-row-between">
+              <div className="lt-chips" role="group" aria-label={d('Chart intervals')}>
                 {CHART_INTERVALS.map((id) => (
                   <button key={id} type="button" aria-pressed={interval === id} onClick={() => setChartInterval(id)}>
                     {intervalLabel(id)}
@@ -153,9 +150,9 @@ export function VenueMarketPanel({
               </div>
               {chartTools}
             </div>
-            <div className="dk-chart-canvas">
+            <div className="lt-canvas">
               {chart === null ? (
-                <p className="muted" role="status">
+                <p className="lt-note" role="status">
                   {t('Reading the venue')}
                 </p>
               ) : chart.length === 0 ? (
@@ -181,12 +178,12 @@ export function VenueMarketPanel({
           {chartOrders?.(chart !== null && chart.length > 0 ? host : null)}
         </div>
 
-        <Tabs value={tab} onValueChange={(x) => setTab(x as typeof tab)} data-testid="venue-book-tape" className="dk-venue-book">
-          <TabsList divider className="dk-tabs">
-            <TabsTab value="book">{t('Order book')}</TabsTab>
-            <TabsTab value="tape">{t('Last trades')}</TabsTab>
-          </TabsList>
-          <TabsPanel value="book">
+        <TabSet value={tab} onValueChange={(x) => setTab(x as typeof tab)} data-testid="venue-book-tape">
+          <TabList>
+            <Tab value="book">{t('Order book')}</Tab>
+            <Tab value="tape">{t('Last trades')}</Tab>
+          </TabList>
+          <TabPanel value="book">
             {book.data ? (
               <DataTable
                 label={t('Order book')}
@@ -198,24 +195,24 @@ export function VenueMarketPanel({
                 ].map((l) => (
                   <tr key={`${l.side}:${l.price}`} data-testid="venue-book-row" data-side={l.side}>
                     <td>{l.side === 'bid' ? t('Bid') : t('Ask')}</td>
-                    <td className="numeric" data-testid="venue-book-price">
+                    <td className="lt-num lt-end" data-testid="venue-book-price">
                       {price(l.price)}
                     </td>
-                    <td className="numeric" data-testid="venue-book-amount">
+                    <td className="lt-num lt-end" data-testid="venue-book-amount">
                       {price(l.amount)}
                     </td>
                   </tr>
                 ))}
               </DataTable>
             ) : (
-              <p className="muted" role="status">
+              <p className="lt-note" role="status">
                 {t('Reading the venue')}
               </p>
             )}
-          </TabsPanel>
-          <TabsPanel value="tape">
+          </TabPanel>
+          <TabPanel value="tape">
             {tape.data && tape.data.value.length === 0 ? (
-              <p className="muted">{t('No print')}</p>
+              <p className="lt-note">{t('No print')}</p>
             ) : tape.data ? (
               <DataTable
                 label={t('Last trades')}
@@ -225,22 +222,22 @@ export function VenueMarketPanel({
                   <tr key={p.tradeId} data-testid="venue-tape-row" data-trade-id={p.tradeId} data-side={p.takerSide ?? 'unknown'}>
                     <td>{new Date(p.tradedAt).toLocaleTimeString('en-GB', { timeZone: zoneName(timeZone), hourCycle: 'h23' })}</td>
                     <td>{p.takerSide === 'buy' ? t('Taker buy') : p.takerSide === 'sell' ? t('Taker sell') : t('Side not published')}</td>
-                    <td className="numeric" data-testid="venue-tape-price">
+                    <td className="lt-num lt-end" data-testid="venue-tape-price">
                       {price(p.price)}
                     </td>
-                    <td className="numeric" data-testid="venue-tape-amount">
+                    <td className="lt-num lt-end" data-testid="venue-tape-amount">
                       {price(p.amount)}
                     </td>
                   </tr>
                 ))}
               </DataTable>
             ) : (
-              <p className="muted" role="status">
+              <p className="lt-note" role="status">
                 {t('Reading the venue')}
               </p>
             )}
-          </TabsPanel>
-        </Tabs>
+          </TabPanel>
+        </TabSet>
       </div>
     </section>
   );

@@ -12,9 +12,8 @@ import {
   AlertDialogTitle,
   AmountInput,
   Button,
-  fmtAmount,
-  fmtPrice,
-} from './deps';
+} from '@intafaced/ui/lit';
+import { fmtAmount, fmtPrice } from './deps';
 import type { DeskMarket } from './market';
 import { checkOrder, padDecimals, scaled } from './order-math';
 import { asReplacement, failureOf, previewFailure, previewIsOrderable } from './preview';
@@ -23,6 +22,7 @@ import { placesOf } from './text';
 import { replaceKey } from './replace-key';
 
 type Note = { tone: 'good' | 'bad'; text: string } | null;
+const NOTE_CLASS = { good: 'lt-callout lt-callout-good', bad: 'lt-callout lt-callout-bad' } as const;
 
 /**
  * Change the trigger of a stop that has not fired (J-cex-spot-08 #3): its stop price, and a stop-limit's limit price.
@@ -186,7 +186,7 @@ export function StopEdit({
   const asset = market.base;
   return (
     <AlertDialog open onOpenChange={(next) => (next ? undefined : close())}>
-      <AlertDialogContent className="dk-review dk-edit">
+      <AlertDialogContent className="lt-stack">
         <AlertDialogHeader>
           <AlertDialogTitle>{t('Edit stop title')}</AlertDialogTitle>
           <AlertDialogDescription>
@@ -201,41 +201,41 @@ export function StopEdit({
           </AlertDialogDescription>
         </AlertDialogHeader>
         {review ? (
-          <dl className="dk-review-rows">
+          <dl className="lt-kv">
             <div>
               <dt>{t('Review stop price')}</dt>
-              <dd className="if-num">
+              <dd className="lt-num">
                 {fmtPrice(order.stopPrice ?? '', market.tickSize)} → {fmtPrice(review.draft.stopPrice ?? '', market.tickSize)}{' '}
                 {market.quote}
               </dd>
             </div>
             <div>
               <dt>{stopMarket ? t('Review protection price') : t('Review price')}</dt>
-              <dd className="if-num">
+              <dd className="lt-num">
                 {fmtPrice(order.price ?? '', market.tickSize)} → {fmtPrice(review.preview.price ?? '', market.tickSize)} {market.quote}
               </dd>
             </div>
             <div>
               <dt>{t('Review amount')}</dt>
-              <dd className="if-num">
+              <dd className="lt-num">
                 {fmtAmount(review.draft.amount, { places: amountPlaces })} {asset}
               </dd>
             </div>
             <div>
               <dt>{t('Review hold')}</dt>
-              <dd className="if-num">
+              <dd className="lt-num">
                 {fmtAmount(review.preview.holdAmount, { places: 8 })} {review.preview.holdAsset}
               </dd>
             </div>
             <div>
               <dt>{t('Review fee')}</dt>
-              <dd className="if-num">
+              <dd className="lt-num">
                 {fmtAmount(review.preview.estimatedFee, { places: 8 })} {review.preview.feeAsset}
               </dd>
             </div>
           </dl>
         ) : finished ? null : (
-          <div className="dk-edit-fields">
+          <div className="lt-stack">
             <AmountInput
               label={t('Stop price')}
               value={stop}
@@ -261,47 +261,40 @@ export function StopEdit({
                 aria-label={t('Price')}
               />
             )}
-            <p className="dk-note dk-edit-help">{t('Edit stop explain')}</p>
+            <p className="lt-note">{t('Edit stop explain')}</p>
           </div>
         )}
         {review?.changed ? (
-          <p data-testid="dk-note--warn" className="dk-note dk-note--warn">
+          <p data-testid="dk-note--warn" className="lt-callout lt-callout-warn">
             {t('Review changed')}
           </p>
         ) : null}
         {review ? (
-          <p data-testid="dk-note--warn" className="dk-note dk-note--warn">
+          <p data-testid="dk-note--warn" className="lt-callout lt-callout-warn">
             {t('Edit stop explain')}
           </p>
         ) : null}
-        {problem && !review && !finished ? <p className="dk-note">{problem}</p> : null}
-        {unchanged && !finished ? <p className="dk-note">{t('Edit nothing changed')}</p> : null}
+        {problem && !review && !finished ? <p className="lt-note">{problem}</p> : null}
+        {unchanged && !finished ? <p className="lt-note">{t('Edit nothing changed')}</p> : null}
         {note ? (
           <p
             data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
-            className={note.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
+            className={NOTE_CLASS[note.tone]}
             role={note.tone === 'good' ? 'status' : 'alert'}
           >
             {note.text}
           </p>
         ) : null}
         <AlertDialogFooter>
-          <Button variant="secondary" size={40} disabled={busy} onClick={close}>
+          <Button tone="secondary" size="md" disabled={busy} onClick={close}>
             {finished ? t('Edit close') : t('Edit keep order')}
           </Button>
           {finished ? null : review ? (
-            <Button variant="primary" shape="pill" size={40} loading={busy} onClick={() => void confirmReplacement()}>
+            <Button tone="primary" size="md" loading={busy} onClick={() => void confirmReplacement()}>
               {t('Edit confirm replace')}
             </Button>
           ) : (
-            <Button
-              variant="primary"
-              shape="pill"
-              size={40}
-              loading={busy}
-              disabled={!checked.ok || unchanged}
-              onClick={() => void reviewReplacement()}
-            >
+            <Button tone="primary" size="md" loading={busy} disabled={!checked.ok || unchanged} onClick={() => void reviewReplacement()}>
               {t('Edit review replace')}
             </Button>
           )}

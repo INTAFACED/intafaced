@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Button, DataTable } from '../../../shared/ui';
+import { Button, DataTable } from '@intafaced/ui/lit';
 import { displayAmount } from '../../../shared/money';
 import { usePolled } from '../../protocol';
 import { canonicalDecimal, draftId, keys, type AsOf, type VenueBalance } from '../venue-api';
@@ -78,30 +78,30 @@ export function SubAccountsPanel({
 
   const list = subs.data?.value ?? [];
   return (
-    <section className="dk-panel form-stack" aria-label={t('Sub-accounts')} data-testid="venue-sub-accounts">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Sub-accounts')} data-testid="venue-sub-accounts">
+      <h2 className="lt-panel-title">
         {t('Sub-accounts')} <TestMark test={test} />
       </h2>
-      <p className="muted">{t('Sub-accounts why')}</p>
+      <p className="lt-quiet">{t('Sub-accounts why')}</p>
       {subs.failure ? (
-        <p className="failure" role="alert" data-refusal={subs.failure.code}>
+        <p className="lt-note lt-note-bad" role="alert" data-refusal={subs.failure.code}>
           {t('Sub-accounts not offered', { detail: subs.failure.message })}
         </p>
       ) : null}
-      {subs.data && list.length === 0 ? <p className="muted">{t('No sub-accounts')}</p> : null}
+      {subs.data && list.length === 0 ? <p className="lt-quiet">{t('No sub-accounts')}</p> : null}
       {list.map((s) => (
         <SubAccountBalances key={s.subAccount} owner={owner} subAccount={s.subAccount} name={s.name} />
       ))}
-      <label className="field">
+      <label className="lt-field">
         <span>{t('Sub-account name')}</span>
         <input value={name} onChange={(e) => setName(e.target.value)} aria-label={t('Sub-account name')} />
       </label>
-      <Button variant="secondary" onClick={() => void open()}>
+      <Button tone="secondary" onClick={() => void open()}>
         {t('Open sub-account')}
       </Button>
       {list.length > 0 ? (
         <>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('Sub-account')}</span>
             <select value={chosen || list[0]!.subAccount} onChange={(e) => setChosen(e.target.value)} aria-label={t('Sub-account')}>
               {list.map((s) => (
@@ -111,7 +111,7 @@ export function SubAccountsPanel({
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('Move asset')}</span>
             <select value={asset || coins[0]?.asset || ''} onChange={(e) => setAsset(e.target.value)} aria-label={t('Move asset')}>
               {coins.map((b) => (
@@ -121,15 +121,17 @@ export function SubAccountsPanel({
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('Move amount')}</span>
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label={t('Move amount')} />
           </label>
-          <Button onClick={() => void move()}>{t('Move to sub-account')}</Button>
+          <Button tone="primary" onClick={() => void move()}>
+            {t('Move to sub-account')}
+          </Button>
         </>
       ) : null}
       {problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-note lt-note-bad" role="alert">
           {problem}
         </p>
       ) : null}
@@ -151,20 +153,20 @@ function SubAccountBalances({ owner, subAccount, name }: { owner: string; subAcc
           {rows.map((b) => (
             <tr key={b.asset} data-asset={b.asset}>
               <td>{b.asset}</td>
-              <td className="numeric" data-cell="free">
+              <td className="lt-num lt-end" data-cell="free">
                 {displayAmount(b.free)}
               </td>
-              <td className="numeric" data-cell="used">
+              <td className="lt-num lt-end" data-cell="used">
                 {displayAmount(b.locked)}
               </td>
-              <td className="numeric" data-cell="total">
+              <td className="lt-num lt-end" data-cell="total">
                 {displayAmount(b.total)}
               </td>
             </tr>
           ))}
         </DataTable>
       ) : read.data ? (
-        <p className="muted">{t('No balances')}</p>
+        <p className="lt-quiet">{t('No balances')}</p>
       ) : null}
       <AsOfLine asOf={read.data?.asOf ?? null} />
     </div>

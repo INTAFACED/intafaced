@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react';
 import { deskCopy } from './copy';
-import { Menu, MenuContent, MenuItem, MenuTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
+import { Menu, MenuContent, MenuItem, MenuTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@intafaced/ui/lit';
 import type { OrderType } from './order-math';
 import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
 
@@ -14,16 +14,16 @@ export function MoreOrderTypes() {
   const { t } = deskCopy.useCopy();
   return (
     <Menu>
-      <MenuTrigger className="dk-type-more" aria-label={t('More order types label')}>
+      <MenuTrigger className="lt-icon-button" aria-label={t('More order types label')}>
         {t('More order types')}
         <ChevronDown size={14} aria-hidden="true" />
       </MenuTrigger>
-      <MenuContent align="start" className="dk-type-menu">
-        <p className="dk-type-reason" role="note">
+      <MenuContent align="start">
+        <p className="lt-note" role="note">
           {t('Order type unavailable')}
         </p>
         {UNSUPPORTED_TYPES.map((kind) => (
-          <MenuItem key={kind} disabled className="dk-type-item">
+          <MenuItem key={kind} disabled>
             {t(TYPE_KEY[kind])}
           </MenuItem>
         ))}
@@ -44,14 +44,14 @@ export function SelfTradeSelect() {
   const { t } = deskCopy.useCopy();
   const items = Object.fromEntries(SELF_TRADE.map(([mode, key]) => [mode, t(key)]));
   return (
-    <div className="dk-tif dk-opt">
-      <span className="dk-tif-label" id="dk-stp-label">
+    <div className="lt-field">
+      <span className="lt-label" id="dk-stp-label">
         {t('Self trade')}
       </span>
       <Select items={items} value="cancel_maker">
         <SelectTrigger
-          size={32}
-          className="dk-tif-trigger"
+          size="sm"
+          className="lt-grow"
           aria-labelledby="dk-stp-label"
           aria-describedby="dk-stp-note"
           title={t('Self trade cancel maker help')}
@@ -71,7 +71,7 @@ export function SelfTradeSelect() {
           ))}
         </SelectContent>
       </Select>
-      <span className="dk-opt-note" id="dk-stp-note">
+      <span className="lt-note" id="dk-stp-note">
         {t('Self trade unavailable')}
       </span>
     </div>
@@ -82,11 +82,11 @@ export function SelfTradeSelect() {
 export function TagField({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   const { t } = deskCopy.useCopy();
   return (
-    <label className="dk-tif dk-opt" title={t('Order tag help')}>
-      <span className="dk-tif-label">{t('Order tag')}</span>
+    <label className="lt-field" title={t('Order tag help')}>
+      <span className="lt-label">{t('Order tag')}</span>
       <input
         type="text"
-        className="dk-expiry-input dk-tag-input"
+        className="lt-grow"
         value={value}
         maxLength={16}
         placeholder={t('Order tag placeholder')}
@@ -104,12 +104,12 @@ export function TifSelect({ type, tif, onTif }: { type: OrderType; tif: Tif; onT
   const items = Object.fromEntries(options.map((option) => [option, t(tifLabelKey(type, option))]));
   const help = t(`${tifLabelKey(type, tif)} help` as TifHelpKey);
   return (
-    <div className="dk-tif">
-      <span className="dk-tif-label" id="dk-tif-label">
+    <div className="lt-field">
+      <span className="lt-label" id="lt-label">
         {t('Time in force')}
       </span>
       <Select items={items} value={tif} onValueChange={(next) => (next && next !== tif ? onTif(next as Tif) : undefined)}>
-        <SelectTrigger size={32} className="dk-tif-trigger" aria-labelledby="dk-tif-label" title={help}>
+        <SelectTrigger size="sm" className="lt-grow" aria-labelledby="lt-label" title={help}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="end">
