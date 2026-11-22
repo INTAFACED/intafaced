@@ -1,3 +1,4 @@
+// volt-room: /academy/rooms/discussion/:courseSlug/:postId
 import { useEffect, useId, useRef, useState } from 'react';
 import {
   ACADEMY_DISCUSSION_GENERAL_TOPIC,

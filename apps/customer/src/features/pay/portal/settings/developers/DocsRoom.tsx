@@ -1,3 +1,5 @@
+// volt-room: /pay/developer/docs
+// volt-room: portal:developer-docs
 import { ReadingTemplate, Tabs, type RoomState } from '@intafaced/ui/lit/templates';
 import { useMerchantAccess } from '../../access/MerchantAccess';
 import { portalCopy } from '../../copy';

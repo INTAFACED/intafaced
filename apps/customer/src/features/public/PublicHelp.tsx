@@ -1,3 +1,5 @@
+// volt-room: /help
+// volt-room: /helpdetail
 import { useEffect, useRef, useState } from 'react';
 import { parsesAs, type ApiClient, type ApiResult } from '../../shared/api';
 import { SUPPORT_GET_KB, SUPPORT_SEARCH_KB } from '@intafaced/contracts/support-customer-procedures';

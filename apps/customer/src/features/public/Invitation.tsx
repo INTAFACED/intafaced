@@ -1,3 +1,4 @@
+// volt-room: /invite
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';

@@ -1,3 +1,4 @@
+// volt-room: /quant/shared/:strategyId
 import { type QuantSharedOpen } from '@intafaced/contracts/quant-team';
 import {
   QUANT_TEAM_OPEN,

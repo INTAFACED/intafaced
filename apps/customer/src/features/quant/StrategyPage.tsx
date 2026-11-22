@@ -1,3 +1,4 @@
+// volt-room: /quant/strategies/:strategyId
 import {
   quantStrategyDetailSchema,
   type QuantStrategyDetail,

@@ -1,3 +1,4 @@
+// volt-room: /rulebook
 import { useMemo } from 'react';
 import { ReadingTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { useDataEnv, useSource } from '../../../data/hooks';

@@ -1,3 +1,5 @@
+// volt-room: /trade/news
+// volt-room: /trade/calendar
 import { useMemo, useState, type ReactNode } from 'react';
 import { Button, EmptyState } from '@intafaced/ui/lit';
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';

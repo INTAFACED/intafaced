@@ -1,3 +1,4 @@
+// volt-room: /blueprint/shared/:cardId
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { ReadingTemplate, SelectField, Sheet } from '@intafaced/ui/lit/templates';

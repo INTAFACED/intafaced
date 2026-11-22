@@ -1,3 +1,4 @@
+// volt-room: /quant/share/:token
 import type { QuantBacktestMetrics, QuantCheck, QuantMetric, QuantPublicResult } from '@intafaced/contracts/quant-algo';
 import { QUANT_RESULT_SHARE_PUBLIC } from '@intafaced/contracts/quant-result-share-procedures';
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';

@@ -1,3 +1,4 @@
+// volt-room: /app
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { useAppStoreLink } from './app-store-link';
 import { pagesCopy } from './public-pages-copy';

@@ -1,3 +1,4 @@
+// volt-room: /about-us
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { ContactCard } from './ContactCard';
 import { RoomDirectory } from './RoomDirectory';

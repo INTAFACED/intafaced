@@ -1,3 +1,6 @@
+// volt-room: /notice
+// volt-room: /notice/:id
+// volt-room: /announcement/:id
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { BreakingChangesNotice } from '../../developers';
 import { useSession } from '../../session';

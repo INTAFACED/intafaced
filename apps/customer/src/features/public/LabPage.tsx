@@ -1,3 +1,5 @@
+// volt-room: /lab
+// volt-room: /lab/detail/:id
 import { ReadingTemplate, ServiceOffNotice } from '@intafaced/ui/lit/templates';
 import { serviceOffCopy } from '../../shared/service-off';
 import { labCopy } from './lab-copy';

@@ -1,3 +1,5 @@
+// volt-room: /help/category/:id
+// volt-room: /help/section/:id
 import type { ReactNode } from 'react';
 import { Button, EmptyState } from '@intafaced/ui/lit';
 import { ReadingTemplate, type RoomState } from '@intafaced/ui/lit/templates';
