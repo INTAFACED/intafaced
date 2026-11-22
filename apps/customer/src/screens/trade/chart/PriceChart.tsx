@@ -164,6 +164,8 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
       const lib = engineOf();
       if (closed || !host.current || !lib) return;
       const c = readColors();
+      // Without the kit's stylesheet the colour tokens are empty and the engine refuses an empty colour: draw nothing.
+      if (!c.bg) return;
       api = lib.createChart(host.current, {
         autoSize: true,
         layout: {
