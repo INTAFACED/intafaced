@@ -86,7 +86,6 @@
   "/bank/business",
   "/bank/business/books",
   "/trade",
-  "/trade/spot/:pair",
   "/trade/buy",
   "/trade/futures",
   "/trade/copy",
