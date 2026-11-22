@@ -16,4 +16,6 @@ sha2 = "0.10"
 signal-hook = "0.3"
 # Vendored with the pool fix of #9432 (crates/vendor/tiny_http/VENDORED.md).
 tiny_http = { path = "../vendor/tiny_http" }
+# NFKC for a holder name as `holderNameKey` compares it (already in the lockfile through `idna`).
+unicode-normalization = "0.1"
 url = "2"
