@@ -918,7 +918,7 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
       actions={
         <p>
           <a className="lt-link" href="/uc/withdraw">
-            {t('aBack')} ↗
+            {t('aBack')}
           </a>
         </p>
       }

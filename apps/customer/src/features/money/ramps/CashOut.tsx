@@ -480,11 +480,11 @@ export function CashOut() {
 
       {/* A new request reads the list again. */}
       <Requests key={revision} />
-      <p>
+      <div className="lt-actions">
         <a className="lt-link" href="/bank/ramps">
           {t('back')}
         </a>
-      </p>
+      </div>
     </div>
   );
 }

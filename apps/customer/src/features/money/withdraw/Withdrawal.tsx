@@ -543,29 +543,31 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
   const listing = requested.ok && !requested.id;
   const toWallet = listing && asksForWallet(search);
   const links = listing && (
-    <p>
+    <div className="lt-actions">
       <a className="lt-link" href="/uc/withdraw/approvals">
-        {approvalCopy.t('title')} ↗
+        {approvalCopy.t('title')}
       </a>{' '}
       <a className="lt-link" href="/uc/withdraw/allowlist">
-        {allowlistCopy.t('title')} ↗
+        {allowlistCopy.t('title')}
       </a>{' '}
       <a className="lt-link" href="/uc/assets">
-        {supportedAssetsCopy.t('linkLabel')} ↗
+        {supportedAssetsCopy.t('linkLabel')}
       </a>
-    </p>
+    </div>
   );
   const back = listing ? (
-    <p>
+    <div className="lt-actions">
       <a className="lt-link" href="/portfolio">
-        {t('back')} ↗
+        {t('back')}
       </a>
-    </p>
+    </div>
   ) : (
     <Section title={t('unavailable')} description={t('unavailableNote')}>
-      <a className="lt-link" href="/portfolio">
-        {t('back')} ↗
-      </a>
+      <div className="lt-actions">
+        <a className="lt-link" href="/portfolio">
+          {t('back')}
+        </a>
+      </div>
     </Section>
   );
   return (

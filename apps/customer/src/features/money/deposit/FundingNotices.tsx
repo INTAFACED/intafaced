@@ -72,7 +72,7 @@ export function FundingNoticesView({
         <p role="status" data-testid="funding-notices-failed">
           {t('loadFailed', where)}{' '}
           <a className="lt-link" href="/status">
-            {t('statusLink')} ↗
+            {t('statusLink')}
           </a>
         </p>
       )}

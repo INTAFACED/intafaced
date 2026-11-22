@@ -130,7 +130,7 @@ export function DepositAddressPanel({ asset, catalogue, networkId }: Omit<Props,
                     : t('registryNotAllowed', { asset, network: off.label })}
               </p>
               <a className="lt-link" href="/uc/assets">
-                {t('registryLink')} ↗
+                {t('registryLink')}
               </a>
             </>
           ) : (

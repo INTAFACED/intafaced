@@ -76,7 +76,7 @@ export function ApproveAddress({ search }: { search: string }) {
             )}
             <p>
               <a className="lt-link" href="/uc/withdraw/address">
-                {t('apToBook')} ↗
+                {t('apToBook')}
               </a>
             </p>
           </div>

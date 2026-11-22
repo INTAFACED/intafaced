@@ -69,7 +69,7 @@ export function Deposit() {
       state={{ kind: 'ready' }}
       roomAction={
         <a className="lt-link" href="/uc/assets">
-          {supportedAssetsCopy.t('linkLabel')} ↗
+          {supportedAssetsCopy.t('linkLabel')}
         </a>
       }
       step={

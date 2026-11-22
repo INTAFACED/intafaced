@@ -335,11 +335,11 @@ export function LoanApply({ productId, open }: { productId: string | null; open:
           ))}
       </Panel>
       {chosen && <ProductApplication key={chosen} productId={chosen} open={open} />}
-      <p>
+      <div className="lt-actions">
         <a className="lt-link" href="/bank/loans">
           {t('back')}
         </a>
-      </p>
+      </div>
     </div>
   );
 }
