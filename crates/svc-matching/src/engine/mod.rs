@@ -11,6 +11,7 @@
 //! every submit and amend is gated on them, as the base engine gates them.
 
 pub mod admission;
+pub mod client_ids;
 pub mod liquidity;
 pub mod reconcile;
 pub mod venue;
@@ -494,6 +495,9 @@ pub struct MatchingEngine {
     /// `ifm-crash.ts`'s store: the orders a cold start found in flight with durable evidence (`inFlight: true`). Every
     /// submit, amend and cancel of one refuses before anything else is checked.
     crash_unknown: HashSet<String>,
+    /// `core-tif.ts`'s store: each client order id claimed per account and environment ([`client_ids`]). Kept across
+    /// fills and cancels; rebuilt from every `submit` record on a cold start.
+    client_ids: client_ids::ClientIds,
     /// `auction-uncross.ts`'s auction state. Nothing in the service enters it: the uncrossing rules are unset, so
     /// entering refuses ([`enter_auction`](Self::enter_auction)). A submit on a market in it refuses.
     auction: HashSet<String>,
@@ -527,6 +531,7 @@ impl MatchingEngine {
             evidence: venue::Evidence::default(),
             in_flight: HashMap::new(),
             crash_unknown: HashSet::new(),
+            client_ids: client_ids::ClientIds::new(),
             auction: HashSet::new(),
             rulebook: Vec::new(),
             admission_closed: None,
@@ -1154,6 +1159,30 @@ impl MatchingEngine {
         if let Some(r) = self.crash_refusal(id) {
             return Ok(SubmitResult::refused(r));
         }
+        // `core-tif.ts`, inside `ifm-crash.ts` and around everything after it: claim before the submit runs; only a
+        // returned refusal that touched nothing releases the claim. A failure keeps it: the order may be durable.
+        let Some(claim) = client_ids::key_of(order) else {
+            return self.submit_unclaimed(market_id, order, lifecycle_proof);
+        };
+        if self.client_ids.contains(&claim) {
+            return Ok(SubmitResult::refused(client_ids::reuse_refuse()));
+        }
+        self.client_ids.insert(claim.clone());
+        let result = self.submit_unclaimed(market_id, order, lifecycle_proof);
+        if result.as_ref().is_ok_and(client_ids::releases) {
+            self.client_ids.remove(&claim);
+        }
+        result
+    }
+
+    /// The submit under the client order id claim: `auction-uncross.ts` and the base engine's gates, then the journal.
+    fn submit_unclaimed(
+        &mut self,
+        market_id: &str,
+        order: &EngineOrder,
+        lifecycle_proof: Option<&Json>,
+    ) -> Result<SubmitResult, EngineError> {
+        let id = order.order_id.as_str();
         if self.auction.contains(market_id) {
             return Ok(SubmitResult::refused(liquidity::uncross_submit_refuse(id)));
         }
@@ -1632,6 +1661,9 @@ impl MatchingEngine {
                 self.rulebook.push(v);
             }
         }
+        // `hydrateFromJournal`: every journalled submit's client order id stays claimed. Claimed before the announce, so
+        // a recover whose announce fails still refuses a retry.
+        self.client_ids.extend(client_ids::claims_in(&records));
         self.admission_closed = None;
         self.hold_halted.clear();
         self.announcing = true;

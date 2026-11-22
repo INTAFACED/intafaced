@@ -63,6 +63,7 @@ import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
 import { moneyGuardAt } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
@@ -251,6 +252,7 @@ function client(token) {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+    countCall(res);
     const text = await res.text();
     // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop.
     if (res.status === 403 || res.status === 429)
