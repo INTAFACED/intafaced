@@ -1,9 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowDownUp, ChevronDown, History, Info } from 'lucide-react';
-import '../buy/buy.css';
-import './convert.css';
-import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger, Tabs, TabsList, TabsTab } from '@intafaced/ui';
-import { AssetPicker, type PickerItem } from '../buy/AssetPicker';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -12,19 +8,23 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AmountInput,
   Button,
-  CoinIcon,
+  CoinMark,
+  DecimalField,
+  Disclosure,
+  EmptyState,
+  Freshness,
+  Progress,
+  RefusalBox,
+} from '@intafaced/ui/lit';
+import { FlowTemplate, KeyValue, Skeleton } from '@intafaced/ui/lit/templates';
+import { AssetPicker, type PickerItem } from '../buy/AssetPicker';
+import {
   createToolApi,
   defaultPoller,
   fmtAmount,
   fmtPrice,
   refusalCopy,
-  Skeleton,
-  StateBlock,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   useMarkets,
   useSession,
   useTicker,
@@ -35,7 +35,6 @@ import { useAvailable, useMarketLimits } from '../buy/quote-flow';
 import { dec, fractionDigits, mulDown, toPlaces } from '../buy/trade-math';
 import { TradeSubNav } from '../TradeSubNav';
 import { convertCopy } from './copy';
-import { KeyValue, StatusChip, type KeyValueItem } from './deps';
 import { OTC_DESK_ID, OtcConvert } from './OtcConvert';
 import { RecentConversions } from './RecentConversions';
 import { RouteCard } from './RouteCard';
@@ -63,6 +62,30 @@ function priceText(price: string, market: MarketRow): string {
 
 type T = ReturnType<typeof convertCopy.useCopy>['t'];
 
+/** One cost row: a blank figure (null) draws a dash and says "unknown" to assistive tech, never 0. */
+type BreakdownItem = { key: string; label: string; value: string | null; hint?: string };
+
+function BreakdownRows({ items, unknown }: { items: BreakdownItem[]; unknown: string }) {
+  return (
+    <KeyValue
+      rows={items.map((item) => ({
+        label: item.label,
+        value:
+          item.value === null ? (
+            <>
+              <span aria-hidden="true">—</span>
+              <span className="lt-sr">{unknown}</span>
+            </>
+          ) : (
+            item.value
+          ),
+        ...(item.value === null ? { unset: true } : {}),
+        ...(item.hint ? { note: item.hint } : {}),
+      }))}
+    />
+  );
+}
+
 /** The cost rows shown in the card and in the review dialog. A blank figure draws a dash, never 0. */
 function breakdownItems(
   quote: Quote,
@@ -71,7 +94,7 @@ function breakdownItems(
   secondsLeft: number | null,
   expired: boolean,
   t: T,
-): KeyValueItem[] {
+): BreakdownItem[] {
   const amountRow = (value: string, asset: string, side: 'pay' | 'get') =>
     dec(value) === null ? null : `${reviewAmount(value, placesFor(asset), side)} ${asset}`;
   const clock = validUntilClock(quote.expiresAt);
@@ -128,41 +151,43 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
   // wallet. The card and Recent conversions are the venue's; our own book's card is the custodial layer, kept off.
   const venue = useVenueMode();
 
-  let card: React.ReactNode;
+  let card: ReactNode;
   if (venue.mode === 'on') card = <VenueConvertRoom mode={venue} asked={{ from: asked.from, to: asked.to }} />;
-  else if (venue.mode === 'checking')
-    card = <div data-testid="cvt-card--skeleton" className="cvt-card cvt-card--skeleton" aria-busy="true" />;
+  else if (venue.mode === 'checking') card = <div data-testid="cvt-card--skeleton" aria-busy="true" />;
   else if (markets.status === 'loading')
     card = (
-      <div data-testid="cvt-card--skeleton" className="cvt-card cvt-card--skeleton" aria-busy="true">
-        <Skeleton height={28} width={120} />
-        <Skeleton height={132} />
-        <Skeleton height={132} />
-        <Skeleton height={56} circle />
+      <div data-testid="cvt-card--skeleton" aria-busy="true">
+        <Skeleton shape="form" />
       </div>
     );
   else if (markets.status === 'error')
     card = (
-      <div data-testid="cvt-card" className="cvt-card">
-        <StateBlock kind="error" title={t('Couldn’t load assets')} onRetry={markets.retry} retryLabel={t('Retry')} />
+      <div data-testid="cvt-card">
+        <RefusalBox role="alert" data-kind="error" refusal={{ variant: 'unreachable', title: t('Couldn’t load assets'), body: '' }}>
+          <Button onClick={markets.retry}>{t('Retry')}</Button>
+        </RefusalBox>
       </div>
     );
   else if (markets.status === 'refused') {
     const copy = refusalCopy(markets.code);
     card = (
-      <div data-testid="cvt-card" className="cvt-card">
-        <StateBlock kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />
+      <div data-testid="cvt-card">
+        <RefusalBox data-kind="refused" refusal={refusalOf(copy)} />
       </div>
     );
   } else if (routeAsked) card = <RouteCard key={`${routeAsked.from}>${routeAsked.to}`} from={routeAsked.from} to={routeAsked.to} />;
   else if (!shown)
     card = (
-      <div data-testid="cvt-card" className="cvt-card">
-        <StateBlock
-          kind="empty"
+      <div data-testid="cvt-card">
+        <EmptyState
+          data-kind="empty"
           title={t('No convert title')}
           body={t('No convert body')}
-          action={{ label: t('Go to Markets'), href: '/trade' }}
+          action={
+            <a className="lt-button lt-button-secondary" href="/trade">
+              {t('Go to Markets')}
+            </a>
+          }
         />
       </div>
     );
@@ -171,24 +196,25 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
   return (
     <>
       <TradeSubNav active="convert" />
-      <div data-testid="if-convert" className="if-convert">
-        <div className="cvt-grid">
-          <header data-testid="cvt-hero" className="cvt-hero">
-            <h1>
-              <span>{t('Convert')}</span>
-              <span data-testid="headline-pair">
+      <FlowTemplate
+        title={t('Convert')}
+        description={t('Convert tagline')}
+        state={{ kind: 'ready' }}
+        step={
+          <div data-testid="if-convert">
+            <header data-testid="cvt-hero">
+              <p data-testid="headline-pair">
                 {shown && venue.mode === 'off' ? t('{from} to {to}', { from: shown.from, to: shown.to }) : ''}
-              </span>
-            </h1>
-            <p>{t('Convert tagline')}</p>
-          </header>
-          {card}
-        </div>
-        <OtcConvert />
-        {signedIn && venue.mode === 'off' ? <RecentConversions /> : null}
-        <section data-testid="cvt-faq" className="cvt-faq" aria-labelledby="cvt-faq-title">
-          <h2 id="cvt-faq-title">{t('Questions')}</h2>
-          <Accordion>
+              </p>
+            </header>
+            {card}
+            <OtcConvert />
+            {signedIn && venue.mode === 'off' ? <RecentConversions /> : null}
+          </div>
+        }
+        summary={
+          <section data-testid="cvt-faq" aria-labelledby="cvt-faq-title">
+            <h2 id="cvt-faq-title">{t('Questions')}</h2>
             {(
               [
                 ['Q price', 'A price'],
@@ -196,16 +222,31 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
                 ['Q where', 'A where'],
               ] as const
             ).map(([question, answer]) => (
-              <AccordionItem key={question} value={question}>
-                <AccordionTrigger>{t(question)}</AccordionTrigger>
-                <AccordionPanel>{t(answer)}</AccordionPanel>
-              </AccordionItem>
+              <Disclosure key={question} summary={t(question)}>
+                {t(answer)}
+              </Disclosure>
             ))}
-          </Accordion>
-        </section>
-      </div>
+          </section>
+        }
+      />
     </>
   );
+}
+
+/** A refusal in the kit's shape: its words, its reference and its one next step. */
+function refusalOf(copy: {
+  title: string;
+  body: string;
+  reference?: string | undefined;
+  action?: { label: string; href: string } | undefined;
+}) {
+  return {
+    variant: 'refused' as const,
+    title: copy.title,
+    body: copy.body,
+    ...(copy.reference ? { reference: copy.reference } : {}),
+    ...(copy.action ? { action: copy.action } : {}),
+  };
 }
 
 type Reviewing = { quote: Quote; changed: boolean } | null;
@@ -506,18 +547,15 @@ function ConvertCard({
 
   if (result)
     return (
-      <div className="cvt-card" data-testid="cvt-receipt">
-        <div className="buy-receipt" role="status">
-          <span className="buy-receipt__badge" aria-hidden="true" data-tone="ok">
-            ✓
-          </span>
-          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
+      <div data-testid="cvt-receipt">
+        <div role="status">
+          <h2 data-testid="buy-receipt__title">
             {t('Converted {from} to {to}', {
               from: `${fmtAmount(result.inAmount, { places: 18 })} ${result.inAsset}`,
               to: `${fmtAmount(result.outAmount, { places: 18 })} ${result.outAsset}`,
             })}
           </h2>
-          <dl className="buy-receipt__rows">
+          <dl className="lt-kv">
             <div>
               <dt>{t('Paid')}</dt>
               <dd data-testid="cvt-paid">
@@ -535,14 +573,14 @@ function ConvertCard({
               <dd>{priceText(result.fillPrice, market)}</dd>
             </div>
           </dl>
-          <div className="buy-receipt__actions">
-            <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={ACTIVITY_HREF} />}>
+          <div className="lt-actions">
+            <a className="lt-button lt-button-primary" href={ACTIVITY_HREF}>
               {t('View activity')}
-            </Button>
+            </a>
             <Button
-              variant="secondary"
-              size={56}
-              fullWidth
+              tone="secondary"
+              size="lg"
+              block
               onClick={() => {
                 setResult(null);
                 setAmount('');
@@ -557,20 +595,36 @@ function ConvertCard({
     );
 
   return (
-    <section data-testid="cvt-card" className="cvt-card" aria-label={t('Convert')}>
-      <div data-testid="cvt-card__head" className="cvt-card__head">
+    <section data-testid="cvt-card" aria-label={t('Convert')}>
+      <div data-testid="cvt-card__head" className="lt-title-row">
         <h2>{t('Convert')}</h2>
-        <a className="cvt-card__history" href={ACTIVITY_HREF} aria-label={t('Conversion history')}>
+        <a className="lt-link" href={ACTIVITY_HREF} aria-label={t('Conversion history')}>
           <History size={20} aria-hidden="true" />
         </a>
       </div>
       {signedOut ? null : (
-        <Tabs value={mode} onValueChange={(next) => setMode(next === 'limit' ? 'limit' : 'instant')}>
-          <TabsList aria-label={t('Convert mode')} divider>
-            <TabsTab value="instant">{t('Instant')}</TabsTab>
-            <TabsTab value="limit">{t('Limit')}</TabsTab>
-          </TabsList>
-        </Tabs>
+        <div role="tablist" aria-label={t('Convert mode')} className="lt-tabs">
+          {(
+            [
+              ['instant', t('Instant')],
+              ['limit', t('Limit')],
+            ] as const
+          ).map(([value, label]) => (
+            <Button
+              key={value}
+              role="tab"
+              tone="quiet"
+              aria-selected={mode === value}
+              tabIndex={mode === value ? 0 : -1}
+              onClick={() => setMode(value)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') setMode(mode === 'instant' ? 'limit' : 'instant');
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
       )}
       {mode === 'limit' && !signedOut ? (
         <LimitConvert
@@ -585,219 +639,211 @@ function ConvertCard({
         />
       ) : (
         <>
-          <div className="cvt-fields">
-            <div className="cvt-field" data-testid="from-field">
-              <span className="cvt-field__label">{t('From')}</span>
-              <div className="cvt-field__main">
-                <button type="button" className="cvt-asset" onClick={() => setPicker('from')} aria-label={t('Change From asset')}>
-                  <CoinIcon asset={from} size={28} />
-                  <span>{from}</span>
-                  <ChevronDown size={16} aria-hidden="true" />
-                </button>
-                <AmountInput
-                  size="hero"
-                  aria-label={t('Amount to convert')}
-                  value={amount}
-                  onValueChange={setAmount}
-                  precision={fromPlaces}
-                  placeholder="0"
-                  error={inlineError ?? undefined}
-                  disabled={signedOut}
-                  className="cvt-amount"
-                />
-              </div>
-              <div className="cvt-field__foot">
-                <span data-testid="cvt-available">
-                  {available.state === 'ready'
-                    ? t('Available {value}', { value: `${fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' })} ${from}` })
-                    : t('Available loading')}
-                </span>
-                {available.state === 'ready' && !signedOut ? (
-                  <button type="button" className="cvt-max" onClick={onMax}>
-                    {t('Max')}
-                  </button>
-                ) : null}
-              </div>
+          <div data-testid="from-field">
+            <p className="lt-hint">{t('From')}</p>
+            <div className="lt-toolbar">
+              <Button onClick={() => setPicker('from')} aria-label={t('Change From asset')}>
+                <CoinMark asset={from} size="sm" />
+                <span>{from}</span>
+                <ChevronDown size={16} aria-hidden="true" />
+              </Button>
+              <DecimalField
+                label={t('Amount to convert')}
+                labelHidden
+                size="hero"
+                typedMark="either"
+                value={amount}
+                onValueChange={setAmount}
+                precision={fromPlaces}
+                placeholder="0"
+                {...(inlineError ? { error: inlineError } : {})}
+                disabled={signedOut}
+              />
             </div>
+            <div className="lt-toolbar">
+              <span data-testid="cvt-available">
+                {available.state === 'ready'
+                  ? t('Available {value}', { value: `${fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' })} ${from}` })
+                  : t('Available loading')}
+              </span>
+              {available.state === 'ready' && !signedOut ? (
+                <Button tone="quiet" onClick={onMax}>
+                  {t('Max')}
+                </Button>
+              ) : null}
+            </div>
+          </div>
 
-            <button type="button" data-testid="cvt-swap" className="cvt-swap" onClick={swap} aria-label={t('Swap')}>
+          <div className="lt-actions">
+            <Button tone="quiet" data-testid="cvt-swap" onClick={swap} aria-label={t('Swap')}>
               <ArrowDownUp size={18} aria-hidden="true" />
-            </button>
+            </Button>
+          </div>
 
-            <div className="cvt-field" data-testid="to-field">
-              <span className="cvt-field__label">{t('To')}</span>
-              <div className="cvt-field__main">
-                <button type="button" className="cvt-asset" onClick={() => setPicker('to')} aria-label={t('Change To asset')}>
-                  <CoinIcon asset={to} size={28} />
-                  <span>{to}</span>
-                  <ChevronDown size={16} aria-hidden="true" />
-                </button>
-                <div
-                  className="cvt-to"
-                  data-loading={quoteLoading || undefined}
-                  data-testid="to-amount"
-                  title={quote ? `${quote.outAmount} ${quote.outAsset}` : undefined}
-                >
-                  <AmountInput
-                    size="hero"
-                    aria-label={t('To')}
-                    value={quote ? fmtAmount(quote.outAmount, { places: placesFor(quote.outAsset), round: 'down' }) : ''}
-                    onValueChange={() => undefined}
-                    precision={18}
-                    placeholder="0"
-                    readOnly
-                    className="cvt-amount"
-                  />
-                </div>
+          <div data-testid="to-field">
+            <p className="lt-hint">{t('To')}</p>
+            <div className="lt-toolbar">
+              <Button onClick={() => setPicker('to')} aria-label={t('Change To asset')}>
+                <CoinMark asset={to} size="sm" />
+                <span>{to}</span>
+                <ChevronDown size={16} aria-hidden="true" />
+              </Button>
+              <div
+                data-loading={quoteLoading || undefined}
+                data-testid="to-amount"
+                title={quote ? `${quote.outAmount} ${quote.outAsset}` : undefined}
+              >
+                <DecimalField
+                  label={t('To')}
+                  labelHidden
+                  size="hero"
+                  typedMark="either"
+                  value={quote ? fmtAmount(quote.outAmount, { places: placesFor(quote.outAsset), round: 'down' }) : ''}
+                  onValueChange={() => undefined}
+                  precision={18}
+                  placeholder="0"
+                  readOnly
+                />
               </div>
             </div>
           </div>
 
           {insufficient ? (
-            <div className="cvt-note" role="alert" data-testid="cvt-short">
+            <div role="alert" data-testid="cvt-short">
               <p>{shortText}</p>
-              <a className="text-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
-                {t('Deposit {asset}', { asset: from })}
-              </a>
+              <div className="lt-actions">
+                <a className="lt-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
+                  {t('Deposit {asset}', { asset: from })}
+                </a>
+              </div>
             </div>
           ) : null}
           {paused ? (
-            <div className="cvt-note" role="alert" data-testid="cvt-paused" data-code="trade.convert_disabled">
+            <div role="alert" data-testid="cvt-paused" data-code="trade.convert_disabled">
               <p>
                 <strong>{t('Paused title')}.</strong> {t('Paused body')}
               </p>
-              <a className="text-link" href={`/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}`}>
-                {t('Use Spot')}
-              </a>
+              <div className="lt-actions">
+                <a className="lt-link" href={`/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}`}>
+                  {t('Use Spot')}
+                </a>
+              </div>
             </div>
           ) : null}
           {tooLarge && fromLimit ? (
-            <div className="cvt-note" role="note" data-testid="cvt-too-large">
+            <div role="note" data-testid="cvt-too-large">
               <p>
                 <strong>{t('Too large title')}.</strong>{' '}
                 {t('Too large body', { amount: fmtAmount(fromLimit.amount, { places: 0 }), asset: market.quote })}
               </p>
-              <a
-                className="text-link"
-                href={`#${OTC_DESK_ID}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  const desk = document.getElementById(OTC_DESK_ID);
-                  desk?.scrollIntoView({ block: 'start' });
-                  desk?.focus();
-                }}
-              >
-                {t('Use the quote desk')}
-              </a>
+              <div className="lt-actions">
+                <a
+                  className="lt-link"
+                  href={`#${OTC_DESK_ID}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    const desk = document.getElementById(OTC_DESK_ID);
+                    desk?.scrollIntoView({ block: 'start' });
+                    desk?.focus();
+                  }}
+                >
+                  {t('Use the quote desk')}
+                </a>
+              </div>
             </div>
           ) : null}
           {quote ? (
-            <div className="cvt-breakdown" data-testid="cvt-breakdown" aria-label={t('Price details')} role="group">
-              <KeyValue density="dense" items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} />
+            <div data-testid="cvt-breakdown" aria-label={t('Price details')} role="group">
+              <BreakdownRows items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} unknown={t('Value unknown')} />
             </div>
           ) : null}
 
           {rate ? (
-            <div className="cvt-rate">
-              <span className="cvt-rate__line">
+            <div>
+              <div className="lt-toolbar">
                 <span data-testid="rate">{t('Rate: 1 {base} ≈ {price}', { base: market.base, price: rate })}</span>
-                <Tooltip>
-                  <TooltipTrigger className="cvt-rate__tip" render={<button type="button" aria-label={t('Rate label')} />}>
-                    <Info size={14} aria-hidden="true" />
-                  </TooltipTrigger>
-                  <TooltipContent side="top">{t('Rate tip', { spread: spreadPercent(quote!.convertSpreadBps) ?? '—' })}</TooltipContent>
-                </Tooltip>
-                <StatusChip
+                <Disclosure variant="inline" summary={<Info size={14} aria-hidden="true" />} summaryLabel={t('Rate label')}>
+                  {t('Rate tip', { spread: spreadPercent(quote!.convertSpreadBps) ?? '—' })}
+                </Disclosure>
+                <Freshness
                   asOf={quote!.source.asOf}
                   staleAfterMs={holdMs(quote!) || 15_000}
-                  refused={state.status === 'refused'}
-                  density="dense"
+                  words={{ live: t('Fresh live'), stale: t('Fresh stale'), unknown: t('Fresh unknown'), asOf: t('Fresh as of') }}
                 />
-              </span>
-              <span className="cvt-rate__hold" data-testid="hold">
+              </div>
+              <p className="lt-hint" data-testid="hold">
                 {expired ? t('Price expired') : t('Price held for {n}s', { n: secondsLeft ?? 0 })}
-              </span>
+              </p>
               <HoldBar secondsLeft={secondsLeft} holdLengthMs={holdMs(quote!)} label={t('Price held bar')} />
               {expired ? (
-                <Button variant="secondary" size={40} onClick={retry}>
-                  {t('Get a new price')}
-                </Button>
+                <div className="lt-actions">
+                  <Button onClick={retry}>{t('Get a new price')}</Button>
+                </div>
               ) : null}
             </div>
           ) : state.status === 'loading' ? (
-            <p className="cvt-rate cvt-rate--wait">{t('Getting your price')}</p>
+            <p className="lt-hint">{t('Getting your price')}</p>
           ) : null}
 
           {state.status === 'refused' && !paused ? (
-            <StateBlock
-              kind="refused"
-              className="buy-state"
-              title={state.copy.title}
-              body={state.copy.body}
-              code={state.copy.reference ?? (state.code ? `Ref ${state.code.trim().slice(0, 80)}` : undefined)}
-              action={state.copy.action}
+            <RefusalBox
+              data-kind="refused"
+              refusal={refusalOf({
+                ...state.copy,
+                reference: state.copy.reference ?? (state.code ? `Ref ${state.code.trim().slice(0, 80)}` : undefined),
+              })}
             />
           ) : null}
           {state.status === 'refused' && !paused && state.kind === 'tradingOnHold' ? <TradingHoldReason /> : null}
-          {state.status === 'depth' ? (
-            <p data-testid="cvt-note" className="cvt-note">
-              {t('Too big')}
-            </p>
-          ) : null}
+          {state.status === 'depth' ? <p data-testid="cvt-note">{t('Too big')}</p> : null}
           {state.status === 'overCost' ? (
-            <p className="cvt-note" data-testid="over-cost">
-              {dec(amount) === dec(available.value) ? shortText : t('Too small after price')}
-            </p>
+            <p data-testid="over-cost">{dec(amount) === dec(available.value) ? shortText : t('Too small after price')}</p>
           ) : null}
           {quoteOverBalance ? (
-            <p data-testid="cvt-note" className="cvt-note" role="alert">
+            <p data-testid="cvt-note" role="alert">
               {shortText}
             </p>
           ) : null}
           {note.state !== 'pending' && checkNote ? (
-            <p className="cvt-note" role="status" data-testid="check-note">
+            <p role="status" data-testid="check-note">
               {checkNote}
             </p>
           ) : null}
           {state.status === 'error' ? (
-            <StateBlock
-              kind="error"
-              className="buy-state"
-              title={t('Price error title')}
-              onRetry={retry}
-              retryLabel={t('Get a new price')}
-            />
+            <RefusalBox role="alert" data-kind="error" refusal={{ variant: 'unreachable', title: t('Price error title'), body: '' }}>
+              <Button onClick={retry}>{t('Get a new price')}</Button>
+            </RefusalBox>
           ) : null}
 
           {note.state === 'pending' ? (
-            <div className="buy-pending" role="alert" data-testid="pending">
-              <p className="buy-pending__title">{ownNote ? t('Not confirmed title') : t('Earlier title')}</p>
-              <p className="buy-pending__body">{ownNote ? t('Not confirmed body') : t('Earlier body')}</p>
-              {checkNote ? <p className="buy-pending__body">{checkNote}</p> : null}
-              <div className="buy-pending__actions">
+            <div role="alert" data-testid="pending">
+              <p>
+                <strong>{ownNote ? t('Not confirmed title') : t('Earlier title')}</strong>
+              </p>
+              <p>{ownNote ? t('Not confirmed body') : t('Earlier body')}</p>
+              {checkNote ? <p>{checkNote}</p> : null}
+              <div className="lt-actions">
                 {ownNote ? (
-                  <Button variant="secondary" size={40} loading={rechecking} onClick={onRecheck}>
+                  <Button disabled={rechecking} aria-busy={rechecking || undefined} onClick={onRecheck}>
                     {rechecking ? t('Checking again') : t('Check again')}
                   </Button>
                 ) : null}
-                <Button variant="ghost" size={40} nativeButton={false} render={<a href={ACTIVITY_HREF} />}>
+                <a className="lt-link" href={ACTIVITY_HREF}>
                   {t('View activity')}
-                </Button>
+                </a>
               </div>
             </div>
           ) : null}
-          {note.state === 'unreadable' ? (
-            <p className="buy-pending__body" role="alert">
-              {t('No safe storage')}
-            </p>
-          ) : null}
+          {note.state === 'unreadable' ? <p role="alert">{t('No safe storage')}</p> : null}
 
           {state.status === 'refused' && state.kind === 'convertSpreadUnset' ? null : signedOut ? (
-            <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={loginHref} />}>
-              {t('Log in to convert')}
-            </Button>
+            <div className="lt-actions">
+              <a className="lt-button lt-button-primary" href={loginHref}>
+                {t('Log in to convert')}
+              </a>
+            </div>
           ) : (
-            <Button variant="primary" size={56} fullWidth disabled={!canReview} onClick={openReview}>
+            <Button tone="primary" size="lg" block disabled={!canReview} onClick={openReview}>
               {!plan.ok && plan.problem.kind === 'empty'
                 ? t('Enter an amount')
                 : quoteLoading && request
@@ -817,47 +863,55 @@ function ConvertCard({
           }
         }}
       >
-        <AlertDialogContent className="buy-dialog">
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('Review conversion')}</AlertDialogTitle>
             <AlertDialogDescription>{t('Review hint')}</AlertDialogDescription>
           </AlertDialogHeader>
           {quote ? (
             <div data-testid="dlg-breakdown" aria-busy={expired || undefined}>
-              <KeyValue items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} />
+              <BreakdownRows items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} unknown={t('Value unknown')} />
             </div>
           ) : (
-            <p className="buy-dialog__note" role="status">
-              {t('Waiting for price')}
-            </p>
+            <p role="status">{t('Waiting for price')}</p>
           )}
           {quote ? (
-            <p className="cvt-hold" data-testid="dlg-hold">
+            <p className="lt-hint" data-testid="dlg-hold">
               {expired ? t('Waiting for price') : t('Price held for {n}s', { n: secondsLeft ?? 0 })}
             </p>
           ) : null}
           {quote && !canAccept(quote) ? (
-            <p className="buy-dialog__error" role="alert" data-testid="dlg-missing">
+            <p role="alert" data-testid="dlg-missing">
               <strong>{t('Missing price details')}.</strong> {t('Missing price body')}
             </p>
           ) : null}
           {reviewing?.changed || (reviewing && quote && numbersChanged(reviewing.quote, quote)) ? (
-            <p className="buy-dialog__note" role="status" data-testid="dlg-changed">
+            <p role="status" data-testid="dlg-changed">
               <strong>{t('Price changed')}.</strong> {t('Price changed body')}
             </p>
           ) : null}
           {dialogMessage ? (
-            <p className="buy-dialog__error" role="alert" data-testid="dlg-error">
-              {dialogMessage.text} {dialogMessage.action ? <a href={dialogMessage.action.href}>{dialogMessage.action.label}</a> : null}
+            <p role="alert" data-testid="dlg-error">
+              {dialogMessage.text}{' '}
+              {dialogMessage.action ? (
+                <a className="lt-link" href={dialogMessage.action.href}>
+                  {dialogMessage.action.label}
+                </a>
+              ) : null}
             </p>
           ) : null}
           {/* J-identity-14 #2: a trading hold gives the restriction's stored reason here too, in the status page's words. */}
           {dialogMessage && classifyRefusal(dialogMessage.code) === 'tradingOnHold' ? <TradingHoldReason /> : null}
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="secondary" size={40} />} disabled={accepting}>
+            <AlertDialogClose render={<Button tone="secondary" />} disabled={accepting}>
               {t('Cancel')}
             </AlertDialogClose>
-            <Button variant="primary" size={40} loading={accepting} disabled={!quote || expired || !canAccept(quote)} onClick={onConvert}>
+            <Button
+              tone="primary"
+              aria-busy={accepting || undefined}
+              disabled={accepting || !quote || expired || !canAccept(quote)}
+              onClick={onConvert}
+            >
               {accepting
                 ? t('Sending')
                 : reviewing && quote && numbersChanged(reviewing.quote, quote)
@@ -882,30 +936,13 @@ function ConvertCard({
   );
 }
 
-/** The remaining hold as a bar. The kit has no progress part, so this is a plain div with the progressbar role. */
+/** The remaining hold as the kit's progress bar (role progressbar), named and read out in seconds. */
 function HoldBar({ secondsLeft, holdLengthMs, label }: { secondsLeft: number | null; holdLengthMs: number; label: string }) {
   const { now, max } = holdProgress(secondsLeft, holdLengthMs);
-  return (
-    <div
-      className="cvt-holdbar"
-      role="progressbar"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={max}
-      aria-valuenow={now}
-      aria-valuetext={`${now}s`}
-      data-testid="hold-bar"
-    >
-      <div className="cvt-holdbar__fill" style={{ width: `${Math.round((now / max) * 100)}%` }} />
-    </div>
-  );
+  return <Progress label={label} value={now} max={max} valueText={`${now}s`} data-testid="hold-bar" />;
 }
 
 function Balance({ asset }: { asset: string }) {
   const available = useAvailable(asset);
-  return (
-    <span className="if-num">
-      {available.state === 'ready' ? fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' }) : '—'}
-    </span>
-  );
+  return <span>{available.state === 'ready' ? fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' }) : '—'}</span>;
 }

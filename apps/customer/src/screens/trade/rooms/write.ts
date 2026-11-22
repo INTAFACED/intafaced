@@ -7,7 +7,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { usePendingNote } from '../buy/order-flow';
 import { clearPending, runGuarded, type BlockReason, type Pending } from '../buy/write-lock';
-import { useSession } from './ui';
+import { useSession } from '../../../features/session/session';
 import { roomWords, type Words } from './refusals';
 
 export interface Intent<T> {

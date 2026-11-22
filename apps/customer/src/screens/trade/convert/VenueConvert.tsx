@@ -5,10 +5,9 @@
  * room keeps the Convert layout (card, pickers, review, recent list); every figure is the venue's, with its TEST label.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Tabs, TabsList, TabsTab } from '@intafaced/ui';
-import { AmountInput, Button, CoinIcon, StateBlock } from '../buy/deps';
+import { Button, CoinMark, DecimalField, EmptyState, RefusalBox } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { AssetPicker, type PickerItem } from '../buy/AssetPicker';
-import { Dialog } from '../../../shared/ui';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { useNow } from '../../../shared/use-now';
@@ -32,22 +31,25 @@ import {
   type ConvertQuote,
 } from '../../../features/trade/venue-convert-api';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
-import {
-  BalancesPanel,
-  TestMark,
-  VenueFrame,
-  WalletBar,
-  useOwner,
-  useVenueAccount,
-  useVenueApi,
-} from '../../../features/trade/venue/VenueKit';
-import { DepositDialog } from '../desk/VenueAccountPanel';
+import { useOwner, useVenueAccount, useVenueApi } from '../../../features/trade/venue/VenueKit';
+import { BalancesPanel, TestMark, VenueFrame, WalletBar } from '../../../features/trade/venue/VenueParts';
+import { DepositDialog } from '../desk/DepositDialog';
 import { convertCopy } from './copy';
 import { venueConvertCopy } from './venue-convert-copy';
 import { OTC_DESK_ID } from './OtcConvert';
 
 type T = ReturnType<typeof venueConvertCopy.useCopy>['t'];
 const POLL_MS = 5_000;
+
+/** A read that failed, with Try again: what the old error block said, from the kit's refusal. */
+function ReadFailed({ title, onRetry }: { title: string; onRetry: () => void }) {
+  const { t: ct } = convertCopy.useCopy();
+  return (
+    <RefusalBox refusal={{ variant: 'unreachable', title, body: '' }} role="alert" data-kind="error">
+      <Button onClick={onRetry}>{ct('Retry')}</Button>
+    </RefusalBox>
+  );
+}
 
 function useConvertApi() {
   const { api } = useSession();
@@ -139,8 +141,8 @@ export function VenueConvertRoom({
   const status = mode.status;
   if (!status.available)
     return (
-      <div data-testid="cvt-card" className="cvt-card" data-mode="venue">
-        <StateBlock kind="error" title={t('Venue unavailable')} onRetry={mode.reload} />
+      <div data-testid="cvt-card" data-mode="venue">
+        <ReadFailed title={t('Venue unavailable')} onRetry={mode.reload} />
       </div>
     );
   return (
@@ -161,14 +163,14 @@ function VenueConvert({ status, asked }: { status: VenueUp; asked: { from: strin
   let card: React.ReactNode;
   if (!owner)
     card = (
-      <section data-testid="cvt-card" className="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
+      <section data-testid="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
         <p>{t('Connect to convert')}</p>
       </section>
     );
   else if (!pairs)
     card = (
-      <section data-testid="cvt-card" className="cvt-card" data-mode="venue" aria-label={ct('Convert')} aria-busy={!pairsRead.failure}>
-        {pairsRead.failure ? <StateBlock kind="error" title={t('Pairs unread')} onRetry={pairsRead.reload} /> : null}
+      <section data-testid="cvt-card" data-mode="venue" aria-label={ct('Convert')} aria-busy={!pairsRead.failure}>
+        {pairsRead.failure ? <ReadFailed title={t('Pairs unread')} onRetry={pairsRead.reload} /> : null}
       </section>
     );
   else {
@@ -242,12 +244,16 @@ function VenueCard({
 
   if (!chosen)
     return (
-      <section data-testid="cvt-card" className="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
-        <StateBlock
-          kind="empty"
+      <section data-testid="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
+        <EmptyState
           title={ct('No convert title')}
           body={ct('No convert body')}
-          action={{ label: ct('Go to Markets'), href: '/trade' }}
+          data-kind="empty"
+          action={
+            <a className="lt-link" href="/trade">
+              {ct('Go to Markets')}
+            </a>
+          }
         />
       </section>
     );
@@ -412,57 +418,66 @@ function VenueCard({
 
   const spot = pair ? `/trade/spot/${encodeURIComponent(pair.symbol)}` : '/trade';
   return (
-    <section data-testid="cvt-card" className="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
-      <div data-testid="cvt-card__head" className="cvt-card__head">
+    <section data-testid="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
+      <div data-testid="cvt-card__head" className="lt-title-row">
         <h2>
           {ct('Convert')} <TestMark test={status.test} />
         </h2>
       </div>
-      <p className="cvt-note">{t('Venue tagline')}</p>
-      <Tabs value={tab} onValueChange={(next) => (setTab(next === 'limit' ? 'limit' : 'instant'), reset())}>
-        <TabsList aria-label={ct('Convert mode')} divider>
-          <TabsTab value="instant">{ct('Instant')}</TabsTab>
-          <TabsTab value="limit">{ct('Limit')}</TabsTab>
-        </TabsList>
-      </Tabs>
-      <div className="cvt-fields">
-        <div className="cvt-field" data-testid="from-field">
-          <span className="cvt-field__label">{ct('From')}</span>
-          <div className="cvt-field__main">
-            <button type="button" className="cvt-asset" aria-label={ct('Change From asset')} onClick={() => setPicker('from')}>
-              <CoinIcon asset={from} size={28} />
-              <span>{from}</span>
-            </button>
-            <AmountInput
-              size="hero"
-              aria-label={ct('Amount to convert')}
-              value={amount}
-              onValueChange={(v) => {
-                setAmount(v);
-                reset();
-              }}
-              precision={8}
-              placeholder="0"
-              className="cvt-amount"
-            />
-          </div>
-          <p className="cvt-field__foot" data-testid="cvt-available">
-            {t(cashLeg ? 'Available at partner' : 'Available on venue', { value: free === null ? '—' : displayAmount(free), asset: from })}
-          </p>
+      <p className="lt-hint">{t('Venue tagline')}</p>
+      <div className="lt-tabs" role="tablist" aria-label={ct('Convert mode')}>
+        {(['instant', 'limit'] as const).map((value) => (
+          <Button
+            key={value}
+            role="tab"
+            tone="quiet"
+            aria-selected={tab === value}
+            onClick={() => {
+              setTab(value);
+              reset();
+            }}
+          >
+            {value === 'limit' ? ct('Limit') : ct('Instant')}
+          </Button>
+        ))}
+      </div>
+      <div data-testid="from-field">
+        <p className="lt-hint">{ct('From')}</p>
+        <div className="lt-toolbar">
+          <Button tone="quiet" aria-label={ct('Change From asset')} onClick={() => setPicker('from')}>
+            <CoinMark asset={from} size="sm" />
+            <span>{from}</span>
+          </Button>
+          <DecimalField
+            label={ct('Amount to convert')}
+            labelHidden
+            size="hero"
+            typedMark="either"
+            value={amount}
+            onValueChange={(v) => {
+              setAmount(v);
+              reset();
+            }}
+            precision={8}
+            placeholder="0"
+          />
         </div>
-        <div className="cvt-field" data-testid="to-field">
-          <span className="cvt-field__label">{ct('To')}</span>
-          <div className="cvt-field__main">
-            <button type="button" className="cvt-asset" aria-label={ct('Change To asset')} onClick={() => setPicker('to')}>
-              <CoinIcon asset={to} size={28} />
-              <span>{to}</span>
-            </button>
-          </div>
+        <p className="lt-hint" data-testid="cvt-available">
+          {t(cashLeg ? 'Available at partner' : 'Available on venue', { value: free === null ? '—' : displayAmount(free), asset: from })}
+        </p>
+      </div>
+      <div data-testid="to-field">
+        <p className="lt-hint">{ct('To')}</p>
+        <div className="lt-toolbar">
+          <Button tone="quiet" aria-label={ct('Change To asset')} onClick={() => setPicker('to')}>
+            <CoinMark asset={to} size="sm" />
+            <span>{to}</span>
+          </Button>
         </div>
       </div>
 
       {cashLeg ? (
-        <div className="cvt-note" role="note" data-testid="cvt-linked" data-cash={cashLeg.asset} data-via={cashLeg.via}>
+        <div role="note" data-testid="cvt-linked" data-cash={cashLeg.asset} data-via={cashLeg.via}>
           <p>
             <strong>{t('Linked title')}.</strong> {t('Linked body', { label: cashLeg.label, via: cashLeg.via, from, to })}{' '}
             <TestMark test={cashLeg.test} />
@@ -470,12 +485,12 @@ function VenueCard({
         </div>
       ) : null}
       {tooLarge && cap ? (
-        <div className="cvt-note" role="note" data-testid="cvt-too-large">
+        <div role="note" data-testid="cvt-too-large">
           <p>
             <strong>{ct('Too large title')}.</strong> {ct('Too large body', { amount: displayAmount(cap.amount), asset: cap.asset })}
           </p>
           <a
-            className="text-link"
+            className="lt-link"
             href={`#${OTC_DESK_ID}`}
             onClick={(event) => {
               event.preventDefault();
@@ -489,16 +504,16 @@ function VenueCard({
         </div>
       ) : null}
       {tooSmall ? (
-        <p className="cvt-note" role="alert" data-testid="cvt-too-small">
+        <p role="alert" data-testid="cvt-too-small">
           {t('Too small', { min: displayAmount(min), asset: from })}
         </p>
       ) : null}
       {short ? (
-        <div className="cvt-note" role="alert" data-testid="cvt-short">
+        <div role="alert" data-testid="cvt-short">
           <p>{t(cashLeg ? 'Not enough cash' : 'Not enough', { asset: from, value: displayAmount(free) })}</p>
           {cashLeg ? null : (
             <a
-              className="text-link"
+              className="lt-link"
               href="#venue-deposit"
               onClick={(event) => {
                 event.preventDefault();
@@ -511,11 +526,11 @@ function VenueCard({
         </div>
       ) : null}
       {paused ? (
-        <div className="cvt-note" role="alert" data-testid="cvt-paused" data-code="trade.convert_disabled">
+        <div role="alert" data-testid="cvt-paused" data-code="trade.convert_disabled">
           <p>
             <strong>{t('Paused title')}.</strong> {t('Paused body')}
           </p>
-          <a className="text-link" href={spot}>
+          <a className="lt-link" href={spot}>
             {t('Use Spot')}
           </a>
         </div>
@@ -525,43 +540,41 @@ function VenueCard({
         <>
           {shown ? <QuoteFacts quote={shown} t={t} testid="cvt-quote" /> : null}
           {quote.state === 'refused' ? (
-            <p className="cvt-note" role="alert" data-testid="cvt-quote-refused">
+            <p role="alert" data-testid="cvt-quote-refused">
               {t('Price refused', { detail: quote.detail })}
             </p>
           ) : null}
           {shown && !stale ? (
-            <Button variant="primary" size={56} fullWidth onClick={() => setReviewing(true)}>
+            <Button tone="primary" size="lg" block onClick={() => setReviewing(true)}>
               {t('Review')}
             </Button>
           ) : (
-            <Button variant="primary" size={56} fullWidth disabled={!ready || quote.state === 'asking'} onClick={() => void getPrice()}>
+            <Button tone="primary" size="lg" block disabled={!ready || quote.state === 'asking'} onClick={() => void getPrice()}>
               {quote.state === 'asking' ? t('Getting a price') : stale ? t('Get a fresh price') : t('Get a price')}
             </Button>
           )}
         </>
       ) : (
-        <div className="cvt-limit" data-testid="cvt-limit">
-          <label className="cvt-field__label" htmlFor="cvt-target">
-            {t('Target rate')}
-          </label>
-          <AmountInput
+        <div data-testid="cvt-limit">
+          <DecimalField
             id="cvt-target"
-            aria-label={t('Target rate')}
+            label={t('Target rate')}
+            typedMark="either"
             value={target}
             onValueChange={setTarget}
             precision={8}
             placeholder="0"
           />
-          {pair ? <p className="cvt-note">{t('Target rate hint', { base: pair.base, quote: pair.quote })}</p> : null}
+          {pair ? <p className="lt-hint">{t('Target rate hint', { base: pair.base, quote: pair.quote })}</p> : null}
           {cashLeg ? (
-            <p className="cvt-note" role="note" data-testid="cvt-limit-cash">
+            <p role="note" data-testid="cvt-limit-cash">
               {t('Limit cash')}
             </p>
           ) : null}
           <Button
-            variant="primary"
-            size={56}
-            fullWidth
+            tone="primary"
+            size="lg"
+            block
             disabled={!ready || busy || !units(target) || cashLeg !== null}
             onClick={() => void placeLimit()}
           >
@@ -583,17 +596,17 @@ function VenueCard({
         </div>
       )}
       {message && !reviewing ? (
-        <p className="cvt-note" role="alert" data-testid="cvt-message">
+        <p role="alert" data-testid="cvt-message">
           {message}
         </p>
       ) : null}
 
       {unknown ? (
-        <div className="cvt-note" role="alert" data-testid="cvt-unknown" data-client-id={unknown.venueClientOrderId}>
+        <div role="alert" data-testid="cvt-unknown" data-client-id={unknown.venueClientOrderId}>
           <p>
             <strong>{t('Unknown title')}.</strong> {t('Unknown body')}
           </p>
-          <Button variant="secondary" size={40} disabled={busy} onClick={() => void checkAgain()}>
+          <Button disabled={busy} onClick={() => void checkAgain()}>
             {busy ? t('Checking') : t('Check again')}
           </Button>
           {checkNote ? <p role="status">{checkNote}</p> : null}
@@ -608,8 +621,8 @@ function VenueCard({
       ) : null}
 
       {reviewing && shown ? (
-        <Dialog title={t('Review conversion')} onClose={() => !busy && setReviewing(false)}>
-          <div data-testid="cvt-review" className="form-stack">
+        <Sheet open title={t('Review conversion')} dismissible={!busy} onClose={() => !busy && setReviewing(false)}>
+          <div data-testid="cvt-review">
             <p>{t('Review hint')}</p>
             <QuoteFacts quote={shown} t={t} testid="dlg-breakdown" />
             {stale ? (
@@ -623,19 +636,19 @@ function VenueCard({
               </p>
             ) : null}
             {stale ? (
-              <Button variant="primary" size={40} disabled={quote.state === 'asking'} onClick={() => void getPrice()}>
+              <Button tone="primary" disabled={quote.state === 'asking'} onClick={() => void getPrice()}>
                 {t('Get a fresh price')}
               </Button>
             ) : (
-              <Button variant="primary" size={40} loading={busy} disabled={paused} onClick={() => void convertNow()}>
+              <Button tone="primary" aria-busy={busy || undefined} disabled={busy || paused} onClick={() => void convertNow()}>
                 {busy ? t('Converting') : t('Convert now')}
               </Button>
             )}{' '}
-            <Button variant="secondary" size={40} disabled={busy} onClick={() => setReviewing(false)}>
+            <Button disabled={busy} onClick={() => setReviewing(false)}>
               {t('Close review')}
             </Button>
           </div>
-        </Dialog>
+        </Sheet>
       ) : null}
       <AssetPicker
         open={picker !== null}
@@ -706,17 +719,17 @@ function QuoteFacts({ quote: q, t, testid }: { quote: ConvertQuote; t: T; testid
   ];
   return (
     <div data-testid={testid} data-quote-id={q.quoteId}>
-      <dl className="protocol-facts">
+      <dl>
         {rows.map(([line, label, value]) => (
           <div key={line}>
             <dt>{label}</dt>
-            <dd className="numeric" data-line={line}>
+            <dd className="lt-mono" data-line={line}>
               {value}
             </dd>
           </div>
         ))}
       </dl>
-      <p className="cvt-note" data-testid="cvt-no-hold">
+      <p className="lt-hint" data-testid="cvt-no-hold">
         {t('No hold')}
       </p>
       <TestMark test={q.test} />
@@ -729,7 +742,7 @@ function LinkedLegs({ legs, testid }: { legs: NonNullable<Conversion['legs']>; t
   const { t } = venueConvertCopy.useCopy();
   const cash = 'unread' in legs.cash ? null : legs.cash;
   return (
-    <ol className="cvt-legs" data-testid={testid}>
+    <ol data-testid={testid}>
       <li data-leg="cash" data-state={cash?.state ?? 'unread'} data-key={cash?.legKey ?? ''}>
         {cash
           ? t(cash.state === 'delivered' ? 'Leg cash done' : 'Leg cash sending', {
@@ -788,22 +801,22 @@ function Receipt({
     <div role="status" data-testid="cvt-receipt" data-state={c.state} data-client-id={c.venueClientOrderId ?? ''}>
       <h3>{t('Receipt title', { from, to })}</h3>
       {c.legs ? <LinkedLegs legs={c.legs} testid="cvt-receipt-legs" /> : null}
-      <dl className="protocol-facts">
+      <dl>
         <div>
           <dt>{t('Paid')}</dt>
-          <dd className="numeric" data-line="paid">
+          <dd className="lt-mono" data-line="paid">
             {displayAmount(c.paid.amount)} {c.paid.asset}
           </dd>
         </div>
         <div>
           <dt>{t('Received')}</dt>
-          <dd className="numeric" data-line="received">
+          <dd className="lt-mono" data-line="received">
             {displayAmount(c.received.amount)} {c.received.asset}
           </dd>
         </div>
         <div>
           <dt>{t('Venue fee')}</dt>
-          <dd className="numeric" data-line="venue-fee">
+          <dd className="lt-mono" data-line="venue-fee">
             {c.venueFee ? `${displayAmount(c.venueFee.amount)} ${c.venueFee.asset}` : t('Not known')}
           </dd>
         </div>
@@ -813,7 +826,7 @@ function Receipt({
         </div>
         <div>
           <dt>{t('Venue order')}</dt>
-          <dd className="numeric" data-line="client-id">
+          <dd className="lt-mono" data-line="client-id">
             {c.venueClientOrderId}
           </dd>
         </div>
@@ -830,37 +843,37 @@ function VenueRouteCard({ from, to }: { from: string; to: string }) {
   const read = usePolled((signal) => convert.route(from, to, signal), `cvt-route:${from}:${to}`, 60_000);
   const code = read.failure?.code ?? null;
   return (
-    <section data-testid="cvt-card" className="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
-      <div className="cvt-fields">
-        <div className="cvt-field" data-testid="from-field">
-          <span className="cvt-field__label">{ct('From')}</span>
-          <span className="cvt-asset">
-            <CoinIcon asset={from} size={28} />
-            <span>{from}</span>
-          </span>
+    <section data-testid="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
+      <div data-testid="from-field">
+        <p className="lt-hint">{ct('From')}</p>
+        <div className="lt-toolbar">
+          <CoinMark asset={from} size="sm" />
+          <span>{from}</span>
         </div>
-        <div className="cvt-field" data-testid="to-field">
-          <span className="cvt-field__label">{ct('To')}</span>
-          <span className="cvt-asset">
-            <CoinIcon asset={to} size={28} />
-            <span>{to}</span>
-          </span>
+      </div>
+      <div data-testid="to-field">
+        <p className="lt-hint">{ct('To')}</p>
+        <div className="lt-toolbar">
+          <CoinMark asset={to} size="sm" />
+          <span>{to}</span>
         </div>
       </div>
       {code ? (
-        <div className="cvt-note" role="alert" data-testid="cvt-route-refused" data-code={code}>
+        <div role="alert" data-testid="cvt-route-refused" data-code={code}>
           <p>
             <strong>{code === 'trade.convert_cash_not_offered' ? t('Cash title') : t('Unlisted title')}.</strong>{' '}
             {code === 'trade.convert_cash_not_offered' ? t('Cash body', { from, to }) : t('Unlisted body', { from, to })}
           </p>
         </div>
       ) : null}
-      <Button variant="primary" size={56} fullWidth disabled>
+      <Button tone="primary" size="lg" block disabled>
         {t('Get a price')}
       </Button>
-      <a className="text-link" href="/trade/convert" data-testid="cvt-route-other">
-        {t('Choose other coins')}
-      </a>
+      <div className="lt-actions">
+        <a className="lt-link" href="/trade/convert" data-testid="cvt-route-other">
+          {t('Choose other coins')}
+        </a>
+      </div>
     </section>
   );
 }
@@ -873,18 +886,19 @@ function VenueRecent({ owner, test }: { owner: string; test: boolean }) {
   const read = usePolled((signal) => convert.history(owner, signal), `cvt-recent:${owner}`, POLL_MS);
   const rows: readonly Conversion[] | null = read.data?.conversions ?? null;
   return (
-    <section data-testid="cvt-recent" className="cvt-recent" aria-labelledby="cvt-recent-title">
+    <section data-testid="cvt-recent" aria-labelledby="cvt-recent-title">
       <h2 id="cvt-recent-title">
         {t('Recent conversions')} <TestMark test={test} />
       </h2>
       {rows === null ? (
         read.failure ? (
-          <StateBlock kind="error" title={t('Recent unread')} onRetry={read.reload} />
+          <ReadFailed title={t('Recent unread')} onRetry={read.reload} />
         ) : null
       ) : rows.length === 0 ? (
-        <StateBlock kind="empty" title={t('Recent empty title')} body={t('Recent empty body')} />
+        <EmptyState title={t('Recent empty title')} body={t('Recent empty body')} data-kind="empty" />
       ) : (
-        <table className="cvt-recent__table">
+        <table className="lt-table">
+          <caption className="lt-sr">{t('Recent conversions')}</caption>
           <thead>
             <tr>
               <th scope="col">{t('Kind')}</th>
@@ -907,10 +921,10 @@ function VenueRecent({ owner, test }: { owner: string; test: boolean }) {
                   {c.legs ? t('Linked kind') : c.kind === 'limit' ? t('Limit') : t('Instant')}
                   {c.legs ? <LinkedLegs legs={c.legs} testid="cvt-recent-legs" /> : null}
                 </td>
-                <td className="numeric" data-cell="paid">
+                <td className="lt-mono" data-cell="paid">
                   {displayAmount(c.paid.amount)} {c.paid.asset}
                 </td>
-                <td className="numeric" data-cell="received">
+                <td className="lt-mono" data-cell="received">
                   {displayAmount(c.received.amount)} {c.received.asset}
                 </td>
                 <td data-cell="time">{c.filledAt ? time(c.filledAt) : time(c.acceptedAt)}</td>

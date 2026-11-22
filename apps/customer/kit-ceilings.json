@@ -269,10 +269,6 @@
     "apps/customer/src/screens/pay/RequestCard.tsx": 1,
     "apps/customer/src/screens/pay/SendCard.tsx": 3,
     "apps/customer/src/screens/pay/ServerRequests.tsx": 8,
-    "apps/customer/src/screens/trade/buy/AssetPicker.tsx": 2,
-    "apps/customer/src/screens/trade/buy/BuyCard.tsx": 2,
-    "apps/customer/src/screens/trade/convert/index.tsx": 5,
-    "apps/customer/src/screens/trade/convert/VenueConvert.tsx": 2,
     "apps/customer/src/screens/trade/copybots/FollowWizard.tsx": 1,
     "apps/customer/src/screens/trade/copybots/GridManage.tsx": 1,
     "apps/customer/src/screens/trade/copybots/RecurringBuy.tsx": 4,
@@ -317,8 +313,6 @@
     "apps/customer/src/features/pay/portal/settings/developers/Docs.tsx": 2,
     "apps/customer/src/features/pay/ui-kit.tsx": 6,
     "apps/customer/src/screens/coin/PriceCard.tsx": 2,
-    "apps/customer/src/screens/trade/buy/BuyCard.tsx": 1,
-    "apps/customer/src/screens/trade/convert/OtcConvert.tsx": 12,
     "apps/customer/src/screens/trade/execution/AlgoForm.tsx": 6,
     "apps/customer/src/screens/trade/execution/AlgoList.tsx": 6,
     "apps/customer/src/screens/trade/execution/AlgoTab.tsx": 1,
@@ -368,7 +362,6 @@
     "apps/customer/src/screens/trade/otc/QuotesTable.tsx": 3,
     "apps/customer/src/screens/trade/otc/RequestForm.tsx": 10,
     "apps/customer/src/screens/trade/otc/RfqBoard.tsx": 10,
-    "apps/customer/src/screens/trade/rooms/RoomNotices.tsx": 5,
     "apps/customer/src/screens/trade/terminal/index.tsx": 9
   }
 }

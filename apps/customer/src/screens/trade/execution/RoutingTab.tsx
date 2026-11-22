@@ -1,6 +1,6 @@
 /** Routing: which execution doors exist, and the three capabilities that are blocked, each with the service's own reason. */
 import { Badge, Button, Table, refusalSupportCode, type TableColumn } from '../rooms/ui';
-import { Freshness } from '../rooms/RoomNotices';
+import { Freshness } from '../rooms/RoomFreshness';
 import { execCopy } from './copy';
 import { useSpine, type Spine } from './data';
 import { Gate } from './parts';
