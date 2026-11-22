@@ -12,7 +12,6 @@ import {
   crmErasureStatusSchema,
   crmErasureAdvanceInputSchema,
   crmErasureStatusInputSchema,
-  crmRetentionStatusSchema,
   crmRetentionReviewStatusInputSchema,
   crmRetentionReviewSchema,
   crmRetentionReviewInputSchema,
@@ -43,8 +42,6 @@ import {
   crmTaskTransitionInputSchema,
   crmInteractionInputSchema,
   crmInteractionReceiptSchema,
-  crmWorkflowAuditListInputSchema,
-  crmWorkflowAuditPageSchema,
   crmDocumentProviderStatusSchema,
   crmDocumentProviderReadInputSchema,
   crmDocumentProviderReadResultSchema,
@@ -77,6 +74,11 @@ import type { OutreachCrm } from './crm.js';
 import { OutreachError } from './config.js';
 import type { FounderAuthority } from './authority.js';
 import { PublicSettingsStaleError, publicChangesOf, type PublicSettingsBook } from './public-settings.js';
+import {
+  OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+  OPS_OUTREACH_OWNERS,
+  OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+} from '@intafaced/contracts/ops-outreach-procedures';
 
 function abuseKey(ctx: Context): string {
   const key = (ctx as Context & { outreachAbuseKey?: string }).outreachAbuseKey;
@@ -143,9 +145,19 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .input(crmErasureStatusInputSchema)
       .output(crmErasureStatusSchema)
       .query(({ input, ctx }) => mapped(() => crm.privacy.status(input, ctx.principal!.userId))),
-    privacyRetentionStatus: staffRead
-      .output(crmRetentionStatusSchema)
-      .query(({ ctx }) => mapped(() => crm.privacy.retentionStatus(ctx.principal!.userId))),
+    privacyRetentionStatus: mountRecord(
+      OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+      ({ ctx }) => mapped(() => crm.privacy.retentionStatus(ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
     privacyRetentionReviewStatus: staffRead
       .input(crmRetentionReviewStatusInputSchema)
       .output(crmRetentionReviewSchema.nullable())
@@ -193,20 +205,15 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .input(crmNoteInputSchema)
       .output(crmActivitySchema)
       .mutation(({ input, ctx }) => mapped(() => crm.addNote(input, ctx.principal!.userId))),
-    owners: staffRead
-      .output(
-        z
-          .object({
-            ownerUserIds: z.array(z.string().guid()).length(2),
-            initialOwnerUserId: z.string().guid(),
-            owners: z.tuple([
-              z.object({ userId: z.string().guid(), displayName: z.literal('Nitro') }).strict(),
-              z.object({ userId: z.string().guid(), displayName: z.literal('Phantom') }).strict(),
-            ]),
-          })
-          .strict(),
-      )
-      .query(() => mapped(async () => crm.owners())),
+    owners: mountRecord(OPS_OUTREACH_OWNERS, () => mapped(async () => crm.owners()), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
     listCampaigns: staffRead
       .input(crmCampaignListInputSchema)
       .output(crmCampaignPageSchema)
@@ -267,10 +274,15 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .input(crmMessageListInputSchema)
       .output(crmMessagePageSchema)
       .query(({ input }) => mapped(() => crm.listMessages(input))),
-    listWorkflowAudit: staffRead
-      .input(crmWorkflowAuditListInputSchema)
-      .output(crmWorkflowAuditPageSchema)
-      .query(({ input, ctx }) => mapped(() => crm.listWorkflowAudit(input))),
+    listWorkflowAudit: mountRecord(OPS_OUTREACH_LIST_WORKFLOW_AUDIT, ({ input, ctx }) => mapped(() => crm.listWorkflowAudit(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
     documentProviderStatus: staffRead.output(crmDocumentProviderStatusSchema).query(() => papermarkFreeAdapter.status()),
     documentViews: staffRead
       .input(crmDocumentProviderReadInputSchema)

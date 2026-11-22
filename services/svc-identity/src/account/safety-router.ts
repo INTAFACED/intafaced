@@ -6,7 +6,6 @@ import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc
 import {
   clearExtraControlsInputSchema,
   safetyChangeOutputSchema,
-  safetyReadOutputSchema,
   setExtraControlsInputSchema,
   setLocationConsentInputSchema,
 } from '@intafaced/contracts/identity-safety';
@@ -15,6 +14,9 @@ import { factorActor } from '../auth/factor-gate.js';
 import { toTrpcError } from '../router.js';
 import { userCopy } from '../user-copy.js';
 import { clearExtraControls, readSafety, SafetyError, setExtraControls, setLocationConsent } from './safety.js';
+import { IDENTITY_ACCOUNT_SAFETY_READ } from '@intafaced/contracts/identity-account-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 function toTrpc(err: unknown): never {
   if (err instanceof SafetyError) {
@@ -33,14 +35,18 @@ export function createSafetyRouter(auth: AuthService, privilegedUserIds: readonl
     return actor;
   };
   return router({
-    read: protectedProcedure.output(safetyReadOutputSchema).query(async ({ ctx }) => {
-      try {
-        own(ctx.principal);
-        return await readSafety(auth.safetySql, ctx.principal.userId, extraControlsMin());
-      } catch (err) {
-        toTrpc(err);
-      }
-    }),
+    read: mountRecord(
+      IDENTITY_ACCOUNT_SAFETY_READ,
+      async ({ ctx }) => {
+        try {
+          own(ctx.principal);
+          return await readSafety(auth.safetySql, ctx.principal.userId, extraControlsMin());
+        } catch (err) {
+          toTrpc(err);
+        }
+      },
+      codedRefusal,
+    ),
 
     setExtraControls: protectedProcedure
       .input(setExtraControlsInputSchema)

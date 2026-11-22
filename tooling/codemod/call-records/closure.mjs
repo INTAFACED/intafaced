@@ -4,6 +4,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { bindingOf, freeNames, load, resolveRelative, text, walk } from './ast.mjs';
+import { packageRefusal, typeParametersIn } from './outside.mjs';
 
 const GLOBALS = new Set([
   'const',
@@ -42,8 +43,6 @@ const GLOBALS = new Set([
   'parseFloat',
   'encodeURIComponent',
 ]);
-/** Packages @intafaced/contracts already depends on (its package.json). */
-const CONTRACT_DEPS = new Set(['zod', '@intafaced/config', '@intafaced/auth']);
 
 let contractsIndex;
 /** Where each name contracts exports is declared: `name -> file` for every non-test file in packages/contracts/src. */
@@ -97,7 +96,9 @@ export function closureOf(repo, roots) {
     fromPackages.get(spec).add(line);
   };
   const visit = (p, node, where) => {
+    const own = typeParametersIn(node);
     for (const [name, use] of freeNames(p, node)) {
+      if (own.has(name)) continue;
       if (name === 'z') {
         const b = bindingOf(p, use, name);
         if (b.kind !== 'import' || b.from !== 'zod') problems.push(`${where}: z is not zod's`);
@@ -130,13 +131,11 @@ export function closureOf(repo, roots) {
       else fromContracts.set(name, { file, imported: b.imported, typeOnly: b.typeOnly });
       return;
     }
-    if (CONTRACT_DEPS.has(from)) {
-      addPkg(from, b.imported === name ? name : `${b.imported} as ${name}`);
-      return;
-    }
-    const file = resolveRelative(p.file, from);
+    const file = from.startsWith('.') ? resolveRelative(p.file, from) : null;
     if (!file) {
-      problems.push(`${where}: ${name} comes from ${from}, which contracts does not depend on`);
+      const refused = from.startsWith('.') ? 'which does not resolve' : packageRefusal(repo, from);
+      if (refused) problems.push(`${where}: ${name} comes from ${from}, ${refused}`);
+      else addPkg(from, b.imported === name ? name : `${b.imported} as ${name}`);
       return;
     }
     const q = load(file);

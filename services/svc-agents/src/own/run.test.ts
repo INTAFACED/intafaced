@@ -387,12 +387,13 @@ if (!available) {
       });
       expect(await person.own.limits.get({ id })).toMatchObject({ limits: null });
       await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: '5' });
-      await expect(key.own.session.open({ id })).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'scope.interactive_only' } });
+      // A key is told the run is the person's own, before its scope is read (J-agents-12 #3).
+      await expect(key.own.session.open({ id })).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'agents.execute_person_only' });
       expect(await ownSessions()).toBe(0);
       const { sessionId } = await person.own.session.open({ id });
       await expect(key.own.run({ id, sessionId, requestId: 'own-key', ask: ASK })).rejects.toMatchObject({
         code: 'FORBIDDEN',
-        cause: { code: 'scope.interactive_only' },
+        message: 'agents.execute_person_only',
       });
       expect(calls).toBe(0);
       expect(await holds()).toEqual([]);

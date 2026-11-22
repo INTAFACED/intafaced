@@ -1,3 +1,5 @@
+// volt-room: /charts
+// volt-room: /charts/:symbol
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Select, StateBlock } from '@intafaced/ui/lit';
 import { DeskTemplate } from '@intafaced/ui/lit/templates';
