@@ -5,8 +5,6 @@ import { useSession } from '../session';
 import { isStepUpCode, mintWithdrawToken, type WithdrawStepUpMethod } from './withdraw-step-up';
 import { stepUpRefusalKeys, withdrawStepUpCopy } from './withdraw-step-up-copy';
 
-export { stepUpRefusalKeys };
-
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 /**
  * The shared "Confirm it's you" for anything that needs `trade:withdraw` (the withdrawal address list today; the bank

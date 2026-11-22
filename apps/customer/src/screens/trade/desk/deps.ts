@@ -1,7 +1,6 @@
 // The only file in this screen that knows where the shared pieces come from: the Volt kit in @intafaced/ui/lit and the
 // data layer in ../../../data (the same pattern as the Home screen).
 export {
-  Amount,
   Button,
   ChangeText,
   CoinIcon,
@@ -14,14 +13,7 @@ export {
   PopoverTrigger,
   Pct,
   Price,
-  Segmented,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   StateBlock,
-  StatusTag,
   TabSet as Tabs,
   TabList as TabsList,
   TabPanel as TabsPanel,
@@ -29,12 +21,6 @@ export {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   AlertDialogClose,
   Bone,
   AmountInput,
@@ -58,4 +44,3 @@ export {
 export { compareDecimal, dec, fractionDigits } from '../../../data/decimal';
 export { isHiddenPath } from '../../../app/feature-registry';
 export { defaultDeskPair, normalizePair } from '../../../app/navigation';
-export { navigate } from '../../../app/location';

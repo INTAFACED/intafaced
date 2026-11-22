@@ -351,10 +351,11 @@ const TICKET_TRACK = '18.75rem';
 function arrangedStyle(arrangement: NonNullable<DeskProps['arrangement']>): React.CSSProperties {
   const names = [...arrangement.columns.map((c) => c.region), 'ticket'];
   const row = (fill: (name: string) => string) => `'${names.map(fill).join(' ')}'`;
-  return {
-    ['--lt-desk-columns' as string]: [...arrangement.columns.map((c) => c.width), TICKET_TRACK].join(' '),
-    ['--lt-desk-areas' as string]: [row(() => 'instrument'), row((n) => n), row(() => 'orders')].join(' '),
-  } as React.CSSProperties;
+  const style: React.CSSProperties & Record<`--${string}`, string> = {
+    '--lt-desk-columns': [...arrangement.columns.map((c) => c.width), TICKET_TRACK].join(' '),
+    '--lt-desk-areas': [row(() => 'instrument'), row((n) => n), row(() => 'orders')].join(' '),
+  };
+  return style;
 }
 
 /**
