@@ -1,7 +1,7 @@
 // World: restart
 import { test, expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
-import { atTick, shownText } from './charts-desk-studies.mjs';
+import { atTick, facts, shownText } from './charts-desk-studies.mjs';
 import { venueForThisFile } from './venue.mjs';
 
 // J-charts-desk-04 #6 "Adds open interest, funding and an on-chain series" (docs/roadmap/journeys.json), apart from the
@@ -32,11 +32,6 @@ const row = (page, id) => page.locator(`[data-study="${id}"]`);
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
 /** The study series the chart library draws (key, pane, type, colour), as the chart writes them back. */
 const drawnStudies = async (page) => JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]');
-/** A study's facts as the legend lists them: { name: text }. */
-async function facts(page, id) {
-  const texts = await row(page, id).getByTestId('st-fact').allTextContents();
-  return Object.fromEntries(texts.map((t) => [t.slice(0, t.indexOf(':')).trim(), t.slice(t.indexOf(':') + 1).trim()]));
-}
 
 /** The funding the venue published on its listed perpetual on `base`, from the public route the chart reads. */
 async function fundingRoute(base, since) {

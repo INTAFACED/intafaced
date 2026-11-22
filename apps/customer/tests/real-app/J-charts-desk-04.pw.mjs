@@ -1,7 +1,7 @@
 // World: none
 import { test, expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
-import { atTick, chartBars, expectLines, F, shownText, STEP_MS, untradedMarket } from './charts-desk-studies.mjs';
+import { atTick, chartBars, expectLines, F, facts, shownText, STEP_MS, untradedMarket } from './charts-desk-studies.mjs';
 
 // J-charts-desk-04 "I add advanced studies and market analytics series" (docs/roadmap/journeys.json). One test per step,
 // titled "J-charts-desk-04 #<n>". Each test opens the workbench on its own, so the studies it needs are added inside the
@@ -43,11 +43,6 @@ const row = (page, id) => page.locator(`[data-study="${id}"]`);
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
 /** The study series the chart library draws (key, pane, type, colour), as the chart writes them back. */
 const drawnStudies = async (page) => JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]');
-/** A study's facts as the legend lists them: { name: text }. */
-async function facts(page, id) {
-  const texts = await row(page, id).getByTestId('st-fact').allTextContents();
-  return Object.fromEntries(texts.map((t) => [t.slice(0, t.indexOf(':')).trim(), t.slice(t.indexOf(':') + 1).trim()]));
-}
 /** The public tape the volume studies read (the newest 500 prints), oldest first, as the studies take them. */
 async function prints() {
   return (await trades(500)).map((r) => ({ t: r.timestamp, side: r.side, amount: Number(r.amount), price: Number(r.price) }));
