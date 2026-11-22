@@ -6,8 +6,6 @@ import { OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET } from '@intafaced/contracts
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from '../record-refusal.js';
 
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
-
 function deskError(err: unknown): never {
   if (err instanceof OpsError) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.code} — ${err.message}`, cause: err });
   throw err;

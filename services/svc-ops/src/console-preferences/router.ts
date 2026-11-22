@@ -18,8 +18,6 @@ import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from '@intafaced/contracts/o
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from '../record-refusal.js';
 
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
-
 export interface PreferencesDeps {
   readonly store: PreferenceStore | undefined;
   readonly now: () => string;

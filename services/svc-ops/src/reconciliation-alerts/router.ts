@@ -73,7 +73,6 @@ export function createReconciliationAlertRoutes(
     if (!id) throw new OpsError(OPS_ALERT_ACTOR_UNSET, 'The operator id is blank. Nothing was saved.');
     return id;
   };
-  const reader = scopedProcedure('admin:read', guards);
   const writer = scopedProcedure('admin:write', guards);
   const treasury = scopedProcedure('admin:treasury', guards);
 

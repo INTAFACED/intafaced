@@ -6,8 +6,6 @@ import { OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD }
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from '../record-refusal.js';
 
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
-
 function deskError(err: unknown): never {
   if (err instanceof OpsError) {
     const code = err.code === OPS_IDEMPOTENCY_CONFLICT ? 'CONFLICT' : 'PRECONDITION_FAILED';
