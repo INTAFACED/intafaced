@@ -23,6 +23,10 @@ export function reasonOf(why) {
     [/which depends on @intafaced\/contracts, so contracts can't import it/, 'schema from a package that depends on contracts (it stays)'],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
     [/named by a template/, 'service or call named by a template'],
+    [
+      /call name passed through a wrapper|another caller of its wrapper|but its wrapper/,
+      'wrapper that takes its call name (named, with its reason)',
+    ],
     [/sends one input value to \d+ records/, 'one input sent to each of a closed set of calls'],
     [/builds the schema/, "schema built by the caller's own function"],
     [/own schema checks the answer/, 'caller schema checks the answer (.refine and the like)'],

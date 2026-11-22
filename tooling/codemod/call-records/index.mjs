@@ -33,6 +33,7 @@ import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
 import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
+import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
@@ -252,6 +253,13 @@ function plan(opts) {
   return { serviceDir, procs, unread, sites, records, existing, hand };
 }
 
+/** The kind a record already written in contracts `file` declares: `query` or `mutation`. */
+function recordKind(file, name) {
+  const src = readFileSync(file, 'utf8');
+  const at = src.indexOf(`export const ${name} = defineProcedure(`);
+  return at < 0 ? undefined : /kind: '(query|mutation)'/.exec(src.slice(at, src.indexOf('\n});', at)))?.[1];
+}
+
 /** Whether `name` in contracts `file` is the record of `path`: its `defineProcedure({ … path: '<path>' … })`. */
 function recordOfPath(file, name, path) {
   const src = readFileSync(file, 'utf8');
@@ -270,6 +278,8 @@ const inputArg = (s) =>
       ? s.dispatchers[0].arguments[4]
       : s.node.arguments[INPUT_AT[s.shape] ?? 2];
 function noInput(s) {
+  // A wrapper sends the input it sent before: its record only names the call.
+  if (s.shape === 'wrapper') return true;
   const a = inputArg(s);
   return !a || (a.type === 'Identifier' && a.name === 'undefined') || (a.type === 'ObjectExpression' && a.properties.length === 0);
 }
@@ -428,6 +438,8 @@ function build(opts, planned) {
   for (const e of planned.existing) for (const s of e.sites) rewriteSite(changes, s, e.name, contractsSpec(e.file));
   tables(changes, planned, done);
   fanIn(changes, planned, done, callText);
+  const kinds = new Map(planned.existing.map((e) => [e.name, recordKind(e.file, e.name)]));
+  wrapperIn(changes, planned, done, (name) => kinds.get(name));
   return { changes, created, problems, done };
 }
 
@@ -471,7 +483,8 @@ function tables(changes, planned, done) {
 
 /** The schema a caller parses the answer with, or undefined. */
 export function schemaArgOf(s) {
-  if (s.shape === 'desk-read' || s.shape === 'ops-entry') return undefined;
+  // A wrapper keeps its own schema, read through `callAs`.
+  if (s.shape === 'desk-read' || s.shape === 'ops-entry' || s.shape === 'wrapper') return undefined;
   const a = s.node.arguments;
   if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
   if (s.shape === 'payCall') return s.reader ? undefined : a[4]?.arguments?.[0];
@@ -616,6 +629,8 @@ export function rewriteSite(changes, s, name, spec, takesNone) {
     f.tables.get(s.table).moved.push({ s, edit, takesNone });
     return;
   }
+  // One caller of a wrapper that takes its call name: written once every caller has its record (`wrapperIn`).
+  if (s.wrapper) return wrapperBranch(changes, s, name, spec);
   // One value of a call named by a `? :` or a closed set: written once every value has its record (`fanIn`).
   if (s.fan) return fanBranch(changes, s, name, spec, takesNone);
   changes.edit(s.file, n.start, n.end, callText(changes, s, name, takesNone));
