@@ -14,6 +14,8 @@ mod env_parity;
 mod guard_grid;
 #[path = "input_parity.rs"]
 mod input_parity;
+#[path = "loans_collateral_db.rs"]
+mod loans_collateral_db;
 #[path = "loans_db.rs"]
 mod loans_db;
 #[path = "partner_db.rs"]
