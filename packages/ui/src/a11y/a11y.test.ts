@@ -10,6 +10,7 @@ import {
   applySurfaces,
   composite,
   focusScroll,
+  isKeyboardFocus,
   contrastRatio,
   isLargeText,
   meetsContrast,
@@ -227,6 +228,25 @@ describe('focus not obscured', () => {
     // Taller than the space between the bars: its top stays in view rather than its bottom.
     expect(focusScroll({ top: 100, bottom: 900 }, { topEdge: 48, bottomEdge: 686 })).toBe(44);
     expect(focusScroll({ top: 100, bottom: 110 }, { topEdge: 48, bottomEdge: 686 }, 0)).toBe(0);
+  });
+
+  it('scrolls a control clear only for keyboard focus, never for a pointer press (J-charts-desk-06 #4)', () => {
+    const asked: string[] = [];
+    const el = (visible: boolean) => ({
+      matches: (selector: string) => {
+        asked.push(selector);
+        return visible;
+      },
+    });
+    expect(isKeyboardFocus(el(true))).toBe(true);
+    expect(isKeyboardFocus(el(false))).toBe(false);
+    expect(asked).toEqual([':focus-visible', ':focus-visible']);
+    const old = {
+      matches: () => {
+        throw new SyntaxError('unknown pseudo-class');
+      },
+    };
+    expect(isKeyboardFocus(old)).toBe(true);
   });
 });
 

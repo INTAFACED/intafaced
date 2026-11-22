@@ -50,6 +50,19 @@ export function focusScroll(
 }
 
 /**
+ * True when focus came from the keyboard (`:focus-visible`), the only focus a browser would scroll into view. A pointer
+ * press also moves focus, onto the control under the pointer: scrolling then would move the page mid-press, under a drag.
+ * An engine that can't read `:focus-visible` counts every focus as the keyboard's.
+ */
+export function isKeyboardFocus(el: Pick<Element, 'matches'>): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Keep the two custom properties on `root` equal to the bars' real heights, as bars come, go and
  * resize. Returns the function that stops it. Does nothing where there is no DOM.
  */
@@ -93,7 +106,7 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   // control under the dock stays there (Chromium, look gate on /trade/calendar at 200% text). Scroll it clear here.
   const clearFocus = (event: FocusEvent): void => {
     const el = event.target;
-    if (!(el instanceof Element) || bars.length === 0 || el.closest(`[${OBSCURES_ATTRIBUTE}]`)) return;
+    if (!(el instanceof Element) || bars.length === 0 || el.closest(`[${OBSCURES_ATTRIBUTE}]`) || !isKeyboardFocus(el)) return;
     let topEdge = 0;
     let bottomEdge = window.innerHeight;
     for (const bar of bars) {
