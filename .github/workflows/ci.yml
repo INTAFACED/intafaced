@@ -407,6 +407,11 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://intafaced:intafaced@localhost:5432/intafaced_test
       REQUIRE_POSTGRES: '1'
+      # A database test waits on Postgres (it makes and migrates its own database), not on the CPU, so more run at once
+      # than the runner's 4 cores: cargo's default of one per core left the job at 12 min on a fast runner and past its
+      # 20 on a slow one (main 037af18af and 77c1af898, 22 Nov: the same suites 1.8x slower). Locally svc-academy's
+      # suite took 138s at 4 at once and 79s at 16.
+      RUST_TEST_THREADS: '12'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
