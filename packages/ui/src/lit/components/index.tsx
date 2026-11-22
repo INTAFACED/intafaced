@@ -158,6 +158,101 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
+/** The words under a control: its hint, then its error. One id each, so the control names both. */
+function ControlNotes({ id, hint, error }: { id: string; hint?: string; error?: string }) {
+  return (
+    <>
+      {hint && (
+        <span id={`${id}-hint`} data-part="hint">
+          {hint}
+        </span>
+      )}
+      {error && (
+        <span id={`${id}-error`} data-part="error" role="alert">
+          {error}
+        </span>
+      )}
+    </>
+  );
+}
+
+const describedBy = (id: string, own: string | undefined, hint?: string, error?: string) =>
+  [own, hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(' ') || undefined;
+
+export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & { label: string; hint?: string; error?: string };
+
+/** A native select drawn as a Field: its label, the choices the caller passes (options and groups), hint and error. */
+export function Select({ label, hint, error, id, className, children, ...rest }: SelectProps) {
+  const auto = React.useId();
+  const selectId = id ?? auto;
+  return (
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={selectId}>{label}</label>
+      <select
+        {...rest}
+        id={selectId}
+        aria-invalid={error ? true : rest['aria-invalid']}
+        aria-describedby={describedBy(selectId, rest['aria-describedby'], hint, error)}
+      >
+        {children}
+      </select>
+      <ControlNotes id={selectId} hint={hint} error={error} />
+    </div>
+  );
+}
+
+export type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string };
+
+/** A text box of several lines drawn as a Field. */
+export function TextArea({ label, hint, error, id, className, ...rest }: TextAreaProps) {
+  const auto = React.useId();
+  const areaId = id ?? auto;
+  return (
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={areaId}>{label}</label>
+      <textarea
+        {...rest}
+        id={areaId}
+        aria-invalid={error ? true : rest['aria-invalid']}
+        aria-describedby={describedBy(areaId, rest['aria-describedby'], hint, error)}
+      />
+      <ControlNotes id={areaId} hint={hint} error={error} />
+    </div>
+  );
+}
+
+export type ChoiceProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+  type: 'radio' | 'checkbox';
+  label: React.ReactNode;
+};
+
+/** One radio or checkbox with its words beside it; the whole line is the hit area. */
+export function Choice({ type, label, className, ...rest }: ChoiceProps) {
+  return (
+    <label className={clsx('lit-choice', className)}>
+      <input {...rest} type={type} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+/** Choices that answer one question: a fieldset whose legend is the question. */
+export function ChoiceGroup({
+  legend,
+  hint,
+  className,
+  children,
+  ...rest
+}: React.FieldsetHTMLAttributes<HTMLFieldSetElement> & { legend: React.ReactNode; hint?: React.ReactNode }) {
+  return (
+    <fieldset {...rest} className={clsx('lit-choice-group', className)}>
+      <legend>{legend}</legend>
+      {children}
+      {hint && <span data-part="hint">{hint}</span>}
+    </fieldset>
+  );
+}
+
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
 
@@ -263,12 +358,24 @@ export function Holdings({ items, label, className }: { items: readonly Holding[
 }
 
 /** A refusal: the blocker in words, the code small, one next step. Neutral, never accent-tinted. */
-export function RefusalBox({ refusal, className }: { refusal: Refusal; className?: string }) {
+export type RefusalBoxProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'role' | 'children'> & {
+  refusal: Refusal;
+  /** `alert` for an answer the person must not miss (a write whose outcome is not known); `status` otherwise. */
+  role?: 'status' | 'alert';
+  /** The language of the body when it is not the page's (a service's own words). */
+  bodyLang?: string;
+  /** A control that belongs to this refusal, after its words (Try again). */
+  children?: React.ReactNode;
+};
+
+export function RefusalBox({ refusal, className, role = 'status', bodyLang, children, ...rest }: RefusalBoxProps) {
   return (
-    <div className={clsx('lit-refusal', className)} data-variant={refusal.variant} role="status">
+    <div {...rest} className={clsx('lit-refusal', className)} data-variant={refusal.variant} role={role}>
       <div>
         <div data-part="title">{refusal.title}</div>
-        <div data-part="body">{refusal.body}</div>
+        <div data-part="body" lang={bodyLang}>
+          {refusal.body}
+        </div>
         {refusal.reference && (
           <FinePrint data-part="reference" style={{ display: 'block' }}>
             {refusal.reference}
@@ -279,6 +386,7 @@ export function RefusalBox({ refusal, className }: { refusal: Refusal; className
             {refusal.action.label}
           </a>
         )}
+        {children}
       </div>
     </div>
   );
