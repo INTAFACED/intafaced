@@ -1,19 +1,20 @@
 import 'server-only';
-import { staffHoldListSchema, staffHoldResultSchema, type StaffHoldList, type StaffHoldResult } from '@intafaced/contracts/ops-staff-holds';
+import { staffHoldResultSchema, type StaffHoldList, type StaffHoldResult } from '@intafaced/contracts/ops-staff-holds';
 import {
   edgeCall,
   type ExecuteFn,
   type ExecuteReply,
   explainRefusal,
   failureRefusal,
-  founderCall,
   type FounderCallContext,
   type FounderCallResult,
   parseWith,
   type RefusalView,
+  founderRecordCall,
 } from '@/lib/desk';
 import { treasuryTransport } from '@/lib/ledger';
 import type { PlaceForm } from './holds';
+import { OPS_STAFF_HOLDS_LIST } from '@intafaced/contracts/ops-staff-holds-procedures';
 
 /**
  * The console's hops to svc-ops' staff holds (OPS-accounts-desk-01, J-ops-console-04 #2-#5).
@@ -69,7 +70,7 @@ async function treasuryOps<T>(procedure: string, input: unknown, parse: (raw: un
 }
 
 export async function readHolds(ctx: FounderCallContext, userId: string): Promise<FounderCallResult<StaffHoldList>> {
-  return founderCall(ctx, 'ops', 'staffHolds.list', 'GET', { userId }, parseWith(staffHoldListSchema));
+  return founderRecordCall(ctx, OPS_STAFF_HOLDS_LIST, { userId });
 }
 
 /** What a hold action's answer proves, in words. `settling` is never a success: the ledger has not answered yet. */

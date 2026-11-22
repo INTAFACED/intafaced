@@ -62,7 +62,7 @@
     },
     "routes.confirm valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\"}}}"
     },
     "routes.confirm absent anon": {
       "status": 401,
@@ -82,7 +82,7 @@
     },
     "routes.confirm absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\"}}}"
     },
     "routes.confirm wrong-type anon": {
       "status": 401,
@@ -102,7 +102,7 @@
     },
     "routes.confirm wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\"}}}"
     },
     "routes.confirm empty anon": {
       "status": 401,
@@ -122,7 +122,7 @@
     },
     "routes.confirm empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\"}}}"
     },
     "routes.confirm extra-key anon": {
       "status": 401,
@@ -142,7 +142,7 @@
     },
     "routes.confirm extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.confirm\",\"requestId\":\"<request>\"}}}"
     },
     "routes.desk valid anon": {
       "status": 401,
@@ -162,7 +162,7 @@
     },
     "routes.desk valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\"}}}"
     },
     "routes.desk absent anon": {
       "status": 401,
@@ -182,7 +182,7 @@
     },
     "routes.desk absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\"}}}"
     },
     "routes.desk wrong-type anon": {
       "status": 401,
@@ -202,7 +202,7 @@
     },
     "routes.desk wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\"}}}"
     },
     "routes.desk empty anon": {
       "status": 401,
@@ -222,7 +222,7 @@
     },
     "routes.desk empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\"}}}"
     },
     "routes.desk extra-key anon": {
       "status": 401,
@@ -242,7 +242,7 @@
     },
     "routes.desk extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.desk\",\"requestId\":\"<request>\"}}}"
     },
     "routes.list valid anon": {
       "status": 401,
@@ -362,7 +362,7 @@
     },
     "routes.propose valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\"}}}"
     },
     "routes.propose absent anon": {
       "status": 401,
@@ -382,7 +382,7 @@
     },
     "routes.propose absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\"}}}"
     },
     "routes.propose wrong-type anon": {
       "status": 401,
@@ -402,7 +402,7 @@
     },
     "routes.propose wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\"}}}"
     },
     "routes.propose empty anon": {
       "status": 401,
@@ -422,7 +422,7 @@
     },
     "routes.propose empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\"}}}"
     },
     "routes.propose extra-key anon": {
       "status": 401,
@@ -442,7 +442,7 @@
     },
     "routes.propose extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.propose\",\"requestId\":\"<request>\"}}}"
     },
     "routes.withdraw valid anon": {
       "status": 401,
@@ -462,7 +462,7 @@
     },
     "routes.withdraw valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\"}}}"
     },
     "routes.withdraw absent anon": {
       "status": 401,
@@ -482,7 +482,7 @@
     },
     "routes.withdraw absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\"}}}"
     },
     "routes.withdraw wrong-type anon": {
       "status": 401,
@@ -502,7 +502,7 @@
     },
     "routes.withdraw wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\"}}}"
     },
     "routes.withdraw empty anon": {
       "status": 401,
@@ -522,7 +522,7 @@
     },
     "routes.withdraw empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\"}}}"
     },
     "routes.withdraw extra-key anon": {
       "status": 401,
@@ -542,7 +542,7 @@
     },
     "routes.withdraw extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.route_change_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"routes.withdraw\",\"requestId\":\"<request>\"}}}"
     }
   }
 }

@@ -26,6 +26,18 @@
   font-stretch: 112%;
 }
 
+/* The page frame: a room drawn on the kit's templates is the page's own room, so it keeps the gutter and the content
+   width every other page has, signed in or public (the shared Page: --if-gutter each side, --if-container-max wide, centred). A room drawn
+   inside another room keeps the frame of the room it sits in. */
+:root :is(.if-app, .public-shell) > main .lt-room:not(.lt-room .lt-room) {
+  box-sizing: border-box;
+  inline-size: 100%;
+  max-inline-size: var(--if-container-max);
+  margin-inline: auto;
+  padding-inline: var(--if-gutter);
+  padding-block-start: 1.5rem;
+}
+
 /* Phone: the doors float as one pill above the page, the open door a solid ink pill inside it. The pill's look is not
    inside the phone query, so the kit page can draw it at any width (app/kit); shell.css shows the bar on a phone only. */
 @media (max-width: 767px) {

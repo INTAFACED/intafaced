@@ -28,6 +28,7 @@ import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
 import { partsFor } from './guard-check.mjs';
+import { fanBranch, fanIn } from './fan.mjs';
 import { findSites } from './sites.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
@@ -168,10 +169,14 @@ function plan(opts) {
     }
     const proc = procs.get(path);
     if (!proc) {
+      // A path the reader found but could not take as one procedure is named with its own reason.
+      const own = unread.find((u) => u.path === path);
       for (const s of list)
         hand.push({
           site: s,
-          why: `${opts.service} has no procedure ${path} the codemod can read${unread.length ? ` (${unread.length} router parts unread)` : ''}`,
+          why: own
+            ? `${opts.service} ${path}: ${own.why}`
+            : `${opts.service} has no procedure ${path} the codemod can read${unread.length ? ` (${unread.length} router parts unread)` : ''}`,
         });
       continue;
     }
@@ -403,7 +408,7 @@ function build(opts, planned) {
   }
   for (const e of planned.existing) for (const s of e.sites) rewriteSite(changes, s, e.name, contractsSpec(e.file));
   tables(changes, planned, done);
-  pairs(changes, planned, done);
+  fanIn(changes, planned, done, callText);
   return { changes, created, problems, done };
 }
 
@@ -526,7 +531,7 @@ export function answerChecks(p, node, seen = new Set()) {
 }
 
 /** The record call that replaces one caller: `recv.call(RECORD, input, opts)` or `founderRecordCall/Read(...)`. */
-function callText(changes, s, name, takesNone) {
+export function callText(changes, s, name, takesNone) {
   const p = load(s.file);
   const n = s.node;
   const a = n.arguments;
@@ -552,34 +557,6 @@ function callText(changes, s, name, takesNone) {
   const rest = [text(p, a[0]), name, input, ...(s.reader ? [text(p, a[5])] : []), ...(a[6] ? [text(p, a[6])] : [])];
   changes.imp(s.file, s.founderCallFrom, fn);
   return `${fn}(${rest.join(', ')})`;
-}
-
-/**
- * `cond ? 'a.x' : 'a.y'` with both branches moved: `cond ? call(A_X, ...) : call(A_Y, ...)`, each branch typed by its own
- * record. With one branch left, neither moves: both are named.
- */
-function pairs(changes, planned, done) {
-  for (const [file, f] of changes.files) {
-    for (const [cond, { s, branches }] of f.pairs ?? []) {
-      const { consequent: c, alternate: a } = branches;
-      if (!c || !a) {
-        const back = new Set([c?.s, a?.s].filter(Boolean));
-        for (const r of [...done, ...planned.existing]) r.sites = r.sites.filter((x) => !back.has(x));
-        for (const x of back) planned.hand.push({ site: x, why: 'the other branch of its `? :` stays, and one call sends both' });
-        continue;
-      }
-      const p = load(file);
-      const test = text(p, cond.test);
-      changes.edit(
-        file,
-        s.node.start,
-        s.node.end,
-        `(${test} ? ${callText(changes, c.s, c.name, c.takesNone)} : ${callText(changes, a.s, a.name, a.takesNone)})`,
-      );
-      changes.imp(file, c.spec, c.name);
-      changes.imp(file, a.spec, a.name);
-    }
-  }
 }
 
 /** One caller, rewritten to its record. */
@@ -620,14 +597,8 @@ export function rewriteSite(changes, s, name, spec, takesNone) {
     f.tables.get(s.table).moved.push({ s, edit, takesNone });
     return;
   }
-  if (s.branch) {
-    // One branch of `cond ? 'a.x' : 'a.y'`: the call is written once both branches have their record (`pairs`).
-    const f = changes.of(s.file);
-    f.pairs ??= new Map();
-    if (!f.pairs.has(s.cond)) f.pairs.set(s.cond, { s, branches: {} });
-    f.pairs.get(s.cond).branches[s.branch] = { s, name, spec, takesNone };
-    return;
-  }
+  // One value of a call named by a `? :` or a closed set: written once every value has its record (`fanIn`).
+  if (s.fan) return fanBranch(changes, s, name, spec, takesNone);
   changes.edit(s.file, n.start, n.end, callText(changes, s, name, takesNone));
   changes.imp(s.file, spec, name);
 }
@@ -812,7 +783,15 @@ function write(result) {
     touched.push(file);
   }
   for (const [file, ch] of result.changes.files) if (ch.schemas) retype(file, ch.schemas);
-  for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneSchemas(file);
+  // Each prune can leave the other something unread (a schema gone frees the list it enumerated), so both run until neither does.
+  for (const file of touched) {
+    if (file.startsWith(CONTRACTS)) continue;
+    for (let was = ''; was !== readFileSync(file, 'utf8');) {
+      was = readFileSync(file, 'utf8');
+      pruneSchemas(file);
+      pruneBuilders(file);
+    }
+  }
   // A schema a moved caller imported from another file of its app may now have no importer: that file is pruned too.
   const sources = new Set();
   for (const file of touched) {
@@ -1029,8 +1008,12 @@ export function pruneSchemas(file) {
         ? stmt.declarations[0]
         : undefined;
     };
-    // The file's own schema consts, to a fixpoint: a const built on another (`ref.nullable()`) is one too.
+    // The file's own schema consts, to a fixpoint: a const built on another (`ref.nullable()`) is one too, and so is one
+    // built on a schema it imports by a schema's name (`decimalSchema.nullable()`): reading a binding runs nothing.
     const schemas = new Set(['z']);
+    for (const top of p.program.body)
+      if (top.type === 'ImportDeclaration')
+        for (const sp of top.specifiers ?? []) if (/[sS]chema$/.test(sp.local.name)) schemas.add(sp.local.name);
     for (let grew = true; grew;) {
       grew = false;
       for (const top of p.program.body) {
@@ -1056,6 +1039,40 @@ export function pruneSchemas(file) {
       if (read && exported) edits.push({ start: top.start, end: stmt.start, text: '' });
       else if (!read) edits.push({ start: statementStart(p, top), end: statementEnd(p, top), text: '' });
     }
+    if (!edits.length) return;
+    writeFileSync(file, applyEdits(p.src, edits));
+  }
+}
+
+/** A literal, or one read `as const`. */
+const plain = (n) => n?.type === 'Literal' || (n?.type === 'TSAsExpression' && n.expression.type === 'Literal');
+
+/**
+ * The consts only the moved calls read: a router's procedure builder (`scopedProcedure('admin:read', guards)`), the
+ * literal guard object it took, or a caller's literal list a removed schema enumerated (`['a', 'b'] as const`). A name
+ * read anywhere else in the file, or exported, stays.
+ */
+export function pruneBuilders(file) {
+  for (;;) {
+    forget(file);
+    const p = load(file);
+    const edits = [];
+    walk(p.program, (n, parent) => {
+      if (n.type !== 'VariableDeclaration' || n.kind !== 'const' || n.declarations.length !== 1) return;
+      if (parent?.type === 'ExportNamedDeclaration' || /For(In|Of)?Statement$/.test(parent?.type ?? '')) return false;
+      const d = n.declarations[0];
+      const init = d.init?.type === 'TSAsExpression' ? d.init.expression : d.init;
+      const builder = init?.type === 'CallExpression' && init.callee.type === 'Identifier' && /Procedure(For)?$/.test(init.callee.name);
+      const guard =
+        init?.type === 'ObjectExpression' &&
+        init.properties.length > 0 &&
+        init.properties.every((q) => q.type === 'Property' && !q.computed && plain(q.value));
+      const list = init?.type === 'ArrayExpression' && init.elements.length > 0 && init.elements.every(plain);
+      if (d.id.type !== 'Identifier' || !(builder || guard || list)) return false;
+      if (!usedOutside(p, d.id.name, [{ start: n.start, end: n.end }]))
+        edits.push({ start: statementStart(p, n), end: statementEnd(p, n), text: '' });
+      return false;
+    });
     if (!edits.length) return;
     writeFileSync(file, applyEdits(p.src, edits));
   }
@@ -1180,7 +1197,7 @@ function report(opts) {
   if (opts.fromRev) for (const f of result.changes.files.keys()) if (f.startsWith(planned.serviceDir)) result.changes.files.delete(f);
   const summary = {
     service: opts.service,
-    // A `? :` call is two sites, one per branch, and one call.
+    // A call named by a `? :` or a closed set is one site per value, and one call.
     sites: new Set(planned.sites.map((s) => s.node)).size,
     records: result.done.map((r) => r.name),
     existing: planned.existing.map((e) => e.name),
