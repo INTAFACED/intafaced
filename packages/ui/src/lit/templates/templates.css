@@ -1352,11 +1352,16 @@ button.lt-tab {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-inline-size: 0;
 }
 
+/* The control fills its field and gives way when the row it sits in is narrower than its own width, so a row of fields
+   on a phone, or at twice the text size, never runs past the screen. */
 .lt-field input:not([type='checkbox'], [type='radio']),
 .lt-field select,
 .lt-field textarea {
+  inline-size: 100%;
+  min-inline-size: 0;
   min-block-size: var(--lit-control-h);
   padding-inline: var(--lit-gap-item);
   border: 1px solid var(--lit-line-strong);
