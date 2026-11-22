@@ -15,7 +15,7 @@ const tools = [
 ] as const;
 
 /** Test mode at a glance: what you have set up, what has been delivered, and the tools that make test activity. */
-export function Sandbox({ api }: { api: SettingsBApi }) {
+function Sandbox({ api }: { api: SettingsBApi }) {
   const keys = useResource((signal) => api.keysList(signal), 'dev:sandbox:keys');
   const health = useResource((signal) => api.webhookHealth(signal), 'dev:sandbox:health');
   return <SandboxView keys={keys.resource} health={health.resource} reload={() => (keys.reload(), health.reload())} />;

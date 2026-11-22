@@ -13,7 +13,7 @@ import { Button, Checkbox, Field } from '@intafaced/ui/lit';
 import { Empty, EntityList, Gate, Loading, Section, SelectField, StatusChip, ToneChip } from '../../volt/parts';
 import { Review } from '../../volt/Review';
 
-export function Keys({ api, scopes }: { api: SettingsBApi; scopes: readonly string[] }) {
+function Keys({ api, scopes }: { api: SettingsBApi; scopes: readonly string[] }) {
   const keys = useResource((signal) => api.keysList(signal), 'dev:keys');
   const approved = readyAccess(useMerchantAccess())?.kybStatus === 'approved';
   return <KeysView resource={keys.resource} reload={keys.reload} api={api} scopes={scopes} approved={approved} />;

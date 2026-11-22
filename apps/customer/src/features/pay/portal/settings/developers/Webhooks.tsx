@@ -16,7 +16,7 @@ import { Review } from '../../volt/Review';
 
 type HealthResource = Resource<Health>;
 
-export function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boolean }) {
+function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boolean }) {
   const { t } = c.useCopy();
   const [q, setQ] = useUrlParam('q');
   const [status, setStatus] = useUrlParam('status');

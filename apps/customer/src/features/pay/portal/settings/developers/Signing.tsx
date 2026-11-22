@@ -15,7 +15,7 @@ import { Empty, Facts, Gate, NotLive, Section, SelectField, StatusChip } from '.
 import { Review } from '../../volt/Review';
 
 /** One key at a time: its facts, whether signed requests are required, the secret, and where it may be used from. */
-export function Signing({ api }: { api: SettingsBApi }) {
+function Signing({ api }: { api: SettingsBApi }) {
   const { t } = c.useCopy();
   const keys = useResource((signal) => api.keysList(signal), 'dev:signing:keys');
   const [picked, setPicked] = useUrlParam('key');

@@ -26,7 +26,7 @@ type Who = {
 };
 
 /** `/pay/settings`: the business's own details, who changed them, and what is waiting for review. */
-export function BusinessSettings({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function BusinessSettings({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { access, canOwnerWrite, can } = useMerchantAccess();
   const { userId } = useSession();
   const names = useMemberNames(portal);

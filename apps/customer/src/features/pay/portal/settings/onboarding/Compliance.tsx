@@ -20,7 +20,7 @@ import { Button } from '@intafaced/ui/lit';
 type Kyb = z.infer<typeof kybCurrentSchema>;
 
 /** `/pay/compliance`: where your business verification stands and what INTAFACED still needs. Screening results are never shown here. */
-export function Compliance({ portal, merchantId, role }: { portal: PortalApi; merchantId: string; role: MemberRole }) {
+function Compliance({ portal, merchantId, role }: { portal: PortalApi; merchantId: string; role: MemberRole }) {
   const current = useResource((signal) => portal.kybCurrent(signal), 'portal:compliance-current');
   const activation = useResource((signal) => portal.activation(signal), 'portal:compliance-activation');
   const history = useCursorList(

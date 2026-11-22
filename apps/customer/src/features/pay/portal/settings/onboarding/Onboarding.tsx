@@ -575,7 +575,6 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
 }
 
 import { kybWord } from './kyb-word';
-export { kybWord };
 
 function StepGoLive(props: OnboardingViewProps) {
   const { portal, merchant, rails, saved, onDestinationSaved, retry, progress } = props;

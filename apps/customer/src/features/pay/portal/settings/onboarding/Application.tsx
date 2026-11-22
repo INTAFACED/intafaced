@@ -58,7 +58,7 @@ export function rolesWithoutPerson(roles: readonly string[], people: Person[]): 
 export const peopleComplete = (roles: readonly string[], people: Person[]) =>
   people.length > 0 && people.every(personDone) && rolesWithoutPerson(roles, people).length === 0;
 
-export { base64Of, fileProblem, kindsOf } from './files';
+export { base64Of, fileProblem } from './files';
 import { base64Of, fileProblem, kindsOf } from './files';
 
 /** What the summary lists as still needed: each unfinished part, and by name each document not sent or marked invalid. */

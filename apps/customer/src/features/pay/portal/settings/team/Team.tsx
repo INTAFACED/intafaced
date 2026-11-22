@@ -31,7 +31,7 @@ type TeamMe = { merchantId: string; userId: string; role: MemberRole };
 type Filters = { search: string; role: string; status: string };
 
 /** `/pay/team`: who is on the account, what each may do, and every change to it. */
-export function Team({ portal }: { portal: PortalApi }) {
+function Team({ portal }: { portal: PortalApi }) {
   const [search, setSearch] = useUrlParam('q');
   const [role, setRole] = useUrlParam('role');
   const [status, setStatus] = useUrlParam('status');

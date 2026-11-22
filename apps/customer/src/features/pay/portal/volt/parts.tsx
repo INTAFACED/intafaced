@@ -372,33 +372,6 @@ export function Chip({ kind, value }: { kind: ChipKind; value: string }) {
   return <StatusChip entity={kind} value={value} />;
 }
 
-/** A figure or setting nobody has configured. It is never a zero and never a default. */
-export function NotConfigured({ children }: { children?: ReactNode }) {
-  const { t } = portalCopy.useCopy();
-  return <span className="lt-held">{children ?? t('notConfigured')}</span>;
-}
-
-/** The TEST mark on a figure an account that is not live yet must not take as real. */
-export function TestTag() {
-  const { t } = portalCopy.useCopy();
-  return (
-    <span className="lt-test" title={t('testValueTip')}>
-      {t('testValue')}
-    </span>
-  );
-}
-
-/** A used-against-limit bar. The numbers beside it are exact; the bar is only a picture of them. */
-export function UsageBar({ pct, label }: { pct: number; label: string }) {
-  const { t } = portalCopy.useCopy();
-  const full = pct >= 100;
-  return (
-    <progress aria-label={label} max={100} value={Math.min(100, Math.max(0, Math.round(pct)))} data-full={full || undefined}>
-      {full ? t('usageFull') : t('usagePct', { pct: Math.round(pct) })}
-    </progress>
-  );
-}
-
 /** Newest or oldest first is the page's choice; every event carries its time, or says the service keeps none. */
 export function Timeline({ items, label }: { items: readonly TimelineEvent[]; label: string }) {
   const { t } = uiCopy.useCopy();
@@ -461,17 +434,6 @@ export function Freshness({ asOf, lagSeconds = 0 }: { asOf: string | null; lagSe
     <p className="lt-hint" role="status" data-stale={stale || undefined}>
       {text}
       {stale && <> · {t('figuresBehind')}</>}
-    </p>
-  );
-}
-
-/** "As of" for a list read straight from the account's records: there is no projection, so no lag. */
-export function ReadAt({ at }: { at: string | null }) {
-  const { t } = portalCopy.useCopy();
-  if (!at) return null;
-  return (
-    <p className="lt-hint" role="status">
-      {t('readAt')} <DateTime value={at} />
     </p>
   );
 }

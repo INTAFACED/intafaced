@@ -16,7 +16,7 @@ import { Review } from '../../volt/Review';
 import { Field } from '@intafaced/ui/lit';
 
 /** `/pay/permissions`: which areas of a sub-merchant other businesses on the platform may act in. Every change is reviewed and recorded. */
-export function Permissions({ portal, merchantId, mode }: { portal: PortalApi; merchantId: string; mode: string | null }) {
+function Permissions({ portal, merchantId, mode }: { portal: PortalApi; merchantId: string; mode: string | null }) {
   const [child, setChild] = useUrlParam('child');
   const { canOwnerWrite } = useMerchantAccess();
   const subs = useResource((s) => portal.subList(merchantId, s), `portal:subs:${merchantId}`);
