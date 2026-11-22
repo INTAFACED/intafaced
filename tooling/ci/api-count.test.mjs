@@ -19,22 +19,25 @@ test('countLine names the script, its mode words and its own count; nothing when
   assert.equal(countLine({ calls: 3, remaining: null }, judge), 'GitHub API calls by tooling/ci/judge-down.mjs down CI review issue: 3');
 });
 
-test("the line is printed once at exit, after process.exit(1) too, with the last answer's remaining budget", () => {
+test("the line goes to stderr once at exit, after process.exit(1) too, with the last answer's remaining budget; stdout stays the script's own", () => {
   const mod = pathToFileURL(join(here, 'api-count.mjs')).href;
   const script = `import { countCall } from '${mod}';
 countCall(new Response('', { headers: { 'x-ratelimit-remaining': '41' } }));
 countCall();
 countCall(new Response('', { headers: { 'x-ratelimit-remaining': '39' } }));
-console.log('done');
+console.log(JSON.stringify({ done: true }));
 process.exit(1);`;
   let out = '';
+  let err = '';
   try {
-    execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+    execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     out = e.stdout;
+    err = e.stderr;
   }
-  const lines = out.trim().split('\n');
-  assert.equal(lines.at(-2), 'done');
+  // A caller that parses the script's stdout (journey-touch.mjs --json in real-app-journeys.yml) still reads it whole.
+  assert.deepEqual(JSON.parse(out), { done: true });
+  const lines = err.trim().split('\n');
   assert.match(lines.at(-1), /: 3 \(budget remaining 39 at the last answer\)$/);
   assert.equal(lines.filter((l) => l.startsWith('GitHub API calls by')).length, 1);
 });

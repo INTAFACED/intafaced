@@ -4,7 +4,7 @@
  * Why: every job in this repository spends one shared hourly API budget (the workflow token's 15,000 calls), and on
  * 22 Nov it ran out three times. A job's own before/after read of the budget can't say who spent it, since the other
  * jobs running beside it spend from the same budget meanwhile. So each GitHub reader in tooling/ci calls countCall once
- * per request, and the step's log ends with one line naming the script and its own count:
+ * per request, and the step's log ends with one line on stderr naming the script and its own count:
  *
  *   GitHub API calls by tooling/ci/journey-seal.mjs --recheck: 17 (budget remaining 9120 at the last answer)
  *
@@ -40,7 +40,9 @@ export function countCall(res) {
   state.armed = true;
   process.on('exit', () => {
     const line = countLine(state);
-    if (line) console.log(line);
+    // stderr, never stdout: a step that captures a script's stdout as data (journey-touch.mjs --json in
+    // real-app-journeys.yml) reads it unchanged; the job log shows both.
+    if (line) process.stderr.write(`${line}\n`);
   });
 }
 
