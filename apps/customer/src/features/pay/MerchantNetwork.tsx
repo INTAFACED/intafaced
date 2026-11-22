@@ -205,7 +205,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
     history.reload();
   }
   const input = { granteeMerchantId: grantee, subjectMerchantId: subject, area, reason: reason.trim() };
-  const allowedArea = areas.resource.status === 'ready' && areas.resource.data.includes(area);
+  const allowedArea = areas.resource.status === 'ready' && areas.resource.data.some((known) => known === area);
   return (
     <div className="stack">
       <PaySection title={payCopy.t('permissionSubject')} description={payCopy.t('authorityOverASubjectMerchantIsChecked')}>

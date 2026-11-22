@@ -5,7 +5,7 @@
 // Each moves to the wrapper's record form beside it: `pay.queryRecord(RECORD, input, signal?)`,
 // `pay.mutateRecord(RECORD, input, scope, operation, reference?)`. A `query` or `mutate` on anything else, or one that
 // names its service first (`api.query('pay', 'merchant.x', ...)`), is not this shape.
-import { literal, resolveRelative, text } from './ast.mjs';
+import { keyOf, literal, resolveRelative, text, walk } from './ast.mjs';
 
 const HOME = /\/apps\/customer\/src\/features\/pay\/pay-api\.ts$/;
 const NAMES = new Set(['BusinessPayApi', 'createBusinessPayApi']);
@@ -67,4 +67,66 @@ export function businessCall(p, s, name, input) {
   const a = s.node.arguments;
   const { fn } = BUSINESS_FORMS[s.shape];
   return `${text(p, s.node.callee.object)}.${fn}(${[name, input, ...a.slice(3).map((x) => text(p, x))].join(', ')})`;
+}
+
+/** Each record form a Business API test double gets: it sends the record's path and answer schema to the double's own method. */
+const DOUBLE_FORMS = {
+  query: [
+    'queryRecord(',
+    '  this: { query: (...args: never[]) => unknown },',
+    '  record: { path: string; output: unknown },',
+    '  input?: unknown,',
+    '  signal?: unknown,',
+    ') {',
+    "  // tooling/codemod/call-records: a Business API read by its record reaches this double's own query, by the record's path.",
+    '  return Reflect.apply(this.query, this, [record.path, input, record.output, ...(signal === undefined ? [] : [signal])]);',
+    '},',
+  ],
+  mutate: [
+    'mutateRecord(',
+    '  this: { mutate: (...args: never[]) => unknown },',
+    '  record: { path: string; output: unknown },',
+    '  input?: unknown,',
+    '  ...rest: unknown[]',
+    ') {',
+    "  // tooling/codemod/call-records: a Business API write by its record reaches this double's own mutate, by the record's path.",
+    '  return Reflect.apply(this.mutate, this, [record.path, input, record.output, ...rest]);',
+    '},',
+  ],
+};
+
+/** Whether `file`'s source calls a Business API by record. */
+export const callsBusinessRecord = (src) => /\.(queryRecord|mutateRecord)\(\s*[A-Z][A-Z0-9_]+\b/.test(src);
+
+/**
+ * The edits giving each Business API test double (an object literal cast `as BusinessPayApi`, with `query` or `mutate`)
+ * the record form of each method it has and lacks, after its last property.
+ */
+export function businessDoubleEdits(p) {
+  const out = [];
+  walk(p.program, (node) => {
+    if (node.type !== 'ObjectExpression') return;
+    let up = p.parents.get(node);
+    let cast = false;
+    while (up?.type === 'TSAsExpression' || up?.type === 'ParenthesizedExpression') {
+      if (up.type === 'TSAsExpression' && /\bBusinessPayApi\b/.test(text(p, up.typeAnnotation))) cast = true;
+      up = p.parents.get(up);
+    }
+    if (!cast) return;
+    const keys = node.properties.filter((pr) => pr.type === 'Property').map(keyOf);
+    const add = ['query', 'mutate'].filter((k) => keys.includes(k) && !keys.includes(`${k}Record`));
+    if (!add.length) return;
+    const last = node.properties[node.properties.length - 1];
+    const lineStart = p.src.lastIndexOf('\n', last.start) + 1;
+    const multi = p.src.slice(node.start, node.end).includes('\n');
+    const indent = multi ? p.src.slice(lineStart, last.start).match(/^\s*/)[0] : '';
+    const body = add
+      .flatMap((k) => DOUBLE_FORMS[k])
+      .filter((l) => multi || !l.trimStart().startsWith('//'))
+      .map((l) => (multi ? indent + l : l.trim()));
+    const after = p.src.slice(last.end).match(/^\s*,/);
+    const at = after ? last.end + after[0].length : last.end;
+    out.push({ start: at, end: at, text: multi ? `${after ? '' : ','}\n${body.join('\n')}` : `, ${body.join(' ').replace(/,$/, '')}` });
+  });
+  return out;
 }

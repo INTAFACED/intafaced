@@ -20,6 +20,12 @@ import {
   PAY_PAYMENT_HISTORY,
 } from '@intafaced/contracts/pay-payment-procedures';
 
+/** The status filter as the record takes it: one of the payment states the select lists, or none. */
+function chosenStatus(status: string) {
+  const chosen = s.paymentSchema.shape.status.safeParse(status);
+  return chosen.success ? { status: chosen.data } : {};
+}
+
 export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'payments' | 'disputes' | 'reports' }) {
   const merchantId = pay.authority!.merchantId;
   const [limit, setLimit] = useState(50);
@@ -37,7 +43,7 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
       pay
         .queryRecord(
           PAY_PAYMENT_LIST,
-          { merchantId, limit, ...(room === 'disputes' ? { status: 'disputed' } : status ? { status } : {}) },
+          { merchantId, limit, ...(room === 'disputes' ? { status: 'disputed' as const } : chosenStatus(status)) },
           signal,
         )
         .then((result) => s.listed(result)),
