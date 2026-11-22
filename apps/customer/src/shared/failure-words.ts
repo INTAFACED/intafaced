@@ -71,8 +71,6 @@ export function failureRawCode(result: Extract<ApiResult<unknown>, { ok: false }
 export interface FailureWords {
   alert: boolean;
   title: string;
-  /** The language the title's words are in, when the app's own copy gave them. */
-  titleLang?: string;
   body: string;
   /** The body's language, when it is a translated service message. */
   bodyLang?: string;
@@ -105,8 +103,7 @@ export interface FailureNoteWords {
 type Copy = ReturnType<typeof uiCopy.useCopy>;
 
 function wordsOf({ t, languageFor, requestedLocale }: Copy, result: Failed, canRetry: boolean): FailureWords {
-  if (isServiceNotConnected(result.code))
-    return { alert: false, title: t('not_mounted'), titleLang: languageFor('not_mounted'), body: t('serviceNotConnected') };
+  if (isServiceNotConnected(result.code)) return { alert: false, title: t('not_mounted'), body: t('serviceNotConnected') };
   const retry = canRetry && canTryAgain(result) ? t('retry') : undefined;
   const rawCode = failureRawCode(result);
   if (rawCode && !result.messageCopy) {
@@ -117,7 +114,6 @@ function wordsOf({ t, languageFor, requestedLocale }: Copy, result: Failed, canR
     return {
       alert: uncertain,
       title: uncertain ? t('uncertain') : words.title,
-      ...(uncertain ? { titleLang: languageFor('uncertain') } : {}),
       body: uncertain ? t('gatewayUncertain') : words.body,
       ...(!uncertain && words.action ? { action: words.action } : {}),
       ...(words.reference ? { reference: words.reference } : {}),
@@ -128,7 +124,6 @@ function wordsOf({ t, languageFor, requestedLocale }: Copy, result: Failed, canR
   return {
     alert: result.reason === 'uncertain',
     title: t(result.reason),
-    titleLang: languageFor(result.reason),
     body: result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message,
     ...(result.messageCopy ? { bodyLang: languageFor(result.messageCopy.key) } : {}),
     ...(unauthorized
@@ -139,9 +134,23 @@ function wordsOf({ t, languageFor, requestedLocale }: Copy, result: Failed, canR
   };
 }
 
+/** The app's own copy key the title came from, when it did; a refusal's own title has none. */
+function titleKey(result: Failed): Parameters<Copy['languageFor']>[0] | undefined {
+  if (isServiceNotConnected(result.code)) return 'not_mounted';
+  if (failureRawCode(result) && !result.messageCopy) return result.reason === 'uncertain' ? 'uncertain' : undefined;
+  return result.reason;
+}
+
 function noteWordsOf(copy: Copy, result: Failed): FailureNoteWords {
   const { alert, retry, ...words } = wordsOf(copy, result, true);
-  return { ...words, role: alert ? 'alert' : 'status', retry: retry !== undefined, retryLabel: copy.t('retry') };
+  const key = titleKey(result);
+  return {
+    ...words,
+    ...(key ? { titleLang: copy.languageFor(key) } : {}),
+    role: alert ? 'alert' : 'status',
+    retry: retry !== undefined,
+    retryLabel: copy.t('retry'),
+  };
 }
 
 /**
