@@ -32,6 +32,10 @@ mod credit_previews;
 mod earn_db;
 #[path = "env_parity.rs"]
 mod env_parity;
+#[path = "global_send_db.rs"]
+mod global_send_db;
+#[path = "global_sim_db.rs"]
+mod global_sim_db;
 #[path = "guard_grid.rs"]
 mod guard_grid;
 #[path = "input_parity.rs"]
