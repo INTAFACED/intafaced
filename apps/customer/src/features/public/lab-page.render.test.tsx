@@ -7,7 +7,7 @@ describe('/lab', () => {
   it('names the owner decision and shows no entry and no campaign copy', () => {
     const html = renderToString(<LabPage />);
     expect(html).toContain('data-room="lab"');
-    expect(html).toContain('<h1>Lab</h1>');
+    expect(html).toContain('<h1 class="lt-title">Lab</h1>');
     expect(html).toContain('No Lab entry is published');
     expect(html).toContain('data-not-connected="owner.decision"');
     expect(html).not.toMatch(/campaign/i);

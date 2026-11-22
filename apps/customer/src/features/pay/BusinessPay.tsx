@@ -20,6 +20,9 @@ import { Redirect } from './portal/chrome/PortalNotFound';
 import { addressOf } from './portal/payments/checkout-address';
 import { moneyReason } from './portal/access/money-step';
 import './portal/portal.css';
+import { PAY_MERCHANT_BALANCES, PAY_MERCHANT_LIST_LINKS, PAY_MERCHANT_DEACTIVATE_LINK } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE } from '@intafaced/contracts/pay-settlement-procedures';
+import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
 
 /** Legacy room lookup. The shared portal frame owns navigation for every merchant route. */
 export const businessRooms = [
@@ -108,17 +111,6 @@ export async function validatedMutation<I, O>(
   if (!parsed.success) return payRefusal('invalidInput', { reason: 'error' });
   return pay.mutate(procedure, parsed.data, output, scope, operation);
 }
-export const railHealthSchema = z.array(
-  z.object({
-    id: z.string(),
-    capabilities: z.array(z.string()),
-    mode: z.enum(['live', 'sandbox', 'absent']),
-    usable: z.boolean(),
-    healthy: z.boolean(),
-    latencyMs: z.number(),
-    reason: z.string().optional(),
-  }),
-);
 function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
   const { hideBalances } = usePreferences();
   const [assetDraft, setAssetDraft] = useState('');
@@ -126,7 +118,7 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
   const balance = useResource(
     (signal) =>
       asset
-        ? pay.query('merchant.balances', { merchantId: pay.authority!.merchantId, assetId: asset }, s.balanceSchema, signal)
+        ? pay.queryRecord(PAY_MERCHANT_BALANCES, { merchantId: pay.authority!.merchantId, assetId: asset }, signal)
         : Promise.resolve(payRefusal('chooseTheAssetToReadItsLedger', { reason: 'not_supported' })),
     `pay:balance:${pay.authority!.merchantId}:${asset}`,
   );
@@ -198,15 +190,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
   const [expires, setExpires] = useState('');
   const [created, setCreated] = useState<z.infer<typeof s.newLinkSchema> | null>(null);
   const links = useResource(
-    (signal) =>
-      pay
-        .query(
-          'merchant.listLinks',
-          { merchantId, limit },
-          z.object({ items: z.array(s.linkSchema), nextCursor: z.string().nullable() }),
-          signal,
-        )
-        .then((result) => s.listed(result)),
+    (signal) => pay.queryRecord(PAY_MERCHANT_LIST_LINKS, { merchantId, limit }, signal).then((result) => s.listed(result)),
     `pay:links:${merchantId}:${limit}`,
   );
   const input = {
@@ -335,13 +319,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                           title={payCopy.t('deactivate')}
                           description={payCopy.t('preventNewPaymentsThroughThisLinkThe')}
                           perform={() =>
-                            pay.mutate(
-                              'merchant.deactivateLink',
-                              { merchantId, linkId: link.id },
-                              z.object({ deactivated: z.boolean() }),
-                              'pay:write',
-                              `link:${link.id}`,
-                            )
+                            pay.mutateRecord(PAY_MERCHANT_DEACTIVATE_LINK, { merchantId, linkId: link.id }, 'pay:write', `link:${link.id}`)
                           }
                           onConfirmed={links.reload}
                           disabled={Boolean(pay.access('pay:write'))}
@@ -368,25 +346,17 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
   const [rail, setRail] = useState('');
   const [reason, setReason] = useState('');
   const records = useResource(
-    (signal) =>
-      pay
-        .query(
-          'settlement.list',
-          { merchantId, limit },
-          z.object({ items: z.array(s.settlementSchema), nextCursor: z.string().nullable() }),
-          signal,
-        )
-        .then((result) => s.listed(result)),
+    (signal) => pay.queryRecord(PAY_SETTLEMENT_LIST, { merchantId, limit }, signal).then((result) => s.listed(result)),
     `pay:settlements:${merchantId}:${limit}`,
   );
   const details = useResource(
     (signal) =>
       selected
-        ? pay.query('settlement.get', { settlementId: selected }, s.settlementSchema, signal)
+        ? pay.queryRecord(PAY_SETTLEMENT_GET, { settlementId: selected }, signal)
         : Promise.resolve(payRefusal('openASettlementRecord', { reason: 'not_supported' })),
     `pay:settlement:${merchantId}:${selected}`,
   );
-  const rails = useResource((signal) => pay.query('railHealth', undefined, railHealthSchema, signal), `pay:payout-rails:${merchantId}`);
+  const rails = useResource((signal) => pay.queryRecord(PAY_RAIL_HEALTH, undefined, signal), `pay:payout-rails:${merchantId}`);
   function refresh() {
     records.reload();
     details.reload();
@@ -510,10 +480,9 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                       description={payCopy.t('unfreezePendingPaymentsSoTheyCanEnter')}
                       review={<p>{reason}</p>}
                       perform={() =>
-                        pay.mutate(
-                          'settlement.release',
+                        pay.mutateRecord(
+                          PAY_SETTLEMENT_RELEASE,
                           { settlementId: record.id, reason },
-                          s.settlementSchema,
                           'pay:write',
                           `settlement:${record.id}`,
                         )

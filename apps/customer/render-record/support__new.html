@@ -97,29 +97,30 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>
-<span lang="en" dir="ltr" data-i18n="support-desk.pageNewRequest">New request</span>
-</h1>
-<p class="muted">Help articles and your support requests.</p>
+<h1 class="lt-title">New request</h1>
+<p class="lt-description">Help articles and your support requests.</p>
 </div>
 </header>
-<div class="support-desk">
-<div class="tabs" role="group" aria-label="Support sections">
-<button type="button" class="" aria-pressed="false">Help articles</button>
-<button type="button" class="" aria-pressed="false">Your requests</button>
-<button type="button" class="selected" aria-pressed="true">New request</button>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<div class="lt-stack" data-room="support">
+<div class="lit-segmented" role="group" aria-label="Support sections">
+<button type="button" aria-pressed="false">Help articles</button>
+<button type="button" aria-pressed="false">Your requests</button>
+<button type="button" aria-pressed="true">New request</button>
 </div>
-<section class="support-pane support-new" aria-label="New request">
-<form>
-<p class="muted">Tell us what happened and what you expected. The more exact you are, the faster we can help.</p>
-<p class="support-warning" role="note">Never include your password, recovery codes or one-time codes. Our team will never ask for them.</p>
-<label class="lt-field">
-<span>Topic</span>
-<select>
+<section class="lt-stack" aria-label="New request">
+<form class="lt-stack">
+<p class="lt-hint">Tell us what happened and what you expected. The more exact you are, the faster we can help.</p>
+<p role="note">Never include your password, recovery codes or one-time codes. Our team will never ask for them.</p>
+<div class="lt-field">
+<label for="_r_3_">Topic</label>
+<select id="_r_3_">
 <option value="account">Account and sign-in</option>
 <option value="trading">Trading and orders</option>
 <option value="deposit_withdraw">Deposits and withdrawals</option>
@@ -127,27 +128,27 @@
 <option value="fraud_report">Report fraud on my account</option>
 <option value="other">Something else</option>
 </select>
-</label>
-<label class="field">
-<span>Request type</span>
-<select>
+</div>
+<div class="lt-field">
+<label for="_r_4_">Request type</label>
+<select id="_r_4_" aria-describedby="_r_4_-hint">
 <option value="">General request</option>
 </select>
-<small>We could not read the request types just now. You can still send a general request.</small>
-</label>
-<label class="field" for="field-_r_3_">
-<span id="field-_r_3_-label">Subject</span>
-<input lang="und" required="" maxlength="200" id="field-_r_3_" aria-labelledby="field-_r_3_-label" aria-invalid="false" value="">
-</label>
-<label class="field">
-<span>What happened</span>
-<textarea lang="und" maxlength="10000" rows="7">
+<small id="_r_4_-hint">We could not read the request types just now. You can still send a general request.</small>
+</div>
+<div class="lt-field">
+<label for="_r_5_">Subject</label>
+<input lang="und" required="" maxlength="200" id="_r_5_" value="">
+</div>
+<div class="lt-field">
+<label for="_r_6_">What happened</label>
+<textarea lang="und" maxlength="10000" id="_r_6_" aria-describedby="_r_6_-hint" rows="7">
 </textarea>
-<small>0 of 10,000 characters</small>
-</label>
-<button type="submit" class="button button--primary " disabled="">Review request</button>
+<small id="_r_6_-hint">0 of 10,000 characters</small>
+</div>
+<button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Review request</button>
 </form>
-<aside class="support-tips">
+<aside class="lt-stack">
 <h3>What helps us most</h3>
 <ul>
 <li>What you were trying to do.</li>
@@ -157,6 +158,9 @@
 </ul>
 </aside>
 </section>
+</div>
+</section>
+</div>
 </div>
 </div>
 </div>

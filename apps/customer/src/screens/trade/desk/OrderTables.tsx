@@ -353,28 +353,32 @@ export function OrdersTable({
                   </>
                 )}
                 <td>
-                  {withAction && !isTerminalOrder(order) ? (
-                    <span className="lt-row">
-                      {onEdit && (canEdit(order) || canEditStop(order)) && precision.marketOf(order.symbol) ? (
-                        <Button
-                          tone="secondary"
-                          size="sm"
-                          onClick={() => onEdit?.(order)}
-                          aria-label={t(canEditStop(order) ? 'Edit stop label' : 'Edit order label', {
-                            side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
-                            amount: fmtAmount(order.amount, { places: 8 }),
-                            asset: baseOf(order.symbol),
-                          })}
-                        >
-                          {t('Edit order')}
-                        </Button>
-                      ) : null}
-                      <CancelButton order={order} onDone={onChanged} />
-                    </span>
-                  ) : (
-                    orderStatus(order, t)
-                  )}{' '}
-                  {desk ? <OrderChanges orderId={order.id} tick={precision.tickOf(order.symbol)} /> : null}
+                  {/* One wrapping row: on a phone the cell is a nowrap flex line under its label, which squeezed the
+                      changes link narrower than its own words; here it moves under the status instead. */}
+                  <span className="lt-row">
+                    {withAction && !isTerminalOrder(order) ? (
+                      <span className="lt-row">
+                        {onEdit && (canEdit(order) || canEditStop(order)) && precision.marketOf(order.symbol) ? (
+                          <Button
+                            tone="secondary"
+                            size="sm"
+                            onClick={() => onEdit?.(order)}
+                            aria-label={t(canEditStop(order) ? 'Edit stop label' : 'Edit order label', {
+                              side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
+                              amount: fmtAmount(order.amount, { places: 8 }),
+                              asset: baseOf(order.symbol),
+                            })}
+                          >
+                            {t('Edit order')}
+                          </Button>
+                        ) : null}
+                        <CancelButton order={order} onDone={onChanged} />
+                      </span>
+                    ) : (
+                      orderStatus(order, t)
+                    )}
+                    {desk ? <OrderChanges orderId={order.id} tick={precision.tickOf(order.symbol)} /> : null}
+                  </span>
                 </td>
               </tr>
             ))}

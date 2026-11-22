@@ -121,10 +121,7 @@ export const spaceLockStateSchema = z.object({
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const spacesReads = {
   'sorter.list': sorterListSchema,
-  'sorter.runs': z.array(sorterRunSchema),
   'sharedPots.list': sharedPotsSchema,
-  'sharedPots.activity': z.array(sharedPotActivitySchema),
-  'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */

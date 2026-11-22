@@ -11,6 +11,7 @@
 //! every submit and amend is gated on them, as the base engine gates them.
 
 pub mod admission;
+pub mod client_ids;
 pub mod liquidity;
 pub mod reconcile;
 pub mod venue;
@@ -36,7 +37,6 @@ use crate::book::types::{
 use crate::book::wire::{
     WireError, from_wire, from_wire_amend, spread_from_json, spread_json, to_wire, to_wire_amend,
 };
-use crate::door::Slice;
 use crate::journal::JournalError;
 use crate::journal::io::EngineJournal;
 use crate::journal::record::{JournalCommand, JournalRecord, js_string};
@@ -88,8 +88,6 @@ pub enum EngineError {
     /// A spread fill whose legs no longer price, though the rehearsal before the journal priced them: the book moved
     /// under it. The TypeScript throws here; nothing is announced, never half a spread.
     Invariant(String),
-    /// A cold start met state a later slice owns.
-    Owed { slice: Slice, why: String },
     /// A publish during the cold start kept timing out (`StartupPublishError`): the process exits before it listens.
     StartupPublish(String),
 }
@@ -101,9 +99,6 @@ impl std::fmt::Display for EngineError {
             EngineError::Publish(e) => write!(f, "event bus: {e}"),
             EngineError::Replay(e) => write!(f, "replay: {e}"),
             EngineError::Invariant(e) => write!(f, "{e}"),
-            EngineError::Owed { slice, why } => {
-                write!(f, "{why} (slice {} is not ported)", slice.name())
-            }
             EngineError::StartupPublish(message) => f.write_str(message),
         }
     }
@@ -500,6 +495,9 @@ pub struct MatchingEngine {
     /// `ifm-crash.ts`'s store: the orders a cold start found in flight with durable evidence (`inFlight: true`). Every
     /// submit, amend and cancel of one refuses before anything else is checked.
     crash_unknown: HashSet<String>,
+    /// `core-tif.ts`'s store: each client order id claimed per account and environment ([`client_ids`]). Kept across
+    /// fills and cancels; rebuilt from every `submit` record on a cold start.
+    client_ids: client_ids::ClientIds,
     /// `auction-uncross.ts`'s auction state. Nothing in the service enters it: the uncrossing rules are unset, so
     /// entering refuses ([`enter_auction`](Self::enter_auction)). A submit on a market in it refuses.
     auction: HashSet<String>,
@@ -533,6 +531,7 @@ impl MatchingEngine {
             evidence: venue::Evidence::default(),
             in_flight: HashMap::new(),
             crash_unknown: HashSet::new(),
+            client_ids: client_ids::ClientIds::new(),
             auction: HashSet::new(),
             rulebook: Vec::new(),
             admission_closed: None,
@@ -1160,6 +1159,30 @@ impl MatchingEngine {
         if let Some(r) = self.crash_refusal(id) {
             return Ok(SubmitResult::refused(r));
         }
+        // `core-tif.ts`, inside `ifm-crash.ts` and around everything after it: claim before the submit runs; only a
+        // returned refusal that touched nothing releases the claim. A failure keeps it: the order may be durable.
+        let Some(claim) = client_ids::key_of(order) else {
+            return self.submit_unclaimed(market_id, order, lifecycle_proof);
+        };
+        if self.client_ids.contains(&claim) {
+            return Ok(SubmitResult::refused(client_ids::reuse_refuse()));
+        }
+        self.client_ids.insert(claim.clone());
+        let result = self.submit_unclaimed(market_id, order, lifecycle_proof);
+        if result.as_ref().is_ok_and(client_ids::releases) {
+            self.client_ids.remove(&claim);
+        }
+        result
+    }
+
+    /// The submit under the client order id claim: `auction-uncross.ts` and the base engine's gates, then the journal.
+    fn submit_unclaimed(
+        &mut self,
+        market_id: &str,
+        order: &EngineOrder,
+        lifecycle_proof: Option<&Json>,
+    ) -> Result<SubmitResult, EngineError> {
+        let id = order.order_id.as_str();
         if self.auction.contains(market_id) {
             return Ok(SubmitResult::refused(liquidity::uncross_submit_refuse(id)));
         }
@@ -1597,13 +1620,8 @@ impl MatchingEngine {
         let mut into = Rebuild::default();
         replay_journal(&records, &mut into).map_err(|e| EngineError::Replay(e.to_string()))?;
         if let Some(e) = into.error {
-            return Err(match e {
-                WireError::Owed { field, slice } => EngineError::Owed {
-                    slice,
-                    why: format!("the journal holds a {field}"),
-                },
-                WireError::Malformed(why) => EngineError::Replay(why),
-            });
+            let WireError::Malformed(why) = e;
+            return Err(EngineError::Replay(why));
         }
         self.books = into.books;
         self.modes = replay_modes(&records);
@@ -1643,6 +1661,9 @@ impl MatchingEngine {
                 self.rulebook.push(v);
             }
         }
+        // `hydrateFromJournal`: every journalled submit's client order id stays claimed. Claimed before the announce, so
+        // a recover whose announce fails still refuses a retry.
+        self.client_ids.extend(client_ids::claims_in(&records));
         self.admission_closed = None;
         self.hold_halted.clear();
         self.announcing = true;

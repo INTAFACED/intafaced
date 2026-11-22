@@ -19,7 +19,9 @@ import {
   type BadgeTone,
 } from '@intafaced/ui';
 import type { z } from 'zod';
-import type { algoProgressSchema, algoSchema } from '../../../features/trade/tool-api';
+import type { algoProgressSchema } from '../../../features/trade/tool-api';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import type { TRADE_ALGO_GET } from '@intafaced/contracts/trade-algo-procedures';
 import { dec } from '../../../data/decimal';
 import { displayAmount } from '../../../shared/money';
 import type { RoomApi } from './api';
@@ -29,7 +31,7 @@ import { InfoNote, RefusalNote } from './parts';
 import { roomRefusal } from './refusals';
 import './copybots.css';
 
-export type Algo = z.infer<typeof algoSchema>;
+export type Algo = ProcedureOutput<typeof TRADE_ALGO_GET>;
 export type Progress = z.infer<typeof algoProgressSchema>;
 export type BotAction = 'pause' | 'resume' | 'cancel';
 

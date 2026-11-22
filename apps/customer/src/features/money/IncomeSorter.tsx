@@ -1,10 +1,11 @@
 import { Button } from '../../shared/ui';
 import type { Space } from './client';
-import { amount, date, NoRows, ResourceView, Section, useBankRead, type ActionSpec } from './components';
+import { amount, date, NoRows, ResourceView, Section, type ActionSpec, useBankRecord } from './components';
 import type { sorterListSchema } from './contracts';
 import { sorterCopy } from './sorter-copy';
 import { bpToPercent, percentToBp, sorterLegs } from './sorter-model';
 import type { z } from 'zod';
+import { BANK_SORTER_LIST, BANK_SORTER_RUNS } from '@intafaced/contracts/bank-sorter-procedures';
 
 type Sorter = z.infer<typeof sorterListSchema>['sorters'][number];
 const RUNS_SHOWN = 5;
@@ -18,7 +19,7 @@ const fieldName = (spaceId: string) => `share-${spaceId}`;
  */
 export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: ActionSpec) => void }) {
   const { t } = sorterCopy.useCopy();
-  const read = useBankRead('sorter.list', undefined);
+  const read = useBankRecord(BANK_SORTER_LIST, undefined);
   const named = spaces.filter((space) => space.kind === 'named');
   const nameOf = (spaceId: string) => spaces.find((space) => space.id === spaceId)?.name ?? t('unknownSpace');
   const assets = [...new Set(spaces.map((space) => space.assetId))].sort();
@@ -111,7 +112,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
 
 function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId: string) => string; stop: () => void }) {
   const { t } = sorterCopy.useCopy();
-  const runs = useBankRead('sorter.runs', { sorterId: sorter.id, limit: RUNS_SHOWN });
+  const runs = useBankRecord(BANK_SORTER_RUNS, { sorterId: sorter.id, limit: RUNS_SHOWN });
   // A share into a space archived since stays in the account, so it counts toward what stays.
   const total = sorter.legs.filter((leg) => !leg.archived).reduce((sum, leg) => sum + leg.shareBp, 0);
   // The bank names every target, archived ones too; the page's own list of spaces holds only live ones.

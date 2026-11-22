@@ -119,29 +119,23 @@
 </div>
 </section>
 </section>
-<section class="blueprint-shared" aria-label="View a shared card" lang="en">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">View a shared card</h2>
-</header>
-<div class="if-panel__body">
-<p class="muted">Open an account’s card. Its sharing settings decide whether you can view it.</p>
-<form class="blueprint-shared-controls">
-<label class="field" for="field-_r_3_">
-<span id="field-_r_3_-label">Account ID</span>
-<input autocomplete="off" spellcheck="false" maxlength="36" id="field-_r_3_" aria-labelledby="field-_r_3_-label" aria-invalid="false" value="">
-</label>
-<label class="field">
-<span>Card size</span>
-<select>
+<section aria-labelledby="blueprint-shared-title" data-blueprint-shared="true" lang="en">
+<h2 id="blueprint-shared-title">View a shared card</h2>
+<p>Open an account’s card. Its sharing settings decide whether you can view it.</p>
+<form>
+<div class="lit-field-control">
+<label for="_r_3_">Account ID</label>
+<input autocomplete="off" spellcheck="false" maxlength="36" id="_r_3_" value="">
+</div>
+<div class="lt-field">
+<label for="_r_4_">Card size</label>
+<select id="_r_4_">
 <option value="portrait">Portrait</option>
 <option value="landscape">Landscape</option>
 </select>
-</label>
-<button type="submit" class="button button--primary " disabled="">Open card</button>
-</form>
 </div>
-</section>
+<button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Open card</button>
+</form>
 </section>
 <section class="if-panel" data-live="false">
 <header class="if-panel__header">
@@ -208,9 +202,9 @@
 <p>
 <span lang="en" dir="ltr" data-i18n="customer.more.blueprint.hard.delete.the.profile.crew.membership.match">Hard-delete the profile, crew membership, match records and mentor relationships held by this service. Your financial account is separate.</span>
 </p>
-<label class="field" for="field-_r_4_">
-<span id="field-_r_4_-label">Type ERASE BLUEPRINT</span>
-<input id="field-_r_4_" aria-labelledby="field-_r_4_-label" aria-invalid="false" value="">
+<label class="field" for="field-_r_5_">
+<span id="field-_r_5_-label">Type ERASE BLUEPRINT</span>
+<input id="field-_r_5_" aria-labelledby="field-_r_5_-label" aria-invalid="false" value="">
 </label>
 <button type="button" class="button button--danger " disabled="">
 <span lang="en" dir="ltr" data-i18n="customer.more.blueprint.review.permanent.erasure">Review permanent erasure</span>
@@ -243,17 +237,17 @@
 <summary>
 <span lang="en" dir="ltr" data-i18n="customer.more.blueprint.optional.birth.data">Optional birth data</span>
 </summary>
-<label class="field" for="field-_r_5_">
-<span id="field-_r_5_-label">Birth date (optional)</span>
-<input id="field-_r_5_" aria-labelledby="field-_r_5_-label" aria-invalid="false" type="date" value="">
-</label>
 <label class="field" for="field-_r_6_">
-<span id="field-_r_6_-label">Birth time (optional)</span>
-<input id="field-_r_6_" aria-labelledby="field-_r_6_-label" aria-invalid="false" type="time" value="">
+<span id="field-_r_6_-label">Birth date (optional)</span>
+<input id="field-_r_6_" aria-labelledby="field-_r_6_-label" aria-invalid="false" type="date" value="">
 </label>
 <label class="field" for="field-_r_7_">
-<span id="field-_r_7_-label">Birth place (optional)</span>
-<input maxlength="200" id="field-_r_7_" aria-labelledby="field-_r_7_-label" aria-invalid="false" value="">
+<span id="field-_r_7_-label">Birth time (optional)</span>
+<input id="field-_r_7_" aria-labelledby="field-_r_7_-label" aria-invalid="false" type="time" value="">
+</label>
+<label class="field" for="field-_r_8_">
+<span id="field-_r_8_-label">Birth place (optional)</span>
+<input maxlength="200" id="field-_r_8_" aria-labelledby="field-_r_8_-label" aria-invalid="false" value="">
 </label>
 </details>
 </fieldset>

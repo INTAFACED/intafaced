@@ -8,7 +8,7 @@ import { useSettingsBApi, type SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
 import { DeveloperNav } from './DeveloperNav';
 import { DeliveryList } from './Deliveries';
-import { Docs } from './Docs';
+import { DocsRoom } from './DocsRoom';
 import { EndpointPage } from './Endpoint';
 import { Keys } from './Keys';
 import { canManageWebhooks } from './model';
@@ -79,5 +79,12 @@ export const developersRooms: RoomTable = {
     <DeliveryList api={api} canManage={canManageWebhooks(role)} />
   )),
   'developer-sandbox': def('developer-sandbox', (_r, api) => <Sandbox api={api} />),
-  'developer-docs': def('developer-docs', (_r, api) => <Docs api={api} />),
+  // The guide draws on its own reading template, with its own title, the developer pages as links and the account's
+  // states (DocsRoom.tsx), so it takes neither the frame's heading nor the row above.
+  'developer-docs': {
+    header: () => words['developer-docs']!(),
+    here: '/pay/developer/keys',
+    ownTitle: true,
+    render: () => <Live>{(api) => <DocsRoom api={api} />}</Live>,
+  },
 };

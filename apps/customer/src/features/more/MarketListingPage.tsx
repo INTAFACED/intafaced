@@ -1,3 +1,4 @@
+// volt-room: /market/:listingId
 import { useState } from 'react';
 import {
   MARKET_LISTING,
@@ -10,9 +11,12 @@ import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
 import { displayAmount } from '../../shared/money';
-import { Button, EmptyState, Failure, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { CatalogueTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
-import { Details, Read } from './common';
+import { t as copyText } from './copy';
+import { moreRoomRoutesCopy } from './more-room-routes-copy';
+import { EmptyNote, FailureNote, KitRead, Section } from './volt-parts';
 import { periodUnit } from './market-explorer';
 import { marketExplorerCopy } from './market-explorer-copy';
 import { marketListingCopy } from './market-listing-copy';
@@ -42,25 +46,34 @@ export function MarketListingPage({ listingId }: { listingId: string }) {
     `market-listing:${listingId}`,
   );
   const back = (
-    <a className="text-link" href="/market">
+    <a className="lt-link" href="/market">
       {t('backToMarket')}
     </a>
   );
-  if (!wellFormed || (detail.resource.status === 'failed' && detail.resource.failure.status === 404))
-    return (
-      <Panel title={t('notFound')}>
-        <EmptyState title={t('notFound')} action={back}>
-          {t('notFoundBody')} <code lang="zxx">market.listing_not_found</code>
-        </EmptyState>
-      </Panel>
-    );
+  const missing = !wellFormed || (detail.resource.status === 'failed' && detail.resource.failure.status === 404);
   return (
-    <div className="more-grid">
-      {back}
-      <Read resource={detail.resource} retry={detail.reload}>
-        {(d) => <ListingBody detail={d} />}
-      </Read>
-    </div>
+    <CatalogueTemplate
+      title={moreRoomRoutesCopy.t('market')}
+      description={copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace')}
+      state={{ kind: 'ready' }}
+      items={null}
+      item={
+        missing ? (
+          <Section title={t('notFound')}>
+            <EmptyNote title={t('notFound')} action={back}>
+              {t('notFoundBody')} <code lang="zxx">market.listing_not_found</code>
+            </EmptyNote>
+          </Section>
+        ) : (
+          <div>
+            {back}
+            <KitRead resource={detail.resource} retry={detail.reload}>
+              {(d) => <ListingBody detail={d} />}
+            </KitRead>
+          </div>
+        )
+      }
+    />
   );
 }
 
@@ -77,23 +90,25 @@ function ListingBody({ detail }: { detail: MarketListingDetail }) {
   const [revision, setRevision] = useState(0);
   const period = terms.periodSeconds ? periodUnit(terms.periodSeconds) : null;
   return (
-    <Panel title={<span lang="und">{listing.title}</span>}>
-      <p data-testid="more-body" className="more-body" lang="und">
+    <Section title={<span lang="und">{listing.title}</span>}>
+      <p data-testid="more-body" lang="und">
         {listing.description}
       </p>
-      <div className="market-listing-regions">
+      <div className="lt-grid">
         <section aria-labelledby="market-listing-terms">
           <h3 id="market-listing-terms">{t('terms')}</h3>
-          <Details
-            items={[
-              [t('listingType'), terms.offerType === 'subscription' ? t('strategySubscription') : t('accessListing')],
-              [
-                t('price'),
-                <span key="price" lang="zxx">
-                  {displayAmount(terms.price)} {terms.assetId}
-                </span>,
-              ],
-              [t('period'), period ? explorer.t(`every_${period.unit}`, { value: period.value }) : t('periodNone')],
+          <KeyValue
+            rows={[
+              { label: t('listingType'), value: terms.offerType === 'subscription' ? t('strategySubscription') : t('accessListing') },
+              {
+                label: t('price'),
+                value: (
+                  <span lang="zxx">
+                    {displayAmount(terms.price)} {terms.assetId}
+                  </span>
+                ),
+              },
+              { label: t('period'), value: period ? explorer.t(`every_${period.unit}`, { value: period.value }) : t('periodNone') },
             ]}
           />
         </section>
@@ -101,7 +116,7 @@ function ListingBody({ detail }: { detail: MarketListingDetail }) {
           <h3 id="market-listing-seller">{t('seller')}</h3>
           <strong lang="und">{vendor.displayName}</strong>
           <p lang="und">{vendor.description}</p>
-          <p className="muted">
+          <p className="lt-hint">
             {t('sellerSince', { date: date(vendor.createdAt) })} · {t('activeListings', { count: detail.activeListingCount })}
           </p>
         </section>
@@ -114,7 +129,7 @@ function ListingBody({ detail }: { detail: MarketListingDetail }) {
               <p role="status" data-testid="market-review-summary">
                 {t('reviewsSummary', { count: displayAmount(reviews.count), mean: displayAmount(reviews.mean) })}
               </p>
-              <p className="muted">{t('reviewsRounding')}</p>
+              <p className="lt-hint">{t('reviewsRounding')}</p>
             </>
           )}
           {userId ? (
@@ -130,16 +145,16 @@ function ListingBody({ detail }: { detail: MarketListingDetail }) {
               />
             </>
           ) : (
-            <p className="muted">{t('reviewsSignIn')}</p>
+            <p className="lt-hint">{t('reviewsSignIn')}</p>
           )}
         </section>
         <section aria-labelledby="market-listing-performance">
           <h3 id="market-listing-performance">{t('performance')}</h3>
           <p>{t('performanceNone')}</p>
-          <p className="muted">{t('performanceBasis')}</p>
+          <p className="lt-hint">{t('performanceBasis')}</p>
         </section>
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -149,15 +164,15 @@ function ReviewList({ listingId }: { listingId: string }) {
   const preferences = usePreferences();
   const list = useResource((signal) => api.call(MARKET_REVIEWS_LIST, { listingId, limit: 20 }, { signal }), `market-reviews:${listingId}`);
   return (
-    <Read resource={list.resource} retry={list.reload}>
+    <KitRead resource={list.resource} retry={list.reload}>
       {({ reviews }) =>
         reviews.length === 0 ? null : (
-          <ul className="more-list" aria-label={t('reviews')}>
+          <ul aria-label={t('reviews')}>
             {reviews.map((review) => (
               <li key={review.id} data-review={review.id}>
                 <strong>{t('scoreOf', { score: review.score })}</strong>
                 {review.text ? <p lang="und">{review.text}</p> : null}
-                <small className="muted">
+                <small className="lt-hint">
                   {new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium' }).format(new Date(review.createdAt))}
                 </small>
               </li>
@@ -165,7 +180,7 @@ function ReviewList({ listingId }: { listingId: string }) {
           </ul>
         )
       }
-    </Read>
+    </KitRead>
   );
 }
 
@@ -246,23 +261,22 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
   }
 
   return (
-    <div className="market-review-form">
+    <div>
       {!open ? (
         <div>
-          <Button variant="secondary" disabled={busy} onClick={() => void begin()}>
+          <Button tone="secondary" disabled={busy} onClick={() => void begin()}>
             {t('writeReview')}
           </Button>
         </div>
       ) : (
         <form
           aria-label={t('yourReview')}
-          className="market-review-form"
           onSubmit={(event) => {
             event.preventDefault();
             void post();
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span>{t('score')}</span>
             <select value={score} onChange={(event) => setScore(Number(event.target.value))}>
               {SCORES.map((value) => (
@@ -272,12 +286,12 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('reviewText')}</span>
             <textarea value={text} maxLength={1_000} rows={4} onChange={(event) => setText(event.target.value)} />
           </label>
           <div>
-            <Button type="submit" disabled={busy}>
+            <Button tone="primary" type="submit" disabled={busy}>
               {t('postReview')}
             </Button>
           </div>
@@ -290,7 +304,7 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
         </p>
       ) : null}
       {outcome?.kind === 'unseen' ? <p role="status">{t('reviewUnseen', { count: PURCHASES_READ })}</p> : null}
-      {outcome?.kind === 'failed' ? <Failure result={outcome.result} /> : null}
+      {outcome?.kind === 'failed' ? <FailureNote result={outcome.result} /> : null}
     </div>
   );
 }

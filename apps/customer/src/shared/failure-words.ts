@@ -83,6 +83,8 @@ export interface FailureWords {
 /** The same words in the shape a note that holds its own retry reads: its role, whether a retry can help, and the button's word. */
 export interface FailureNoteWords {
   title: string;
+  /** The language the title's words are in, when the app's own copy gave them. */
+  titleLang?: string;
   body: string;
   /** The language the body's words are in, when the answer's own message copy chose them. */
   bodyLang?: string;
@@ -132,9 +134,23 @@ function wordsOf({ t, languageFor, requestedLocale }: Copy, result: Failed, canR
   };
 }
 
+/** The app's own copy key the title came from, when it did; a refusal's own title has none. */
+function titleKey(result: Failed): Parameters<Copy['languageFor']>[0] | undefined {
+  if (isServiceNotConnected(result.code)) return 'not_mounted';
+  if (failureRawCode(result) && !result.messageCopy) return result.reason === 'uncertain' ? 'uncertain' : undefined;
+  return result.reason;
+}
+
 function noteWordsOf(copy: Copy, result: Failed): FailureNoteWords {
   const { alert, retry, ...words } = wordsOf(copy, result, true);
-  return { ...words, role: alert ? 'alert' : 'status', retry: retry !== undefined, retryLabel: copy.t('retry') };
+  const key = titleKey(result);
+  return {
+    ...words,
+    ...(key ? { titleLang: copy.languageFor(key) } : {}),
+    role: alert ? 'alert' : 'status',
+    retry: retry !== undefined,
+    retryLabel: copy.t('retry'),
+  };
 }
 
 /**

@@ -29,11 +29,14 @@ import {
 } from './ast.mjs';
 import { answerFromCallers } from './answer.mjs';
 import { chainOf, procedures } from './router.mjs';
-import { closureOf, contractsExports, usedOutside } from './closure.mjs';
+import { asWritten, closureOf, contractsExports, declaresSame, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
+import { founderPartsFor } from './founder-guard.mjs';
 import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
+import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
+import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -98,6 +101,7 @@ function refusalReaders(serviceDir) {
 }
 /** A record naming its service's own check (`check:`) is mounted with the parts that hand it over, in its router's file. */
 function readerFor(readers, file, guard = undefined) {
+  if (guard?.founder) return founderPartsFor(file, guard, readerFor(readers, file));
   if (/\bcheck: '/.test(guard?.text ?? '')) return partsFor(readers, file, guard, () => readerFor(readers, file));
   return (
     readers.find((r) => !r.parts && r.file === file) ??
@@ -252,6 +256,13 @@ function plan(opts) {
   return { serviceDir, procs, unread, sites, records, existing, hand };
 }
 
+/** The kind a record already written in contracts `file` declares: `query` or `mutation`. */
+function recordKind(file, name) {
+  const src = readFileSync(file, 'utf8');
+  const at = src.indexOf(`export const ${name} = defineProcedure(`);
+  return at < 0 ? undefined : /kind: '(query|mutation)'/.exec(src.slice(at, src.indexOf('\n});', at)))?.[1];
+}
+
 /** Whether `name` in contracts `file` is the record of `path`: its `defineProcedure({ … path: '<path>' … })`. */
 function recordOfPath(file, name, path) {
   const src = readFileSync(file, 'utf8');
@@ -262,7 +273,7 @@ function recordOfPath(file, name, path) {
 }
 
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
-const INPUT_AT = { founderCall: 4, founderEdgeCall: 4, payCall: 3, useBankRead: 1 };
+const INPUT_AT = { founderCall: 4, founderEdgeCall: 4, payCall: 3, useBankRead: 1, payQuery: 1, payMutate: 1 };
 const inputArg = (s) =>
   s.shape === 'desk-read'
     ? s.inputProp?.value
@@ -272,6 +283,8 @@ const inputArg = (s) =>
         ? undefined // the spec's `input` builds it from the form; the record's input type holds it at the typecheck
         : s.node.arguments[INPUT_AT[s.shape] ?? 2];
 function noInput(s) {
+  // A wrapper sends the input it sent before: its record only names the call.
+  if (s.shape === 'wrapper') return true;
   const a = inputArg(s);
   return !a || (a.type === 'Identifier' && a.name === 'undefined') || (a.type === 'ObjectExpression' && a.properties.length === 0);
 }
@@ -324,7 +337,14 @@ function build(opts, planned) {
     // Two different declarations under one name (svc-bank's routers each keep their own `amountString`, some with a
     // message, some without) cannot land in one file. Keep the records whose helpers agree; the rest go back to their
     // router, named, and a rerun places them beside their own record, where the name is free.
-    const keyOfMoved = (m) => (m.q ? `${m.q.file}#${m.name}` : `inline#${m.name}`);
+    // Mid-port the router is never edited, so two of its files declaring one helper the same way (svc-agents' `idInput`
+    // in own/routes.ts and own/automation-routes.ts) give contracts one copy; elsewhere each declaration is its file's.
+    const keyOfMoved = (m) =>
+      !m.q
+        ? `inline#${m.name}`
+        : opts.callersOnly && serviceFiles([m.q.file]).length
+          ? `as written#${m.name}#${asWritten(m.text)}`
+          : `${m.q.file}#${m.name}`;
     const clashing = (moved, seen = new Map()) =>
       moved.find((m) => {
         if (seen.has(m.name) && seen.get(m.name) !== keyOfMoved(m)) return true;
@@ -365,8 +385,17 @@ function build(opts, planned) {
         ),
       );
     const taken = schemaNames.get(shared);
-    const keyOf = (m) => (m.q ? `${m.q.file}#${m.name}` : `inline#${m.name}`);
-    const fresh = closure.moved.filter((m) => !movedTo.has(keyOf(m)));
+    const keyOf = keyOfMoved;
+    // Mid-port, an earlier run already copied the router's helper into the shared file: the router still declares it, so
+    // the same text there is that copy. The record imports it; declaring it again beside the record would clash.
+    if (opts.callersOnly)
+      for (const m of closure.moved) {
+        const k = keyOf(m);
+        if (!m.q || movedTo.has(k) || taken.get(m.name) !== 'existing' || !declaresSame(shared, m.name, m.text)) continue;
+        movedTo.set(k, shared);
+        taken.set(m.name, k);
+      }
+    const fresh = [...new Map(closure.moved.filter((m) => !movedTo.has(keyOf(m))).map((m) => [keyOf(m), m])).values()];
     const clash =
       fresh.some((m) => taken.has(m.name) && taken.get(m.name) !== keyOf(m)) ||
       // A helper this group reads from a record file, under a name the shared file already gives another helper.
@@ -430,6 +459,8 @@ function build(opts, planned) {
   for (const e of planned.existing) for (const s of e.sites) rewriteSite(changes, s, e.name, contractsSpec(e.file));
   tables(changes, planned, done);
   fanIn(changes, planned, done, callText);
+  const kinds = new Map(planned.existing.map((e) => [e.name, recordKind(e.file, e.name)]));
+  wrapperIn(changes, planned, done, (name) => kinds.get(name));
   return { changes, created, problems, done };
 }
 
@@ -473,10 +504,12 @@ function tables(changes, planned, done) {
 
 /** The schema a caller parses the answer with, or undefined. */
 export function schemaArgOf(s) {
-  if (s.shape === 'desk-read' || s.shape === 'ops-entry' || s.shape === 'write-spec') return undefined;
+  // A wrapper keeps its own schema, read through `callAs`.
+  if (s.shape === 'desk-read' || s.shape === 'ops-entry' || s.shape === 'write-spec' || s.shape === 'wrapper') return undefined;
   const a = s.node.arguments;
   if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
   if (s.shape === 'payCall') return s.reader ? undefined : a[4]?.arguments?.[0];
+  if (BUSINESS_FORMS[s.shape]) return a[2];
   // useBankRead's schema is `bankReads[path]` in its own file (`s.schema`); founderEdgeCall parses nothing.
   if (s.shape === 'useBankRead' || s.shape === 'founderEdgeCall') return undefined;
   return a[3];
@@ -568,6 +601,7 @@ export function callText(changes, s, name, takesNone) {
     const rest = [input, ...(a[4] ? [text(p, a[4])] : [])];
     return `${recv}.call(${name}, ${rest.join(', ')})`;
   }
+  if (BUSINESS_FORMS[s.shape]) return businessCall(p, s, name, input);
   if (RECORD_FORMS[s.shape]) {
     const { fn, head, tail } = RECORD_FORMS[s.shape](s, a);
     if (s.wrapperFrom) changes.imp(s.file, s.wrapperFrom, fn);
@@ -624,6 +658,8 @@ export function rewriteSite(changes, s, name, spec, takesNone) {
     changes.imp(s.file, spec, name);
     return;
   }
+  // One caller of a wrapper that takes its call name: written once every caller has its record (`wrapperIn`).
+  if (s.wrapper) return wrapperBranch(changes, s, name, spec);
   // One value of a call named by a `? :` or a closed set: written once every value has its record (`fanIn`).
   if (s.fan) return fanBranch(changes, s, name, spec, takesNone);
   changes.edit(s.file, n.start, n.end, callText(changes, s, name, takesNone));
@@ -701,10 +737,12 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
 }
 
 /** The service's shared schema file: every declaration a record reads that lived in the service, moved here once. */
-function writeSchemas(opts, file, closure, pending) {
+export function writeSchemas(opts, file, closure, pending) {
   const fresh = pending === undefined && !existsSync(file);
   const imports = new Map([['zod', new Set(['z'])]]);
+  const self = `./${basename(file).replace(/\.ts$/, '.js')}`;
   const imp = (spec, name) => {
+    if (spec === self) return; // a declaration already in this file is read where it stands, never imported from itself
     if (!imports.has(spec)) imports.set(spec, new Set());
     imports.get(spec).add(name);
   };

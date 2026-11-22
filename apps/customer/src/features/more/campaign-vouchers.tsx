@@ -82,6 +82,7 @@ export function MyVouchers() {
   const api = useApi();
   const { t } = campaignVouchersCopy.useCopy();
   const when = useWhen();
+  const delayOf = (seconds: number) => delayText(t, seconds);
   const wallet = useResource((signal) => api.call(CAMPAIGNS_VOUCHERS_MINE, {}, { signal }), 'campaign-vouchers');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<'check' | 'claim' | null>(null);
@@ -128,21 +129,31 @@ export function MyVouchers() {
       </form>
       {checked ? (
         <p role="status" data-testid="voucher-validation">
-          {checked.feeSaver
-            ? t('validationFeeSaver', {
-                pct: percentOfFee(checked.feeSaver.discountBps),
-                orders: checked.feeSaver.orders,
+          {checked.feeRebate
+            ? t('validationFeeRebate', {
+                pct: percentOfFee(checked.feeRebate.rebateBps),
+                amount: checked.face.amount,
+                asset: checked.face.asset,
+                delay: delayOf(checked.feeRebate.delaySeconds),
                 campaign: checked.campaignName,
                 claimBy: when(checked.claimBy),
                 useBy: when(checked.useBy),
               })
-            : t('validation', {
-                amount: checked.face.amount,
-                asset: checked.face.asset,
-                campaign: checked.campaignName,
-                claimBy: when(checked.claimBy),
-                useBy: when(checked.useBy),
-              })}
+            : checked.feeSaver
+              ? t('validationFeeSaver', {
+                  pct: percentOfFee(checked.feeSaver.discountBps),
+                  orders: checked.feeSaver.orders,
+                  campaign: checked.campaignName,
+                  claimBy: when(checked.claimBy),
+                  useBy: when(checked.useBy),
+                })
+              : t('validation', {
+                  amount: checked.face.amount,
+                  asset: checked.face.asset,
+                  campaign: checked.campaignName,
+                  claimBy: when(checked.claimBy),
+                  useBy: when(checked.useBy),
+                })}
         </p>
       ) : null}
       {refusal ? <Refusal result={refusal} /> : null}
@@ -184,6 +195,15 @@ export function MyVouchers() {
 /** A discount in basis points of the fee as a percent of that fee: 5000 is "50". */
 const percentOfFee = (bps: number): string => String(bps / 100);
 
+type Copy = ReturnType<typeof campaignVouchersCopy.useCopy>['t'];
+/** A fee rebate's delay in the largest whole unit it fills. */
+function delayText(t: Copy, seconds: number): string {
+  if (seconds === 0) return t('delayNone');
+  if (seconds % 3600 === 0) return t('delayHours', { n: seconds / 3600 });
+  if (seconds % 60 === 0) return t('delayMinutes', { n: seconds / 60 });
+  return t('delaySeconds', { n: seconds });
+}
+
 function VoucherRow({
   voucher: v,
   when,
@@ -199,7 +219,9 @@ function VoucherRow({
   const { t } = campaignVouchersCopy.useCopy();
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
-  // A fee-saver is never redeemed: it is taken on an order when our builder fee is priced.
+  const delayOf = (seconds: number) => delayText(t, seconds);
+  // A fee-saver is never redeemed: it is taken on an order when our builder fee is priced. A fee rebate pays only what
+  // its fills accrue.
   const open = v.kind === 'cash' && (v.state === 'claimed' || v.state === 'partially_used') && v.remaining !== '0';
   const redeem = async () => {
     setBusy(true);
@@ -234,6 +256,43 @@ function VoucherRow({
                 {v.feeSaver.uses.map((u) => (
                   <li key={u.sequence} data-order-key={u.orderKey}>
                     {t('feeSaverUse', { sequence: u.sequence, when: when(u.at) })}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        ) : v.feeRebate ? (
+          <>
+            <span data-testid="voucher-kind" data-kind={v.kind}>
+              {t('kind_fee_rebate')}
+            </span>{' '}
+            <span data-testid="voucher-does">
+              {t('feeRebateDoes', {
+                pct: percentOfFee(v.feeRebate.rebateBps),
+                delay: delayOf(v.feeRebate.delaySeconds),
+                face: v.face.amount,
+                asset: v.face.asset,
+              })}
+            </span>{' '}
+            <span data-testid="voucher-remaining">{t('left', { remaining: v.remaining, face: v.face.amount, asset: v.face.asset })}</span>
+            {v.feeRebate.accruals.length > 0 ? (
+              <ul aria-label={t('feeRebateAccruals')} data-testid="voucher-accruals">
+                {v.feeRebate.accruals.map((a) => (
+                  <li
+                    key={a.sequence}
+                    data-testid="voucher-accrual"
+                    data-sequence={a.sequence}
+                    data-fill={a.fillId}
+                    data-amount={a.amount}
+                    data-builder-fee={a.builderFee}
+                  >
+                    {t('feeRebateAccrual', {
+                      amount: a.amount,
+                      asset: v.face.asset,
+                      fee: a.builderFee,
+                      when: when(a.filledAt),
+                      payable: when(a.payableAt),
+                    })}
                   </li>
                 ))}
               </ul>

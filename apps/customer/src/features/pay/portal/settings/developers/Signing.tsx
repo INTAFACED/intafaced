@@ -384,7 +384,7 @@ export function Recipe() {
   );
 }
 
-export function CodeTabs({
+function CodeTabs({
   lang,
   setLang,
   snippets,

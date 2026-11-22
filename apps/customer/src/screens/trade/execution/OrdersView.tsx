@@ -93,6 +93,7 @@ export function BlotterTable({
     <Table
       caption={label}
       mode="pro"
+      scroll
       columns={columns}
       rows={status === 'loading' ? [] : rows}
       rowKey={(r) => r.id}

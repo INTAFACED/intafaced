@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { Button } from '../../shared/ui';
-import { funds, ResourceView, Section, useBankRead, usePageLimit } from './components';
+import { funds, ResourceView, Section, usePageLimit, useBankRecord } from './components';
 import type { scheduleSchema } from './contracts';
 import { standingCopy } from './standing-copy';
 import { ReportedTime, currentOwnerRecord, useBankView } from './bank-context';
+import { BANK_TRANSFERS_EXECUTIONS } from '@intafaced/contracts/bank-transfers-procedures';
 
 export type StandingInstruction = z.infer<typeof scheduleSchema>;
 
@@ -92,7 +93,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
   const { Copy, t, languageFor, directionFor } = standingCopy.useCopy();
   const current = useBankView();
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('transfers.executions', { scheduleId: id, limit });
+  const query = useBankRecord(BANK_TRANSFERS_EXECUTIONS, { scheduleId: id, limit });
   const retry = () => {
     if (current()) query.reload();
   };

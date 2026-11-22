@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Button, Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
-import { useBankRead } from './components';
+import { useBankRecord } from './components';
 import type { Eligibility } from './contracts';
 import { accountDetailsCopy } from './account-details-copy';
 import { DepthPanel } from './DepthParts';
+import { BANK_ELIGIBILITY_GET } from '@intafaced/contracts/bank-eligibility-procedures';
 
 /**
  * Who can open an account (BK-acct-03): the countries, account types and product limits the bank has published, exactly as
@@ -64,7 +65,7 @@ export function EligibilityStatement() {
   const { t } = accountDetailsCopy.useCopy();
   const [typed, setTyped] = useState('');
   const [asked, setAsked] = useState<string | null>(null);
-  const read = useBankRead('eligibility.get', asked === null ? undefined : { region: asked });
+  const read = useBankRecord(BANK_ELIGIBILITY_GET, asked === null ? undefined : { region: asked });
   return (
     <DepthPanel title={t('eligibilityTitle')} lead={t('eligibilityLead')}>
       <EligibilityBody resource={read.resource} reload={read.reload} />

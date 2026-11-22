@@ -1,0 +1,42 @@
+import { Segmented } from '@intafaced/ui/lit';
+import { Tabs } from '@intafaced/ui/lit/templates';
+import { navigate } from '../../app/location';
+import { t as copyText } from './copy';
+import { academyTabHref, academyTabs, type AcademyTab } from './academy-lms';
+
+const LABELS = {
+  Learning: 'academy.learning',
+  Certificates: 'academy.certificates',
+  Rooms: 'academy.rooms',
+  Videos: 'academy.videos',
+  Programmes: 'academy.programmes',
+} as const;
+
+/** The Academy's sections as links, each at its own address, with the one this room belongs to marked as current. */
+export function AcademySections({ current }: { current: AcademyTab }) {
+  return (
+    <Tabs
+      label={copyText('academy.academy.sections')}
+      current={academyTabHref(current)}
+      items={academyTabs.map(([name]) => ({ label: copyText(LABELS[name]), href: academyTabHref(name) }))}
+    />
+  );
+}
+
+/**
+ * The same sections as pressed buttons, the way the hub draws them: the lesson reader keeps that strip, since a reader's
+ * address belongs to Learning and journey J-academy-01 #6 reads Learning as the pressed one. A press opens that section.
+ */
+export function AcademySectionSwitch({ current, onLeave }: { current: AcademyTab; onLeave?: () => void }) {
+  return (
+    <Segmented
+      label={copyText('academy.academy.sections')}
+      value={current}
+      options={academyTabs.map(([name]) => ({ value: name, label: copyText(LABELS[name]) }))}
+      onChange={(next) => {
+        onLeave?.();
+        navigate(academyTabHref(next));
+      }}
+    />
+  );
+}

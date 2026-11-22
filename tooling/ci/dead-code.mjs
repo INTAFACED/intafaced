@@ -25,8 +25,8 @@ export const BASELINE = 'tooling/ci/dead-code-baseline.json';
 export const CONFIG = 'knip.jsonc';
 
 /**
- * KEEPERS: each imports a live source and asserts against it. Four guard the agent money-tool deny lists, so deleting
- * one drops a safety property with every other gate green. A sweep by filename pattern (`*-honesty.ts`) would take them.
+ * KEEPERS: each imports a live source and asserts against it. The agent money-tool deny lists they once guarded are held
+ * in Rust now (`crates/svc-agents/tests/money_deny.rs`). A sweep by filename pattern (`*-honesty.ts`) would take them.
  * To retire one, delete its line here in the same PR and say why in the body.
  */
 export const KEEPERS = [
@@ -34,10 +34,6 @@ export const KEEPERS = [
   'packages/config/src/module-id-honesty.ts',
   'packages/config/src/marketing-language.ts',
   'packages/contracts/src/analytics-metric-honesty.ts',
-  'services/svc-agents/src/copy-intel/money-deny-honesty.ts',
-  'services/svc-agents/src/merchant/guardrail-honesty.ts',
-  'services/svc-agents/src/navigator/money-deny-honesty.ts',
-  'services/svc-agents/src/support-agent/money-deny-honesty.ts',
   'services/svc-identity/src/affiliates/commission-tier-honesty.ts',
   'services/svc-notify/src/channels/refusal-code-honesty.ts',
 ];

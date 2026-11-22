@@ -103,19 +103,12 @@ const accountFeesSchema = z.object({
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const analyticsReads = {
   'analytics.spend': analyticsSchema,
-  'analytics.budgets': z.array(budgetSchema),
   'analytics.leftToSpend': leftToSpendSchema,
   'analytics.compare': monthCompareSchema,
   'plans.list': plansSchema,
   'fees.account': accountFeesSchema,
   'fees.partner': partnerLimitsSchema,
   partnerHolds: partnerHoldsSchema,
-  'fees.schedule.get': z.object({
-    published: z.boolean(),
-    entries: z.array(
-      z.object({ assetId: z.string(), fee: money, free: z.boolean(), feeBlocker: z.string().nullable(), publishedAt: z.string() }),
-    ),
-  }),
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */

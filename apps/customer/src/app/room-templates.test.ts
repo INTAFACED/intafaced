@@ -2,7 +2,7 @@
 // The route-to-template registry stays in step with the app's route table (the Volt kit).
 import { describe, expect, it, vi } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
-import { PORTAL_ROOMS } from '../features/pay/portal/routes';
+import { parsePortalRoute, PORTAL_ROOMS } from '../features/pay/portal/routes';
 import { rooms } from './navigation';
 import { renderPart } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
@@ -17,9 +17,20 @@ import { voltMarks } from './volt-count';
 const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
-/** A route's pattern as a person opens it: a `:pair` is a real market. */
-// A route's own parameters, filled with a sample its pattern accepts (a live run is addressed by its UUID).
-const opened = (route: string) => route.replace(':pair', 'BTC-USDT').replace(':runId', '00000000-0000-4000-8000-000000000001');
+/**
+ * A route's pattern as a person opens it: a `:pair` is a real market, a `:runId` a run's id (an agent run's page opens only
+ * on one), an `:id` a help topic address (lower-case letters, digits and dashes). A parameter the router checks the shape of
+ * gets a well-formed TEST value (a campaign id starts `cmp_`; a More record id starts with a letter or digit, more-room-routes.ts).
+ */
+const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
+  ':pair': 'BTC-USDT',
+  ':runId': '00000000-0000-4000-8000-000000000001',
+  ':id': 'test-1',
+  ':campaignId': 'cmp_TEST',
+  ':listingId': 'TEST-listing',
+  ':projectId': 'TEST-launch',
+};
+const opened = (route: string) => route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_PARAMS[param] ?? param);
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 /** The screen file whose `// volt-room:` line says the room has moved onto its template (volt-count.ts). */
 const marks = voltMarks();
@@ -71,8 +82,14 @@ describe('room templates registry', () => {
     } finally {
       vi.useRealTimers();
     }
-    // A portal page has no route of its own in the room table to open; one marked migrated is drawn here first.
-    const portal = Object.keys(PORTAL_TEMPLATES).filter((page) => marks.has(`portal:${page}`));
+    // A portal page has no route of its own in the room table to open: one marked migrated is drawn through its /pay
+    // address above, which must be marked in the same screen file (so the loop has checked it draws its template).
+    const drawnAbove = (page: string, file: string) =>
+      Object.keys(ROUTE_TEMPLATES).some((path) => (marks.get(path) ?? []).includes(file) && parsePortalRoute(path)?.room === page);
+    const portal = Object.keys(PORTAL_TEMPLATES).filter((page) => {
+      const file = marks.get(`portal:${page}`)?.[0];
+      return file !== undefined && !drawnAbove(page, file);
+    });
     expect(portal, 'a migrated merchant portal page: open its /pay address above and check it draws its template').toEqual([]);
   });
 });

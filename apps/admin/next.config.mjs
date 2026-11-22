@@ -1,5 +1,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PHASE_PRODUCTION_BUILD } from 'next/constants.js';
+import { localNextBuild } from '../../tooling/scripts/local-jobs.mjs';
 import { STATIC_SECURITY_HEADERS } from './src/lib/security-headers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -35,4 +37,17 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+/**
+ * A production build on a shared machine (INTAFACED_LOCAL_JOBS set) takes that machine's bound: fewer Turbopack threads,
+ * no build cache and no source maps (tooling/scripts/local-jobs.mjs, localNextBuild). Every other phase, and every build
+ * with the setting unset, is the config above as it is.
+ *
+ * @param {string} phase
+ * @returns {import('next').NextConfig}
+ */
+export default function config(phase) {
+  if (phase !== PHASE_PRODUCTION_BUILD) return nextConfig;
+  const local = localNextBuild();
+  Object.assign(process.env, local.env);
+  return { ...nextConfig, experimental: { ...nextConfig.experimental, ...local.experimental } };
+}
