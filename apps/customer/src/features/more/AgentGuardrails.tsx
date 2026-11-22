@@ -73,19 +73,26 @@ const CODES = [
 /** A refusal as words with its code beside them, or the app's own account of a failure that is not one. */
 export function Answer({ failed }: { failed: Failed }) {
   const { t } = agentGuardrailsCopy.useCopy();
+  const refusal = refusalWords(t, failed);
+  if (!refusal) return <Failure result={failed} />;
+  return (
+    <p role="alert">
+      {refusal.words} <code lang="zxx">{refusal.code}</code>
+    </p>
+  );
+}
+
+/** A refusal's code and its words, as Answer says them; null for a failure that is not a refusal of svc-agents'. */
+export function refusalWords(t: Words, failed: Failed): { code: string; words: string } | null {
   const code = refusalCode(failed);
-  if (!code) return <Failure result={failed} />;
+  if (!code) return null;
   const key = `code_${code.replaceAll('.', '_')}`;
   const words = code.startsWith('agents.tool_refused.')
     ? t('code_tool_refused')
     : (CODES as readonly string[]).includes(code) && hasGuardrailWords(key)
       ? t(key)
       : t('code_other');
-  return (
-    <p role="alert">
-      {words} <code lang="zxx">{code}</code>
-    </p>
-  );
+  return { code, words };
 }
 
 /** A request's state in words: an approved one says whether its tool has run yet. */
