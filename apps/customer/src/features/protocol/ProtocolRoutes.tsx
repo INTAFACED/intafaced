@@ -3,6 +3,7 @@ import { NotFoundRoute, PendingRoute } from './PendingRoute';
 import { ADDRESS_SHAPE, matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
 import { WalletRoom } from './wallet/WalletRoom';
+import { WalletHomeRoom } from './wallet/WalletHomeRoom';
 import { AccountsRoom } from './wallet/AccountsRoom';
 import { ActivityRoom } from './wallet/ActivityRoom';
 import { AddressBookRoom } from './wallet/AddressBookRoom';
@@ -12,7 +13,7 @@ import { WalletGroupRoom } from './wallet/WalletGroupRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
 import { ClaimPage } from './wallet/ClaimPage';
-import { ConventionPage, HoldingPage } from './wallet/PortfolioPanel';
+import { ConventionPage, HoldingPage } from './wallet/HoldingPages';
 import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
 import { NewPool } from './liquidity/NewPool';
@@ -28,6 +29,8 @@ import { BlocksRoom } from './chain-blocks/BlocksRoom';
 import { ValidatorsRoom } from './chain-validators/ValidatorsRoom';
 import { ContractsRoom } from './protocol-contracts/ContractsRoom';
 import { PoolsRoom } from './dex-pools/PoolsRoom';
+import { LendRoom } from './lend/LendRoom';
+import { VenueRoom } from './venue/VenueRoom';
 import { OwnFreezeNotice } from '../account';
 
 /**
@@ -60,6 +63,7 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.wallet === 'addressBook') return <AddressBookRoom />;
   if (route.wallet === 'approvals') return <ApprovalsRoom />;
   if (route.wallet === 'sessionKeys') return <SessionKeysRoom />;
+  if (route.wallet === 'overview') return <WalletHomeRoom />;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;
@@ -121,6 +125,8 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.room === 'chain' && route.tab === 'validators') return <ValidatorsRoom />;
   if (route.room === 'protocol' && route.tab === 'contracts') return <ContractsRoom />;
   if (route.room === 'dex' && route.tab === 'pools') return <PoolsRoom />;
+  if (route.room === 'dex' && route.tab === 'lend') return <LendRoom />;
+  if (route.room === 'dex' && route.tab === 'venue') return <VenueRoom />;
   const slug = route.room;
   // The tab room reads the tab from the path; the first tab lives at the room root.
   const subPath = route.tab === SUBNAV[slug][0]!.id ? '' : route.tab;
