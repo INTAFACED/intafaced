@@ -48,7 +48,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/notice/:id': { template: 'reading', migrated: { file: 'features/public/notices/NoticeRoom.tsx' } },
   '/announcement/:id': { template: 'reading', migrated: { file: 'features/public/notices/NoticeRoom.tsx' } },
   '/about-us': { template: 'reading', migrated: { file: 'features/public/AboutPage.tsx' } },
-  '/invite': { template: 'reading' },
+  '/invite': { template: 'reading', migrated: { file: 'features/public/Invitation.tsx' } },
   '/app': { template: 'reading', migrated: { file: 'features/public/AppPage.tsx' } },
   '/partner': { template: 'reading', migrated: { file: 'features/public/PartnerPage.tsx' } },
   '/developers': { template: 'reading', migrated: { file: 'features/developers/DevelopersHome.tsx' } },

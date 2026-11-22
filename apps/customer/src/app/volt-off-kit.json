@@ -16,7 +16,6 @@
   "/status/unsubscribe",
   "/support/guest/verify",
   "/quant/share/:token",
-  "/invite",
   "/developers/sandbox/:sandboxId",
   "/developers/sandbox/:sandboxId/keys/new",
   "/developers/:section",
