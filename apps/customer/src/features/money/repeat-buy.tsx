@@ -21,7 +21,7 @@ import {
 import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
 
 /**
- * What Repeat buy (repeat-buy/repeat-buy.tsx) and the automatic investing rules (earn/AutoInvestRules.tsx) read and
+ * What Repeat buy (repeat-buy-room/repeat-buy.tsx) and the automatic investing rules (earn/AutoInvestRules.tsx) read and
  * send: the rules and their pause, resume and cancel reviews, the policy, and the review that sets a repeat buy up.
  * Each review is checked again against the bank's list, policy or balances before it is sent.
  */
