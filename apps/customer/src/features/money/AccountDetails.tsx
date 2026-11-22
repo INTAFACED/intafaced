@@ -93,11 +93,18 @@ export function AccountDetailsBody({ resource, reload }: { resource: Resource<{ 
   return <AccountDetailsList rows={resource.data.currencies} />;
 }
 
+/**
+ * The account-details read for the profile in view. The profile goes with the read: the bank proves it is held, and a
+ * business has no details of its own. Shared with Pay's global receive (screens/pay/GlobalAccountDetails.tsx).
+ */
+export function useAccountDetailsRead() {
+  const { profiles } = useSession();
+  return useBankRead('accountDetails.list', { profile: profiles.active });
+}
+
 export function AccountDetailsPanel() {
   const { t } = accountDetailsCopy.useCopy();
-  const { profiles } = useSession();
-  // The profile in view goes with the read: the bank proves it is held, and a business has no details of its own.
-  const read = useBankRead('accountDetails.list', { profile: profiles.active });
+  const read = useAccountDetailsRead();
   return (
     <DepthPanel title={t('detailsTitle')} lead={t('detailsLead')}>
       <AccountDetailsBody resource={read.resource} reload={read.reload} />
@@ -112,7 +119,7 @@ export function AccountDetailsPanel() {
 export function AccountDetailsByCurrency() {
   const { t } = accountDetailsCopy.useCopy();
   const { profiles } = useSession();
-  const read = useBankRead('accountDetails.list', { profile: profiles.active });
+  const read = useAccountDetailsRead();
   const [currency, setCurrency] = useState('');
   // Another profile has its own rows: the choice starts again.
   useEffect(() => setCurrency(''), [profiles.active]);

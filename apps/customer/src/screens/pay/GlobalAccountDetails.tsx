@@ -1,11 +1,11 @@
 import { useId, useRef, useState } from 'react';
-import { Button, RefusalBox, type Refusal } from '@intafaced/ui/lit';
+import { Button, NativeSelect, RefusalBox, type Refusal } from '@intafaced/ui/lit';
 import { isServiceNotConnected, type ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { refusalCopy } from '../../data';
 import { useSession } from '../../features/session';
-import { useBankRead } from '../../features/money/components';
+import { useAccountDetailsRead } from '../../features/money/AccountDetails';
 import type { AccountDetailSet, AccountDetailsRow } from '../../features/money/contracts';
 import { accountDetailsCopy } from '../../features/money/account-details-copy';
 import { accountScreenCopy } from '../account/copy';
@@ -215,7 +215,7 @@ function GlobalDetailsBody({ resource, reload }: { resource: Resource<{ currenci
  */
 export function GlobalAccountDetails() {
   const { profiles } = useSession();
-  const read = useBankRead('accountDetails.list', { profile: profiles.active });
+  const read = useAccountDetailsRead();
   // Another profile has its own rows: the choice starts again.
   return <GlobalDetailsByCurrency key={profiles.active} read={read} />;
 }
@@ -232,14 +232,14 @@ function GlobalDetailsByCurrency({ read }: { read: { resource: Resource<{ curren
     <div className="lt-review" data-testid="receive-details">
       <label className="lt-field">
         <span>{t('receiveCurrency')}</span>
-        <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
+        <NativeSelect value={currency} onChange={(event) => setCurrency(event.target.value)}>
           <option value="">{t('receiveChoose')}</option>
           {rows.map((row) => (
             <option key={row.currency} value={row.currency}>
               {row.currency}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </label>
       {chosen && <GlobalDetailsList rows={[chosen]} />}
     </div>
