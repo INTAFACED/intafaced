@@ -2302,6 +2302,16 @@ button.lt-tab:focus-visible {
     visibility: visible !important;
   }
 
+  /* Every box around the document is a plain block in the page's own flow: the browser keeps a named page only for a
+     box it reaches through in-flow blocks, so a desk's positioned or inline-level frame would drop it to the
+     printer's default paper. Important, because the frame's own rules (a grid area, a sticky pane) would win. */
+  body:has(.lt-print-alone),
+  body:has(.lt-print-alone) *:has(.lt-print-alone) {
+    display: block !important;
+    position: static !important;
+    float: none !important;
+  }
+
   .lt-print-alone {
     page: lt-print-alone;
   }
