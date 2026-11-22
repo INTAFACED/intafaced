@@ -111,8 +111,8 @@ export function Sparkline({ label, values }: { label: string; values: readonly D
   if (values.length < 2) return null;
   const { x, y, ys } = scale(values.map((value, i) => ({ at: String(i), value })));
   const d = ys.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const first = ys[0]!;
-  const last = ys[ys.length - 1]!;
+  const first = ys[0] ?? 0;
+  const last = ys.at(-1) ?? first;
   return (
     <figure className="lt-chart lt-spark" data-tone={last > first ? 'up' : last < first ? 'down' : 'neutral'}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
