@@ -16,18 +16,38 @@ export const OBSCURED_BOTTOM_VAR = '--a11y-obscured-bottom';
 export interface Bar {
   readonly edge: string | null;
   readonly height: number;
+  /**
+   * A fixed bar's reach: from its edge of the screen to its far side, so a bar that floats off the edge (the phone
+   * dock sits 0.875rem above the bottom) covers its gap too. Absent for a bar in the page's flow (the sticky risk
+   * band, which stacks under the top bar), which covers its height.
+   */
+  readonly reach?: number;
 }
 
-/** The space covered at each edge: bars stack, so their heights add up. */
+const size = (n: number | undefined): number => (n !== undefined && Number.isFinite(n) && n > 0 ? n : 0);
+
+/**
+ * The space covered at each edge: the furthest reach of the fixed bars there, and the heights of the bars in the
+ * page's flow stacked under them.
+ */
 export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: number } {
-  let top = 0;
-  let bottom = 0;
+  const edges = { top: { reach: 0, stacked: 0 }, bottom: { reach: 0, stacked: 0 } };
   for (const bar of bars) {
-    const height = Number.isFinite(bar.height) && bar.height > 0 ? bar.height : 0;
-    if (bar.edge === 'top') top += height;
-    else if (bar.edge === 'bottom') bottom += height;
+    if (bar.edge !== 'top' && bar.edge !== 'bottom') continue;
+    const at = edges[bar.edge];
+    if (bar.reach === undefined) at.stacked += size(bar.height);
+    else at.reach = Math.max(at.reach, size(bar.reach));
   }
-  return { top, bottom };
+  return { top: edges.top.reach + edges.top.stacked, bottom: edges.bottom.reach + edges.bottom.stacked };
+}
+
+/** One bar as measured now: its edge, height and, when it is fixed, its reach from that edge. */
+function measureBar(el: HTMLElement): Bar {
+  const edge = el.getAttribute(OBSCURES_ATTRIBUTE);
+  const box = el.getBoundingClientRect();
+  if (getComputedStyle(el).position !== 'fixed') return { edge, height: box.height };
+  const reach = edge === 'bottom' ? window.innerHeight - box.top : box.bottom;
+  return { edge, height: box.height, reach };
 }
 
 /** Space kept between a focused control and a bar that would cover it, so its focus ring shows too. */
@@ -59,7 +79,7 @@ export function focusIsVisible(el: { matches(selectors: string): boolean }): boo
 }
 
 /**
- * Keep the two custom properties on `root` equal to the bars' real heights, as bars come, go and
+ * Keep the two custom properties on `root` equal to the space the bars really cover, as bars come, go and
  * resize. Returns the function that stops it. Does nothing where there is no DOM.
  */
 export function trackObscuringBars(root: HTMLElement = document.documentElement): () => void {
@@ -68,9 +88,7 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   let bars: HTMLElement[] = [];
   let last = '';
   const measure = (): void => {
-    const { top, bottom } = obscuredInsets(
-      bars.map((el) => ({ edge: el.getAttribute(OBSCURES_ATTRIBUTE), height: el.getBoundingClientRect().height })),
-    );
+    const { top, bottom } = obscuredInsets(bars.map(measureBar));
     const next = `${top}|${bottom}`;
     if (next === last) return;
     last = next;
@@ -96,6 +114,8 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
     if (relevant) observeBars();
   });
   mutations.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: [OBSCURES_ATTRIBUTE] });
+  // A fixed bar's reach moves with the screen (a turned phone, the safe area) while its size stays.
+  window.addEventListener('resize', measure);
   observeBars();
 
   // Browsers do not use scroll-padding when keyboard focus moves to a control that is already inside the viewport, so a
@@ -122,6 +142,7 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
 
   return () => {
     root.ownerDocument.removeEventListener('focusin', clearFocus);
+    window.removeEventListener('resize', measure);
     mutations.disconnect();
     resize.disconnect();
     root.style.removeProperty(OBSCURED_TOP_VAR);
