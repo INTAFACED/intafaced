@@ -21,6 +21,7 @@ import {
   recordName,
   rewriteSite,
   schemaArgOf,
+  writeSchemas,
 } from './index.mjs';
 import { answerFromCallers } from './answer.mjs';
 import { applyEdits, forget, freeNames, load, resolveRelative, text } from './ast.mjs';
@@ -1581,4 +1582,22 @@ test('a wrapper that sends the call name it is handed, or a spec whose procedure
     );
     assert.ok(!some.of(file).edits.some((e) => /CONTACTS_|callAs\(api, procedure, input/.test(e.text)));
   }
+});
+
+test('the shared schema file reads a declaration it already holds where it stands, and imports one from another contracts file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-schemas-'));
+  const file = join(dir, 'trade-call-schemas.ts');
+  writeFileSync(file, "import { z } from 'zod';\n\nexport const decimal = z.string();\n");
+  const closure = {
+    fromContracts: new Map([
+      ['decimal', { file: join(dir, 'trade-call-schemas.ts'), imported: 'decimal' }],
+      ['orderSideSchema', { file: join(dir, 'order-enums.ts'), imported: 'orderSideSchema' }],
+    ]),
+    fromPackages: new Map(),
+    moved: [{ text: 'export const quote = z.object({ qty: decimal, side: orderSideSchema });' }],
+  };
+  const out = writeSchemas({ service: 'svc-trade' }, file, closure);
+  assert.doesNotMatch(out, /from '\.\/trade-call-schemas\.js'/);
+  assert.match(out, /import \{ orderSideSchema \} from '\.\/order-enums\.js';/);
+  assert.match(out, /export const decimal = z\.string\(\);/);
 });

@@ -716,10 +716,12 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
 }
 
 /** The service's shared schema file: every declaration a record reads that lived in the service, moved here once. */
-function writeSchemas(opts, file, closure, pending) {
+export function writeSchemas(opts, file, closure, pending) {
   const fresh = pending === undefined && !existsSync(file);
   const imports = new Map([['zod', new Set(['z'])]]);
+  const self = `./${basename(file).replace(/\.ts$/, '.js')}`;
   const imp = (spec, name) => {
+    if (spec === self) return; // a declaration already in this file is read where it stands, never imported from itself
     if (!imports.has(spec)) imports.set(spec, new Set());
     imports.get(spec).add(name);
   };
