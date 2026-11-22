@@ -232,6 +232,23 @@ export function render(result, { baseRun, headRun, changed }) {
  * that has passed on main is never added as unbuilt", and a pass after the named run counts as much as one in it.
  * Otherwise the base's run to the head's run is enough.
  */
+/** Fields no rule reads: a change to only these needs no run history, so the guard passes it without listing runs.
+ *  `money` is the money rule's own answer (journey-verdict.mjs holds each entry to it) and `why` is the failure text.
+ *  (Failure it prevents: on 22 Nov 2026 the base named run 1719, more than GitHub's 1,000 listed runs back, so every
+ *  baseline change failed closed, including intafaced #9601, which only set 33 money flags to the rule's answer while
+ *  that mismatch stopped every pull request whose pick held those steps.) */
+export const HISTORY_FREE_FIELDS = ['money', 'why'];
+export function needsHistory(base, head) {
+  if (JSON.stringify(base.run ?? null) !== JSON.stringify(head.run ?? null)) return true;
+  const strip = (e) => Object.fromEntries(Object.entries(e ?? {}).filter(([k]) => !HISTORY_FREE_FIELDS.includes(k)));
+  const before = byStep(base.steps);
+  const after = byStep(head.steps);
+  if (before.size !== after.size) return true;
+  for (const [step, e] of after) if (!before.has(step) || JSON.stringify(strip(e)) !== JSON.stringify(strip(before.get(step)))) return true;
+  const rest = (b) => JSON.stringify(Object.fromEntries(Object.entries(b).filter(([k]) => k !== 'steps')));
+  return rest(base) !== rest(head);
+}
+
 export function runRange(base, head) {
   const from = base.run?.number;
   const before = byStep(base.steps);
@@ -333,6 +350,12 @@ async function main() {
     const changed = baseText !== headText;
     if (!changed) {
       console.log(render(null, { changed }));
+      return 0;
+    }
+    if (!needsHistory(base, head)) {
+      console.log(
+        `journey-baseline-guard: only ${HISTORY_FREE_FIELDS.join(' and ')} changed; no rule reads them, so no run history is needed`,
+      );
       return 0;
     }
     const live = liveSteps(read(o.offline ? o.journeysFile : JOURNEYS_PATH));
