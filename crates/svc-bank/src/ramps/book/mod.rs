@@ -20,9 +20,6 @@ pub mod ownership;
 pub mod ports;
 pub mod store;
 
-pub mod fraud;
-pub mod store;
-
 use service_kit::json::Json;
 use service_kit::schema::Value;
 use service_kit::trpc::TrpcError;

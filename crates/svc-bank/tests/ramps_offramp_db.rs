@@ -833,10 +833,8 @@ fn same_offramp_id_with_a_different_client_ref_is_ramp_conflict_not_raw_pg_23505
     b.offramp(&id, "10", Some(DEAD), "first-ref").ok();
     let a = b.offramp(&id, "10", Some(DEAD), "other-ref");
     assert_eq!(a.cause(), "bank.ramp_conflict");
-    assert_eq!(
-        a.message(),
-        format!("Off-ramp id {id} was already used with different terms")
-    );
+    // The customer is told the code alone (`user-copy.ts`), never the id it collided on.
+    assert_eq!(a.message(), "bank.ramp_conflict");
     // Another amount under the same id is the same conflict.
     assert_eq!(
         b.offramp(&id, "11", Some(DEAD), "first-ref").cause(),
