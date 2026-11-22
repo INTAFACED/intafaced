@@ -2,15 +2,18 @@
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session';
-import { useResource } from '../../shared/resource';
+import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
-import { Button, EmptyState, Panel } from '../../shared/ui';
-import { SessionRetryPanel, SignInPanel } from '../../app/SignInPanel';
-import { Details, Limit, Read, Select } from './common';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { CatalogueTemplate } from '@intafaced/ui/lit/templates';
+import { Details, Limit, Select } from './catalogue-parts';
 import { launchCatalogueCopy } from './launch-catalogue-copy';
-import './launch-catalogue.css';
+import { launchCopy } from './launch-copy';
+import { moreRoomRoutesCopy } from './more-room-routes-copy';
+import { SessionRetryNote, SignInNote } from './sign-in-note';
+import { EmptyNote, KitRead, Section } from './volt-parts';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type T = ReturnType<typeof launchCatalogueCopy.forLocale>['t'];
@@ -113,9 +116,9 @@ export function LaunchCatalogue() {
   );
   const filtered = type !== '' || state !== '';
   return (
-    <Panel title={t('events')}>
-      <div className="launch-catalogue">
-        <div className="launch-catalogue-filters">
+    <Section title={t('events')}>
+      <div>
+        <div className="lt-toolbar">
           <Select
             label={t('type')}
             value={type}
@@ -129,22 +132,22 @@ export function LaunchCatalogue() {
             options={[{ value: '', label: t('all') }, ...STATES.map((v) => ({ value: v, label: t(v) }))]}
           />
         </div>
-        <Read resource={list.resource} retry={list.reload}>
+        <KitRead resource={list.resource} retry={list.reload}>
           {(events) =>
             events.length === 0 ? (
-              <EmptyState title={filtered ? t('emptyFiltered') : t('emptyAll')}>{filtered ? null : t('emptyAllBody')}</EmptyState>
+              <EmptyNote title={filtered ? t('emptyFiltered') : t('emptyAll')}>{filtered ? null : t('emptyAllBody')}</EmptyNote>
             ) : (
               <>
-                <small className="muted">{t('count', { count: String(events.length), limit: String(limit) })}</small>
-                <ul className="launch-catalogue-cards" aria-label={t('events')}>
+                <small className="lt-hint">{t('count', { count: String(events.length), limit: String(limit) })}</small>
+                <ul className="lt-grid" aria-label={t('events')}>
                   {events.map((e) => (
-                    <li key={e.id} className="launch-catalogue-card">
-                      <a className="text-link" href={`/launch/${encodeURIComponent(e.id)}`}>
+                    <li key={e.id}>
+                      <a className="lt-link" href={`/launch/${encodeURIComponent(e.id)}`}>
                         {`${e.projectName} (${e.symbol})`}
                       </a>
-                      <span className="launch-catalogue-badge" data-testid="launch-state">
+                      <Tag tone="neutral" data-testid="launch-state">
                         {stateWord(e, t)}
-                      </span>
+                      </Tag>
                       <Details
                         items={[
                           [t('type'), t(e.type)],
@@ -161,9 +164,9 @@ export function LaunchCatalogue() {
               </>
             )
           }
-        </Read>
+        </KitRead>
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -175,24 +178,40 @@ export function LaunchDetail({ eventId }: { eventId: string }) {
     (signal) => api.query('token', 'launch.events.get', { id: eventId }, eventSchema, { signal }),
     `launch:${eventId}`,
   );
-  if (read.resource.status === 'failed' && read.resource.failure.code === 'launch.event_not_found') {
-    return (
-      <Panel title={t('refusedNotFound')}>
-        <EmptyState title={t('refusedNotFound')} />
-        <a className="text-link" href="/launch">
-          {t('back')}
-        </a>
-      </Panel>
-    );
-  }
+  const scope = launchCopy.useCopy().t('scope');
+  const notFound = read.resource.status === 'failed' && read.resource.failure.code === 'launch.event_not_found';
   return (
-    <Read resource={read.resource} retry={read.reload}>
+    <CatalogueTemplate
+      title={moreRoomRoutesCopy.t('launchProject')}
+      description={scope}
+      state={{ kind: 'ready' }}
+      items={null}
+      item={
+        notFound ? (
+          <Section title={t('refusedNotFound')}>
+            <EmptyNote title={t('refusedNotFound')} />
+            <a className="lt-link" href="/launch">
+              {t('back')}
+            </a>
+          </Section>
+        ) : (
+          <LaunchBody resource={read.resource} retry={read.reload} />
+        )
+      }
+    />
+  );
+}
+
+function LaunchBody({ resource, retry }: { resource: Resource<LaunchEvent>; retry: () => void }) {
+  const t = useT();
+  return (
+    <KitRead resource={resource} retry={retry}>
       {(e) => (
-        <div className="launch-catalogue">
-          <a className="text-link" href="/launch">
+        <div>
+          <a className="lt-link" href="/launch">
             {t('back')}
           </a>
-          <Panel title={`${e.projectName} (${e.symbol})`}>
+          <Section title={`${e.projectName} (${e.symbol})`}>
             <Details
               items={[
                 [t('type'), t(e.type)],
@@ -210,8 +229,8 @@ export function LaunchDetail({ eventId }: { eventId: string }) {
                 ],
               ]}
             />
-          </Panel>
-          <div className="launch-catalogue-panels">
+          </Section>
+          <div className="lt-grid">
             <Region id="allocation" title={t('allocation')}>
               <Details
                 items={[
@@ -236,7 +255,7 @@ export function LaunchDetail({ eventId }: { eventId: string }) {
           <YourBasis event={e} />
         </div>
       )}
-    </Read>
+    </KitRead>
   );
 }
 
@@ -244,7 +263,7 @@ export function LaunchDetail({ eventId }: { eventId: string }) {
 function Region({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   const heading = `launch-${id}-title`;
   return (
-    <section className="launch-catalogue-region" aria-labelledby={heading}>
+    <section aria-labelledby={heading}>
       <h3 id={heading}>{title}</h3>
       {children}
     </section>
@@ -254,7 +273,7 @@ function Region({ id, title, children }: { id: string; title: string; children: 
 function Weights({ weights, t }: { weights: LaunchEvent['allocation']['tierWeights']; t: T }) {
   if (!weights || weights.length === 0) return <>{t('notSet')}</>;
   return (
-    <ul className="launch-catalogue-weights">
+    <ul>
       {weights.map((w) => (
         <li key={w.minBasis}>{t('weight', { minBasis: w.minBasis, weight: String(w.weight) })}</li>
       ))}
@@ -280,7 +299,7 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
   return (
     <Region id="eligibility" title={t('eligibility')}>
       {userId ? (
-        <Button onClick={() => void check()} disabled={busy}>
+        <Button tone="primary" onClick={() => void check()} disabled={busy}>
           {t('check')}
         </Button>
       ) : (
@@ -291,12 +310,15 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
       ) : result?.ok ? (
         <>
           <p role="status">{result.data.eligible ? t('eligible') : t('notEligible')}</p>
-          <ul className="launch-catalogue-requirements" aria-label={t('requirements')}>
+          <ul aria-label={t('requirements')}>
             {result.data.requirements.map((r) => (
               <li key={r.id} data-met={r.met}>
                 <strong>{word(t, `req_${r.id}`)}</strong>
-                <span className="launch-catalogue-badge">{r.met ? t('met') : t('unmet')}</span>
-                <small className="muted">{t('needs', { required: r.required, actual: r.actual })}</small>
+                {/* The class is the hook J-more-catalogue-11 #3 finds the badge by; the kit's Tag draws it. */}
+                <Tag tone={r.met ? 'up' : 'down'} className="launch-catalogue-badge">
+                  {r.met ? t('met') : t('unmet')}
+                </Tag>
+                <small className="lt-hint">{t('needs', { required: r.required, actual: r.actual })}</small>
               </li>
             ))}
           </ul>
@@ -313,8 +335,8 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
 function SignedOut({ event }: { event: LaunchEvent }) {
   const t = useT();
   const { restoreFailed, retryRestore } = useSession();
-  if (restoreFailed) return <SessionRetryPanel retry={retryRestore} />;
-  return <SignInPanel returnTo={`/launch/${event.id}`}>{t('signIn')}</SignInPanel>;
+  if (restoreFailed) return <SessionRetryNote retry={retryRestore} />;
+  return <SignInNote returnTo={`/launch/${event.id}`}>{t('signIn')}</SignInNote>;
 }
 
 /** This account's stored snapshot row and what the rule makes of it. Nothing here is computed in the browser. */
@@ -337,11 +359,11 @@ function BasisRead({ event, userId }: { event: LaunchEvent; userId: string }) {
   );
   if (read.resource.status === 'failed') return <p role="alert">{refusalWords(read.resource.failure, t)}</p>;
   return (
-    <Read resource={read.resource} retry={read.reload}>
+    <KitRead resource={read.resource} retry={read.reload}>
       {(b) => (
         <>
-          {b.reason === 'snapshot_not_taken' ? <p className="muted">{t('basisNoSnapshot')}</p> : null}
-          {b.reason === 'no_holdings_at_snapshot' ? <p className="muted">{t('basisNoHoldings')}</p> : null}
+          {b.reason === 'snapshot_not_taken' ? <p className="lt-hint">{t('basisNoSnapshot')}</p> : null}
+          {b.reason === 'no_holdings_at_snapshot' ? <p className="lt-hint">{t('basisNoHoldings')}</p> : null}
           <Details
             items={[
               [t('basisAmount'), b.basis ? <span data-testid="launch-basis">{t('basisValue', { amount: b.basis })}</span> : t('notSet')],
@@ -356,6 +378,6 @@ function BasisRead({ event, userId }: { event: LaunchEvent; userId: string }) {
           />
         </>
       )}
-    </Read>
+    </KitRead>
   );
 }

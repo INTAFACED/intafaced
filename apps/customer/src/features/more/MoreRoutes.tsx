@@ -41,7 +41,7 @@ import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { PaperRoom } from './paper-mode';
 import { preservePaperHref } from './trade-context';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -72,6 +72,8 @@ function MoreRooms({ path }: { path: string }) {
     );
   // Set when the path is one of the six rooms of the set, so `?simulated=true` labels it and refuses its actions.
   let room: MoreRoomId | undefined;
+  // A room drawn on its Volt template: it carries its own title, so it opens without the old page frame.
+  let volt: ReactNode = undefined;
   if (p === '/academy' || p.startsWith('/academy/')) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
@@ -129,9 +131,7 @@ function MoreRooms({ path }: { path: string }) {
     title = <campaignCatalogueCopy.Copy k="detailTitle" />;
     content = <CampaignDetail key={p} campaignId={decodeURIComponent(p.slice('/campaigns/'.length))} />;
   } else if (p === '/campaigns/drops') {
-    title = copyText('moreroutes.drop.room');
-    description = copyText('moreroutes.drop.room.description');
-    content = <DropRoom />;
+    volt = <DropRoom />;
   } else if (p === '/launch' || p === '/uc/innovation/myorders') {
     room = 'launch';
     title = p === '/launch' ? copyText('moreroutes.launch') : copyText('moreroutes.my.launch.orders');
@@ -181,6 +181,9 @@ function MoreRooms({ path }: { path: string }) {
       const page = ROOM_PAGES[room];
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
+      if (hit.route.kind === 'detail' && room === 'market' && hit.id && !hit.invalid)
+        volt = <MarketListingPage key={hit.id} listingId={hit.id} />;
+      if (hit.route.kind === 'detail' && room === 'launch' && hit.id && !hit.invalid) volt = <LaunchDetail key={hit.id} eventId={hit.id} />;
       content =
         hit.route.kind === 'part' ? (
           page.content(path, paper)
@@ -203,12 +206,15 @@ function MoreRooms({ path }: { path: string }) {
   if (room) {
     const live = new URL(url);
     live.searchParams.delete('simulated');
-    content = (
+    const wrap = (node: ReactNode) => (
       <PaperRoom paper={paper} liveHref={live.pathname + live.search + live.hash}>
-        {content}
+        {node}
       </PaperRoom>
     );
+    content = wrap(content);
+    if (volt) volt = wrap(volt);
   }
+  if (volt) return <Fragment key={userId ?? 'anonymous'}>{volt}</Fragment>;
   return (
     <div className="more-feature">
       <Page
