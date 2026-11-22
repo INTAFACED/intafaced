@@ -27,6 +27,7 @@ import {
 import * as B2 from './b2-basics.js';
 import { Table, gridKey } from './b2-table.js';
 import { StateBlock } from './b2-values.js';
+import { ChartMark } from './b2-controls.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const css = readFileSync(join(here, 'components.css'), 'utf8');
@@ -719,5 +720,19 @@ describe('kit parts that take copy keep the language of the words they are given
     );
     expect(refused).toContain('<p class="lt-state-title" lang="en">Market closed</p>');
     expect(refused).toMatch(/<a class="lit-button"[^>]* href="\/sign-in" lang="en">Sign in<\/a>/);
+  });
+});
+
+describe('a price alert handle on a drawn chart', () => {
+  it('is a button mark at its price, by the price axis, drawn by the sheet', () => {
+    const out = html(
+      <ChartMark as="button" kind="alert" y={42} aria-label="Move alert">
+        Above 100
+      </ChartMark>,
+    );
+    expect(out).toBe(
+      '<button type="button" aria-label="Move alert" data-mark="alert" class="lt-chart-mark" style="inset-block-start:42px">Above 100</button>',
+    );
+    expect(css).toMatch(/\.lt-chart-mark\[data-mark='alert'\] \{[^}]*inset-inline-end: 4\.5rem;[^}]*pointer-events: auto;/);
   });
 });

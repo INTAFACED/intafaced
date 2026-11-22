@@ -95,7 +95,7 @@ export function CompareTools({
   market,
   markets,
   interval,
-  style,
+  chartStyle: style,
   bars,
   percent,
   onPercent,
@@ -104,7 +104,7 @@ export function CompareTools({
   market: DeskMarket;
   markets: readonly DeskMarket[];
   interval: ChartInterval;
-  style: ChartStyle;
+  chartStyle: ChartStyle;
   /** The bars the chart draws now, in the order its visible range counts them. */
   bars: readonly Candle[];
   percent: boolean;
@@ -192,8 +192,8 @@ export function CompareTools({
   };
 
   return (
-    <div className="cw-bar cw-bar--options cw-compare" role="group" aria-label={t('Compare and share')}>
-      <label className="cw-select cw-select--inline">
+    <div className="lt-toolbar" role="group" aria-label={t('Compare and share')}>
+      <label className="lt-field">
         <span>{t('Compare with')}</span>
         <select value={pick || others[0]?.symbol || ''} onChange={(event) => setPick(event.target.value)}>
           {others.map((m) => (
@@ -203,18 +203,19 @@ export function CompareTools({
           ))}
         </select>
       </label>
-      <button type="button" className="cw-option" onClick={add} disabled={others.length === 0}>
+      <button type="button" className="lt-button lt-button-secondary" onClick={add} disabled={others.length === 0}>
         {t('Add to chart')}
       </button>
-      <label className="cw-check">
+      <label className="lt-field">
         <input type="checkbox" checked={percent} onChange={(event) => onPercent(event.target.checked)} />
         <span>{t('Percent')}</span>
       </label>
       {added.length > 0 && (
-        <ul className="cw-compare-list" aria-label={t('Compared markets')}>
+        <ul className="lt-list" aria-label={t('Compared markets')}>
           {added.map((symbol, i) => (
             <li
               key={symbol}
+              className="lt-row"
               data-state={states[symbol]?.state ?? 'loading'}
               data-base={states[symbol]?.base ?? ''}
               data-first-percent={states[symbol]?.first ?? ''}
@@ -224,6 +225,7 @@ export function CompareTools({
               {states[symbol]?.state === 'error' && <span>{t('Compare error')}</span>}
               <button
                 type="button"
+                className="lt-link"
                 onClick={() => setAdded((now) => now.filter((s) => s !== symbol))}
                 aria-label={t('Remove {symbol}', { symbol })}
               >
@@ -244,31 +246,35 @@ export function CompareTools({
           ))}
         </ul>
       )}
-      <span className="cw-compare-actions">
-        <button type="button" className="cw-option" onClick={snapshot} disabled={!host}>
+      <span className="lt-actions">
+        <button type="button" className="lt-button lt-button-secondary" onClick={snapshot} disabled={!host}>
           {t('Snapshot')}
         </button>
-        <button type="button" className="cw-option" onClick={() => void copyLink()}>
+        <button type="button" className="lt-button lt-button-secondary" onClick={() => void copyLink()}>
           {t('Copy link')}
         </button>
-        <button type="button" className="cw-option" onClick={() => window.print()}>
+        <button type="button" className="lt-button lt-button-secondary" onClick={() => window.print()}>
           {t('Print')}
         </button>
         <button
           type="button"
-          className="cw-option"
+          className="lt-button lt-button-secondary"
           onClick={exportBars}
           disabled={bars.length === 0}
           title={bars.length === 0 ? t('Export no bars') : undefined}
         >
           {t('Export bars')}
         </button>
-        <button type="button" className="cw-option" onClick={() => setNote({ code: PUBLISH_UNAVAILABLE, text: t('Publish refused') })}>
+        <button
+          type="button"
+          className="lt-button lt-button-secondary"
+          onClick={() => setNote({ code: PUBLISH_UNAVAILABLE, text: t('Publish refused') })}
+        >
           {t('Public page')}
         </button>
       </span>
       {note && (
-        <p className="cw-note" role="status" data-testid="compare-note" data-code={note.code}>
+        <p className="lt-note" role="status" data-testid="compare-note" data-code={note.code}>
           {note.text}
         </p>
       )}

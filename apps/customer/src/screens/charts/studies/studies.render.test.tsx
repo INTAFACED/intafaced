@@ -144,11 +144,11 @@ const buttonNamed = (label: string, scope: ParentNode = document) =>
   [...scope.querySelectorAll('button')].find((node) => node.getAttribute('aria-label') === label || node.textContent?.trim() === label);
 /** A field in a settings dialog, found by the words of its label. */
 const field = (label: string) =>
-  [...document.querySelectorAll('label.st-field')]
+  [...document.querySelectorAll('label.lt-field')]
     .find((node) => node.querySelector('span')?.textContent === label)
     ?.querySelector('input, select') ?? null;
 const legend = () => host.querySelector('[data-testid="study-legend"]')?.textContent ?? '';
-const chips = () => [...host.querySelectorAll('.st-chip')].map((node) => node.textContent);
+const chips = () => [...host.querySelectorAll('[data-testid="st-chip"]')].map((node) => node.textContent);
 const store = (workbench = 'main') => JSON.parse(localStorage.getItem(`charts-studies:u1:${workbench}`) ?? 'null');
 
 /** Adds a study by searching the dialog for its name and pressing its Add. */
@@ -303,7 +303,7 @@ describe('legend and data window', () => {
     await render();
     await addStudy('sma', 'Simple moving average');
     expect(legend()).not.toMatch(/\d\.\d\d/);
-    await click(host.querySelector('.st-check input[type="checkbox"]'));
+    await click(host.querySelector('[data-testid="st-legend-always"]'));
     const closes = bars(240)
       .slice(-20)
       .map((b) => Number(b.c));
@@ -315,7 +315,7 @@ describe('legend and data window', () => {
   it('the data window reads every series at the bar under the pointer', async () => {
     await render();
     await addStudy('sma', 'Simple moving average');
-    await click(host.querySelector('button.st-toggle'));
+    await click(host.querySelector('[data-testid="st-toggle"]'));
     expect(host.querySelector('[data-testid="data-window"]')?.textContent).toContain('Move the pointer over the chart');
     const target = bars(240)[100]!;
     await act(async () => fake.move(target.t / 1000));

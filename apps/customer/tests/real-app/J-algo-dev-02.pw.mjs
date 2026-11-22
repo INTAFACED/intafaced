@@ -455,7 +455,7 @@ test(`${J} #6 presses Print: parameters, statistics, charts and labels on paper 
   // Nothing else on the page takes room on paper, so no blank page prints before or after the report, and no section
   // is split across two pages.
   const layout = await page.evaluate(() => {
-    const doc = document.querySelector('.quant-report-document');
+    const doc = document.querySelector('[data-testid="quant-report-document"]');
     const outside = [...document.body.querySelectorAll('*')].filter((el) => !el.contains(doc) && !doc.contains(el));
     return {
       top: doc.getBoundingClientRect().top + window.scrollY,

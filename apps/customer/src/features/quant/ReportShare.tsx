@@ -9,13 +9,13 @@ import {
 import { type Dispatch, type SetStateAction, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
+import { Button, EmptyState } from '@intafaced/ui/lit';
 import { Read } from '../more';
 import { useApi } from '../session';
 import { backtestCopy } from './backtest-copy';
 import { ChecksTab, LogText, MetricsTab, utcText } from './result-figures';
 import { reportCopy } from './report-copy';
-import './algo.css';
+import { KitFailure, KitLoading, KitTable } from './kit-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -57,9 +57,9 @@ export function ReportTab({ runId }: { runId: string }) {
   return (
     <div data-testid="quant-report">
       <h4>{t('reportTitle')}</h4>
-      <p className="muted quant-no-print">{t('reportIntro')}</p>
+      <p className="lt-hint lt-no-print">{t('reportIntro')}</p>
       {report.resource.status === 'loading' ? (
-        <Loading label={t('reportLoading')} />
+        <KitLoading label={t('reportLoading')} />
       ) : (
         <Read resource={report.resource} retry={report.reload}>
           {(data) => <ReportDocument report={data} />}
@@ -72,9 +72,9 @@ export function ReportTab({ runId }: { runId: string }) {
 function ReportDocument({ report }: { report: QuantReport }) {
   const { t } = reportCopy.useCopy();
   return (
-    <article className="quant-report-document" data-testid="quant-report-document" data-run-id={report.runId}>
-      <p className="quant-no-print">
-        <Button onClick={() => window.print()} data-testid="quant-report-print">
+    <article className="lt-print-alone lt-stack" data-testid="quant-report-document" data-run-id={report.runId}>
+      <p className="lt-no-print">
+        <Button tone="primary" onClick={() => window.print()} data-testid="quant-report-print">
           {t('print')}
         </Button>
       </p>
@@ -84,14 +84,14 @@ function ReportDocument({ report }: { report: QuantReport }) {
       {report.sections.map((section) => (
         <section key={section.id} aria-label={t(`section_${section.id}`)} data-testid={`quant-report-section-${section.id}`}>
           <h5>{t(`section_${section.id}`)}</h5>
-          <DataTable label={t(`section_${section.id}`)} headers={[t('rowName'), t('rowValue')]}>
+          <KitTable label={t(`section_${section.id}`)} headers={[t('rowName'), t('rowValue')]}>
             {section.rows.map((row, i) => (
               <tr key={`${row.name}:${i}`} data-testid="quant-report-row" data-name={row.name}>
                 <th scope="row">{row.name}</th>
                 <td>{row.value}</td>
               </tr>
             ))}
-          </DataTable>
+          </KitTable>
         </section>
       ))}
     </article>
@@ -147,15 +147,15 @@ export function ShareTab({ runId, created: [created, setCreated] }: { runId: str
         {t(own)}
       </p>
     ) : (
-      <Failure result={failed} retry={state.reload} />
+      <KitFailure result={failed} retry={state.reload} />
     );
   };
 
   return (
     <div data-testid="quant-share">
       <h4>{t('shareTitle')}</h4>
-      <p className="muted">{t('shareIntro')}</p>
-      {state.resource.status === 'loading' && <Loading label={t('shareLoading')} />}
+      <p className="lt-hint">{t('shareIntro')}</p>
+      {state.resource.status === 'loading' && <KitLoading label={t('shareLoading')} />}
       {state.resource.status === 'failed' && refusal(state.resource.failure)}
       {state.resource.status === 'ready' && (
         <ShareState
@@ -165,7 +165,7 @@ export function ShareTab({ runId, created: [created, setCreated] }: { runId: str
           onRevoke={() => void revoke()}
         />
       )}
-      {busy && <Loading label={busy === 'create' ? t('creating') : t('revoking')} />}
+      {busy && <KitLoading label={busy === 'create' ? t('creating') : t('revoking')} />}
       {revoked && (
         <p role="status" data-testid="quant-share-revoked">
           {t('revoked')}
@@ -183,13 +183,13 @@ function ShareState(props: { state: QuantShareState; busy: boolean; onCreate: (s
   return (
     <div data-testid="quant-share-state" data-active={String(state.active)} data-links={state.links}>
       <p>{state.active ? t('shareActive') : t('shareNone')}</p>
-      <p className="muted">{t('shareCount', { count: state.links })}</p>
+      <p className="lt-hint">{t('shareCount', { count: state.links })}</p>
       {state.active ? (
-        <Button onClick={props.onRevoke} disabled={props.busy} data-testid="quant-share-revoke">
+        <Button tone="primary" onClick={props.onRevoke} disabled={props.busy} data-testid="quant-share-revoke">
           {t('revoke')}
         </Button>
       ) : (
-        <Button onClick={() => props.onCreate(state)} disabled={props.busy} data-testid="quant-share-create">
+        <Button tone="primary" onClick={() => props.onCreate(state)} disabled={props.busy} data-testid="quant-share-create">
           {t('create')}
         </Button>
       )}
@@ -218,7 +218,7 @@ function CreatedLink({ created }: { created: QuantShareCreated }) {
         {t('linkLabel')}
         <input readOnly value={url} data-testid="quant-share-link" onFocus={(event) => event.currentTarget.select()} />
       </label>
-      <p role="note" className="muted">
+      <p role="note" className="lt-hint">
         {t('linkOnce')}
       </p>
       {created.embed ? (
@@ -227,7 +227,7 @@ function CreatedLink({ created }: { created: QuantShareCreated }) {
             {t('embedLabel')}
             <textarea readOnly rows={3} value={absoluteSnippet(created.embed.snippet)} data-testid="quant-share-embed-code" />
           </label>
-          <p className="muted">{t('embedOrigins', { origins: created.embed.origins.join(', ') })}</p>
+          <p className="lt-hint">{t('embedOrigins', { origins: created.embed.origins.join(', ') })}</p>
           <p role="note" data-testid="quant-share-embed-blocked">
             {t('embedFramePolicy')}
           </p>
@@ -258,17 +258,18 @@ export function SharedResult({ token }: { token: string }) {
   const { t } = reportCopy.useCopy();
   const shared = useResource((signal) => api.call(QUANT_RESULT_SHARE_PUBLIC, { token }, { signal }), `quant-shared:${token}`);
   return (
-    <Panel title={t('publicTitle')}>
+    <section className="lt-panel">
+      <h2 className="lt-panel-title">{t('publicTitle')}</h2>
       <div data-testid="quant-shared-result">
-        {shared.resource.status === 'loading' && <Loading label={t('publicLoading')} />}
+        {shared.resource.status === 'loading' && <KitLoading label={t('publicLoading')} />}
         {shared.resource.status === 'failed' &&
           (() => {
             const own = publicRefusal(shared.resource.failure);
-            return own ? <EmptyState title={t(own)} /> : <Failure result={shared.resource.failure} retry={shared.reload} />;
+            return own ? <EmptyState title={t(own)} /> : <KitFailure result={shared.resource.failure} retry={shared.reload} />;
           })()}
         {shared.resource.status === 'ready' && <PublicResult result={shared.resource.data} />}
       </div>
-    </Panel>
+    </section>
   );
 }
 
@@ -301,7 +302,7 @@ function PublicResult({ result }: { result: QuantPublicResult }) {
       </p>
       <section aria-label={t('publicTotals')}>
         <h4>{t('publicTotals')}</h4>
-        <dl className="quant-bar-totals" data-testid="quant-shared-totals">
+        <dl className="lt-kv" data-testid="quant-shared-totals">
           {(Object.keys(TOTAL_KEYS) as (keyof typeof TOTAL_KEYS)[])
             .map((key) => [key, result.totals[key]] as const)
             .map(([key, value]) => (
@@ -334,7 +335,7 @@ function PublicResult({ result }: { result: QuantPublicResult }) {
       <section aria-label={t('publicWarnings')}>
         <h4>{t('publicWarnings')}</h4>
         {result.warnings.length === 0 ? (
-          <p className="muted">{t('publicNoWarnings')}</p>
+          <p className="lt-hint">{t('publicNoWarnings')}</p>
         ) : (
           <ul data-testid="quant-shared-warnings">
             {result.warnings.map((line, i) => (

@@ -1,17 +1,3 @@
-.quant-equity-chart {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.quant-equity-chart svg {
-  width: 100%;
-  height: auto;
-  background: var(--if-panel);
-  border-radius: var(--if-r-sm);
-}
-
 /* The app resets native inputs to appearance: none; the compare tick keeps the browser's own checkbox. */
 .quant-run-check {
   appearance: auto;
@@ -25,62 +11,6 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.quant-checks {
-  display: grid;
-  gap: var(--if-space-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.quant-checks > li {
-  padding: var(--if-space-3);
-  border: 1px solid var(--if-line);
-  border-radius: var(--if-r-sm);
-}
-
-.quant-checks > li[data-status='warning'] {
-  border-color: var(--if-warn);
-}
-
-.quant-account {
-  display: grid;
-  gap: var(--if-space-2);
-  margin: 0;
-  padding: var(--if-space-3);
-  border: 1px solid var(--if-line);
-  border-radius: var(--if-r-sm);
-}
-
-/* The printable report (AL-report-03): printing while it is open prints the report alone, without the app around it,
-   on A4 pages, with no section split across two pages. */
-@page {
-  size: A4;
-  margin: 1.5rem;
-}
-
-@media print {
-  /* Everything outside the report's own branch takes no room, so no blank page prints after it. Important, because an
-     element's own inline display (a portal or overlay root) would otherwise keep it on paper. */
-  body:has(.quant-report-document) *:not(:has(.quant-report-document)):not(.quant-report-document, .quant-report-document *) {
-    display: none !important;
-  }
-
-  /* Important, because another room's print sheet hides every element with an important rule while it is loaded. */
-  body:has(.quant-report-document) .quant-report-document,
-  body:has(.quant-report-document) .quant-report-document * {
-    visibility: visible !important;
-  }
-
-  .quant-report-document section {
-    break-inside: avoid;
-  }
-
-  .quant-report-document .quant-no-print {
-    display: none;
-  }
 }
 
 /* A strategy version's source and a comparison of two versions (AL-editor-01): read only, kept as written. */

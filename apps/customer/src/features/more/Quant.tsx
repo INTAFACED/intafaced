@@ -1,10 +1,15 @@
+// volt-room: /quant/sandbox
+// volt-room: /quant/studio
+// volt-room: /quant/backtest
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount } from '../../shared/money';
-import { Button, Failure, Field, Loading, Panel } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { DeskTemplate } from '@intafaced/ui/lit/templates';
+import { FailureNote, Waiting } from './volt-parts';
 import { Details, presentActionFailure, Read, Select, TextArea, useAction } from './common';
 import { preservePaperHref } from './trade-context';
 import { authoredRefusal, parsesAs, type ApiResult } from '../../shared/api';
@@ -51,7 +56,6 @@ import {
   QuantRooms,
   PaperOrders,
 } from '../quant';
-import './quant-analysis.css';
 /** A service sometimes answers with its own refusal code; customers read the plain sentence for it instead. */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
 const stamp = z.object({
@@ -122,8 +126,8 @@ const runSchema = stamp.extend({
 /** A result table that carries its own name, so the fills and positions read as named tables. */
 function NamedTable({ headers, label, children }: { headers: readonly ReactNode[]; label: string; children: ReactNode }) {
   return (
-    <div className="table-scroll" tabIndex={0}>
-      <table aria-label={label}>
+    <div className="lt-table-scroll" tabIndex={0}>
+      <table className="lt-table" aria-label={label}>
         <thead>
           <tr>
             {headers.map((head, index) => (
@@ -142,7 +146,25 @@ function NamedTable({ headers, label, children }: { headers: readonly ReactNode[
 function modelLabel(t: (key: (typeof MODEL_COPY)[keyof typeof MODEL_COPY]) => string, kind: string) {
   return kind in MODEL_COPY ? t(MODEL_COPY[kind as keyof typeof MODEL_COPY]) : kind;
 }
-export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'backtest'; paper?: boolean }) {
+/** The room's title and the line under it, as the navigation copy has them. */
+export function quantModeWords(mode: 'sandbox' | 'studio' | 'backtest') {
+  return {
+    title:
+      mode === 'sandbox'
+        ? copyText('moreroutes.quant.sandbox')
+        : mode === 'studio'
+          ? copyText('moreroutes.quant.studio')
+          : copyText('moreroutes.backtest'),
+    description: copyText('moreroutes.simulated.strategy.research.with.explicit.historical.evidence'),
+  };
+}
+/**
+ * The studio, sandbox and backtest rooms, on the desk template: the room switch and the simulation label head it, the
+ * room's main panel takes the chart slot and the panel beside it the ticket slot. `bars` is the bar backtest, drawn in
+ * the backtest room's main slot above the walk-forward record.
+ */
+export function Quant({ mode, paper = false, bars }: { mode: 'sandbox' | 'studio' | 'backtest'; paper?: boolean; bars?: ReactNode }) {
+  const { title, description } = quantModeWords(mode);
   const api = useApi(),
     { userId } = useSession(),
     action = useAction(`quant-${mode}`);
@@ -272,573 +294,601 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     // `load` only sets this form's state; the open is read once, on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api]);
-  return (
-    <div className="more-grid">
+  const intro = (
+    <div className="lt-col-main">
       <QuantRooms active={mode} paper={paper} />
-      <p className="more-badge">
+      <p className="lt-badge">
         <Text k="quant.simulated.no.live.trading.authority" />
       </p>
-      {mode === 'sandbox' ? (
-        <div className="more-columns">
-          <Panel title={copyText('quant.strategy.sandbox')}>
-            <Read resource={capabilities.resource} retry={capabilities.reload}>
-              {(c) => (
-                <p className="muted">
-                  <Text k={c.isolate === 'wired' ? 'quant.isolate' : 'quant.runner.off'} />{' '}
-                  <Text k={c.venueVault === 'trade-only' ? 'quant.trade.only.vault' : 'quant.exchange.off'} />
-                  {c.refuse && <span lang="zxx"> {RAW_CODE.test(c.refuse) ? refusalCopy(c.refuse).body : c.refuse}</span>}
-                </p>
-              )}
-            </Read>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const idempotencyKey = crypto.randomUUID();
-                action.stage({
-                  title: () => copyText('quant.review.simulated.run'),
-                  confirm: () => copyText('quant.run.simulation'),
-                  success: () => copyText('quant.simulation.received'),
-                  content: () => (
-                    <Details
-                      items={[
-                        [copyText('quant.language'), <span lang="zxx">{language}</span>],
-                        [copyText('quant.starting.cash'), copyText('quant.simulated.units', { amount: cash })],
-                        [copyText('quant.environment'), copyText('quant.paper.never.live.performance')],
-                      ]}
-                    />
-                  ),
-                  run: async () => {
-                    const res = await api.call(
-                      QUANT_SANDBOX_RUN,
-                      { language, source, cash, environment: 'paper', presentedAs: 'paper', idempotencyKey },
-                      {
-                        // The simulation result must match the reviewed language and environment.
-                        accept: (data) =>
-                          parsesAs(runSchema)(data) &&
-                          data.language === language &&
-                          data.environment === 'paper' &&
-                          data.kind === 'paper' &&
-                          data.claimLabel === 'Paper — not live performance',
-                      },
-                    );
-                    if (res.ok && action.isCurrent()) setResult(res.data);
-                    // A plan limit that refused the start, or that ended the run, is named in the plan's words (J-algo-dev-12).
-                    const limit = res.ok ? null : sandboxLimitRefusalOf(res);
-                    if (!res.ok && limit) {
-                      return presentActionFailure(res, (locale) => {
-                        const words = limitsCopy.forLocale(locale);
-                        return {
-                          message: sandboxLimitSentence(limit, words),
-                          language: words.languageFor(limit.kind === 'unset' ? 'refusedUnset' : 'refusedHit'),
-                        };
-                      });
-                    }
-                    return res;
-                  },
-                });
-              }}
-            >
-              <Select
-                label={copyText('quant.language')}
-                value={language}
-                onChange={(value) => {
-                  const picked = QUANT_SANDBOX_LANGUAGES.find((option) => option === value);
-                  if (picked) setLanguage(picked);
-                }}
-                options={QUANT_SANDBOX_LANGUAGES}
-              />
-              <Field
-                label={copyText('quant.simulated.starting.cash')}
-                value={cash}
-                onChange={(e) => setCash(e.target.value)}
-                inputMode="decimal"
-                hint={copyText('quant.user.supplied.simulation.input.separate.from.your')}
-              />
-              <TextArea label={copyText('quant.strategy.source')} value={source} onChange={setSource} maxLength={200000} />
-              <section aria-label={researchCopy.t('pyTitle')} data-testid="quant-python">
-                <h4>{researchCopy.t('pyTitle')}</h4>
-                <p className="muted">{researchCopy.t('pyIntro')}</p>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    setLanguage('python');
-                    setSource(PYTHON_TEMPLATE);
-                  }}
-                >
-                  {researchCopy.t('pyTemplate')}
-                </Button>{' '}
-                <a className="text-link" href="/developers/quant#python" data-testid="quant-python-package">
-                  {researchCopy.t('pyPackage')}
-                </a>
-              </section>
-              <Button
-                type="submit"
-                disabled={
-                  action.disabled ||
-                  !source.trim() ||
-                  !validCash ||
-                  capabilities.resource.status !== 'ready' ||
-                  capabilities.resource.data.isolate !== 'wired'
-                }
-              >
-                <Text k="quant.review.simulation" />
-              </Button>
-            </form>
-            <p className="muted">
-              <Text k="quant.live.deployment.requires.a.separate.approved.execution" />
-            </p>
-          </Panel>
-          <Panel title={copyText('quant.simulation.result')}>
-            {result ? (
-              <>
-                <p lang="und">{result.claimLabel}</p>
-                <Details
-                  items={[
-                    [
-                      copyText('quant.cash'),
-                      <span data-testid="quant-paper-cash" data-value={result.cash}>
-                        {copyText('quant.simulated.units', { amount: displayAmount(result.cash) })}
-                      </span>,
-                    ],
-                    [copyText('quant.p.l'), copyText('quant.simulated.units', { amount: displayAmount(result.pnl) })],
-                    [copyText('quant.venue'), <span lang="zxx">{result.venue}</span>],
-                  ]}
-                />
-                <pre data-testid="more-body" className="more-body" lang="und">
-                  {result.logs.join('\n')}
-                </pre>
-                <NamedTable
-                  headers={[copyText('quant.side'), copyText('quant.symbol'), copyText('quant.quantity'), copyText('quant.price')]}
-                  label={copyText('quant.simulated.fills')}
-                >
-                  {result.fills.map((f, i) => (
-                    <tr key={i}>
-                      <td lang="zxx">{f.side}</td>
-                      <td lang="zxx">{f.symbol}</td>
-                      <td lang="zxx">{f.qty}</td>
-                      <td lang="zxx">{f.price}</td>
-                    </tr>
-                  ))}
-                </NamedTable>
-                {result.positions.length > 0 && (
-                  <NamedTable
-                    headers={[copyText('quant.position'), copyText('quant.quantity')]}
-                    label={copyText('quant.simulated.positions')}
-                  >
-                    {result.positions.map((p) => (
-                      <tr key={p.symbol}>
-                        <td lang="zxx">{p.symbol}</td>
-                        <td lang="zxx">{p.qty}</td>
-                      </tr>
-                    ))}
-                  </NamedTable>
-                )}
-                <PaperOrders events={result.events} legs={result.legs} ticks={result.ticks} />
-                {result.limits && (
-                  <NamedTable headers={[researchCopy.t('limitsTitle'), limitsCopy.t('value')]} label={researchCopy.t('limitsTitle')}>
-                    {(
-                      [
-                        ['wallClockMs', 'limitWall'],
-                        ['memoryBytes', 'limitMemory'],
-                        ['outputBytes', 'limitOutput'],
-                        ['maxOps', 'limitOps'],
-                        ['maxSource', 'limitSource'],
-                      ] as const
-                    ).map(([key, label]) => (
-                      <tr key={key} data-testid="quant-run-limit" data-limit={key} data-value={result.limits?.[key] ?? ''}>
-                        <th scope="row">{researchCopy.t(label)}</th>
-                        <td lang="zxx">{result.limits?.[key] ?? researchCopy.t('limitNotSet')}</td>
-                      </tr>
-                    ))}
-                  </NamedTable>
-                )}
-              </>
-            ) : (
-              <p className="muted">
-                <Text k="quant.run.the.connected.isolate.to.receive.its" />
-              </p>
-            )}
-          </Panel>
-        </div>
-      ) : mode === 'studio' && opening ? (
-        openFailure ? (
-          <Failure result={openFailure} retry={() => window.location.reload()} />
-        ) : (
-          <Loading />
-        )
-      ) : mode === 'studio' ? (
-        <div className="more-columns">
-          <Panel title={copyText('quant.build.a.strategy')}>
-            <form onSubmit={(e) => e.preventDefault()}>
-              <Field label={copyText('quant.strategy.name')} value={name} onChange={(e) => setName(e.target.value)} maxLength={128} />
-              <Field
-                label={copyText('quant.simulated.starting.cash')}
-                value={cash}
-                onChange={(e) => setCash(e.target.value)}
-                inputMode="decimal"
-              />
-              <Select
-                label={builderCopy.t('rulesKind')}
-                value={modules ? 'signal' : 'blocks'}
-                onChange={(v) => setModules(v === 'signal' ? (modules ?? emptySignalRules()) : null)}
-                options={[
-                  { value: 'blocks', label: builderCopy.t('kindBlocks') },
-                  { value: 'signal', label: builderCopy.t('kindSignal') },
-                ]}
-              />
-              {modules && <SignalBuilder value={modules} onChange={setModules} />}
-              {!modules &&
-                blocks.map((b, i) => (
-                  <fieldset key={i}>
-                    <legend>
-                      <Text k="quant.order.block" />
-                      {i + 1}
-                    </legend>
-                    <Select
-                      label={copyText('quant.block.side', { value1: i + 1 })}
-                      value={b.side}
-                      onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
-                      options={['buy', 'sell']}
-                    />
-                    <Field
-                      label={copyText('quant.block.symbol', { value1: i + 1 })}
-                      value={b.symbol}
-                      onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, symbol: e.target.value } : r)))}
-                      maxLength={32}
-                    />
-                    <Field
-                      label={copyText('quant.block.quantity', { value1: i + 1 })}
-                      value={b.qty}
-                      onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))}
-                      inputMode="decimal"
-                    />
-                    {blocks.length > 1 && (
-                      <Button variant="ghost" onClick={() => setBlocks((rows) => rows.filter((_, j) => j !== i))}>
-                        <Text k="quant.remove.block" />
-                        {i + 1}
-                      </Button>
-                    )}
-                  </fieldset>
-                ))}
-              {!modules && (
-                <Button variant="secondary" onClick={() => setBlocks((rows) => [...rows, { side: 'buy', symbol: '', qty: '' }])}>
-                  <Text k="quant.add.block" />
-                </Button>
-              )}
-              <Field
-                label={copyText('quant.max.drawdown.service.unit.unspecified')}
-                value={drawdown}
-                onChange={(e) => setDrawdown(e.target.value)}
-              />
-              <Field
-                label={copyText('quant.max.notional.service.unit.unspecified')}
-                value={notional}
-                onChange={(e) => setNotional(e.target.value)}
-              />
-              <Field
-                label={copyText('quant.kill.threshold.service.unit.unspecified')}
-                value={kill}
-                onChange={(e) => setKill(e.target.value)}
-              />
-              <StudioSave
-                rules={rules}
-                link={link}
-                onSaved={(head, saved) => {
-                  setLink({ clientStrategyId: head.clientStrategyId, strategyId: head.id, version: head.version, saved });
-                  setLibraryRevision((n) => n + 1);
-                }}
-              />
-              <Button variant="ghost" onClick={() => confirmReplace('new') && load(null, newLink())}>
-                {studioCopy.t('newStrategy')}
-              </Button>
-              {replacing && (
-                <p role="alert" data-testid="quant-replace-warning">
-                  {studioCopy.t('replaceWarning')}
-                </p>
-              )}
-            </form>
-          </Panel>
-          <StudioLibrary
-            revision={libraryRevision}
-            activeId={link.strategyId}
-            onOpen={(head) =>
-              confirmReplace(`open:${head.id}`) &&
-              load(head, {
-                clientStrategyId: head.clientStrategyId,
-                strategyId: head.id,
-                version: head.version,
-                saved: fingerprint(head),
-              })
-            }
-          />
-          <StudioTemplates
-            onUse={(template) => {
-              if (!confirmReplace(`template:${template.id}`)) return false;
-              // A new draft: the template's choices with every number blank, and no cash or risk filled in for you.
-              load(
-                {
-                  name: template.name,
-                  cash: '',
-                  blocks: [],
-                  modules: template.rules,
-                  risk: { maxDrawdown: '', maxNotional: '', kill: '' },
-                },
-                newLink(),
-              );
-              return true;
-            }}
-          />
-        </div>
-      ) : (
-        <div lang={languageFor('draft')} dir={directionFor('draft')}>
-          {latestFailure && (
-            <div className="quant-latest-failure">
-              <h3>
-                <Copy k="latestFailed" />
-              </h3>
-              <p lang="zxx">
-                {latestFailure.request.strategyId} · {latestFailure.request.symbol}
-              </p>
-              {bt?.view === action.viewIdentity && (
-                <p>
-                  <Copy k="previous" />
-                </p>
-              )}
-            </div>
-          )}
-          {action.feedback}
-          {action.unresolvedId && (
-            <div className="quant-original-context">
-              <p>
-                <Copy k="originalAttempt" />
-              </p>
-              <code lang="zxx">{action.unresolvedId}</code>
-              <p className="muted">
-                <Copy k="unknownBody" />
-              </p>
-              <div className="actions">
-                <a className="button button--secondary" href="/support">
-                  <Copy k="contact" />
-                </a>
-                <a className="button button--secondary" href={preservePaperHref('/quant/studio', paper)}>
-                  <Text k="quant.studio" />
-                </a>
-              </div>
-            </div>
-          )}
-          <div className="quant-workbench">
-            <div>
-              <QuantHistoricalRecord snapshot={bt} view={action.viewIdentity} />
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  draft.current?.scrollIntoView({ block: 'start' });
-                  draft.current?.querySelector<HTMLElement>('select, input')?.focus({ preventScroll: true });
-                }}
-              >
-                <Copy k="configure" />
-              </Button>
-            </div>
-            <div className="quant-analysis-draft" ref={draft}>
-              <Panel title={t('draft')}>
-                <p className="muted">
-                  <Copy k="draftBody" />
-                </p>
-                <p className="muted">
-                  <Copy k="fullStrategy" />
-                </p>
-                <p className="muted">
-                  <Copy k="utc" />
-                </p>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!validAnalysis || action.disabled) return;
-                    const idempotencyKey = crypto.randomUUID();
-                    const request: HistoricalRequest = {
-                      strategyId: strategyId.trim(),
-                      symbol: symbol.trim(),
-                      walkForward: {
-                        inSampleFrom: windows[0]!,
-                        inSampleTo: windows[1]!,
-                        outOfSampleFrom: windows[2]!,
-                        outOfSampleTo: windows[3]!,
-                      },
-                      outOfSampleStatus: verdict,
-                      strategyVariantCount: Number(variants),
-                      costModel: {
-                        fees: { kind: models.fees, source: evidence.fees.trim() },
-                        slippage: { kind: models.slippage, source: evidence.slippage.trim() },
-                        latency: { kind: models.latency, source: evidence.latency.trim() },
-                      },
-                      environment: 'backtest',
-                      presentedAs: 'simulated',
-                      idempotencyKey,
-                    };
-                    const view = action.viewIdentity;
-                    action.stage({
-                      title: () => copyText('quant.review.historical.simulation'),
-                      confirm: () => copyText('quant.run.backtest'),
-                      success: () => copyText('quant.historical.simulation.received'),
-                      content: () => (
-                        <>
-                          <p>
-                            <Copy k="utc" />
-                          </p>
-                          <Details
-                            items={[
-                              [copyText('quant.strategy'), request.strategyId],
-                              [copyText('quant.symbol'), <span lang="zxx">{request.symbol}</span>],
-                              [
-                                copyText('quant.in.sample'),
-                                <span lang="zxx">{request.walkForward.inSampleFrom + ' → ' + request.walkForward.inSampleTo}</span>,
-                              ],
-                              [
-                                copyText('quant.out.of.sample'),
-                                <span lang="zxx">{request.walkForward.outOfSampleFrom + ' → ' + request.walkForward.outOfSampleTo}</span>,
-                              ],
-                              [t('verdict'), t(HYPOTHESIS_COPY[request.outOfSampleStatus])],
-                              [analysisCopy.t('variants'), String(request.strategyVariantCount)],
-                              ...(['fees', 'slippage', 'latency'] as const).map(
-                                (key) =>
-                                  [
-                                    analysisCopy.t(key),
-                                    <span lang="und">
-                                      {modelLabel(t, request.costModel[key].kind)} · {request.costModel[key].source}
-                                    </span>,
-                                  ] as [string, ReactNode],
-                              ),
-                            ]}
-                          />
-                          <p className="muted">
-                            <Copy k="fullStrategy" />
-                          </p>
-                        </>
-                      ),
-                      run: async (canDispatch) => {
-                        if (!canDispatch()) return authoredRefusal('aborted', { key: 'beforeDispatch' });
-                        // The historical result must match the reviewed strategy, windows and declared verdict.
-                        const response = await api.call(QUANT_BACKTEST_RUN, request, {
-                          accept: (data) => {
-                            const read = historicalResultSchema.safeParse(data);
-                            return read.success && matchesHistoricalRequest(read.data, request);
-                          },
-                        });
-                        // Accepted above, so the reply reads as this room's historical result.
-                        const read = response.ok ? { ...response, data: historicalResultSchema.parse(response.data) } : response;
-                        if (action.isCurrent()) {
-                          setLastAttempt({ request, view, result: read });
-                          if (read.ok) setBt({ data: read.data, request, view });
-                        }
-                        return read;
-                      },
-                    });
-                  }}
-                >
-                  {strategyNames.length ? (
-                    <>
-                      <Select
-                        label={t('strategyLabel')}
-                        value={strategyId}
-                        onChange={setStrategyId}
-                        options={[
-                          { value: '', label: t('strategyChoose') },
-                          ...strategyNames.map((name) => ({ value: name, label: name })),
-                        ]}
-                      />
-                      <p className="muted">
-                        <Copy k="strategyNote" />
-                      </p>
-                    </>
-                  ) : (
-                    <div className="field" role="group" aria-label={t('strategyLabel')}>
-                      <span>{t('strategyLabel')}</span>
-                      <p className="muted">
-                        <Copy k={studioDraft ? 'strategyUnnamed' : 'strategyNone'} />{' '}
-                        <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
-                          <Copy k="strategyOpenStudio" />
-                        </a>
-                      </p>
-                    </div>
-                  )}
-                  <Field
-                    label={copyText('quant.historical.symbol')}
-                    value={symbol}
-                    onChange={(e) => setSymbol(e.target.value)}
-                    maxLength={32}
-                    required
-                  />
-                  <div className="quant-date-fields">
-                    {[
-                      ['inSampleFrom', copyText('quant.in.sample.start'), isFrom, setIsFrom],
-                      ['inSampleTo', copyText('quant.in.sample.end'), isTo, setIsTo],
-                      ['outOfSampleFrom', copyText('quant.out.of.sample.start'), oosFrom, setOosFrom],
-                      ['outOfSampleTo', copyText('quant.out.of.sample.end'), oosTo, setOosTo],
-                    ].map(([field, label, value, set]) => (
-                      <Field
-                        key={field as string}
-                        label={label as string}
-                        type="datetime-local"
-                        value={value as string}
-                        onChange={(e) => (set as (value: string) => void)(e.target.value)}
-                        required
-                      />
-                    ))}
-                  </div>
-                  <Select
-                    label={t('hypothesis')}
-                    value={verdict}
-                    onChange={(value) => setVerdict(value as (typeof HYPOTHESES)[number])}
-                    options={HYPOTHESES.map((value) => ({ value, label: t(HYPOTHESIS_COPY[value]) }))}
-                  />
-                  <p className="muted">
-                    <Copy k="hypothesisNote" />
-                  </p>
-                  <Field
-                    label={copyText('quant.number.of.strategy.variants.tested')}
-                    value={variants}
-                    onChange={(e) => setVariants(e.target.value)}
-                    inputMode="numeric"
-                    required
-                  />
-                  {(['fees', 'slippage', 'latency'] as const).map((key) => (
-                    <fieldset key={key} className="quant-cost-fields">
-                      <legend>{t(key)}</legend>
-                      <Select
-                        label={t(`${key}Model`)}
-                        value={models[key]}
-                        onChange={(value) => setModels((v) => ({ ...v, [key]: value }))}
-                        options={COST_MODELS[key].map((value) => ({ value, label: modelLabel(t, value) }))}
-                      />
-                      <Field
-                        label={t(`${key}Source`)}
-                        value={evidence[key]}
-                        onChange={(e) => setEvidence((v) => ({ ...v, [key]: e.target.value }))}
-                        required
-                      />
-                    </fieldset>
-                  ))}
-                  {!validAnalysis && (
-                    <p className="muted" id="quant-backtest-reason">
-                      <Copy k="invalid" />
-                    </p>
-                  )}
-                  <Button
-                    type="submit"
-                    disabled={action.disabled || !validAnalysis}
-                    aria-describedby={validAnalysis ? undefined : 'quant-backtest-reason'}
-                  >
-                    <Copy k="review" />
-                  </Button>
-                </form>
-              </Panel>
-            </div>
-          </div>
-        </div>
-      )}
-      {mode !== 'backtest' && action.feedback}
       {action.dialog}
     </div>
   );
+  // The walk-forward record's words follow its own copy's language, as the whole backtest column did.
+  const draftLanguage = { lang: languageFor('draft'), dir: directionFor('draft') };
+  const slots: { chart: ReactNode; ticket: ReactNode; orders?: ReactNode } =
+    mode === 'sandbox'
+      ? {
+          chart: (
+            <section className="lt-panel">
+              <h2 className="lt-panel-title">{copyText('quant.strategy.sandbox')}</h2>
+              <Read resource={capabilities.resource} retry={capabilities.reload}>
+                {(c) => (
+                  <p className="lt-hint">
+                    <Text k={c.isolate === 'wired' ? 'quant.isolate' : 'quant.runner.off'} />{' '}
+                    <Text k={c.venueVault === 'trade-only' ? 'quant.trade.only.vault' : 'quant.exchange.off'} />
+                    {c.refuse && <span lang="zxx"> {RAW_CODE.test(c.refuse) ? refusalCopy(c.refuse).body : c.refuse}</span>}
+                  </p>
+                )}
+              </Read>
+              <form
+                className="lt-stack"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const idempotencyKey = crypto.randomUUID();
+                  action.stage({
+                    title: () => copyText('quant.review.simulated.run'),
+                    confirm: () => copyText('quant.run.simulation'),
+                    success: () => copyText('quant.simulation.received'),
+                    content: () => (
+                      <Details
+                        items={[
+                          [copyText('quant.language'), <span lang="zxx">{language}</span>],
+                          [copyText('quant.starting.cash'), copyText('quant.simulated.units', { amount: cash })],
+                          [copyText('quant.environment'), copyText('quant.paper.never.live.performance')],
+                        ]}
+                      />
+                    ),
+                    run: async () => {
+                      const res = await api.call(
+                        QUANT_SANDBOX_RUN,
+                        { language, source, cash, environment: 'paper', presentedAs: 'paper', idempotencyKey },
+                        {
+                          // The simulation result must match the reviewed language and environment.
+                          accept: (data) =>
+                            parsesAs(runSchema)(data) &&
+                            data.language === language &&
+                            data.environment === 'paper' &&
+                            data.kind === 'paper' &&
+                            data.claimLabel === 'Paper — not live performance',
+                        },
+                      );
+                      if (res.ok && action.isCurrent()) setResult(res.data);
+                      // A plan limit that refused the start, or that ended the run, is named in the plan's words (J-algo-dev-12).
+                      const limit = res.ok ? null : sandboxLimitRefusalOf(res);
+                      if (!res.ok && limit) {
+                        return presentActionFailure(res, (locale) => {
+                          const words = limitsCopy.forLocale(locale);
+                          return {
+                            message: sandboxLimitSentence(limit, words),
+                            language: words.languageFor(limit.kind === 'unset' ? 'refusedUnset' : 'refusedHit'),
+                          };
+                        });
+                      }
+                      return res;
+                    },
+                  });
+                }}
+              >
+                <Select
+                  label={copyText('quant.language')}
+                  value={language}
+                  onChange={(value) => {
+                    const picked = QUANT_SANDBOX_LANGUAGES.find((option) => option === value);
+                    if (picked) setLanguage(picked);
+                  }}
+                  options={QUANT_SANDBOX_LANGUAGES}
+                />
+                <Field
+                  label={copyText('quant.simulated.starting.cash')}
+                  value={cash}
+                  onChange={(e) => setCash(e.target.value)}
+                  inputMode="decimal"
+                  hint={copyText('quant.user.supplied.simulation.input.separate.from.your')}
+                />
+                <TextArea label={copyText('quant.strategy.source')} value={source} onChange={setSource} maxLength={200000} />
+                <section aria-label={researchCopy.t('pyTitle')} data-testid="quant-python">
+                  <h4>{researchCopy.t('pyTitle')}</h4>
+                  <p className="lt-hint">{researchCopy.t('pyIntro')}</p>
+                  <Button
+                    type="button"
+                    tone="secondary"
+                    onClick={() => {
+                      setLanguage('python');
+                      setSource(PYTHON_TEMPLATE);
+                    }}
+                  >
+                    {researchCopy.t('pyTemplate')}
+                  </Button>{' '}
+                  <a className="lt-link" href="/developers/quant#python" data-testid="quant-python-package">
+                    {researchCopy.t('pyPackage')}
+                  </a>
+                </section>
+                <Button
+                  tone="primary"
+                  type="submit"
+                  disabled={
+                    action.disabled ||
+                    !source.trim() ||
+                    !validCash ||
+                    capabilities.resource.status !== 'ready' ||
+                    capabilities.resource.data.isolate !== 'wired'
+                  }
+                >
+                  <Text k="quant.review.simulation" />
+                </Button>
+              </form>
+              <p className="lt-hint">
+                <Text k="quant.live.deployment.requires.a.separate.approved.execution" />
+              </p>
+            </section>
+          ),
+          ticket: (
+            <section className="lt-panel">
+              <h2 className="lt-panel-title">{copyText('quant.simulation.result')}</h2>
+              {result ? (
+                <>
+                  <p lang="und">{result.claimLabel}</p>
+                  <Details
+                    items={[
+                      [
+                        copyText('quant.cash'),
+                        <span data-testid="quant-paper-cash" data-value={result.cash}>
+                          {copyText('quant.simulated.units', { amount: displayAmount(result.cash) })}
+                        </span>,
+                      ],
+                      [copyText('quant.p.l'), copyText('quant.simulated.units', { amount: displayAmount(result.pnl) })],
+                      [copyText('quant.venue'), <span lang="zxx">{result.venue}</span>],
+                    ]}
+                  />
+                  <pre data-testid="more-body" className="lt-mono lt-scroll-x" lang="und">
+                    {result.logs.join('\n')}
+                  </pre>
+                  <NamedTable
+                    headers={[copyText('quant.side'), copyText('quant.symbol'), copyText('quant.quantity'), copyText('quant.price')]}
+                    label={copyText('quant.simulated.fills')}
+                  >
+                    {result.fills.map((f, i) => (
+                      <tr key={i}>
+                        <td lang="zxx">{f.side}</td>
+                        <td lang="zxx">{f.symbol}</td>
+                        <td lang="zxx">{f.qty}</td>
+                        <td lang="zxx">{f.price}</td>
+                      </tr>
+                    ))}
+                  </NamedTable>
+                  {result.positions.length > 0 && (
+                    <NamedTable
+                      headers={[copyText('quant.position'), copyText('quant.quantity')]}
+                      label={copyText('quant.simulated.positions')}
+                    >
+                      {result.positions.map((p) => (
+                        <tr key={p.symbol}>
+                          <td lang="zxx">{p.symbol}</td>
+                          <td lang="zxx">{p.qty}</td>
+                        </tr>
+                      ))}
+                    </NamedTable>
+                  )}
+                  <PaperOrders events={result.events} legs={result.legs} ticks={result.ticks} />
+                  {result.limits && (
+                    <NamedTable headers={[researchCopy.t('limitsTitle'), limitsCopy.t('value')]} label={researchCopy.t('limitsTitle')}>
+                      {(
+                        [
+                          ['wallClockMs', 'limitWall'],
+                          ['memoryBytes', 'limitMemory'],
+                          ['outputBytes', 'limitOutput'],
+                          ['maxOps', 'limitOps'],
+                          ['maxSource', 'limitSource'],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <tr key={key} data-testid="quant-run-limit" data-limit={key} data-value={result.limits?.[key] ?? ''}>
+                          <th scope="row">{researchCopy.t(label)}</th>
+                          <td lang="zxx">{result.limits?.[key] ?? researchCopy.t('limitNotSet')}</td>
+                        </tr>
+                      ))}
+                    </NamedTable>
+                  )}
+                </>
+              ) : (
+                <p className="lt-hint">
+                  <Text k="quant.run.the.connected.isolate.to.receive.its" />
+                </p>
+              )}
+            </section>
+          ),
+          orders: action.feedback,
+        }
+      : mode === 'studio' && opening
+        ? {
+            chart: openFailure ? <FailureNote result={openFailure} retry={() => window.location.reload()} /> : <Waiting />,
+            ticket: null,
+            orders: action.feedback,
+          }
+        : mode === 'studio'
+          ? {
+              chart: (
+                <section className="lt-panel">
+                  <h2 className="lt-panel-title">{copyText('quant.build.a.strategy')}</h2>
+                  <form className="lt-stack" onSubmit={(e) => e.preventDefault()}>
+                    <Field label={copyText('quant.strategy.name')} value={name} onChange={(e) => setName(e.target.value)} maxLength={128} />
+                    <Field
+                      label={copyText('quant.simulated.starting.cash')}
+                      value={cash}
+                      onChange={(e) => setCash(e.target.value)}
+                      inputMode="decimal"
+                    />
+                    <Select
+                      label={builderCopy.t('rulesKind')}
+                      value={modules ? 'signal' : 'blocks'}
+                      onChange={(v) => setModules(v === 'signal' ? (modules ?? emptySignalRules()) : null)}
+                      options={[
+                        { value: 'blocks', label: builderCopy.t('kindBlocks') },
+                        { value: 'signal', label: builderCopy.t('kindSignal') },
+                      ]}
+                    />
+                    {modules && <SignalBuilder value={modules} onChange={setModules} />}
+                    {!modules &&
+                      blocks.map((b, i) => (
+                        <fieldset key={i} className="lt-group lt-stack">
+                          <legend>
+                            <Text k="quant.order.block" />
+                            {i + 1}
+                          </legend>
+                          <Select
+                            label={copyText('quant.block.side', { value1: i + 1 })}
+                            value={b.side}
+                            onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
+                            options={['buy', 'sell']}
+                          />
+                          <Field
+                            label={copyText('quant.block.symbol', { value1: i + 1 })}
+                            value={b.symbol}
+                            onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, symbol: e.target.value } : r)))}
+                            maxLength={32}
+                          />
+                          <Field
+                            label={copyText('quant.block.quantity', { value1: i + 1 })}
+                            value={b.qty}
+                            onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))}
+                            inputMode="decimal"
+                          />
+                          {blocks.length > 1 && (
+                            <Button tone="quiet" onClick={() => setBlocks((rows) => rows.filter((_, j) => j !== i))}>
+                              <Text k="quant.remove.block" />
+                              {i + 1}
+                            </Button>
+                          )}
+                        </fieldset>
+                      ))}
+                    {!modules && (
+                      <Button tone="secondary" onClick={() => setBlocks((rows) => [...rows, { side: 'buy', symbol: '', qty: '' }])}>
+                        <Text k="quant.add.block" />
+                      </Button>
+                    )}
+                    <Field
+                      label={copyText('quant.max.drawdown.service.unit.unspecified')}
+                      value={drawdown}
+                      onChange={(e) => setDrawdown(e.target.value)}
+                    />
+                    <Field
+                      label={copyText('quant.max.notional.service.unit.unspecified')}
+                      value={notional}
+                      onChange={(e) => setNotional(e.target.value)}
+                    />
+                    <Field
+                      label={copyText('quant.kill.threshold.service.unit.unspecified')}
+                      value={kill}
+                      onChange={(e) => setKill(e.target.value)}
+                    />
+                    <StudioSave
+                      rules={rules}
+                      link={link}
+                      onSaved={(head, saved) => {
+                        setLink({ clientStrategyId: head.clientStrategyId, strategyId: head.id, version: head.version, saved });
+                        setLibraryRevision((n) => n + 1);
+                      }}
+                    />
+                    <Button tone="quiet" onClick={() => confirmReplace('new') && load(null, newLink())}>
+                      {studioCopy.t('newStrategy')}
+                    </Button>
+                    {replacing && (
+                      <p role="alert" data-testid="quant-replace-warning">
+                        {studioCopy.t('replaceWarning')}
+                      </p>
+                    )}
+                  </form>
+                </section>
+              ),
+              ticket: (
+                <StudioLibrary
+                  revision={libraryRevision}
+                  activeId={link.strategyId}
+                  onOpen={(head) =>
+                    confirmReplace(`open:${head.id}`) &&
+                    load(head, {
+                      clientStrategyId: head.clientStrategyId,
+                      strategyId: head.id,
+                      version: head.version,
+                      saved: fingerprint(head),
+                    })
+                  }
+                />
+              ),
+              orders: (
+                <div className="lt-stack">
+                  <StudioTemplates
+                    onUse={(template) => {
+                      if (!confirmReplace(`template:${template.id}`)) return false;
+                      // A new draft: the template's choices with every number blank, and no cash or risk filled in for you.
+                      load(
+                        {
+                          name: template.name,
+                          cash: '',
+                          blocks: [],
+                          modules: template.rules,
+                          risk: { maxDrawdown: '', maxNotional: '', kill: '' },
+                        },
+                        newLink(),
+                      );
+                      return true;
+                    }}
+                  />
+                  {action.feedback}
+                </div>
+              ),
+            }
+          : {
+              chart: bars,
+              ticket: (
+                <div className="lt-stack" ref={draft} {...draftLanguage}>
+                  <section className="lt-panel">
+                    <h2 className="lt-panel-title">{t('draft')}</h2>
+                    <p className="lt-hint">
+                      <Copy k="draftBody" />
+                    </p>
+                    <p className="lt-hint">
+                      <Copy k="fullStrategy" />
+                    </p>
+                    <p className="lt-hint">
+                      <Copy k="utc" />
+                    </p>
+                    <form
+                      className="lt-stack"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!validAnalysis || action.disabled) return;
+                        const idempotencyKey = crypto.randomUUID();
+                        const request: HistoricalRequest = {
+                          strategyId: strategyId.trim(),
+                          symbol: symbol.trim(),
+                          walkForward: {
+                            inSampleFrom: windows[0]!,
+                            inSampleTo: windows[1]!,
+                            outOfSampleFrom: windows[2]!,
+                            outOfSampleTo: windows[3]!,
+                          },
+                          outOfSampleStatus: verdict,
+                          strategyVariantCount: Number(variants),
+                          costModel: {
+                            fees: { kind: models.fees, source: evidence.fees.trim() },
+                            slippage: { kind: models.slippage, source: evidence.slippage.trim() },
+                            latency: { kind: models.latency, source: evidence.latency.trim() },
+                          },
+                          environment: 'backtest',
+                          presentedAs: 'simulated',
+                          idempotencyKey,
+                        };
+                        const view = action.viewIdentity;
+                        action.stage({
+                          title: () => copyText('quant.review.historical.simulation'),
+                          confirm: () => copyText('quant.run.backtest'),
+                          success: () => copyText('quant.historical.simulation.received'),
+                          content: () => (
+                            <>
+                              <p>
+                                <Copy k="utc" />
+                              </p>
+                              <Details
+                                items={[
+                                  [copyText('quant.strategy'), request.strategyId],
+                                  [copyText('quant.symbol'), <span lang="zxx">{request.symbol}</span>],
+                                  [
+                                    copyText('quant.in.sample'),
+                                    <span lang="zxx">{request.walkForward.inSampleFrom + ' → ' + request.walkForward.inSampleTo}</span>,
+                                  ],
+                                  [
+                                    copyText('quant.out.of.sample'),
+                                    <span lang="zxx">
+                                      {request.walkForward.outOfSampleFrom + ' → ' + request.walkForward.outOfSampleTo}
+                                    </span>,
+                                  ],
+                                  [t('verdict'), t(HYPOTHESIS_COPY[request.outOfSampleStatus])],
+                                  [analysisCopy.t('variants'), String(request.strategyVariantCount)],
+                                  ...(['fees', 'slippage', 'latency'] as const).map(
+                                    (key) =>
+                                      [
+                                        analysisCopy.t(key),
+                                        <span lang="und">
+                                          {modelLabel(t, request.costModel[key].kind)} · {request.costModel[key].source}
+                                        </span>,
+                                      ] as [string, ReactNode],
+                                  ),
+                                ]}
+                              />
+                              <p className="lt-hint">
+                                <Copy k="fullStrategy" />
+                              </p>
+                            </>
+                          ),
+                          run: async (canDispatch) => {
+                            if (!canDispatch()) return authoredRefusal('aborted', { key: 'beforeDispatch' });
+                            // The historical result must match the reviewed strategy, windows and declared verdict.
+                            const response = await api.call(QUANT_BACKTEST_RUN, request, {
+                              accept: (data) => {
+                                const read = historicalResultSchema.safeParse(data);
+                                return read.success && matchesHistoricalRequest(read.data, request);
+                              },
+                            });
+                            // Accepted above, so the reply reads as this room's historical result.
+                            const read = response.ok ? { ...response, data: historicalResultSchema.parse(response.data) } : response;
+                            if (action.isCurrent()) {
+                              setLastAttempt({ request, view, result: read });
+                              if (read.ok) setBt({ data: read.data, request, view });
+                            }
+                            return read;
+                          },
+                        });
+                      }}
+                    >
+                      {strategyNames.length ? (
+                        <>
+                          <Select
+                            label={t('strategyLabel')}
+                            value={strategyId}
+                            onChange={setStrategyId}
+                            options={[
+                              { value: '', label: t('strategyChoose') },
+                              ...strategyNames.map((name) => ({ value: name, label: name })),
+                            ]}
+                          />
+                          <p className="lt-hint">
+                            <Copy k="strategyNote" />
+                          </p>
+                        </>
+                      ) : (
+                        <div className="lt-field" role="group" aria-label={t('strategyLabel')}>
+                          <span>{t('strategyLabel')}</span>
+                          <p className="lt-hint">
+                            <Copy k={studioDraft ? 'strategyUnnamed' : 'strategyNone'} />{' '}
+                            <a className="lt-link" href={preservePaperHref('/quant/studio', paper)}>
+                              <Copy k="strategyOpenStudio" />
+                            </a>
+                          </p>
+                        </div>
+                      )}
+                      <Field
+                        label={copyText('quant.historical.symbol')}
+                        value={symbol}
+                        onChange={(e) => setSymbol(e.target.value)}
+                        maxLength={32}
+                        required
+                      />
+                      <div className="lt-cols-2">
+                        {[
+                          ['inSampleFrom', copyText('quant.in.sample.start'), isFrom, setIsFrom],
+                          ['inSampleTo', copyText('quant.in.sample.end'), isTo, setIsTo],
+                          ['outOfSampleFrom', copyText('quant.out.of.sample.start'), oosFrom, setOosFrom],
+                          ['outOfSampleTo', copyText('quant.out.of.sample.end'), oosTo, setOosTo],
+                        ].map(([field, label, value, set]) => (
+                          <Field
+                            key={field as string}
+                            label={label as string}
+                            type="datetime-local"
+                            value={value as string}
+                            onChange={(e) => (set as (value: string) => void)(e.target.value)}
+                            required
+                          />
+                        ))}
+                      </div>
+                      <Select
+                        label={t('hypothesis')}
+                        value={verdict}
+                        onChange={(value) => setVerdict(value as (typeof HYPOTHESES)[number])}
+                        options={HYPOTHESES.map((value) => ({ value, label: t(HYPOTHESIS_COPY[value]) }))}
+                      />
+                      <p className="lt-hint">
+                        <Copy k="hypothesisNote" />
+                      </p>
+                      <Field
+                        label={copyText('quant.number.of.strategy.variants.tested')}
+                        value={variants}
+                        onChange={(e) => setVariants(e.target.value)}
+                        inputMode="numeric"
+                        required
+                      />
+                      {(['fees', 'slippage', 'latency'] as const).map((key) => (
+                        <fieldset key={key} className="lt-group lt-stack">
+                          <legend>{t(key)}</legend>
+                          <Select
+                            label={t(`${key}Model`)}
+                            value={models[key]}
+                            onChange={(value) => setModels((v) => ({ ...v, [key]: value }))}
+                            options={COST_MODELS[key].map((value) => ({ value, label: modelLabel(t, value) }))}
+                          />
+                          <Field
+                            label={t(`${key}Source`)}
+                            value={evidence[key]}
+                            onChange={(e) => setEvidence((v) => ({ ...v, [key]: e.target.value }))}
+                            required
+                          />
+                        </fieldset>
+                      ))}
+                      {!validAnalysis && (
+                        <p className="lt-hint" id="quant-backtest-reason">
+                          <Copy k="invalid" />
+                        </p>
+                      )}
+                      <Button
+                        tone="primary"
+                        type="submit"
+                        disabled={action.disabled || !validAnalysis}
+                        aria-describedby={validAnalysis ? undefined : 'quant-backtest-reason'}
+                      >
+                        <Copy k="review" />
+                      </Button>
+                    </form>
+                  </section>
+                </div>
+              ),
+              orders: (
+                <div className="lt-stack" {...draftLanguage}>
+                  {latestFailure && (
+                    <div className="lt-callout lt-callout-bad">
+                      <h3>
+                        <Copy k="latestFailed" />
+                      </h3>
+                      <p lang="zxx">
+                        {latestFailure.request.strategyId} · {latestFailure.request.symbol}
+                      </p>
+                      {bt?.view === action.viewIdentity && (
+                        <p>
+                          <Copy k="previous" />
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {action.feedback}
+                  {action.unresolvedId && (
+                    <div className="lt-callout">
+                      <p>
+                        <Copy k="originalAttempt" />
+                      </p>
+                      <code lang="zxx">{action.unresolvedId}</code>
+                      <p className="lt-hint">
+                        <Copy k="unknownBody" />
+                      </p>
+                      <div className="lt-actions">
+                        <a className="lt-button lt-button-secondary" href="/support">
+                          <Copy k="contact" />
+                        </a>
+                        <a className="lt-button lt-button-secondary" href={preservePaperHref('/quant/studio', paper)}>
+                          <Text k="quant.studio" />
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                  <QuantHistoricalRecord snapshot={bt} view={action.viewIdentity} />
+                  <Button
+                    tone="secondary"
+                    onClick={() => {
+                      draft.current?.scrollIntoView({ block: 'start' });
+                      draft.current?.querySelector<HTMLElement>('select, input')?.focus({ preventScroll: true });
+                    }}
+                  >
+                    <Copy k="configure" />
+                  </Button>
+                </div>
+              ),
+            };
+  return <DeskTemplate title={title} description={description} mode="pro" state={{ kind: 'ready' }} instrument={intro} {...slots} />;
 }

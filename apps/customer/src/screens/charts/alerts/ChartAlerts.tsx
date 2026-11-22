@@ -12,6 +12,7 @@
  * - The person's chart setting can take the levels off the chart (Chart settings, Alerts); the list under it stays.
  */
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { ChartMark, ChartOverlay } from '@intafaced/ui/lit';
 import { chartValue } from '../../../shared/chart-value';
 import { createPortal } from 'react-dom';
 import { useSession } from '../../../features/session/session';
@@ -140,18 +141,18 @@ export function ChartAlerts({
     }
   };
 
-  const onDown = (event: ReactPointerEvent<HTMLButtonElement>, alert: PriceAlert) => {
+  const onDown = (event: ReactPointerEvent<HTMLElement>, alert: PriceAlert) => {
     if (busy || replaying || !host) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const top = host.element.getBoundingClientRect().top;
     setDrag({ id: alert.id, y: event.clientY - top, from: event.clientY - top });
   };
-  const onMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const onMove = (event: ReactPointerEvent<HTMLElement>) => {
     if (!drag || !host) return;
     setDrag({ ...drag, y: event.clientY - host.element.getBoundingClientRect().top });
   };
-  const onUp = (event: ReactPointerEvent<HTMLButtonElement>, alert: PriceAlert) => {
+  const onUp = (event: ReactPointerEvent<HTMLElement>, alert: PriceAlert) => {
     if (!drag || !host) return;
     const y = event.clientY - host.element.getBoundingClientRect().top;
     const from = drag.from;
@@ -174,22 +175,22 @@ export function ChartAlerts({
   const overlay =
     stage && host && levels
       ? createPortal(
-          <div className="ct-overlay" data-testid="chart-alerts-overlay">
+          <ChartOverlay data-testid="chart-alerts-overlay">
             {shown.map((alert) => {
               const y = drag?.id === alert.id ? drag.y : yOf(alert.targetPrice);
               if (y === null) return null;
               return (
-                <button
+                <ChartMark
                   key={alert.id}
-                  type="button"
-                  className="ct-line ct-line--alert"
+                  as="button"
+                  kind="alert"
+                  y={y}
                   data-testid="chart-alert-line"
                   data-alert-id={alert.id}
                   data-price={alert.targetPrice}
                   data-status={alert.status}
                   disabled={busy || replaying}
                   aria-label={t('Chart alert handle', { level: words(alert) })}
-                  style={{ insetBlockStart: `${y}px` }}
                   onPointerDown={(event) => onDown(event, alert)}
                   onPointerMove={onMove}
                   onPointerUp={(event) => onUp(event, alert)}
@@ -197,18 +198,18 @@ export function ChartAlerts({
                   onLostPointerCapture={onCancel}
                 >
                   {words(alert)}
-                </button>
+                </ChartMark>
               );
             })}
-          </div>,
+          </ChartOverlay>,
           stage,
         )
       : null;
 
   return (
-    <div className="ct-bar" data-testid="chart-alerts">
+    <div className="lt-stack-tight lt-tight" data-testid="chart-alerts">
       {overlay}
-      <ul className="ct-alerts" aria-label={t('Chart alerts list')}>
+      <ul className="lt-list lt-note" aria-label={t('Chart alerts list')}>
         {shown.map((alert) => (
           <li key={alert.id} data-testid="chart-alert-row" data-price={alert.targetPrice} data-status={alert.status}>
             {words(alert)}
@@ -217,15 +218,15 @@ export function ChartAlerts({
         ))}
       </ul>
       {replaying ? (
-        <p className="cw-note" role="status" data-testid="chart-alerts-replay">
+        <p className="lt-note" role="status" data-testid="chart-alerts-replay">
           {t('Chart alerts replay')}
         </p>
       ) : null}
-      <a className="cw-link" href={ALERTS_PAGE}>
+      <a className="lt-link" href={ALERTS_PAGE}>
         {t('Chart alerts manage')}
       </a>
       {note ? (
-        <p className="cw-note" role="status" data-testid="chart-alerts-note" data-tone={note.tone}>
+        <p className="lt-note" role="status" data-testid="chart-alerts-note" data-tone={note.tone}>
           {note.text}
         </p>
       ) : null}

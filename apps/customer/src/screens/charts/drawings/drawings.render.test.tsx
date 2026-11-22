@@ -271,9 +271,9 @@ describe('drawings on the workbench chart', () => {
     expect(api?.hiddenAll).toBe(true);
     await press('Show all');
     await press('Clear all');
-    // Nothing is cleared until the in-app dialog is confirmed; its buttons sit outside the host, in the document.
+    // Nothing is cleared until the in-app dialog is confirmed; its buttons sit in the dialog that asks.
     expect(api?.drawings).toHaveLength(1);
-    const confirm = [...document.querySelectorAll('button')].find((node) => node.textContent === 'Clear all' && !host.contains(node));
+    const confirm = [...document.querySelectorAll('[role="alertdialog"] button')].find((node) => node.textContent === 'Clear all');
     expect(confirm).toBeDefined();
     await act(async () => {
       confirm?.dispatchEvent(new MouseEvent('click', { bubbles: true }));

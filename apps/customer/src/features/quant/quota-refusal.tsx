@@ -1,7 +1,7 @@
 import { QUANT_QUOTA_RESOURCES, type QuantQuotaResource } from '@intafaced/contracts/quant-algo';
 import type { ApiResult } from '../../shared/api';
-import { FailureBox } from '../../shared/record/record-parts';
 import { usageCopy } from './usage-copy';
+import { KitFailure } from './kit-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -33,7 +33,7 @@ export function quotaRefusalOf(
 export function QuotaAwareFailure({ result, retry }: { result: Failed; retry?: () => void }) {
   const { t } = usageCopy.useCopy();
   const quota = quotaRefusalOf(result);
-  if (!quota) return <FailureBox result={result} retry={retry} />;
+  if (!quota) return <KitFailure result={result} retry={retry} />;
   const body =
     quota.kind === 'exceeded'
       ? t('exceeded', { resource: t(quota.resource).toLowerCase(), used: quota.used, limit: quota.limit })

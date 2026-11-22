@@ -9,11 +9,11 @@ import { useEffect, useState } from 'react';
 import { QUANT_BACKTEST_HISTORY, QUANT_BACKTEST_RENAME, QUANT_BACKTEST_RESULT } from '@intafaced/contracts/quant-backtest-procedures';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
+import { Button, Checkbox, EmptyState, Field } from '@intafaced/ui/lit';
 import { Read } from '../more';
 import { useApi } from '../session';
-import './algo.css';
 import { backtestCopy } from './backtest-copy';
+import { KitFailure, KitLoading, KitTable } from './kit-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const HISTORY_PAGE = 20;
@@ -82,18 +82,19 @@ export function RunHistory({ refresh, onOpen }: { refresh: string; onOpen: (resu
     );
 
   return (
-    <Panel title={t('historyTitle')}>
+    <section className="lt-panel">
+      <h2 className="lt-panel-title">{t('historyTitle')}</h2>
       <div data-testid="quant-run-history">
-        <p className="muted">{t('historyIntro')}</p>
+        <p className="lt-hint">{t('historyIntro')}</p>
         <Read resource={list.resource} retry={list.reload}>
           {(data) => {
-            if (!data.runs.length) return <EmptyState title={t('historyNone')}>{t('historyNoneBody')}</EmptyState>;
+            if (!data.runs.length) return <EmptyState title={t('historyNone')} body={t('historyNoneBody')} />;
             const ordered = [...picked].sort((a, b) =>
               a.started === b.started ? (a.runId < b.runId ? 1 : -1) : a.started < b.started ? 1 : -1,
             );
             return (
               <>
-                <DataTable
+                <KitTable
                   headers={[t('compareTick'), t('runLabel'), t('runVersion'), t('runOutcome'), t('runStarted'), t('runActions')]}
                   label={t('historyTitle')}
                 >
@@ -111,26 +112,26 @@ export function RunHistory({ refresh, onOpen }: { refresh: string; onOpen: (resu
                       onOpen={() => void open(row.runId)}
                     />
                   ))}
-                </DataTable>
+                </KitTable>
                 {cursor !== null && (
-                  <Button type="button" onClick={() => setCursor(null)}>
+                  <Button tone="primary" type="button" onClick={() => setCursor(null)}>
                     {t('historyNewest')}
                   </Button>
                 )}
                 {data.nextCursor && (
-                  <Button type="button" onClick={() => setCursor(data.nextCursor)}>
+                  <Button tone="primary" type="button" onClick={() => setCursor(data.nextCursor)}>
                     {t('historyMore')}
                   </Button>
                 )}
-                {renameFailure && <Failure result={renameFailure} retry={() => void rename()} />}
-                {openFailure && <Failure result={openFailure} />}
-                {ordered.length === 2 ? <Compare runs={ordered} /> : <p className="muted">{t('compareHint')}</p>}
+                {renameFailure && <KitFailure result={renameFailure} retry={() => void rename()} />}
+                {openFailure && <KitFailure result={openFailure} />}
+                {ordered.length === 2 ? <Compare runs={ordered} /> : <p className="lt-hint">{t('compareHint')}</p>}
               </>
             );
           }}
         </Read>
       </div>
-    </Panel>
+    </section>
   );
 }
 
@@ -161,14 +162,14 @@ function HistoryRow({
   return (
     <tr data-testid="quant-run-row" data-run-id={row.runId} data-started={row.started} data-label={row.label ?? ''}>
       <td>
-        <input
-          type="checkbox"
-          className="quant-run-check"
+        <Checkbox
           checked={picked}
-          onChange={onPick}
+          onCheckedChange={onPick}
           disabled={row.outcome !== 'ok' || (full && !picked)}
           aria-label={t('compareThis', { run: row.label ?? row.runId })}
-        />
+        >
+          <span className="lt-sr">{t('compareThis', { run: row.label ?? row.runId })}</span>
+        </Checkbox>
       </td>
       <td>
         {editing === null ? (
@@ -181,8 +182,10 @@ function HistoryRow({
             }}
           >
             <Field label={t('runLabel')} value={editing} maxLength={QUANT_RUN_LABEL_MAX} onChange={(e) => onEdit(e.target.value)} />
-            <Button type="submit">{t('renameSave')}</Button>
-            <Button type="button" onClick={onCancel}>
+            <Button tone="primary" type="submit">
+              {t('renameSave')}
+            </Button>
+            <Button tone="primary" type="button" onClick={onCancel}>
               {t('renameCancel')}
             </Button>
           </form>
@@ -192,11 +195,11 @@ function HistoryRow({
       <td>{outcome}</td>
       <td lang="zxx">{minute(row.started)}</td>
       <td>
-        <Button type="button" onClick={onOpen} disabled={row.outcome !== 'ok'}>
+        <Button tone="primary" type="button" onClick={onOpen} disabled={row.outcome !== 'ok'}>
           {t('runOpen')}
         </Button>
         {editing === null && (
-          <Button type="button" onClick={() => onEdit(row.label ?? '')}>
+          <Button tone="primary" type="button" onClick={() => onEdit(row.label ?? '')}>
             {t('rename')}
           </Button>
         )}
@@ -221,11 +224,11 @@ function Compare({ runs }: { runs: readonly QuantBacktestHistoryRow[] }) {
   return (
     <section aria-label={t('compareTitle')} data-testid="quant-run-compare">
       <h4>{t('compareTitle')}</h4>
-      <p className="muted">{t('compareIntro')}</p>
-      {read.resource.status === 'loading' && <Loading />}
-      {read.resource.status === 'failed' && <Failure result={read.resource.failure} retry={read.reload} />}
+      <p className="lt-hint">{t('compareIntro')}</p>
+      {read.resource.status === 'loading' && <KitLoading />}
+      {read.resource.status === 'failed' && <KitFailure result={read.resource.failure} retry={read.reload} />}
       {read.resource.status === 'ready' && (
-        <DataTable headers={[t('compareFigure'), ...runs.map((row) => row.label ?? row.runId)]} label={t('compareTitle')}>
+        <KitTable headers={[t('compareFigure'), ...runs.map((row) => row.label ?? row.runId)]} label={t('compareTitle')}>
           {COMPARED.map(([group, key]) => (
             <tr key={key} data-testid="quant-compare-row" data-metric={key}>
               <td>{t(`m_${key}`)}</td>
@@ -240,7 +243,7 @@ function Compare({ runs }: { runs: readonly QuantBacktestHistoryRow[] }) {
                 })}
             </tr>
           ))}
-        </DataTable>
+        </KitTable>
       )}
     </section>
   );
