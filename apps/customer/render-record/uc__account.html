@@ -195,7 +195,7 @@
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.refreshRank">Refresh rank</span>
 </button>
 </header>
-<p class="rank-perks__number">
+<p data-testid="rank-perks__number">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.rankValue">Rank 2</span>
 </p>
 <dl>
@@ -234,7 +234,7 @@
 <p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.separate">Rank and perks load separately and may update at different times.</span>
 </p>
-<dl class="rank-perks__rows">
+<dl data-testid="rank-perks__rows">
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.fee">Trading fee discount</span>
@@ -252,12 +252,12 @@
 <section aria-labelledby="_r_4_" id="membership">
 <h3 id="_r_4_">Membership</h3>
 <p class="lt-hint">The membership tiers this platform publishes, and yours.</p>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
