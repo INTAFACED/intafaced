@@ -320,7 +320,11 @@ export function EntityList<T>({
         {rows.map((row) => (
           <tr key={rowKey(row)}>
             {columns.map((column, i) => (
-              <td key={i}>{column.cell(row)}</td>
+              // A phone stacks each row and names each value by its column's words (the kit's lt-table), so a worded
+              // header travels with its cell; a hidden one (the actions column) names none.
+              <td key={i} data-label={typeof column.header === 'string' ? column.header : undefined}>
+                {column.cell(row)}
+              </td>
             ))}
             {href && (
               <td>
