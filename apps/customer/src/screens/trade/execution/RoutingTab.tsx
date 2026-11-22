@@ -1,9 +1,9 @@
 /** Routing: which execution doors exist, and the three capabilities that are blocked, each with the service's own reason. */
-import { Badge, Button, Table, refusalSupportCode, type TableColumn } from '../rooms/ui';
-import { Freshness } from '../rooms/RoomNotices';
+import { StatusChip, Table, type Column } from '@intafaced/ui/lit/templates';
+import { refusalSupportCode } from '../rooms/ui';
 import { execCopy } from './copy';
 import { useSpine, type Spine } from './data';
-import { Gate } from './parts';
+import { Freshness, Gate } from './parts';
 
 type Door = Spine['doors'][number];
 interface Capability {
@@ -15,14 +15,14 @@ export function RoutingTab() {
   const { t } = execCopy.useCopy();
   const spine = useSpine();
 
-  const doorColumns: TableColumn<Door>[] = [
-    { id: 'operation', header: t('Operation'), pin: 'start', value: (d) => d.kind },
+  const doorColumns: Column<Door>[] = [
+    { key: 'operation', label: t('Operation'), cell: (d) => d.kind },
     {
-      id: 'source',
-      header: t('How it runs'),
+      key: 'source',
+      label: t('How it runs'),
       cell: (d) => (d.callerSubmit ? t('Needs an authorised venue submit port') : t('Planning or observation only')),
     },
-    { id: 'ref', header: t('Reference'), cell: (d) => <span className="text-xs text-fg-2 font-mono">{d.module}</span> },
+    { key: 'ref', label: t('Reference'), ltr: true, cell: (d) => d.module },
   ];
 
   const ready = spine.status === 'ready' ? spine.data : null;
@@ -38,38 +38,38 @@ export function RoutingTab() {
     { id: 'arbitrage', blocker: `${reason} ${t('Arbitrage extra')}` },
     { id: 'making', blocker: `${reason} ${t('Making extra')}` },
   ];
-  const capColumns: TableColumn<Capability>[] = [
-    { id: 'name', header: t('Capability'), pin: 'start', value: (c) => t(`Capability ${c.id}`) },
-    { id: 'state', header: t('Status'), cell: () => <Badge tone="warn">{t('Blocked')}</Badge> },
-    { id: 'why', header: t('Why'), cell: (c) => <span className="whitespace-normal">{c.blocker}</span>, value: (c) => c.blocker },
+  const capColumns: Column<Capability>[] = [
+    { key: 'name', label: t('Capability'), cell: (c) => t(`Capability ${c.id}`) },
+    { key: 'state', label: t('Status'), cell: () => <StatusChip status="failed" label={t('Blocked')} /> },
+    { key: 'why', label: t('Why'), cell: (c) => c.blocker },
   ];
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="lt-body">
+      <div className="lt-toolbar">
         {ready && spine.status === 'ready' ? <Freshness asOf={spine.asOf} /> : null}
-        <Button variant="secondary" size={32} nativeButton={false} render={<a href="/quant/studio" />}>
+        <a className="lt-button lt-button-secondary" href="/quant/studio">
           {t('Open Quant Studio')}
-        </Button>
+        </a>
       </div>
-      <Table label={t('Capabilities')} density="dense" columns={capColumns} rows={rows} minWidth={720} getRowId={(c) => c.id} />
+      <Table caption={t('Capabilities')} mode="pro" columns={capColumns} rows={rows} rowKey={(c) => c.id} />
       {spine.status === 'refused' && spine.code === 'scope.denied' ? (
-        <div className="flex flex-col gap-1">
-          <p role="note" className="m-0 text-sm text-fg-2">
+        <div className="lt-body">
+          <p role="note" className="lt-hint">
             {t('Routing staff only')}
           </p>
-          <span className="text-xs text-fg-2">{refusalSupportCode(spine.code)}</span>
+          <span className="lt-ref">{refusalSupportCode(spine.code)}</span>
         </div>
       ) : (
         <Gate load={spine}>
           {(data) => (
             <Table
-              label={t('Execution doors')}
-              density="dense"
+              caption={t('Execution doors')}
+              mode="pro"
               columns={doorColumns}
               rows={data.doors}
-              minWidth={720}
-              getRowId={(d) => d.id}
+              rowKey={(d) => d.id}
+              empty="Nothing to show"
             />
           )}
         </Gate>

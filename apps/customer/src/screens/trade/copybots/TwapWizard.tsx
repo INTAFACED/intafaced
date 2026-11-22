@@ -24,6 +24,7 @@ import { roomCopy } from './copy';
 import type { WriteGuard } from './guard';
 import { InfoNote, RefusalNote, SelectField } from './parts';
 import { formatClock, minutesToMs, planSlices, MAX_DURATION_MS } from './plan';
+import './copybots.css';
 
 type Step = 1 | 2 | 3;
 export type BotKind = 'twap' | 'vwap' | 'pov';

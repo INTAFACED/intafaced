@@ -15,29 +15,29 @@ export const OBSCURED_BOTTOM_VAR = '--a11y-obscured-bottom';
 export interface Bar {
   readonly edge: string | null;
   readonly height: number;
-  /** How far the bar floats off its edge (the phone dock sits above the screen's bottom); the gap is covered too. */
+  /**
+   * How far the bar sits from its edge (a floating dock stands off the bottom). A control can't show in that gap
+   * either, so the bar covers from its far side to the edge.
+   */
   readonly offset?: number;
 }
 
 const size = (n: number | undefined): number => (n !== undefined && Number.isFinite(n) && n > 0 ? n : 0);
 
-/** The space covered at each edge: bars stack, so their heights add up, plus the widest gap a floating bar leaves. */
+/**
+ * The space covered at each edge: bars stack, so their heights add up, and a bar standing off its edge covers the gap
+ * under it too, so the edge is covered at least to the bar's far side.
+ */
 export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: number } {
-  let top = 0;
-  let bottom = 0;
-  let topGap = 0;
-  let bottomGap = 0;
+  const sum = { top: 0, bottom: 0 };
+  const reach = { top: 0, bottom: 0 };
   for (const bar of bars) {
+    if (bar.edge !== 'top' && bar.edge !== 'bottom') continue;
     const height = size(bar.height);
-    if (bar.edge === 'top') {
-      top += height;
-      topGap = Math.max(topGap, size(bar.offset));
-    } else if (bar.edge === 'bottom') {
-      bottom += height;
-      bottomGap = Math.max(bottomGap, size(bar.offset));
-    }
+    sum[bar.edge] += height;
+    if (height > 0) reach[bar.edge] = Math.max(reach[bar.edge], size(bar.offset) + height);
   }
-  return { top: top + topGap, bottom: bottom + bottomGap };
+  return { top: Math.max(sum.top, reach.top), bottom: Math.max(sum.bottom, reach.bottom) };
 }
 
 /**
@@ -52,12 +52,9 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   const measure = (): void => {
     const { top, bottom } = obscuredInsets(
       bars.map((el) => {
+        const box = el.getBoundingClientRect();
         const edge = el.getAttribute(OBSCURES_ATTRIBUTE);
-        const rect = el.getBoundingClientRect();
-        // A bar that floats off its edge hides the gap under it as well: a control scrolled to the padding's end
-        // must clear the bar's far side, not just its height.
-        const offset = edge === 'top' ? rect.top : edge === 'bottom' ? window.innerHeight - rect.bottom : 0;
-        return { edge, height: rect.height, offset };
+        return { edge, height: box.height, offset: edge === 'bottom' ? innerHeight - box.bottom : box.top };
       }),
     );
     const next = `${top}|${bottom}`;
@@ -86,8 +83,11 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   });
   mutations.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: [OBSCURES_ATTRIBUTE] });
   observeBars();
+  // A bottom bar's offset is measured from the viewport's foot, which moves when the viewport resizes.
+  addEventListener('resize', measure);
 
   return () => {
+    removeEventListener('resize', measure);
     mutations.disconnect();
     resize.disconnect();
     root.style.removeProperty(OBSCURED_TOP_VAR);

@@ -1,25 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  EmptyState,
-  Field,
-  Input,
-  Table,
-  type TableColumn,
-} from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DecimalInput, Sheet, Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
 import { useResource } from '../../../shared/resource';
 import type { CopiedMarket, CopiedPosition, CopySkip, RoomApi } from './api';
@@ -94,30 +75,26 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
     setFailure(null);
   }, [failure, setFailure]);
 
-  const columns: TableColumn<CopiedPosition>[] = [
-    { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
-    { id: 'bought', header: t('Amount'), value: (r) => r.bought, numeric: true, cell: (r) => displayAmount(r.bought) },
-    { id: 'open', header: t('Open'), value: (r) => r.open, numeric: true, cell: (r) => displayAmount(r.open) },
-    { id: 'status', header: t('State'), value: (r) => t(POSITION_STATE[r.status] as 'Open') },
-    { id: 'share', header: t('Leader profit share'), value: () => t('Not set by the platform') },
+  const columns: Column<CopiedPosition>[] = [
+    { key: 'market', label: t('Market'), cell: (r) => r.market },
+    { key: 'bought', label: t('Amount'), align: 'end', cell: (r) => displayAmount(r.bought) },
+    { key: 'open', label: t('Open'), align: 'end', cell: (r) => displayAmount(r.open) },
+    { key: 'status', label: t('State'), cell: (r) => t(POSITION_STATE[r.status] as 'Open') },
+    { key: 'share', label: t('Leader profit share'), cell: () => t('Not set by the platform') },
     {
-      id: 'actions',
-      header: t('Action'),
-      value: () => '',
-      width: 200,
+      key: 'actions',
+      label: t('Action'),
       cell: (r) => {
         const busy = guard.busy || guard.locked;
         // A close still settling can be sent again: the service resends that same order, never a second sell.
         const closeOff = busy || (isZero(r.open) && r.status !== 'closing');
         const partOff = busy || isZero(r.open);
         return (
-          <span className="cb-action-row">
-            <Button variant="secondary" size={32} disabled={closeOff} onClick={() => setClosing(r)}>
+          <span className="lt-actions">
+            <Button disabled={closeOff} onClick={() => setClosing(r)}>
               {t('Close')}
             </Button>
             <Button
-              variant="secondary"
-              size={32}
               disabled={partOff}
               onClick={() => {
                 setAmount('');
@@ -132,40 +109,31 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
     },
   ];
   // One market's position by average entry: what all its copied buys' fills paid over what they filled (sells never move it).
-  const marketColumns: TableColumn<CopiedMarket>[] = [
-    { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
-    { id: 'fills', header: t('Fills'), numeric: true, value: (r) => (r.fills === null ? t('Not known') : String(r.fills)) },
+  const marketColumns: Column<CopiedMarket>[] = [
+    { key: 'market', label: t('Market'), cell: (r) => r.market },
+    { key: 'fills', label: t('Fills'), align: 'end', cell: (r) => (r.fills === null ? t('Not known') : String(r.fills)) },
+    { key: 'filled', label: t('Bought'), align: 'end', cell: (r) => (r.filled === null ? t('Not known') : displayAmount(r.filled)) },
+    { key: 'open', label: t('Open'), align: 'end', cell: (r) => displayAmount(r.open) },
     {
-      id: 'filled',
-      header: t('Bought'),
-      numeric: true,
-      value: (r) => r.filled ?? '',
-      cell: (r) => (r.filled === null ? t('Not known') : displayAmount(r.filled)),
-    },
-    { id: 'open', header: t('Open'), numeric: true, value: (r) => r.open, cell: (r) => displayAmount(r.open) },
-    {
-      id: 'entry',
-      header: t('Average entry'),
-      numeric: true,
-      value: (r) => r.averageEntry ?? '',
+      key: 'entry',
+      label: t('Average entry'),
+      align: 'end',
       cell: (r) => (r.averageEntry === null ? t('Not set') : displayAmount(r.averageEntry)),
     },
-    { id: 'funding', header: t('Funding'), value: (r) => (r.funding === null ? t('Not set') : displayAmount(r.funding)) },
+    { key: 'funding', label: t('Funding'), cell: (r) => (r.funding === null ? t('Not set') : displayAmount(r.funding)) },
   ];
   if (resource.status === 'failed') return <RefusalNote failure={resource.failure} retry={reload} />;
   const reportedBy = rows?.find((r) => r.reportedBy)?.reportedBy ?? null;
+  const none = <NoPositions title={t('No copied positions')} body={t('A position appears here when a copied buy fills.')} />;
   return (
     <>
       <Table
-        label={t('Copied position by market')}
+        caption={t('Copied position by market')}
+        mode="pro"
         columns={marketColumns}
         rows={marketRows ?? []}
-        getRowId={(r) => r.market}
-        status={marketRows === null ? 'loading' : 'ready'}
-        minWidth={640}
-        emptyState={
-          <EmptyState size="inline" title={t('No copied positions')} reason={t('A position appears here when a copied buy fills.')} />
-        }
+        rowKey={(r) => r.market}
+        empty={marketRows === null ? <Skeleton shape="rows" /> : none}
       />
       {tooMuch ? <InfoNote tone="warn">{t('That is more than is open.')}</InfoNote> : null}
       {reportedBy ? (
@@ -179,77 +147,76 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
         </InfoNote>
       ) : null}
       <Table
-        label={t('Copied positions')}
+        caption={t('Copied positions')}
+        mode="pro"
         columns={columns}
         rows={rows ?? []}
-        getRowId={(r) => r.positionId}
-        status={rows === null ? 'loading' : 'ready'}
-        minWidth={760}
-        emptyState={
-          <EmptyState size="inline" title={t('No copied positions')} reason={t('A position appears here when a copied buy fills.')} />
-        }
+        rowKey={(r) => r.positionId}
+        empty={rows === null ? <Skeleton shape="rows" /> : none}
       />
       <InfoNote>{t('A close sells at the market price, within your slippage limit. Prices can move and fees apply.')}</InfoNote>
-      <AlertDialog open={closing !== null} onOpenChange={(open) => !open && setClosing(null)}>
-        <AlertDialogContent>
-          {closing ? (
-            <>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{t('Close this position?')}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {isZero(closing.open)
-                    ? t('The close of {amount} in {market} is still settling. Closing again sends that same order, never a second one.', {
-                        amount: displayAmount(closing.closing),
-                        market: closing.market,
-                      })
-                    : t('Sells the {amount} still open in {market} at the market price. The follow carries on.', {
-                        amount: displayAmount(closing.open),
-                        market: closing.market,
-                      })}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogClose render={<Button variant="secondary" />}>{t('Not now')}</AlertDialogClose>
-                <Button onClick={() => close(closing)}>{t('Close')}</Button>
-              </AlertDialogFooter>
-            </>
-          ) : null}
-        </AlertDialogContent>
-      </AlertDialog>
-      <Dialog open={part !== null} onOpenChange={(open) => !open && setPart(null)}>
-        <DialogContent showCloseButton={false}>
-          {part ? (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (amount.trim()) close(part, amount.trim());
-              }}
-            >
-              <DialogHeader>
-                <DialogTitle>{t('Close part of this position')}</DialogTitle>
-                <DialogDescription>
-                  {t('{amount} is open in {market}. The part you close is sold at the market price.', {
-                    amount: displayAmount(part.open),
-                    market: part.market,
+      <Sheet open={closing !== null} role="alertdialog" title={t('Close this position?')} onClose={() => setClosing(null)}>
+        {closing ? (
+          <>
+            <p className="lt-description">
+              {isZero(closing.open)
+                ? t('The close of {amount} in {market} is still settling. Closing again sends that same order, never a second one.', {
+                    amount: displayAmount(closing.closing),
+                    market: closing.market,
+                  })
+                : t('Sells the {amount} still open in {market} at the market price. The follow carries on.', {
+                    amount: displayAmount(closing.open),
+                    market: closing.market,
                   })}
-                </DialogDescription>
-              </DialogHeader>
-              <Field label={t('Amount')} required>
-                <Input kind="decimal" value={amount} onValueChange={setAmount} precision={18} autoComplete="off" />
-              </Field>
-              <DialogFooter>
-                <Button type="button" variant="secondary" onClick={() => setPart(null)}>
-                  {t('Not now')}
-                </Button>
-                <Button type="submit" disabled={!amount.trim()}>
-                  {t('Close')}
-                </Button>
-              </DialogFooter>
-            </form>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+            </p>
+            <div className="lt-actions">
+              <Button onClick={() => setClosing(null)}>{t('Not now')}</Button>
+              <Button tone="primary" data-autofocus="" onClick={() => close(closing)}>
+                {t('Close')}
+              </Button>
+            </div>
+          </>
+        ) : null}
+      </Sheet>
+      <Sheet open={part !== null} closeButton={false} title={t('Close part of this position')} onClose={() => setPart(null)}>
+        {part ? (
+          <form
+            className="lt-body"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (amount.trim()) close(part, amount.trim());
+            }}
+          >
+            <p className="lt-description">
+              {t('{amount} is open in {market}. The part you close is sold at the market price.', {
+                amount: displayAmount(part.open),
+                market: part.market,
+              })}
+            </p>
+            <label className="lt-field">
+              <span>{t('Amount')}</span>
+              <DecimalInput required value={amount} onValueChange={setAmount} precision={18} />
+            </label>
+            <div className="lt-actions">
+              <Button onClick={() => setPart(null)}>{t('Not now')}</Button>
+              <Button type="submit" tone="primary" disabled={!amount.trim()}>
+                {t('Close')}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </Sheet>
     </>
+  );
+}
+
+/** An empty list, said in words. */
+function NoPositions({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="lt-empty">
+      <p className="lt-empty-title">{title}</p>
+      <p className="lt-empty-body">{body}</p>
+    </div>
   );
 }
 
@@ -275,20 +242,25 @@ export const skipWords = (reason: string) => SKIP_WORDS[reason] ?? 'The copy was
 export function SkippedCopies({ follow, api }: { follow: Follow; api: RoomApi }) {
   const { t } = roomCopy.useCopy();
   const { resource, reload } = useResource((signal) => api.skipLog(follow.followId, signal), `skips:${follow.followId}`);
-  const columns: TableColumn<CopySkip>[] = [
-    { id: 'at', header: t('When'), value: (r) => new Date(r.at).toLocaleString(), width: 200, pin: 'start' },
-    { id: 'reason', header: t('Why it was not copied'), value: (r) => t(skipWords(r.reason) as 'Open') },
+  const columns: Column<CopySkip>[] = [
+    { key: 'at', label: t('When'), cell: (r) => new Date(r.at).toLocaleString() },
+    { key: 'reason', label: t('Why it was not copied'), cell: (r) => t(skipWords(r.reason) as 'Open') },
   ];
   if (resource.status === 'failed') return <RefusalNote failure={resource.failure} retry={reload} />;
   return (
     <Table
-      label={t('Skipped copies')}
+      caption={t('Skipped copies')}
+      mode="pro"
       columns={columns}
       rows={resource.status === 'ready' ? resource.data.items : []}
-      getRowId={(r) => r.leaderFillId}
-      status={resource.status === 'loading' ? 'loading' : 'ready'}
-      minWidth={560}
-      emptyState={<EmptyState size="inline" title={t('Nothing skipped')} reason={t('Every leader trade so far was copied.')} />}
+      rowKey={(r) => r.leaderFillId}
+      empty={
+        resource.status === 'loading' ? (
+          <Skeleton shape="rows" />
+        ) : (
+          <NoPositions title={t('Nothing skipped')} body={t('Every leader trade so far was copied.')} />
+        )
+      }
     />
   );
 }

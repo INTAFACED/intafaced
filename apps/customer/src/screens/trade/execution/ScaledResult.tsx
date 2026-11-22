@@ -4,7 +4,9 @@
  */
 import { useState } from 'react';
 import type { Order } from '../../../features/trade/trade-api';
-import { Badge, Button, Table, fmtAmount, fmtPrice, type TableColumn } from '../rooms/ui';
+import { Button } from '@intafaced/ui/lit';
+import { StatusChip, Table, type Column } from '@intafaced/ui/lit/templates';
+import { UNKNOWN, fmtAmount, fmtPrice } from '../rooms/ui';
 import { roomWords } from '../rooms/refusals';
 import type { RoomWriter } from '../rooms/write';
 import { execCopy } from './copy';
@@ -124,51 +126,48 @@ export function ScaledResult({
             : l.placed === 'unknown'
               ? t('Not confirmed')
               : t('Not reported');
-  const tone = (l: Line) => (l.placed === 'success' || l.placed === 'found' ? 'up' : l.placed === 'refused' ? 'error' : 'warn');
-  const columns: TableColumn<Line>[] = [
-    { id: 'n', header: '#', pin: 'start', value: (l) => String(l.index) },
+  const mark = (l: Line) => (l.placed === 'success' || l.placed === 'found' ? 'done' : l.placed === 'refused' ? 'failed' : 'unknown');
+  const columns: Column<Line>[] = [
+    { key: 'n', label: '#', cell: (l) => String(l.index) },
+    { key: 'price', label: t('Price'), align: 'end', cell: (l) => (l.price === null ? UNKNOWN : fmtPrice(l.price, market?.tickSize)) },
+    { key: 'size', label: t('Size'), align: 'end', cell: (l) => (l.size === null ? UNKNOWN : fmtAmount(l.size)) },
+    { key: 'result', label: t('Answer'), cell: (l) => (run ? <StatusChip status={mark(l)} label={placedWord(l)} /> : UNKNOWN) },
     {
-      id: 'price',
-      header: t('Price'),
-      numeric: true,
-      value: (l) => l.price,
-      cell: (l) => (l.price === null ? null : fmtPrice(l.price, market?.tickSize)),
-    },
-    { id: 'size', header: t('Size'), numeric: true, value: (l) => l.size, cell: (l) => (l.size === null ? null : fmtAmount(l.size)) },
-    { id: 'result', header: t('Answer'), cell: (l) => (run ? <Badge tone={tone(l)}>{placedWord(l)}</Badge> : null) },
-    {
-      id: 'book',
-      header: t('On the book'),
-      cell: (l) => (found === null ? null : l.order ? t(`Row ${l.order.status === 'open' ? 'open' : 'closed'}`) : t('Not found')),
+      key: 'book',
+      label: t('On the book'),
+      cell: (l) => (found === null ? UNKNOWN : l.order ? t(`Row ${l.order.status === 'open' ? 'open' : 'closed'}`) : t('Not found')),
     },
     {
-      id: 'detail',
-      header: t('Detail'),
-      width: 320,
+      key: 'detail',
+      label: t('Detail'),
       cell: (l) => (
-        <span className="whitespace-normal break-words">
+        <span>
           {l.detail ?? '—'}
-          {l.code ? <span className="block break-all text-xs text-fg-2">{l.code}</span> : null}
+          {l.code ? (
+            <>
+              {' '}
+              <span className="lt-ref">{l.code}</span>
+            </>
+          ) : null}
         </span>
       ),
-      value: (l) => l.detail,
     },
     {
-      id: 'cancel',
-      header: t('Cancel result'),
+      key: 'cancel',
+      label: t('Cancel result'),
       cell: (l) => {
         const result = l.order ? cancels[l.order.id] : undefined;
-        return result ? t(`Cancel ${result}`) : null;
+        return result ? t(`Cancel ${result}`) : UNKNOWN;
       },
     },
   ];
 
   return (
-    <section aria-label={t('Ladder result')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <h3 className="m-0 text-md font-medium text-fg">{t('Ladder result')}</h3>
+    <section aria-label={t('Ladder result')} className="lt-col-main">
+      <div className="lt-toolbar">
+        <h3>{t('Ladder result')}</h3>
         {summary && run ? (
-          <span role="status" className="text-sm text-fg">
+          <span role="status">
             {t('{k} of {n} placed', { k: String(summary.placed), n: String(run.rows.length) })}
             {summary.refused > 0 ? `, ${t('{n} refused', { n: String(summary.refused) })}` : ''}
             {summary.unknown > 0 ? `, ${t('{n} not confirmed', { n: String(summary.unknown) })}` : ''}
@@ -176,25 +175,27 @@ export function ScaledResult({
           </span>
         ) : null}
         {run ? (
-          <Button variant="secondary" size={32} loading={checking} onClick={onCheck}>
+          <Button disabled={checking} aria-busy={checking || undefined} onClick={onCheck}>
             {t('Check status')}
           </Button>
         ) : null}
-        <Button
-          variant="secondary"
-          size={32}
-          disabled={live.length === 0 || writer.busy || writer.note.state !== 'none'}
-          onClick={() => setConfirm(true)}
-        >
+        <Button disabled={live.length === 0 || writer.busy || writer.note.state !== 'none'} onClick={() => setConfirm(true)}>
           {t('Cancel all open in this ladder')}
         </Button>
       </div>
       {found === null ? (
         <Why>{t('Check first to cancel')}</Why>
       ) : live.length === 0 ? (
-        <p className="m-0 text-sm text-fg-2">{t('No open orders in this ladder')}</p>
+        <p className="lt-hint">{t('No open orders in this ladder')}</p>
       ) : null}
-      <Table label={t('Ladder result')} density="dense" columns={columns} rows={lines} minWidth={900} getRowId={(l) => l.clientOrderId} />
+      <Table
+        caption={t('Ladder result')}
+        mode="pro"
+        columns={columns}
+        rows={lines}
+        rowKey={(l) => l.clientOrderId}
+        empty="Nothing to show"
+      />
       <ConfirmDialog
         open={confirm}
         title={t('Cancel the open orders of this ladder?')}
