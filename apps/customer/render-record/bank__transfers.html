@@ -169,7 +169,7 @@
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.continue">Continue</span>
 </button>
 </div>
-<div>
+<div data-testid="money-continuation">
 <span>3<span lang="en" dir="ltr" data-i18n="customer.money.components.records.returned.requested.limit"> shown</span>. That is the whole list.</span>
 </div>
 <div data-testid="plan-rule">
@@ -227,7 +227,7 @@
 <p>They get a link to enter their bank details, so you do not type them.</p>
 <div class="lit-field-control">
 <label for="_r_11_">Their email</label>
-<input autocomplete="off" id="_r_11_" type="email" value="">
+<input autocomplete="off" aria-invalid="false" id="_r_11_" type="email" value="">
 </div>
 <div class="lt-actions">
 <button disabled="" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Send the invite</button>
@@ -236,7 +236,7 @@
 </div>
 </section>
 </div>
-<div lang="en" dir="ltr">
+<div data-testid="money-standing-orders" lang="en" dir="ltr">
 <section>
 <header>
 <div>
