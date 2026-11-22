@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Tag } from '@intafaced/ui/lit';
 import type { ProtocolEmbeddedWalletRecord } from '@intafaced/contracts/protocol-embedded-wallet';
 import { tradingMarketsSchema } from '@intafaced/contracts/protocol-trading-session';
@@ -344,7 +344,7 @@ export function TradingSession(props: {
                 {t('builderReading')}
               </p>
             ) : (
-              <Button disabled={busy || !client} onClick={() => void approveBuilder()}>
+              <Button tone="primary" disabled={busy || !client} onClick={() => void approveBuilder()}>
                 {t('builderApprove')}
               </Button>
             )}
@@ -398,7 +398,7 @@ export function TradingSession(props: {
               {t('orderPrice')}{' '}
               <input inputMode="decimal" value={order.price} onChange={(e) => setOrder({ ...order, price: e.target.value })} />
             </label>{' '}
-            <Button variant="primary" disabled={busy || !symbol || !builderApproved} onClick={() => void place()}>
+            <Button tone="primary" disabled={busy || !symbol || !builderApproved} onClick={() => void place()}>
               {t('orderPlace')}
             </Button>
             {placed.length ? (
@@ -411,7 +411,7 @@ export function TradingSession(props: {
               </ol>
             ) : null}
           </section>
-          <Button disabled={busy || !client} onClick={() => void end()}>
+          <Button tone="primary" disabled={busy || !client} onClick={() => void end()}>
             {t('sessionEnd')}
           </Button>
         </>
@@ -419,7 +419,7 @@ export function TradingSession(props: {
         <>
           {why ? <p role="status">{why}</p> : <p>{t('sessionAbout', { venue: venueName })}</p>}
           {!sessionRead ? <p role="status">{t('sessionReading')}</p> : null}
-          <Button variant="primary" disabled={busy || !client || !sessionRead} onClick={() => void start()}>
+          <Button tone="primary" disabled={busy || !client || !sessionRead} onClick={() => void start()}>
             {state === 'none' || state === 'awaiting_signature' || state === 'approving' ? t('sessionStart') : t('sessionStartNew')}
           </Button>
         </>

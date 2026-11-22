@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy } from 'lucide-react';
-import { Amount, Button, coinHref, fmtAmount, navigate, refusalCopy, Skeleton, StateBlock, useActivity, type ActivityItem } from './deps';
+import { Amount, Button, Skeleton, StateBlock } from './ui-deps';
+import { coinHref, fmtAmount, navigate, refusalCopy, useActivity, type ActivityItem } from './deps';
 import { moneyCopy } from './copy';
 import { ActivityNote } from './ActivityNote';
 import { stamp } from './time';
@@ -53,7 +54,7 @@ function RefundPointer({ item, copy }: { item: ActivityItem; copy: Copy }) {
   const handle = item.counterparty?.handle ?? null;
   if (!handle)
     return (
-      <p className="money-detail__note" data-testid="money-refund">
+      <p className="lt-hint" data-testid="money-refund">
         {copy.t('Refund unnamed note')}
       </p>
     );
@@ -61,7 +62,7 @@ function RefundPointer({ item, copy }: { item: ActivityItem; copy: Copy }) {
   // The sender's way back is a payment request they share with the other person; the recipient's is Send, filled in.
   const href = sent ? '/pay/request' : requestPath({ to: handle, amount: item.amount, asset: item.asset });
   return (
-    <p className="money-detail__note" data-testid="money-refund">
+    <p className="lt-hint" data-testid="money-refund">
       {copy.t(sent ? 'Refund sent note' : 'Refund received note', { handle })}{' '}
       <a href={href} data-testid="money-refund-link">
         {sent ? copy.t('Refund sent link') : copy.t('Refund received link', { handle })}
@@ -133,7 +134,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
     body = (
       <div aria-busy="true" role="status" aria-label={t('Looking for this transaction')} className="money-detail__skeleton">
         <Skeleton width={220} height={36} className="bg-field" />
-        <p className="money-detail__note">{t('Looking for this transaction')}</p>
+        <p className="lt-hint">{t('Looking for this transaction')}</p>
       </div>
     );
   } else {
@@ -170,7 +171,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
             <span aria-hidden="true"> · </span>
             <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
           </p>
-          {holding && <p className="money-detail__note">{t('Set aside note')}</p>}
+          {holding && <p className="lt-hint">{t('Set aside note')}</p>}
         </header>
         <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Details')}>
           <h2 className="money-detail__h">{t('Details')}</h2>
@@ -191,7 +192,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
               <code className="money-code">{item.id}</code>
             </Fact>
           </dl>
-          <p className="money-detail__note">{t('Reference note')}</p>
+          <p className="lt-hint">{t('Reference note')}</p>
           <div className="money-detail__actions">
             <CopyButton value={item.txId} copy={copy} />
             <Button variant="secondary" size={40} nativeButton={false} render={<a href="/support" />}>
@@ -208,7 +209,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
               </Button>
             )}
           </div>
-          <p className="money-detail__note">{t('Report a problem note')}</p>
+          <p className="lt-hint">{t('Report a problem note')}</p>
           <RefundPointer item={item} copy={copy} />
           <ActivityNote key={item.id} item={item} />
         </section>
@@ -216,7 +217,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
           <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Parts of this transaction')}>
             <h2 className="money-detail__h">{t('Parts of this transaction')}</h2>
             {sharedOrderId && (
-              <p className="money-detail__note" data-label="shared-reference">
+              <p className="lt-hint" data-label="shared-reference">
                 {t('Parts share order')} <code className="money-code">{sharedOrderId}</code>
               </p>
             )}

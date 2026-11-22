@@ -51,20 +51,20 @@ export function RecoverAccount() {
       {done ? (
         <p role="status">
           {t('doneBody')}{' '}
-          <a className="text-link" href="/login">
+          <a className="lt-link" href="/login">
             {t('signIn')}
           </a>
         </p>
       ) : dead ? (
         <div className="pub-notice" role="alert">
           <p>{t('deadBody')}</p>
-          <a className="text-link" href="/cannot-sign-in">
+          <a className="lt-link" href="/cannot-sign-in">
             {t('link')}
           </a>
         </div>
       ) : (
         <>
-          <p className="muted">{t('recoverIntro')}</p>
+          <p className="lt-muted">{t('recoverIntro')}</p>
           <Button onClick={() => void recover()} disabled={busy}>
             {busy ? t('recovering') : t('recover')}
           </Button>

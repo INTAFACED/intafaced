@@ -24,7 +24,7 @@ export function Field({
   const id = input.id ?? `${input.name ?? 'field'}-${generatedId}`;
   const describedBy = [input['aria-describedby'], hint || error ? `${id}-help` : undefined].filter(Boolean).join(' ') || undefined;
   return (
-    <label className="field" htmlFor={id}>
+    <label className="lt-field" htmlFor={id}>
       <span id={`${id}-label`}>{label}</span>
       <input
         {...input}
@@ -60,9 +60,9 @@ export function Page({
         <div>
           {eyebrow && <p className="eyebrow">{eyebrow}</p>}
           <h1>{title}</h1>
-          {description && <p className="muted">{description}</p>}
+          {description && <p className="lt-muted">{description}</p>}
         </div>
-        {actions && <div className="actions">{actions}</div>}
+        {actions && <div className="lt-actions">{actions}</div>}
       </header>
       {children}
     </div>
@@ -85,7 +85,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
   if (isServiceNotConnected(result.code)) {
     // The gateway's own text is never shown for this answer: say plainly that the service is not connected here.
     return (
-      <div data-testid="failure" className="failure" role="status">
+      <div data-testid="failure" className="lt-refusal" role="status">
         <h3>
           <Copy k="not_mounted" />
         </h3>
@@ -102,15 +102,15 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
     // A write that may have gone through is never called refused or unchanged; the code only gives the support reference.
     const uncertain = result.reason === 'uncertain';
     return (
-      <div data-testid="failure" className="failure" role={uncertain ? 'alert' : 'status'}>
+      <div data-testid="failure" className="lt-refusal" role={uncertain ? 'alert' : 'status'}>
         <h3>{uncertain ? <Copy k="uncertain" /> : words.title}</h3>
         <p>{uncertain ? <Copy k="gatewayUncertain" /> : words.body}</p>
         {!uncertain && words.action && (
-          <a className="text-link" href={words.action.href}>
+          <a className="lt-link" href={words.action.href}>
             {words.action.label}
           </a>
         )}
-        {words.reference && <small className="muted">{words.reference}</small>}
+        {words.reference && <small className="lt-muted">{words.reference}</small>}
         {retry && canTryAgain(result) && (
           <Button variant="secondary" onClick={retry}>
             <Copy k="retry" />
@@ -120,7 +120,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
     );
   }
   return (
-    <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+    <div data-testid="failure" className="lt-refusal" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>
         <Copy k={result.reason} />
       </h3>
@@ -128,7 +128,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
         {result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message}
       </p>
       {result.reason === 'unauthorized' ? (
-        <a className="text-link" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+        <a className="lt-link" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
           <Copy k="signIn" />
         </a>
       ) : (
@@ -239,7 +239,7 @@ export function Stat({ label, value, note }: { label: ReactNode; value: ReactNod
   return (
     <div className="stat">
       <span>{label}</span>
-      <strong className="numeric">{value}</strong>
+      <strong className="lt-num">{value}</strong>
       {note && <small>{note}</small>}
     </div>
   );

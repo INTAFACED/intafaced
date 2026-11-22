@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, DataTable, ReviewDialog as Dialog } from '@intafaced/ui';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { uiCopy } from '../../../shared/ui-copy';
 import { p2pInstrumentDetailsDigest } from '@intafaced/contracts/p2p-rule-class';
 import type { StepUpBegin } from '../../account';
-import { StepUpConfirm } from '../../money';
-import { PayFailure, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from '../components';
+import { StepUpInline } from '../../money';
+import { MethodStatus, MethodsFailure, MethodsLoad, MethodsNotice, MethodsPages, MethodsSection, ReviewedChange } from './methods-parts';
 import { payCopy } from '../copy';
 import type { PersonalPayApi } from '../pay-api';
 import type { MethodField, MethodSchema } from '../schemas';
@@ -19,6 +19,9 @@ type Settlement = { instant: true } | { instant: false; windowSeconds: number | 
 type MethodsT = ReturnType<typeof methodsCopy.useCopy>['t'];
 
 const EVERYWHERE = '*';
+
+/** The room's three sections, by the id its index links to. */
+export const METHODS_SECTIONS = { catalogue: 'p2p-methods-catalogue', add: 'p2p-methods-add', saved: 'p2p-methods-saved' } as const;
 
 /** svc-p2p's payment-method confirmation refusals, in this room's words: nothing was changed, and what to do next. */
 const STEP_UP_REFUSALS = {
@@ -56,62 +59,70 @@ export function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: s
   const keyOn = health.resource.status === 'ready' && health.resource.data.instrumentKeyProvider === 'local-test';
   const keyOff = health.resource.status === 'ready' && !keyOn;
   return (
-    <div className="stack" data-testid="payment-methods">
+    <div data-testid="payment-methods">
       {keyOff ? (
         <div data-testid="methods-key-off">
-          <PayNotice title={t('keyOffTitle')}>{t('keyOff')}</PayNotice>
+          <MethodsNotice title={t('keyOffTitle')}>{t('keyOff')}</MethodsNotice>
         </div>
       ) : null}
-      <PaySection title={t('catalogueTitle')} description={t('catalogueIntro')}>
+      <MethodsSection id={METHODS_SECTIONS.catalogue} title={t('catalogueTitle')} description={t('catalogueIntro')}>
         <MethodsState resource={catalogue.resource} retry={catalogue.reload}>
           {(methods) => <Catalogue methods={methods} />}
         </MethodsState>
-      </PaySection>
-      <PaySection title={t('addTitle')} description={t('addIntro')}>
+      </MethodsSection>
+      <MethodsSection id={METHODS_SECTIONS.add} title={t('addTitle')} description={t('addIntro')}>
         <MethodsState resource={catalogue.resource} retry={catalogue.reload}>
           {(methods) => (
             <AddMethod pay={pay} methods={methods.filter((method) => method.enabled)} disabled={!keyOn} onSaved={instruments.reload} />
           )}
         </MethodsState>
-      </PaySection>
-      <PaySection title={payCopy.t('yourPaymentDestinationLabels')}>
-        <PayState resource={instruments.resource} retry={instruments.reload} empty={payCopy.t('noPaymentDestinationHeadersReturned')}>
+      </MethodsSection>
+      <MethodsSection id={METHODS_SECTIONS.saved} title={payCopy.t('yourPaymentDestinationLabels')}>
+        <MethodsLoad resource={instruments.resource} retry={instruments.reload} empty={payCopy.t('noPaymentDestinationHeadersReturned')}>
           {(rows) => (
             <>
-              <DataTable
-                label={payCopy.t('paymentDestinations')}
-                headers={[payCopy.t('label'), payCopy.t('method'), payCopy.t('currencyCountry'), payCopy.t('state'), '']}
-              >
-                {rows.map((instrument) => (
-                  <tr key={instrument.id} data-testid="saved-method" data-instrument-id={instrument.id}>
-                    <td>{instrument.label || payCopy.t('unlabelledDestination')}</td>
-                    <td>{instrument.methodId}</td>
-                    <td>
-                      {instrument.fiatCurrency} / {instrument.country}
-                    </td>
-                    <td>
-                      <Status value={instrument.status} />
-                    </td>
-                    <td>
-                      {instrument.status === 'active' && (
-                        <div className="actions">
-                          <SavedDetails
-                            pay={pay}
-                            instrumentId={instrument.id}
-                            fields={fieldsOf(catalogue.resource, instrument.methodId, instrument.country)}
-                          />
-                          <RemoveMethod pay={pay} instrumentId={instrument.id} onRemoved={instruments.reload} />
-                        </div>
-                      )}
-                    </td>
+              <table className="lt-table" aria-label={payCopy.t('paymentDestinations')}>
+                <thead>
+                  <tr>
+                    <th scope="col">{payCopy.t('label')}</th>
+                    <th scope="col">{payCopy.t('method')}</th>
+                    <th scope="col">{payCopy.t('currencyCountry')}</th>
+                    <th scope="col">{payCopy.t('state')}</th>
+                    <th scope="col" />
                   </tr>
-                ))}
-              </DataTable>
-              <PayPagination count={rows.length} limit={limit} setLimit={setLimit} />
+                </thead>
+                <tbody>
+                  {rows.map((instrument) => (
+                    <tr key={instrument.id} data-testid="saved-method" data-instrument-id={instrument.id}>
+                      <td>{instrument.label || payCopy.t('unlabelledDestination')}</td>
+                      <td>{instrument.methodId}</td>
+                      <td>
+                        {instrument.fiatCurrency} / {instrument.country}
+                      </td>
+                      <td>
+                        <MethodStatus value={instrument.status} />
+                      </td>
+                      <td>
+                        {instrument.status === 'active' && (
+                          <div className="lt-actions">
+                            <SavedDetails
+                              pay={pay}
+                              instrumentId={instrument.id}
+                              fields={fieldsOf(catalogue.resource, instrument.methodId, instrument.country)}
+                            />
+                            <RemoveMethod pay={pay} instrumentId={instrument.id} onRemoved={instruments.reload} />
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <MethodsPages count={rows.length} limit={limit} setLimit={setLimit} />
             </>
           )}
-        </PayState>
-      </PaySection>
+        </MethodsLoad>
+      </MethodsSection>
     </div>
   );
 }
@@ -139,33 +150,33 @@ function SavedDetails({ pay, instrumentId, fields }: { pay: PersonalPayApi; inst
   }
   if (shown === null)
     return (
-      <Button variant="ghost" onClick={() => void show()} data-testid="saved-method-show">
+      <Button tone="quiet" onClick={() => void show()} data-testid="saved-method-show">
         {t('detailsShow')}
       </Button>
     );
   if (shown === 'loading')
     return (
-      <p className="muted" role="status">
+      <p className="lt-hint" role="status">
         {t('detailsLoading')}
       </p>
     );
   const hide = (
-    <Button variant="ghost" onClick={() => setShown(null)}>
+    <Button tone="quiet" onClick={() => setShown(null)}>
       {t('detailsHide')}
     </Button>
   );
   if (!shown.ok)
     return (
-      <div className="stack">
-        <PayFailure result={shown} />
+      <div>
+        <MethodsFailure result={shown} />
         {hide}
       </div>
     );
   return (
-    <div className="stack" data-testid="saved-method-details">
-      <dl className="pay-details">
+    <div data-testid="saved-method-details">
+      <dl className="lt-kv">
         {Object.entries(shown.data.details).map(([key, value]) => (
-          <div key={key} style={{ display: 'contents' }}>
+          <div key={key}>
             <dt>{fields?.find((field) => field.key === key)?.label ?? key}</dt>
             <dd lang="zxx" data-field={key}>
               {value}
@@ -173,7 +184,7 @@ function SavedDetails({ pay, instrumentId, fields }: { pay: PersonalPayApi; inst
           </div>
         ))}
       </dl>
-      <small className="muted">{t('detailsLogged')}</small>
+      <p className="lt-hint">{t('detailsLogged')}</p>
       {hide}
     </div>
   );
@@ -190,21 +201,21 @@ function RemoveMethod({ pay, instrumentId, onRemoved }: { pay: PersonalPayApi; i
   const [impact, setImpact] = useState<Impact | null>(null);
   const [impactRead, setImpactRead] = useState(0);
   return (
-    <ReviewedAction
+    <ReviewedChange
       title={payCopy.t('removeDestination')}
       description={payCopy.t('thisRemovesTheDestinationFromFutureTrades')}
       review={
-        <div className="stack">
+        <div>
           <ImpactRead key={impactRead} pay={pay} instrumentId={instrumentId} onRead={setImpact} />
           {approval === undefined ? (
-            <StepUpConfirm
+            <StepUpInline
               request={() => changeStepUp(instrumentId, 'remove', '')}
               words={stepUpWords(t, 'stepUpSendRemove')}
               disabled={impact === null}
               onApproved={(id) => setApproval(id)}
             />
           ) : (
-            <p className="muted" role="status" data-testid="method-remove-confirmed">
+            <p className="lt-hint" role="status" data-testid="method-remove-confirmed">
               {approval ? t('stepUpDone') : t('stepUpNone')}
             </p>
           )}
@@ -241,9 +252,9 @@ function ImpactRead({ pay, instrumentId, onRead }: { pay: PersonalPayApi; instru
   const data = impact.resource.status === 'ready' ? impact.resource.data : null;
   useEffect(() => onRead(data), [data, onRead]);
   return (
-    <PayState resource={impact.resource} retry={impact.reload}>
+    <MethodsLoad resource={impact.resource} retry={impact.reload}>
       {(read) => <RemovalImpact impact={read} />}
-    </PayState>
+    </MethodsLoad>
   );
 }
 
@@ -252,25 +263,25 @@ function RemovalImpact({ impact }: { impact: Impact }) {
   const pausing = impact.ads.filter((ad) => ad.pauses).length;
   if (impact.ads.length === 0)
     return (
-      <p className="muted" data-testid="method-remove-impact">
+      <p className="lt-hint" data-testid="method-remove-impact">
         {t('removeImpactNone')}
       </p>
     );
   return (
-    <section className="stack" data-testid="method-remove-impact" aria-label={t('removeImpactTitle')}>
+    <section data-testid="method-remove-impact" aria-label={t('removeImpactTitle')}>
       {pausing > 0 ? (
-        <p className="failure" role="alert" data-testid="method-remove-warning">
-          {t('removeImpactWarning', { count: String(pausing), fiat: impact.fiatCurrency })}
+        <p role="alert" data-testid="method-remove-warning">
+          <strong>{t('removeImpactWarning', { count: String(pausing), fiat: impact.fiatCurrency })}</strong>
         </p>
       ) : null}
-      <h4>{t('removeImpactTitle')}</h4>
+      <h3>{t('removeImpactTitle')}</h3>
       <ul>
         {impact.ads.map((ad) => (
           <li key={ad.offerId} data-offer-id={ad.offerId} data-pauses={ad.pauses ? 'true' : 'false'}>
-            <a className="text-link" href={`/uc/ad?offerId=${encodeURIComponent(ad.offerId)}`} lang="zxx">
+            <a className="lt-link" href={`/uc/ad?offerId=${encodeURIComponent(ad.offerId)}`} lang="zxx">
               {ad.asset} · {ad.offerId.slice(0, 8)}
             </a>{' '}
-            <span className="muted">{ad.pauses ? t('removeImpactPauses') : t('removeImpactStays')}</span>
+            <span className="lt-hint">{ad.pauses ? t('removeImpactPauses') : t('removeImpactStays')}</span>
           </li>
         ))}
       </ul>
@@ -301,11 +312,11 @@ function MethodsState({
 }) {
   const { t } = methodsCopy.useCopy();
   if (resource.status === 'failed' && resource.failure.code === 'p2p.instrument_method_unknown')
-    return <p className="muted">{t('catalogueUnset')}</p>;
+    return <p className="lt-hint">{t('catalogueUnset')}</p>;
   return (
-    <PayState resource={resource} retry={retry}>
-      {(methods) => (methods.length === 0 ? <p className="muted">{t('catalogueUnset')}</p> : children(methods))}
-    </PayState>
+    <MethodsLoad resource={resource} retry={retry}>
+      {(methods) => (methods.length === 0 ? <p className="lt-hint">{t('catalogueUnset')}</p> : children(methods))}
+    </MethodsLoad>
   );
 }
 
@@ -329,29 +340,24 @@ function Catalogue({ methods }: { methods: Method[] }) {
   const [country, setCountry] = useState(countries.find((code) => code !== EVERYWHERE) ?? countries[0] ?? '');
   const shown = country === EVERYWHERE ? methods.filter((method) => method.country === EVERYWHERE) : methodsIn(methods, country);
   return (
-    <div className="form-stack" data-testid="methods-catalogue">
-      <label className="field">
-        <span>{t('catalogueCountry')}</span>
-        <select value={country} onChange={(event) => setCountry(event.target.value)}>
-          {countries.map((code) => (
-            <option key={code} value={code}>
-              {countryName(code, t('catalogueEverywhere'))}
-            </option>
-          ))}
-        </select>
-      </label>
+    <div data-testid="methods-catalogue">
+      <Select
+        label={t('catalogueCountry')}
+        value={country}
+        onChange={setCountry}
+        options={countries.map((code) => ({ value: code, label: countryName(code, t('catalogueEverywhere')) }))}
+      />
       {shown.map((method) => (
         <article
           key={`${method.methodId}:${method.country}`}
-          className="pay-destination"
           data-testid="catalogue-method"
           data-method={method.methodId}
           data-country={method.country}
         >
-          <div className="stack">
-            <strong>{method.label}</strong>
-            <small className="muted">{countryName(method.country, t('catalogueEverywhere'))}</small>
-            {method.settlement ? <p className="muted">{settlementText(method.settlement, t)}</p> : null}
+          <div>
+            <h3>{method.label}</h3>
+            <p className="lt-hint">{countryName(method.country, t('catalogueEverywhere'))}</p>
+            {method.settlement ? <p className="lt-hint">{settlementText(method.settlement, t)}</p> : null}
             <p>{t('catalogueAsks')}:</p>
             <ul>
               {method.fields.map((field) => (
@@ -364,7 +370,7 @@ function Catalogue({ methods }: { methods: Method[] }) {
             {method.cashRules ? <CashRulesView rules={method.cashRules} /> : null}
             {method.noteRules ? <NoteRulesView rules={method.noteRules} /> : null}
           </div>
-          <Status value={method.enabled ? 'enabled' : 'disabled'} />
+          <MethodStatus value={method.enabled ? 'enabled' : 'disabled'} />
         </article>
       ))}
     </div>
@@ -375,7 +381,7 @@ function Catalogue({ methods }: { methods: Method[] }) {
 function CashRulesView({ rules }: { rules: CashRules }) {
   const { t } = methodsCopy.useCopy();
   return (
-    <div className="stack" data-testid="catalogue-cash-rules">
+    <div data-testid="catalogue-cash-rules">
       <strong>{t('cashTitle')}</strong>
       <p>{t('cashLocked')}</p>
       <p>
@@ -405,7 +411,7 @@ function releaseText(seconds: number, t: MethodsT) {
 function NoteRulesView({ rules }: { rules: NoteRules }) {
   const { t } = methodsCopy.useCopy();
   return (
-    <div className="stack" data-testid="catalogue-note-rules">
+    <div data-testid="catalogue-note-rules">
       <strong>{t('noteTitle')}</strong>
       <p>{rules.guidance}</p>
       {rules.forbidden.length > 0 ? (
@@ -560,18 +566,19 @@ function AddMethod({
     }
   }
 
+  const closeReview = () => (busy ? undefined : (reviewToken.current++, setReviewing(false)));
   return (
-    <form
-      className="form-stack"
-      data-testid="method-add-form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (ready && !disabled) void review();
-      }}
-    >
-      <label className="field">
-        <span>{t('addCountry')}</span>
-        <input
+    <>
+      <form
+        data-testid="method-add-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (ready && !disabled) void review();
+        }}
+      >
+        <Field
+          label={t('addCountry')}
+          hint={t(anyCountry ? 'addCountryAny' : 'addCountryListed')}
           value={country}
           list="method-add-countries"
           data-testid="method-add-country"
@@ -586,108 +593,94 @@ function AddMethod({
             <option key={code} value={code} />
           ))}
         </datalist>
-        <small className="muted">{t(anyCountry ? 'addCountryAny' : 'addCountryListed')}</small>
-      </label>
-      <label className="field">
-        <span>{t('addMethod')}</span>
-        <select
+        <Select
+          label={t('addMethod')}
           data-testid="method-add-method"
           value={methodId}
-          onChange={(event) => edit(() => (setMethodId(event.target.value), setDetails({})))}
+          onChange={(value) => edit(() => (setMethodId(value), setDetails({})))}
           disabled={disabled || !countryOk}
-        >
-          <option value="">{t('addMethodPick')}</option>
-          {offered.map((candidate) => (
-            <option key={`${candidate.methodId}:${candidate.country}`} value={candidate.methodId}>
-              {candidate.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>{t('addFiat')}</span>
-        <select
+          options={[
+            { value: '', label: t('addMethodPick') },
+            ...offered.map((candidate) => ({ value: candidate.methodId, label: candidate.label })),
+          ]}
+        />
+        <Select
+          label={t('addFiat')}
           data-testid="method-add-fiat"
           value={fiatCurrency}
-          onChange={(event) => edit(() => setFiatCurrency(event.target.value))}
+          onChange={(value) => edit(() => setFiatCurrency(value))}
           disabled={disabled}
-        >
-          <option value="">{t('addFiatPick')}</option>
-          {fiat.resource.status === 'ready'
-            ? fiat.resource.data.map((currency) => (
-                <option key={currency.code} value={currency.code}>
-                  {currency.code} · {currency.name}
-                </option>
-              ))
-            : null}
-        </select>
-      </label>
-      {method?.fields.map((field) => {
-        const error = refused?.field === field.key ? refused.text : null;
-        return (
-          <label className="field" key={field.key} data-field={field.key}>
-            <span>{field.label}</span>
-            <input
-              value={details[field.key] ?? ''}
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={field.maxLength ?? 512}
-              disabled={disabled}
-              aria-invalid={Boolean(error)}
-              onChange={(event) => edit(() => setDetails((current) => ({ ...current, [field.key]: event.target.value })))}
-            />
-            {error ? (
-              <small className="error-text" role="alert">
-                {error}
-              </small>
-            ) : field.holderName ? (
-              <small className="muted">{t('addOwnName')}</small>
-            ) : field.help ? (
-              <small className="muted">{field.help}</small>
-            ) : null}
-          </label>
-        );
-      })}
-      <label className="field">
-        <span>{t('addLabel')}</span>
-        <input value={label} maxLength={120} disabled={disabled} onChange={(event) => edit(() => setLabel(event.target.value))} />
-        <small className="muted">{t('addLabelHint')}</small>
-      </label>
-      {refused && refused.field === null ? (
-        <p className="failure" role="alert" data-testid="method-add-refused">
-          {refused.text}
-        </p>
-      ) : null}
-      {failure ? <PayFailure result={failure} /> : null}
-      {saved ? (
-        <p className="pay-confirmed" role="status" data-testid="method-add-saved">
-          {t('addSaved')}
-        </p>
-      ) : null}
-      <div className="actions">
-        <Button type="submit" variant="primary" disabled={disabled || !ready}>
-          {t('addReview')}
-        </Button>
-      </div>
+          options={[
+            { value: '', label: t('addFiatPick') },
+            ...(fiat.resource.status === 'ready'
+              ? fiat.resource.data.map((currency) => ({ value: currency.code, label: `${currency.code} · ${currency.name}` }))
+              : []),
+          ]}
+        />
+        {method?.fields.map((field) => {
+          const error = refused?.field === field.key ? refused.text : undefined;
+          return (
+            <div key={field.key} data-field={field.key}>
+              <Field
+                label={field.label}
+                error={error}
+                hint={error ? undefined : field.holderName ? t('addOwnName') : (field.help ?? undefined)}
+                value={details[field.key] ?? ''}
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={field.maxLength ?? 512}
+                disabled={disabled}
+                onChange={(event) => edit(() => setDetails((current) => ({ ...current, [field.key]: event.target.value })))}
+              />
+            </div>
+          );
+        })}
+        <Field
+          label={t('addLabel')}
+          hint={t('addLabelHint')}
+          value={label}
+          maxLength={120}
+          disabled={disabled}
+          onChange={(event) => edit(() => setLabel(event.target.value))}
+        />
+        {refused && refused.field === null ? (
+          <p role="alert" data-testid="method-add-refused">
+            <strong>{refused.text}</strong>
+          </p>
+        ) : null}
+        {failure ? <MethodsFailure result={failure} /> : null}
+        {saved ? (
+          <p className="lt-hint" role="status" data-testid="method-add-saved">
+            {t('addSaved')}
+          </p>
+        ) : null}
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={disabled || !ready}>
+            {t('addReview')}
+          </Button>
+        </div>
+      </form>
       {reviewing && method ? (
-        <Dialog
-          closeLabel={uiCopy.t('closeDialog')}
-          title={t('addReviewTitle')}
-          onClose={() => (busy ? undefined : (reviewToken.current++, setReviewing(false)))}
-        >
-          <div className="form-stack" data-testid="method-add-review">
-            <p className="muted">{t('addReviewIntro')}</p>
-            <dl className="pay-details">
-              <dt>{t('addMethod')}</dt>
-              <dd>{method.label}</dd>
-              <dt>{t('addCountry')}</dt>
-              <dd>{country}</dd>
-              <dt>{t('addFiat')}</dt>
-              <dd>{fiatCurrency}</dd>
+        <Sheet open title={t('addReviewTitle')} onClose={closeReview}>
+          <div data-testid="method-add-review">
+            <p className="lt-hint">{t('addReviewIntro')}</p>
+            <dl className="lt-kv">
+              <div>
+                <dt>{t('addMethod')}</dt>
+                <dd>{method.label}</dd>
+              </div>
+              <div>
+                <dt>{t('addCountry')}</dt>
+                <dd>{country}</dd>
+              </div>
+              <div>
+                <dt>{t('addFiat')}</dt>
+                <dd>{fiatCurrency}</dd>
+              </div>
               {method.fields
                 .filter((field) => (details[field.key] ?? '').trim())
                 .map((field) => (
-                  <div key={field.key} style={{ display: 'contents' }}>
+                  <div key={field.key}>
                     <dt>{field.label}</dt>
                     <dd lang="zxx">{details[field.key]!.trim()}</dd>
                   </div>
@@ -695,7 +688,7 @@ function AddMethod({
             </dl>
             {/* Confirming saves: the passkey or code approves exactly these details. */}
             {digest === null ? null : (
-              <StepUpConfirm
+              <StepUpInline
                 request={() => changeStepUp(instrumentId.current, 'create', digest)}
                 words={stepUpWords(t, 'stepUpSendSave')}
                 disabled={busy}
@@ -703,18 +696,18 @@ function AddMethod({
               />
             )}
             {busy ? (
-              <p className="muted" role="status">
+              <p className="lt-hint" role="status">
                 {t('addSaving')}
               </p>
             ) : null}
-            <div className="actions">
-              <Button variant="ghost" disabled={busy} onClick={() => (reviewToken.current++, setReviewing(false))}>
+            <div className="lt-actions">
+              <Button tone="quiet" disabled={busy} onClick={() => (reviewToken.current++, setReviewing(false))}>
                 {t('addCancel')}
               </Button>
             </div>
           </div>
-        </Dialog>
+        </Sheet>
       ) : null}
-    </form>
+    </>
   );
 }

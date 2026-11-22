@@ -1,9 +1,12 @@
+// volt-room: /uc/safe/staff-access
 import { useMemo } from 'react';
 import { staffAccessMineInputSchema, staffAccessMineOutputSchema, type StaffAccessRow } from '@intafaced/contracts/staff-access';
 import { contractProcedure, readContract } from '../../shared/contract-call';
 import { defineCopy } from '../../shared/i18n';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading, Page } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { SettingsTemplate } from '@intafaced/ui/lit/templates';
+import { Failure, Loading } from './kit-parts';
 import { useSession } from '../session';
 
 const copy = defineCopy('staff-access', {
@@ -22,17 +25,27 @@ const copy = defineCopy('staff-access', {
   loading: 'Reading who accessed your account…',
   back: 'Security',
   link: 'Staff access: who looked at your trading account',
+  relatedLabel: 'Related rooms',
+  sectionsLabel: 'Staff access sections',
+  explain: 'Each row is one time our staff looked at or acted on your trading account, newest first, up to the latest 100.',
 });
 
-/** The Security page's way in to the access list. */
+/**
+ * The Security page's way in to the access list, in its index beside the section links: there its link takes the
+ * index's full-height target and wraps on a phone.
+ */
 export function StaffAccessLink() {
   const { t } = copy.useCopy();
   return (
-    <p>
-      <a className="text-link" href="/uc/safe/staff-access" data-testid="staff-access-link">
-        {t('link')}
-      </a>
-    </p>
+    <nav aria-label={t('relatedLabel')}>
+      <ul>
+        <li>
+          <a className="lt-link" href="/uc/safe/staff-access" data-testid="staff-access-link">
+            {t('link')}
+          </a>
+        </li>
+      </ul>
+    </nav>
   );
 }
 
@@ -71,23 +84,34 @@ export function StaffAccess() {
   );
   const rows: readonly StaffAccessRow[] | null = resource.status === 'ready' ? resource.data.rows : null;
   return (
-    <Page
+    <SettingsTemplate
       title={t('title')}
-      actions={
-        <a className="text-link" href="/uc/safe">
+      state={{ kind: 'ready' }}
+      roomAction={
+        <a className="lt-link" href="/uc/safe">
           {t('back')}
         </a>
       }
-    >
-      <section data-testid="staff-access" className="security__card" aria-labelledby="staff-access-title">
-        <h2 id="staff-access-title">{t('title')}</h2>
-        <p className="muted">{t('lead')}</p>
-        {resource.status === 'loading' && <Loading label={t('loading')} />}
-        {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-        {rows && rows.length === 0 && <p className="muted">{t('empty')}</p>}
-        {rows && rows.length > 0 && (
-          <div className="api-keys__table-wrap">
-            <table className="api-keys__table" aria-labelledby="staff-access-title">
+      index={
+        <nav aria-label={t('sectionsLabel')}>
+          <ul>
+            <li>
+              <a className="lt-link" href="#staff-access-title">
+                {t('title')}
+              </a>
+            </li>
+          </ul>
+        </nav>
+      }
+      sections={
+        <section data-testid="staff-access" aria-labelledby="staff-access-title">
+          <h2 id="staff-access-title">{t('title')}</h2>
+          <p className="lt-hint">{t('lead')}</p>
+          {resource.status === 'loading' && <Loading label={t('loading')} />}
+          {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
+          {rows && rows.length === 0 && <p className="lt-hint">{t('empty')}</p>}
+          {rows && rows.length > 0 && (
+            <table className="lt-table" aria-labelledby="staff-access-title">
               <thead>
                 <tr>
                   <th scope="col">{t('colAt')}</th>
@@ -119,12 +143,13 @@ export function StaffAccess() {
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-        <Button variant="secondary" onClick={reload} disabled={resource.status === 'loading'}>
-          {t('refresh')}
-        </Button>
-      </section>
-    </Page>
+          )}
+          <Button tone="secondary" onClick={reload} disabled={resource.status === 'loading'}>
+            {t('refresh')}
+          </Button>
+        </section>
+      }
+      explain={<p>{t('explain')}</p>}
+    />
   );
 }

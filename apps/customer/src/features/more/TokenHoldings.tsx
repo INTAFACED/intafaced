@@ -41,7 +41,7 @@ export function TokenHoldings() {
   const show = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));
   return (
     <Panel title={t('holdingsTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="assetNote" />
       </p>
       <Read resource={stakes.resource} retry={stakes.reload}>
@@ -62,7 +62,7 @@ export function TokenHoldings() {
                   { label: t('sCount'), value: summary.count },
                 ]}
               />
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="loadedNote" />
               </p>
               <h3>
@@ -118,7 +118,7 @@ export function TokenHoldings() {
           options={(['flex', 'm3', 'm12'] as const).map((value) => ({ value, label: t(`term_${value}`) }))}
         />
       </div>
-      <p className="muted">
+      <p className="lt-muted">
         {t('ticketLock')}: {STAKE_LOCK_DAYS[term] ? t('lockDays', { days: STAKE_LOCK_DAYS[term] }) : t('noLock')}
       </p>
       <DisabledAction label={t('ticketReview')} reason={t('ticketBlocked')} />

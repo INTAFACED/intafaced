@@ -195,9 +195,22 @@ test(`${J} #3 as a lead opens the earnings panel: the profit-share refusal text 
   const leaderId = await userIdOf(leader);
   const earnings = await leadEarnings(leader);
   await signIn(page, leader);
+  // The panel's earnings reply is held until the panel stands still loading, so a read of its text that does not wait
+  // for the earnings always finds none.
+  const isEarnings = (url) => new URL(url).pathname.startsWith('/api/trade/trpc/') && new URL(url).pathname.includes('copy.leadEarnings');
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  const asked = page.waitForRequest((req) => isEarnings(req.url()));
+  await page.route(isEarnings, async (route) => {
+    await released;
+    await route.continue();
+  });
   await page.goto('/trade/copy?tab=lead');
   const panel = page.getByRole('region', { name: 'Your earnings' });
   await expect(panel).toBeVisible();
+  await asked;
+  expect(ungroup(await panel.innerText()), 'the earnings panel is still loading').not.toMatch(/Fee share earned\s*[\d.]+ USDC/);
+  release();
   await expect(panel).toContainText('Leaders are paid a share of the trading fee only, never a share of profit.');
   // The fee-share facts: what was earned on #1's copied venue fill, as a total and one history row per recorded share,
   // each with its fill, owed by INTAFACED in our ledger.
@@ -215,7 +228,9 @@ test(`${J} #3 as a lead opens the earnings panel: the profit-share refusal text 
     expect(toUnits(trace.postings.find((p) => p.direction === 'debit').amount)).toBe(toUnits(x.amount));
   }
   expect((await ledgerOwedTo(leaderId, 'USDC')).balance).toBe(toUnits(usdc.amount));
-  expect(ungroup(await panel.innerText())).toMatch(new RegExp(`Fee share earned\\s*${usdc.amount.replace(/[.]/g, '\\.')} USDC`));
+  await expect
+    .poll(async () => ungroup(await panel.innerText()))
+    .toMatch(new RegExp(`Fee share earned\\s*${usdc.amount.replace(/[.]/g, '\\.')} USDC`));
   await expect(panel).toContainText('Leader’s share of the fee');
   await expect(panel).toContainText(/Profit share\s*Not offered/);
   const history = panel.getByRole('table', { name: 'Fee share history' }).locator('tbody tr:not([data-slot="table-empty-row"])');

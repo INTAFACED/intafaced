@@ -1,65 +1,38 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
-import {
-  BLUEPRINT_CARD,
-  BLUEPRINT_ERASE,
-  BLUEPRINT_EXPORT,
-  BLUEPRINT_ME,
-  BLUEPRINT_MENTORS,
-  BLUEPRINT_SET_VISIBILITY,
-} from '@intafaced/contracts/blueprint-procedures';
-import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { BLUEPRINT_ERASE, BLUEPRINT_EXPORT, BLUEPRINT_SET_VISIBILITY } from '@intafaced/contracts/blueprint-procedures';
 import { useApi, useSession } from '../session';
-import { useResource } from '../../shared/resource';
 import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Read, Select, useAction } from './common';
 import { BlueprintSharedCard, BlueprintMentorCardAction } from './BlueprintSharedCard';
 import { BlueprintCrew } from './BlueprintCrew';
 import { safeCardSvg } from './blueprint-card-svg';
 import { blueprintSessionCopy } from './blueprint-session-copy';
+import {
+  CARD_SIZES,
+  VISIBILITIES,
+  download,
+  downloaded,
+  isCardSize,
+  isVisibility,
+  useBlueprintReads,
+  type CardSize,
+} from './blueprint-reads';
+import './blueprint.css';
 
-const VISIBILITIES = ['private', 'crew', 'public'] as const;
-const CARD_SIZES = ['portrait', 'landscape'] as const;
-const isCardSize = (value: string): value is (typeof CARD_SIZES)[number] => (CARD_SIZES as readonly string[]).includes(value);
-const isVisibility = (value: string): value is (typeof VISIBILITIES)[number] => (VISIBILITIES as readonly string[]).includes(value);
-
-/** The file the export button saves: the reply as the room has always saved it, without the share rows it never kept. */
-function downloaded({ shares: _shares, cardsOpened: _cardsOpened, ...kept }: ProcedureOutput<typeof BLUEPRINT_EXPORT>) {
-  return kept;
-}
-function download(name: string, text: string, type: string) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+/** The old view of the Blueprint room, which the /blueprint/crew section still draws; /blueprint itself is `BlueprintRoom` on the kit. */
 export function Blueprint({ path = '/blueprint' }: { path?: string }) {
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('blueprint'),
     { t: label } = blueprintSessionCopy.useCopy();
-  const [size, setSize] = useState<(typeof CARD_SIZES)[number]>('portrait'),
+  const [size, setSize] = useState<CardSize>('portrait'),
     [erase, setErase] = useState(''),
     [exporting, setExporting] = useState(false),
     [exportError, setExportError] = useState('');
-  const me = useResource(
-      (signal) => api.call(BLUEPRINT_ME, undefined, { signal, accept: (row) => !row || row.userId === userId }),
-      `blueprint:${userId}`,
-    ),
-    mentors = useResource(
-      (signal) => api.call(BLUEPRINT_MENTORS, undefined, { signal, accept: (rows) => rows.every((row) => row.studentId === userId) }),
-      `mentors:${userId}`,
-    ),
-    share = useResource((signal) => api.call(BLUEPRINT_CARD, { size }, { signal }), `card:${userId}:${size}`);
+  const { me, mentors, share, reload } = useBlueprintReads(size);
   const currentMentors = useRef(mentors.resource);
   currentMentors.current = mentors.resource;
-  const reload = () => {
-    me.reload();
-    mentors.reload();
-    share.reload();
-  };
   // /blueprint/crew opens on the crew section.
   useEffect(() => {
     if (/^\/blueprint\/crew\/?$/.test(path.split(/[?#]/)[0] ?? ''))
@@ -86,7 +59,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                       [copyText('blueprint.engine.build'), record.engineVersion],
                     ]}
                   />
-                  <a className="text-link" href={`/academy?path=${encodeURIComponent(record.profile.curriculumPath)}`}>
+                  <a className="lt-link" href={`/academy?path=${encodeURIComponent(record.profile.curriculumPath)}`}>
                     <Text k="blueprint.open.your" />
                     {record.profile.curriculumPath}
                     <Text k="blueprint.learning.path" />
@@ -149,12 +122,12 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                   </p>
                 )}
                 {c.raster.status === 'unavailable' ? (
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Text k="blueprint.png.unavailable" />
                     {c.raster.reason}
                   </p>
                 ) : c.raster.url.startsWith('https:') ? (
-                  <a className="text-link" href={c.raster.url} target="_blank" rel="noreferrer">
+                  <a className="lt-link" href={c.raster.url} target="_blank" rel="noreferrer">
                     <Text k="blueprint.open.rendered.png" />
                   </a>
                 ) : (
@@ -162,7 +135,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                     <Text k="blueprint.png.url.cannot.be.verified.as.a" />
                   </p>
                 )}
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k="blueprint.share.mode" />
                   {c.shareMode}
                   <Text k="blueprint.card.reads.require.a.signed.viewer.and" />
@@ -196,7 +169,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
               </ul>
             )}
           </Read>
-          <p className="muted">{label('mentorLimit')}</p>
+          <p className="lt-muted">{label('mentorLimit')}</p>
         </Panel>
         <Panel title={copyText('blueprint.your.data')}>
           <Button
@@ -251,7 +224,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
         </Panel>
       </div>
       <Panel title={copyText('blueprint.guided.blueprint.session')}>
-        <p className="muted" id="blueprint-session-reason">
+        <p className="lt-muted" id="blueprint-session-reason">
           {label('unavailable')}
         </p>
         <form onSubmit={(e) => e.preventDefault()} aria-describedby="blueprint-session-reason">

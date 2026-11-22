@@ -5,6 +5,8 @@
  * asset. Adding one makes that label (once: the primary index allows one per customer and asset) and removing one hides
  * it. Neither writes to the ledger and neither moves value.
  *
+ * For a person the partner holds money for, adding one also opens the partner's currency account, once.
+ *
  * Which assets may be added is the owner's list (`BANK_ACCOUNT_CURRENCIES`). A blank list refuses an add with
  * `bank.account_currencies_unset`, and the list read says so instead of inventing one. Removing needs no list.
  *
@@ -111,6 +113,9 @@ export class CurrencyService {
   async add(userId: string, assetId: string): Promise<AccountCurrency> {
     const id = assetId.trim().toUpperCase();
     if (!this.allowed().includes(id)) throw new BankError(`${id} is not a currency an account can hold`, 'bank.asset_unknown');
+    // For a person the partner holds money for, the currency account is the partner's: it opens it first (once, however
+    // often asked), so a refusal there leaves no label here (J-bank-01 #3).
+    await this.spaces.custody.bankFor(userId)?.openCurrency?.(userId, id);
     const space = await this.spaces.ensurePrimary(userId, id);
     await this.spaces.restoreCurrency(userId, id);
     return { assetId: id, spaceId: space.id, balance: formatAmount(await this.spaces.balanceOf(space)) };

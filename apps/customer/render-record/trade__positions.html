@@ -96,20 +96,31 @@
 </header>
 <main id="main" tabindex="-1">
 <div class="legacy-room">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="monitor" data-state="refused" data-mode="pro">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Trade</p>
-<h1>Positions</h1>
+<h1 class="lt-title">Positions</h1>
 </div>
-<div class="actions">
-<a class="text-link" href="/trade/futures">Open the futures desk</a>
+<div class="lt-room-action">
+<a class="lt-link" href="/trade/futures">Open the futures desk</a>
 </div>
 </header>
-<div class="empty-state">
-<span class="empty-mark" aria-hidden="true">↗</span>
-<h3>Positions</h3>
-<p>Trading on your own venue account isn’t switched on here, so there are no venue positions to show.</p>
+<div class="lt-body">
+<section class="lt-region" data-region="figures" aria-label="Key figures" data-holds-state="">
+<div class="lt-refusal" data-refusal="parked">
+<p class="lt-refusal-title">Positions</p>
+<p class="lt-refusal-body">Trading on your own venue account isn’t switched on here, so there are no venue positions to show.</p>
+</div>
+</section>
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p class="lt-hint">Trade</p>
+</section>
+</div>
+</div>
 </div>
 </div>
 </div>

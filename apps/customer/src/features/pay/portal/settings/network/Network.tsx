@@ -16,22 +16,7 @@ import { bpsPercent, isPlatformAccount, nodeName, parsePercentToBps } from '../a
 import type { SubMerchant } from '../account/schemas';
 import { ReadGate } from '../account/ui';
 
-/** Platform accounts only. Anyone else who opens the address is told what this page is, not shown a refusal. */
-export function NotPlatform() {
-  const { t } = accountCopy.useCopy();
-  return (
-    <EmptyState
-      title={t('netNotPlatformTitle')}
-      action={
-        <a className="text-link" href="/pay/merchant">
-          {t('backOverview')}
-        </a>
-      }
-    >
-      {t('netNotPlatformBody')}
-    </EmptyState>
-  );
-}
+import { NotPlatform } from './NotPlatform';
 
 /** `/pay/network`: the businesses under this platform account, and a way to add one. */
 export function Network({ portal, merchantId, mode }: { portal: PortalApi; merchantId: string; mode: string | null }) {
@@ -57,7 +42,7 @@ export function NetworkView({
   const { t } = accountCopy.useCopy();
   const { t: p } = portalCopy.useCopy();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={t('netListTitle')} description={t('netListBody')}>
         <ReadGate
           resource={subs}

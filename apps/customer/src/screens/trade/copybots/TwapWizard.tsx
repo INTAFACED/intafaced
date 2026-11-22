@@ -184,7 +184,7 @@ export function TwapWizard({
         </DialogHeader>
 
         {step === 1 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             <SelectField
               label={t('Market')}
               value={symbol}
@@ -212,7 +212,7 @@ export function TwapWizard({
         ) : null}
 
         {step === 2 && market ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             <Field
               label={t('Total amount ({asset})', { asset: market.base })}
               hint={t('Lot size {lot}', { lot: market.precision.amount })}
@@ -286,7 +286,7 @@ export function TwapWizard({
         ) : null}
 
         {step === 3 && market && plan && plan.ok ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
             <section aria-label={t('What it will do')}>
               <h3 className="cb-h3">{t('What it will do')}</h3>

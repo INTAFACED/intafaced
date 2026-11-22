@@ -1,10 +1,12 @@
+// volt-room: /pay/merchant
+// volt-room: portal:dashboard
 import { useMemo, useState, type ReactNode } from 'react';
+import { Meter, SectionTabs } from '@intafaced/ui/lit/templates';
 import { LayoutDashboard } from './DashboardHome';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Button, DataTable, ChoiceGroup as Tabs } from '@intafaced/ui';
-import { EmptyState } from '../../ui-kit';
-import { PaySection } from '../../components';
-import { AsOf, Chip, Gate, Kpi, KpiGrid, Money, MoneyLines } from '../components';
+import { useMerchantAccess } from '../access/MerchantAccess';
+import { AsOf, Chip, Empty, Failure, Gate, Grid, LinkButton, Loading, MoneyLines, MoneyText, Section } from '../volt/parts';
+import { OverviewRoom, useOverviewGate, type OverviewFrame } from '../volt/OverviewRoom';
 import { portalCopy } from './copy';
 import { utcDay } from '../model';
 import { hasActivity, mixShares, seriesWindow } from './model';
@@ -18,17 +20,33 @@ export type DashboardData = {
   series: Resource<Series>;
 };
 
-/** `/pay/merchant`: status strip, KPI tiles, daily chart, status mix and balances, every number with its "as of". */
-export function Dashboard({
+/**
+ * `/pay/merchant` on the overview template: the balance, KPI tiles, daily chart, status mix and balances, every number
+ * with its "as of". The business comes from the resolved access; its record is read first, as the old page did, so a
+ * record that cannot be read is said before any figure.
+ */
+export function Dashboard({ portal }: { portal: PortalApi }) {
+  const { frame, account } = useOverviewGate();
+  const { merchant, reloadMerchant } = useMerchantAccess();
+  if (!account) return <OverviewRoom frame={frame} hero={null} />;
+  if (merchant.status === 'loading') return <OverviewRoom frame={frame} hero={<Loading rows={5} />} />;
+  if (merchant.status === 'failed')
+    return <OverviewRoom frame={frame} hero={<Failure result={merchant.failure} retry={reloadMerchant} />} />;
+  return <DashboardReads portal={portal} merchantId={account.merchantId} merchant={account.record} role={account.role} frame={frame} />;
+}
+
+function DashboardReads({
   portal,
   merchantId,
   merchant,
   role,
+  frame,
 }: {
   portal: PortalApi;
   merchantId: string;
   merchant: MerchantRecord | null;
   role: MemberRole | null;
+  frame: OverviewFrame;
 }) {
   const now = useMemo(() => new Date(), []);
   const window = useMemo(() => seriesWindow(now), [now]);
@@ -52,10 +70,49 @@ export function Dashboard({
       data={{ today: today.resource, rolling_7d: d7.resource, rolling_30d: d30.resource, series: series.resource }}
       retry={retry}
       todayDay={utcDay(now)}
+      frame={frame}
     />
   );
 }
 export { LayoutDashboardView as DashboardView } from './DashboardHome';
+
+/** A figure that opens the list holding it, or stands alone; it names its period (`Kpi` in `../components`). */
+function Kpi({ label, period, value, note, href }: { label: string; period?: string; value: ReactNode; note?: ReactNode; href?: string }) {
+  const body = (
+    <>
+      <span>
+        {label}
+        {period && <em> {period}</em>}
+      </span>{' '}
+      <strong>{value}</strong>
+      {note && (
+        <>
+          {' '}
+          <small className="lt-hint">{note}</small>
+        </>
+      )}
+    </>
+  );
+  return (
+    <li>
+      {href ? (
+        <a className="lt-row-link" href={href}>
+          {body}
+        </a>
+      ) : (
+        body
+      )}
+    </li>
+  );
+}
+
+function KpiGrid({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <ul className="lt-kv" role="group" aria-label={label}>
+      {children}
+    </ul>
+  );
+}
 
 export function DashboardInsights({
   data,
@@ -76,102 +133,96 @@ export function DashboardInsights({
     data.rolling_30d.status === 'ready' &&
     !hasActivity(data.today.data) &&
     !hasActivity(data.rolling_30d.data);
+  if (wholeAccountQuiet)
+    return (
+      <Empty
+        title={t('dashEmptyTitle')}
+        action={
+          <LinkButton href="/pay/links" tone="primary">
+            {t('dashEmptyAction')}
+          </LinkButton>
+        }
+      >
+        {t('dashEmptyBody')}
+      </Empty>
+    );
   return (
-    <div className="stack pp-dashboard">
-      {wholeAccountQuiet ? (
-        <EmptyState
-          title={t('dashEmptyTitle')}
-          action={
-            <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links" />}>
-              {t('dashEmptyAction')}
-            </Button>
-          }
-        >
-          {t('dashEmptyBody')}
-        </EmptyState>
-      ) : (
-        <>
-          <PaySection
-            title={t('volumeTitle')}
-            description={t('volumeBody')}
-            action={
-              <Tabs
-                items={['today', 'rolling_7d', 'rolling_30d']}
-                value={period}
-                onChange={(v) => setPeriod(v as MetricPreset)}
-                label={t('periodLabel')}
-                labels={labels}
-              />
-            }
-          >
-            <Gate resource={current} retry={retry} rows={4}>
-              {(snap) => (
-                <>
-                  <AsOf freshness={snap.freshness} />
-                  <KpiGrid label={t('kpiGroup', { period: labels[period] })}>
-                    <Kpi
-                      label={t('kpiVolume')}
-                      period={labels[period]}
-                      value={<MoneyLines items={snap.captured} />}
-                      note={t('kpiVolumeNote')}
-                      href="/pay/payments"
-                    />
-                    <Kpi
-                      label={t('kpiRefunded')}
-                      period={labels[period]}
-                      value={<MoneyLines items={snap.refunded} />}
-                      note={t('kpiRefundedNote')}
-                      href="/pay/payments"
-                    />
-                    {issued && (
-                      <Kpi
-                        label={t('refundsIssuedLabel')}
-                        period={labels[period]}
-                        value={issued(period)}
-                        note={t('refundsIssuedNote')}
-                        href="/pay/refunds"
-                      />
-                    )}
-                    <Kpi label={t('kpiNet')} period={labels[period]} value={<MoneyLines items={snap.net} />} note={t('kpiNetNote')} />
-                    <Kpi
-                      label={t('kpiFees')}
-                      period={labels[period]}
-                      value={<MoneyLines items={snap.feeRevenue} />}
-                      note={t('kpiFeesNote')}
-                      href="/pay/settlements"
-                    />
-                    <Kpi label={t('kpiCount')} period={labels[period]} value={snap.paymentCount} href="/pay/payments" />
-                    <Kpi label={t('kpiAverage')} period={labels[period]} value={<MoneyLines items={snap.averagePayment} />} />
-                    <Kpi label={t('kpiLargest')} period={labels[period]} value={<MoneyLines items={snap.largestPayment} />} />
-                    <Kpi
-                      label={t('kpiLinks')}
-                      period={labels[period]}
-                      value={snap.linkUsage.paymentsViaLinks}
-                      note={t('kpiLinksNote', { links: snap.linkUsage.linksUsed })}
-                      href="/pay/links"
-                    />
-                  </KpiGrid>
-                </>
-              )}
-            </Gate>
-            <Glance data={data} labels={labels} />
-          </PaySection>
-
-          <div className="pp-two">
-            <PaySection title={t('mixTitle')} description={t('mixBody')}>
-              <Gate resource={data.rolling_30d} retry={retry} rows={3}>
-                {(snap) => <StatusMix snap={snap} />}
-              </Gate>
-            </PaySection>
-            <PaySection title={t('balancesTitle')} description={t('balancesBody')}>
-              <Gate resource={data.today} retry={retry} rows={3}>
-                {(snap) => <Balances snap={snap} />}
-              </Gate>
-            </PaySection>
-          </div>
-        </>
-      )}
-    </div>
+    <>
+      <Section
+        title={t('volumeTitle')}
+        description={t('volumeBody')}
+        action={
+          <SectionTabs
+            items={(['today', 'rolling_7d', 'rolling_30d'] as const).map((value) => ({ value, label: labels[value] }))}
+            value={period}
+            onChange={setPeriod}
+            label={t('periodLabel')}
+          />
+        }
+      >
+        <Gate resource={current} retry={retry} rows={4}>
+          {(snap) => (
+            <>
+              <AsOf freshness={snap.freshness} />
+              <KpiGrid label={t('kpiGroup', { period: labels[period] })}>
+                <Kpi
+                  label={t('kpiVolume')}
+                  period={labels[period]}
+                  value={<MoneyLines items={snap.captured} />}
+                  note={t('kpiVolumeNote')}
+                  href="/pay/payments"
+                />
+                <Kpi
+                  label={t('kpiRefunded')}
+                  period={labels[period]}
+                  value={<MoneyLines items={snap.refunded} />}
+                  note={t('kpiRefundedNote')}
+                  href="/pay/payments"
+                />
+                {issued && (
+                  <Kpi
+                    label={t('refundsIssuedLabel')}
+                    period={labels[period]}
+                    value={issued(period)}
+                    note={t('refundsIssuedNote')}
+                    href="/pay/refunds"
+                  />
+                )}
+                <Kpi label={t('kpiNet')} period={labels[period]} value={<MoneyLines items={snap.net} />} note={t('kpiNetNote')} />
+                <Kpi
+                  label={t('kpiFees')}
+                  period={labels[period]}
+                  value={<MoneyLines items={snap.feeRevenue} />}
+                  note={t('kpiFeesNote')}
+                  href="/pay/settlements"
+                />
+                <Kpi label={t('kpiCount')} period={labels[period]} value={snap.paymentCount} href="/pay/payments" />
+                <Kpi label={t('kpiAverage')} period={labels[period]} value={<MoneyLines items={snap.averagePayment} />} />
+                <Kpi label={t('kpiLargest')} period={labels[period]} value={<MoneyLines items={snap.largestPayment} />} />
+                <Kpi
+                  label={t('kpiLinks')}
+                  period={labels[period]}
+                  value={snap.linkUsage.paymentsViaLinks}
+                  note={t('kpiLinksNote', { links: snap.linkUsage.linksUsed })}
+                  href="/pay/links"
+                />
+              </KpiGrid>
+            </>
+          )}
+        </Gate>
+        <Glance data={data} labels={labels} />
+      </Section>
+      <Section title={t('mixTitle')} description={t('mixBody')}>
+        <Gate resource={data.rolling_30d} retry={retry} rows={3}>
+          {(snap) => <StatusMix snap={snap} />}
+        </Gate>
+      </Section>
+      <Section title={t('balancesTitle')} description={t('balancesBody')}>
+        <Gate resource={data.today} retry={retry} rows={3}>
+          {(snap) => <Balances snap={snap} />}
+        </Gate>
+      </Section>
+    </>
   );
 }
 
@@ -180,16 +231,16 @@ function Glance({ data, labels }: { data: DashboardData; labels: Record<MetricPr
   const presets: MetricPreset[] = ['today', 'rolling_7d', 'rolling_30d'];
   if (presets.some((p) => data[p].status !== 'ready')) return null;
   return (
-    <div className="pp-glance" role="group" aria-label={t('glanceTitle')}>
+    <div role="group" aria-label={t('glanceTitle')}>
       <h3>{t('glanceTitle')}</h3>
-      <div className="pp-kpis pp-kpis--tight">
+      <ul className="lt-kv">
         {presets.map((p) => {
           const r = data[p];
           return r.status === 'ready' ? (
             <Kpi key={p} label={t('kpiVolume')} period={labels[p]} value={<MoneyLines items={r.data.captured} />} />
           ) : null;
         })}
-      </div>
+      </ul>
     </div>
   );
 }
@@ -197,22 +248,20 @@ function Glance({ data, labels }: { data: DashboardData; labels: Record<MetricPr
 function StatusMix({ snap }: { snap: Snapshot }) {
   const { t } = portalCopy.useCopy();
   const rows = mixShares(snap.statusMix);
-  if (rows.length === 0) return <p className="muted">{t('mixEmpty')}</p>;
+  if (rows.length === 0) return <p className="lt-hint">{t('mixEmpty')}</p>;
   return (
     <>
       <AsOf freshness={snap.freshness} />
-      <ul className="pp-mix" aria-label={t('mixTitle')}>
+      <ul className="lt-rows" aria-label={t('mixTitle')}>
         {rows.map((row) => (
           <li key={row.status}>
-            <div className="pp-mix-head">
+            <p className="lt-actions">
               <Chip kind="payment" value={row.status} />
-              <span className="numeric">
+              <span>
                 {row.count} · {row.pct}%
               </span>
-            </div>
-            <span className="pp-mix-bar" aria-hidden="true">
-              <span style={{ width: `${row.pct}%` }} />
-            </span>
+            </p>
+            <Meter label={row.status} value={row.pct} text={`${row.pct}%`} />
           </li>
         ))}
       </ul>
@@ -222,24 +271,24 @@ function StatusMix({ snap }: { snap: Snapshot }) {
 
 function Balances({ snap }: { snap: Snapshot }) {
   const { t } = portalCopy.useCopy();
-  if (snap.balances.length === 0) return <p className="muted">{t('balancesEmpty')}</p>;
+  if (snap.balances.length === 0) return <p className="lt-hint">{t('balancesEmpty')}</p>;
   return (
     <>
       <AsOf freshness={snap.freshness} />
-      <DataTable label={t('balancesTitle')} headers={[t('colAsset'), t('colAvailable'), t('colPending')]}>
+      <Grid label={t('balancesTitle')} headers={[t('colAsset'), t('colAvailable'), t('colPending')]}>
         {snap.balances.map((b) => (
           <tr key={b.assetCode}>
             <th scope="row">{b.assetCode}</th>
-            <td className="numeric">
-              <Money value={b.available} asset={b.assetCode} />
+            <td>
+              <MoneyText value={b.available} asset={b.assetCode} />
             </td>
-            <td className="numeric">
-              <Money value={b.clearing} asset={b.assetCode} />
+            <td>
+              <MoneyText value={b.clearing} asset={b.assetCode} />
             </td>
           </tr>
         ))}
-      </DataTable>
-      <p className="muted pp-note">{t('balancesNote')}</p>
+      </Grid>
+      <p className="lt-hint">{t('balancesNote')}</p>
     </>
   );
 }

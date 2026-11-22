@@ -1,9 +1,11 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, Tabs, SectionTabs, Checkbox, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, Tabs, SectionTabs, Disclosure, Checkbox, Dialog, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
+import { moveFocusByArrow } from './arrow-focus.js';
+import type { DataMarks } from './b2-table.js';
 
 /**
  * Two or more choices of the same size, style and level (COBS 4.12A.18R(2); Directive 2023/2673 Art 16e(1)(a)).
@@ -156,7 +158,8 @@ export function Tabs({ items, current, label }: { items: readonly { label: strin
 
 /**
  * A room's own sections, one button each, the open one pressed: the same row as Tabs, for sections a room switches
- * itself (it navigates in `onChange`) rather than by link. Scrolls when it overflows, as Tabs do.
+ * itself (it navigates in `onChange`) rather than by link. Wraps onto a second line when it overflows, as Tabs do. The
+ * arrow keys move focus between the sections (`arrow-focus.ts`).
  */
 export function SectionTabs<T extends string>({
   items,
@@ -170,12 +173,78 @@ export function SectionTabs<T extends string>({
   label: string;
 }) {
   return (
-    <div className="lt-tabs" role="group" aria-label={label}>
+    <div className="lt-tabs" role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
       {items.map((t) => (
         <button key={t.value} type="button" className="lt-tab" aria-pressed={t.value === value} onClick={() => onChange(t.value)}>
           {t.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A room's own bar (an asset page's name, price and sections), given to the room as its `bar`: the frame draws it
+ * first, and it stays right under the app's top bar (and under the legal band when that is on) while the page scrolls.
+ * Its place is the top bar's real bottom edge as measured (`--a11y-obscured-top`, from `trackObscuringBars`), so a
+ * banner above the top bar or a top bar of another height moves it too; before the first measure it is the
+ * `--lit-topbar-h` token. Its children sit in a row, the first at the start and the last at the end. `marks` are the
+ * bar's own (`data-testid`), where a room's tests find it.
+ */
+export function RoomBar({ marks, children }: { marks?: DataMarks; children: React.ReactNode }) {
+  return (
+    <div className="lt-room-bar" data-region="room-bar" {...marks}>
+      {children}
+    </div>
+  );
+}
+
+export interface DisclosureItem {
+  /** Names the section in `defaultOpen`; stable across renders. */
+  value: string;
+  title: React.ReactNode;
+  body: React.ReactNode;
+}
+
+/**
+ * Sections that fold: each one's heading is a button that opens and closes it, and its open body is a region named by
+ * that heading. One is open at a time unless `multiple`; `defaultOpen` names the ones open at first. A closed body is
+ * not drawn, so nothing folded away is read out or reached by Tab.
+ */
+export function Disclosure({
+  items,
+  defaultOpen = [],
+  multiple = false,
+}: {
+  items: readonly DisclosureItem[];
+  defaultOpen?: readonly string[];
+  multiple?: boolean;
+}) {
+  const [open, setOpen] = React.useState<readonly string[]>(defaultOpen);
+  const base = React.useId();
+  const toggle = (value: string) =>
+    setOpen((now) => (now.includes(value) ? now.filter((v) => v !== value) : multiple ? [...now, value] : [value]));
+  return (
+    <div className="lt-disclosure">
+      {items.map((item, i) => {
+        const isOpen = open.includes(item.value);
+        const head = `${base}-${i}-head`;
+        const body = `${base}-${i}-body`;
+        return (
+          <div key={item.value} className="lt-disclosure-item" data-open={isOpen || undefined}>
+            <h3 className="lt-disclosure-head">
+              <button type="button" id={head} aria-expanded={isOpen} aria-controls={body} onClick={() => toggle(item.value)}>
+                {item.title}
+              </button>
+            </h3>
+            {isOpen ? (
+              <div id={body} role="region" aria-labelledby={head} className="lt-disclosure-body">
+                {item.body}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -187,6 +256,54 @@ export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTM
       <input {...input} type="checkbox" />
       <span>{label}</span>
     </label>
+  );
+}
+
+/**
+ * A modal dialog in the middle of the screen: a review before a step that cannot be undone, or one short task. It is
+ * open while it is drawn (the caller decides when it shows and owns its own submission), keeps focus inside, and closes
+ * on Escape or its Close button by calling `onClose`. Built on the native <dialog> element, named by its title.
+ */
+export function Dialog({
+  title,
+  onClose,
+  closeLabel,
+  children,
+}: {
+  title: React.ReactNode;
+  onClose: () => void;
+  closeLabel: string;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLDialogElement>(null);
+  const titleId = React.useId();
+  React.useEffect(() => {
+    const d = ref.current;
+    if (!d || d.open) return;
+    // A host without modal dialogs (an older engine, a test DOM) still shows it, in the flow.
+    if (typeof d.showModal === 'function') d.showModal();
+    else d.setAttribute('open', '');
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="lt-dialog"
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <header className="lt-sheet-head">
+        <h2 id={titleId} className="lt-sheet-title">
+          {title}
+        </h2>
+        <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} onClick={onClose}>
+          ×
+        </button>
+      </header>
+      <div className="lt-sheet-body">{children}</div>
+    </dialog>
   );
 }
 

@@ -3,19 +3,20 @@ import { type AcademyPublicHubLesson } from '@intafaced/contracts/academy-catalo
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
-import { EmptyState, Loading, Panel } from '../../shared/ui';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref } from './academy-lms';
-import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
+import { kindLabel, pathLabel } from './academy-labels';
+import { AcademyRefusal } from './academy-refusal';
 import { priceText } from './academy-course-words';
-import './academy-public.css';
+import { EmptyNote, Section, Waiting } from './volt-parts';
 import { ACADEMY_PUBLIC_HUB } from '@intafaced/contracts/academy-public-hub-procedures';
 import { ACADEMY_PUBLIC_COURSES } from '@intafaced/contracts/academy-public-courses-procedures';
 import { ACADEMY_PUBLIC_AUTHORED_COURSES } from '@intafaced/contracts/academy-public-authored-courses-procedures';
 
 /**
- * The hub above the five tabs on `/academy` (AC-articles-01): the featured slot holds only what staff chose, and says
- * nothing is featured otherwise; the news block needs a news data feed and shows that notice, never a headline.
+ * The hub above the five tabs on `/academy` (AC-articles-01), drawn with the kit: the featured slot holds only what staff
+ * chose, and says nothing is featured otherwise; the news block needs a news data feed and shows that notice, never a
+ * headline.
  */
 export function AcademyHub() {
   const api = useApi();
@@ -24,18 +25,18 @@ export function AcademyHub() {
   const featured = hub.resource.status === 'ready' ? hub.resource.data.featured : null;
   const lesson = hub.resource.status === 'ready' ? hub.resource.data.lesson : null;
   return (
-    <div className="more-columns" data-academy-hub="true">
-      <Panel title={t('hubFeatured')}>
+    <div className="lt-stack" data-academy-hub="true">
+      <Section title={t('hubFeatured')} className="lt-stack">
         {hub.resource.status === 'loading' ? (
-          <Loading />
+          <Waiting />
         ) : hub.resource.status === 'failed' ? (
           <AcademyRefusal failure={hub.resource.failure} retry={hub.reload} />
         ) : featured ? (
-          <article className="academy-lms-card">
-            <a className="academy-learning-link" href={`/academy/${encodeURIComponent(featured.slug)}`} lang="und">
+          <article className="lt-stack">
+            <a className="lt-link lt-link-alone" href={`/academy/${encodeURIComponent(featured.slug)}`} lang="und">
               {featured.title}
             </a>
-            <span data-testid="academy-lms-meta" className="academy-lms-meta">
+            <span data-testid="academy-lms-meta" className="lt-actions lt-hint">
               <span>{pathLabel(t, featured.path)}</span>
               <span>{kindLabel(t, featured.kind)}</span>
               <span>
@@ -43,7 +44,7 @@ export function AcademyHub() {
               </span>
             </span>
             {featured.summary && (
-              <p className="muted" lang="und">
+              <p className="lt-hint" lang="und">
                 {featured.summary}
               </p>
             )}
@@ -51,12 +52,12 @@ export function AcademyHub() {
         ) : lesson ? (
           <FeaturedLessonCard lesson={lesson} />
         ) : (
-          <EmptyState title={t('hubNothingFeatured')} />
+          <EmptyNote title={t('hubNothingFeatured')} />
         )}
-      </Panel>
-      <Panel title={t('hubNews')}>
+      </Section>
+      <Section title={t('hubNews')}>
         <ServiceOffNotice code="feed.news" action={t('hubNewsAction')} role="status" />
-      </Panel>
+      </Section>
     </div>
   );
 }
@@ -68,17 +69,17 @@ export function AcademyHub() {
 export function FeaturedLessonCard({ lesson }: { lesson: AcademyPublicHubLesson }) {
   const { Copy } = copy.useCopy();
   return (
-    <article className="academy-lms-card" data-featured-lesson="true">
+    <article className="lt-stack" data-featured-lesson="true">
       <h3 lang="und">{lesson.title}</h3>
-      <p className="muted">
+      <p className="lt-hint">
         <Copy k="hubLessonFrom" params={{ course: lesson.courseTitle }} />
       </p>
       {lesson.courseSlug ? (
-        <a className="academy-learning-link" href={academyCourseHref(lesson.courseSlug)}>
+        <a className="lt-link lt-link-alone" href={academyCourseHref(lesson.courseSlug)}>
           <Copy k="hubLessonOpen" />
         </a>
       ) : (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="hubLessonNotOpen" />
         </p>
       )}
@@ -91,20 +92,20 @@ export function AcademyCourseCards() {
   const api = useApi();
   const { t, Copy } = copy.useCopy();
   const cards = useResource((signal) => api.call(ACADEMY_PUBLIC_COURSES, undefined, { signal }), 'public-courses');
-  if (cards.resource.status === 'loading') return <Loading />;
+  if (cards.resource.status === 'loading') return <Waiting />;
   if (cards.resource.status === 'failed') return <AcademyRefusal failure={cards.resource.failure} retry={cards.reload} />;
   if (cards.resource.data.length === 0)
     // Nothing is published only when no course staff made is either.
-    return <AcademyAuthoredCourseCards whenEmpty={<EmptyState title={t('publicNothingPublished')} />} />;
+    return <AcademyAuthoredCourseCards whenEmpty={<EmptyNote title={t('publicNothingPublished')} />} />;
   return (
     <>
-      <ul className="academy-public-cards" aria-label={t('publicCourses')}>
+      <ul className="lt-stack" aria-label={t('publicCourses')}>
         {cards.resource.data.map((card) => (
-          <li key={card.slug} className="academy-lms-card">
-            <a className="academy-learning-link" href={academyCourseHref(card.slug)}>
+          <li key={card.slug} className="lt-stack">
+            <a className="lt-link lt-link-alone" href={academyCourseHref(card.slug)}>
               {pathLabel(t, card.slug)}
             </a>
-            <span data-testid="academy-lms-meta" className="academy-lms-meta">
+            <span data-testid="academy-lms-meta" className="lt-actions lt-hint">
               <Copy k="courseItems" params={{ count: card.items, minutes: card.estimatedMinutes }} />
             </span>
           </li>
@@ -126,22 +127,22 @@ function AcademyAuthoredCourseCards({ whenEmpty = null }: { whenEmpty?: ReactNod
     (signal) => api.call(ACADEMY_PUBLIC_AUTHORED_COURSES, { limit: CARDS_PAGE }, { signal }),
     'public-authored-courses',
   );
-  if (cards.resource.status === 'loading') return <Loading />;
+  if (cards.resource.status === 'loading') return <Waiting />;
   if (cards.resource.status === 'failed') return <AcademyRefusal failure={cards.resource.failure} retry={cards.reload} />;
   if (cards.resource.data.length === 0) return <>{whenEmpty}</>;
   return (
-    <ul className="academy-public-cards" aria-label={t('publicAuthoredCourses')} data-academy-authored-cards="true">
+    <ul className="lt-stack" aria-label={t('publicAuthoredCourses')} data-academy-authored-cards="true">
       {cards.resource.data.map((card) => (
-        <li key={card.slug} className="academy-lms-card">
-          <a className="academy-learning-link" href={academyCourseHref(card.slug)} lang="und">
+        <li key={card.slug} className="lt-stack">
+          <a className="lt-link lt-link-alone" href={academyCourseHref(card.slug)} lang="und">
             {card.title}
           </a>
-          <span data-testid="academy-lms-meta" className="academy-lms-meta">
+          <span data-testid="academy-lms-meta" className="lt-actions lt-hint">
             <span>{t('authoredItems', { count: card.items })}</span>
             <span>{priceText(t, card)}</span>
           </span>
           {card.summary && (
-            <p className="muted" lang="und">
+            <p className="lt-hint" lang="und">
               {card.summary}
             </p>
           )}
