@@ -1337,6 +1337,23 @@ import {
   TAX_EXPORT_PACK,
 } from './tax-procedures.js';
 
+import { TOKEN_DISTRIBUTE_REVENUE } from './token-distribute-revenue-procedures.js';
+
+import {
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+} from './token-launch-procedures.js';
+
+import { TOKEN_NEXT_EMISSION_EPOCH } from './token-next-emission-epoch-procedures.js';
+
 import {
   TOKEN_ACCESS_OF,
   TOKEN_LIST_STAKES,
@@ -2763,6 +2780,23 @@ const part_tax_procedures: readonly ProcedureRecord[] = [
   TAX_EXPORT_PACK,
 ];
 
+const part_token_distribute_revenue_procedures: readonly ProcedureRecord[] = [TOKEN_DISTRIBUTE_REVENUE];
+
+const part_token_launch_procedures: readonly ProcedureRecord[] = [
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+];
+
+const part_token_next_emission_epoch_procedures: readonly ProcedureRecord[] = [TOKEN_NEXT_EMISSION_EPOCH];
+
 const part_token_procedures: readonly ProcedureRecord[] = [
   TOKEN_ACCESS_OF,
   TOKEN_LIST_STAKES,
@@ -3000,6 +3034,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_support_views_list_procedures,
   ...part_support_views_save_procedures,
   ...part_tax_procedures,
+  ...part_token_distribute_revenue_procedures,
+  ...part_token_launch_procedures,
+  ...part_token_next_emission_epoch_procedures,
   ...part_token_procedures,
   ...part_trade_builder_mode_procedures,
   ...part_trade_copy_procedures,
