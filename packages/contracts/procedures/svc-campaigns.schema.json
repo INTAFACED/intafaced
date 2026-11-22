@@ -2683,7 +2683,7 @@
           "kind": {
             "default": "cash",
             "type": "string",
-            "enum": ["cash", "fee_saver"]
+            "enum": ["cash", "fee_saver", "fee_rebate"]
           },
           "feeSaver": {
             "default": null,
@@ -2703,6 +2703,31 @@
                   }
                 },
                 "required": ["discountBps", "orders"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feeRebate": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "rebateBps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000
+                  },
+                  "delaySeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 31536000
+                  }
+                },
+                "required": ["rebateBps", "delaySeconds"],
                 "additionalProperties": false
               },
               {
@@ -2757,6 +2782,7 @@
           "face",
           "kind",
           "feeSaver",
+          "feeRebate",
           "state",
           "issuedBy",
           "issuedAt",
@@ -2849,7 +2875,7 @@
             "kind": {
               "default": "cash",
               "type": "string",
-              "enum": ["cash", "fee_saver"]
+              "enum": ["cash", "fee_saver", "fee_rebate"]
             },
             "feeSaver": {
               "default": null,
@@ -2869,6 +2895,31 @@
                     }
                   },
                   "required": ["discountBps", "orders"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "feeRebate": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "rebateBps": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10000
+                    },
+                    "delaySeconds": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 31536000
+                    }
+                  },
+                  "required": ["rebateBps", "delaySeconds"],
                   "additionalProperties": false
                 },
                 {
@@ -2923,6 +2974,7 @@
             "face",
             "kind",
             "feeSaver",
+            "feeRebate",
             "state",
             "issuedBy",
             "issuedAt",
@@ -8932,7 +8984,7 @@
           "kind": {
             "default": "cash",
             "type": "string",
-            "enum": ["cash", "fee_saver"]
+            "enum": ["cash", "fee_saver", "fee_rebate"]
           },
           "feeSaver": {
             "default": null,
@@ -8981,6 +9033,67 @@
                 "type": "null"
               }
             ]
+          },
+          "feeRebate": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "rebateBps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000
+                  },
+                  "delaySeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "accruals": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "sequence": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "fillId": {
+                          "type": "string"
+                        },
+                        "builderFee": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                        },
+                        "filledAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "payableAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        }
+                      },
+                      "required": ["sequence", "fillId", "builderFee", "amount", "filledAt", "payableAt"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["rebateBps", "delaySeconds", "accruals"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -8997,7 +9110,8 @@
           "expiredAt",
           "redemptions",
           "kind",
-          "feeSaver"
+          "feeSaver",
+          "feeRebate"
         ],
         "additionalProperties": false
       },
@@ -9234,7 +9348,7 @@
                 "kind": {
                   "default": "cash",
                   "type": "string",
-                  "enum": ["cash", "fee_saver"]
+                  "enum": ["cash", "fee_saver", "fee_rebate"]
                 },
                 "feeSaver": {
                   "default": null,
@@ -9283,6 +9397,67 @@
                       "type": "null"
                     }
                   ]
+                },
+                "feeRebate": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "rebateBps": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 10000
+                        },
+                        "delaySeconds": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "accruals": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "sequence": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "fillId": {
+                                "type": "string"
+                              },
+                              "builderFee": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                              },
+                              "amount": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                              },
+                              "filledAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "payableAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              }
+                            },
+                            "required": ["sequence", "fillId", "builderFee", "amount", "filledAt", "payableAt"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["rebateBps", "delaySeconds", "accruals"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -9299,7 +9474,8 @@
                 "expiredAt",
                 "redemptions",
                 "kind",
-                "feeSaver"
+                "feeSaver",
+                "feeRebate"
               ],
               "additionalProperties": false
             }
@@ -9693,7 +9869,7 @@
               "kind": {
                 "default": "cash",
                 "type": "string",
-                "enum": ["cash", "fee_saver"]
+                "enum": ["cash", "fee_saver", "fee_rebate"]
               },
               "feeSaver": {
                 "default": null,
@@ -9742,6 +9918,67 @@
                     "type": "null"
                   }
                 ]
+              },
+              "feeRebate": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "rebateBps": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10000
+                      },
+                      "delaySeconds": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "accruals": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "sequence": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "fillId": {
+                              "type": "string"
+                            },
+                            "builderFee": {
+                              "type": "string",
+                              "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                            },
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                            },
+                            "filledAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "payableAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            }
+                          },
+                          "required": ["sequence", "fillId", "builderFee", "amount", "filledAt", "payableAt"],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": ["rebateBps", "delaySeconds", "accruals"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -9758,7 +9995,8 @@
               "expiredAt",
               "redemptions",
               "kind",
-              "feeSaver"
+              "feeSaver",
+              "feeRebate"
             ],
             "additionalProperties": false
           },
@@ -9877,9 +10115,34 @@
                 "type": "null"
               }
             ]
+          },
+          "feeRebate": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "rebateBps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000
+                  },
+                  "delaySeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 31536000
+                  }
+                },
+                "required": ["rebateBps", "delaySeconds"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "required": ["claimable", "campaignName", "face", "claimBy", "useBy", "feeSaver"],
+        "required": ["claimable", "campaignName", "face", "claimBy", "useBy", "feeSaver", "feeRebate"],
         "additionalProperties": false
       },
       "samples": [

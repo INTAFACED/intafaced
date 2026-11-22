@@ -1,0 +1,83 @@
+[
+  {
+    "file": "tooling/scripts/ci-checks.test.mjs",
+    "target": "../../tooling/ci/assert-test-db-env.mjs",
+    "verdict": "rewrite",
+    "asserts": "Every database URL CI's own probe requires is one the builder's run takes from CI's test-infra action, so a local run never fails or skips a database suite CI runs.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/ci-checks.test.mjs#CI's database environment is read from the test-infra action, every per-service URL included"
+    },
+    "why": "Runs assert-test-db-env.mjs as CI does (CI=true, psql a stand-in that answers): with no URLs it names each key it requires, and with ciTestEnv's environment it passes with none unset."
+  },
+  {
+    "file": "tooling/scripts/ci-checks.test.mjs",
+    "target": "./ci-checks.mjs",
+    "verdict": "rewrite",
+    "asserts": "The packages a builder's run tests, builds and typechecks are CI's own selection, made against the branch's merge-base with origin/main.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/ci-checks.test.mjs#the package selection is CI's own functions, called with the merge-base"
+    },
+    "why": "Runs ci-checks.mjs whole in a planted checkout one commit past origin/main, with pnpm a stand-in that logs its calls, and asserts turbo's test, build and typecheck runs each get --filter=...[<merge-base sha>]."
+  },
+  {
+    "file": "tooling/scripts/ci-checks.test.mjs",
+    "target": "./ci-checks.mjs",
+    "verdict": "rewrite",
+    "asserts": "No check the run starts inherits a hook's GIT_* variables, so a tooling test's temp repo never writes into the real one.",
+    "guard": { "kind": "test", "ref": "tooling/scripts/ci-checks.test.mjs#the checks never inherit a hook's GIT_* variables" },
+    "why": "The same planted run, started with a GIT_* variable set: every check it starts (gates, look drift, prettier, turbo, psql, the database probe) logs the GIT_* names it was handed, and each list is empty."
+  },
+  {
+    "file": "tooling/scripts/ci-checks.test.mjs",
+    "target": "./ci-checks.mjs",
+    "verdict": "rewrite",
+    "asserts": "Main's look-drift.mjs, written to a temp folder, really runs when the tmpdir is a symlink (the Mac's is), instead of exiting 0 having done nothing.",
+    "guard": { "kind": "test", "ref": "tooling/scripts/ci-checks.test.mjs#look drift runs main's script from a real path" },
+    "why": "The planted run sets TMPDIR to a symlink and plants a main look-drift.mjs that logs only when it runs as itself: it logs once, from the real folder."
+  },
+  {
+    "file": "tooling/scripts/order-path-cx8-boot.test.mjs",
+    "target": "./order-path-cx8-boot.mjs",
+    "verdict": "rewrite",
+    "asserts": "Matching, ledger, identity and trade each boot with their D-44 smoke integers, so none boots on a blank that its schema refuses.",
+    "guard": { "kind": "test", "ref": "tooling/scripts/order-path-cx8-boot.test.mjs#each booted process spreads that role env" },
+    "why": "Runs the boot script whole against stand-in services that log the environment they were started with, and asserts each role's process got every cx8RoleEnv value."
+  },
+  {
+    "file": "tooling/scripts/order-path-cx8-boot.test.mjs",
+    "target": "./order-path-cx8-boot.mjs",
+    "verdict": "rewrite",
+    "asserts": "Matching starts only after the two smoke founders are enrolled and is given exactly their two user ids as its operators (#4724).",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/order-path-cx8-boot.test.mjs#matching boots after founder enrolment and is given exactly the two smoke founder ids"
+    },
+    "why": "In the same boot, the enrolment stand-in prints two founders: matching's start comes after the enrolment's, once, with MATCHING_OPERATOR_IDS exactly their ids, and identity's second boot pins that pair."
+  },
+  {
+    "file": "tooling/scripts/order-path-cx8-boot.test.mjs",
+    "target": "./order-path-cx8-boot.mjs",
+    "verdict": "rewrite",
+    "asserts": "svc-bank boots with the custody switch the rig's svc-ledger runs, and no second key or later spread silently overrides it (project-state#2520).",
+    "guard": { "kind": "test", "ref": "tooling/scripts/order-path-cx8-boot.test.mjs#svc-bank is given the custody switch once" },
+    "why": "In the same boot with CX8_AFTER set, svc-bank starts once and its LEDGER_CUSTODY_LAYER equals svc-ledger's (on), as do matching's and trade's: a second key or a spread after it that changed the value fails."
+  },
+  {
+    "file": "tooling/scripts/verify-app.test.mjs",
+    "target": "./verify-app.mjs",
+    "verdict": "rewrite",
+    "asserts": "A verify drive, whole or of steps, and a look record nothing in .jr/run.json, so no drive ever stands for the journey's first-push record (project-state #3021).",
+    "guard": { "kind": "test", "ref": "tooling/scripts/verify-app.test.mjs#run.json: a drive, whole or of steps, records nothing" },
+    "why": "Runs verify-app's main for drive (whole and #1) and look in a planted checkout with a live slot, a stand-in stack and a passing Playwright stand-in: each ends PASS with its evidence and .jr/run.json does not exist, while realIo().record, the one writer, does write it there."
+  },
+  {
+    "file": "tooling/codemod/call-records/call-records.test.mjs",
+    "target": "./run.mjs",
+    "verdict": "rewrite",
+    "asserts": "A re-run whose records already exist skips the file-list steps and still runs the rest.",
+    "guard": { "kind": "test", "ref": "tooling/codemod/call-records/call-records.test.mjs#a re-run whose records already exist" },
+    "why": "Not source text: the test copied run.mjs into a sandbox to execute it and asserts on the calls it makes; it now copies the file with copyFileSync, which moves the file to run it and reads none of its words."
+  }
+]
