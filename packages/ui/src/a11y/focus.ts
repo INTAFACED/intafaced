@@ -50,7 +50,7 @@ export function focusScroll(
 }
 
 /** Whether `el` shows keyboard focus; where the browser cannot tell (no `:focus-visible`), it counts as keyboard focus. */
-export function focusIsVisible(el: Pick<Element, 'matches'>): boolean {
+export function focusIsVisible(el: { matches(selectors: string): boolean }): boolean {
   try {
     return el.matches(':focus-visible');
   } catch {
