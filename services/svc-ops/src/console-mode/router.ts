@@ -1,10 +1,10 @@
 import { TRPCError } from '@trpc/server';
-import { consoleModeSchema, consoleModeSetInputSchema, consoleModeSetOutputSchema } from '@intafaced/contracts/ops-console-mode';
-import { router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { router } from '@intafaced/contracts/trpc';
 import { OpsError } from '../codes.js';
 import type { ConsoleModeDesk } from './desk.js';
-
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
+import { OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET } from '@intafaced/contracts/ops-console-mode-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 function deskError(err: unknown): never {
   if (err instanceof OpsError) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.code} — ${err.message}`, cause: err });
@@ -17,24 +17,27 @@ function deskError(err: unknown): never {
  */
 export function createConsoleModeRouter(desk: ConsoleModeDesk) {
   return router({
-    get: scopedProcedure('admin:read', guards)
-      .output(consoleModeSchema)
-      .query(async () => {
+    get: mountRecord(
+      OPS_CONSOLE_MODE_GET,
+      async () => {
         try {
           return await desk.get();
         } catch (err) {
           return deskError(err);
         }
-      }),
-    set: scopedProcedure('admin:write', guards)
-      .input(consoleModeSetInputSchema)
-      .output(consoleModeSetOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+      },
+      opsRefusal,
+    ),
+    set: mountRecord(
+      OPS_CONSOLE_MODE_SET,
+      async ({ ctx, input }) => {
         try {
           return await desk.set(ctx.principal.userId, input);
         } catch (err) {
           return deskError(err);
         }
-      }),
+      },
+      opsRefusal,
+    ),
   });
 }

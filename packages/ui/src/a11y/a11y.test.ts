@@ -215,6 +215,20 @@ describe('focus not obscured', () => {
       ]),
     ).toEqual({ top: 117.5, bottom: 88 });
     expect(OBSCURED_TOP_VAR).toBe('--a11y-obscured-top');
+  });
+
+  it('counts a fixed bar from its edge of the screen, so a dock floating off the edge covers its gap', () => {
+    // The phone dock: 56 high, floating 14 above the bottom, reaches 70 from it. The fixed top bar reaches 56; the
+    // sticky risk band stacks its 40 under it.
+    expect(
+      obscuredInsets([
+        { edge: 'top', height: 56, reach: 56 },
+        { edge: 'top', height: 40 },
+        { edge: 'bottom', height: 56, reach: 70 },
+        { edge: 'bottom', height: 60, reach: 60 },
+        { edge: 'bottom', height: 10, reach: Number.NaN },
+      ]),
+    ).toEqual({ top: 96, bottom: 70 });
     expect(OBSCURED_BOTTOM_VAR).toBe('--a11y-obscured-bottom');
   });
 });
