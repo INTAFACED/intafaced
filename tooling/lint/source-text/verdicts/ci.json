@@ -1,0 +1,100 @@
+[
+  {
+    "file": "tooling/ci/journey-reach-map.test.mjs",
+    "target": "../../tooling/ci/journey-reach-map.mjs",
+    "verdict": "rewrite",
+    "asserts": "verify passes --workspace through to the build it compares against, and that build reads its money list and other workspace inputs from the checkout it is given, so a pull request adding a money package holds its own map.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/journey-reach-map.test.mjs#planted: verify reads the workspace inputs from the checkout it is given"
+    },
+    "why": "Runs journey-reach-map.mjs build and verify as CI runs them, with a stand-in gh serving three whole main runs at this HEAD: the map verifies against this checkout and fails against a checkout with a new money package, naming money among only the workspace-read keys."
+  },
+  {
+    "file": "tooling/ci/journey-seal.test.mjs",
+    "target": "./journey-seal.mjs",
+    "verdict": "rewrite",
+    "asserts": "The seal's GitHub reads (api() and text()) go through getTried, so a dropped request is tried again while a refusal still fails the seal closed.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/journey-seal.test.mjs#planted: the seal reads GitHub through getTried, not one bare fetch"
+    },
+    "why": "Calls makeIo's mainRuns() and text() with fetch dropping each address once: both answer after one retry; a 403 is asked once and throws, a 404 file is null."
+  },
+  {
+    "file": "tooling/ci/journey-verdict.test.mjs",
+    "target": "./journey-verdict.mjs",
+    "verdict": "rewrite",
+    "asserts": "A run off main is held to main's runs its head contains (GitHub's compare against the newest history run's commit), while the history cap and the stored-history search count every run on main.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/journey-verdict.test.mjs#fetchInputs holds a run off main only to main's runs its head contains"
+    },
+    "why": "Calls fetchInputs with its real gh readers against a stand-in gh: 151 uncovered runs refuse before any compare although the head holds one; with a stored file in the newest (left-out) run, the one compare asked is head...newest and nothing more downloads."
+  },
+  {
+    "file": "tooling/ci/journey-verdict.test.mjs",
+    "target": "./journey-verdict.mjs",
+    "verdict": "rewrite",
+    "asserts": "A history run with no artifact or no report.json is skipped, any other failed download is red, and the named run's report stays required.",
+    "guard": { "kind": "test", "ref": "tooling/ci/journey-verdict.test.mjs#fetchInputs reads the history with the optional reader" },
+    "why": "Calls fetchInputs against a stand-in gh: the two missing cases are skipped, a 403 is a problem, and the named run missing its artifact or its report.json is a problem with null named."
+  },
+  {
+    "file": "tooling/ci/journey-verdict.test.mjs",
+    "target": "./journey-verdict.mjs",
+    "verdict": "rewrite",
+    "asserts": "The stored pass history is read from HISTORY_FILE in HISTORY_ARTIFACT so only uncovered runs download, and main() writes the next one only on main from a whole read.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/journey-verdict.test.mjs#fetchInputs finds the stored history among main's own history runs and writes only on main"
+    },
+    "why": "Calls fetchInputs and asserts the artifacts gh was asked for and the entries; runs journey-verdict.mjs --fetch --history-out on main (written, with this run's entry), on a branch and with a refused history read (not written)."
+  },
+  {
+    "file": "tooling/ci/journey-verdict.test.mjs",
+    "target": "./journey-verdict.mjs",
+    "verdict": "rewrite",
+    "asserts": "downloadReport gives null only for a missing artifact or file when optional; a refusal, a rate limit or a server error throws, and a required report throws when missing.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/journey-verdict.test.mjs#downloadReport gives null only for a missing artifact, so a refused download of the list stays red"
+    },
+    "why": "Calls downloadReport with a stand-in for execFileSync answering each case, and asserts the value or the error."
+  },
+  {
+    "file": "tooling/ci/journey-verdict.test.mjs",
+    "target": "../../tooling/ci/journey-verdict.mjs",
+    "verdict": "rewrite",
+    "asserts": "The verdict run with --fetch checks the clone has full history before reading main's set-aside list, so a shallow clone is red, never a short history.",
+    "guard": { "kind": "test", "ref": "tooling/ci/journey-verdict.test.mjs#the verdict job has full history, and a shallow clone fails" },
+    "why": "Runs journey-verdict.mjs --fetch with a git that calls the clone shallow: exit 1 naming fetch-depth: 0; with real git the list is carried on. The workflow's fetch-depth read stays."
+  },
+  {
+    "file": "tooling/ci/judge-down.test.mjs",
+    "target": "./judge-down.mjs",
+    "verdict": "rewrite",
+    "asserts": "Every judge-down.mjs command exits 0 when its GitHub call fails, so the Judge down marker step can't turn into a failed step.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/judge-down.test.mjs#the workflow: on down the verdict steps are skipped, Judge down is the marker"
+    },
+    "why": "Runs each of the eight commands with fetch answering 403: each exits 0 with its ::warning:: line; the workflow and permissions assertions stay as they were."
+  },
+  {
+    "file": "tooling/ci/judge-down.test.mjs",
+    "target": "./judge-down.mjs",
+    "verdict": "rewrite",
+    "asserts": "Each issue judge-down.mjs opens carries only its own label, none that pages anyone.",
+    "guard": { "kind": "test", "ref": "tooling/ci/judge-down.test.mjs#the judge-down issue pages no one: it carries only its own label" },
+    "why": "Runs down issue, second key and merged issue with no issue open and asserts each POSTed issue's title and exact labels."
+  },
+  {
+    "file": "tooling/ci/post-merge-trust.test.mjs",
+    "target": "./post-merge-trust.mjs",
+    "verdict": "rewrite",
+    "asserts": "Every path that opens an issue for a red main gives it its labels.",
+    "guard": { "kind": "test", "ref": "tooling/ci/post-merge-trust.test.mjs#issue labels: every issue for a red main opens labelled" },
+    "why": "Runs post-merge-trust.mjs with DRY_RUN=1 through each opening path (failed twice, untracked red, time limit, lost shard, existing issue) and asserts every issue POSTed and every label added."
+  }
+]
