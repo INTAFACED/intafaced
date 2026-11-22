@@ -115,6 +115,7 @@ const BLOCKS = [
   'rail',
   'icons',
   'chart',
+  'time-line',
   'candles',
   'book',
   'people',
@@ -176,6 +177,23 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     ).toHaveLength(32);
     expect(small[1]!.querySelector('[role="status"]')?.textContent, 'its honest empty line').toMatch(/^No trades/);
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
+    const lines = block('time-line').querySelectorAll('figure.lt-timeline');
+    expect(lines, 'the line over time, drawn and empty').toHaveLength(2);
+    expect(
+      lines[0]!.querySelectorAll('svg[data-chart="kit-time-line"] [data-run]'),
+      'two runs, broken by the hours with no figure',
+    ).toHaveLength(2);
+    expect(lines[0]!.querySelector('.lt-timeline-zero'), 'its zero line').not.toBeNull();
+    const plot = lines[0]!.querySelector<HTMLElement>('.lt-timeline-plot[tabindex="0"]');
+    expect(plot, 'its plot takes the keyboard').not.toBeNull();
+    await act(async () => {
+      plot!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    });
+    expect(lines[0]!.querySelector('[role="status"]')?.textContent, 'the readout names the last point').toMatch(
+      /^21 Nov 23:00 UTC: \$.+ TEST$/,
+    );
+    expect(lines[0]!.querySelector('.lt-timeline-cursor'), 'and the cursor marks it').not.toBeNull();
+    expect(lines[1]!.querySelector('[role="status"]')?.textContent, 'its honest empty line').toMatch(/^No points/);
   });
 
   it('/kit shows the markets list: chips filter, headers sort with aria-sort, and only the rows near the view are drawn', async () => {
