@@ -11,7 +11,9 @@ import {
   checkedCall,
   importedFrom,
   importsFile,
+  holdCallersOnly,
   portInFlight,
+  portRefusal,
   pruneImports,
   pruneReExports,
   pruneBuilders,
@@ -48,6 +50,84 @@ test('a service whose Rust port is in flight is refused, by name, before anythin
   assert.match(portInFlight('svc-agents', root) ?? '', /svc-agents's Rust port is in flight/);
   assert.equal(portInFlight('svc-bank', root), null, 'no crate yet: its port has not started');
   assert.equal(portInFlight('svc-academy', root), null, 'switched: its TypeScript is gone, the door path (--from-rev) runs');
+  // Mid-port, only --callers-only runs; and --callers-only runs only mid-port.
+  assert.equal(portRefusal({ service: 'svc-agents' }, root)?.code, 3);
+  assert.equal(portRefusal({ service: 'svc-agents', callersOnly: true }, root), null);
+  assert.match(portRefusal({ service: 'svc-bank', callersOnly: true }, root)?.why ?? '', /svc-bank's is not: run without it/);
+  // Planted: a callers-only run that touched a service or its crate fails, naming the file; one that touched only callers and contracts does not.
+  assert.throws(() => holdCallersOnly([join(root, 'services/svc-agents/src/router.ts')], root), /services\/svc-agents\/src\/router\.ts/);
+  assert.throws(() => holdCallersOnly([join(root, 'crates/svc-agents/src/door/calls.rs')], root), /crates\/svc-agents/);
+  holdCallersOnly([join(root, 'apps/customer/src/a.ts'), join(root, 'packages/contracts/src/agents-own-procedures.ts')], root);
+});
+
+test('--callers-only moves a caller of a service mid-port to a record written from its router, leaves a near case, and never touches the service or its crate', () => {
+  // The codemod, copied into a small repo: a service whose crate sits beside it, a helper its router declares, and two callers.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const files = {
+    'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-agents/src/router.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().min(1) });',
+      'const agentOut = z.object({ id: z.string(), name: z.string() });',
+      'export function createAgentsRouter() {',
+      "  return router({ own: router({ get: scopedProcedure('agents:read').input(idInput).output(agentOut).query(({ input }) => get(input)) }) });",
+      '}',
+      '',
+    ].join('\n'),
+    'crates/svc-agents/src/lib.rs': '// the port\n',
+    'apps/customer/src/features/agents/agent.ts': [
+      "import { z } from 'zod';",
+      'const agent = z.object({ id: z.string(), name: z.string() });',
+      "export const a = (api) => api.query('agents', 'own.get', { id: 'x' }, agent);",
+      "export const b = (api) => api.query('agents', 'own.gone', { id: 'x' }, agent);",
+      '',
+    ].join('\n'),
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  mkdirSync(join(root, 'packages/contracts/src'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  const run = (...a) => execFileSync('node', [index, '--module', 'agents', ...a], { cwd: root, encoding: 'utf8', stdio: 'pipe' });
+  // Without the mode the service is still refused, by name, exit 3.
+  assert.throws(
+    () => run('--write'),
+    (e) => e.status === 3 && /Rust port is in flight/.test(e.stderr),
+  );
+  run('--callers-only', '--write', '--json', join(root, '.git/summary.json'));
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.records, ['AGENTS_OWN_GET']);
+  assert.deepEqual(
+    summary.hand.map((h) => h.call),
+    ['agents own.gone'],
+  );
+  const caller = readFileSync(join(root, 'apps/customer/src/features/agents/agent.ts'), 'utf8');
+  assert.match(caller, /export const a = \(api\) => api\.call\(AGENTS_OWN_GET, \{ id: ["']x["'] \}\);/);
+  assert.match(
+    caller,
+    /export const b = \(api\) => api\.query\(["']agents["'], ["']own\.gone["']/,
+    'the near case, a path the router has not, stays',
+  );
+  // The service and its crate are as they were: the router keeps its own schemas and mounts nothing.
+  assert.equal(git('status', '--porcelain', '--', 'services', 'crates'), '');
+  // The record's input and answer are the router's own declarations, copied as written.
+  const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
+  assert.match(shared, /export const idInput = z\.object\(\{ id: z\.string\(\)\.min\(1\) \}\);/);
+  assert.match(shared, /export const agentOut = z\.object\(\{ id: z\.string\(\), name: z\.string\(\) \}\);/);
+  const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
+  assert.match(record, /input: idInput,\s+output: agentOut,/);
+  assert.match(record, /access: \{ caller: ["']scope["'], scope: ["']agents:read["'] \}/);
 });
 
 test('the report plans a door service from the commit before its TypeScript was deleted, refuses one in flight, and skips a name no service has', async () => {

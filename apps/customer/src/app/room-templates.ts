@@ -1,6 +1,7 @@
 /**
- * Which of the eight Volt kit templates (`@intafaced/ui/lit/templates`) each customer room is built from, and
- * whether it has moved onto it yet. Stage C of the redesign moves rooms one by one; done is every room migrated.
+ * Which of the eight Volt kit templates (`@intafaced/ui/lit/templates`) each customer room is built from. Stage C of
+ * the redesign moves rooms one by one; a room that has moved says so in its own screen file, `// volt-room: <route>`
+ * (volt-count.ts), never here, so no batch edits this shared table.
  * Seeded from the redesign's room inventory (26 Oct 2026) plus the routes it
  * missed. `room-templates.test.ts` keeps it in step with `rooms` in navigation.ts and the portal's PORTAL_ROOMS.
  * A new room starts here through the room scaffold (`pnpm room:new`), on a template from birth.
@@ -13,11 +14,6 @@ export type NotARoom = 'operator' | 'fallback';
 
 export interface RoomTemplate {
   template: TemplateId;
-  /**
-   * The room renders through its template: the screen file (under apps/customer/src) that does. Set by the room
-   * scaffold for a new room, or by the stage C PR that moves an old one.
-   */
-  migrated?: { file: string };
 }
 
 export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> = {
@@ -31,7 +27,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/cannot-sign-in': { template: 'flow' },
   '/recover-account': { template: 'flow' },
   '/freeze/confirm': { template: 'flow' },
-  '/appeal': { template: 'flow', migrated: { file: 'features/public/AppealSignedOut.tsx' } },
+  '/appeal': { template: 'flow' },
   '/help': { template: 'reading' },
   '/helpdetail': { template: 'reading' },
   '/help/official-channels': { template: 'reading' },
@@ -84,10 +80,10 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/transfers': { template: 'flow' },
   '/bank/direct-debits': { template: 'settings' },
   '/bank/recovery': { template: 'flow' },
-  '/bank/safety/complaint': { template: 'flow', migrated: { file: 'features/money/complaint/ComplaintRoom.tsx' } },
-  '/bank/safety/scam': { template: 'flow', migrated: { file: 'features/money/scam/ScamReportRoom.tsx' } },
-  '/bank/safety/lost-phone': { template: 'flow', migrated: { file: 'features/money/lost-phone/LostPhoneRoom.tsx' } },
-  '/bank/safety/bereavement': { template: 'flow', migrated: { file: 'features/money/bereavement/BereavementRoom.tsx' } },
+  '/bank/safety/complaint': { template: 'flow' },
+  '/bank/safety/scam': { template: 'flow' },
+  '/bank/safety/lost-phone': { template: 'flow' },
+  '/bank/safety/bereavement': { template: 'flow' },
   '/bank/calendar': { template: 'monitor' },
   '/bank/statements': { template: 'flow' },
   '/bank/limits': { template: 'settings' },
@@ -99,12 +95,12 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/loans': { template: 'catalogue' },
   '/bank/loans/apply': { template: 'flow' },
   '/bank/loans/detail': { template: 'settings' },
-  '/bank/loans/overdraft': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
-  '/bank/loans/personal': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
-  '/bank/loans/schedule': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
-  '/bank/cards/credit-card': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
-  '/bank/cards/credit': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
-  '/bank/business/loan': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
+  '/bank/loans/overdraft': { template: 'flow' },
+  '/bank/loans/personal': { template: 'flow' },
+  '/bank/loans/schedule': { template: 'flow' },
+  '/bank/cards/credit-card': { template: 'flow' },
+  '/bank/cards/credit': { template: 'flow' },
+  '/bank/business/loan': { template: 'flow' },
   '/bank/cards': { template: 'settings' },
   '/bank/cards/new': { template: 'flow' },
   '/bank/ramps': { template: 'settings' },
@@ -113,16 +109,16 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/ramps/cash-out': { template: 'flow' },
   '/bank/analytics': { template: 'monitor' },
   '/bank/business': { template: 'settings' },
-  '/bank/business/team': { template: 'flow', migrated: { file: 'features/money/business-team/BusinessTeamRoom.tsx' } },
-  '/bank/business/spend': { template: 'flow', migrated: { file: 'features/money/business-team/BusinessTeamRoom.tsx' } },
-  '/bank/business/payment': { template: 'flow', migrated: { file: 'features/money/business-team/BusinessTeamRoom.tsx' } },
-  '/bank/business/join': { template: 'flow', migrated: { file: 'features/money/business-team/BusinessTeamRoom.tsx' } },
-  '/bank/business/bills': { template: 'flow', migrated: { file: 'features/money/business-bills/BusinessBillsRoom.tsx' } },
-  '/bank/business/bill': { template: 'flow', migrated: { file: 'features/money/business-bills/BusinessBillsRoom.tsx' } },
-  '/bank/business/payouts': { template: 'flow', migrated: { file: 'features/money/business-payouts/BusinessPayoutsRoom.tsx' } },
-  '/bank/business/cards': { template: 'flow', migrated: { file: 'features/money/business-cards/BusinessCardsRoom.tsx' } },
-  '/bank/business/books': { template: 'flow', migrated: { file: 'features/money/business-books/BusinessBooksRoom.tsx' } },
-  '/bank/business/contractor-join': { template: 'flow', migrated: { file: 'features/money/business-payouts/BusinessPayoutsRoom.tsx' } },
+  '/bank/business/team': { template: 'flow' },
+  '/bank/business/spend': { template: 'flow' },
+  '/bank/business/payment': { template: 'flow' },
+  '/bank/business/join': { template: 'flow' },
+  '/bank/business/bills': { template: 'flow' },
+  '/bank/business/bill': { template: 'flow' },
+  '/bank/business/payouts': { template: 'flow' },
+  '/bank/business/cards': { template: 'flow' },
+  '/bank/business/books': { template: 'flow' },
+  '/bank/business/contractor-join': { template: 'flow' },
   '/trade': { template: 'catalogue' },
   '/trade/spot/:pair': { template: 'desk' },
   '/charts': { template: 'desk' },
@@ -376,8 +372,8 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/wallet/session-keys': { template: 'record-list' },
   '/wallet/accounts': { template: 'record-list' },
   '/wallet/safety': { template: 'reading' },
-  '/wallet/venue': { template: 'flow', migrated: { file: 'features/protocol/venue-wallet/VenueWalletRoom.tsx' } },
-  '/wallet/embedded': { template: 'flow', migrated: { file: 'features/protocol/embedded-wallet/EmbeddedWalletRoom.tsx' } },
+  '/wallet/venue': { template: 'flow' },
+  '/wallet/embedded': { template: 'flow' },
   '/wallet/groups/:groupId': { template: 'record-list' },
   '/chain': { template: 'monitor' },
   '/chain/blocks': { template: 'record-list' },
@@ -397,10 +393,10 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/*': 'fallback',
   '/protocol/*': 'fallback',
   '/wallet/*': 'fallback',
-  '/copy/lead/apply': { template: 'flow', migrated: { file: 'features/trade/lead-apply/LeadApplyRoom.tsx' } },
-  '/trade/analytics/:pair': { template: 'monitor', migrated: { file: 'features/trade/market-analytics/MarketAnalyticsRoom.tsx' } },
-  '/rulebook': { template: 'reading', migrated: { file: 'features/public/rulebook/RulebookRoom.tsx' } },
-  '/trade/screener': { template: 'record-list', migrated: { file: 'features/trade/screener/ScreenerRoom.tsx' } },
+  '/copy/lead/apply': { template: 'flow' },
+  '/trade/analytics/:pair': { template: 'monitor' },
+  '/rulebook': { template: 'reading' },
+  '/trade/screener': { template: 'record-list' },
 };
 
 /** Merchant portal pages behind `/pay/:page` and `/pay/:page/:child`. */
