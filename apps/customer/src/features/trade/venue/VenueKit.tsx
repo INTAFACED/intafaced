@@ -88,56 +88,8 @@ export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title
   );
 }
 
-/** Connect, the connected address and network, and the switch when the wallet is on another network. */
-export function WalletBar() {
-  const { t } = venueCopy.useCopy();
-  const wallet = useWallet();
-  return (
-    <section className="lt-panel" aria-label={t('Your wallet')} data-testid="venue-wallet">
-      <h2 className="lt-panel-title">{t('Your wallet')}</h2>
-      {wallet.status === 'connected' && wallet.address ? (
-        <>
-          <dl className="lt-kv">
-            <div>
-              <dt>{t('Connected address')}</dt>
-              <dd className="lt-num lt-end" data-testid="venue-wallet-address">
-                {wallet.address.toLowerCase()}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Network')}</dt>
-              <dd className="lt-num lt-end">{wallet.chainId ?? ''}</dd>
-            </div>
-          </dl>
-          {wallet.guard && !wallet.guard.ok ? (
-            <p role="alert">
-              {t('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <Button tone="primary" onClick={() => void wallet.switchNetwork()}>
-                {t('Switch network')}
-              </Button>
-            </p>
-          ) : null}
-          <Button tone="secondary" onClick={wallet.disconnect}>
-            {t('Disconnect')}
-          </Button>
-        </>
-      ) : wallet.wallets.length === 0 ? (
-        <p className="lt-quiet">{t('No wallet')}</p>
-      ) : (
-        wallet.wallets.map((entry) => (
-          <Button tone="primary" key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
-            {t('Connect wallet', { name: entry.info.name })}
-          </Button>
-        ))
-      )}
-      {wallet.problem ? (
-        <p className="lt-note lt-note-bad" role="alert">
-          {wallet.problem}
-        </p>
-      ) : null}
-    </section>
-  );
-}
+// The wallet panel is drawn from the Volt kit in its own file, so a room that shows it draws only from the kit.
+export { WalletBar } from './WalletBar';
 
 /** The connected wallet's address, lowercase, which is the venue account's owner; null until connected on the right network. */
 export function useOwner(): string | null {
