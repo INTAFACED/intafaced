@@ -231,6 +231,13 @@ fn mask(body: &str) -> String {
         }
         out = format!("{}<stack>{}", &out[..at + key.len()], &after[end..]);
     }
+    let reference = "Bank operation failed (ref ";
+    if let Some(at) = out.find(reference) {
+        let start = at + reference.len();
+        if let Some(len) = out[start..].find(')') {
+            out = format!("{}<ref>{}", &out[..start], &out[start + len..]);
+        }
+    }
     out
 }
 

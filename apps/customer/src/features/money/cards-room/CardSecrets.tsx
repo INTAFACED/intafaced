@@ -11,7 +11,8 @@ import { Button, Field } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
 import type { StepUpBegin } from '../../account';
 import { useBankRecord } from '../components';
-import { bankWrites, type cardSchema, type CardWalletTokens } from '../contracts';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { type cardSchema, type CardWalletTokens } from '../contracts';
 import { DisabledAction, Fact, ResourceView } from '../bank-settings/parts';
 import { Refusal } from './CardJourney';
 import { StepUpInline } from '../bank-settings/StepUpInline';
@@ -69,7 +70,7 @@ export function CardDetailsReveal({ card, offered }: { card: CardRecord; offered
   const words = useStepUpWords('whyDetails');
   const [asking, setAsking] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [shown, setShown] = useState<z.infer<(typeof bankWrites)['cards.reveal']> | null>(null);
+  const [shown, setShown] = useState<ProcedureOutput<typeof BANK_CARDS_REVEAL> | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   useDropAt(shown?.expiresAt ?? null, () => setShown(null));
   if (!offered?.details || card.status === 'closed') return <DisabledAction label={depth('detailsShow')} reason={depth('detailsReason')} />;
@@ -147,7 +148,7 @@ export function CardPinPanel({ card, offered }: { card: CardRecord; offered: Off
   const [pin, setPin] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const [shown, setShown] = useState<z.infer<(typeof bankWrites)['cards.pin.reveal']> | null>(null);
+  const [shown, setShown] = useState<ProcedureOutput<typeof BANK_CARDS_PIN_REVEAL> | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   useDropAt(shown?.expiresAt ?? null, () => setShown(null));
   if (!offered?.pin || card.status === 'closed') {

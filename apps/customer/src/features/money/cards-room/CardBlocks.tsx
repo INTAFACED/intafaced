@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { BANK_CARDS_CONTROLS_GET } from '@intafaced/contracts/bank-cards-procedures';
 import type { z } from 'zod';
 import type { ApiResult } from '../../../shared/api';
 import { Button, Field } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
-import { useBankRead } from '../components';
+import { useBankRecord } from '../components';
 import { bankWrites, type CardControls, type cardSchema } from '../contracts';
 import { ChannelSwitch, Panel, ResourceView } from '../bank-settings/parts';
 import { Refusal } from './CardJourney';
@@ -21,7 +22,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 export function CardBlocksPanel({ card }: { card: CardRecord }) {
   const { t } = cardBlocksCopy.useCopy();
-  const read = useBankRead('cards.controls.get', { cardId: card.id });
+  const read = useBankRecord(BANK_CARDS_CONTROLS_GET, { cardId: card.id });
   return (
     <Panel level={3} title={t('blocksTitle')} lead={t('blocksLead')} id={`card-blocks-${card.id}`}>
       <ResourceView resource={read.resource} reload={read.reload}>

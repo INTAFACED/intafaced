@@ -165,6 +165,7 @@
         "$TURBO_ROOT$/services/svc-protocol/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
         "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -208,6 +209,7 @@
         "$TURBO_ROOT$/services/svc-protocol/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
         "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"

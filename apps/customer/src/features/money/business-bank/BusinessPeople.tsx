@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { BANK_BUSINESS_MEMBERS } from '@intafaced/contracts/bank-business-procedures';
 import { BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE } from '@intafaced/contracts/bank-business-procedures';
 import type { z } from 'zod';
 import { Button, Field, Tag } from '@intafaced/ui/lit';
@@ -18,8 +19,8 @@ import {
   ROLES,
   type Role,
 } from '../business-model';
-import { funds, positiveMoney, useBankRead, type ActionSpec } from '../components';
-import { type businessSchema } from '../contracts';
+import { funds, positiveMoney, type ActionSpec, useBankRecordAs } from '../components';
+import { teamSchema, type businessSchema } from '../contracts';
 import { moneyRefusalWords, withPlainRefusal } from '../money-refusal-copy';
 import type { Resource } from '../../../shared/resource';
 
@@ -319,7 +320,7 @@ export function TeamPanel({ account, role, open }: { account: Business; role: Ro
   const copy = businessCopy.useCopy();
   const { t } = copy;
   const { userId } = useSession();
-  const team = useBankRead('business.members', { accountId: account.id });
+  const team = useBankRecordAs(BANK_BUSINESS_MEMBERS, { accountId: account.id }, teamSchema);
   const [person, setPerson] = useState<Payee | null>(null);
   const known = roleOf(role);
   const add = () => {

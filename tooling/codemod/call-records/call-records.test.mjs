@@ -1652,7 +1652,8 @@ test('a re-run whose records already exist (no record file changes) skips the fi
   const flagOut = (flag, json) => `const i = a.indexOf('${flag}'); if (i >= 0) writeFileSync(a[i + 1], '${json}');`;
   writeFileSync(join(dir, 'index.mjs'), stub(flagOut('--json', '{"records":[],"rewritten":1,"hand":[]}')));
   writeFileSync(join(dir, 'samples.mjs'), stub(flagOut('--unportable', '{}')));
-  for (const f of ['portable.mjs', 'refusals.mjs', 'door-check.mjs', 'doubles.mjs']) writeFileSync(join(dir, f), stub(''));
+  for (const f of ['portable.mjs', 'refusals.mjs', 'door-check.mjs', 'doubles.mjs', 'dead-hand-schemas.mjs'])
+    writeFileSync(join(dir, f), stub(''));
   // Like the real prettier: no paths is an error.
   writeFileSync(
     join(root, 'node_modules/.bin/prettier'),
@@ -1685,6 +1686,9 @@ test('a re-run whose records already exist (no record file changes) skips the fi
     calls.some((c) => c.startsWith('doubles.mjs --write')),
     calls.join('\n'),
   );
+  // Step 7, after the doubles: the hand schemas the moved callers were the last to name go in the same change.
+  const doubles = calls.findIndex((c) => c.startsWith('doubles.mjs --write'));
+  assert.ok(doubles >= 0 && calls.findIndex((c) => c.startsWith('dead-hand-schemas.mjs --write')) > doubles, calls.join('\n'));
 });
 
 test("a call whose router writes no answer schema takes its callers' one pure zod schema; callers that disagree, check or parse with none keep it", () => {
@@ -1792,11 +1796,16 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
   const repo = plantRepo('dead-hand-', {
     [`${money}/contracts-earn.ts`]: [
       "import { z } from 'zod';",
+      '/** A schema above the map, its comment closed before the code. */',
+      'const kept = z.string();',
       'export const earnReads = {',
       "  'earn.pools': z.array(z.string()),",
       '  /** Nobody reads this one. */',
       "  'earn.dead': z.object({ a: z.string() }),",
       "  'earn.byTest': z.string(),",
+      "  'earn.byType': z.string(),",
+      "  'earn.stubbed': z.string(),",
+      "  'eligibility.get': z.string(),",
       '} as const;',
       'export const earnWrites = {',
       "  'autoInvest.cancel': z.object({ ok: z.literal(true) }),",
@@ -1808,18 +1817,34 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
       // A template that starts with a call's segment names what it can spell; one that starts with a value names nothing.
       'export const b = (action: string) => ({ procedure: `autoInvest.${action}` });',
       'export const c = (x: string, y: string) => `${x}.${y}`;',
+      // A copy key is words, never a call, though it starts like one.
+      'export const d = (state: string) => t(`eligibility.${state}`);',
+      "type E = z.infer<(typeof earnReads)['earn.byType']>;",
     ],
-    [`${money}/earn.test.ts`]: ["expect(bankReads['earn.byTest'].parse('x')).toBe('x');"],
+    // A test names an entry only by reading it from its map; a stubbed answer keyed by the name is not a caller.
+    [`${money}/earn.test.ts`]: [
+      "expect(bankReads['earn.byTest'].parse('x')).toBe('x');",
+      "const reads = { 'earn.stubbed': { status: 'ready' } };",
+    ],
+    [`${money}/earn.mock.mjs`]: ["export const answers = { 'earn.stubbed': 'x' };"],
   });
   assert.deepEqual(
     deadHandSchemas(repo).map((h) => h.name),
-    ['earn.dead', 'ramps.setWithdrawDestination'],
+    ['earn.dead', 'earn.stubbed', 'eligibility.get', 'ramps.setWithdrawDestination'],
   );
   const deleted = deleteDead(repo);
-  assert.equal(deleted.length, 2);
+  assert.equal(deleted.length, 4);
   const after = readFileSync(join(repo, `${money}/contracts-earn.ts`), 'utf8');
-  assert.doesNotMatch(after, /earn\.dead|Nobody reads|setWithdrawDestination/);
-  for (const kept of ['earn.pools', 'earn.byTest', 'autoInvest.cancel']) assert.match(after, new RegExp(kept.replace('.', '\\.')));
+  assert.doesNotMatch(after, /earn\.dead|Nobody reads|setWithdrawDestination|earn\.stubbed|eligibility\.get/);
+  for (const kept of [
+    'earn.pools',
+    'earn.byTest',
+    'earn.byType',
+    'autoInvest.cancel',
+    'const kept = z.string();',
+    'A schema above the map',
+  ])
+    assert.ok(after.includes(kept), kept);
   forget(join(repo, `${money}/contracts-earn.ts`));
   assert.deepEqual(deadHandSchemas(repo), [], 'a second run finds nothing: safe to rerun');
 });

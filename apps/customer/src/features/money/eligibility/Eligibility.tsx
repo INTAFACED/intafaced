@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { BANK_ELIGIBILITY_GET } from '@intafaced/contracts/bank-eligibility-procedures';
 import { Button, Field } from '@intafaced/ui/lit';
 import type { Resource } from '../../../shared/resource';
-import { useBankRead } from '../components';
+import { useBankRecord } from '../components';
 import type { Eligibility } from '../contracts';
 import { accountDetailsCopy } from '../account-details-copy';
 import { Failure, Loading, Panel } from '../bank-settings/parts';
@@ -64,7 +65,7 @@ export function EligibilityStatement() {
   const { t } = accountDetailsCopy.useCopy();
   const [typed, setTyped] = useState('');
   const [asked, setAsked] = useState<string | null>(null);
-  const read = useBankRead('eligibility.get', asked === null ? undefined : { region: asked });
+  const read = useBankRecord(BANK_ELIGIBILITY_GET, asked === null ? undefined : { region: asked });
   return (
     <Panel title={t('eligibilityTitle')} lead={t('eligibilityLead')} level={3}>
       <EligibilityBody resource={read.resource} reload={read.reload} />
