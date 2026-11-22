@@ -456,8 +456,11 @@ extended.beforeAll = (...args) => {
   return beforeAll(...args, entered);
 };
 
-/** A file's afterAll hooks run after its last test: what they reach is its own, read once they end and attached by the
- *  next test that runs (journeyReach). */
+/** A file's afterAll hooks run after its last test: what they reach is its own, read once they end and attached from the
+ *  hook itself, which Playwright reports on the file's last test. (Failure it prevents: the record waited for the next
+ *  test, and a shard's last file has none, so in main's run 44964720047 all 19 files whose afterAll record never came
+ *  were the last in their shard; the touched-journeys map then reads each as reaching everything, every pull request ran
+ *  them, and the longest of them, J-campaigns-18 and J-cex-spot-17, each held a shard of their own and ended the run.) */
 /** The journey file (`*.pw.mjs`) whose loading registers a hook, from the call stack, or null. */
 const registeringFile = () => {
   for (const line of String(new Error().stack).split('\n')) {
@@ -481,6 +484,14 @@ extended.afterAll = (...args) => {
       readLogs();
       await settleCode(stackCode, reach);
       reach.afterAll(testInfo.file);
+      try {
+        for (const file of reach.files()) {
+          const record = reach.take(file);
+          if (record) await testInfo.attach(REACH_ATTACHMENT, { body: JSON.stringify(record), contentType: 'application/json' });
+        }
+      } catch {
+        /* recording never fails a hook */
+      }
     }
   };
   after.toString = () => hook.toString();

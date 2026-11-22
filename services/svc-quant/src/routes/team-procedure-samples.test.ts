@@ -26,7 +26,7 @@ import {
   QUANT_TEAM_UNLOCK,
 } from '@intafaced/contracts/quant-team-procedures';
 import { QuantError } from '../errors.js';
-import type { FeePort, HistoryPort } from '../engine/ports.js';
+import type { FeePort, VenuePricePort } from '../engine/ports.js';
 import { createMemoryQuota } from '../quota/memory.js';
 import { createQuantRouter } from '../router.js';
 import { RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
@@ -136,11 +136,11 @@ describe("svc-quant's strategy-team routes reach each record sample's verdict", 
 describe('each refusal leaves with the status its record lists', () => {
   const HOUR = 3_600_000;
   /** The bars and fees a paper read sees; each case swaps in what it needs. */
-  const ports: { bars: HistoryPort['bars']; fee: FeePort['fee'] } = {
-    bars: async () => [],
+  const ports: { bars: VenuePricePort['bars']; fee: FeePort['fee'] } = {
+    bars: async () => ({ venueMarket: 'BTC-USDC', test: true, bars: [] }),
     fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }),
   };
-  const history: HistoryPort = { wired: true, bars: (query) => ports.bars(query) };
+  const venuePrices: VenuePricePort = { wired: true, bars: (query) => ports.bars(query) };
   const fees: FeePort = { wired: true, fee: (symbol) => ports.fee(symbol) };
 
   function wired(options: { editLockSeconds?: number | null; releaseNoteMax?: number | null; profile?: string | null } = {}) {
@@ -155,7 +155,7 @@ describe('each refusal leaves with the status its record lists', () => {
       quota: quota.repository,
       editLockSeconds: options.editLockSeconds === undefined ? 20 : options.editLockSeconds,
       releaseNoteMax: options.releaseNoteMax === undefined ? 10 : options.releaseNoteMax,
-      history,
+      venuePrices,
       fees,
     });
     const writer = router.createCaller(signed('cccccccc-cccc-4ccc-8ccc-cccccccccccc', ['admin:write']));
@@ -372,17 +372,21 @@ describe('each refusal leaves with the status its record lists', () => {
       listed(QUANT_TEAM_ORDER, 'quant.paper_manual_order_unsupported'),
     );
 
-    // Hours later the stopped run is read from closed candles, as the unwired ports refuse: the candles, then the fees.
+    // Hours later the stopped run is read from the venue's closed candles: unpriced, saying why, while the venue does not
+    // answer; then, with a candle, our published fees refuse by name while unwired.
     vi.setSystemTime(at + 3 * HOUR);
-    ports.bars = async () => {
-      throw new QuantError('quant.backtest_lake_missing', 'TEST the history read is not wired');
-    };
-    expect(await refusal(t.mate.team.stop({ strategyId, runId: live.runId }))).toEqual(
-      listed(QUANT_TEAM_STOP, 'quant.backtest_lake_missing'),
-    );
+    ports.bars = async () => ({ unavailable: "TEST the venue's price read did not answer" });
+    expect(await t.mate.team.stop({ strategyId, runId: live.runId })).toMatchObject({
+      priced: false,
+      prices: { venueMarket: null, unavailable: "TEST the venue's price read did not answer" },
+    });
     const open = at - 60_000 + HOUR;
     const one = parseAmount('100');
-    ports.bars = async () => [{ openTimeMs: open, open: one, high: one, low: one, close: one }];
+    ports.bars = async () => ({
+      venueMarket: 'BTC-USDC',
+      test: true,
+      bars: [{ openTimeMs: open, open: one, high: one, low: one, close: one }],
+    });
     ports.fee = async () => {
       throw new QuantError('quant.cost_unset', 'TEST the published fee schedule read is not wired');
     };

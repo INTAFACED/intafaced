@@ -959,6 +959,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
       'The maximum leverage and the one maintenance level the venue publishes on its listed perpetual on one asset: null where it publishes none',
   },
   {
+    name: 'venueSpotCandles',
+    method: 'GET',
+    path: '/api/v1/venue/spot-candles',
+    product: 'accounts',
+
+    summary: "Candles of the venue's own prints on the spot market listed on one asset, oldest first, with the market's symbol",
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',

@@ -253,6 +253,15 @@ function PaperRunView({ runId }: { runId: string }) {
           <p>
             <strong>{data.claimLabel}</strong>
           </p>
+          {data.prices.venueMarket ? (
+            <p data-testid="quant-paper-prices" data-venue-market={data.prices.venueMarket} data-test={String(data.prices.test)}>
+              {t('pricesFrom', { market: data.prices.venueMarket })}
+            </p>
+          ) : (
+            <p data-testid="quant-paper-prices" data-unavailable="true" role="status">
+              {t('pricesUnavailable', { reason: data.prices.unavailable ?? '' })}
+            </p>
+          )}
           {data.priced ? (
             <p lang="zxx">{t('pricedThrough', { at: utcText(data.pricedThrough ?? ''), symbol: data.symbol, barSize: data.barSize })}</p>
           ) : (
