@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -60,7 +60,7 @@ describe('futures open rollback and pending margin adjustment (Postgres)', () =>
   beforeAll(async () => {
     let url = process.env.TEST_DATABASE_URL?.trim();
     if (!url) {
-      const c = await new PostgreSqlContainer('postgres:16-alpine').start();
+      const c = await testPostgres('postgres:16-alpine').start();
       url = c.getConnectionUri();
       stop = async () => {
         await c.stop();

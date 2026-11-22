@@ -1,13 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import {
-  COMPROMISE_NOTE_MAX,
-  compromiseMineOutputSchema,
-  compromiseReportOutputSchema,
-  compromiseReviewOutputSchema,
-  compromiseStartOutputSchema,
-  type CompromiseCase,
-  type CompromiseChecklistItem,
-} from '@intafaced/contracts/identity-compromise';
+import { COMPROMISE_NOTE_MAX, type CompromiseCase, type CompromiseChecklistItem } from '@intafaced/contracts/identity-compromise';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
@@ -17,6 +9,12 @@ import { SettingsTemplate } from '@intafaced/ui/lit/templates';
 import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { compromiseCopy as copy } from './compromise-copy';
+import {
+  IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+  IDENTITY_ACCOUNT_COMPROMISED_MINE,
+  IDENTITY_ACCOUNT_COMPROMISED_START,
+  IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+} from '@intafaced/contracts/identity-account-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -40,9 +38,7 @@ export function useCompromiseCase() {
   const { api, userId } = useSession();
   return useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'account.compromised.mine', undefined, compromiseMineOutputSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_ACCOUNT_COMPROMISED_MINE, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `compromise-case:${userId}`,
   );
 }
@@ -130,7 +126,7 @@ function Start() {
     setBusy(true);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'account.compromised.start', { password }, compromiseStartOutputSchema);
+      const answer = await api.call(IDENTITY_ACCOUNT_COMPROMISED_START, { password });
       if (!answer.ok) return setFailure(answer);
       // This sign-in ended too, so the page says so and reads nothing more: the next sign-in shows the case.
       setSecured(true);
@@ -198,7 +194,7 @@ function OpenCase({ open, reload }: { open: CompromiseCase; reload: () => void }
     setBusy(true);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'account.compromised.markReviewed', { item }, compromiseReviewOutputSchema);
+      const answer = await api.call(IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED, { item });
       if (!answer.ok) return setFailure(answer);
       reload();
     } finally {
@@ -269,12 +265,10 @@ function StolenFunds({ open, onFiled }: { open: CompromiseCase; onFiled: () => v
     if (request.current?.text !== text) request.current = { text, id: crypto.randomUUID() };
     const requestId = request.current.id;
     try {
-      const answer = await api.mutate(
-        'identity',
-        'account.compromised.reportStolenFunds',
-        { body: text, clientRequestId: `stolen-funds:${requestId}` },
-        compromiseReportOutputSchema,
-      );
+      const answer = await api.call(IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS, {
+        body: text,
+        clientRequestId: `stolen-funds:${requestId}`,
+      });
       if (!answer.ok) return setFailure(answer);
       request.current = null;
       setBody('');
