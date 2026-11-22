@@ -258,6 +258,7 @@ export function RequestList({
               <button
                 type="button"
                 className="support-row"
+                data-testid="support-row"
                 onClick={() => onOpen(row.id)}
                 aria-label={copy.t('openRequest', { subject: row.subject })}
               >
