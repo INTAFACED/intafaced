@@ -351,7 +351,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/uc/promotion/points': { template: 'overview' },
   '/uc/promotion/perks': { template: 'overview' },
   '/uc/invitingmining': { template: 'catalogue' },
-  '/uc/paydividends': { template: 'record-list' },
+  '/uc/paydividends': { template: 'record-list', migrated: { file: 'features/account/Dividends.tsx' } },
   '/ops': 'operator',
   '/platform': 'operator',
   '/dex': { template: 'desk' },
