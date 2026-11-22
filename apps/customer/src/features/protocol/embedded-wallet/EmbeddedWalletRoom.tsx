@@ -1,6 +1,6 @@
 // volt-room: /wallet/embedded
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Tag } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
@@ -322,7 +322,7 @@ export function EmbeddedWalletRoom() {
                   {connection && !live ? <p role="status">{t('venueExpired')}</p> : null}
                   <p>{t('venueNote')}</p>
                   {!live ? (
-                    <Button disabled={busy || !client} onClick={() => void connect()}>
+                    <Button tone="primary" disabled={busy || !client} onClick={() => void connect()}>
                       {connection ? t('venueSignAgain') : t('venueConnect')}
                     </Button>
                   ) : null}
@@ -343,7 +343,7 @@ export function EmbeddedWalletRoom() {
                   {provider?.capabilities.export ? (
                     <>
                       <p data-export-once>{t('exportOnce', { provider: name })}</p>
-                      <Button disabled={busy || !client} onClick={() => void exportKey()}>
+                      <Button tone="primary" disabled={busy || !client} onClick={() => void exportKey()}>
                         {t('exportKey')}
                       </Button>
                     </>
@@ -351,7 +351,7 @@ export function EmbeddedWalletRoom() {
                     <p>{t('exportNone', { provider: name })}</p>
                   )}{' '}
                   {provider?.capabilities.recovery ? (
-                    <Button disabled={busy || !client} onClick={() => void addRecovery()}>
+                    <Button tone="primary" disabled={busy || !client} onClick={() => void addRecovery()}>
                       {t('recoveryAdd')}
                     </Button>
                   ) : (
@@ -363,7 +363,9 @@ export function EmbeddedWalletRoom() {
                       <h3>{t('exportTitle', { provider: name })}</h3>
                       <p>{t('exportWarning')}</p>
                       <pre data-exported-key>{exported}</pre>
-                      <Button onClick={() => setExported(null)}>{t('exportHide')}</Button>
+                      <Button tone="primary" onClick={() => setExported(null)}>
+                        {t('exportHide')}
+                      </Button>
                     </section>
                   ) : null}
                 </section>
@@ -384,7 +386,7 @@ export function EmbeddedWalletRoom() {
       }
       actions={
         wallet ? null : (
-          <Button variant="primary" loading={busy} disabled={busy} onClick={() => void create()}>
+          <Button tone="primary" aria-busy={busy || undefined} disabled={busy} onClick={() => void create()}>
             {busy ? t('creating') : t('create')}
           </Button>
         )

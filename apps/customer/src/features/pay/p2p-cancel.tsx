@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../shared/api';
 import { PayAmount, PayDetails, PayTime, ReviewedAction } from './components';
 import { payCopy } from './copy';
@@ -32,9 +32,9 @@ export function CancelOrder({
   const [code, setCode] = useState<P2pCancelReason | ''>('');
   const reasons: readonly P2pCancelReason[] = seller ? P2P_SELLER_CANCEL_REASONS : P2P_BUYER_CANCEL_REASONS;
   return (
-    <div className="form-stack" data-testid="order-cancel">
+    <div className="lt-stack" data-testid="order-cancel">
       {seller ? null : (
-        <p className="muted" role="note">
+        <p className="lt-muted" role="note">
           <Copy k="paidWarning" />
         </p>
       )}
@@ -87,11 +87,11 @@ export function CancelOrder({
 export function RequestCancel() {
   const { Copy } = cancelCopy.useCopy();
   return (
-    <div className="stack" data-testid="order-request-cancel">
-      <Button variant="secondary" disabled aria-describedby="order-request-cancel-why">
+    <div className="lt-stack" data-testid="order-request-cancel">
+      <Button tone="secondary" disabled aria-describedby="order-request-cancel-why">
         <Copy k="requestTitle" />
       </Button>
-      <p className="muted" id="order-request-cancel-why">
+      <p className="lt-muted" id="order-request-cancel-why">
         <Copy k="requestParked" />
       </p>
     </div>
@@ -117,7 +117,7 @@ export function OrderRefund({ trade }: { trade: Trade }) {
     return (
       <section className="p2p-order-result" aria-label={t('refundTitle')} data-testid="order-refund">
         <PayDetails values={who} />
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="voided" />
         </p>
       </section>

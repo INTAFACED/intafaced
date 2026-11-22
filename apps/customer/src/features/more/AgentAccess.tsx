@@ -79,15 +79,15 @@ function AccountAccess({ agent }: { agent: OwnAgent }) {
   return (
     <section role="region" aria-label={t('accountAccessTitle')}>
       <h3>{t('accountAccessTitle')}</h3>
-      <p className="muted">{t('accountAccessIntro')}</p>
+      <p className="lt-muted">{t('accountAccessIntro')}</p>
       {mode.mode === 'on' ? (
         <VenueFrame mode={mode}>
           <AccountAccessGrant agent={agent} venueId={mode.status.available ? mode.status.venue.id : null} />
         </VenueFrame>
       ) : mode.mode === 'checking' ? (
-        <p className="muted">{t('accountAccessChecking')}</p>
+        <p className="lt-muted">{t('accountAccessChecking')}</p>
       ) : (
-        <p className="muted">{t('accountAccessOff')}</p>
+        <p className="lt-muted">{t('accountAccessOff')}</p>
       )}
     </section>
   );
@@ -139,11 +139,11 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
     <>
       <WalletBar />
       {!owner ? (
-        <p className="muted">{t('connectFirst')}</p>
+        <p className="lt-muted">{t('connectFirst')}</p>
       ) : subs.resource.status === 'failed' ? (
         <p role="alert">{t('subAccountsRefused')}</p>
       ) : listed && listed.value.length === 0 ? (
-        <p className="muted">{t('noSubAccounts')}</p>
+        <p className="lt-muted">{t('noSubAccounts')}</p>
       ) : listed ? (
         <form
           aria-label={t('accountAccessTitle')}
@@ -194,7 +194,7 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
           ))}
         </DataTable>
       ) : shown ? (
-        <p className="muted">{t('noGrants')}</p>
+        <p className="lt-muted">{t('noGrants')}</p>
       ) : null}
     </>
   );
@@ -232,7 +232,7 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
   }
   return (
     <>
-      <p className="muted">{t('accessIntro')}</p>
+      <p className="lt-muted">{t('accessIntro')}</p>
       <form
         aria-label={t('newRule')}
         onSubmit={(event) => {
@@ -279,7 +279,7 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
           ))}
         </DataTable>
       ) : (
-        <p className="muted">{t('noRules')}</p>
+        <p className="lt-muted">{t('noRules')}</p>
       )}
       {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
       <label className="agent-surface-choice" htmlFor={requiredId}>
@@ -296,7 +296,7 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
         />
         <span>{t('required')}</span>
       </label>
-      <p className="muted" id={`${requiredId}-hint`}>
+      <p className="lt-muted" id={`${requiredId}-hint`}>
         {t('requiredHint')}
       </p>
       <DataTable label={t('decisionsTable')} headers={[t('colAction'), t('colOutcome')]}>

@@ -67,17 +67,17 @@ export function PortalFailure({ result, retry, notLive }: { result: Failed; retr
   // The same refusal, twice on one page, is said once.
   if (!claim()) return null;
   return (
-    <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+    <div data-testid="failure" className="lt-refusal" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>
       <p>{refusalText(result)}</p>
       {result.requestId && (
-        <p className="muted">
+        <p className="lt-muted">
           {u('reference')} <CopyReference value={result.requestId} what={u('reference')} />
         </p>
       )}
       {result.reason === 'unauthorized' ? (
         <a
-          className="text-link"
+          className="lt-link"
           href={`/login?redirect=${encodeURIComponent(typeof location === 'undefined' ? '/pay/merchant' : location.pathname + location.search)}`}
         >
           {t('signIn')}
@@ -125,7 +125,7 @@ export function MoreFooter<T>({ state, onMore }: { state: Extract<ListState<T>, 
   const failed = typeof state.more === 'object';
   return (
     <div className="pp-more">
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {state.hasMore ? t('rowsSoFar', { count: state.items.length }) : t('rowsAll', { count: state.items.length })}
       </p>
       {state.hasMore && (
@@ -394,7 +394,7 @@ export function Steps({
               {item.title}
               <span className="pp-sr"> ({t(`stepItem_${item.state}` as 'stepItem_done')})</span>
             </strong>
-            {item.detail && <p className="muted">{item.detail}</p>}
+            {item.detail && <p className="lt-muted">{item.detail}</p>}
           </div>
         </li>
       ))}

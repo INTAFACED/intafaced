@@ -40,7 +40,7 @@ export function DormancyNotice() {
   }, [api, userId]);
   if (refused)
     return (
-      <p role="status" className="money-caption" data-testid="dormancy-notice" data-state="unread" data-code={refused}>
+      <p role="status" className="lt-muted" data-testid="dormancy-notice" data-state="unread" data-code={refused}>
         {t('unread')}
       </p>
     );
@@ -58,7 +58,7 @@ export function DormancyNotice() {
       {notice.state === 'noticed' ? (
         <>
           <p>{t('noticed', words)}</p>
-          <a className="text-link" href={`/uc/withdraw?asset=${encodeURIComponent(notice.assetId)}`}>
+          <a className="lt-link" href={`/uc/withdraw?asset=${encodeURIComponent(notice.assetId)}`}>
             {t('withdraw')}
           </a>
         </>

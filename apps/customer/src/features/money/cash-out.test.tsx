@@ -85,7 +85,7 @@ describe('cash out to a linked bank account', () => {
     expect(words('bank.offramp_cooling_active', '2026-10-24T03:00:00.000Z')).toMatch(/from .+, when its cooling-off ends/);
     expect(words('bank.fiat_ramp_socket')).toContain('No banking partner pays out to bank accounts: rail.bank is switched off');
     expect(words('bank.something_new')).toContain(
-      'This cash-out cannot go ahead. <small class="muted">Reference: bank.something_new</small>',
+      'This cash-out cannot go ahead. <small class="lt-muted">Reference: bank.something_new</small>',
     );
   });
 

@@ -242,7 +242,7 @@ test('unknown original remains accessible through closure and an independent sam
     await run(page);
     await expect.poll(() => state.writes.length).toBe(1);
     await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), key)).not.toBeNull();
-    await expect(page.locator('.failure').filter({ hasText: 'outcome' }).first()).toBeVisible();
+    await expect(page.locator(':is(.failure, .lt-refusal)').filter({ hasText: 'outcome' }).first()).toBeVisible();
     await expect(review(page)).toBeDisabled();
     const raw = await page.evaluate((key) => localStorage.getItem(key), key),
       marker = JSON.parse(raw);

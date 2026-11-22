@@ -84,7 +84,7 @@ export function RunHistory({ refresh, onOpen }: { refresh: string; onOpen: (resu
   return (
     <Panel title={t('historyTitle')}>
       <div data-testid="quant-run-history">
-        <p className="muted">{t('historyIntro')}</p>
+        <p className="lt-muted">{t('historyIntro')}</p>
         <Read resource={list.resource} retry={list.reload}>
           {(data) => {
             if (!data.runs.length) return <EmptyState title={t('historyNone')}>{t('historyNoneBody')}</EmptyState>;
@@ -124,7 +124,7 @@ export function RunHistory({ refresh, onOpen }: { refresh: string; onOpen: (resu
                 )}
                 {renameFailure && <Failure result={renameFailure} retry={() => void rename()} />}
                 {openFailure && <Failure result={openFailure} />}
-                {ordered.length === 2 ? <Compare runs={ordered} /> : <p className="muted">{t('compareHint')}</p>}
+                {ordered.length === 2 ? <Compare runs={ordered} /> : <p className="lt-muted">{t('compareHint')}</p>}
               </>
             );
           }}
@@ -221,7 +221,7 @@ function Compare({ runs }: { runs: readonly QuantBacktestHistoryRow[] }) {
   return (
     <section aria-label={t('compareTitle')} data-testid="quant-run-compare">
       <h4>{t('compareTitle')}</h4>
-      <p className="muted">{t('compareIntro')}</p>
+      <p className="lt-muted">{t('compareIntro')}</p>
       {read.resource.status === 'loading' && <Loading />}
       {read.resource.status === 'failed' && <Failure result={read.resource.failure} retry={read.reload} />}
       {read.resource.status === 'ready' && (
