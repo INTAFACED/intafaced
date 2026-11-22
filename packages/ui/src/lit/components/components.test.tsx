@@ -10,6 +10,7 @@ import {
   Button,
   Change,
   Dock,
+  Check,
   Field,
   Figure,
   LegalSlot,
@@ -17,7 +18,9 @@ import {
   Rail,
   RefusalBox,
   RiskMoment,
+  Select,
   Surface,
+  TextArea,
   type DoorLink,
 } from './index.js';
 
@@ -145,6 +148,25 @@ describe('components', () => {
   it('Field keeps a caller description next to its own hint', () => {
     const out = html(<Field label="Amount" hint="Max 500" aria-describedby="terms" id="a" />);
     expect(out).toContain('aria-describedby="terms a-hint"');
+  });
+
+  it('Select and TextArea are named by their label and described by their hint, as Field is', () => {
+    const select = html(
+      <Select label="Sub-account" hint="Optional" id="s">
+        <option value="">None</option>
+      </Select>,
+    );
+    expect(select).toContain('<label for="s">Sub-account</label><select id="s" aria-describedby="s-hint">');
+    expect(select).toContain('<option value="">None</option>');
+    const area = html(<TextArea label="IP addresses" hint="One per line" error="Not an address" id="t" rows={3} />);
+    expect(area).toContain('<textarea rows="3" id="t" aria-invalid="true" aria-describedby="t-hint t-error">');
+    expect(area).toContain('role="alert">Not an address');
+  });
+
+  it('Check puts its words after the box and names it by them, as a checkbox or a radio', () => {
+    const box = html(<Check label="Stored" id="c" hint="Tick when done" defaultChecked />);
+    expect(box).toContain('<label for="c"><input type="checkbox" id="c" aria-describedby="c-hint" checked=""/><span>Stored</span></label>');
+    expect(html(<Check type="radio" name="p" label="Read" id="r" />)).toContain('type="radio" id="r"');
   });
 
   it('LegalSlot holds no copy of its own, and an unset text shows a refusal in words, never the id', () => {

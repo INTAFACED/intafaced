@@ -158,6 +158,103 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
+/** The words around a control: the hint and error ids it is described by, with any description the caller passes. */
+function describedBy({
+  inputId,
+  given,
+  hint,
+  error,
+}: {
+  inputId: string;
+  given?: string;
+  hint?: string;
+  error?: string;
+}): string | undefined {
+  return [given, hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
+}
+
+function FieldWords({ inputId, hint, error }: { inputId: string; hint?: string; error?: string }) {
+  return (
+    <>
+      {hint && (
+        <span id={`${inputId}-hint`} data-part="hint">
+          {hint}
+        </span>
+      )}
+      {error && (
+        <span id={`${inputId}-error`} data-part="error" role="alert">
+          {error}
+        </span>
+      )}
+    </>
+  );
+}
+
+export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & { label: string; hint?: string; error?: string };
+
+/** A choice from a list, named by its label, as Field is: the options are the caller's `<option>` children. */
+export function Select({ label, hint, error, id, className, children, ...rest }: SelectProps) {
+  const auto = React.useId();
+  const inputId = id ?? auto;
+  return (
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={inputId}>{label}</label>
+      <select
+        {...rest}
+        id={inputId}
+        aria-invalid={error ? true : rest['aria-invalid']}
+        aria-describedby={describedBy({ inputId, given: rest['aria-describedby'], hint, error })}
+      >
+        {children}
+      </select>
+      <FieldWords inputId={inputId} hint={hint} error={error} />
+    </div>
+  );
+}
+
+export type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string };
+
+/** Several lines of text, named by its label, as Field is. */
+export function TextArea({ label, hint, error, id, className, ...rest }: TextAreaProps) {
+  const auto = React.useId();
+  const inputId = id ?? auto;
+  return (
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={inputId}>{label}</label>
+      <textarea
+        {...rest}
+        id={inputId}
+        aria-invalid={error ? true : rest['aria-invalid']}
+        aria-describedby={describedBy({ inputId, given: rest['aria-describedby'], hint, error })}
+      />
+      <FieldWords inputId={inputId} hint={hint} error={error} />
+    </div>
+  );
+}
+
+export type CheckProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+  /** The words after the box; they name it. */
+  label: React.ReactNode;
+  /** `radio` for one of a group that shares a `name`. */
+  type?: 'checkbox' | 'radio';
+  hint?: string;
+};
+
+/** A tick box or a radio: the box, then the words that name it, and a hint under them. */
+export function Check({ label, hint, type = 'checkbox', id, className, ...rest }: CheckProps) {
+  const auto = React.useId();
+  const inputId = id ?? auto;
+  return (
+    <div className={clsx('lit-check', className)}>
+      <label htmlFor={inputId}>
+        <input {...rest} type={type} id={inputId} aria-describedby={describedBy({ inputId, given: rest['aria-describedby'], hint })} />
+        <span>{label}</span>
+      </label>
+      <FieldWords inputId={inputId} hint={hint} />
+    </div>
+  );
+}
+
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
 

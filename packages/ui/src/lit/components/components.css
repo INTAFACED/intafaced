@@ -209,7 +209,7 @@
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
 }
-.lit-field-control input {
+.lit-field-control :is(input, select, textarea) {
   min-height: var(--lit-control-h);
   padding: 0 14px;
   border: 0;
@@ -219,7 +219,10 @@
   color: var(--lit-text-1);
   font: inherit;
 }
-.lit-field-control input:focus {
+.lit-field-control textarea {
+  padding-block: 0.5rem;
+}
+.lit-field-control :is(input, select, textarea):focus {
   box-shadow: inset 0 0 0 1px var(--lit-control-rim-active);
 }
 .lit-field-control [data-part='hint'] {
@@ -228,6 +231,38 @@
 }
 .lit-field-control [data-part='error'] {
   color: var(--lit-error-text);
+  font-size: var(--lit-type-label-size);
+}
+
+/* A tick box or radio: the browser's own box (the base reset strips it), sized, in the accent, then its words. */
+.lit-check {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.lit-check label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--lit-text-1);
+  cursor: pointer;
+}
+.lit-check input {
+  appearance: auto;
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin: 0;
+  accent-color: var(--lit-accent);
+  cursor: pointer;
+}
+.lit-check input:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lit-check [data-part='hint'] {
+  padding-inline-start: 1.5rem;
+  color: var(--lit-text-3);
   font-size: var(--lit-type-label-size);
 }
 
