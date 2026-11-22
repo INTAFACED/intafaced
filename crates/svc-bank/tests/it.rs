@@ -14,6 +14,16 @@ mod activity_portfolio_db;
 mod activity_statements_db;
 #[path = "activity_work_items_db.rs"]
 mod activity_work_items_db;
+#[path = "cards_core_db.rs"]
+mod cards_core_db;
+#[path = "cards_orders_db.rs"]
+mod cards_orders_db;
+#[path = "cards_reads_db.rs"]
+mod cards_reads_db;
+#[path = "cards_safety_db.rs"]
+mod cards_safety_db;
+#[path = "cards_secrets_db.rs"]
+mod cards_secrets_db;
 #[path = "closure_body.rs"]
 mod closure_body;
 #[path = "credit_previews.rs"]

@@ -9,11 +9,16 @@
     reason = "a test harness: each suite uses part of it, and a failure is the point"
 )]
 
+/// The migrated template each test's database is copied from.
+#[path = "../../../service-kit/tests/support/pg_template.rs"]
+pub mod pg_template;
+
 /// The NATS stand-in service-kit's tests run on, shared with the suites that need a bus.
 #[path = "../../../service-kit/tests/support/standin.rs"]
 pub mod standin;
 
 use std::process::Command;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use postgres::{Client, NoTls};
@@ -45,6 +50,23 @@ fn assert_test_database(c: &mut Client) {
         name.ends_with("_test"),
         "refusing: {name} is not a test database (its name must end in _test)"
     );
+}
+
+/// The database bootstrap's part (tooling/infra/postgres-init): the extensions and the schema.
+const BOOTSTRAP: &str = "CREATE EXTENSION IF NOT EXISTS \"pgcrypto\"; CREATE EXTENSION IF NOT EXISTS \"citext\"; CREATE SCHEMA IF NOT EXISTS \"agents\"";
+
+/// This process's migrated template (`pg_template::template`), made once.
+fn template(admin: &str) -> &'static str {
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| {
+        pg_template::template(
+            admin,
+            "agents",
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations"),
+            env!("CARGO_BIN_EXE_svc-agents"),
+            BOOTSTRAP,
+        )
+    })
 }
 
 pub struct TestDb {
@@ -79,11 +101,7 @@ impl TestDb {
         };
         let mut c = db.client();
         assert_test_database(&mut c);
-        // The database bootstrap's part (tooling/infra/postgres-init): the extensions and the schema.
-        c.batch_execute(
-            "CREATE EXTENSION IF NOT EXISTS \"pgcrypto\"; CREATE EXTENSION IF NOT EXISTS \"citext\"; CREATE SCHEMA IF NOT EXISTS \"agents\"",
-        )
-        .unwrap();
+        c.batch_execute(BOOTSTRAP).unwrap();
         Some(db)
     }
 
@@ -109,9 +127,16 @@ impl TestDb {
         )
     }
 
-    pub fn migrated(&self) {
+    /// `svc-agents migrate` run on this database in place, for a test that holds a connection to it across the migration.
+    pub fn migrated_in_place(&self) {
         let (code, out) = self.binary(false);
         assert_eq!(code, 0, "{out}");
+    }
+
+    /// This database as `svc-agents migrate` leaves it: a fresh copy of the migrated template ([`template`]). Nothing may be
+    /// connected to it yet; a test that is, migrates in place.
+    pub fn migrated(&self) {
+        pg_template::copy(&self.admin, &self.name, template(&self.admin));
     }
 
     pub fn count(&self, sql: &str) -> i64 {

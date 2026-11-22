@@ -112,7 +112,7 @@ import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
 import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
-import { ageBusinessInvite, agePayYourselfRule, ageSharedPotInvite } from './test-age-door.js';
+import { ageBusinessInvite, agePayYourselfRule, ageScheduledTransfer, ageSharedPotInvite } from './test-age-door.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -566,6 +566,7 @@ registerTestAgeDoor(app, {
     'shared-pot-invite': ageSharedPotInvite(sql),
     'business-invite': ageBusinessInvite(sql),
     'pay-yourself-rule': agePayYourselfRule(sql),
+    'scheduled-transfer': ageScheduledTransfer(sql),
   },
   installRawBody: false,
 });
