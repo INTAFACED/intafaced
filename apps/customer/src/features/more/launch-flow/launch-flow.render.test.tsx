@@ -34,14 +34,18 @@ describe('the Launch flow rooms on Volt (J-more-catalogue-01 #3 #6)', () => {
     }
   });
 
-  it('draws the five Launch sections as link tabs, the open one marked current', () => {
+  it('draws the five Launch sections as the kit switcher, the open one pressed', () => {
     state.userId = 'u-1';
+    const open = { '/launch/new': 'Issuer journey', '/launch/check': 'Pre-listing check' } as const;
     for (const [path, , page] of ROOMS) {
       const html = page();
-      expect(html, path).toContain('aria-label="Launch sections"');
-      for (const href of ['/launch', '/launch/new', '/launch/check', '/launch/requirements', '/launch/mine'])
-        expect(html, `${path} ${href}`).toContain(`href="${href}"`);
-      expect(html, path).toMatch(new RegExp(`href="${path}"[^>]*aria-current="page"`));
+      const group = html.match(/<div class="lit-segmented" role="group" aria-label="Launch sections">(.*?)<\/div>/)?.[1] ?? '';
+      expect(group, path).not.toBe('');
+      for (const label of ['Launches', 'Issuer journey', 'Pre-listing check', 'Requirements', 'My participation'])
+        expect(group, `${path} ${label}`).toMatch(new RegExp(`<button type="button" aria-pressed="(true|false)">${label}</button>`));
+      expect(group.match(/aria-pressed="true"/g), path).toHaveLength(1);
+      expect(group, path).toContain(`aria-pressed="true">${open[path]}</button>`);
+      expect(group, path).not.toContain('href=');
     }
   });
 
@@ -65,13 +69,14 @@ describe('the Launch flow rooms on Volt (J-more-catalogue-01 #3 #6)', () => {
     }
   });
 
-  it('lays out the seven issuer steps, five blocked, and runs the check at its own address', () => {
+  it('lays out the seven issuer steps, five blocked, and runs the check in place', () => {
     state.userId = 'u-1';
     const html = renderToString(<LaunchNewRoom />);
     expect(html.match(/data-step-state="/g)).toHaveLength(7);
     expect(html.match(/data-step-state="blocked"/g)).toHaveLength(5);
     expect(html).toContain('Blocked: issuance is on hold');
-    expect(html).toMatch(/<a class="lt-button[^"]*" href="\/launch\/check"><span[^>]*>Run check<\/span><\/a>/);
+    expect(html).toMatch(/<button type="button" class="lit-button"[^>]*><span[^>]*>Run check<\/span><\/button>/);
+    expect(html).not.toContain('href="/launch/check"');
     expect(html).toContain('Edit asset terms');
   });
 
