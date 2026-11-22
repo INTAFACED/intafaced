@@ -350,6 +350,7 @@ describe('Business Pay authority boundary', () => {
             kybStatus: 'approved',
             kybRef: 'verified',
             feeBps: null,
+            starterFee: null,
           });
         throw new TypeError('TEST disconnected');
       },
@@ -411,7 +412,16 @@ describe('Business Pay authority boundary', () => {
     const api = createApiClient({
       fetch: async (url) =>
         String(url).includes('merchant.me')
-          ? response({ id: merchantId, userId, mode: 'gateway', status: 'active', kybStatus: 'approved', kybRef: 'verified', feeBps: null })
+          ? response({
+              id: merchantId,
+              userId,
+              mode: 'gateway',
+              status: 'active',
+              kybStatus: 'approved',
+              kybRef: 'verified',
+              feeBps: null,
+              starterFee: null,
+            })
           : response([
               {
                 id: transferId,
@@ -488,6 +498,7 @@ describe('subscription.create attempt ids', () => {
       kybStatus: 'approved',
       kybRef: 'verified',
       feeBps: null,
+      starterFee: null,
     });
   }
   function attemptOf(key: string | undefined) {
