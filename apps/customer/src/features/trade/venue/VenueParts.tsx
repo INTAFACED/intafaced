@@ -4,10 +4,10 @@
  * same parts.
  */
 import { useCallback, type ReactNode } from 'react';
-import { Button, TestLabel } from '@intafaced/ui/lit';
+import { TestLabel } from '@intafaced/ui/lit';
 import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
-import { WalletProvider, useWallet } from '../../protocol';
+import { WalletProvider } from '../../protocol';
 import type { AsOf, VenueBalance } from '../venue-api';
 import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
@@ -61,51 +61,6 @@ export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode
     <WalletProvider chainId={chainId} scope="venue-desk">
       {children}
     </WalletProvider>
-  );
-}
-
-/** Connect, the connected address and network, and the switch when the wallet is on another network. */
-export function WalletBar() {
-  const { t } = venueCopy.useCopy();
-  const wallet = useWallet();
-  return (
-    <section aria-label={t('Your wallet')} data-testid="venue-wallet">
-      <h2>{t('Your wallet')}</h2>
-      {wallet.status === 'connected' && wallet.address ? (
-        <>
-          <dl>
-            <div>
-              <dt>{t('Connected address')}</dt>
-              <dd className="lt-mono" data-testid="venue-wallet-address">
-                {wallet.address.toLowerCase()}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Network')}</dt>
-              <dd className="lt-mono">{wallet.chainId ?? ''}</dd>
-            </div>
-          </dl>
-          {wallet.guard && !wallet.guard.ok ? (
-            <p role="alert">
-              {t('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <Button tone="primary" onClick={() => void wallet.switchNetwork()}>
-                {t('Switch network')}
-              </Button>
-            </p>
-          ) : null}
-          <Button onClick={wallet.disconnect}>{t('Disconnect')}</Button>
-        </>
-      ) : wallet.wallets.length === 0 ? (
-        <p className="lt-hint">{t('No wallet')}</p>
-      ) : (
-        wallet.wallets.map((entry) => (
-          <Button key={entry.info.uuid} tone="primary" disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
-            {t('Connect wallet', { name: entry.info.name })}
-          </Button>
-        ))
-      )}
-      {wallet.problem ? <p role="alert">{wallet.problem}</p> : null}
-    </section>
   );
 }
 

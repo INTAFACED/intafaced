@@ -26,7 +26,8 @@ import { feeShown } from './fee-rates';
 import { AsOfLine, TestMark, useAsOfText } from './VenueParts';
 
 // Drawn from the kit in VenueParts.tsx; re-exported so every desk keeps importing them from here.
-export { AsOfLine, BalancesPanel, TestMark, VenueFrame, WalletBar, useAsOfText } from './VenueParts';
+export { AsOfLine, BalancesPanel, TestMark, VenueFrame, useAsOfText } from './VenueParts';
+export { WalletBar } from './WalletBar';
 
 type T = ReturnType<typeof venueCopy.useCopy>['t'];
 

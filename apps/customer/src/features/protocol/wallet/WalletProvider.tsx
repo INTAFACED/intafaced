@@ -713,7 +713,9 @@ export function SignSheet({
         <Button tone="primary" onClick={onContinue}>
           {t('sheetContinue')}
         </Button>{' '}
-        <Button onClick={onCancel}>{t('sheetCancel')}</Button>
+        <Button tone="secondary" onClick={onCancel}>
+          {t('sheetCancel')}
+        </Button>
       </div>
     </Sheet>
   );
@@ -783,7 +785,9 @@ export function SequenceSheet({
         <Button tone="primary" onClick={onContinue}>
           {t('sheetContinue')}
         </Button>{' '}
-        <Button onClick={onCancel}>{t('sheetCancel')}</Button>
+        <Button tone="secondary" onClick={onCancel}>
+          {t('sheetCancel')}
+        </Button>
       </div>
     </Sheet>
   );

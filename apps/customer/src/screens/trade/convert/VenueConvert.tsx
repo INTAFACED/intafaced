@@ -32,7 +32,8 @@ import {
 } from '../../../features/trade/venue-convert-api';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { useOwner, useVenueAccount, useVenueApi } from '../../../features/trade/venue/VenueKit';
-import { BalancesPanel, TestMark, VenueFrame, WalletBar } from '../../../features/trade/venue/VenueParts';
+import { BalancesPanel, TestMark, VenueFrame } from '../../../features/trade/venue/VenueParts';
+import { WalletBar } from '../../../features/trade/venue/WalletBar';
 import { DepositDialog } from '../desk/DepositDialog';
 import { convertCopy } from './copy';
 import { venueConvertCopy } from './venue-convert-copy';

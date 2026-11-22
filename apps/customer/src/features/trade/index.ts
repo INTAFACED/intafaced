@@ -13,6 +13,7 @@ export {
   type VenuePublicFees,
 } from './venue-api';
 export { bpsToPercent, rateShown } from './venue/fee-rates';
-export { AsOfLine, TestMark, useOwner, useVenueApi, VenueFrame, WalletBar } from './venue/VenueKit';
+export { AsOfLine, TestMark, useOwner, useVenueApi, VenueFrame } from './venue/VenueKit';
+export { WalletBar } from './venue/WalletBar';
 export { TradingPermissions } from './permissions/TradingPermissions';
 export { ActionLimitWarning, SpotShortOffer, useAccountMode } from './account/AccountMode';
