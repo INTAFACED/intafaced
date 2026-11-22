@@ -17,7 +17,7 @@
  * business key `ops-fraud-list:<network>:<address>:<revision>`, so a retry replays and a different change on the same
  * revision refuses `bank.ops_revision_conflict`. The history is append-only (a database trigger refuses edits).
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';

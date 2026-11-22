@@ -13,13 +13,9 @@
  * - Every change writes an audit row naming the action and the session, never the code.
  */
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
-import {
-  ANTI_PHISHING_CODE_PATTERN,
-  ANTI_PHISHING_STEP_UP_SCOPE,
-  customerStepUpPayloadHash,
-  type AntiPhishingCodeView,
-  type AntiPhishingSetResult,
-} from '@intafaced/contracts';
+import type { AntiPhishingCodeView, AntiPhishingSetResult } from '@intafaced/contracts';
+import { customerStepUpPayloadHash } from '@intafaced/contracts/customer-step-up';
+import { ANTI_PHISHING_CODE_PATTERN, ANTI_PHISHING_STEP_UP_SCOPE } from '@intafaced/contracts/identity';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';

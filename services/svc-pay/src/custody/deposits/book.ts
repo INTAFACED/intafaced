@@ -1,14 +1,14 @@
 import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, POST_IN_FLIGHT_BOUND_SECONDS, type Amount } from '@intafaced/ledger-client';
-import {
-  PAY_CUSTODY_DEPOSIT_PENDING_STATUSES,
-  type PayCustodyDepositReason,
-  type PayCustodyDepositRecord,
-  type PayCustodyDepositRecordsInput,
-  type PayCustodyDepositRecordsReply,
-  type PayCustodyDepositStatus,
+import type {
+  PayCustodyDepositReason,
+  PayCustodyDepositRecord,
+  PayCustodyDepositRecordsInput,
+  PayCustodyDepositRecordsReply,
+  PayCustodyDepositStatus,
 } from '@intafaced/contracts';
+import { PAY_CUSTODY_DEPOSIT_PENDING_STATUSES } from '@intafaced/contracts/pay-custody-deposit';
 import { payDepositCreditPostedPayloadSchema, type PayDepositCreditPostedPayload } from '@intafaced/events';
 import type { RegistryReader } from '../../registries/read-api.js';
 

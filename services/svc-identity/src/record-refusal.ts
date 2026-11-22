@@ -1,4 +1,5 @@
-import { TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
 
 /**

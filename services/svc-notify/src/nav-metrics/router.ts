@@ -1,4 +1,4 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { windowDays, type NavMetricStore } from './counts.js';
 import { NOTIFY_NAV_METRICS_SEARCH_MISSES, NOTIFY_NAV_METRICS_SEARCH_MISS } from '@intafaced/contracts/notify-nav-metrics-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';

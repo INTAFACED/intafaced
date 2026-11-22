@@ -7,7 +7,8 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
-import { LINKED_WALLETS_PATH, linkedWalletsRequestSchema, type LinkedWallets, type ServiceBodyBindMode } from '@intafaced/contracts';
+import type { LinkedWallets, ServiceBodyBindMode } from '@intafaced/contracts';
+import { LINKED_WALLETS_PATH, linkedWalletsRequestSchema } from '@intafaced/contracts/identity';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { securityLockHolds } from './security-lock.js';
 

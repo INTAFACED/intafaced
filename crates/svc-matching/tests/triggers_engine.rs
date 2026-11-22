@@ -1077,6 +1077,7 @@ fn engine_with(journal: MemoryJournal, clock: fn() -> i64) -> (MatchingEngine, B
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::<Json>::default()),
         enabled: true,
+        spread_fills: true,
     });
     (engine, bus)
 }
@@ -1504,7 +1505,7 @@ mod slice_s20 {
         // set of option trigger types (`OPTION_TRIGGER_TYPES` in `book.ts`), so the same refusal is asked with it.
         let mut book = OrderBook::new(MARKET);
         let mut o = stop(SL, "desk", Side::Sell, Some("90"));
-        o.option_instrument = true;
+        o.instrument = Some(svc_matching::book::types::Instrument::Option);
         let result = book.submit(&o, None);
         assert!(!result.accepted);
         assert_eq!(code(&result), Some("option_trigger_unsupported"));
@@ -1605,6 +1606,7 @@ mod slice_s20 {
             snapshot_every: 0,
             sink: Box::new(MemorySnapshotSink::<Json>::default()),
             enabled: true,
+            spread_fills: true,
         })
     }
 

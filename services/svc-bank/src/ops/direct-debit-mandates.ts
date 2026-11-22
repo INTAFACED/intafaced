@@ -8,7 +8,7 @@
  * answering the answer is `{ partner: null }`, "no data". Read only, `admin:read`; no PAN, CVC, PIN or address is
  * returned. Every read writes one structured log line with the operator before anything is read, and refuses if it can't.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
