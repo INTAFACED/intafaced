@@ -900,7 +900,32 @@ import {
   PAY_ALLOWLIST_LIST_FOR_TEAM,
 } from './pay-allowlist-procedures.js';
 
+import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from './pay-checkout-procedures.js';
+
+import { PAY_DEPOSIT_CREDIT } from './pay-deposit-procedures.js';
+
 import { PAY_HALTS_OPERATOR_STATUS, PAY_HALTS_SET, PAY_HALTS_HISTORY, PAY_HALTS_PENDING_CLEARS } from './pay-halt-procedures.js';
+
+import {
+  PAY_KYB_DOCUMENTS_FILE,
+  PAY_KYB_REQUESTS_FILE,
+  PAY_KYB_REQUESTS_REVIEW_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+} from './pay-kyb-procedures.js';
+
+import { PAY_MERCHANT_STARTER_FEE, PAY_MERCHANT_ME } from './pay-merchant-procedures.js';
+
+import { PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY } from './pay-payment-procedures.js';
+
+import { PAY_RESOLVE_LINK } from './pay-resolve-link-procedures.js';
+
+import { PAY_SANDBOX_FUNDS_BALANCE, PAY_SANDBOX_FUNDS_FUND, PAY_SANDBOX_FUNDS_RESET } from './pay-sandbox-funds-procedures.js';
+
+import {
+  PAY_WITHDRAWAL_APPROVAL_LIST,
+  PAY_WITHDRAWAL_APPROVAL_GET,
+  PAY_WITHDRAWAL_APPROVAL_CANCEL,
+} from './pay-withdrawal-approval-procedures.js';
 
 import {
   PAY_WITHDRAWAL_LIMITS,
@@ -2255,11 +2280,40 @@ const part_pay_allowlist_procedures: readonly ProcedureRecord[] = [
   PAY_ALLOWLIST_LIST_FOR_TEAM,
 ];
 
+const part_pay_checkout_procedures: readonly ProcedureRecord[] = [PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN];
+
+const part_pay_deposit_procedures: readonly ProcedureRecord[] = [PAY_DEPOSIT_CREDIT];
+
 const part_pay_halt_procedures: readonly ProcedureRecord[] = [
   PAY_HALTS_OPERATOR_STATUS,
   PAY_HALTS_SET,
   PAY_HALTS_HISTORY,
   PAY_HALTS_PENDING_CLEARS,
+];
+
+const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
+  PAY_KYB_DOCUMENTS_FILE,
+  PAY_KYB_REQUESTS_FILE,
+  PAY_KYB_REQUESTS_REVIEW_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+];
+
+const part_pay_merchant_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_STARTER_FEE, PAY_MERCHANT_ME];
+
+const part_pay_payment_procedures: readonly ProcedureRecord[] = [PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY];
+
+const part_pay_resolve_link_procedures: readonly ProcedureRecord[] = [PAY_RESOLVE_LINK];
+
+const part_pay_sandbox_funds_procedures: readonly ProcedureRecord[] = [
+  PAY_SANDBOX_FUNDS_BALANCE,
+  PAY_SANDBOX_FUNDS_FUND,
+  PAY_SANDBOX_FUNDS_RESET,
+];
+
+const part_pay_withdrawal_approval_procedures: readonly ProcedureRecord[] = [
+  PAY_WITHDRAWAL_APPROVAL_LIST,
+  PAY_WITHDRAWAL_APPROVAL_GET,
+  PAY_WITHDRAWAL_APPROVAL_CANCEL,
 ];
 
 const part_pay_withdrawal_procedures: readonly ProcedureRecord[] = [
@@ -2822,7 +2876,15 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_p2p_ops_procedures,
   ...part_p2p_procedures,
   ...part_pay_allowlist_procedures,
+  ...part_pay_checkout_procedures,
+  ...part_pay_deposit_procedures,
   ...part_pay_halt_procedures,
+  ...part_pay_kyb_procedures,
+  ...part_pay_merchant_procedures,
+  ...part_pay_payment_procedures,
+  ...part_pay_resolve_link_procedures,
+  ...part_pay_sandbox_funds_procedures,
+  ...part_pay_withdrawal_approval_procedures,
   ...part_pay_withdrawal_procedures,
   ...part_protocol_amm_procedures,
   ...part_protocol_chain_procedures,

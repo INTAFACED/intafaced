@@ -101,6 +101,9 @@ import {
   type JournalLocks,
 } from '../../shared/minimal-original-journal';
 import { P2P_DISPUTES_GET, P2P_DISPUTES_OPEN, P2P_DISPUTES_APPEND_EVIDENCE } from '@intafaced/contracts/p2p-disputes-procedures';
+import { PAY_MERCHANT_ME } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedures';
+import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
 import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
 
 /** Future session integration seam, not a claim inferred from a JWT mode or merchant KYB.
@@ -1416,7 +1419,7 @@ export function createBusinessPayApi(
   async function merchant(signal?: AbortSignal) {
     const denied = access('pay:read');
     if (denied) return denied;
-    const result = await api.query('pay', 'merchant.me', undefined, s.merchantSchema.nullable(), { signal });
+    const result = await api.call(PAY_MERCHANT_ME, undefined, { signal });
     if (!result.ok) return result;
     if (!result.data || result.data.id !== authority!.merchantId || result.data.userId !== userId)
       return payRefusal('theMerchantRecordDoesNotMatchThe', { code: 'pay.business_merchant_mismatch' });
@@ -1624,9 +1627,8 @@ export type BusinessPayApi = ReturnType<typeof createBusinessPayApi>;
 
 export function createCheckoutApi(api: ApiClient, guard = payMutationGuard()) {
   return {
-    resolve: (token: string, signal?: AbortSignal) => api.query('pay', 'resolveLink', { token }, s.resolvedLinkSchema, { signal }),
-    status: (sessionToken: string, signal?: AbortSignal) =>
-      api.query('pay', 'checkout.status', { sessionToken }, s.checkoutSchema, { signal }),
+    resolve: (token: string, signal?: AbortSignal) => api.call(PAY_RESOLVE_LINK, { token }, { signal }),
+    status: (sessionToken: string, signal?: AbortSignal) => api.call(PAY_CHECKOUT_STATUS, { sessionToken }, { signal }),
     async open(
       link: z.infer<typeof s.resolvedLinkSchema>,
       token: string,
@@ -1649,9 +1651,7 @@ export function createCheckoutApi(api: ApiClient, guard = payMutationGuard()) {
         });
       if (!parsed.success || (link.amount === null && !parsed.data?.amount) || (link.currency === null && !parsed.data?.assetId))
         return payRefusal('enterTheRequiredCountryPaymentMethodAmount', { code: 'pay.checkout_input_invalid', reason: 'error' });
-      return guard.run('checkout:open', () =>
-        api.mutate('pay', 'checkout.open', parsed.data, z.object({ sessionToken: z.string().min(8).max(200), session: s.checkoutSchema })),
-      );
+      return guard.run('checkout:open', () => api.call(PAY_CHECKOUT_OPEN, parsed.data));
     },
     guard,
   };
