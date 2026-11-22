@@ -103,6 +103,59 @@ export function AreaChart({ soft, ...props }: SeriesProps & { soft?: boolean }) 
   return <Series {...props} fill soft={soft} />;
 }
 
+/**
+ * A small trend line with no axes, for a card or a row: the line only, coloured by its last value against its first.
+ * Fewer than two points draw nothing (never a made-up line); the caller says why. `label` names it for a screen reader.
+ */
+export function Sparkline({ label, values }: { label: string; values: readonly DecimalString[] }) {
+  if (values.length < 2) return null;
+  const { x, y, ys } = scale(values.map((value, i) => ({ at: String(i), value })));
+  const d = ys.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const first = ys[0] ?? 0;
+  const last = ys.at(-1) ?? first;
+  return (
+    <figure className="lt-chart lt-spark" data-tone={last > first ? 'up' : last < first ? 'down' : 'neutral'}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
+        <path className="lt-chart-line" d={d} vectorEffect="non-scaling-stroke" />
+      </svg>
+    </figure>
+  );
+}
+
+/**
+ * Which stretches of a time window hold data: one track, each covered range drawn where it falls and the gaps left
+ * empty, so a gap reads as a gap. `from` and `to` are the window (ISO times); a range too short to see keeps a sliver.
+ * Times become floats here only to place pixels. `rangeTestId` marks each range for a room's journey test.
+ */
+export function Coverage({
+  label,
+  from,
+  to,
+  ranges,
+  rangeTestId,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  ranges: readonly { from: string; to: string }[];
+  rangeTestId?: string;
+}) {
+  const start = Date.parse(from);
+  const span = Math.max(1, Date.parse(to) - start);
+  const at = (iso: string) => Math.min(100, Math.max(0, ((Date.parse(iso) - start) / span) * 100));
+  return (
+    <div className="lt-coverage" role="img" aria-label={label}>
+      {ranges.map((range) => (
+        <span
+          key={range.from}
+          data-testid={rangeTestId}
+          style={{ insetInlineStart: `${at(range.from)}%`, inlineSize: `${Math.max(0.5, at(range.to) - at(range.from))}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function Bars({ label, bars, asset }: { label: string; bars: readonly { label: string; value: DecimalString }[]; asset: string }) {
   // Negative bars hang below a zero baseline, so a loss never draws as nothing.
   const ys = bars.map((b) => plot(b.value));

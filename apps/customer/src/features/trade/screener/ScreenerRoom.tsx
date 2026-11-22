@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { z } from 'zod';
 import { ohlcvSchema } from '@intafaced/exchange-contract/schemas';
 import type { SavedScreen } from '@intafaced/contracts/watchlists-preferences';
-import { RecordListTemplate, type RoomState } from '@intafaced/ui/lit/templates';
-import { Button, Checkbox, Input, Sparkline } from '@intafaced/ui';
+import { RecordListTemplate, Sparkline, type RoomState } from '@intafaced/ui/lit/templates';
+import { Button, Checkbox, Field, Select } from '@intafaced/ui/lit';
 import { fmtAmount, fmtPct, fmtPrice, useMarkets, useSparklines, useTickers, type TickerRow } from '../../../data';
 import { useSession } from '../../session';
 import { chartHrefFor, useSavedScreens, useWatchlists } from '../../watchlists';
@@ -286,38 +286,36 @@ export function ScreenerRoom() {
     .join(' · ');
 
   const field = (key: BoundKey) => (
-    <label key={key}>
-      <span>{t(key)}</span>
-      <Input aria-label={t(key)} value={draft[key]} onValueChange={(value) => setDraft({ ...draft, [key]: value })} />
-    </label>
+    <Field
+      key={key}
+      label={t(key)}
+      aria-label={t(key)}
+      value={draft[key]}
+      onChange={(event) => setDraft({ ...draft, [key]: event.currentTarget.value })}
+    />
   );
 
   const filtersSlot = (
     <form aria-label={t('filters')} onSubmit={onApply}>
-      <label>
-        <span>{t('over')}</span>
-        <select value={draft.over} onChange={(event) => setDraft({ ...draft, over: event.target.value })}>
-          <option value="all">{t('overAll')}</option>
-          {lists.value.map((list) => (
-            <option key={list.id} value={`list:${list.id}`}>
-              {t('overList', { name: list.name })}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>{t('quote')}</span>
-        <select value={draft.quote} onChange={(event) => setDraft({ ...draft, quote: event.target.value })}>
-          <option value="">{t('anyQuote')}</option>
-          {quotes.map((quote) => (
-            <option key={quote} value={quote}>
-              {quote}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Select
+        label={t('over')}
+        value={draft.over}
+        onChange={(value) => setDraft({ ...draft, over: value })}
+        options={[
+          { value: 'all', label: t('overAll') },
+          ...lists.value.map((list) => ({ value: `list:${list.id}`, label: t('overList', { name: list.name }) })),
+        ]}
+      />
+      <Select
+        label={t('quote')}
+        value={draft.quote}
+        onChange={(value) => setDraft({ ...draft, quote: value })}
+        options={[{ value: '', label: t('anyQuote') }, ...quotes]}
+      />
       {BOUNDS.map(field)}
-      <Button type="submit">{t('apply')}</Button>
+      <Button type="submit" tone="primary">
+        {t('apply')}
+      </Button>
       {bad ? <p role="alert">{bad}</p> : null}
       <p data-testid="screener-applied">{appliedLine}</p>
       {!signedIn ? <p>{t('signInToSave')}</p> : null}
@@ -329,66 +327,63 @@ export function ScreenerRoom() {
       <fieldset role="group" aria-label={t('columns')}>
         <legend>{t('columns')}</legend>
         {SCREEN_COLUMNS.map((column) => (
-          <label key={column}>
-            <Checkbox
-              checked={columns.includes(column)}
-              onCheckedChange={(on) => setColumns(on ? orderedColumns([...columns, column]) : columns.filter((item) => item !== column))}
-            />
+          <Checkbox
+            key={column}
+            checked={columns.includes(column)}
+            onCheckedChange={(on) => setColumns(on ? orderedColumns([...columns, column]) : columns.filter((item) => item !== column))}
+          >
             {column === 'change' ? t('col_change', { tf: t(`tfShort_${tf}`) }) : t(`col_${column}`)}
-          </label>
+          </Checkbox>
         ))}
       </fieldset>
-      <label>
-        <span>{t('timeframe')}</span>
-        <select value={tf} onChange={(event) => setTf(event.target.value as ScreenTimeframe)}>
-          {SCREEN_TIMEFRAMES.map((item) => (
-            <option key={item} value={item}>
-              {t(`tf_${item}`)}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Select
+        label={t('timeframe')}
+        value={tf}
+        onChange={(value) => setTf(value as ScreenTimeframe)}
+        options={SCREEN_TIMEFRAMES.map((item) => ({ value: item, label: t(`tf_${item}`) }))}
+      />
       <p>{t('timeframeNote')}</p>
       <div role="group" aria-label={t('view')}>
-        <Button type="button" variant="secondary" size={32} aria-pressed={view === 'table'} onClick={() => setView('table')}>
+        <Button type="button" tone="secondary" aria-pressed={view === 'table'} onClick={() => setView('table')}>
           {t('viewTable')}
         </Button>
-        <Button type="button" variant="secondary" size={32} aria-pressed={view === 'chart'} onClick={() => setView('chart')}>
+        <Button type="button" tone="secondary" aria-pressed={view === 'chart'} onClick={() => setView('chart')}>
           {t('viewChart')}
         </Button>
       </div>
       {signedIn ? (
         <div>
-          <label>
-            <span>{t('saved')}</span>
-            <select value={openId ?? ''} onChange={(event) => open(event.target.value)} disabled={screens.status !== 'ready'}>
-              <option value="">{screens.value.length === 0 ? t('savedNone') : t('savedPick')}</option>
-              {screens.value.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label={t('saved')}
+            value={openId ?? ''}
+            onChange={open}
+            disabled={screens.status !== 'ready'}
+            options={[
+              { value: '', label: screens.value.length === 0 ? t('savedNone') : t('savedPick') },
+              ...screens.value.map((item) => ({ value: item.id, label: item.name })),
+            ]}
+          />
           {screens.status === 'error' ? (
             <p role="alert">
               {t('savedLoadFailed')}{' '}
-              <Button type="button" variant="secondary" size={32} onClick={screens.reload}>
+              <Button type="button" tone="secondary" onClick={screens.reload}>
                 {t('retry')}
               </Button>
             </p>
           ) : null}
-          <label>
-            <span>{t('screenName')}</span>
-            <Input aria-label={t('screenName')} value={name} maxLength={60} onValueChange={setName} />
-          </label>
-          <Button type="button" variant="secondary" size={32} onClick={onSave} disabled={screens.status !== 'ready' || screens.busy}>
+          <Field
+            label={t('screenName')}
+            aria-label={t('screenName')}
+            value={name}
+            maxLength={60}
+            onChange={(event) => setName(event.currentTarget.value)}
+          />
+          <Button type="button" tone="secondary" onClick={onSave} disabled={screens.status !== 'ready' || screens.busy}>
             {t('save')}
           </Button>
           {openScreen ? (
             <Button
-              variant="secondary"
-              size={32}
+              tone="secondary"
               type="button"
               onClick={() => void store(current(openScreen.id, openScreen.name), 'updatedDone')}
               disabled={screens.status !== 'ready' || screens.busy}
@@ -400,8 +395,7 @@ export function ScreenerRoom() {
             <div role="alertdialog" aria-label={t('replaceAsk', { name: replacing.name })}>
               <p>{t('replaceAsk', { name: replacing.name })}</p>
               <Button
-                variant="secondary"
-                size={32}
+                tone="secondary"
                 type="button"
                 onClick={() => {
                   const target = replacing;
@@ -411,7 +405,7 @@ export function ScreenerRoom() {
               >
                 {t('replace')}
               </Button>
-              <Button type="button" variant="secondary" size={32} onClick={() => setReplacing(null)}>
+              <Button type="button" tone="secondary" onClick={() => setReplacing(null)}>
                 {t('keep')}
               </Button>
             </div>
@@ -451,7 +445,7 @@ export function ScreenerRoom() {
   };
 
   const table = (
-    <table aria-label={t('results')}>
+    <table className="lt-table" aria-label={t('results')}>
       <thead>
         <tr>
           <th scope="col">{t('col_symbol')}</th>
@@ -513,7 +507,7 @@ export function ScreenerRoom() {
         filters={filtersSlot}
         tools={toolsSlot}
         export={
-          <Button type="button" variant="secondary" size={32} onClick={onExport}>
+          <Button type="button" tone="secondary" onClick={onExport}>
             {t('exportCsv')}
           </Button>
         }

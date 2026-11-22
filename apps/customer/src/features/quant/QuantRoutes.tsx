@@ -127,6 +127,7 @@ export function quantRoute(
       title: researchCopy.t('dataTitle'),
       description: researchCopy.t('dataIntro'),
       content: <LakeRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   // Every limit a developer's runs meet (J-algo-dev-12 #4).
@@ -143,6 +144,7 @@ export function quantRoute(
       title: strategiesCopy.t('title'),
       description: strategiesCopy.t('description'),
       content: <StrategiesRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   return null;

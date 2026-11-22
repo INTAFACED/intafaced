@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
-import { Bars, Parts } from '../components/b2-charts.js';
+import { Bars, Coverage, Parts, Sparkline } from '../components/b2-charts.js';
 import { LegalSlotsSwitch, Region, Review, RoomFrame } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
@@ -75,6 +75,38 @@ describe('bars', () => {
     );
     expect(out).toContain('data-negative="true"');
     expect(out).not.toMatch(/height="0"/);
+  });
+});
+
+describe('sparkline', () => {
+  it('draws a named line coloured by its direction, and nothing from fewer than two points', () => {
+    const up = html(<Sparkline label="BTC/USDT" values={['1', '3', '2', '4']} />);
+    expect(up).toContain('role="img"');
+    expect(up).toContain('aria-label="BTC/USDT"');
+    expect(up).toContain('data-tone="up"');
+    expect(html(<Sparkline label="x" values={['5', '1']} />)).toContain('data-tone="down"');
+    expect(html(<Sparkline label="x" values={['5']} />)).toBe('');
+  });
+});
+
+describe('coverage', () => {
+  it('places each covered range where it falls in the window and leaves the gaps empty', () => {
+    const out = html(
+      <Coverage
+        label="ticks"
+        from="2026-01-01T00:00:00Z"
+        to="2026-01-01T10:00:00Z"
+        rangeTestId="range"
+        ranges={[
+          { from: '2026-01-01T00:00:00Z', to: '2026-01-01T02:00:00Z' },
+          { from: '2026-01-01T05:00:00Z', to: '2026-01-01T10:00:00Z' },
+        ]}
+      />,
+    );
+    expect(out).toContain('role="img"');
+    expect(out).toContain('inset-inline-start:0%;inline-size:20%');
+    expect(out).toContain('inset-inline-start:50%;inline-size:50%');
+    expect(out.match(/data-testid="range"/g)).toHaveLength(2);
   });
 });
 
