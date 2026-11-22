@@ -80,7 +80,7 @@ export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', ro
               onClick={
                 onSelect
                   ? (event) => {
-                      if ((event.target as HTMLElement).closest('a, button, input, select, textarea')) return;
+                      if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea')) return;
                       onSelect(key);
                     }
                   : undefined

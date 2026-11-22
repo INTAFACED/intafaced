@@ -23,28 +23,30 @@ export const placesFor = (step: string | null | undefined): number => fractionDi
 
 /** A value the service has not given: a dash to the eye, "unknown" to assistive tech. */
 export function Unknown() {
+  const { t } = execCopy.useCopy();
   return (
     <>
       <span aria-hidden="true">{UNKNOWN}</span>
-      <span className="lt-sr">unknown</span>
+      <span className="lt-sr">{t('unknown')}</span>
     </>
   );
 }
 
 /** A refusal in plain words, with its code small and an optional retry. */
 export function Refusal({ words, onRetry }: { words: Words; onRetry?: () => void }) {
+  const { t } = execCopy.useCopy();
   return (
     <div className="lt-refusal" data-refusal="refused" role="status">
       <p className="lt-refusal-title">{words.title}</p>
       <p className="lt-refusal-body">{words.body}</p>
       {words.code ? <p className="lt-ref">{words.code}</p> : null}
-      {onRetry ? <Button onClick={onRetry}>Try again</Button> : null}
+      {onRetry ? <Button onClick={onRetry}>{t('Try again')}</Button> : null}
     </div>
   );
 }
 
 /** The sign-in refusal: what signing in unlocks, and the one way there. */
-export function SignInRefusal() {
+function SignInRefusal() {
   const { t } = execCopy.useCopy();
   return (
     <RefusalBox
@@ -109,7 +111,7 @@ export function Freshness({ asOf, refused = false }: { asOf: number | null; refu
 }
 
 /** A labelled box: the label names the control, the hint and the error sit under it and describe it. */
-export function FieldBox({
+function FieldBox({
   label,
   hint,
   error,
@@ -303,6 +305,7 @@ export function WriteNotice({
   /** Plain-words line shown after a successful write. */
   done?: ReactNode;
 }) {
+  const { t } = execCopy.useCopy();
   const { outcome, note } = writer;
   const pendingId = note.state === 'pending' ? note.pending.id : outcome.kind === 'uncertain' ? outcome.id : null;
   return (
@@ -327,9 +330,9 @@ export function WriteNotice({
       {pendingId ? (
         <div className="lt-toolbar">
           <span className="lt-hint">
-            Unconfirmed request <span className="lt-mono">{pendingId}</span>. New requests stay locked until it is checked.
+            {t('Unconfirmed request')} <span className="lt-mono">{pendingId}</span>. {t('Unconfirmed request locked')}
           </span>
-          {onCheck ? <Button onClick={() => onCheck(pendingId)}>Check status</Button> : null}
+          {onCheck ? <Button onClick={() => onCheck(pendingId)}>{t('Check status')}</Button> : null}
         </div>
       ) : null}
     </div>
