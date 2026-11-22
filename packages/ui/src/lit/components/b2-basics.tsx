@@ -241,8 +241,6 @@ export function Sheet({
   open: boolean;
   title: string;
   onClose: () => void;
-  /** The close button's words, in the room's language. Default "Close". */
-  closeLabel?: string;
   /** False while a save is in flight: Escape is refused and Close is disabled. Default true. */
   dismissible?: boolean;
   /** The Close button's word in the room's language. Default "Close". */
