@@ -1129,4 +1129,10 @@ async function main() {
   } else console.log('none: no journeys run executes or reads what this change touches');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main();
+// Not awaited at the top level: main() imports tooling-reach.mjs, which imports this file, and that import would wait on
+// this file's own evaluation, which would wait on main(), a cycle that never settles (node exits 13).
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
+  main().catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  });

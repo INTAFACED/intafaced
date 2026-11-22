@@ -87,8 +87,8 @@ const KEY = 'key-1';
 const SUB = '33333333-3333-4333-8333-333333333333';
 
 describe('a guard copied onto its record refuses as the hand guard did', () => {
-  it("svc-agents' operator(scope): an API key and a sub-account are refused with the call's own code, through the record", async () => {
-    // svc-agents fleet/control.ts before the record could say it.
+  it("svc-agents' operator(scope): an API key and a sub-account are refused with the call's own code before the scope, through the record", async () => {
+    // svc-agents fleet/control.ts before the record could say it; a person's session is judged as it was by hand.
     const hand = scopedProcedure('admin:read', { module: 'agents', person: true }).use(({ ctx, next }) => {
       if (ctx.principal.kid || ctx.principal.sub_account) throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.fleet_person_only' });
       return next();
@@ -97,24 +97,22 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
       { caller: 'scope', scope: 'admin:read', module: 'agents', person: true, ownSession: 'agents.fleet_person_only' },
       hand,
     );
-    const callers: Caller[] = [
-      { scopes: ['admin:read'] },
-      { scopes: ['admin:read'], kid: KEY },
-      { scopes: ['admin:read'], sub_account: SUB },
-      { scopes: [], kid: KEY },
-      { scopes: [] },
-    ];
-    for (const c of callers) expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
+    for (const c of [{ scopes: ['admin:read'] }, { scopes: [] }] as Caller[])
+      expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
     expect(await verdict(fromRecord, { scopes: ['admin:read'] })).toEqual({ ok: true });
-    // admin:read is interactive-only, so the scope check refuses the key first, as it did by hand.
-    expect(await verdict(fromRecord, { scopes: ['admin:read'], kid: KEY })).toMatchObject({ refused: 'FORBIDDEN' });
-    expect(await verdict(fromRecord, { scopes: ['admin:read'], sub_account: SUB })).toEqual({
-      refused: 'FORBIDDEN',
-      message: 'agents.fleet_person_only',
-    });
+    // A person without the scope still reads the scope refusal: only a key or a sub-account is told it is the person's own.
+    expect(await verdict(fromRecord, { scopes: [] })).toEqual({ refused: 'FORBIDDEN', message: 'Scope "admin:read" is required' });
+    // A key or a sub-account is told the call is the person's own, whatever scopes it holds or lacks (J-agents-12 #3).
+    for (const c of [
+      { scopes: ['admin:read'], kid: KEY },
+      { scopes: [], kid: KEY },
+      { scopes: ['admin:read'], sub_account: SUB },
+      { scopes: [], sub_account: SUB },
+    ] as Caller[])
+      expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual({ refused: 'FORBIDDEN', message: 'agents.fleet_person_only' });
   });
 
-  it("svc-agents' executeProcedure(): a key and a sub-account are refused as before", async () => {
+  it("svc-agents' executeProcedure(): a key and a sub-account are told a run is the person's own, before the scope", async () => {
     const hand = scopedProcedure('agents:execute', { module: 'agents', person: true }).use(({ ctx, next }) => {
       if (ctx.principal.kid || ctx.principal.sub_account) throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.execute_person_only' });
       return next();
@@ -123,15 +121,20 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
       { caller: 'scope', scope: 'agents:execute', module: 'agents', person: true, ownSession: 'agents.execute_person_only' },
       hand,
     );
+    for (const c of [{ scopes: ['agents:execute'] }, { scopes: ['agents:read'] }] as Caller[])
+      expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
+    expect(await verdict(fromRecord, { scopes: ['agents:execute'] })).toEqual({ ok: true });
+    expect(await verdict(fromRecord, { scopes: ['agents:read'] })).toEqual({
+      refused: 'FORBIDDEN',
+      message: 'Scope "agents:execute" is required',
+    });
+    // A key with agents:read alone (no key can hold agents:execute) reads why it cannot start a run, not a scope to ask for.
     for (const c of [
-      { scopes: ['agents:execute'] },
+      { scopes: ['agents:read'], kid: KEY },
       { scopes: ['agents:execute'], kid: KEY },
       { scopes: ['agents:execute'], sub_account: SUB },
-    ])
-      expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
-    // agents:execute is the person's own in packages/auth, so the scope check refuses a key and a sub-account first, as it did by hand.
-    expect(await verdict(fromRecord, { scopes: ['agents:execute'], kid: KEY })).toMatchObject({ refused: 'FORBIDDEN' });
-    expect(await verdict(fromRecord, { scopes: ['agents:execute'], sub_account: SUB })).toMatchObject({ refused: 'FORBIDDEN' });
+    ] as Caller[])
+      expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual({ refused: 'FORBIDDEN', message: 'agents.execute_person_only' });
   });
 
   it("svc-agents' personReadProcedure(): an API key holding agents:read reaches the call's own code, through the record", async () => {

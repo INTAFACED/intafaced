@@ -3,8 +3,8 @@
 
 use super::{Access, Call, Kind, Post, Pre, Scoped, Slice};
 
-/// The 193 calls.
-pub const CALLS: [Call; 193] = [
+/// The 196 calls.
+pub const CALLS: [Call; 196] = [
     Call {
         path: "agent.catalogue",
         kind: Kind::Query,
@@ -3240,6 +3240,57 @@ pub const CALLS: [Call; 193] = [
             lacks_identity_write: false,
         },
         slice: Slice::Metering,
+        has_input: true,
+    },
+    Call {
+        path: "webhook.deliveries",
+        kind: Kind::Query,
+        access: Access::Scope(Scoped {
+            scope: "agents:read",
+            person: false,
+            module: true,
+        }),
+        pre: Pre::None,
+        post: Post {
+            key: false,
+            sub_account: false,
+            lacks_identity_write: false,
+        },
+        slice: Slice::Webhooks,
+        has_input: true,
+    },
+    Call {
+        path: "webhook.list",
+        kind: Kind::Query,
+        access: Access::Scope(Scoped {
+            scope: "agents:read",
+            person: false,
+            module: true,
+        }),
+        pre: Pre::None,
+        post: Post {
+            key: false,
+            sub_account: false,
+            lacks_identity_write: false,
+        },
+        slice: Slice::Webhooks,
+        has_input: true,
+    },
+    Call {
+        path: "webhook.register",
+        kind: Kind::Mutation,
+        access: Access::Scope(Scoped {
+            scope: "agents:read",
+            person: false,
+            module: true,
+        }),
+        pre: Pre::None,
+        post: Post {
+            key: false,
+            sub_account: false,
+            lacks_identity_write: false,
+        },
+        slice: Slice::Webhooks,
         has_input: true,
     },
 ];

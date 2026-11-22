@@ -551,8 +551,8 @@ export interface GuardOptions {
   person?: boolean;
   /**
    * The person's own session only: an API key (`kid`) or a sub-account token is refused FORBIDDEN with this machine code,
-   * after every other check here passes. A service names its own code (`agents.execute_person_only`) so the wire stays
-   * what it was when the call wrote this check in its own `.use()`.
+   * right after a service on the request is refused and before the scope: a key is told the call is the person's own
+   * (`agents.execute_person_only`), never to ask for a scope no key can hold (J-agents-12 #3).
    */
   ownSession?: string;
   /**
@@ -632,6 +632,7 @@ export function signedInProcedure(guards: Pick<GuardOptions, 'module' | 'plane'>
 export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
   return protectedProcedure.meta({ caller: 'scope' }).use(async ({ ctx, next }) => {
     refuseActingService(ctx, guards);
+    refuseKeyOrSubAccount(ctx, guards);
     try {
       requireScope(ctx.principal, scope);
       if (guards.tier) requireTier(ctx.principal, guards.tier);
@@ -641,7 +642,6 @@ export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
 
     await assertLiveOwnerPayScope(ctx, scope);
     refuseJurisdiction(ctx, guards);
-    refuseKeyOrSubAccount(ctx, guards);
     if (guards.check) await guards.check(ctx);
 
     return next({ ctx });
