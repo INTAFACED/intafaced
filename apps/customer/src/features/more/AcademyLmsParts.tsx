@@ -1,10 +1,10 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { Button } from '../../shared/ui';
+import type { ApiResult } from '../../shared/api';
+import { Button, Failure } from '../../shared/ui';
 import { academyLmsCopy as copy } from './academy-lms-copy';
+import { academyRefusalText } from './academy-flows';
 import type { AcademyPath, CertificateState, LessonStatus } from './academy-lms';
 import './academy-lms.css';
-
-export { AcademyRefusal } from './academy-refusal';
 
 const pathKeys = {
   foundations: 'pathFoundations',
@@ -67,6 +67,21 @@ export function CertificateChip({ state }: { state: CertificateState }) {
     <span className="academy-lms-chip" data-status={state}>
       <Copy k={stateKeys[state]} />
     </span>
+  );
+}
+
+/**
+ * A failed Academy request. The service's typed refusals are worded here in plain language; anything else (a dropped
+ * connection, a sign-in problem) goes to the shared failure panel, which words those.
+ */
+export function AcademyRefusal({ failure, retry }: { failure: Extract<ApiResult<never>, { ok: false }>; retry?: () => void }) {
+  const { t } = copy.useCopy();
+  const words = academyRefusalText(failure, t);
+  if (words === null) return <Failure result={failure} retry={retry} />;
+  return (
+    <div data-testid="failure" className="failure" role="status">
+      <p>{words}</p>
+    </div>
   );
 }
 
