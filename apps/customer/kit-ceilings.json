@@ -220,7 +220,6 @@
     "apps/customer/src/features/trade/Chart.tsx": 26,
     "apps/customer/src/features/trade/market-analytics/MarketAnalyticsRoom.tsx": 1,
     "apps/customer/src/features/trade/news/NewsRooms.tsx": 4,
-    "apps/customer/src/features/trade/news/NewsWidget.tsx": 1,
     "apps/customer/src/features/trade/orders/FuturesOrdersRoom.tsx": 4,
     "apps/customer/src/features/trade/orders/OrderHistoryRoom.tsx": 4,
     "apps/customer/src/features/trade/orders/VenueOrders.tsx": 3,
