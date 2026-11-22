@@ -541,7 +541,7 @@ function offOverridden() {
   return out;
 }
 
-function startProc(name, argv, env, cwd, extra = {}) {
+export function startProc(name, argv, env, cwd, extra = {}) {
   // The maker's record is its own script's (local-test-market.mjs); a service under its name would be read as the maker.
   if (name === MAKER_RECORD) throw new Error(`refusing: ${name} names the TEST market maker's record, not a service`);
   const logPath = path.join(P.logs, `${name}.log`);
