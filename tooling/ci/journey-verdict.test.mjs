@@ -287,6 +287,24 @@ test("a money-flag mismatch main's rule made is passed only when the head's own 
   assert.deepEqual(same.red, [], "a head whose rule disagrees with the baseline where main's agrees is not read by it");
 });
 
+test("a change whose own money rule makes a baselined step money is red as money, though main's rule agrees (#9539)", () => {
+  const failingNow = readReport(report(ok('J-a-01 #1'), bad('J-a-02 #1')));
+  const headSays = { ...money, 'J-a-02#1': true }; // #9539's head: its admin manifest made the step money
+  const at = (extra) => judge({ newest: failingNow, named, baseline, money, issues: { 9: parkedIssue }, headMoney: headSays, ...extra });
+  assert.deepEqual(
+    at({ headBaseline: baseline }).red.map((r) => [r.step, r.why, r.money]),
+    [['J-a-02#1', 'with this pull request, the baseline says money false, the money rule at its head says true', true]],
+  );
+  // The pull request moves the entry with its rule (money, unbuilt): nothing to stop.
+  const movedEntry = { ...baseline, steps: [{ step: 'J-a-02#1', state: 'unbuilt', money: true }] };
+  assert.deepEqual(at({ headBaseline: movedEntry }).red, []);
+  // A machine set-aside never keeps such a step out of the red.
+  const setAside = { 'J-a-02#1': { active: true, before: 'passed' } };
+  const aside = at({ headBaseline: baseline, setAside, issues: {} });
+  assert.deepEqual(aside.setAside, []);
+  assert.match(aside.red[0]?.why ?? '', /the money rule at its head says true/);
+});
+
 test('red: a step listed twice, or in a state the runbook does not allow', () => {
   const twice = { ...baseline, steps: [...baseline.steps, baseline.steps[0]] };
   assert.match(

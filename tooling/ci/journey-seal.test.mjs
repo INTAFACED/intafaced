@@ -24,6 +24,7 @@ import {
   judgeSteps,
   mainReference,
   moneyAt,
+  moneyInput,
   splitInherited,
   mainsOwn,
   trackingIssue,
@@ -2914,13 +2915,17 @@ test('sealPull: a money-flag mismatch main made passes on a head whose own money
     rangeOf: async () => ({ files: [], commits: 1, short: false }),
   });
   assert.equal(passedOver.passed.length, 0, 'a money red is never passed over as inherited');
-  // A clean verdict reads no head rule.
+  // A clean verdict reads no head rule, on a pull request that changes no file the rule or the baseline is read from.
   asked.length = 0;
   const clean = await sealPull({
     repo: REPO,
     number: 9601,
     sha: HEAD,
-    io: { ...io({ headMoney: { [step]: false } }), verdictOf: async () => ({ red: [], failing: 0, missing: [] }) },
+    io: {
+      ...io({ headMoney: { [step]: false } }),
+      files: async () => ['apps/admin/src/lib/ops-desk/catalog.ts'],
+      verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
+    },
   });
   assert.equal(clean.ok, true);
   assert.deepEqual(asked, []);
@@ -2953,4 +2958,290 @@ test("moneyAt reads the money rule a checkout holds, as rootInputs does (the sea
   assert.ok(moved.length > 0 && moved.every((k) => withIt[k] && !without[k]), 'the admin manifest is read');
   // Unreadable: it throws, so the seal keeps the red.
   await assert.rejects(moneyAt({ list, blobs, text: async () => null }), /journeys\.json could not be read/);
+});
+
+// ---- A change that makes a baselined step money, judged with its head's own money rule (#9539, project-state #3686 half 1) ----
+
+// Built from #9539 at d0887b4 (its journeys run 44971771966 was red on 8 such rows, 22 Nov 2026): it gave apps/admin a
+// ledger-client dependency, so its own rule called J-ops-console-22 #3 money while the baseline says money false. Main's
+// rule (125ec198c) still agreed with the baseline, so the seal, reading main's inputs alone, passed it and broke main.
+test("sealPull: a pull request whose own money rule makes a baselined step money is red, though main's rule agrees (#9539)", async () => {
+  const step = 'J-ops-console-22#3';
+  const file = 'J-ops-console-22.pw.mjs';
+  const parked = {
+    issue: { number: 9, state: 'open', title: 'Journey broken on main: J-ops-console-22' },
+    comments: [
+      { author_association: 'MEMBER', created_at: '2026-11-01T00:00:00Z', body: 'Regression state: parked — needs the stack. Lane B1.' },
+    ],
+  };
+  const named = { states: { [step]: 'failed' }, files: { [step]: file }, ran: [file] };
+  const entry = { step, state: 'regression', money: false, issue: 9 };
+  const inputs = { baseline: { run: { number: 100, id: 1, sha: PASS_SHA }, steps: [entry] }, money: { [step]: false }, reports: new Map() };
+  const read = () => ({ named, passedSince: {}, issues: { 9: parked }, problems: [], shas: {} });
+  const rep = { states: { [step]: 'failed' }, files: { [step]: file }, ran: [...CANARY, file] };
+  const asked = [];
+  const seal = ({ headMoney, files = ['apps/admin/package.json'], headBaseline = null }) =>
+    sealPull({
+      repo: REPO,
+      number: 9539,
+      sha: HEAD,
+      io: {
+        pull: async () => ({ state: 'open', head: { sha: HEAD }, title: 'admin: the ops desk reads the ledger', body: '' }),
+        runs: async () => [run(1)],
+        reportOf: reports({ 1: rep }),
+        files: async () => files,
+        text: async (p) => (p === 'docs/runbooks/journey-baseline.json' && headBaseline ? JSON.stringify(headBaseline) : null),
+        verdictOf: async (report, r, o = {}) => fullVerdict({ repo: REPO, report, run: r, inputs, read, ...o }),
+        headMoney: async (sha) => {
+          asked.push(sha);
+          if (headMoney instanceof Error) throw headMoney;
+          return headMoney;
+        },
+      },
+    });
+  // The planted fault: the head's rule calls the step money, the baseline it would merge says not.
+  const broke = await seal({ headMoney: { [step]: true } });
+  assert.equal(broke.ok, false, broke.lines.join('\n'));
+  assert.match(
+    broke.lines.join('\n'),
+    /J-ops-console-22#3: with this pull request, the baseline says money false, the money rule at its head says true/,
+  );
+  assert.deepEqual(asked, [HEAD]);
+  // As money, so it is never passed over as inherited.
+  const v = fullVerdict({ repo: REPO, report: rep, run: run(1), inputs, read, headMoney: { [step]: true } });
+  assert.deepEqual(
+    v.red.map((x) => [x.step, x.money]),
+    [[step, true]],
+  );
+  // Known good: a head whose rule still agrees, and one that moves the entry with its rule (money, unbuilt), both seal.
+  assert.equal((await seal({ headMoney: { [step]: false } })).ok, true);
+  const moved = await seal({
+    headMoney: { [step]: true },
+    files: ['apps/admin/package.json', 'docs/runbooks/journey-baseline.json'],
+    headBaseline: { ...inputs.baseline, steps: [{ step, state: 'unbuilt', money: true }] },
+  });
+  assert.equal(moved.ok, true, moved.lines.join('\n'));
+  // Unreadable: the head's rule, or the baseline it changes, fails the seal closed.
+  for (const o of [
+    { headMoney: new Error('GraphQL: HTTP 502') },
+    { headMoney: { [step]: false }, files: ['docs/runbooks/journey-baseline.json'] },
+  ]) {
+    const v = await seal(o);
+    assert.equal(v.ok, false, JSON.stringify(o));
+    assert.match(v.lines.join('\n'), /which the money rule or the baseline is read from, and its head's couldn't be read .*fails closed/);
+  }
+});
+
+test('moneyInput: the files the money rule and the baseline are read from', () => {
+  for (const p of [
+    'docs/roadmap/journeys.json',
+    'docs/roadmap/slices.json',
+    'docs/runbooks/journey-baseline.json',
+    'apps/admin/package.json',
+    'packages/ledger-client/package.json',
+    'crates/svc-ledger/Cargo.toml',
+  ])
+    assert.equal(moneyInput(p), true, p);
+  for (const p of ['apps/admin/src/a.ts', 'package.json', 'apps/admin/sub/package.json', 'docs/roadmap/other.json'])
+    assert.equal(moneyInput(p), false, p);
+});
+
+// ---- A pure revert merges on main's other checks (intafaced #9603, 22 Nov 2026) ----
+// Planted in a real repository, so each case is a real commit and GitHub's answers are git's: the revert main-bisect
+// opens of main's newest merge passes the seal with a red journeys run on its head and is not waited on; one extra
+// changed line, in the culprit's file or another, and a revert of an older merge whose file main changed since, are
+// judged in full (that red run fails them).
+test('a pure revert of a merge on main passes the seal and is not waited on; one extra line or an older merge is judged in full', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { AUTO_REVERT_AUTHOR, readPureRevert, readGoing } = await import('./journey-seal.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'pure-revert-'));
+  try {
+    const g = (...args) =>
+      execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+    const A = 'services/svc-support/src/chat.ts';
+    const B = 'services/svc-support/src/other.ts';
+    const put = (f, lines) => {
+      execFileSync('mkdir', ['-p', join(dir, f, '..')]);
+      writeFileSync(join(dir, f), `${lines.join('\n')}\n`);
+    };
+    const ten = (p) => Array.from({ length: 10 }, (_, i) => `${p}${i}`);
+    g('init', '-q', '-b', 'main');
+    put(A, ten('a'));
+    put(B, ten('b'));
+    g('add', '.');
+    g('commit', '-qm', 'base');
+    put(
+      A,
+      ten('a').map((l, i) => (i === 2 ? 'culprit' : l)),
+    );
+    g('commit', '-qam', 'culprit (#1)');
+    const culprit = g('rev-parse', 'HEAD');
+    put(
+      B,
+      ten('b').map((l, i) => (i === 5 ? 'later' : l)),
+    );
+    g('commit', '-qam', 'a later merge on another file (#2)');
+    const later = g('rev-parse', 'HEAD');
+    const revertOn = (base, extra) => {
+      g('checkout', '-q', '--detach', base);
+      g('revert', '--no-edit', culprit);
+      if (extra) {
+        execFileSync('sh', ['-c', `echo extra >> ${JSON.stringify(join(dir, extra))}`]);
+        g('commit', '-q', '--amend', '--no-edit', '-a');
+      }
+      const sha = g('rev-parse', 'HEAD');
+      g('checkout', '-q', 'main');
+      return sha;
+    };
+    const pure = revertOn(later);
+    const extraInCulpritFile = revertOn(later, A);
+    const extraElsewhere = revertOn(later, B);
+    // The compare API: status and files from `base` to `head` (git's merge base, as GitHub's three dots).
+    const compare = async (base, head) => {
+      const b = g('rev-parse', base);
+      const h = g('rev-parse', head);
+      let status = b === h ? 'identical' : 'ahead';
+      try {
+        g('merge-base', '--is-ancestor', b, h);
+      } catch {
+        status = 'diverged';
+      }
+      return {
+        status,
+        files: g('diff', '--name-only', `${b}...${h}`)
+          .split('\n')
+          .filter(Boolean)
+          .map((filename) => ({ filename })),
+      };
+    };
+    const commitOf = async (sha) => ({
+      sha,
+      parents: g('rev-list', '--parents', '-n', '1', sha)
+        .split(' ')
+        .slice(1)
+        .map((s) => ({ sha: s })),
+      files: g('show', '--name-only', '--format=', sha)
+        .split('\n')
+        .filter(Boolean)
+        .map((filename) => ({ filename })),
+    });
+    const pathsOf = (head) => g('diff', '--name-only', `main...${head}`).split('\n').filter(Boolean);
+    const pullAt = (head, over = {}) => ({
+      number: 9,
+      state: 'open',
+      title: 'ci: revert #1, which turned main red (run 5)',
+      body: '',
+      base: { ref: 'main', sha: g('rev-parse', 'main') },
+      head: { sha: head, ref: `revert/auto-${culprit.slice(0, 10)}`, repo: { full_name: REPO } },
+      user: { login: AUTO_REVERT_AUTHOR, type: 'Bot' },
+      ...over,
+    });
+    const ioFor = (pull) => ({
+      pull: async () => pull,
+      pullCommits: async () => [
+        { commit: { message: g('log', '-1', '--format=%B', pull.head.sha) }, parents: [{ sha: g('rev-parse', `${pull.head.sha}^`) }] },
+      ],
+      commit: commitOf,
+      compare,
+      files: async () => pathsOf(pull.head.sha),
+      text: async () => null,
+      journeyFiles: async () => new Set(['J-p2p-01.pw.mjs']),
+      runs: async (h) => [run(1, { head_sha: h })],
+      reportOf: reports({ 1: { states: { 'J-p2p-01#1': 'failed' }, ran: CANARY } }),
+      verdictOf: async () => dirty,
+    });
+    const seal = (pull) => sealPull({ repo: REPO, number: 9, sha: pull.head.sha, io: ioFor(pull) });
+    const scope = (pull) => readPureRevert({ io: ioFor(pull), repo: REPO, pull, number: 9, paths: pathsOf(pull.head.sha) });
+
+    // The planted pure revert: the seal passes with its journeys run red, says why, and names main's full run.
+    const ok = await seal(pullAt(pure));
+    assert.equal(ok.ok, true, ok.lines.join('\n'));
+    assert.match(
+      ok.lines.join('\n'),
+      new RegExp(`a pure revert of ${culprit.slice(0, 10)}: .*main's full journeys run after the merge judges it`),
+    );
+    assert.equal((await scope(pullAt(pure))).ok, true);
+
+    // Judged in full: each fails the seal on that red run, and says why it is not a pure revert.
+    const full = async (pull, why, label) => {
+      const v = await seal(pull);
+      assert.equal(v.ok, false, label);
+      assert.equal(v.fullOk, false, `${label}: the journeys verdict judged it`);
+      assert.match((await scope(pull)).why, why, label);
+    };
+    await full(pullAt(extraInCulpritFile), /1 of the reverted files differ from before/, 'one extra line in the culprit file');
+    await full(
+      pullAt(extraElsewhere),
+      /changes 1 file\(s\) the reverted commit didn't \(services\/svc-support\/src\/other\.ts\)/,
+      'one extra line in another file',
+    );
+    await full(pullAt(pure, { user: { login: 'ZenYoda3', type: 'User' } }), /not opened by/, 'a person opened it');
+    const byHand = pullAt(pure, { head: { ...pullAt(pure).head, ref: 'revert/by-hand' } });
+    assert.equal(await scope(byHand), null, "off main-bisect's branch: not this route");
+    assert.equal((await seal(byHand)).fullOk, false, "off main-bisect's branch: judged in full");
+
+    // An older merge: main changes the culprit's file after it. The revert opened before that, and one made on top of it
+    // (git applies it cleanly: other lines), are both judged in full.
+    put(
+      A,
+      ten('a').map((l, i) => (i === 2 ? 'culprit' : i === 8 ? 'changed since' : l)),
+    );
+    g('commit', '-qam', 'a later merge on the same file (#3)');
+    const stale = await seal(pullAt(pure));
+    assert.equal(stale.ok, false, 'opened before main changed its file');
+    assert.match((await scope(pullAt(pure))).why, /main changed 1 of its files since/);
+    const onTop = revertOn('main');
+    assert.equal((await seal(pullAt(onTop))).ok, false, 'made on top of the later change');
+    assert.match((await scope(pullAt(onTop))).why, /main changed 1 of its files since/);
+
+    // The wait (readGoing): a pure revert's running journeys run is not waited for; once main changed its file, it is.
+    g('reset', '-q', '--hard', later);
+    const going = async (pull) => {
+      const get = async (path) => {
+        if (path.includes('/pulls/9/files')) return pathsOf(pull.head.sha).map((filename) => ({ filename }));
+        if (path.includes('/pulls/9/commits')) return ioFor(pull).pullCommits();
+        const c = /\/commits\/([0-9a-f]{40})\?/.exec(path);
+        if (c) return commitOf(c[1]);
+        const m = /\/compare\/([^.]+)\.\.\.([^?]+)\?/.exec(path);
+        if (m) return compare(m[1], m[2]);
+        if (path.includes('/runs?head_sha='))
+          return { workflow_runs: path.includes('real-app-journeys') ? [{ id: 4, head_sha: pull.head.sha, status: 'in_progress' }] : [] };
+        if (path.includes('/jobs')) return { jobs: [], total_count: 0 };
+        throw new Error(`unread ${path}`);
+      };
+      return readGoing({ get, repo: REPO, sha: pull.head.sha, pulls: [pull] });
+    };
+    assert.deepEqual(await going(pullAt(pure)), [], 'a pure revert: its journeys run is not waited for');
+    assert.match(
+      (await going(pullAt(extraElsewhere))).join('\n'),
+      /run 4 \(in_progress\)/,
+      'not pure: the seal waits for its journeys run',
+    );
+
+    // Its parent had the culprit's file changed, and main changed it back since: the merge base disagrees with main on
+    // that file, so the head is not `git revert` on main even with the file restored and main's file as the culprit's.
+    put(
+      A,
+      ten('a').map((l, i) => (i === 2 ? 'culprit' : i === 8 ? 'moved' : l)),
+    );
+    g('commit', '-qam', 'a merge that moves the file (#4)');
+    put(A, ten('a'));
+    g('commit', '-qam', `Revert "x"\n\nThis reverts commit ${culprit}.`);
+    const handMade = g('rev-parse', 'HEAD');
+    g('reset', '-q', '--hard', 'HEAD^');
+    put(
+      A,
+      ten('a').map((l, i) => (i === 2 ? 'culprit' : l)),
+    );
+    g('commit', '-qam', 'a merge that moves it back (#5)');
+    assert.match((await scope(pullAt(handMade))).why, /its commit's parent has 1 of the reverted files changed since/);
+    assert.equal((await seal(pullAt(handMade))).fullOk, false, 'a parent off main state of the file: judged in full');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -65,6 +65,11 @@ async function expectNothingOnLedger(who) {
 
 const bankAccount = (page) => page.getByTestId('bank-account');
 
+/** The TEST partner's own onboarding record of the person, read on loopback, never through our doors. */
+async function partnerOnboarding(userId) {
+  return (await venueRecord(userId, '/onboarding', {}, PARTNER_RECORD, null)).value;
+}
+
 test(`${J} #1 opens the onboarding banner: the partner's steps and requirements with the owner's, and our identity case from Verification where the partner accepts it`, async ({
   page,
 }) => {
@@ -78,14 +83,21 @@ test(`${J} #1 opens the onboarding banner: the partner's steps and requirements 
   const opened = await ok(who, 'POST', 'testPartner.openCompliance', { kind: 'request', id: 'bk17-request-1', dueDays: 14 });
   run.reset({ who, requestDueAt: opened.dueAt });
   await expectNothingOnLedger(who);
+  // What the partner itself records: its requirements, that it accepts our case, and the one request it opened.
+  const session = await api(who);
+  const record = await partnerOnboarding(session.userId);
+  expect(record.identityCaseAccepted).toBe(true);
+  expect(record.requirements.length).toBeGreaterThan(0);
+  const openAtPartner = record.requests.filter((r) => r.status === 'open');
+  expect(openAtPartner).toEqual([expect.objectContaining({ id: opened.id, dueAt: opened.dueAt })]);
   await signIn(page, who);
 
-  // The banner on the Bank's first page, naming the partner and what is open.
+  // The banner on the Bank's first page, naming the partner and what is open there.
   await page.goto('/bank');
   const banner = page.getByTestId('bank-onboarding-banner');
   await expect(banner).toBeVisible();
   await expect(banner).toContainText(`${PARTNER_BANK} needs something from you`);
-  await expect(banner).toContainText('1 information requests');
+  await expect(banner).toContainText(`${openAtPartner.length} information requests`);
   await banner.getByRole('link', { name: 'Open onboarding' }).click();
   await expect(page).toHaveURL(/\/bank\/account$/);
 
@@ -99,14 +111,12 @@ test(`${J} #1 opens the onboarding banner: the partner's steps and requirements 
   );
   await expect(onboarding.locator('li[data-step="information"]')).toHaveAttribute('data-status', 'open');
   const identityCase = page.getByTestId('bank-identity-case');
-  await expect(identityCase).toHaveAttribute('data-accepted', 'true');
+  await expect(identityCase).toHaveAttribute('data-accepted', String(record.identityCaseAccepted));
   await expect(identityCase).toHaveAttribute('data-tier', 'full');
   await expect(identityCase).toContainText(`Your INTAFACED verification (level full) is offered to ${PARTNER_BANK}, and it accepts it.`);
-  // The partner's requirements, with the owner's beside them.
-  await expect(page.getByTestId('bank-partner-requirements').locator('li')).toHaveText([
-    'TEST: be 18 or older',
-    'TEST: live in a country the partner bank serves',
-  ]);
+  // The partner's requirements, exactly as its own record states them, with the owner's beside them.
+  expect(record.requirements).toEqual(['TEST: be 18 or older', 'TEST: live in a country the partner bank serves']);
+  await expect(page.getByTestId('bank-partner-requirements').locator('li')).toHaveText(record.requirements);
   await expect(page.getByTestId('bank-owner-requirements').locator('li')).toHaveText([
     'TEST owner requirement: keep your contact email up to date',
     'TEST owner requirement: use the account for your own money only',
@@ -114,6 +124,7 @@ test(`${J} #1 opens the onboarding banner: the partner's steps and requirements 
 
   // Where the partner does not accept our case, the identity step is the partner's own check, still open.
   await setPartner(who, { identityCase: 'not_accepted' });
+  expect((await partnerOnboarding(session.userId)).identityCaseAccepted).toBe(false);
   await page.reload();
   await expect(page.getByTestId('bank-identity-case')).toHaveAttribute('data-accepted', 'false');
   await expect(page.getByTestId('bank-identity-case')).toContainText(`${PARTNER_BANK} does not accept your INTAFACED verification`);
