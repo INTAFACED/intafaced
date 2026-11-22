@@ -282,6 +282,16 @@
       'chart ticket'
       'orders orders';
   }
+  /* A chart desk (the charts workbench): the charts and the markets list beside them, no book, trades or ticket. */
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> [data-region='book'], > [data-region='tape'], > [data-region='ticket'])
+    ) {
+    grid-template-columns: minmax(0, 1fr) 21.25rem;
+    grid-template-areas:
+      'instrument instrument'
+      'chart pairs'
+      'orders orders';
+  }
   .lt-desk[data-desk='simple'] {
     grid-template-columns: minmax(0, 1fr) 21.25rem;
     grid-template-areas:

@@ -314,6 +314,7 @@ export const components = {
   AreaChart: '(B2) Value over time with a lit fill',
   Bars: '(B2) Bars (volume, monthly totals)',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
+  SplitGrid: 'One, two or four panels with borders the person drags to resize them (SplitCell, SplitBorder): the chart grid',
 } as const;
 export type ComponentName = keyof typeof components;
 
