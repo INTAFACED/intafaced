@@ -5,6 +5,7 @@
 
 pub mod adjustments;
 pub mod apply;
+pub mod book;
 pub mod locks;
 pub mod model;
 pub mod ports;
