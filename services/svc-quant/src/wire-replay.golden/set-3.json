@@ -2513,7 +2513,7 @@
   },
   "set live.check valid signed": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"name\":\"Replay cross\",\"plan\":\"signal\",\"orderTypes\":[{\"source\":\"signal_entry\",\"block\":null,\"type\":\"market\",\"percent\":null,\"supported\":false,\"code\":\"quant.live_plan_unsupported\"}],\"compiles\":false,\"liveEnabled\":false,\"asOf\":\"<time>\"}}}"
+    "body": "{\"result\":{\"data\":{\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"name\":\"Replay cross\",\"plan\":\"signal\",\"orderTypes\":[{\"source\":\"signal_entry\",\"block\":null,\"type\":\"market\",\"percent\":null,\"supported\":false,\"code\":\"quant.live_plan_unsupported\"}],\"compiles\":false,\"liveEnabled\":false,\"approval\":{\"required\":true,\"allowed\":false},\"asOf\":\"<time>\"}}}"
   },
   "set live.check valid signed-US": {
     "status": 403,
@@ -2525,7 +2525,7 @@
   },
   "set live.check valid tier-none": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"name\":\"Replay cross\",\"plan\":\"signal\",\"orderTypes\":[{\"source\":\"signal_entry\",\"block\":null,\"type\":\"market\",\"percent\":null,\"supported\":false,\"code\":\"quant.live_plan_unsupported\"}],\"compiles\":false,\"liveEnabled\":false,\"asOf\":\"<time>\"}}}"
+    "body": "{\"result\":{\"data\":{\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"name\":\"Replay cross\",\"plan\":\"signal\",\"orderTypes\":[{\"source\":\"signal_entry\",\"block\":null,\"type\":\"market\",\"percent\":null,\"supported\":false,\"code\":\"quant.live_plan_unsupported\"}],\"compiles\":false,\"liveEnabled\":false,\"approval\":{\"required\":true,\"allowed\":false},\"asOf\":\"<time>\"}}}"
   },
   "set live.check valid member": {
     "status": 404,
@@ -2613,7 +2613,7 @@
   },
   "set live.check extra-key signed": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"name\":\"Replay cross\",\"plan\":\"signal\",\"orderTypes\":[{\"source\":\"signal_entry\",\"block\":null,\"type\":\"market\",\"percent\":null,\"supported\":false,\"code\":\"quant.live_plan_unsupported\"}],\"compiles\":false,\"liveEnabled\":false,\"asOf\":\"<time>\"}}}"
+    "body": "{\"result\":{\"data\":{\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"name\":\"Replay cross\",\"plan\":\"signal\",\"orderTypes\":[{\"source\":\"signal_entry\",\"block\":null,\"type\":\"market\",\"percent\":null,\"supported\":false,\"code\":\"quant.live_plan_unsupported\"}],\"compiles\":false,\"liveEnabled\":false,\"approval\":{\"required\":true,\"allowed\":false},\"asOf\":\"<time>\"}}}"
   },
   "set live.check extra-key ops": {
     "status": 404,
@@ -2633,7 +2633,7 @@
   },
   "set live.deploy valid signed": {
     "status": 412,
-    "body": "{\"error\":{\"message\":\"quant.live_disabled — live trading for strategies is switched off on INTAFACED; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.live_disabled\"}}}}"
+    "body": "{\"error\":{\"message\":\"quant.approval_required — version 1 needs a different member's approval before it goes live; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.approval_required\"}}}}"
   },
   "set live.deploy valid signed-US": {
     "status": 403,
@@ -2645,7 +2645,7 @@
   },
   "set live.deploy valid tier-none": {
     "status": 412,
-    "body": "{\"error\":{\"message\":\"quant.live_disabled — live trading for strategies is switched off on INTAFACED; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.live_disabled\"}}}}"
+    "body": "{\"error\":{\"message\":\"quant.approval_required — version 1 needs a different member's approval before it goes live; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.approval_required\"}}}}"
   },
   "set live.deploy valid member": {
     "status": 404,
@@ -2669,7 +2669,7 @@
   },
   "set live.deploy blank-amount signed": {
     "status": 412,
-    "body": "{\"error\":{\"message\":\"quant.live_disabled — live trading for strategies is switched off on INTAFACED; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.live_disabled\"}}}}"
+    "body": "{\"error\":{\"message\":\"quant.approval_required — version 1 needs a different member's approval before it goes live; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.approval_required\"}}}}"
   },
   "set live.deploy blank-amount signed-US": {
     "status": 403,
@@ -2681,7 +2681,7 @@
   },
   "set live.deploy blank-amount tier-none": {
     "status": 412,
-    "body": "{\"error\":{\"message\":\"quant.live_disabled — live trading for strategies is switched off on INTAFACED; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.live_disabled\"}}}}"
+    "body": "{\"error\":{\"message\":\"quant.approval_required — version 1 needs a different member's approval before it goes live; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.approval_required\"}}}}"
   },
   "set live.deploy blank-amount member": {
     "status": 404,
@@ -2733,7 +2733,7 @@
   },
   "set live.deploy extra-key signed": {
     "status": 412,
-    "body": "{\"error\":{\"message\":\"quant.live_disabled — live trading for strategies is switched off on INTAFACED; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.live_disabled\"}}}}"
+    "body": "{\"error\":{\"message\":\"quant.approval_required — version 1 needs a different member's approval before it goes live; nothing was deployed and nothing was stored\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"live.deploy\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.approval_required\"}}}}"
   },
   "set live.deploy extra-key ops": {
     "status": 404,

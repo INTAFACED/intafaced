@@ -566,13 +566,19 @@ export function createQuantCore(deps: QuantRouterDeps) {
   }
   /**
    * The deploy wizard's compile check of one version (AL-live-02; J-algo-dev-06 #6), with the platform's live switch as
-   * the owner set it now (`live.enabled`; blank, unreadable or anything but `on` is off). Writes nothing.
+   * the owner set it now (`live.enabled`; blank, unreadable or anything but `on` is off) and the account's
+   * second-approver rule for the version (RC-algo-dev-01; J-algo-dev-06 #3). Writes nothing.
    */
   async function liveCheckOf(accountId: string, strategyId: string, strategyVersion: number): Promise<QuantLiveCheck> {
     const found = await strategies.get({ accountId, id: strategyId });
     const version = found && !found.deletedAt ? found.versions.find((row) => row.version === strategyVersion) : undefined;
     if (!found || !version) missingStrategy();
     const reading = liveCheck(version);
+    // The account's second-approver rule, read as the approval panel reads it: a different member's approval counts only
+    // while its hash is the version's hash now, so any change to the version or its risk settings asks again.
+    const [policy, rows] = await Promise.all([approvals.policy(found.accountId), approvals.approvals(found.id)]);
+    const required = policy?.required === true;
+    const allowed = !required || (await approvedVersionsOf(found, rows)).includes(strategyVersion);
     return {
       strategyId: found.id,
       strategyVersion,
@@ -581,6 +587,7 @@ export function createQuantCore(deps: QuantRouterDeps) {
       orderTypes: reading.orderTypes,
       compiles: reading.compiles,
       liveEnabled: await liveSwitchOn(),
+      approval: { required, allowed },
       asOf: new Date(now()).toISOString(),
     };
   }

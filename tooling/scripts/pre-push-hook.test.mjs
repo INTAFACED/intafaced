@@ -349,6 +349,30 @@ test("the size count's pass lets the push through, and a push that only deletes 
   }
 });
 
+// The wire replay of the services a push changes (tooling/scripts/pre-push-wire-replay.mjs), planted: it answers `code`.
+const replayStep = (code) => ({
+  'tooling/scripts/pre-push-wire-replay.mjs': `console.log('wire replay step');\n${code ? "console.error('✖ @intafaced/svc-trade wire replay does not answer as recorded');\n" : ''}process.exit(${code});\n`,
+});
+
+test('a red wire replay refuses the push, named; a green one lets it through (project-state#3682)', () => {
+  const p = plant({ prettier: 'exit 0', base: replayStep(1) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /wire replay step/);
+    assert.match(r.out, /- wire replay/);
+    writeFileSync(
+      join(p.work, 'tooling', 'scripts', 'pre-push-wire-replay.mjs'),
+      replayStep(0)['tooling/scripts/pre-push-wire-replay.mjs'],
+    );
+    const g = p.push();
+    assert.equal(g.code, 0, g.out);
+    assert.match(g.out, /wire replay step/);
+  } finally {
+    p.done();
+  }
+});
+
 // One run names every refusal. fix/ps-3343-curriculum's head 09d41f0f86 (19 Nov) was refused for unicorn/no-thenable by the
 // lint ratchet; its second push, for the secret scan; its third, for the CI review's size count: three pushes for three
 // refusals the first run could have named. Replayed: the real lint ratchet on a real rise, and the size count planted
