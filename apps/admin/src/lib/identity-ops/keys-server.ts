@@ -10,8 +10,10 @@ import {
   isKnownCode,
   type Part,
   partFrom,
+  founderRecordRead,
 } from '@/lib/desk';
 import { readKeyState, type KeyState } from './keys-model';
+import { IDENTITY_AUTH_KEYS_STATE } from '@intafaced/contracts/identity-auth-keys-procedures';
 
 export interface KeysView {
   readonly asOf: string;
@@ -19,7 +21,7 @@ export interface KeysView {
 }
 
 export async function loadKeys(ctx: FounderCallContext): Promise<KeysView> {
-  const result = await founderCall(ctx, 'identity', 'authKeys.state', 'GET', undefined, readKeyState);
+  const result = await founderRecordRead(ctx, IDENTITY_AUTH_KEYS_STATE, undefined, readKeyState);
   return {
     asOf: new Date().toISOString(),
     state: partFrom(result, (d) => d, {

@@ -42,7 +42,7 @@ const OTHER_ASK = 'TEST: someone else asks';
 const ASKS = [ASK, REFUSED_ASK, LATER_ASK, B_ASK, OTHER_ASK];
 
 /**
- * The task Navigator may not run, as the service's refusal map has it (services/svc-agents/src/fleet/guardrails.ts:493,
+ * The task Navigator may not run, as the service's refusal map has it (crates/svc-agents/src/runtime/guardrails.rs, ported from the TypeScript's
  * `refuse('agents.task_not_allowed', 'agents.refused.task_not_allowed')`): the stored code is `code`, the answer's
  * message is `key` (router.ts:285 answers an AgentError with its user message key), and the answer's cause is the
  * guardrail error's own `agents.refused` (RefusedError, runtime.ts:123). The run and the log store `code`
@@ -142,13 +142,15 @@ function ok(answer) {
   return answer.body.result.data;
 }
 
-/** The agents service's own procedures, from its built router (what the stack runs): path → query or mutation. */
-async function agentsProcedures() {
-  const { createAgentsRouter } = await import(new URL('../../../../services/svc-agents/dist/router.js', import.meta.url).href);
-  return Object.entries(createAgentsRouter({ runtime: {}, gateway: {} })._def.procedures).map(([path, procedure]) => ({
-    path,
-    type: procedure._def.type,
+/** The agents service's own calls, from its door's generated list (crates/svc-agents/src/door/calls.rs): path → query or mutation. */
+function agentsProcedures() {
+  const calls = readFileSync(path.join(ROOT, 'crates/svc-agents/src/door/calls.rs'), 'utf8');
+  const found = [...calls.matchAll(/path: "([^"]+)",\s*kind: Kind::(Query|Mutation),/g)].map(([, at, kind]) => ({
+    path: at,
+    type: kind === 'Query' ? 'query' : 'mutation',
   }));
+  expect(found.length, 'calls.rs lists its calls').toBeGreaterThan(0);
+  return found;
 }
 
 /** Creates a key on the API keys page with the passkey's fresh step-up and returns its secret, shown once. */
@@ -185,7 +187,7 @@ async function passkeyPerson(page, prefix, usdt, start) {
 }
 
 /** The exact cost the service's rate card puts on `usage` for `task`: each token count times its published rate per
- * million, rounded up once at the ledger's last place (services/svc-agents/src/metering/pricing.ts). */
+ * million, rounded up once at the ledger's last place (crates/svc-agents/src/metering/pricing.rs). */
 async function rateCardCost(task, usage) {
   const matching = ok(await personCall('routes.list')).filter((row) => row.task === task && row.capability === 'complete');
   expect(matching).toHaveLength(1);
@@ -415,26 +417,29 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
 
 /**
  * What a key may read of a person's sessions, each once, with an input naming the person's session A or its first run.
- * The list is the agents service's own (services/svc-agents/src/session-reads.ts), whose unit test compares it with the
- * router, so a read added to the router fails on its own pull request rather than here on main (#8495).
+ * The list is the agents service's own (crates/svc-agents/src/door/session_reads.json), whose crate test compares it with the
+ * door (tests/session_reads.rs), so a read added to the door fails on its own pull request rather than here on main (#8495).
  */
-async function readInputs() {
-  const { sessionReadInputs } = await import(new URL('../../../../services/svc-agents/dist/router.js', import.meta.url).href);
-  return sessionReadInputs({
-    sessionId: kept('sessionId'),
-    runId: kept('runId'),
-    requestId: kept('requestId'),
-    sessionB: kept('sessionB'),
-  });
+function readInputs() {
+  const { reads } = JSON.parse(readFileSync(path.join(ROOT, 'crates/svc-agents/src/door/session_reads.json'), 'utf8'));
+  const fill = (v) =>
+    typeof v === 'string' && /^<\w+>$/.test(v)
+      ? kept(v.slice(1, -1))
+      : v !== null && typeof v === 'object'
+        ? Array.isArray(v)
+          ? v.map(fill)
+          : Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)]))
+        : v;
+  return Object.fromEntries(Object.entries(reads).map(([at, e]) => [at, 'input' in e ? fill(e.input) : undefined]));
 }
 
 test(`${J} #1 calls the session API with a key lacking the agents read scope: refused`, async () => {
-  const inputs = await readInputs();
+  const inputs = readInputs();
   // Every read of the session API, as the service's own router lists them, is tried exactly once. The session API is the
   // part of the router about a person's sessions and what ran in them: their sessions (session.*), runs (run.*), usage
   // windows (usage.*) and log (log.*). The other routers (routes, the doors, ops, the agents' own rooms) are not
   // session reads, and a new read under these four prefixes fails the inventory check until it is added below.
-  const reads = (await agentsProcedures())
+  const reads = agentsProcedures()
     .filter(({ path, type }) => type === 'query' && /^(session|run|usage|log|webhook)\./.test(path))
     .map(({ path }) => path);
   expect(Object.keys(inputs).sort()).toEqual([...reads].sort());

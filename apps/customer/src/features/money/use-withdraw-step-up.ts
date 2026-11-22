@@ -2,25 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { isStepUpCode, mintWithdrawToken, type WithdrawStepUpMethod } from './withdraw-step-up';
-import { withdrawStepUpCopy } from './withdraw-step-up-copy';
+import { stepUpRefusalKeys, withdrawStepUpCopy } from './withdraw-step-up-copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-type Key = Parameters<ReturnType<typeof withdrawStepUpCopy.useCopy>['t']>[0];
-
-/** Identity's step-up refusals in plain words: shared by every "Confirm it's you" in the money rooms. */
-export const stepUpRefusalKeys: Record<string, Key> = {
-  'auth.mfa_invalid': 'codeBad',
-  'auth.mfa_not_enrolled': 'noAuthenticator',
-  'auth.webauthn_not_enrolled': 'noPasskey',
-  'auth.webauthn_invalid': 'passkeyBad',
-  'portal.passkey_stopped': 'passkeyStopped',
-  'portal.passkey_unavailable': 'passkeyUnavailable',
-  'portal.passkey_failed': 'passkeyFailed',
-  'portal.passkey_unreadable': 'passkeyFailed',
-  'stepUp.code_malformed': 'codeShort',
-  'stepUp.scope_missing': 'failed',
-};
-
 /**
  * What a "Confirm it's you" for `trade:withdraw` knows and does, whichever dialog draws it: the code typed, which way is
  * being checked, and the problem to show. The short token goes to `run` for exactly one call, as that call's own bearer,

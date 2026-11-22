@@ -3,8 +3,6 @@ import { Button, Dialog, Field } from '../../shared/ui';
 import { useWithdrawStepUp } from './use-withdraw-step-up';
 import { withdrawStepUpCopy } from './withdraw-step-up-copy';
 
-export { stepUpRefusalKeys } from './use-withdraw-step-up';
-
 /**
  * The shared "Confirm it's you" for anything that needs `trade:withdraw` (the withdrawal address list today; the bank
  * address book and the withdraw page next). The person answers with a passkey, an authenticator code or a recovery
