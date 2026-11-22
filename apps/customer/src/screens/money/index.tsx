@@ -4,7 +4,7 @@ import type { ScreenProps } from '../../app/screen-types';
 import BalanceEntries from './BalanceEntries';
 import Activity from './Activity';
 import ActivityDetail from './ActivityDetail';
-import Pnl from './Pnl';
+import Pnl from './pnl/Pnl';
 import { MoneyRoom } from './MoneyRoom';
 import { SourceEntries, asksForSourceRecords } from './SourceEntries';
 import { useVenueMode } from '../../features/trade/use-venue-mode';

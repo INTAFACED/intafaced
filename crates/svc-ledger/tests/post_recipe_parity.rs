@@ -1,6 +1,7 @@
 //! The `post-recipe` slice's door against what the TypeScript answered (`tests/fixtures/post-recipe.golden.jsonl`,
 //! written by `scripts/record-door.mjs` before the TypeScript service was deleted, and
-//! `tests/fixtures/post-recipe-bank.golden.jsonl`, svc-bank's recipes, written by `scripts/record-post-recipe.mjs` from
+//! `tests/fixtures/post-recipe-bank.golden.jsonl`, svc-bank's recipes (its transfer, holds on received funds and earn
+//! pools), written by `scripts/record-post-recipe.mjs` from
 //! the ledger client's record and recipes through a stand-in of the deleted door that replays the first file exactly):
 //! for each recorded body and each caller, `handleS2sPostRecipe`'s refusal on the
 //! wire, or the post it handed the ledger once `postChecked` had run the caller binding and the recipe gate. The Rust

@@ -1,24 +1,41 @@
 import { useMemo, type ReactNode } from 'react';
-import { moneyCopy } from './copy';
-import { Amount, Skeleton, StateBlock } from './ui-deps';
-import { fmtUsd, refusalCopy } from './deps';
-import { useValueOverTime } from './pnl-source';
-import { offsetMinutes, rangeFromQuery, rangeKey, resolveRange } from './pnl-time-model';
-import { INTERVAL_COPY, LINE_H, RangePicker, TimeLine } from './time-line';
-import { stamp } from './time';
+import { Skeleton } from '@intafaced/ui/lit/templates';
+import { moneyCopy } from '../copy';
+import { fmtUsd, refusalCopy } from '../deps';
+import { useValueOverTime } from '../pnl-source';
+import { offsetMinutes, rangeFromQuery, rangeKey, resolveRange } from '../pnl-time-model';
+import { Amount, ErrorNote } from './parts';
+import { INTERVAL_COPY, RangePicker, TimeLine } from './time-line';
+import { stamp } from '../time';
 import {
+  BANK_VALUE_HISTORY_TOO_LARGE,
+  BANK_VALUE_HISTORY_UNAVAILABLE,
+  BANK_VALUE_RANGE_INVALID,
+  BANK_VALUE_RANGE_TOO_LONG,
   BRIDGE_LEGS,
-  VALUE_REFUSAL,
+  VALUE_PRICES_DOWN,
   bridgeValue,
   signedLine,
   valueLine,
   valueMissingOf,
   type BankValueOverTime,
   type BridgeLeg,
-} from './value-time-model';
-import { usePreferences } from '../../shared/preferences';
+} from '../value-time-model';
+import { usePreferences } from '../../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
+
+/** The bank's own refusals for this read, in plain words; any other code takes the shared refusal words. */
+export const VALUE_REFUSAL: Record<
+  string,
+  'Pnl range refused' | 'Pnl range too long' | 'Pnl prices unavailable' | 'Value history too large' | 'Value history unavailable'
+> = {
+  [BANK_VALUE_RANGE_INVALID]: 'Pnl range refused',
+  [BANK_VALUE_RANGE_TOO_LONG]: 'Pnl range too long',
+  [VALUE_PRICES_DOWN]: 'Pnl prices unavailable',
+  [BANK_VALUE_HISTORY_TOO_LARGE]: 'Value history too large',
+  [BANK_VALUE_HISTORY_UNAVAILABLE]: 'Value history unavailable',
+};
 
 const LEG_COPY: Record<
   BridgeLeg,
@@ -37,13 +54,13 @@ function ValueRows({ data, hidden, copy }: { data: BankValueOverTime; hidden: bo
   const { t } = copy;
   const { timeZone } = usePreferences();
   return (
-    <details className="money-pnl-points">
+    <details>
       <summary>{t('Value points table')}</summary>
-      <table data-testid="money-table" className="money-table" aria-label={t('Value points table')}>
+      <table data-testid="money-table" className="lt-table" aria-label={t('Value points table')}>
         <thead>
           <tr>
             <th scope="col">{t('Pnl point time')}</th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Value point total')}
             </th>
           </tr>
@@ -52,7 +69,7 @@ function ValueRows({ data, hidden, copy }: { data: BankValueOverTime; hidden: bo
           {data.points.map((point) => (
             <tr key={point.at} data-value-point={point.at} data-usd={point.valueUsd ?? 'missing'}>
               <th scope="row">{stamp(point.at, timeZone)}</th>
-              <td className="money-num">
+              <td data-label={t('Value point total')} data-align="end">
                 {point.valueUsd === null ? t('Pnl point missing') : <Amount value={fmtUsd(point.valueUsd)} hidden={hidden} />}
               </td>
             </tr>
@@ -68,7 +85,7 @@ function ValueMissing({ data, copy }: { data: BankValueOverTime; copy: Copy }) {
   const missing = valueMissingOf(data.points);
   if (missing.count === 0) return null;
   return (
-    <div data-testid="money-note" className="money-note" data-label="value-missing" data-count={missing.count}>
+    <div data-testid="money-note" className="lt-hint" data-label="value-missing" data-count={missing.count}>
       <p>{t('Pnl missing points', { count: String(missing.count) })}</p>
       <ul>
         {missing.coins.map((assetId) => (
@@ -91,12 +108,12 @@ function BridgeCard({ result, hidden, copy }: { result: ValueRead; hidden: boole
   const { timeZone } = usePreferences();
   if (result.status !== 'ready') {
     return (
-      <section data-testid="money-card" className="money-card" aria-label={t('Bridge')}>
-        <header data-testid="money-card__head" className="money-card__head">
+      <section data-testid="money-card" aria-label={t('Bridge')}>
+        <header data-testid="money-card__head">
           <h2>{t('Bridge')}</h2>
         </header>
         {result.note}
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('Bridge rule')}
         </p>
       </section>
@@ -105,14 +122,14 @@ function BridgeCard({ result, hidden, copy }: { result: ValueRead; hidden: boole
   const { data } = result;
   const { bridge } = data;
   return (
-    <section data-testid="money-card" className="money-card" aria-label={t('Bridge')}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section data-testid="money-card" aria-label={t('Bridge')}>
+      <header data-testid="money-card__head">
         <h2>{t('Bridge')}</h2>
       </header>
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t('Bridge range', { from: stamp(data.from, timeZone), to: stamp(data.to, timeZone) })}
       </p>
-      <table data-testid="money-table" className="money-table" data-bridge="value">
+      <table data-testid="money-table" className="lt-table" data-bridge="value">
         <tbody>
           {BRIDGE_LEGS.map(({ leg, sign }) => {
             const value = bridgeValue(bridge, leg);
@@ -120,7 +137,7 @@ function BridgeCard({ result, hidden, copy }: { result: ValueRead; hidden: boole
             return (
               <tr key={leg} data-leg={leg} data-usd={value ?? 'unknown'}>
                 <th scope="row">{t(LEG_COPY[leg])}</th>
-                <td className="money-num">
+                <td data-align="end">
                   {shown === null ? (
                     t('Not known')
                   ) : (
@@ -133,11 +150,11 @@ function BridgeCard({ result, hidden, copy }: { result: ValueRead; hidden: boole
         </tbody>
       </table>
       {bridge.missing.length > 0 ? (
-        <p data-testid="money-note" className="money-note" data-label="bridge-missing">
+        <p data-testid="money-note" className="lt-hint" data-label="bridge-missing">
           {t('Bridge unknown', { assets: bridge.missing.map((item) => item.assetId).join(', ') })}
         </p>
       ) : null}
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t('Bridge rule')}
       </p>
     </section>
@@ -184,7 +201,7 @@ export function ValueOverTimeCards({
     read = {
       status: 'other',
       note: (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('Range invalid')}
         </p>
       ),
@@ -193,26 +210,17 @@ export function ValueOverTimeCards({
     read = {
       status: 'other',
       note: (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('Value all needs a start')}
         </p>
       ),
     };
   } else if (result.status === 'loading') {
-    read = { status: 'other', note: <Skeleton width="100%" height={LINE_H} className="bg-field" /> };
+    read = { status: 'other', note: <Skeleton shape="chart" /> };
   } else if (result.status === 'error') {
     read = {
       status: 'other',
-      note: (
-        <StateBlock
-          kind="error"
-          testId="money-state"
-          className="money-state"
-          title={t('Value over time unreadable')}
-          onRetry={result.retry}
-          retryLabel={t('Try again')}
-        />
-      ),
+      note: <ErrorNote title={t('Value over time unreadable')} onRetry={result.retry} retryLabel={t('Try again')} />,
     };
   } else if (result.status === 'refused') {
     const own = VALUE_REFUSAL[result.code];
@@ -220,7 +228,7 @@ export function ValueOverTimeCards({
     read = {
       status: 'other',
       note: (
-        <p data-testid="money-note" className="money-note" data-refused={result.code}>
+        <p data-testid="money-note" className="lt-hint" data-refused={result.code}>
           {own ? t(own) : `${words.title}. ${words.body ?? ''}`} {words.reference ?? ''}
         </p>
       ),
@@ -231,8 +239,8 @@ export function ValueOverTimeCards({
 
   return (
     <>
-      <section data-testid="money-card" className="money-card" aria-label={t('Value over time')}>
-        <header data-testid="money-card__head" className="money-card__head">
+      <section data-testid="money-card" aria-label={t('Value over time')}>
+        <header data-testid="money-card__head">
           <h2>{t('Value over time')}</h2>
         </header>
         {picker ? <RangePicker key={search} search={search} offset={offset} copy={copy} /> : null}
@@ -249,7 +257,7 @@ export function ValueOverTimeCards({
               copy={copy}
             />
             <ValueMissing data={read.data} copy={copy} />
-            <p data-testid="money-note" className="money-note" data-value-interval={read.data.interval}>
+            <p data-testid="money-note" className="lt-hint" data-value-interval={read.data.interval}>
               {t(INTERVAL_COPY[read.data.interval])}
             </p>
             <ValueRows data={read.data} hidden={hidden} copy={copy} />
@@ -257,7 +265,7 @@ export function ValueOverTimeCards({
         ) : (
           read.note
         )}
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('Value over time rule')}
         </p>
       </section>

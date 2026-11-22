@@ -93,13 +93,13 @@ export function AccountDetailsBody({ resource, reload }: { resource: Resource<{ 
   return <AccountDetailsList rows={resource.data.currencies} />;
 }
 
-export function AccountDetailsPanel() {
+export function AccountDetailsPanel({ framed = false }: { framed?: boolean }) {
   const { t } = accountDetailsCopy.useCopy();
   const { profiles } = useSession();
   // The profile in view goes with the read: the bank proves it is held, and a business has no details of its own.
   const read = useBankRead('accountDetails.list', { profile: profiles.active });
   return (
-    <Panel title={t('detailsTitle')} lead={t('detailsLead')}>
+    <Panel title={t('detailsTitle')} lead={t('detailsLead')} framed={framed}>
       <AccountDetailsBody resource={read.resource} reload={read.reload} />
     </Panel>
   );

@@ -1274,6 +1274,7 @@ fn recovers_a_post_then_lock_crash_as_settled_never_rejected_with_money_moved() 
         owner_id: owner.to_owned(),
         asset_id: "USDT".to_owned(),
         kind: "available",
+        purpose: None,
     };
     b.ledger
         .post_recipe(

@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
-import { moneyCopy } from './copy';
-import { Amount, Skeleton, StateBlock } from './ui-deps';
-import { fmtUsd, refusalCopy } from './deps';
-import type { LotBook } from './pnl-model';
-import { usePnlOverTime } from './pnl-source';
+import { Skeleton } from '@intafaced/ui/lit/templates';
+import { moneyCopy } from '../copy';
+import { fmtUsd, refusalCopy } from '../deps';
+import type { LotBook } from '../pnl-model';
+import { usePnlOverTime } from '../pnl-source';
 import {
   BREAKDOWNS,
   BREAKDOWN_MAX_DAYS,
@@ -18,10 +18,11 @@ import {
   resolveRange,
   type Breakdown,
   type PnlOverTime,
-} from './pnl-time-model';
-import { INTERVAL_COPY, LINE_H, RangePicker, TimeLine, go } from './time-line';
-import { stamp } from './time';
-import { usePreferences } from '../../shared/preferences';
+} from '../pnl-time-model';
+import { Amount, ErrorNote, Pressed } from './parts';
+import { INTERVAL_COPY, RangePicker, TimeLine, go } from './time-line';
+import { stamp } from '../time';
+import { usePreferences } from '../../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -71,7 +72,7 @@ function MissingNote({ data, copy }: { data: PnlOverTime; copy: Copy }) {
   const missing = missingOf(data.points);
   if (missing.count === 0) return null;
   return (
-    <div data-testid="money-note" className="money-note" data-label="pnl-missing" data-count={missing.count}>
+    <div data-testid="money-note" className="lt-hint" data-label="pnl-missing" data-count={missing.count}>
       <p>{t('Pnl missing points', { count: String(missing.count) })}</p>
       <ul>
         {missing.coins.map((item) => (
@@ -88,19 +89,19 @@ function PointRows({ data, hidden, copy }: { data: PnlOverTime; hidden: boolean;
   const { t } = copy;
   const { timeZone } = usePreferences();
   return (
-    <details className="money-pnl-points">
+    <details>
       <summary>{t('Pnl points table')}</summary>
-      <table data-testid="money-table" className="money-table" aria-label={t('Pnl points table')}>
+      <table data-testid="money-table" className="lt-table" aria-label={t('Pnl points table')}>
         <thead>
           <tr>
             <th scope="col">{t('Pnl point time')}</th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Realised')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Unrealised')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Pnl point total')}
             </th>
           </tr>
@@ -115,13 +116,13 @@ function PointRows({ data, hidden, copy }: { data: PnlOverTime; hidden: boolean;
               data-unrealized={point.unrealizedUsd ?? 'unknown'}
             >
               <th scope="row">{stamp(point.at, timeZone)}</th>
-              <td className="money-num">
+              <td data-label={t('Realised')} data-align="end">
                 <Amount value={usdText(point.realizedUsd, copy)} hidden={hidden} />
               </td>
-              <td className="money-num">
+              <td data-label={t('Unrealised')} data-align="end">
                 <Amount value={usdText(point.unrealizedUsd, copy)} hidden={hidden} />
               </td>
-              <td className="money-num">
+              <td data-label={t('Pnl point total')} data-align="end">
                 {point.totalUsd === null ? t('Pnl point missing') : <Amount value={usdText(point.totalUsd, copy)} hidden={hidden} />}
               </td>
             </tr>
@@ -158,37 +159,37 @@ function BreakdownCard({ data, search, hidden, copy }: { data: PnlOverTime; sear
   const offset = data.utcOffsetMinutes;
   const zone = `${offset < 0 ? '-' : '+'}${String(Math.floor(Math.abs(offset) / 60)).padStart(2, '0')}:${String(Math.abs(offset) % 60).padStart(2, '0')}`;
   return (
-    <section data-testid="money-card" className="money-card" aria-label={t('Pnl breakdown')}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section data-testid="money-card" aria-label={t('Pnl breakdown')}>
+      <header data-testid="money-card__head">
         <h2>{t('Pnl breakdown')}</h2>
       </header>
-      <div className="money-alloc__switch" role="group" aria-label={t('Pnl breakdown by')}>
-        {BREAKDOWNS.map((option) => (
-          <button key={option} type="button" className="money-alloc__opt" aria-pressed={by === option} onClick={() => choose(option)}>
-            {t(BREAKDOWN_COPY[option])}
-          </button>
-        ))}
-      </div>
-      <div data-testid="money-label" className="money-label">
+      <Pressed
+        label={t('Pnl breakdown by')}
+        options={BREAKDOWNS}
+        value={by}
+        words={(option) => t(BREAKDOWN_COPY[option])}
+        onChoose={choose}
+      />
+      <div data-testid="money-label">
         <span>{t('Breakdown period')}</span>
       </div>
-      <p data-testid="money-total" className="money-total" data-figure="period" data-usd={data.periodUsd ?? 'unknown'}>
+      <p data-testid="money-total" className="lt-figure" data-figure="period" data-usd={data.periodUsd ?? 'unknown'}>
         <Amount value={usdText(data.periodUsd, copy)} hidden={hidden} />
       </p>
       {rows === null ? (
-        <p data-testid="money-note" className="money-note" data-label="days-too-many">
+        <p data-testid="money-note" className="lt-hint" data-label="days-too-many">
           {t('Breakdown days too many', { max: String(BREAKDOWN_MAX_DAYS) })}
         </p>
       ) : rows.length === 0 ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('Breakdown empty')}
         </p>
       ) : (
-        <table data-testid="money-table" className="money-table" data-breakdown={by}>
+        <table data-testid="money-table" className="lt-table" data-breakdown={by}>
           <thead>
             <tr>
               <th scope="col">{t(BREAKDOWN_COPY[by])}</th>
-              <th scope="col" className="money-num">
+              <th scope="col" data-align="end">
                 {t('Pnl point total')}
               </th>
             </tr>
@@ -197,7 +198,7 @@ function BreakdownCard({ data, search, hidden, copy }: { data: PnlOverTime; sear
             {rows.map((row) => (
               <tr key={row.key} data-key={row.key} data-usd={row.usd ?? 'unknown'}>
                 <th scope="row">{rowLabel(by, row.key, copy)}</th>
-                <td className="money-num">
+                <td data-label={t('Pnl point total')} data-align="end">
                   <Amount value={usdText(row.usd, copy)} hidden={hidden} />
                 </td>
               </tr>
@@ -205,7 +206,7 @@ function BreakdownCard({ data, search, hidden, copy }: { data: PnlOverTime; sear
           </tbody>
         </table>
       )}
-      <p data-testid="money-note" className="money-note" data-figure="period-fees">
+      <p data-testid="money-note" className="lt-hint" data-figure="period-fees">
         {data.feesUsd === null ? (
           t('Breakdown fees unknown')
         ) : (
@@ -215,15 +216,15 @@ function BreakdownCard({ data, search, hidden, copy }: { data: PnlOverTime; sear
         )}
       </p>
       {rows !== null && rows.some((row) => row.usd === null) ? (
-        <p data-testid="money-note" className="money-note" data-label="rows-incomplete">
+        <p data-testid="money-note" className="lt-hint" data-label="rows-incomplete">
           {t('Breakdown rows incomplete')}
         </p>
       ) : null}
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t('Breakdown rule')}
       </p>
       {by === 'day' ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('Pnl days in zone', { zone: `UTC${zone}` })}
         </p>
       ) : null}
@@ -254,34 +255,25 @@ export function PnlOverTimeCards({ book, search, hidden }: { book: LotBook; sear
   let body;
   if (ask.kind === 'invalid') {
     body = (
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t('Range invalid')}
       </p>
     );
   } else if (range === null || result.status === 'empty') {
     body = (
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t('Range nothing yet')}
       </p>
     );
   } else if (result.status === 'loading') {
-    body = <Skeleton width="100%" height={LINE_H} className="bg-field" />;
+    body = <Skeleton shape="chart" />;
   } else if (result.status === 'error') {
-    body = (
-      <StateBlock
-        kind="error"
-        testId="money-state"
-        className="money-state"
-        title={t('Pnl over time unreadable')}
-        onRetry={result.retry}
-        retryLabel={t('Try again')}
-      />
-    );
+    body = <ErrorNote title={t('Pnl over time unreadable')} onRetry={result.retry} retryLabel={t('Try again')} />;
   } else if (result.status === 'refused') {
     const own = RANGE_REFUSAL[result.code];
     const words = refusalCopy(result.code);
     body = (
-      <p data-testid="money-note" className="money-note" data-refused={result.code}>
+      <p data-testid="money-note" className="lt-hint" data-refused={result.code}>
         {own ? t(own) : `${words.title}. ${words.body ?? ''}`} {words.reference ?? ''}
       </p>
     );
@@ -291,7 +283,7 @@ export function PnlOverTimeCards({ book, search, hidden }: { book: LotBook; sear
       <>
         <PnlLine data={data} hidden={hidden} copy={copy} />
         <MissingNote data={data} copy={copy} />
-        <p data-testid="money-note" className="money-note" data-interval={data.interval}>
+        <p data-testid="money-note" className="lt-hint" data-interval={data.interval}>
           {t(INTERVAL_COPY[data.interval])}
         </p>
         <PointRows data={data} hidden={hidden} copy={copy} />
@@ -301,13 +293,13 @@ export function PnlOverTimeCards({ book, search, hidden }: { book: LotBook; sear
 
   return (
     <>
-      <section data-testid="money-card" className="money-card" aria-label={t('Pnl over time')}>
-        <header data-testid="money-card__head" className="money-card__head">
+      <section data-testid="money-card" aria-label={t('Pnl over time')}>
+        <header data-testid="money-card__head">
           <h2>{t('Pnl over time')}</h2>
         </header>
         <RangePicker key={search} search={search} offset={offset} copy={copy} />
         {body}
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('Pnl over time rule')}
         </p>
       </section>

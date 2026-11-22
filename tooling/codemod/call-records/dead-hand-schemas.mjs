@@ -3,7 +3,8 @@
 // apps/customer/src/features/money/contracts-<area>.ts (composed into `bankReads` and `bankWrites`) whose call name no
 // string in the customer app spells, the entry's own key aside. A name built by a template that starts with a call's
 // segment (`autoInvest.${action}`) names every entry it can spell; a template that starts with a value, or is a copy key
-// (`t(`eligibility.${state}`)`), names none. A test or mock names an entry only by reading it from its map
+// (`t(`eligibility.${state}`)`), names none; nor does a file of words (`*-copy.ts`) or a comparison (`case 'x':`,
+// `p === 'x'`), which asks which call a name is and sends nothing. A test or mock names an entry only by reading it from its map
 // (`bankReads['x']`, `(typeof bankWrites)['x']`): its other strings are a stubbed answer or an expected request, not a
 // caller. It deletes only entries nothing names, so it is safe at any time; run.mjs runs it after every service's run, so
 // once a caller moves to its record (the call-records codemod), its entry goes in the same change.
@@ -25,6 +26,17 @@ const CALL_HEAD = /^[a-z][A-Za-z0-9]*\.(?:[A-Za-z][A-Za-z0-9]*\.)*$/u;
 
 /** A test, a browser test or a mock: what it spells is stubbed, not called (sites.mjs's tests, and `.mock.` files). */
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.(pw|mock)\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
+/** A file of words (`money-refusal-copy.ts`): a call name there keys the sentences its refusals read, never a caller. */
+const COPY_FILE = /-copy\.[cm]?[jt]sx?$/u;
+/**
+ * A `case 'x':` or a side of `=== 'x'` / `!== 'x'`: it asks which call a value names (a write's checks picked by its
+ * name), and sends nothing.
+ */
+function comparison(p, n) {
+  const up = p.parents.get(n);
+  if (up?.type === 'SwitchCase' && up.test === n) return true;
+  return up?.type === 'BinaryExpression' && ['===', '!==', '==', '!='].includes(up.operator);
+}
 /** A copy lookup: its key names words, never a call. */
 const COPY_CALL = new Set(['t', 'copyText']);
 /** `bankReads['x']`, `earnWrites['x']` or `(typeof bankWrites)['x']`: the key read from a map of hand schemas. */
@@ -79,11 +91,12 @@ function namesSpelled(repo, keys) {
   for (const file of appFiles(repo)) {
     const p = load(file);
     const test = TEST_FILE.test(file);
+    if (COPY_FILE.test(file)) continue;
     walk(p.program, (n) => {
       if (keys.has(n)) return;
       const s = literal(n);
       if (s !== undefined) {
-        if (!test || mapRead(p, n)) exact.add(s);
+        if ((!test && !comparison(p, n)) || mapRead(p, n)) exact.add(s);
       } else if (!test && n.type === 'TemplateLiteral' && !copyKey(p, n) && CALL_HEAD.test(n.quasis[0].value.cooked ?? ''))
         patterns.push(new RegExp(`^${n.quasis.map((q) => esc(q.value.cooked ?? '')).join('[A-Za-z0-9.]+')}$`, 'u'));
     });

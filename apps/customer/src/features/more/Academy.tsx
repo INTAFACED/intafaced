@@ -6,9 +6,6 @@ import { Button, Panel, Tabs } from '../../shared/ui';
 import { Details, Read, Select, presentActionFailure } from './common';
 import { useAcademyAction, type AcademyAction } from './academy-action';
 import { AcademyGrantRecords } from './AcademyGrantRecords';
-import { AcademyRooms } from './AcademyRooms';
-import { AcademyProgrammes } from './AcademyProgrammes';
-import { AcademyVideos } from './AcademyVideos';
 import { AcademyPublic } from './AcademyPublic';
 import { CertificateShelf, CertificateVerifyPage } from './AcademyCertificates';
 import { replyAccepted } from '@intafaced/contracts/procedure';
@@ -20,34 +17,19 @@ import {
   academyCertGrantSchema,
   type AcademyCertGrant,
 } from '@intafaced/contracts/academy-learner-procedures';
-import { AcademyLearning } from './AcademyLearning';
 import { definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from './academy-learning-state';
-import { LessonReaderStack } from './academy-reader/LessonReader';
 import { academyLearningCopy } from './academy-learning-copy';
-import { AcademyHub } from './AcademyHub';
 import { AcademyAssignment } from './AcademyAssignment';
-import { AcademyProgrammePage } from './AcademyCourseProgrammes';
-import { AcademyDiscussionCourses, AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
-import { AcademyCourseConversation, AcademyCourseMessagesLink } from './AcademyCourseMessages';
+import { AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
+import { AcademyCourseConversation } from './AcademyCourseMessages';
 import { AcademyInboxRoom } from './academy-inbox/AcademyInboxRoom';
-import { AcademyMyLearning } from './AcademyMyLearning';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { navigate } from '../../app/location';
+// Certificates and progress keep the Learning panels' styles (academy-learning-link, the read-next link).
+import './academy-learning.css';
 
 /** `/academy` and everything under it. An old `?section=` link is replaced by the tab's own address before anything reads. */
-export function AcademyRoom({
-  pathname,
-  search,
-  route,
-  slug,
-  initialPath,
-}: {
-  pathname: string;
-  search: string;
-  route: AcademyRoute;
-  slug?: string;
-  initialPath?: string;
-}) {
+export function AcademyRoom({ pathname, search, route }: { pathname: string; search: string; route: AcademyRoute }) {
   const redirect = academySectionRedirect(pathname, search);
   useEffect(() => {
     if (redirect) navigate(redirect, true);
@@ -58,14 +40,16 @@ export function AcademyRoom({
   if (route.kind === 'verify') return <CertificateVerifyPage code={route.code} />;
   // A visitor with no account gets the signed-out Academy.
   if (!userId) return <AcademyPublic route={route} />;
-  return <Academy route={route} slug={route.kind === 'reader' ? route.slug : slug} initialPath={initialPath} />;
+  return <Academy route={route} />;
 }
 
-function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: string; initialPath?: string }) {
+/**
+ * The Academy's pages not yet on their Volt template: Certificates, progress, an assignment, a course discussion and a
+ * conversation with a course team. Learning, Rooms, Videos and Programmes are their own rooms (academy-catalogue/).
+ */
+function Academy({ route }: { route: AcademyRoute }) {
   const { userId } = useSession(),
     action = useAcademyAction();
-  // A finished quiz or a watched video can meet an item's course rule: the outline beside it reads itself again.
-  const [progressMade, setProgressMade] = useState(0);
   // Each tab is its own address: a click pushes history, so the back button returns to the previous tab.
   const tab =
     route.kind === 'tab'
@@ -109,7 +93,6 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         }}
         label={copyText('academy.academy.sections')}
       />
-      {route.kind === 'tab' && route.hub && <AcademyHub />}
       {route.kind === 'assignment' ? (
         <AcademyAssignment key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />
       ) : route.kind === 'discussion' ? (
@@ -122,38 +105,9 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         route.conversationId ? (
           <AcademyCourseConversation key={route.conversationId} conversationId={route.conversationId} />
         ) : null
-      ) : route.kind === 'programme' ? (
-        <AcademyProgrammePage key={route.slug} slug={route.slug} />
-      ) : tab === 'Learning' ? (
-        slug ? (
-          <LessonReaderStack
-            slug={slug}
-            initialPath={initialPath}
-            certId={selected}
-            chooseCertificate={chooseCertificate}
-            action={action}
-            onProgress={() => setProgressMade((n) => n + 1)}
-            progress={progressMade}
-          />
-        ) : (
-          <>
-            <AcademyMyLearning />
-            <AcademyLearning initialPath={initialPath} certId={selected} chooseCertificate={chooseCertificate} action={action} />
-          </>
-        )
       ) : tab === 'Certificates' ? (
         <Certificates selected={selected} setSelected={chooseCertificate} action={action} />
-      ) : tab === 'Rooms' ? (
-        <>
-          <AcademyDiscussionCourses />
-          <AcademyCourseMessagesLink />
-          <AcademyRooms action={action} />
-        </>
-      ) : tab === 'Videos' ? (
-        <AcademyVideos />
-      ) : (
-        <AcademyProgrammes action={action} />
-      )}
+      ) : null}
       {action.feedback}
       {action.dialog}
     </div>

@@ -4,7 +4,7 @@ import { Button, RefusalBox, Segmented } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { dec, fmtAmount, refusalCopy } from './deps';
 import { useValueText } from './display-unit';
-import { VALUE_REFUSAL } from './value-time-model';
+import { VALUE_REFUSAL } from './pnl/ValueOverTime';
 import { Shown } from './money-parts';
 import { CHANGE_RANGES, useHoldingsChange, type BankHoldingsChange, type ChangeRangeKey } from './holdings-change-source';
 import { stamp } from './time';
