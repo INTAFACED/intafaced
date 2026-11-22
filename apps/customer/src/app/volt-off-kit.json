@@ -247,7 +247,6 @@
   "/uc/account",
   "/uc/safe",
   "/uc/safe/api-keys/new",
-  "/uc/trading-permissions",
   "/verification",
   "/identbusiness",
   "/notifications",
