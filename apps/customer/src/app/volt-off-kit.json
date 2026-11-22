@@ -75,7 +75,6 @@
   "/pay/request/:requestId",
   "/pay/claim/:token",
   "/pay/l/:linkId",
-  "/p2p",
   "/p2p/access",
   "/uc/ad",
   "/uc/ad/create",

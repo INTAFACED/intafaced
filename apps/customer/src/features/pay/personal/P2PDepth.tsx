@@ -1,16 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { PayDetails } from '../components';
-import { StatusTag } from '@intafaced/ui';
+import { PayDetails } from '../volt/parts';
+import { StatusChip } from '@intafaced/ui/lit/templates';
 import type { Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
 import { orderHistoryCopy } from './order-history-copy';
 import { disputeStages, escrowView, timeLeft, type OrderAction, type OrderFilter, type StepId, type StepState } from './p2p-model';
-import './p2p-depth.css';
 
 /** A plain, always-visible reason. Used where a control exists but the service behind it does not. */
 export function P2PReason({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="p2p-reason" role="note" aria-label={title}>
+    <section role="note" aria-label={title}>
       <h3>{title}</h3>
       <p>{children}</p>
     </section>
@@ -39,8 +38,8 @@ export function TradeStatus({ status, display }: { status: Trade['status']; disp
   const { t } = p2pDepth.useCopy();
   const list = orderHistoryCopy.useCopy();
   return (
-    <StatusTag
-      status={status === 'cancelled' ? 'failed' : status === 'released' ? 'filled' : status === 'disputed' ? 'pending' : 'working'}
+    <StatusChip
+      status={status === 'cancelled' ? 'failed' : status === 'released' ? 'done' : status === 'disputed' ? 'pending' : 'unknown'}
       label={display ? list.t(display) : t(STATUS_KEY[status])}
     />
   );
@@ -100,37 +99,31 @@ export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | n
   const left = timeLeft(trade.deadlineAt, now);
   const closed = view.outcome !== 'open' && view.outcome !== 'disputed';
   return (
-    <section
-      className="p2p-path"
-      aria-label={t('escrowTitle')}
-      lang={languageFor('escrowTitle')}
-      dir={directionFor('escrowTitle')}
-      data-testid="escrow-path"
-    >
+    <section aria-label={t('escrowTitle')} lang={languageFor('escrowTitle')} dir={directionFor('escrowTitle')} data-testid="escrow-path">
       <h3>{t('escrowTitle')}</h3>
-      <ol className="p2p-path-steps">
+      <ol>
         {view.steps.map((step) => (
           <li key={step.id} data-state={step.state} aria-current={step.state === 'current' ? 'step' : undefined}>
-            <span className="p2p-path-dot" aria-hidden="true" />
+            <span aria-hidden="true" />
             <span>{labels[step.id]}</span>
-            <span className="p2p-path-state">{stateLabel(step.state)}</span>
+            <span>{stateLabel(step.state)}</span>
           </li>
         ))}
       </ol>
-      <p className="p2p-path-turn">
+      <p>
         <strong data-testid="escrow-turn">{turn}</strong>
       </p>
       {view.actions.length > 0 ? (
         <>
-          <p className="muted">{t('canNow')}</p>
-          <ul className="p2p-path-actions">
+          <p className="lt-hint">{t('canNow')}</p>
+          <ul>
             {view.actions.map((action) => (
               <li key={action}>{t(ACTION_KEY[action])}</li>
             ))}
           </ul>
         </>
       ) : (
-        <p className="muted">{t('noActions')}</p>
+        <p className="lt-hint">{t('noActions')}</p>
       )}
       {!closed ? (
         <PayDetails
@@ -146,7 +139,7 @@ export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | n
           ]}
         />
       ) : null}
-      {!closed && left.kind === 'past' ? <p className="muted">{t('deadlinePastHint')}</p> : null}
+      {!closed && left.kind === 'past' ? <p className="lt-hint">{t('deadlinePastHint')}</p> : null}
     </section>
   );
 }
@@ -166,20 +159,18 @@ export function DisputeProgress({
   const { t } = p2pDepth.useCopy();
   const labels = { opened: t('stageOpened'), evidence: t('stageEvidence'), review: t('stageReview'), ruled: t('stageRuled') } as const;
   return (
-    <div className="p2p-path" data-testid="dispute-progress">
+    <div data-testid="dispute-progress">
       <h3>{t('disputeProgress')}</h3>
-      <ol className="p2p-path-steps">
+      <ol>
         {disputeStages(dispute).map((stage) => (
           <li key={stage.id} data-state={stage.state} aria-current={stage.state === 'current' ? 'step' : undefined}>
-            <span className="p2p-path-dot" aria-hidden="true" />
+            <span aria-hidden="true" />
             <span>{labels[stage.id]}</span>
-            <span className="p2p-path-state">
-              {stage.state === 'done' ? t('stateDone') : stage.state === 'current' ? t('stateCurrent') : ''}
-            </span>
+            <span>{stage.state === 'done' ? t('stateDone') : stage.state === 'current' ? t('stateCurrent') : ''}</span>
           </li>
         ))}
       </ol>
-      {dispute.overdue && dispute.status === 'open' ? <p className="muted">{t('disputeOverdue')}</p> : null}
+      {dispute.overdue && dispute.status === 'open' ? <p className="lt-hint">{t('disputeOverdue')}</p> : null}
     </div>
   );
 }
@@ -194,7 +185,7 @@ export function OfferTabs({ side, onSide }: { side: '' | 'buy' | 'sell'; onSide:
     [t('tabSell'), 'buy'],
   ];
   return (
-    <div className="p2p-seg" role="group" aria-label={t('tabAllOffers')}>
+    <div role="group" aria-label={t('tabAllOffers')}>
       {tabs.map(([label, value]) => (
         <button key={label} type="button" aria-pressed={side === value} onClick={() => onSide(value)}>
           {label}
@@ -226,14 +217,14 @@ export function OrderFilterTabs({
   ];
   return (
     <>
-      <div className="p2p-seg" role="group" aria-label={t('ordersFilterLabel')} data-testid="order-filters">
+      <div role="group" aria-label={t('ordersFilterLabel')} data-testid="order-filters">
         {tabs.map(([label, key]) => (
           <button key={key} type="button" aria-pressed={value === key} onClick={() => onChange(key)}>
             {`${label} (${counts[key]})`}
           </button>
         ))}
       </div>
-      <p className="muted">{note ?? t('ordersCountsNote')}</p>
+      <p className="lt-hint">{note ?? t('ordersCountsNote')}</p>
     </>
   );
 }
