@@ -4,14 +4,16 @@
  * `../components.tsx` and `../ui/`, so a page moves onto the kit without a test or a journey noticing; the logic (what a
  * refusal says, how old figures are) stays where it was and is only called from here.
  */
-import { useState, type ReactNode } from 'react';
+import { Children, isValidElement, useId, useState, type ReactElement, type ReactNode } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
 import { Button, Figure, Select } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { useSaidOnce } from '../components';
 import { usePreferences } from '../../../../shared/preferences';
-import type { AssetAmount, HaltScope, HaltStatus } from '../schemas';
+import type { AssetAmount, Freshness as FreshnessRead, HaltScope, HaltStatus } from '../schemas';
+import { useMoneyReason } from '../access/MoneyAction';
+import type { MoneyKind, PayoutAct } from '../access/money-step';
 import { portalCopy } from '../copy';
 import { chromeCopy } from '../chrome/copy';
 import type { AllowlistCode } from '../chrome/NotLiveCard';
@@ -25,7 +27,7 @@ import { ageSeconds } from '../ui/Freshness';
 import type { KpiTileProps } from '../ui/Kpi';
 import type { ChipKind } from '../ui/status-vocabulary';
 import { statusWords, type StatusEntity, type StatusTone } from '../ui/StatusChip';
-import { STALE_AFTER_SECONDS, activeHalts } from '../model';
+import { STALE_AFTER_SECONDS, activeHalts, lagParts, staleness } from '../model';
 import type { TimelineEvent } from '../ui/Timeline';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -580,7 +582,13 @@ export function HeroFigure({ value, asset, testId }: { value: string; asset: str
 /** One line per asset (`MoneyLines` in `../components`). Two assets are never added together; none is a dash, not zero. */
 export function MoneyLines({ items, emptyLabel, test = false }: { items: readonly AssetAmount[]; emptyLabel?: string; test?: boolean }) {
   const { t } = portalCopy.useCopy();
-  if (items.length === 0) return <span title={emptyLabel ?? t('noPaymentsInPeriod')}>—</span>;
+  if (items.length === 0)
+    return (
+      // The test id names "no rows in this period", which a journey reads apart from a measured figure.
+      <span data-testid="pp-none" title={emptyLabel ?? t('noPaymentsInPeriod')}>
+        —
+      </span>
+    );
   return (
     <span className="lt-lines">
       {items.map((item) => (
@@ -636,6 +644,69 @@ export function HaltNotice({ resource, scopes }: { resource: Resource<HaltStatus
           </p>
         );
       })}
+    </div>
+  );
+}
+
+const STALE_LOOK = 'lt-stale';
+const HINT_LOOK = 'lt-hint';
+
+/** "As of" and lag on every metric (`AsOf` in `../components`). Unknown freshness is stated, never dressed as live. */
+export function AsOf({ freshness }: { freshness: FreshnessRead }) {
+  const { t } = portalCopy.useCopy();
+  const state = staleness(freshness);
+  if (state.kind === 'unknown')
+    return (
+      <p className="lt-stale" role="status">
+        {t('asOfUnknown')}
+      </p>
+    );
+  const look = state.kind === 'stale' ? STALE_LOOK : HINT_LOOK;
+  const lag = lagParts(state.lagSeconds);
+  const lagText =
+    lag.unit === 'seconds'
+      ? t('lagSeconds', { n: lag.n })
+      : lag.unit === 'minutes'
+        ? t('lagMinutes', { n: lag.n })
+        : t('lagHours', { n: lag.n });
+  return (
+    <p className={look} role="status">
+      {t('asOf')} <DateTime value={freshness.asOf!} /> · {lagText}
+      {state.kind === 'stale' && <> · {t('staleWarning')}</>}
+    </p>
+  );
+}
+
+/** When a list was read (`ReadAt` in `../components`). */
+export function ReadAt({ at }: { at: string | null }) {
+  const { t } = portalCopy.useCopy();
+  if (!at) return null;
+  return (
+    <p className="lt-hint" role="status">
+      {t('readAt')} <DateTime value={at} />
+    </p>
+  );
+}
+
+/**
+ * A control that sends money out (`MoneyAction` in `../access/MoneyAction`): drawn as given when the session carries the
+ * scope, otherwise the same words as a switched-off kit button with the reason beside it. Nothing here guesses that money
+ * may move.
+ */
+export function MoneyAction({ kind, act, children }: { kind: MoneyKind; act?: PayoutAct; children: ReactElement }) {
+  const reason = useMoneyReason(kind, act);
+  const reasonId = useId();
+  if (!reason) return children;
+  if (!isValidElement(children)) return null;
+  const label = Children.toArray((children as ReactElement<{ children?: ReactNode }>).props.children);
+  return (
+    <div className="lt-actions">
+      <Button tone="secondary" disabled aria-describedby={reasonId}>
+        {label}
+      </Button>
+      <small id={reasonId} className="lt-hint">
+        {reason}
+      </small>
     </div>
   );
 }
