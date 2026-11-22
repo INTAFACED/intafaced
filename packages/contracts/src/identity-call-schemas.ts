@@ -283,3 +283,11 @@ export const authenticationOptions = z.object({
   allowCredentials: z.array(credentialDescriptor).optional(),
   userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
 });
+
+export const stateOut = z.object({
+  activeKeyId: z.string(),
+  previousKeyIds: z.array(z.string()),
+  activatedAt: z.string().nullable(),
+  nextRemoval: z.array(z.string()).nullable(),
+  availableKeyIds: z.array(z.string()),
+});

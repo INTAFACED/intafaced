@@ -24,15 +24,27 @@ fn ms(env: &BankEnv, key: &str) -> Option<u64> {
     env.int(key).and_then(|n| u64::try_from(n).ok())
 }
 
+/// Whether `testPayInRailFor` makes a rail: the TEST partner and all three of its chain's values.
+fn pay_in_wired(env: &BankEnv) -> bool {
+    let set = |k: &str| {
+        env.str(k)
+            .is_some_and(|v| !service_kit::money::js_trim(v).is_empty())
+    };
+    env.str("BANK_TEST_PARTNER") == Some("test")
+        && set("BANK_TEST_PAY_IN_RPC_URL")
+        && set("BANK_TEST_PAY_IN_CHAIN_ID")
+        && set("BANK_TEST_PAY_IN_TOKEN")
+}
+
 /// Every timer `index.ts` starts besides the recovery jobs, in its order.
 pub fn timers(env: &BankEnv) -> Vec<Timer> {
     vec![
-        // The TEST partner watches its TEST pay-in addresses on the TEST chain each second (J-bank-31); whether its rail
-        // is wired (`testPayInRailFor`) is the partner slice's to read.
+        // The TEST partner watches its TEST pay-in addresses on the TEST chain each second (J-bank-31), only with the
+        // TEST partner and its chain given (`testPayInRailFor`).
         Timer {
             name: "TEST pay-in chain poll",
             slice: Slice::Partner,
-            every: Some(Duration::from_secs(1)),
+            every: pay_in_wired(env).then_some(Duration::from_secs(1)),
         },
         // `startStatementJobWorker`: off while the interval or the lease is blank.
         Timer {

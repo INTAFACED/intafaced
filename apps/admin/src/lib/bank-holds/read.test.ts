@@ -4,8 +4,9 @@ vi.mock('server-only', () => ({}));
 const calls: { procedure: string; input: unknown }[] = [];
 vi.mock('@/lib/desk', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/desk')>()),
-  founderCall: async (_ctx: unknown, _module: string, procedure: string, _method: string, input: unknown) => {
-    calls.push({ procedure, input });
+  // The desk reads by its records: each call is recorded under the record's path.
+  founderRecordRead: async (_ctx: unknown, record: { path: string }, input: unknown) => {
+    calls.push({ procedure: record.path, input });
     return { kind: 'unavailable', uncertain: false, requestId: null };
   },
 }));

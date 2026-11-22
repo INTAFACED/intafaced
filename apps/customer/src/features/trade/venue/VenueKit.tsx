@@ -247,7 +247,13 @@ function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   if (intent.kind === 'cancel_order') return actionKey ?? keys.cancel(intent.clientOrderKey);
   if (intent.kind === 'market_margin_transfer') return intent.moveKey;
   if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') return intent.changeKey;
-  if (intent.kind === 'spot_perps_transfer' || intent.kind === 'vault_transfer') return intent.moveKey;
+  if (
+    intent.kind === 'spot_perps_transfer' ||
+    intent.kind === 'vault_transfer' ||
+    intent.kind === 'staking_transfer' ||
+    intent.kind === 'staking_delegate'
+  )
+    return intent.moveKey;
   return actionKey ?? '';
 }
 
