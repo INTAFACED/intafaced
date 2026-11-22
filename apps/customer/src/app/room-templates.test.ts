@@ -18,8 +18,16 @@ const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
 /** A route's pattern as a person opens it: a `:pair` is a real market. */
-// A route's own parameters, filled with a sample its pattern accepts (a live run is addressed by its UUID).
-const opened = (route: string) => route.replace(':pair', 'BTC-USDT').replace(':runId', '00000000-0000-4000-8000-000000000001');
+// A route's own parameters, filled with a sample its pattern accepts: a live run is addressed by its UUID; a parameter
+// the router checks the shape of gets a well-formed TEST value (a campaign id starts `cmp_`; a More record id starts
+// with a letter or digit, more-room-routes.ts).
+const opened = (route: string) =>
+  route
+    .replace(':pair', 'BTC-USDT')
+    .replace(':runId', '00000000-0000-4000-8000-000000000001')
+    .replace(':campaignId', 'cmp_TEST')
+    .replace(':listingId', 'TEST-listing')
+    .replace(':projectId', 'TEST-launch');
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 /** The screen file whose `// volt-room:` line says the room has moved onto its template (volt-count.ts). */
 const marks = voltMarks();
