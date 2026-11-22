@@ -9,14 +9,14 @@ import { Button } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 
 export const UNKNOWN = '—';
-export const HIDDEN_MASK = '••••';
+const HIDDEN_MASK = '••••';
 /** The accessible name of a masked figure, as the old kit's number parts gave it; journeys find a hidden total by it. */
 const HIDDEN_NAME = 'Hidden'; // literal-text-ok: a fixed accessible name the app's tests read, not a sentence
 
 export type Direction = 'up' | 'down' | 'flat';
 
 /** The direction a signed, formatted change reads ("+$1.20", "−0.3%"); all zeros is flat. */
-export function signDirection(text: string | null | undefined): Direction {
+function signDirection(text: string | null | undefined): Direction {
   if (!text) return 'flat';
   const digits = text.replace(/[^0-9]/g, '');
   if (digits === '' || /^0*$/.test(digits)) return 'flat';
