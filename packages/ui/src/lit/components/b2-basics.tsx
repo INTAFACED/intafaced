@@ -184,8 +184,10 @@ export function Tabs(props: TabsProps) {
   const move = (event: React.KeyboardEvent, index: number) => {
     const next = nextTabIndex(index, event.key, items.length);
     if (next === null) return;
+    const item = items[next];
+    if (!item) return;
     event.preventDefault();
-    onChange(items[next]!.value);
+    onChange(item.value);
     refs.current[next]?.focus();
   };
   return (
@@ -244,12 +246,15 @@ export function Sheet({
   title,
   onClose,
   role = 'dialog',
+  closeButton = role !== 'alertdialog',
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   role?: 'dialog' | 'alertdialog';
+  /** The sheet's own Close button; off for a sheet whose own buttons answer it (a form with Not now). */
+  closeButton?: boolean;
   children: React.ReactNode;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
@@ -278,11 +283,11 @@ export function Sheet({
     >
       <header className="lt-sheet-head">
         <h2 className="lt-sheet-title">{title}</h2>
-        {alert ? null : (
+        {closeButton ? (
           <button type="button" className="lt-button lt-button-secondary" onClick={onClose}>
             Close
           </button>
-        )}
+        ) : null}
       </header>
       <div className="lt-sheet-body">{children}</div>
     </dialog>
@@ -297,7 +302,7 @@ export interface SelectOption {
 /**
  * One choice from a list, as a button that opens a list: a `combobox` with a `listbox` of `option`s. Focus stays on
  * the button; the arrow keys, Home and End move through the open list, Enter or Space picks, Escape and Tab close.
- * A value not among the options is shown as itself, so a choice in force is never hidden.
+ * A value not among the options is shown as itself, so a choice in force is never hidden; an empty one shows `placeholder`.
  */
 export function Select({
   label,
@@ -305,18 +310,21 @@ export function Select({
   value,
   onChange,
   disabled,
+  placeholder,
 }: {
   label: string;
   options: readonly SelectOption[];
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  /** Shown while nothing is chosen (an empty value). */
+  placeholder?: string;
 }) {
   const id = React.useId();
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(0);
   const selected = options.findIndex((o) => o.value === value);
-  const shown = selected >= 0 ? options[selected]!.label : value;
+  const shown = options[selected]?.label ?? (value === '' && placeholder ? placeholder : value);
   const show = () => {
     setActive(Math.max(0, selected));
     setOpen(true);
@@ -442,6 +450,26 @@ export function DecimalInput({
   );
 }
 
+/** A checkbox with its words, as one row: the box, then the label (`lt-field`). */
+export function Checkbox({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="lt-field">
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.currentTarget.checked)} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
 /** The TEST label an illustrative figure or sample list carries (AGENTS.md: an illustrative figure says TEST). */
 export function TestTag() {
   return <span className="lt-test">TEST</span>;
@@ -459,19 +487,22 @@ export function FreshnessChip({
   refused = false,
   showAsOf = false,
   now,
+  reason,
 }: {
   asOf: AsOf;
   staleAfterMs: number;
   refused?: boolean;
   showAsOf?: boolean;
   now?: number;
+  /** Why it is unknown, refused or behind: in the title and read out (a title alone is not read reliably). */
+  reason?: string;
 }) {
   const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused });
   const kind = freshnessOf({ asOf, now: clock, staleAfterMs, refused });
   const iso = showAsOf ? asOfIso(asOf) : null;
   const shown = iso ? formatAsOf(asOf, { now: clock }) : null;
   return (
-    <span className="lt-chip" role="status" data-freshness={kind}>
+    <span className="lt-chip" role="status" data-freshness={kind} title={reason}>
       <span className="lt-chip-mark" aria-hidden="true" />
       <span>
         <span data-part="word">{FRESHNESS_WORDS[kind]}</span>
@@ -482,6 +513,7 @@ export function FreshnessChip({
           </span>
         ) : null}
       </span>
+      {reason ? <span className="lt-sr">{reason}</span> : null}
     </span>
   );
 }

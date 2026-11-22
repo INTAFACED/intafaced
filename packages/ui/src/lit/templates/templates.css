@@ -189,6 +189,10 @@
   .lt-grid-flow {
     grid-template-columns: minmax(0, 40rem) minmax(17.5rem, 1fr);
   }
+  /* A ticket beside the work it makes (an order form beside its orders, on a tool desk). */
+  .lt-grid-ticket-work {
+    grid-template-columns: 22.5rem minmax(0, 1fr);
+  }
   .lt-grid-settings {
     grid-template-columns: 13.75rem minmax(0, 1fr) minmax(13.75rem, 18.75rem);
   }
@@ -856,6 +860,27 @@
 .lt-chip[data-freshness='refused'] .lt-chip-mark {
   border-radius: 1px;
   transform: rotate(45deg);
+}
+
+/* How far a piece of work has come, as a short bar beside its figure (the figure carries the meaning). */
+.lt-meter {
+  inline-size: 4rem;
+  block-size: 0.375rem;
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+  background: var(--lit-solid-bg-raised);
+  overflow: hidden;
+}
+.lt-meter::-webkit-meter-bar {
+  background: var(--lit-solid-bg-raised);
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+}
+.lt-meter::-webkit-meter-optimum-value {
+  background: var(--lit-accent);
+}
+.lt-meter::-moz-meter-bar {
+  background: var(--lit-accent);
 }
 
 .lt-chip-when {

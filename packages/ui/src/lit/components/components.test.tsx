@@ -232,6 +232,9 @@ describe('b2 controls the desk rooms use', () => {
     // Closed, the list is not drawn; a value not among the options is shown as itself.
     expect(out).not.toContain('role="listbox"');
     expect(html(<B2.Select label="Schedule" value="a-9" options={[]} onChange={() => undefined} />)).toContain('a-9');
+    expect(html(<B2.Select label="Leader" value="" placeholder="Choose a leader" options={[]} onChange={() => undefined} />)).toContain(
+      'Choose a leader',
+    );
   });
 
   it('Select keys: closed, arrows, Enter and Space open; open, they move, pick and close, held at the ends', () => {
@@ -269,6 +272,13 @@ describe('b2 controls the desk rooms use', () => {
     expect(alert).toContain('role="alertdialog"');
     expect(alert).toContain('aria-label="Cancel this order?"');
     expect(alert).not.toContain('>Close</button>');
+    const form = html(
+      <B2.Sheet open={false} closeButton={false} title="Close part of this position" onClose={() => undefined}>
+        <button type="submit">Close</button>
+      </B2.Sheet>,
+    );
+    expect(form).not.toContain('role="alertdialog"');
+    expect(form.match(/>Close<\/button>/g)).toHaveLength(1);
   });
 
   it('Tabs draw links with aria-current, or in-page tabs: a tablist of tabs, the shown one selected and the one Tab stop', () => {
@@ -349,5 +359,22 @@ describe('b2 controls the desk rooms use', () => {
   it('KeyValue marks each row, so a reader finds a value by its label', () => {
     expect(html(<B2.KeyValue rows={[{ label: 'Start price', value: '0.99' }]} />)).toContain('<div data-slot="key-value-row">');
     expect(html(<B2.TestTag />)).toBe('<span class="lt-test">TEST</span>');
+    expect(html(<B2.Checkbox label="Random slice sizes" checked onChange={() => undefined} />)).toBe(
+      '<label class="lt-field"><input type="checkbox" checked=""/><span>Random slice sizes</span></label>',
+    );
+  });
+
+  it('FreshnessChip says the freshness in a word, its time when asked, and why when it is unknown', () => {
+    const at = Date.UTC(2026, 10, 22, 10, 0, 0);
+    const live = html(<B2.FreshnessChip asOf={at} now={at + 500} staleAfterMs={10_000} showAsOf />);
+    expect(live).toContain('data-freshness="live"');
+    expect(live).toContain('>Live<');
+    expect(live).toContain('as of');
+    const stale = html(<B2.FreshnessChip asOf={at} now={at + 20_000} staleAfterMs={10_000} />);
+    expect(stale).toContain('>Stale<');
+    const unknown = html(<B2.FreshnessChip asOf={null} staleAfterMs={10_000} reason="Could not be read" />);
+    expect(unknown).toContain('>Unknown<');
+    expect(unknown).toContain('<span class="lt-sr">Could not be read</span>');
+    expect(html(<B2.FreshnessChip asOf={at} now={at + 500} staleAfterMs={10_000} refused />)).toContain('>Refused<');
   });
 });

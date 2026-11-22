@@ -46,8 +46,9 @@ export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', ro
     const step = gridKey(event.key, index, keys.length);
     if (step === null) return;
     event.preventDefault();
-    if (step === 'pick') onSelect(keys[index]!);
-    else focusRow(step);
+    const key = keys[index];
+    if (step !== 'pick') focusRow(step);
+    else if (key !== undefined) onSelect(key);
   };
   return (
     <table className="lt-table" data-mode={mode} role={onSelect ? 'grid' : undefined}>
@@ -68,7 +69,7 @@ export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', ro
           </tr>
         ) : null}
         {rows.map((row, index) => {
-          const key = keys[index]!;
+          const key = rowKey(row);
           return (
             <tr
               key={key}
