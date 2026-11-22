@@ -84,8 +84,12 @@ import { composeVenueEconomics, parseCostEntry, parseCostPeriod, periodWindow, r
 import { OPS_RECORD_VENUE_COST } from '@intafaced/contracts/ops-record-venue-cost-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from './refusal.js';
-import { OPS_RESTORE_WATERMARKS } from '@intafaced/contracts/ops-restore-procedures';
-import { restoreBackupListSchema, restoreRunDetailSchema, restoreRunListSchema } from '@intafaced/contracts/ops-restore-watermarks';
+import {
+  OPS_RESTORE_WATERMARKS,
+  OPS_RESTORE_BACKUPS,
+  OPS_RESTORE_RUNS,
+  OPS_RESTORE_RUN,
+} from '@intafaced/contracts/ops-restore-procedures';
 import { OPS_VENUE_ECONOMICS } from '@intafaced/contracts/ops-venue-economics-procedures';
 
 /**
@@ -644,9 +648,9 @@ export function createOpsRouter(
         opsRefusal,
       ),
       // A blank URL is unconfigured. A probe that fails or is unwired stays unprobed. A manifest is listed as returned.
-      backups: scopedProcedure('admin:read', guards)
-        .output(restoreBackupListSchema)
-        .query(async () => {
+      backups: mountRecord(
+        OPS_RESTORE_BACKUPS,
+        async () => {
           const archive = archivePosture(desks.restoreArchiveUrl);
           if (!archive.configured || !desks.restoreArchiveProbe || desks.restoreArchiveUrl == null) {
             return { asOf: now(), archive, backups: [] as const, reason: archive.code };
@@ -666,26 +670,31 @@ export function createOpsRouter(
             backups: probed.backups,
             reason: probed.backups.length === 0 ? 'The archive listed no backups.' : 'The archive listed these backups.',
           };
-        }),
-      runs: scopedProcedure('admin:read', guards)
-        .output(restoreRunListSchema)
-        .query(async () => {
+        },
+        opsRefusal,
+      ),
+      runs: mountRecord(
+        OPS_RESTORE_RUNS,
+        async () => {
           try {
             return { asOf: now(), runs: [...(await requireRestoreDesk(desks.restoreDesk).list())] };
           } catch (err) {
             mapError(err);
           }
-        }),
-      run: scopedProcedure('admin:read', guards)
-        .input(z.object({ restoreNo: z.string().min(1).max(128) }))
-        .output(restoreRunDetailSchema)
-        .query(async ({ input }) => {
+        },
+        opsRefusal,
+      ),
+      run: mountRecord(
+        OPS_RESTORE_RUN,
+        async ({ input }) => {
           try {
             return await requireRestoreDesk(desks.restoreDesk).get(input.restoreNo);
           } catch (err) {
             mapError(err);
           }
-        }),
+        },
+        opsRefusal,
+      ),
       start: scopedProcedure('admin:treasury', guards)
         .input(z.object({ restoreNo: z.string().min(1).max(128), cutOff: z.string(), idempotencyKey: z.string() }))
         .mutation(async ({ ctx, input }) => {

@@ -1212,7 +1212,7 @@ import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } f
 
 import { OPS_RECORD_VENUE_COST } from './ops-record-venue-cost-procedures.js';
 
-import { OPS_RESTORE_WATERMARKS } from './ops-restore-procedures.js';
+import { OPS_RESTORE_WATERMARKS, OPS_RESTORE_BACKUPS, OPS_RESTORE_RUNS, OPS_RESTORE_RUN } from './ops-restore-procedures.js';
 
 import { OPS_STAFF_HOLDS_LIST } from './ops-staff-holds-procedures.js';
 
@@ -3227,7 +3227,12 @@ const part_ops_public_procedures: readonly ProcedureRecord[] = [OPS_HOME_CONFIG,
 
 const part_ops_record_venue_cost_procedures: readonly ProcedureRecord[] = [OPS_RECORD_VENUE_COST];
 
-const part_ops_restore_procedures: readonly ProcedureRecord[] = [OPS_RESTORE_WATERMARKS];
+const part_ops_restore_procedures: readonly ProcedureRecord[] = [
+  OPS_RESTORE_WATERMARKS,
+  OPS_RESTORE_BACKUPS,
+  OPS_RESTORE_RUNS,
+  OPS_RESTORE_RUN,
+];
 
 const part_ops_staff_holds_procedures: readonly ProcedureRecord[] = [OPS_STAFF_HOLDS_LIST];
 
