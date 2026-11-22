@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JOB_PROBES, RED_LABELS } from './bisect-main.mjs';
 import { refusalDetail } from './refusal.mjs';
+import { countCall } from './api-count.mjs';
 
 const GROUPS = ['apps', 'services', 'packages'];
 export const LAST_GREEN_BRANCH = 'last-green';
@@ -89,6 +90,7 @@ async function gh(method, path, body) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+  countCall(res);
   const text = await res.text();
   if (res.status === 403 || res.status === 429) {
     // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop. GitHub's own reason goes in the stop line.
