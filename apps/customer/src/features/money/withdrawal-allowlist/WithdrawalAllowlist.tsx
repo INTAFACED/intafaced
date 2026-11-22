@@ -1,13 +1,14 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { ApiResult } from '../../shared/api';
-import { useResource, type Resource } from '../../shared/resource';
-import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
-import { useSession } from '../session';
-import { amount, date, Section } from './components';
-import { allowlistCopy } from './withdrawal-allowlist-copy';
-import { createAllowlistReads, requestedChange, type AllowlistChange, type AllowlistGroup } from './withdrawal-allowlist-reads';
-import { WithdrawStepUp } from './WithdrawStepUp';
-import './withdrawal.css';
+import { Button, Checkbox, EmptyState, Field, Select } from '@intafaced/ui/lit';
+import { SettingsTemplate, type RoomState } from '@intafaced/ui/lit/templates';
+import type { ApiResult } from '../../../shared/api';
+import { useResource, type Resource } from '../../../shared/resource';
+import { useSession } from '../../session';
+import { amount, date } from '../components';
+import { Failure, Loading, Panel } from '../bank-settings/parts';
+import { StepUpSheet } from '../bank-settings/StepUpSheet';
+import { allowlistCopy } from '../withdrawal-allowlist-copy';
+import { createAllowlistReads, requestedChange, type AllowlistChange, type AllowlistGroup } from '../withdrawal-allowlist-reads';
 
 export type AllowlistReadContext = { current: () => boolean };
 const href = (id: string) => `/uc/withdraw/allowlist?changeId=${encodeURIComponent(id)}`;
@@ -37,10 +38,10 @@ function ReadResult<T>({ resource, retry, children }: { resource: Resource<T>; r
   const result = resource.failure;
   if (result.status === 404 || result.code === 'allowlist.not_found')
     return (
-      <div data-testid="failure" className="failure" role="status">
-        <h3>{t('notFound')}</h3>
-        <p>{t('notFoundNote')}</p>
-        <Button variant="secondary" onClick={retry}>
+      <div data-testid="failure" className="lt-refusal" data-refusal="refused" role="status">
+        <h3 className="lt-refusal-title">{t('notFound')}</h3>
+        <p className="lt-refusal-body">{t('notFoundNote')}</p>
+        <Button tone="secondary" onClick={retry}>
           {t('refreshRecord')}
         </Button>
       </div>
@@ -54,8 +55,6 @@ function ReadResult<T>({ resource, retry, children }: { resource: Resource<T>; r
   );
 }
 
-const tone = (status: AllowlistChange['status']) => (status === 'waiting' || status === 'approved' ? 'accent' : '');
-
 function Mode({ current }: { current: () => boolean }) {
   const { api, userId } = useSession();
   const { t } = allowlistCopy.useCopy();
@@ -64,7 +63,7 @@ function Mode({ current }: { current: () => boolean }) {
   const [ask, setAsk] = useState<{ ref: string; enabled: boolean } | null>(null);
   const [sent, setSent] = useState<'sentApplied' | 'sentRequest' | null>(null);
   return (
-    <Section title={t('modeTitle')} description={t('modeNote')}>
+    <Panel id="allowlist-mode" title={t('modeTitle')} lead={t('modeNote')}>
       <ReadResult
         resource={resource}
         retry={() => {
@@ -75,11 +74,12 @@ function Mode({ current }: { current: () => boolean }) {
           <>
             <p role="status" data-testid="allowlist-mode">
               <strong>{mode.enabled ? t('modeOn') : t('modeOff')}</strong>{' '}
-              <span className="muted">{mode.setAt ? t('modeSince', { when: date(mode.setAt) }) : t('modeNever')}</span>
+              <span className="lt-hint">{mode.setAt ? t('modeSince', { when: date(mode.setAt) }) : t('modeNever')}</span>
             </p>
             {sent && <p role="status">{t(sent)}</p>}
-            <div className="withdrawal-actions">
+            <div className="lt-actions">
               <Button
+                tone="primary"
                 onClick={() => {
                   if (active()) setAsk({ ref: newRef(), enabled: !mode.enabled });
                 }}
@@ -88,7 +88,7 @@ function Mode({ current }: { current: () => boolean }) {
               </Button>
             </div>
             {ask && (
-              <WithdrawStepUp
+              <StepUpSheet
                 run={(token) => createAllowlistReads(api, userId, current).setMode(ask.enabled, ask.ref, token)}
                 onDone={() => {
                   if (!active()) return;
@@ -102,7 +102,7 @@ function Mode({ current }: { current: () => boolean }) {
           </>
         )}
       </ReadResult>
-    </Section>
+    </Panel>
   );
 }
 
@@ -121,7 +121,6 @@ function AddForm({ current, onDone, onCancel }: { current: () => boolean; onDone
   return (
     <>
       <form
-        className="form-stack"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
@@ -130,16 +129,12 @@ function AddForm({ current, onDone, onCancel }: { current: () => boolean; onDone
           setAsk((open) => open ?? { ref: newRef() });
         }}
       >
-        <label className="field">
-          <span>{t('group')}</span>
-          <select value={group} onChange={(event) => setGroup(event.target.value as AllowlistGroup)}>
-            {GROUPS.map((value) => (
-              <option key={value} value={value}>
-                {t(value)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label={t('group')}
+          value={group}
+          onChange={(value) => setGroup(value as AllowlistGroup)}
+          options={GROUPS.map((value) => ({ value, label: t(value) }))}
+        />
         <Field
           label={t('asset')}
           name="allowlist-asset"
@@ -158,19 +153,21 @@ function AddForm({ current, onDone, onCancel }: { current: () => boolean; onDone
         />
         <Field label={t('label')} name="allowlist-label" maxLength={64} value={label} onChange={(event) => setLabel(event.target.value)} />
         {invalid && (
-          <p data-testid="failure" className="failure" role="alert">
+          <p data-testid="failure" role="alert">
             {t('formInvalid')}
           </p>
         )}
-        <div className="withdrawal-actions">
-          <Button type="submit">{t('submitAdd')}</Button>
-          <Button variant="ghost" onClick={onCancel}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary">
+            {t('submitAdd')}
+          </Button>
+          <Button tone="quiet" onClick={onCancel}>
             {t('formCancel')}
           </Button>
         </div>
       </form>
       {ask && (
-        <WithdrawStepUp
+        <StepUpSheet
           why={t('addWhy')}
           run={(token) => createAllowlistReads(api, userId, current).proposeAdd({ ...values, clientRef: ask.ref }, token)}
           onDone={() => {
@@ -196,12 +193,13 @@ function Entries({ current }: { current: () => boolean }) {
   const [adding, setAdding] = useState(false);
   const [sent, setSent] = useState(false);
   return (
-    <Section
+    <Panel
+      id="allowlist-entries"
       title={t('entriesTitle')}
-      description={t('entriesWindow', { limit })}
+      lead={t('entriesWindow', { limit })}
       actions={
         <Button
-          variant="secondary"
+          tone="secondary"
           onClick={() => {
             if (active()) reload();
           }}
@@ -219,24 +217,26 @@ function Entries({ current }: { current: () => boolean }) {
         {(entries) => (
           <>
             {entries.length ? (
-              <ul className="withdrawal-list" data-testid="allowlist-entries">
+              <ul data-testid="allowlist-entries">
                 {entries.map((entry) => (
-                  <li data-testid="withdrawal-row" className="withdrawal-row" key={entry.id}>
-                    <div className="withdrawal-row-main">
-                      <strong>{entry.label}</strong>
-                      <span className="numeric" lang="und" data-withdrawal-private>
+                  <li data-testid="withdrawal-row" key={entry.id}>
+                    <div>
+                      <strong>{entry.label}</strong>{' '}
+                      <span className="lt-mono" lang="und" data-withdrawal-private>
                         {entry.address}
                       </span>
                       <span>
                         {t(entry.group)} · <span lang="und">{entry.assetId}</span>
                       </span>
-                      <span className={`withdrawal-status ${entry.state === 'active' ? 'accent' : ''}`}>{t(entry.state as 'active')}</span>
+                      <span className="lt-chip" data-state={entry.state}>
+                        {t(entry.state as 'active')}
+                      </span>
                       <span>{entry.lastUsedAt ? <time dateTime={entry.lastUsedAt}>{date(entry.lastUsedAt)}</time> : t('never')}</span>
                     </div>
-                    {entry.state === 'suspended' && <p className="muted">{t('suspendedNote')}</p>}
+                    {entry.state === 'suspended' && <p className="lt-hint">{t('suspendedNote')}</p>}
                     {entry.state !== 'removed' && (
                       <Button
-                        variant="secondary"
+                        tone="secondary"
                         onClick={() => {
                           if (active()) setRemoving({ ref: newRef(), entryId: entry.id });
                         }}
@@ -248,11 +248,12 @@ function Entries({ current }: { current: () => boolean }) {
                 ))}
               </ul>
             ) : (
-              <EmptyState title={t('entriesEmpty')}>{t('entriesEmptyNote')}</EmptyState>
+              <EmptyState title={t('entriesEmpty')} body={t('entriesEmptyNote')} />
             )}
             {sent && <p role="status">{t('sentRequest')}</p>}
-            <div className="withdrawal-actions">
+            <div className="lt-actions">
               <Button
+                tone="primary"
                 onClick={() => {
                   if (active()) setAdding(true);
                 }}
@@ -272,7 +273,7 @@ function Entries({ current }: { current: () => boolean }) {
               />
             )}
             {removing && (
-              <WithdrawStepUp
+              <StepUpSheet
                 why={t('removeWhy')}
                 run={(token) => createAllowlistReads(api, userId, current).proposeDelete(removing.entryId, removing.ref, token)}
                 onDone={() => {
@@ -284,13 +285,13 @@ function Entries({ current }: { current: () => boolean }) {
                 onCancel={() => setRemoving(null)}
               />
             )}
-            <div className="withdrawal-window" role="status">
+            <div className="lt-toolbar" role="status">
               <p>
                 {t('returned', { count: entries.length, limit })} {entries.length >= limit ? t('more') : ''}
               </p>
               {entries.length >= limit && limit < 200 && (
                 <Button
-                  variant="secondary"
+                  tone="secondary"
                   onClick={() => {
                     if (active()) setLimit(Math.min(200, limit + 50));
                   }}
@@ -302,7 +303,7 @@ function Entries({ current }: { current: () => boolean }) {
           </>
         )}
       </ReadResult>
-    </Section>
+    </Panel>
   );
 }
 
@@ -322,7 +323,7 @@ function OneTime({ current }: { current: () => boolean }) {
   const [invalid, setInvalid] = useState(false);
   const [sent, setSent] = useState(false);
   return (
-    <Section title={t('oneTimeTitle')} description={t('oneTimeNote')}>
+    <Panel id="allowlist-one-time" title={t('oneTimeTitle')} lead={t('oneTimeNote')}>
       <ReadResult
         resource={resource}
         retry={() => {
@@ -337,9 +338,9 @@ function OneTime({ current }: { current: () => boolean }) {
                 : t('oneTimeOff')}
             </p>
             {sent && <p role="status">{t('sentRequest')}</p>}
-            <div className="withdrawal-actions">
+            <div className="lt-actions">
               <Button
-                variant="secondary"
+                tone="secondary"
                 onClick={() => {
                   if (active()) setEditing(true);
                 }}
@@ -349,7 +350,6 @@ function OneTime({ current }: { current: () => boolean }) {
             </div>
             {editing && (
               <form
-                className="form-stack"
                 noValidate
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -358,9 +358,9 @@ function OneTime({ current }: { current: () => boolean }) {
                   setAsk((open) => open ?? { ref: newRef() });
                 }}
               >
-                <label className="field">
-                  <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> {t('policyOn')}
-                </label>
+                <Checkbox checked={enabled} onCheckedChange={setEnabled}>
+                  {t('policyOn')}
+                </Checkbox>
                 <Field
                   label={t('policyAsset')}
                   name="allowlist-policy-asset"
@@ -377,20 +377,22 @@ function OneTime({ current }: { current: () => boolean }) {
                   onChange={(event) => setMaxAmount(event.target.value)}
                 />
                 {invalid && (
-                  <p data-testid="failure" className="failure" role="alert">
+                  <p data-testid="failure" role="alert">
                     {t('policyInvalid')}
                   </p>
                 )}
-                <div className="withdrawal-actions">
-                  <Button type="submit">{t('policySubmit')}</Button>
-                  <Button variant="ghost" onClick={() => setEditing(false)}>
+                <div className="lt-actions">
+                  <Button type="submit" tone="primary">
+                    {t('policySubmit')}
+                  </Button>
+                  <Button tone="quiet" onClick={() => setEditing(false)}>
                     {t('formCancel')}
                   </Button>
                 </div>
               </form>
             )}
             {ask && (
-              <WithdrawStepUp
+              <StepUpSheet
                 run={(token) =>
                   createAllowlistReads(api, userId, current).proposePolicy(
                     { enabled, assetId: assetId.trim().toUpperCase(), maxAmount: maxAmount.trim(), clientRef: ask.ref },
@@ -410,7 +412,7 @@ function OneTime({ current }: { current: () => boolean }) {
           </>
         )}
       </ReadResult>
-    </Section>
+    </Panel>
   );
 }
 
@@ -442,7 +444,7 @@ function Changes({ current }: { current: () => boolean }) {
     `${userId}:allowlist-changes:${limit}`,
   );
   return (
-    <Section title={t('changesTitle')} description={t('entriesWindow', { limit })}>
+    <Panel id="allowlist-changes" title={t('changesTitle')} lead={t('entriesWindow', { limit })}>
       <ReadResult
         resource={resource}
         retry={() => {
@@ -451,17 +453,18 @@ function Changes({ current }: { current: () => boolean }) {
       >
         {(changes) =>
           changes.length ? (
-            <ul className="withdrawal-list" data-testid="allowlist-changes">
+            <ul data-testid="allowlist-changes">
               {changes.map((change) => (
-                <li data-testid="withdrawal-row" className="withdrawal-row" key={change.id}>
-                  <div className="withdrawal-row-main">
-                    <strong>{t(`${change.op}_op` as 'add_op')}</strong>
-                    {subjectOf(change)}
-                    <span className={`withdrawal-status ${tone(change.status)}`}>{t(change.status)}</span>
-                    <span className="numeric">{t('tally', { count: change.approvalCount, required: change.requiredApprovals })}</span>
+                <li data-testid="withdrawal-row" key={change.id}>
+                  <div>
+                    <strong>{t(`${change.op}_op` as 'add_op')}</strong> {subjectOf(change)}{' '}
+                    <span className="lt-chip" data-state={change.status}>
+                      {t(change.status)}
+                    </span>{' '}
+                    <span>{t('tally', { count: change.approvalCount, required: change.requiredApprovals })}</span>
                   </div>
                   <a
-                    className="button button--secondary withdrawal-open"
+                    className="lt-button lt-button-secondary"
                     href={href(change.id)}
                     aria-label={t('openChange', { id: change.id })}
                     onClick={(event) => {
@@ -474,11 +477,11 @@ function Changes({ current }: { current: () => boolean }) {
               ))}
             </ul>
           ) : (
-            <EmptyState title={t('changesEmpty')}>{t('changesEmptyNote')}</EmptyState>
+            <EmptyState title={t('changesEmpty')} body={t('changesEmptyNote')} />
           )
         }
       </ReadResult>
-    </Section>
+    </Panel>
   );
 }
 
@@ -509,7 +512,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
     } else setFailure(result);
   }
   return (
-    <Section title={t('record')}>
+    <Panel id="allowlist-record" title={t('record')}>
       <ReadResult resource={resource} retry={refresh}>
         {(change) => {
           const own = change.userId === userId;
@@ -527,13 +530,15 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
             [t('failureCode'), change.failureCode === null ? t('none') : <span lang="und">{change.failureCode}</span>],
           ];
           return (
-            <div className="withdrawal-detail">
-              <div className="withdrawal-detail-value">
-                <span className={tone(change.status)}>{t(change.status)}</span>
-                <span className="numeric">{t('tally', { count: change.approvalCount, required: change.requiredApprovals })}</span>
-              </div>
-              <p className="muted">{t('hashNote')}</p>
-              <dl data-testid="withdrawal-facts" className="withdrawal-facts">
+            <div>
+              <p>
+                <span className="lt-chip" data-state={change.status}>
+                  {t(change.status)}
+                </span>{' '}
+                <span>{t('tally', { count: change.approvalCount, required: change.requiredApprovals })}</span>
+              </p>
+              <p className="lt-hint">{t('hashNote')}</p>
+              <dl data-testid="withdrawal-facts" className="lt-kv">
                 {facts.map(([label, value]) => (
                   <div key={label}>
                     <dt>{label}</dt>
@@ -543,23 +548,23 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
               </dl>
               {cancelled && <p role="status">{t('cancelled2')}</p>}
               {failure && <Failure result={failure} retry={() => setFailure(null)} />}
-              <div className="withdrawal-actions">
-                <Button variant="secondary" onClick={refresh}>
+              <div className="lt-actions">
+                <Button tone="secondary" onClick={refresh}>
                   {t('refreshRecord')}
                 </Button>
                 {own && (
-                  <Button variant="secondary" disabled={change.status !== 'waiting' || canceling} onClick={() => void cancel(change)}>
+                  <Button tone="secondary" disabled={change.status !== 'waiting' || canceling} onClick={() => void cancel(change)}>
                     {canceling ? t('canceling') : t('cancel')}
                   </Button>
                 )}
               </div>
-              {own && <p className="muted">{t('cancelHint')}</p>}
+              {own && <p className="lt-hint">{t('cancelHint')}</p>}
             </div>
           );
         }}
       </ReadResult>
       <a
-        className="button button--secondary withdrawal-return"
+        className="lt-button lt-button-secondary"
         href="/uc/withdraw/allowlist"
         onClick={(event) => {
           if (!active()) event.preventDefault();
@@ -567,11 +572,22 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
       >
         {t('viewAll')}
       </a>
-    </Section>
+    </Panel>
   );
 }
 
-/** `/uc/withdraw/allowlist`: the caller's address list, its mode, the one-time setting and its changes; one change when `?changeId=` names it. */
+/** The room's sections, each a link to its part of the page. */
+const SECTIONS = [
+  ['allowlist-mode', 'modeTitle'],
+  ['allowlist-entries', 'entriesTitle'],
+  ['allowlist-one-time', 'oneTimeTitle'],
+  ['allowlist-changes', 'changesTitle'],
+] as const;
+
+/**
+ * `/uc/withdraw/allowlist`: the caller's address list, its mode, the one-time setting and its changes; one change when
+ * `?changeId=` names it. On its settings template; a link that names no valid change is the room's refusal.
+ */
 export function WithdrawalAllowlist({ context, search }: { context: AllowlistReadContext; search: string }) {
   const { t } = allowlistCopy.useCopy();
   const mounted = useRef(true);
@@ -584,14 +600,41 @@ export function WithdrawalAllowlist({ context, search }: { context: AllowlistRea
   const current = () => mounted.current && context.current();
   const requested = requestedChange(search);
   if (!context.current()) return <p role="status">{t('changed')}</p>;
+  const state: RoomState = requested.ok
+    ? { kind: 'ready' }
+    : { kind: 'refused', refusal: { variant: 'refused', title: t('invalidTitle'), body: t('invalidId') } };
+  const sections: readonly (readonly [string, string])[] = !requested.ok
+    ? []
+    : requested.id
+      ? [['allowlist-record', t('record')]]
+      : SECTIONS.map(([id, key]) => [id, t(key)] as const);
   return (
-    <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
-      <div className="withdrawal-page">
-        {!requested.ok ? (
-          <p data-testid="failure" className="failure" role="alert">
-            {t('invalidId')}
-          </p>
-        ) : requested.id ? (
+    <SettingsTemplate
+      title={t('title')}
+      description={t('description')}
+      state={state}
+      index={
+        <>
+          {sections.length > 0 ? (
+            <nav aria-label={t('sectionsLabel')}>
+              <ul>
+                {sections.map(([id, name]) => (
+                  <li key={id}>
+                    <a className="lt-link" href={`#${id}`}>
+                      {name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ) : null}
+          <a className="lt-link" href="/uc/withdraw">
+            {t('viewWithdrawals')} ↗
+          </a>
+        </>
+      }
+      sections={
+        !requested.ok ? null : requested.id ? (
           <Detail id={requested.id} current={current} />
         ) : (
           <>
@@ -600,13 +643,9 @@ export function WithdrawalAllowlist({ context, search }: { context: AllowlistRea
             <OneTime current={current} />
             <Changes current={current} />
           </>
-        )}
-        <p>
-          <a className="text-link withdrawal-back" href="/uc/withdraw">
-            {t('viewWithdrawals')} ↗
-          </a>
-        </p>
-      </div>
-    </Page>
+        )
+      }
+      explain={<p>{t('explain')}</p>}
+    />
   );
 }

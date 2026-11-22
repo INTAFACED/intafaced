@@ -1,14 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Download } from 'lucide-react';
-import { Button, Loading } from '../../shared/ui';
-import { useSession } from '../session';
-import type { ApiResult } from '../../shared/api';
-import { decodeBase64, saveFile, shortFingerprint } from '../../screens/money/statement-model';
-import { amount, bps, date, useBankRead } from './components';
-import { loanStatementSchema, type LoanInterestRows, type LoanLedgerCheck, type LoanProjection, type PayoffQuote } from './contracts';
-import { DepthPanel } from './DepthParts';
-import { loanDetailCopy } from './loan-detail-copy';
-import './bank-depth.css';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import type { RoomState } from '@intafaced/ui/lit/templates';
+import { useSession } from '../../session';
+import type { ApiResult } from '../../../shared/api';
+import { decodeBase64, saveFile, shortFingerprint } from '../../../screens/money/statement-model';
+import { amount, bps, date, useBankRead } from '../components';
+import { loanStatementSchema, type LoanInterestRows, type LoanLedgerCheck, type LoanProjection, type PayoffQuote } from '../contracts';
+import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
+import { Loading, Panel } from '../bank-settings/parts';
+import { loanRefusal, loanStatementMonth } from '../LoanDetail';
+import { loanDetailCopy } from '../loan-detail-copy';
 
 /**
  * `/bank/loans/detail?loan=<id>` (J-bank-11 #1, #4 and #6, BK-loan-06, LOAN-05): one loan's payoff quote, a
@@ -25,44 +27,12 @@ export const PROJECTION_DAYS = [7, 30, 90, 180, 365] as const;
 type Days = (typeof PROJECTION_DAYS)[number];
 const DECIMAL = /^\d+(\.\d{1,18})?$/;
 
-/** What a refused loan read says, by the bank's code, with the code as a reference. Anything else keeps its own message. */
-export function loanRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message' | 'reason'>): string {
-  const code = failure.code ?? '';
-  const words =
-    code === 'bank.loan_fee_unset'
-      ? t('feeUnset')
-      : code === 'bank.loan_payoff_window_unset'
-        ? t('windowUnset')
-        : code === 'bank.loan_closed'
-          ? t('closed')
-          : code === 'bank.loan_liquidating'
-            ? t('liquidating')
-            : code === 'bank.loan_fee_unsupported'
-              ? t('feeUnsupported')
-              : code === 'bank.loan_terms_missing'
-                ? t('termsMissing')
-                : code === 'bank.statement_too_large'
-                  ? t('stTooLarge')
-                  : code === 'bank.statement_range'
-                    ? t('stRange')
-                    : code === 'bank.ledger_outcome_unknown'
-                      ? t('outcomeUnknown')
-                      : code === 'bank.accrual_backlog'
-                        ? t('backlog')
-                        : code === 'bank.loan_not_drawable'
-                          ? t('notDrawn')
-                          : code === 'bank.loan_not_found'
-                            ? t('notYours')
-                            : failure.message;
-  return code.includes('.') ? `${words} ${t('reference', { code })}` : words;
-}
-
 function Refused({ failure, retry, label }: { failure: Failed; retry: () => void; label: string }) {
   const { t } = loanDetailCopy.useCopy();
   return (
-    <div role="alert" className="error-text" data-code={failure.code ?? ''}>
+    <div role="alert" data-code={failure.code ?? ''}>
       <p>{loanRefusal(t, failure)}</p>
-      <Button variant="ghost" onClick={retry}>
+      <Button tone="quiet" onClick={retry}>
         {label}
       </Button>
     </div>
@@ -75,12 +45,12 @@ function TermsPanel({ loanId }: { loanId: string }) {
   const terms = useBankRead('loans.terms', { loanId });
   const threshold = (value: number | null) => (value === null ? t('termsNotWritten') : bps(value));
   return (
-    <DepthPanel title={t('termsTitle')} lead={t('termsLead')}>
+    <Panel id="loan-terms" title={t('termsTitle')} lead={t('termsLead')}>
       {terms.resource.status === 'loading' && <Loading />}
       {terms.resource.status === 'failed' && <Refused failure={terms.resource.failure} retry={terms.reload} label={t('retry')} />}
       {terms.resource.status === 'ready' && (
         <dl
-          className="detail-list"
+          className="lt-kv"
           data-testid="loan-terms"
           data-apr-bps={String(terms.resource.data.aprBps)}
           data-margin-call-bps={String(terms.resource.data.marginCallLtvBps ?? '')}
@@ -116,7 +86,7 @@ function TermsPanel({ loanId }: { loanId: string }) {
           </div>
         </dl>
       )}
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -125,11 +95,11 @@ function QuotePanel({ loanId }: { loanId: string }) {
   const quote = useBankRead('loans.payoffQuote', { loanId });
   const reload = quote.reload;
   return (
-    <DepthPanel title={t('quoteTitle')} lead={t('quoteLead')}>
+    <Panel id="loan-quote" title={t('quoteTitle')} lead={t('quoteLead')}>
       {quote.resource.status === 'loading' && <Loading />}
       {quote.resource.status === 'failed' && <Refused failure={quote.resource.failure} retry={reload} label={t('quoteRefresh')} />}
       {quote.resource.status === 'ready' && <QuoteFigures quote={quote.resource.data} reload={reload} />}
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -151,14 +121,8 @@ function QuoteFigures({ quote, reload }: { quote: PayoffQuote; reload: () => voi
   const { t } = loanDetailCopy.useCopy();
   const expired = usePassed(quote.validUntil);
   return (
-    <div
-      className="bd-stack"
-      data-testid="loan-quote"
-      data-total={quote.total}
-      data-valid-until={quote.validUntil}
-      data-expired={String(expired)}
-    >
-      <dl className="detail-list">
+    <div data-testid="loan-quote" data-total={quote.total} data-valid-until={quote.validUntil} data-expired={String(expired)}>
+      <dl className="lt-kv">
         <div>
           <dt>{t('quotePrincipal')}</dt>
           <dd>{amount(quote.principal, quote.assetId)}</dd>
@@ -173,7 +137,7 @@ function QuoteFigures({ quote, reload }: { quote: PayoffQuote; reload: () => voi
           <dt>{t('quoteFee')}</dt>
           <dd>{amount(quote.fee, quote.assetId)}</dd>
         </div>
-        <div>
+        <div data-total="">
           <dt>
             <strong>{t('quoteTotal')}</strong>
           </dt>
@@ -182,14 +146,14 @@ function QuoteFigures({ quote, reload }: { quote: PayoffQuote; reload: () => voi
           </dd>
         </div>
       </dl>
-      <p className={expired ? 'error-text' : 'money-caption'} role={expired ? 'alert' : undefined}>
+      <p className="lt-hint" role={expired ? 'alert' : undefined}>
         {expired ? t('quoteExpired') : t('quoteValid', { time: date(quote.validUntil) })}
       </p>
-      <div className="actions">
-        <Button variant="secondary" onClick={reload}>
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={reload}>
           {t('quoteRefresh')}
         </Button>
-        <a className="text-link" href="/bank/loans">
+        <a className="lt-link" href="/bank/loans">
           {t('quoteRepay')}
         </a>
       </div>
@@ -218,55 +182,47 @@ function ProjectionPanel({ loanId, assetId }: { loanId: string; assetId: string 
   }
 
   return (
-    <DepthPanel title={t('projTitle')} lead={t('projLead')}>
+    <Panel id="loan-projection" title={t('projTitle')} lead={t('projLead')}>
       <p>
-        <span className="badge" data-testid="loan-projection-label">
+        <span className="lt-chip" data-testid="loan-projection-label">
           {t('projBadge')}
         </span>
       </p>
-      <form className="bd-stack" onSubmit={show} noValidate>
-        <label className="field">
-          <span>{t('projDays')}</span>
-          <select value={String(days)} onChange={(event) => setDays(Number(event.target.value) as Days)}>
-            {PROJECTION_DAYS.map((n) => (
-              <option key={n} value={String(n)}>
-                {t(`days_${n}`)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>{t('projWhatIf')}</span>
-          <input value={extra} inputMode="decimal" onChange={(event) => setExtra(event.target.value)} aria-describedby="loan-whatif-hint" />
-          <small id="loan-whatif-hint" className="muted">
-            {t('projWhatIfHint')}
-          </small>
-        </label>
-        <div className="actions">
-          <Button type="submit" variant="secondary">
+      <form onSubmit={show} noValidate>
+        <Select
+          label={t('projDays')}
+          value={String(days)}
+          onChange={(value) => setDays(Number(value) as Days)}
+          options={PROJECTION_DAYS.map((n) => ({ value: String(n), label: t(`days_${n}`) }))}
+        />
+        <Field
+          label={t('projWhatIf')}
+          hint={t('projWhatIfHint')}
+          value={extra}
+          inputMode="decimal"
+          onChange={(event) => setExtra(event.target.value)}
+        />
+        <div className="lt-actions">
+          <Button type="submit" tone="secondary">
             {t('projShow')}
           </Button>
         </div>
-        {invalid && (
-          <p role="alert" className="error-text">
-            {t('projInvalid')}
-          </p>
-        )}
+        {invalid && <p role="alert">{t('projInvalid')}</p>}
       </form>
       {projection.resource.status === 'loading' && <Loading />}
       {projection.resource.status === 'failed' && (
         <Refused failure={projection.resource.failure} retry={projection.reload} label={t('projShow')} />
       )}
       {projection.resource.status === 'ready' && <ProjectionTable projection={projection.resource.data} assetId={assetId} />}
-    </DepthPanel>
+    </Panel>
   );
 }
 
 function ProjectionTable({ projection, assetId }: { projection: LoanProjection; assetId: string }) {
   const { t } = loanDetailCopy.useCopy();
   return (
-    <div className="bd-stack">
-      <p className="money-caption">
+    <div>
+      <p className="lt-hint">
         {t('projRate', { apr: bps(projection.aprBps) })}{' '}
         {t('projOpening', {
           principal: amount(projection.openingPrincipal, assetId),
@@ -274,15 +230,15 @@ function ProjectionTable({ projection, assetId }: { projection: LoanProjection; 
         })}
         {projection.extraApplied !== null && <> {t('projExtra', { amount: amount(projection.extraApplied, assetId) })}</>}
       </p>
-      <div className="withdrawal-address-scroll">
+      <div>
         <table
-          className="bd-table"
+          className="lt-table"
           data-testid="loan-projection"
           data-kind={projection.kind}
           data-obligation={String(projection.obligation)}
           data-days={projection.days}
         >
-          <caption className="muted">{t('projBadge')}</caption>
+          <caption className="lt-hint">{t('projBadge')}</caption>
           <thead>
             <tr>
               <th scope="col">{t('colDate')}</th>
@@ -315,11 +271,11 @@ function InterestPanel({ loanId }: { loanId: string }) {
   const { t } = loanDetailCopy.useCopy();
   const rows = useBankRead('loans.interestRows', { loanId });
   return (
-    <DepthPanel title={t('irTitle')} lead={t('irLead')}>
+    <Panel id="loan-interest" title={t('irTitle')} lead={t('irLead')}>
       {rows.resource.status === 'loading' && <Loading />}
       {rows.resource.status === 'failed' && <Refused failure={rows.resource.failure} retry={rows.reload} label={t('retry')} />}
       {rows.resource.status === 'ready' && <InterestTables rows={rows.resource.data} />}
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -327,8 +283,8 @@ function InterestTables({ rows }: { rows: LoanInterestRows }) {
   const { t } = loanDetailCopy.useCopy();
   const asset = rows.assetId;
   return (
-    <div className="bd-stack" data-testid="loan-interest" data-owed={rows.owed} data-accrued={rows.accrued} data-corrected={rows.corrected}>
-      <dl className="detail-list">
+    <div data-testid="loan-interest" data-owed={rows.owed} data-accrued={rows.accrued} data-corrected={rows.corrected}>
+      <dl className="lt-kv">
         <div>
           <dt>{t('irAccrued')}</dt>
           <dd>{amount(rows.accrued, asset)}</dd>
@@ -341,7 +297,7 @@ function InterestTables({ rows }: { rows: LoanInterestRows }) {
           <dt>{t('irPaid')}</dt>
           <dd>{amount(rows.paid, asset)}</dd>
         </div>
-        <div>
+        <div data-total="">
           <dt>
             <strong>{t('irOwed')}</strong>
           </dt>
@@ -351,11 +307,11 @@ function InterestTables({ rows }: { rows: LoanInterestRows }) {
         </div>
       </dl>
       {rows.corrections.length === 0 ? (
-        <p className="muted">{t('irNoCorrections')}</p>
+        <p className="lt-hint">{t('irNoCorrections')}</p>
       ) : (
-        <div className="withdrawal-address-scroll">
-          <table className="bd-table" data-testid="loan-corrections">
-            <caption className="muted">{t('irCorrected')}</caption>
+        <div>
+          <table className="lt-table" data-testid="loan-corrections">
+            <caption className="lt-hint">{t('irCorrected')}</caption>
             <thead>
               <tr>
                 <th scope="col">{t('colWhen')}</th>
@@ -376,11 +332,11 @@ function InterestTables({ rows }: { rows: LoanInterestRows }) {
         </div>
       )}
       {rows.days.length === 0 ? (
-        <p className="muted">{t('irNoDays')}</p>
+        <p className="lt-hint">{t('irNoDays')}</p>
       ) : (
-        <div className="withdrawal-address-scroll">
-          <table className="bd-table" data-testid="loan-interest-days">
-            <caption className="muted">{t('irDays')}</caption>
+        <div>
+          <table className="lt-table" data-testid="loan-interest-days">
+            <caption className="lt-hint">{t('irDays')}</caption>
             <thead>
               <tr>
                 <th scope="col">{t('colDate')}</th>
@@ -402,7 +358,7 @@ function InterestTables({ rows }: { rows: LoanInterestRows }) {
           </table>
         </div>
       )}
-      {rows.earlierDays > 0 && <p className="muted">{t('irEarlier', { count: String(rows.earlierDays) })}</p>}
+      {rows.earlierDays > 0 && <p className="lt-hint">{t('irEarlier', { count: String(rows.earlierDays) })}</p>}
     </div>
   );
 }
@@ -433,13 +389,13 @@ function LedgerCheckPanel({ loanId, collateralAssetId }: { loanId: string; colla
   const { t } = loanDetailCopy.useCopy();
   const check = useBankRead('loans.ledgerCheck', { loanId });
   return (
-    <DepthPanel title={t('ckTitle')} lead={t('ckLead')}>
+    <Panel id="loan-ledger-check" title={t('ckTitle')} lead={t('ckLead')}>
       {check.resource.status === 'loading' && <Loading />}
       {check.resource.status === 'failed' && <Refused failure={check.resource.failure} retry={check.reload} label={t('ckRefresh')} />}
       {check.resource.status === 'ready' && (
         <LedgerCheckResult check={check.resource.data} collateralAssetId={collateralAssetId} reload={check.reload} />
       )}
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -454,8 +410,8 @@ function LedgerCheckResult({
 }) {
   const { t } = loanDetailCopy.useCopy();
   return (
-    <div className="bd-stack" data-testid="loan-ledger-check" data-status={check.status} data-checked={check.checked}>
-      <p role={check.status === 'differs' ? 'alert' : undefined} className={check.status === 'differs' ? 'error-text' : undefined}>
+    <div data-testid="loan-ledger-check" data-status={check.status} data-checked={check.checked}>
+      <p role={check.status === 'differs' ? 'alert' : undefined}>
         {check.status === 'agrees'
           ? t('ckAgrees', { count: String(check.checked), held: amount(check.collateralHeld, collateralAssetId) })
           : check.status === 'differs'
@@ -469,9 +425,9 @@ function LedgerCheckResult({
           ))}
         </ul>
       )}
-      <p className="money-caption">{t('ckWhen', { time: date(check.checkedAt, true) })}</p>
-      <div className="actions">
-        <Button variant="secondary" onClick={reload}>
+      <p className="lt-hint">{t('ckWhen', { time: date(check.checkedAt, true) })}</p>
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={reload}>
           {t('ckRefresh')}
         </Button>
       </div>
@@ -485,19 +441,6 @@ type StatementSaid =
   | null;
 
 const thisMonth = (now: Date) => `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-
-/**
- * One UTC month as the bank's loan statement reads a period: from its first instant to the next month's first instant,
- * the end not included. The bank charges interest by day and leaves out the day `to` falls on, so an end of 23:59:59.999
- * on the last day would drop that day's interest from the month.
- */
-export function loanStatementMonth(month: string): { from: string; to: string } | null {
-  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const index = Number(match[2]) - 1;
-  return { from: new Date(Date.UTC(year, index, 1)).toISOString(), to: new Date(Date.UTC(year, index + 1, 1)).toISOString() };
-}
 
 function StatementPanel({ loanId, assetId }: { loanId: string; assetId: string }) {
   const { t } = loanDetailCopy.useCopy();
@@ -538,14 +481,17 @@ function StatementPanel({ loanId, assetId }: { loanId: string; assetId: string }
   }
 
   return (
-    <DepthPanel title={t('stTitle')} lead={t('stLead')}>
-      <form className="bd-stack" onSubmit={(event) => void download(event)} data-testid="loan-statement">
-        <label className="field">
-          <span>{t('stMonth')}</span>
-          <input type="month" value={month} max={thisMonth(new Date())} onChange={(event) => setMonth(event.target.value)} />
-        </label>
-        <div className="actions">
-          <Button type="submit" variant="secondary" disabled={busy || !range}>
+    <Panel id="loan-statement" title={t('stTitle')} lead={t('stLead')}>
+      <form onSubmit={(event) => void download(event)} data-testid="loan-statement">
+        <Field
+          label={t('stMonth')}
+          type="month"
+          value={month}
+          max={thisMonth(new Date())}
+          onChange={(event) => setMonth(event.target.value)}
+        />
+        <div className="lt-actions">
+          <Button type="submit" tone="secondary" disabled={busy || !range}>
             <Download size={16} aria-hidden="true" />
             {t('stDownload')}
           </Button>
@@ -557,63 +503,78 @@ function StatementPanel({ loanId, assetId }: { loanId: string; assetId: string }
             <>
               <p>{t('stDone', { name: said.name, count: String(said.count), fingerprint: said.fingerprint })}</p>
               <p>{said.totals}</p>
-              {said.provisional && <p className="muted">{t('stProvisional')}</p>}
+              {said.provisional && <p className="lt-hint">{t('stProvisional')}</p>}
             </>
           )}
         </div>
-        {said?.kind === 'error' && (
-          <p role="alert" className="error-text">
-            {said.words}
-          </p>
-        )}
+        {said?.kind === 'error' && <p role="alert">{said.words}</p>}
       </form>
-    </DepthPanel>
+    </Panel>
   );
 }
 
-/** The page: the loan named in the address, read from the person's own loans so its asset is known. */
-export function LoanDetail({ loanId }: { loanId: string | null }) {
+/** The room's sections, each a link to its part of the page. */
+const SECTIONS = [
+  ['loan-terms', 'termsTitle'],
+  ['loan-quote', 'quoteTitle'],
+  ['loan-projection', 'projTitle'],
+  ['loan-interest', 'irTitle'],
+  ['loan-ledger-check', 'ckTitle'],
+  ['loan-statement', 'stTitle'],
+] as const;
+
+/**
+ * `/bank/loans/detail?loan=<id>`: the loan named in the address, read from the person's own loans so its asset is known,
+ * inside the Loans room, on its settings template. No loan named is the room's empty state; a read that failed, or a loan
+ * that is not the person's, its refusal.
+ */
+export function LoanDetailRoom({ loanId }: { loanId: string | null }) {
   const { t } = loanDetailCopy.useCopy();
   const loans = useBankRead('loans.list', { limit: 200 }, loanId !== null);
-  if (loanId === null) {
-    return (
-      <p role="note">
-        {t('noLoan')}{' '}
-        <a className="text-link" href="/bank/loans">
-          {t('back')}
-        </a>
-      </p>
-    );
-  }
-  if (loans.resource.status === 'loading') return <Loading />;
-  if (loans.resource.status === 'failed') return <Refused failure={loans.resource.failure} retry={loans.reload} label={t('retry')} />;
-  const loan = loans.resource.data.find((one) => one.id === loanId);
-  if (!loan) {
-    return (
-      <p role="alert" className="error-text">
-        {t('notYours')}{' '}
-        <a className="text-link" href="/bank/loans">
-          {t('back')}
-        </a>
-      </p>
-    );
-  }
+  const back = { label: t('back'), href: '/bank/loans' };
+  const loan = loans.resource.status === 'ready' ? loans.resource.data.find((one) => one.id === loanId) : undefined;
+  let state: RoomState = { kind: 'ready' };
+  let retry: (() => void) | undefined;
+  if (loanId === null) state = { kind: 'empty', title: t('noLoan'), action: back };
+  else if (loans.resource.status === 'loading') state = { kind: 'loading' };
+  else if (loans.resource.status === 'failed') {
+    const failure = loans.resource.failure;
+    state = {
+      kind: 'refused',
+      refusal: { variant: 'refused', title: t('readFailedTitle'), body: loanRefusal(t, failure), reference: failure.code, action: back },
+    };
+    retry = loans.reload;
+  } else if (!loan)
+    state = { kind: 'refused', refusal: { variant: 'refused', title: t('notYoursTitle'), body: t('notYours'), action: back } };
   return (
-    <div className="bd-stack" data-loan-id={loan.id}>
-      <p className="money-caption" lang="und">
-        {t('loanRef', { id: loan.id })}
-      </p>
-      <TermsPanel loanId={loan.id} />
-      <QuotePanel loanId={loan.id} />
-      <ProjectionPanel loanId={loan.id} assetId={loan.debtAssetId} />
-      <InterestPanel loanId={loan.id} />
-      <LedgerCheckPanel loanId={loan.id} collateralAssetId={loan.collateralAssetId} />
-      <StatementPanel loanId={loan.id} assetId={loan.debtAssetId} />
-      <p>
-        <a className="text-link" href="/bank/loans">
+    <BankSettingsRoom
+      room="Loans"
+      title={t('title')}
+      description={t('description')}
+      state={state}
+      retry={retry}
+      sectionsLabel={t('sectionsLabel')}
+      sections={SECTIONS.map(([id, key]) => [id, t(key)] as const)}
+      index={
+        <a className="lt-link" href="/bank/loans">
           {t('back')}
         </a>
-      </p>
-    </div>
+      }
+      explain={t('explain')}
+    >
+      {loan ? (
+        <div data-loan-id={loan.id}>
+          <p className="lt-hint" lang="und">
+            {t('loanRef', { id: loan.id })}
+          </p>
+          <TermsPanel loanId={loan.id} />
+          <QuotePanel loanId={loan.id} />
+          <ProjectionPanel loanId={loan.id} assetId={loan.debtAssetId} />
+          <InterestPanel loanId={loan.id} />
+          <LedgerCheckPanel loanId={loan.id} collateralAssetId={loan.collateralAssetId} />
+          <StatementPanel loanId={loan.id} assetId={loan.debtAssetId} />
+        </div>
+      ) : null}
+    </BankSettingsRoom>
   );
 }

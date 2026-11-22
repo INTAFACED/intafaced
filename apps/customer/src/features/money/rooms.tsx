@@ -82,7 +82,7 @@ import { MoneyCalendar } from './Calendar';
 import { calendarCopy } from './calendar-copy';
 import { RulesRoom } from './rules/RulesRoom';
 import { rulesCopy } from './rules-copy';
-import { LoanDetail } from './LoanDetail';
+import { LoanDetailRoom } from './loan-detail/LoanDetailRoom';
 import { LoanApply } from './LoanApply';
 import { loanApplyCopy } from './loan-apply-copy';
 import { loanDetailCopy } from './loan-detail-copy';
@@ -1617,14 +1617,9 @@ function LoanApplyLink({ productId }: { productId?: string }) {
   );
 }
 /** `/bank/loans/detail?loan=<id>`: one loan's payoff quote, projection and statement, inside the Loans room (J-bank-11 #1). */
-function LoanDetailRoom({ search }: { search: string }) {
-  const { t } = loanDetailCopy.useCopy();
+function LoanDetailPage({ search }: { search: string }) {
   const loanId = new URLSearchParams(search).get('loan');
-  return (
-    <BankPage room="Loans" title={t('title')} description={t('description')}>
-      <LoanDetail loanId={loanId && loanId.trim() !== '' ? loanId : null} />
-    </BankPage>
-  );
+  return <LoanDetailRoom loanId={loanId && loanId.trim() !== '' ? loanId : null} />;
 }
 /** `/bank/earn/pool?id=<pool>`: one pool's terms, rate history and the person's savings in it, inside the Earn room (J-bank-08 #1, #2). */
 function EarnPoolRoom({ search, open }: { search: string; open: (spec: ActionSpec) => void }) {
@@ -2168,7 +2163,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/loans':
       return <Loans open={open} />;
     case '/bank/loans/detail':
-      return <LoanDetailRoom search={search} />;
+      return <LoanDetailPage search={search} />;
     case '/bank/loans/apply':
       return <LoanApplyRoom search={search} open={open} />;
     case '/bank/loans/overdraft':
