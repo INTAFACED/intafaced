@@ -114,6 +114,7 @@ impl Book {
                 owner_id: owner.to_owned(),
                 asset_id: asset.to_owned(),
                 kind: "available",
+                purpose: None,
             })
             .unwrap(),
         )
