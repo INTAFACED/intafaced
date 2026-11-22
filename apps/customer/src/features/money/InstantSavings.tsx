@@ -3,11 +3,12 @@ import type { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { parseAmount } from '../../shared/money';
-import { amount, bps, funds, NoRows, positiveMoney, Section, useBankRead, type ActionSpec } from './components';
-import { bankReads, bankWrites, type poolSchema, type positionSchema } from './contracts';
+import { amount, bps, funds, NoRows, positiveMoney, Section, type ActionSpec, useBankRecord } from './components';
+import { bankWrites, type poolSchema, type positionSchema } from './contracts';
 import { earnCopy } from './earn-copy';
 import { useSession } from '../session';
 import { instantSavingsCopy } from './instant-savings-copy';
+import { BANK_EARN_POOLS, BANK_EARN_POSITIONS, BANK_EARN_INTEREST_HISTORY } from '@intafaced/contracts/bank-earn-procedures';
 
 type Pool = z.infer<typeof poolSchema>;
 type Position = z.infer<typeof positionSchema>;
@@ -22,11 +23,11 @@ const DAYS_SHOWN = 31;
 export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = instantSavingsCopy.useCopy();
   const { api } = useSession();
-  const pools = useBankRead('earn.pools', { limit: LIMIT });
-  const positions = useBankRead('earn.positions', { limit: LIMIT });
+  const pools = useBankRecord(BANK_EARN_POOLS, { limit: LIMIT });
+  const positions = useBankRecord(BANK_EARN_POSITIONS, { limit: LIMIT });
   /** Inside the write lock, before anything is sent: the pool still reads as it did when the review opened. */
   const checkPool = async (pool: Pool): Promise<ApiResult<null>> => {
-    const fresh = await api.query('bank', 'earn.pools', { limit: LIMIT }, bankReads['earn.pools']);
+    const fresh = await api.call(BANK_EARN_POOLS, { limit: LIMIT });
     if (!fresh.ok) return readFailed(earnCopy.t('subjectPool'));
     const current = fresh.data.find((row) => row.id === pool.id);
     return current && JSON.stringify(current) === JSON.stringify(pool) ? { ok: true, data: null } : changed();
@@ -134,9 +135,9 @@ function calendarDay(day: string) {
 function Savings({ pool, positions, open }: { pool: Pool; positions: Position[]; open: (spec: ActionSpec) => void }) {
   const { t } = instantSavingsCopy.useCopy();
   const { api } = useSession();
-  const history = useBankRead('earn.interestHistory', { poolId: pool.id, limit: DAYS_SHOWN });
+  const history = useBankRecord(BANK_EARN_INTEREST_HISTORY, { poolId: pool.id, limit: DAYS_SHOWN });
   const checkPosition = async (position: Position): Promise<ApiResult<null>> => {
-    const fresh = await api.query('bank', 'earn.positions', { limit: LIMIT }, bankReads['earn.positions']);
+    const fresh = await api.call(BANK_EARN_POSITIONS, { limit: LIMIT });
     if (!fresh.ok) return readFailed(earnCopy.t('subjectPosition'));
     const current = fresh.data.find((row) => row.id === position.id);
     return current && JSON.stringify(current) === JSON.stringify(position) ? { ok: true, data: null } : changed();
@@ -240,7 +241,7 @@ function Days({ pool, days }: { pool: Pool; days: Day[] }) {
 
 function EarlierDays({ pool, before }: { pool: Pool; before: string }) {
   const { t } = instantSavingsCopy.useCopy();
-  const page = useBankRead('earn.interestHistory', { poolId: pool.id, limit: DAYS_SHOWN, before });
+  const page = useBankRecord(BANK_EARN_INTEREST_HISTORY, { poolId: pool.id, limit: DAYS_SHOWN, before });
   if (page.resource.status === 'loading') return <Loading />;
   if (page.resource.status === 'failed') return <Failure result={page.resource.failure} retry={page.reload} />;
   return page.resource.data.days.length ? (

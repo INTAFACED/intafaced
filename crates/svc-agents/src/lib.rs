@@ -12,6 +12,7 @@ pub mod advisors;
 pub mod audit;
 pub mod background;
 pub mod boot;
+pub mod bus;
 pub mod db;
 pub mod door;
 pub mod env;
