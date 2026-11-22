@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { AccountRestriction } from '@intafaced/contracts/identity-account-status';
-import { appealSchema, appealsMineSchema, APPEAL_TEXT_MAX, type Appeal } from '@intafaced/contracts/identity-appeals';
+import { APPEAL_TEXT_MAX, type Appeal } from '@intafaced/contracts/identity-appeals';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { appealsCopy as copy } from './appeals-copy';
+import { IDENTITY_ACCOUNT_APPEAL_MINE, IDENTITY_ACCOUNT_APPEAL_SUBMIT } from '@intafaced/contracts/identity-account-appeal-procedures';
 
 const APPEALABLE = new Set<AccountRestriction['kind']>(['trading_restricted']);
 const OPEN = new Set<Appeal['status']>(['submitted', 'in_review']);
@@ -46,9 +47,7 @@ export function AccountAppeals({ restrictions }: { restrictions: readonly Accoun
   const appealable = restrictions.find((r) => APPEALABLE.has(r.kind));
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'accountAppeal.mine', undefined, appealsMineSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_ACCOUNT_APPEAL_MINE, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `account-appeals:${userId}`,
   );
 
@@ -78,12 +77,11 @@ export function AccountAppeals({ restrictions }: { restrictions: readonly Accoun
     setRefusal(null);
     setNote(null);
     try {
-      const answer = await api.mutate(
-        'identity',
-        'accountAppeal.submit',
-        { restriction: 'trading_restricted', text: words, clientRequestId: requestKey.current },
-        appealSchema,
-      );
+      const answer = await api.call(IDENTITY_ACCOUNT_APPEAL_SUBMIT, {
+        restriction: 'trading_restricted',
+        text: words,
+        clientRequestId: requestKey.current,
+      });
       if (!mounted.current) return;
       if (!answer.ok) {
         setRefusal(answer.code ?? 'unknown');

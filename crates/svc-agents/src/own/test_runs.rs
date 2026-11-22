@@ -41,7 +41,7 @@ pub fn own_agent_switch(pool: &Pool, agent_id: &str) -> Result<&'static str, Own
 }
 
 /// `readOwnCaps(...) !== null`: the agent's own cap and every one of the person's caps for it are set.
-fn caps_set(pool: &Pool, owner_id: &str, agent_id: &str) -> Result<bool, OwnError> {
+pub(crate) fn caps_set(pool: &Pool, owner_id: &str, agent_id: &str) -> Result<bool, OwnError> {
     if !is_uuid(agent_id) {
         return Ok(false);
     }

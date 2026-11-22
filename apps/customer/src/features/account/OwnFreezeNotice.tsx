@@ -1,7 +1,7 @@
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { selfFreezeCopy as copy } from './self-freeze-copy';
-import { freezeStatus } from './self-freeze';
+import { IDENTITY_AUTH_SELF_FREEZE_STATUS } from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * The owner's own freeze, said where their money is shown (J-wallet-13 #3): while it holds, INTAFACED takes no action for
@@ -14,9 +14,7 @@ export function OwnFreezeNotice() {
   const { api, userId } = useSession();
   const status = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'auth.selfFreezeStatus', undefined, freezeStatus, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_AUTH_SELF_FREEZE_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `self-freeze:${userId}`,
   );
   if (status.resource.status !== 'ready' || !status.resource.data?.frozen) return null;

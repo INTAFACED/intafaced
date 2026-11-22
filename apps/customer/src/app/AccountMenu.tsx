@@ -1,6 +1,5 @@
 // hand-declared-ok: svc-identity declares the profile.get answer inside its router and packages/contracts has no browser-safe schema for it
 import { useId } from 'react';
-import { z } from 'zod';
 import { SegmentedControl } from '@intafaced/ui';
 import { IDENTITY_ME } from '@intafaced/contracts/identity-handles';
 import { handleNamed } from '../data/identity';
@@ -16,8 +15,7 @@ import { navigate } from './location';
 import { shellCopy } from './shell-copy';
 import { proCopy } from '../screens/home/pro-copy';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
-
-const profileSchema = z.object({ displayName: z.string().nullable() });
+import { IDENTITY_PROFILE_GET } from '@intafaced/contracts/identity-profile-procedures';
 
 /** The person's name, handle and verification level, each read on its own so one that fails shows "Not shown" and the rest stand. */
 function Summary() {
@@ -25,10 +23,7 @@ function Summary() {
   const { t } = accountMenuCopy.useCopy();
   const copy = accountMenuCopy.useCopy();
   const me = useResource((signal) => api.call(IDENTITY_ME, undefined, { signal, accept: handleNamed }), `menu-me:${userId}`);
-  const profile = useResource(
-    (signal) => api.query('identity', 'profile.get', undefined, profileSchema, { signal }),
-    `menu-profile:${userId}`,
-  );
+  const profile = useResource((signal) => api.call(IDENTITY_PROFILE_GET, undefined, { signal }), `menu-profile:${userId}`);
   const level = useResource(
     (signal) =>
       userId

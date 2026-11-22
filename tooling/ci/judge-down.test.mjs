@@ -301,7 +301,7 @@ test('readGoing holds a down judge only for a change it could stop: a gate file 
       };
     if (p.includes('/actions/workflows/')) return { workflow_runs: [] };
     if (p.includes('/pulls/7/files')) return files.map((filename) => ({ filename, status: 'modified' }));
-    if (p.endsWith('/actions/runs/9/jobs?filter=latest&per_page=100')) return { jobs: [jobAfter({ kind: 'down' })] };
+    if (p.endsWith('/actions/runs/9/jobs?filter=latest&per_page=30&page=1')) return { jobs: [jobAfter({ kind: 'down' })] };
     throw new Error(`unexpected ${p}`);
   };
   const pulls = [{ number: 7, title: 'ci: x' }];
@@ -459,7 +459,7 @@ test('a skipped `edited` run on top of a down run: the seal still waits on the d
     if (p.includes('/actions/workflows/ci-review.yml/runs')) return { workflow_runs: runs.map((r) => ({ ...r })) };
     if (p.includes('/actions/workflows/')) return { workflow_runs: [] };
     if (p.includes('/pulls/7/files')) return [{ filename: 'AGENTS.md', status: 'modified' }];
-    const m = /\/actions\/runs\/(\d+)\/jobs\?filter=latest&per_page=100$/.exec(p);
+    const m = /\/actions\/runs\/(\d+)\/jobs\?filter=latest&per_page=30&page=1$/.exec(p);
     if (m) return { jobs: jobs[m[1]] };
     throw new Error(`unexpected ${p}`);
   };
