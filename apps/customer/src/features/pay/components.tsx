@@ -1,15 +1,17 @@
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { payCopy, PayCopy, payAuthoredMessage } from './copy';
-import { isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, ReviewDialog as Dialog, StateBlock, Amount, StatusTag } from '@intafaced/ui';
 import { EmptyState } from './ui-kit';
 import type { MoneyKind } from './portal/access/money-step';
-import { payStepUp } from './portal/access/step-up-store';
 import { StepUpNote } from './portal/access/step-up';
-import { stepUpRequired, stepUpWords } from './portal/access/step-up-words';
+import { useReviewedAction } from './reviewed-action';
+
+export { useReviewedAction } from './reviewed-action';
+export { PayTime, payTimeText } from './pay-time';
 
 function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { t, languageFor, requestedLocale } = uiCopy.useCopy();
@@ -42,38 +44,6 @@ export function PayFailure({ result, retry }: { result: Extract<ApiResult<unknow
     <div lang={authored === undefined ? 'und' : requestedLocale}>
       <Failure result={authored === undefined ? result : { ...result, message: authored }} retry={retry} />
     </div>
-  );
-}
-
-/**
- * "17 Oct, 21:43 UTC" ("17 Oct 2025, 21:43 UTC" in another year): the same day-month and 24-hour clock as the rest of the app,
- * always in UTC and always naming it, since Pay services record UTC. English uses day-month order, never "10/17/2026, 9:43 PM".
- */
-export function payTimeText(value: string, locale: string, now: number = Date.now()): string | null {
-  const at = Date.parse(value);
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(at)) return null;
-  const tag = locale.toLowerCase() === 'en' || locale.toLowerCase() === 'en-us' ? 'en-GB' : locale;
-  const year = (ms: number) => new Date(ms).getUTCFullYear();
-  const text = new Intl.DateTimeFormat(tag, {
-    day: 'numeric',
-    month: 'short',
-    ...(year(at) === year(now) ? {} : { year: 'numeric' }),
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-    timeZone: 'UTC',
-  }).format(at);
-  return `${text} UTC`;
-}
-
-export function PayTime({ value }: { value: string }) {
-  const { requestedLocale } = payCopy.useCopy();
-  const text = payTimeText(value, requestedLocale);
-  if (text === null) return <span lang="zxx">{value}</span>;
-  return (
-    <time dateTime={value} title={value} lang={requestedLocale}>
-      {text}
-    </time>
   );
 }
 
@@ -173,7 +143,7 @@ export function PayPagination({
 }
 export function PayDetails({ values }: { values: [string, ReactNode, string?][] }) {
   return (
-    <dl className="pay-details">
+    <dl className="pay-details" data-testid="pay-details">
       {values.map(([label, value, labelLanguage]) => (
         <div key={label} className={isValidElement(value) && value.type === PayAmount ? 'pay-details-amount' : undefined}>
           <dt lang={labelLanguage}>{label}</dt>
@@ -290,102 +260,6 @@ export function MutationResult({
     <PayFailure result={result} />
   );
 }
-/**
- * What a reviewed action does, without its look: open the review (asking "Confirm it's you" first for money out), send
- * once while the same review is open, and close on a yes or an unknown answer. `ReviewedAction` draws it with the old
- * kit; `portal/volt/Review.tsx` draws the same steps with the Volt kit, so both behave exactly alike.
- */
-export function useReviewedAction<T>({
-  perform,
-  onConfirmed,
-  disabled = false,
-  stepUp,
-  ready = true,
-}: {
-  perform: (currentReview: () => boolean) => Promise<ApiResult<T>>;
-  onConfirmed?: (data: T) => void;
-  disabled?: boolean;
-  stepUp?: MoneyKind;
-  ready?: boolean;
-}) {
-  const [opened, setOpened] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ApiResult<T> | null>(null);
-  const inFlight = useRef(false);
-  const asking = useRef(false);
-  const lifetime = useRef({ mounted: true, opened, disabled, ready, review: 0 });
-  const reviewId = lifetime.current.review;
-  useLayoutEffect(() => {
-    lifetime.current.opened = opened;
-    lifetime.current.disabled = disabled;
-    lifetime.current.ready = ready;
-  });
-  useLayoutEffect(() => {
-    lifetime.current.mounted = true;
-    return () => {
-      lifetime.current.mounted = false;
-    };
-  }, []);
-  const currentReview = () => lifetime.current.mounted && lifetime.current.opened && lifetime.current.review === reviewId;
-  async function confirm() {
-    if (inFlight.current || !currentReview() || lifetime.current.disabled || !lifetime.current.ready) return;
-    inFlight.current = true;
-    setBusy(true);
-    try {
-      const outcome = stepUp ? await payStepUp.run(stepUp, () => perform(currentReview), stepUpWords) : await perform(currentReview);
-      if (!currentReview()) return;
-      setResult(outcome);
-      if (outcome.ok) {
-        lifetime.current.opened = false;
-        lifetime.current.review += 1;
-        onConfirmed?.(outcome.data);
-        setOpened(false);
-      } else if (outcome.reason === 'uncertain') {
-        // The answer is unknown: close the review so the recovery message and its check button are not covered.
-        lifetime.current.opened = false;
-        lifetime.current.review += 1;
-        setOpened(false);
-      }
-    } finally {
-      if (lifetime.current.mounted) setBusy(false);
-      inFlight.current = false;
-    }
-  }
-  function open() {
-    if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current || asking.current) return;
-    if (!stepUp) {
-      lifetime.current.review += 1;
-      setResult(null);
-      setOpened(true);
-      return;
-    }
-    // Money out: confirm it's them first, then show the review.
-    asking.current = true;
-    void payStepUp.ensure(stepUp).then((confirmed) => {
-      asking.current = false;
-      if (!lifetime.current.mounted || lifetime.current.disabled) return;
-      if (!confirmed) {
-        // Declining is the person's own choice and needs no message; a page with no one to ask says what is needed.
-        setResult(payStepUp.canAsk ? null : stepUpRequired());
-        return;
-      }
-      lifetime.current.review += 1;
-      setResult(null);
-      setOpened(true);
-    });
-  }
-  function close() {
-    if (!inFlight.current) {
-      lifetime.current.opened = false;
-      lifetime.current.review += 1;
-      setOpened(false);
-    }
-  }
-  /** The answer is unknown: nothing may be sent again until the person has checked. */
-  const unknown = Boolean(result && !result.ok && result.reason === 'uncertain');
-  return { opened, busy, result, unknown, open, close, confirm };
-}
-
 export function ReviewedAction<T>({
   title,
   description,
