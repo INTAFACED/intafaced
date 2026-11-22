@@ -1,9 +1,6 @@
 {
   "garden/no-restyled-kit-part": {
-    "apps/customer/src/features/account/Verification.tsx": 3,
-    "apps/customer/src/screens/trade/futures/ContractStrip.tsx": 1,
-    "apps/customer/src/screens/trade/futures/FuturesChart.tsx": 1,
-    "apps/customer/src/screens/trade/futures/index.tsx": 3
+    "apps/customer/src/features/account/Verification.tsx": 3
   },
   "garden/no-raw-control": {
     "apps/customer/src/app/AccountMenu.tsx": 4,
@@ -333,25 +330,6 @@
     "apps/customer/src/screens/coin/PriceCard.tsx": 2,
     "apps/customer/src/screens/trade/buy/BuyCard.tsx": 1,
     "apps/customer/src/screens/trade/convert/OtcConvert.tsx": 12,
-    "apps/customer/src/screens/trade/futures/AccessPanel.tsx": 2,
-    "apps/customer/src/screens/trade/futures/AccountMetrics.tsx": 6,
-    "apps/customer/src/screens/trade/futures/AdlTab.tsx": 2,
-    "apps/customer/src/screens/trade/futures/CalculatorTab.tsx": 8,
-    "apps/customer/src/screens/trade/futures/CollateralTab.tsx": 5,
-    "apps/customer/src/screens/trade/futures/ContractStrip.tsx": 2,
-    "apps/customer/src/screens/trade/futures/EmptyDesk.tsx": 9,
-    "apps/customer/src/screens/trade/futures/FundingTab.tsx": 3,
-    "apps/customer/src/screens/trade/futures/FuturesChart.tsx": 1,
-    "apps/customer/src/screens/trade/futures/HistoryTab.tsx": 3,
-    "apps/customer/src/screens/trade/futures/MarginCallsTab.tsx": 1,
-    "apps/customer/src/screens/trade/futures/OrdersTab.tsx": 2,
-    "apps/customer/src/screens/trade/futures/OrderStatus.tsx": 1,
-    "apps/customer/src/screens/trade/futures/PositionDetail.tsx": 3,
-    "apps/customer/src/screens/trade/futures/PositionsTable.tsx": 4,
-    "apps/customer/src/screens/trade/futures/RiskSummary.tsx": 5,
-    "apps/customer/src/screens/trade/futures/Ticket.tsx": 31,
-    "apps/customer/src/screens/trade/futures/TiersTab.tsx": 2,
-    "apps/customer/src/screens/trade/futures/TriggersTable.tsx": 2,
     "apps/customer/src/screens/trade/rooms/RoomNotices.tsx": 5
   }
 }
