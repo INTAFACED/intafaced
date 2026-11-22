@@ -3,6 +3,7 @@ import { BrandIris, Panel } from '@intafaced/ui';
 import { uiCopy } from './ui-copy';
 import { Failure as KitFailure, type FailureProps } from './failure';
 export { Panel };
+export { canTryAgain } from './failure-words';
 
 export function Button({
   variant = 'primary',
@@ -77,7 +78,6 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
     </div>
   );
 }
-export { canTryAgain } from './failure';
 /** The kit-drawn error box (`./failure`); the `failure` class stays for the rooms and tests not in Volt yet. */
 export function Failure(props: Omit<FailureProps, 'className'>) {
   return <KitFailure {...props} className="failure" />;

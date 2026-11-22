@@ -236,6 +236,17 @@ describe('focus not obscured', () => {
     expect(OBSCURED_TOP_VAR).toBe('--a11y-obscured-top');
     expect(OBSCURED_BOTTOM_VAR).toBe('--a11y-obscured-bottom');
   });
+
+  it('counts the gap under a bottom bar that floats above the screen edge', () => {
+    // Volt's phone dock: 70px tall, 14px above the bottom of an 844px screen, so it hides the last 84px.
+    expect(obscuredInsets([{ edge: 'bottom', height: 70, offset: 14 }]).bottom).toBe(84);
+    expect(obscuredInsets([{ edge: 'bottom', height: 70, offset: 0 }]).bottom).toBe(70);
+    expect(obscuredInsets([{ edge: 'top', height: 56, offset: 0 }]).top).toBe(56);
+    // A bar not drawn (the dock on a computer) covers nothing.
+    expect(obscuredInsets([{ edge: 'bottom', height: 0, offset: 844 }]).bottom).toBe(0);
+    // no layout (a bar whose position is unknown) covers its own height, never NaN
+    expect(obscuredInsets([{ edge: 'bottom', height: 61, offset: Number.NaN }]).bottom).toBe(61);
+  });
 });
 
 /** A selector list split on its top-level commas only. */
