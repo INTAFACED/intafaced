@@ -118,7 +118,8 @@ async function login(page, path = '/p2p') {
 }
 const stable = (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 const inspector = (page) => page.locator('.p2p-offer-inspector');
-const firstInspect = (page) => page.locator('.p2p-offer-row').first().getByRole('button', { name: 'Inspect current offer', exact: true });
+const firstInspect = (page) =>
+  page.locator('[data-testid="p2p-offer-row"]').first().getByRole('button', { name: 'Inspect current offer', exact: true });
 async function inspect(page) {
   await firstInspect(page).click();
   await expect(inspector(page).locator('.pay-details dd').getByText('Current payment terms', { exact: true })).toBeVisible();
