@@ -4,7 +4,7 @@ import { DataTable, EmptyState, Failure, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { useApi, useSession } from '../../session';
-import { AsOfLine, TestMark, useVenueMode, venueApi } from '../../trade';
+import { useAsOfText, useVenueMode, venueApi, venueCopy } from '../../trade';
 import { createProtocolApi } from '../api';
 import { safetyCopy } from './safety-copy';
 import { walletCopy } from './copy';
@@ -133,10 +133,17 @@ function VenueSubAccountList({ owner, venueName, test }: { owner: string; venueN
   const venue = useMemo(() => venueApi(api), [api]);
   const { resource, reload } = useResource((signal) => venue.subAccounts(owner, signal), `wallet:venue-subs:${owner.toLowerCase()}`);
   const headers = [t('hdr_name'), t('hdr_address')];
+  const venueWords = venueCopy.useCopy().t;
+  const asOfText = useAsOfText();
   return (
     <>
       <p data-testid="venue-subs-venue">
-        {t('venueSubsOn', { venue: venueName })} <TestMark test={test} />
+        {t('venueSubsOn', { venue: venueName })}{' '}
+        {test ? (
+          <span className="lt-test" data-testid="venue-test" title={venueWords('Venue TEST note')}>
+            {venueWords('TEST')}
+          </span>
+        ) : null}
       </p>
       {resource.status === 'loading' ? (
         <p role="status">{t('accountReading')}</p>
@@ -160,7 +167,7 @@ function VenueSubAccountList({ owner, venueName, test }: { owner: string; venueN
               ))
             )}
           </DataTable>
-          <AsOfLine asOf={resource.data.asOf} />
+          {resource.data.asOf ? <p data-testid="venue-as-of">{asOfText(resource.data.asOf)}</p> : null}
         </>
       )}
     </>
