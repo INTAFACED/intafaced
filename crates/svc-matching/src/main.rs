@@ -1,9 +1,6 @@
-//! The svc-matching process, started as `services/svc-matching/src/index.ts` starts: the journal first, the bus, the
+//! The svc-matching process, started as the TypeScript `index.ts` it replaced started: the journal first, the bus, the
 //! engine, the scrape and `/health`, the doors, then the cold start: replay the journal, confirm every resting order's
 //! ledger hold, and only then listen. Then the expiry sweep; on SIGTERM or SIGINT, the drain.
-//!
-//! The TypeScript service stays the one that runs until the switch; until each slice is ported its calls answer 503
-//! `matching.not_ported`, and a cold start stops on a journal holding what a later slice owns.
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;

@@ -12,14 +12,11 @@ use super::types::{
     ComboLeg, EngineAmend, EngineOrder, Instrument, Opt, OrderType, Side, SpreadInstrument,
     SpreadKind, SpreadLegDefinition, SpreadTerms, Tif, TriggerBy, TriggerRole,
 };
-use crate::door::Slice;
 use crate::journal::record::truthy;
 
 /// A journalled order or amend this slice cannot rebuild.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WireError {
-    /// A part a later slice's module reads: which part, and which slice owes it.
-    Owed { field: String, slice: Slice },
     /// Not an order: a field missing or of the wrong kind, or an amount that does not parse.
     Malformed(String),
 }
@@ -27,11 +24,6 @@ pub enum WireError {
 impl std::fmt::Display for WireError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WireError::Owed { field, slice } => write!(
-                f,
-                "a journalled {field} needs slice {}, which is not ported",
-                slice.name()
-            ),
             WireError::Malformed(why) => write!(f, "journalled order: {why}"),
         }
     }
