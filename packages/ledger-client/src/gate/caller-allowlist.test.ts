@@ -17,7 +17,7 @@ describe('ledger post allowlist cites real callers', () => {
         // Built in the caller (`recipes.<name>(`), or named on the postRecipe door (`postRecipe({ recipe: '<name>'`), or in
         // a Rust service named as `"<name>"` (crates/svc-academy) or built as `Recipe::<Name>` (crates/svc-agents) in the file
         // that sends it through its `post_recipe(` client.
-        const variant = `Recipe::${recipe[0].toUpperCase()}${recipe.slice(1)}`;
+        const variant = `Recipe::${recipe.charAt(0).toUpperCase()}${recipe.slice(1)}`;
         const rust = cite.endsWith('.rs') && text.includes('post_recipe(') && (text.includes(`"${recipe}"`) || text.includes(variant));
         if (!rust) expect(text, cite).toMatch(new RegExp('recipes\\.' + recipe + "\\(|postRecipe\\(\\{\\s*recipe:\\s*'" + recipe + "'"));
       }
@@ -56,7 +56,7 @@ describe('ledger post allowlist cites real callers', () => {
         for (const [, name] of text.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g))
           if (name !== undefined && Object.hasOwn(recipes, name)) pairs.add(`${service} ${name}`);
         for (const [, v] of text.matchAll(/\bRecipe::([A-Z][A-Za-z0-9]*)/g)) {
-          const name = v === undefined ? undefined : v[0]?.toLowerCase() + v.slice(1);
+          const name = v === undefined ? undefined : v.charAt(0).toLowerCase() + v.slice(1);
           if (name !== undefined && Object.hasOwn(recipes, name)) pairs.add(`${service} ${name}`);
         }
       }
