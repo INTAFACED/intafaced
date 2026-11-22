@@ -7,18 +7,9 @@ import { SettingsTemplate, Skeleton, type RoomState } from '@intafaced/ui/lit/te
 import { useSession } from '../../session';
 import { useVenueMode } from '../use-venue-mode';
 import { draftId, keys, type VenueUp } from '../venue-api';
-import {
-  AsOfLine,
-  OutcomeLine,
-  TestMark,
-  VENUE_POLL_MS,
-  VenueFrame,
-  WalletBar,
-  useOwner,
-  useVenueActions,
-  useVenueApi,
-  type ActionResult,
-} from '../venue/VenueKit';
+import { useOwner, useVenueActions, useVenueApi, type ActionResult } from '../venue/VenueKit';
+import { VENUE_POLL_MS } from '../venue/poll';
+import { AsOfLine, OutcomeLine, TestMark, VenueFrame, WalletBar } from './venue-parts';
 
 // English source only. A venue is named as it reports itself; no partner is named here.
 const copy = defineCopy('trade.trading-permissions', {
