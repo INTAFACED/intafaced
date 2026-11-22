@@ -32,7 +32,8 @@ import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
-const matchingRoot = join(here, '..', '..', '..', 'svc-matching');
+// The engine is the Rust crate (crates/svc-matching): its module and test files are named in snake case.
+const matchingRoot = join(here, '..', '..', '..', '..', 'crates', 'svc-matching');
 const migrations = readdirSync(drizzle)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   .sort()
@@ -118,7 +119,8 @@ describe('position-mode hitch (source) — no flatten, matching not recut', () =
     expect(indexSrc).not.toMatch(/installPositionMode/);
     const matchingSrc = join(matchingRoot, 'src');
     const matchingFiles = readdirSync(matchingSrc, { recursive: true, encoding: 'utf8' }) as string[];
-    expect(matchingFiles.some((f) => f.includes('position-mode'))).toBe(false);
+    expect(matchingFiles.length).toBeGreaterThan(0);
+    expect(matchingFiles.some((f) => f.includes('position-mode') || f.includes('position_mode'))).toBe(false);
   });
 
   it('live boot hitch next to F5; F5 mill not recut', () => {
