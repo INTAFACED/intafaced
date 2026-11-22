@@ -595,6 +595,13 @@
   unicode-bidi: isolate;
 }
 
+/* Words a person wrote (a post, a message) keep their own line breaks, and a long word or link breaks rather than
+   widening the room. */
+.lt-pre-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Code read as written (a strategy's source, a line comparison): it keeps its lines, wraps rather than widening the room,
    and scrolls inside its own box. A compared line carries data-op; its + or − mark says the change, the tone repeats it. */
 .lt-code {
