@@ -129,11 +129,11 @@ export function Freshness({ asOf, staleAfterMs, words, reason, now, timeZone, lo
 }
 
 export type ChoiceGroupProps<T extends string> = {
-  /** The question, as the group's legend. */
-  legend: string;
+  /** The question, as the group's legend (text, or the room's copy element). */
+  legend: React.ReactNode;
   /** The radio group's form name. */
   name: string;
-  options: readonly { value: T; label: string; hint?: string }[];
+  options: readonly { value: T; label: React.ReactNode; hint?: React.ReactNode }[];
   value: T;
   onChange: (value: T) => void;
 };
