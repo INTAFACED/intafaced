@@ -45,13 +45,12 @@ const { z } = await import(
   pathToFileURL(createRequire(fileURLToPath(new URL('../../../packages/ledger-client/src/types.ts', import.meta.url))).resolve('zod')).href
 );
 
+const { isRecord } = await import('../../../packages/contracts/src/guards.ts');
 const { LEDGER_POST_RECIPE, POST_RECIPE_NAMES, POST_RECIPE_UNKNOWN, POST_RECIPE_INPUT_INVALID, isPostRecipeName, postRecipeRequest } =
   record;
 const { CALLER_FORBIDDEN, CALLER_UNBOUND, RECIPE_REQUIRED_CODE, assertKnownRecipePost, grantFor, judgeCallerPost } = gate;
 
 // ── The door, up to `ledger.post` ──────────────────────────────────────────────────────────────────────────────────
-
-const isRecord = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** `caller-binding.ts` `violationMessage`. */
 function violationMessage(v) {
@@ -463,7 +462,9 @@ const parityCases = parity.cases.map(([door, text, i]) => [door, text, SCHEMA_OF
 const known = new Set(parityCases.filter(([door]) => door === 'postRecipe').map(([, text]) => text));
 for (const { input } of LEDGER_POST_RECIPE.samples) {
   const text = JSON.stringify(input);
-  if (!known.has(text)) (parityCases.push(['postRecipe', text, null]), known.add(text));
+  if (known.has(text)) continue;
+  parityCases.push(['postRecipe', text, null]);
+  known.add(text);
 }
 const verdictsOut = [];
 const verdictIndex = new Map();
