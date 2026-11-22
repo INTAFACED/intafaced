@@ -33,7 +33,9 @@ test(`${J} #1 More opens Business Pay at /pay/merchant from the registry row bus
   expect(rows.map((r) => r.id)).toEqual(['business-pay']);
   const [row] = rows;
   expect(row.status).toBe('live');
-  const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Money and pay', level: 2 }) });
+  // The section named by its own heading: the room's template wraps its sections in a region of its own, which also
+  // holds this heading, so a filter on any section with it would take that region (and the All services index) too.
+  const section = page.getByRole('region', { name: 'Money and pay', exact: true });
   const tile = section.getByRole('link', { name: /^Merchant\b/ });
   await expect(tile).toHaveCount(1);
   await expect(tile).toHaveAttribute('href', '/pay/merchant');
