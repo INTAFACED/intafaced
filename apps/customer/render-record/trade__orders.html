@@ -167,58 +167,92 @@
 </p>
 <p class="muted orders-note" role="status">2 orders shown</p>
 <div data-testid="orders-table" class="orders-table">
-<table data-testid="dk-table" class="dk-table">
+<table data-testid="dk-table" class="lt-table">
 <thead>
 <tr>
 <th>Time</th>
 <th>Market</th>
 <th>Type</th>
 <th>Side</th>
-<th class="dk-num">Price</th>
-<th class="dk-num">Amount</th>
-<th class="dk-num">Filled</th>
-<th class="dk-num">Average price</th>
-<th class="dk-num">Cost</th>
+<th data-align="end">Price</th>
+<th data-align="end">Amount</th>
+<th data-align="end">Filled</th>
+<th data-align="end">Average price</th>
+<th data-align="end">Cost</th>
 <th>Status</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="if-num">
-<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o2" title="Open this order’s details">14 Oct, 08:01</a>
+<td>
+<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o2" title="Open this order’s details">14 Oct, 08:01</a>
 </td>
 <td>BTC/USDT</td>
-<td>Limit</td>
 <td>
-<span class="dk-side" data-side="buy">Buy</span>
-</td>
-<td class="dk-num if-num">65,100.00</td>
-<td class="dk-num if-num">0.0002</td>
-<td class="dk-num if-num">0.0002</td>
-<td class="dk-num if-num">—</td>
-<td class="dk-num if-num">0.000000 <span class="dk-unit">USDT</span>
+<span class="lt-actions">Limit</span>
 </td>
 <td>
-<span data-slot="status-tag" data-status="filled" class="inline-flex h-5 items-center whitespace-nowrap rounded-xs border border-current/40 px-1.5 text-2xs text-accent-text bg-lime-soft">Filled</span> <button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_3_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="dk-changes-trigger">Changes</button>
+<span data-side="buy">Buy</span>
+</td>
+<td data-align="end">65,100.00</td>
+<td data-align="end">0.0002</td>
+<td data-align="end">0.0002</td>
+<td data-align="end">—</td>
+<td data-align="end">0.000000 <span class="lt-hint">USDT</span>
+</td>
+<td>
+<span data-status="filled">
+<span class="lt-chip" data-status="done">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>Filled</span>
+</span> <details class="lit-fold">
+<summary>
+<span data-part="title">Changes</span>
+<span data-part="mark" aria-hidden="true">
+</span>
+</summary>
+<div data-part="body">
+<div class="lt-stack">
+<p class="lt-hint">Changes to this order</p>
+</div>
+</div>
+</details>
 </td>
 </tr>
 <tr>
-<td class="if-num">
-<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o3" title="Open this order’s details">13 Oct, 17:00</a>
+<td>
+<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o3" title="Open this order’s details">13 Oct, 17:00</a>
 </td>
 <td>BTC/USDT</td>
-<td>Limit</td>
 <td>
-<span class="dk-side" data-side="buy">Buy</span>
-</td>
-<td class="dk-num if-num">60,000.00</td>
-<td class="dk-num if-num">0.0001</td>
-<td class="dk-num if-num">0</td>
-<td class="dk-num if-num">—</td>
-<td class="dk-num if-num">0.000000 <span class="dk-unit">USDT</span>
+<span class="lt-actions">Limit</span>
 </td>
 <td>
-<span data-slot="status-tag" data-status="cancelled" class="inline-flex h-5 items-center whitespace-nowrap rounded-xs border border-current/40 px-1.5 text-2xs text-down-text">Cancelled</span> <button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_4_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="dk-changes-trigger">Changes</button>
+<span data-side="buy">Buy</span>
+</td>
+<td data-align="end">60,000.00</td>
+<td data-align="end">0.0001</td>
+<td data-align="end">0</td>
+<td data-align="end">—</td>
+<td data-align="end">0.000000 <span class="lt-hint">USDT</span>
+</td>
+<td>
+<span data-status="cancelled">
+<span class="lt-chip" data-status="failed">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>Cancelled</span>
+</span> <details class="lit-fold">
+<summary>
+<span data-part="title">Changes</span>
+<span data-part="mark" aria-hidden="true">
+</span>
+</summary>
+<div data-part="body">
+<div class="lt-stack">
+<p class="lt-hint">Changes to this order</p>
+</div>
+</div>
+</details>
 </td>
 </tr>
 </tbody>
