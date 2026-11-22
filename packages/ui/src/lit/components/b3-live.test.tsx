@@ -1,14 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { components } from '../contracts.js';
-import { DecimalField, Freshness } from './index.js';
+import { ChoiceGroup, DecimalField, Freshness } from './index.js';
 
 const words = { live: 'Live', stale: 'Stale', unknown: 'Unknown', asOf: 'as of' };
 const NOW = Date.parse('2026-11-22T10:00:00.000Z');
 
 describe('DecimalField and Freshness', () => {
   it('are named in the contracts', () => {
-    expect(Object.keys(components)).toEqual(expect.arrayContaining(['DecimalField', 'Freshness']));
+    expect(Object.keys(components)).toEqual(expect.arrayContaining(['ChoiceGroup', 'DecimalField', 'Freshness']));
   });
 
   it('DecimalField labels its input, shows the canonical value and asks for the decimal keyboard', () => {
@@ -33,5 +33,24 @@ describe('DecimalField and Freshness', () => {
     expect(unknown).toContain('data-fresh="unknown"');
     expect(unknown).toContain('Could not be read');
     expect(unknown).not.toContain('<time');
+  });
+
+  it('ChoiceGroup draws one radio per option, named by its label, with the current one checked', () => {
+    const out = renderToStaticMarkup(
+      <ChoiceGroup
+        legend="Fee model"
+        name="fee"
+        value="b"
+        onChange={() => {}}
+        options={[
+          { value: 'a', label: 'Free' },
+          { value: 'b', label: 'Monthly', hint: 'Per period' },
+        ]}
+      />,
+    );
+    expect(out).toContain('<legend>Fee model</legend>');
+    expect(out.match(/type="radio"/g)).toHaveLength(2);
+    expect(out).toContain('checked="" value="b"');
+    expect(out).toContain('Per period');
   });
 });

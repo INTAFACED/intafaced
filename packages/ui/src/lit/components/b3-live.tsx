@@ -127,3 +127,29 @@ export function Freshness({ asOf, staleAfterMs, words, reason, now, timeZone, lo
     </span>
   );
 }
+
+export type ChoiceGroupProps<T extends string> = {
+  /** The question, as the group's legend. */
+  legend: string;
+  /** The radio group's form name. */
+  name: string;
+  options: readonly { value: T; label: string; hint?: string }[];
+  value: T;
+  onChange: (value: T) => void;
+};
+
+/** One choice of several, each with its own words: native radios in a fieldset, so each is a radio named by its label. */
+export function ChoiceGroup<T extends string>({ legend, name, options, value, onChange }: ChoiceGroupProps<T>) {
+  return (
+    <fieldset className="lit-choices">
+      <legend>{legend}</legend>
+      {options.map((o) => (
+        <label key={o.value} data-part="choice">
+          <input type="radio" name={name} value={o.value} checked={o.value === value} onChange={() => onChange(o.value)} />
+          <span data-part="label">{o.label}</span>
+          {o.hint ? <span data-part="hint">{o.hint}</span> : null}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
