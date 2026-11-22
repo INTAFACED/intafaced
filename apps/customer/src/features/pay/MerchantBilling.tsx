@@ -268,7 +268,7 @@ function localTime(value: string) {
   return Number.isFinite(date.getTime()) ? <DateTime value={date.toISOString()} /> : value;
 }
 export { mandateFormDirty };
-export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; refresh: () => void; portal?: PortalApi }) {
+function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; refresh: () => void; portal?: PortalApi }) {
   const {
     expanded,
     setExpanded,

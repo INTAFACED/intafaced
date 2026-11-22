@@ -21,7 +21,7 @@ type T = ReturnType<typeof applicationCopy.useCopy>['t'];
 type Section = Application['sections'][number];
 
 /** The most people one application holds: five answers each, inside the service's 100 answers a section. */
-export const MAX_PEOPLE = 18;
+const MAX_PEOPLE = 18;
 const PERSON_FIELDS = ['role', 'name', 'birth_date', 'nationality', 'ownership'] as const;
 type Person = Record<(typeof PERSON_FIELDS)[number], string>;
 const emptyPerson = (role = ''): Person => ({ role, name: '', birth_date: '', nationality: '', ownership: '' });

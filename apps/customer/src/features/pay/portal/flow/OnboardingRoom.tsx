@@ -90,7 +90,7 @@ export function OnboardingRoom({
  * never loses it. `starterFee` is the fee INTAFACED has published for new accounts, as the service states it. Until one exists a new
  * account cannot be opened from here: a blank price is refused, never defaulted.
  */
-export function Onboarding({
+function Onboarding({
   portal,
   merchant,
   reloadMerchant,

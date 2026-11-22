@@ -361,9 +361,10 @@ export function useMerchantRefund({
     busy: snapshot.problem === 'busy',
     referenceHeld: snapshot.status !== 'empty',
   });
+  // `t` and `Copy` by their catalog's name, so the hook's type can be written out (TS5088: inferred, it is cyclic).
   return {
-    t,
-    Copy,
+    t: t as typeof refundCopy.t,
+    Copy: Copy as typeof refundCopy.Copy,
     requestedLocale,
     form,
     /** Nothing is drawn: the context is no longer live, or this business may not read payments. */
