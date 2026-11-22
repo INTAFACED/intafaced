@@ -643,7 +643,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   venue: UserVenueDescriptor;
   readonly switches: SimSwitches;
   /** TEST switch on the staking terms (J-cex-spot-21 #1): the reward rate withheld. */
-  private readonly stakingTest = { rewardRateUnpublished: false };
+  private readonly stakingTest = { rewardRateUnpublished: false, tiersUnpublished: false };
 
   /**
    * TEST: what the descriptor declares as an agent permission's reach (`agentPermissionReach`), so a journey can show
@@ -2665,7 +2665,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     };
   }
 
-  /** The venue's staking terms (J-cex-spot-21 #1); the reward rate reads `null` under the TEST switch that withholds it. */
+  /** The venue's staking terms (J-cex-spot-21 #1); the reward rate or the discount tiers read `null` under the TEST switch that withholds them. */
   async staking(): Promise<AsOf<UserVenueStaking>> {
     this.up();
     return this.asOf({
@@ -2676,11 +2676,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         return { address: v.address, name: v.name, commissionBps: v.commissionBps, totalStake: stake, status: v.status };
       }),
       rewardRateBps: this.stakingTest.rewardRateUnpublished ? null : TEST_STAKING.rewardRateBps,
-      discountTiers: TEST_STAKING.discountTiers.map((t) => ({
-        name: t.name,
-        fromStaked: parseAmount(t.fromStaked),
-        discountBps: t.discountBps,
-      })),
+      discountTiers: this.stakingTest.tiersUnpublished
+        ? null
+        : TEST_STAKING.discountTiers.map((t) => ({
+            name: t.name,
+            fromStaked: parseAmount(t.fromStaked),
+            discountBps: t.discountBps,
+          })),
       delegationLockUpSeconds: TEST_STAKING.delegationLockUpSeconds,
       unstakingQueueSeconds: TEST_STAKING.unstakingQueueSeconds,
       maxPendingWithdrawals: TEST_STAKING.maxPendingWithdrawals,
@@ -2711,9 +2713,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     });
   }
 
-  /** TEST switches on the venue's staking terms (J-cex-spot-21 #1): the reward rate withheld from `staking()`. */
-  testStakingPublished(set: { rewardRate?: boolean }): void {
+  /** TEST switches on the venue's staking terms (J-cex-spot-21 #1): the reward rate or the discount tiers withheld from `staking()`. */
+  testStakingPublished(set: { rewardRate?: boolean; tiers?: boolean }): void {
     if (set.rewardRate !== undefined) this.stakingTest.rewardRateUnpublished = !set.rewardRate;
+    if (set.tiers !== undefined) this.stakingTest.tiersUnpublished = !set.tiers;
   }
 
   /**
