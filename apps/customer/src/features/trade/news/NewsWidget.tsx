@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import { newsCopy } from './news-copy';
-import { NewsNotice } from './NewsRooms';
+import { NewsNotice } from './NewsNotice';
 
 /**
  * A symbol's news widget on the chart. No vendor feed is connected and the store holds no items, so it shows the same
