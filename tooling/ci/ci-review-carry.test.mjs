@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { carriedVerdict, writeCarried, readVerdicts, CARRY_HEADS } from './ci-review.mjs';
@@ -69,6 +69,7 @@ const io = (s, jobsByRun) => ({
   pull: { number: PR, head: s.head, base: s.base },
   attempts: async (r) => [jobsByRun[r.id] ?? []],
   diffOf: s.diffOf,
+  baseAtOf: async () => Date.parse('2026-11-22T08:00:00Z'), // main had the merge base before any review here
 });
 const carry = async (s, runs, jobsByRun) => carriedVerdict({ ...io(s, jobsByRun), runs, diff: await s.diffOf(s.head) });
 
@@ -146,15 +147,45 @@ test('a head with no verdict, another pull request, or a run outside the workflo
   assert.equal(await carry(s, [run(1, s.head, at)], { 1: [job(s.head, 'success')] }), null, 'its own head is the seal’s, not a carry');
 });
 
-test('the newest matching head decides, and only the newest CARRY_HEADS heads are read', async () => {
+test('a FAIL on any matching head stands over a PASS on another, and only the newest CARRY_HEADS heads are read', async () => {
   const s = scene({ 'b.txt': 'b\nmoved on main\n' });
-  // Two heads with one diff (the second an empty commit on the first): the newer one's FAIL stands over the older PASS,
-  // and the newer one's PASS carries over an older FAIL that a fix then cleared.
+  // Two heads with one diff (the second an empty commit on the first): a FAIL on either stands over the other's PASS.
   const twin = s.git('commit-tree', `${s.first}^{tree}`, '-p', s.first, '-m', 'empty');
   const runs = [run(1, s.first, '2026-11-22T09:00:00Z'), run(2, twin, '2026-11-22T10:00:00Z')];
   assert.equal((await carry(s, runs, { 1: [job(s.first, 'success')], 2: [job(twin, 'failure')] })).review, 'FAIL');
-  assert.equal((await carry(s, runs, { 1: [job(s.first, 'failure')], 2: [job(twin, 'success')] })).from, twin);
+  const older = await carry(s, runs, { 1: [job(s.first, 'failure')], 2: [job(twin, 'success')] });
+  assert.deepEqual(older, { from: s.first.toLowerCase(), review: 'FAIL', tests: 'FAIL' }, 'a newer PASS never clears an older FAIL');
   const again = twin;
   const many = Array.from({ length: CARRY_HEADS }, (_, i) => run(10 + i, again.replace(/.$/, String(i)), `2026-11-22T11:0${i}:00Z`));
   assert.equal(await carry(s, [...many, run(1, s.first, '2026-11-22T09:00:00Z')], { 1: [job(s.first, 'success')] }), null);
+});
+
+test('a mode change names no blob, so main editing that file can not be seen in the diff: nothing is carried', async () => {
+  const r = repo();
+  r.commit({ 'run.sh': 'echo a\n', 'b.txt': 'b\n' }, 'base');
+  r.git('switch', '-q', '-c', 'pr');
+  chmodSync(join(r.dir, 'run.sh'), 0o755);
+  r.git('add', 'run.sh');
+  r.git('commit', '-q', '-m', 'executable');
+  const first = r.git('rev-parse', 'HEAD');
+  r.git('switch', '-q', 'main');
+  const base = r.commit({ 'run.sh': 'echo changed on main\n' }, 'main edits the script');
+  r.git('switch', '-q', 'pr');
+  r.git('merge', '-q', '--no-edit', 'main');
+  const head = r.git('rev-parse', 'HEAD');
+  const diffOf = async (sha) => r.git('diff', `${base}...${sha}`);
+  assert.equal(await diffOf(first), await diffOf(head), 'git gives the same bytes: the planted fault is real');
+  const s = { head, base, first, diffOf };
+  assert.equal(await carry(s, [run(1, first, '2026-11-22T10:00:00Z')], { 1: [job(first, 'success')] }), null);
+});
+
+test('an earlier head whose merge base reached main after it was reviewed carries nothing', async () => {
+  const s = scene({ 'b.txt': 'b\nmoved on main\n' });
+  const got = await carriedVerdict({
+    ...io(s, { 1: [job(s.first, 'success')] }),
+    baseAtOf: async () => Date.parse('2026-11-22T11:00:00Z'),
+    runs: [run(1, s.first, '2026-11-22T10:00:00Z')],
+    diff: await s.diffOf(s.head),
+  });
+  assert.equal(got, null);
 });
