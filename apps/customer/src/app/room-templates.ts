@@ -294,7 +294,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/quant/editor': { template: 'desk' },
   '/quant/tester': { template: 'desk' },
   '/quant/optimise': { template: 'desk' },
-  '/quant/share/:token': { template: 'reading' },
+  '/quant/share/:token': { template: 'reading', migrated: { file: 'features/quant/shared-result/SharedResultRoom.tsx' } },
   '/launch': { template: 'catalogue' },
   '/market': { template: 'catalogue' },
   '/market/mine': { template: 'record-list' },
