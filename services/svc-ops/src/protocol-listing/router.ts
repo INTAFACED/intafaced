@@ -10,10 +10,8 @@ import {
   protocolOpsPoolsListOutputSchema,
   protocolOpsReasonCodesOutputSchema,
   protocolOpsReasonCodesSetInputSchema,
-  publicProcedure,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-ops';
+import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OPS_PROTOCOL_LISTING_STORAGE_UNCONFIGURED, OpsError } from '../codes.js';
 import type { ListingDesk } from './wiring.js';
 import type { ReasonCodesInForce } from './reason-codes.js';

@@ -1,5 +1,5 @@
 import { checkChannels } from '../notify/rules.js';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { QUANT_NOTIFY_GET, QUANT_NOTIFY_SET } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { quantRefusal, toTrpc, missingStrategy, type QuantCore } from './core.js';

@@ -2,14 +2,9 @@
  * Consumes an identity action approval. A blank IDENTITY_URL refuses;
  * this service does not invent a second operator.
  */
-import {
-  actionApprovalConsumeInputSchema,
-  actionApprovalSchema,
-  serviceCallSigner,
-  type ActionApproval,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ActionApproval, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { actionApprovalConsumeInputSchema, actionApprovalSchema } from '@intafaced/contracts/action-approval';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { ApprovalBook, ApprovalConsumeInput, ApprovalConsumeResult } from './common.js';
 
 function unwrap(body: unknown): unknown {

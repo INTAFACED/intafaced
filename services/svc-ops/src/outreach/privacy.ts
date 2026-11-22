@@ -13,8 +13,8 @@ import {
   crmRetentionReviewInputSchema,
   crmRetentionReviewStatusInputSchema,
   crmRetentionReviewSchema,
-  guestNotificationEraseReceiptSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/crm-privacy';
+import { guestNotificationEraseReceiptSchema } from '@intafaced/contracts/guest-notifications';
 import { z } from 'zod';
 import { OutreachError, outreachConfigSchema } from './config.js';
 import { OutreachNotificationError, type OutreachNotificationPort } from './notification-client.js';

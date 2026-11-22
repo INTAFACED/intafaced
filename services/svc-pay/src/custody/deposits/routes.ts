@@ -1,4 +1,12 @@
 import type { FastifyInstance } from 'fastify';
+import type {
+  PayCustodyDepositAddressInput,
+  PayCustodyDepositAddressReply,
+  PayCustodyDepositCatalogue,
+  PayCustodyDepositRecordsReply,
+  ServiceAuthMode,
+  ServiceVerifier,
+} from '@intafaced/contracts';
 import {
   PAY_CUSTODY_DEPOSIT_ADDRESS_PATH,
   PAY_CUSTODY_DEPOSIT_CALLERS,
@@ -6,15 +14,9 @@ import {
   PAY_CUSTODY_DEPOSIT_RECORDS_PATH,
   payCustodyDepositAddressInputSchema,
   payCustodyDepositRecordsInputSchema,
-  retainRawBody,
-  verifyServiceRequest,
-  type PayCustodyDepositAddressInput,
-  type PayCustodyDepositAddressReply,
-  type PayCustodyDepositCatalogue,
-  type PayCustodyDepositRecordsReply,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/pay-custody-deposit';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 
 export interface CustodyDepositRouteDeps {
   readonly internalSecret: string;

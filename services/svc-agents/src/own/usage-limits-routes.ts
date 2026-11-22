@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { ownAgentUsageLimitsInputSchema, ownAgentUsageLimitsSchema, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { ownAgentUsageLimitsInputSchema, ownAgentUsageLimitsSchema } from '@intafaced/contracts/agents-usage-limits';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { assertPersonSetsLimits } from '../spend/routes.js';
 import { OwnAgentRefusal } from './catalog.js';
 import type { OwnRunDeps } from './routes.js';

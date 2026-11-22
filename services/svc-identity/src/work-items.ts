@@ -19,7 +19,9 @@
  *
  * The owner sends copy keys, never sentences, and links only into its own rooms (`/verification`, `/uc/`).
  */
-import { protectedProcedure, router, TRPCError, workItemsOutputSchema, type WorkItem, type WorkItemsOutput } from '@intafaced/contracts';
+import type { WorkItem, WorkItemsOutput } from '@intafaced/contracts';
+import { workItemsOutputSchema } from '@intafaced/contracts/home-work-items';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 
 type NewestRecord = {

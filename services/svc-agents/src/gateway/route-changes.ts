@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { routeChangeSchema, routeDeskSchema } from '@intafaced/contracts/agents-routes';
 import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';

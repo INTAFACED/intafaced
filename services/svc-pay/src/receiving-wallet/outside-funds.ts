@@ -3,7 +3,7 @@ import type { OutsideFunds } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { iso } from '../merchant-ops/money.js';
 import type { MerchantCaller } from '../merchant-ops/roles.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /**
  * A business's money held outside our book, per asset and holder (J-merchant-04: "the merchant sees it as clearing, then

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { TRADE_BUILDER_ACCOUNT_MODE } from '@intafaced/contracts/trade-builder-mode-procedures';
 import { BuilderFeeReconError, type BuilderFeeRecon } from './builder-fee-recon.js';

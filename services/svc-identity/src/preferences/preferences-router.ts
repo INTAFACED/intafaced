@@ -4,12 +4,9 @@ import {
   identityWatchlistsInputSchema,
   identityWatchlistsSchema,
   parseStoredWatchlists,
-  router,
-  scopedProcedure,
-  serviceProcedureFor,
-  TRPCError,
   watchlistsAnswer,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/identity-watchlists';
+import { router, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { SUPPORTED_LOCALES } from '@intafaced/i18n/locales';
 import { uiViewPreferenceSchema } from '@intafaced/contracts/ui-view-preferences';

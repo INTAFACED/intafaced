@@ -20,7 +20,7 @@ import {
   type CorrectionLink,
 } from '@intafaced/exchange-contract';
 import { authorityEvidenceSchema } from '@intafaced/exchange-contract';
-import { isScheduleKey, isScheduleOpen, TRADING_SCHEDULES } from '@intafaced/contracts';
+import { isScheduleKey, isScheduleOpen, TRADING_SCHEDULES } from '@intafaced/contracts/instruments';
 import type { Market } from './spot/types.js';
 import type { MatchingClient, MatchingUnavailableError } from './spot/matching-client.js';
 
