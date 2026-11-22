@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react';
 import type { z } from 'zod';
-import { BrandLockup } from '@intafaced/ui';
-import { Button, Field } from '../../shared/ui';
-import { DepthPanel, DisabledAction, Fact } from './DepthParts';
+import { Button, Field, Logo, Radio } from '@intafaced/ui/lit';
+import { DisabledAction, Fact, Panel } from '../bank-settings/parts';
 import {
   addressProblems,
   buildIssueInput,
@@ -16,19 +15,18 @@ import {
   type CardType,
   type OrderBlock,
   type ProgrammeInfo,
-} from './card-controls';
+} from '../card-controls';
 import { CardChannelsPanel, CardLimitsPanel } from './CardSettings';
 import { CardBlocksPanel } from './CardBlocks';
 import { CardDetailsReveal, CardPinPanel, CardWalletPanel, useSecretsOffered } from './CardSecrets';
 import { CardFraudPanel, CardThreeDSPanel } from './CardSafety';
 import { CardRecurringPanel, CardRefundsPanel } from './CardFeed';
 import { CardDisputesPanel } from './CardDisputes';
-import { cardDepthCopy } from './card-depth-copy';
-import { bps, positiveMoney, type ActionSpec } from './components';
-import type { cardSchema } from './contracts';
-import { assetSelectField, type HeldAsset } from './holdings';
-import { t as copyText } from './copy';
-import './bank-depth.css';
+import { cardDepthCopy } from '../card-depth-copy';
+import { bps, positiveMoney, type ActionSpec } from '../components';
+import type { cardSchema } from '../contracts';
+import { assetSelectField, type HeldAsset } from '../holdings';
+import { t as copyText } from '../copy';
 
 type CardRecord = z.infer<typeof cardSchema>;
 
@@ -38,20 +36,21 @@ export function CardFace({ card }: { card: CardRecord }) {
   const state = card.status === 'frozen' ? t('faceFrozen') : card.status === 'closed' ? t('faceClosed') : t('faceActive');
   return (
     <div
-      className="bd-card"
       data-status={card.status}
       data-test={card.simulated ? 'true' : undefined}
       role="img"
       aria-label={`${maskedPan(card.panTail)} ${state}`}
     >
-      <div className="bd-card__top">
-        <BrandLockup size={24} title="" className="bd-card__brand" />
-        <span className="bd-card__state">{card.simulated ? t('faceTest') : state}</span>
+      <div>
+        <span aria-hidden="true">
+          <Logo size={24} />
+        </span>
+        <span>{card.simulated ? t('faceTest') : state}</span>
       </div>
-      <div className="bd-card__pan" lang="zxx" dir="ltr">
+      <div lang="zxx" dir="ltr">
         {maskedPan(card.panTail)}
       </div>
-      <div className="bd-card__bottom">
+      <div>
         <span>{card.cardType === 'physical' ? t('facePhysical') : t('faceVirtual')}</span>
         <span lang="zxx" dir="ltr">
           {card.assetId ? t('faceFunding', { asset: card.assetId }) : ''}
@@ -155,28 +154,27 @@ export function OrderCard({
     open(orderSpec(copy, assets, cardType, address));
   };
   return (
-    <DepthPanel title={t('orderTitle')} lead={t('orderLead')} id="order-card">
-      <div className="bd-choice-row" role="radiogroup" aria-label={t('orderType')}>
+    <Panel level={3} title={t('orderTitle')} lead={t('orderLead')} id="order-card">
+      <div role="radiogroup" aria-label={t('orderType')}>
         {(['virtual', 'physical'] as const).map((type) => (
-          <label key={type} className={`bd-choice ${cardType === type ? 'bd-choice--on' : ''}`}>
-            <input
-              type="radio"
-              name="card-type"
-              value={type}
-              checked={cardType === type}
-              onChange={() => {
-                setCardType(type);
-                setChecked(false);
-              }}
-            />
+          <Radio
+            key={type}
+            name="card-type"
+            checked={cardType === type}
+            value={type}
+            onSelect={() => {
+              setCardType(type);
+              setChecked(false);
+            }}
+          >
             <strong>{type === 'virtual' ? t('orderVirtual') : t('orderPhysical')}</strong>
-            <span className="money-caption">{type === 'virtual' ? t('orderVirtualBody') : t('orderPhysicalBody')}</span>
-          </label>
+            <span className="lt-hint">{type === 'virtual' ? t('orderVirtualBody') : t('orderPhysicalBody')}</span>
+          </Radio>
         ))}
       </div>
       {cardType === 'physical' && (
-        <fieldset className="bd-address" ref={form} disabled={block !== null}>
-          <legend className="bd-subhead">{t('addressTitle')}</legend>
+        <fieldset ref={form} disabled={block !== null}>
+          <legend>{t('addressTitle')}</legend>
           {ADDRESS_LINES.map(({ key, label, optional, autoComplete }) => {
             const problem = checked ? (problems[key] as 'required' | 'country' | undefined) : undefined;
             return (
@@ -195,20 +193,20 @@ export function OrderCard({
               />
             );
           })}
-          <p className="money-caption">{t('orderPhysicalNote')}</p>
+          <p className="lt-hint">{t('orderPhysicalNote')}</p>
         </fieldset>
       )}
-      <div className="actions">
-        <Button onClick={order} disabled={block !== null} aria-describedby={reason ? 'order-card-why' : undefined}>
+      <div className="lt-actions">
+        <Button tone="primary" onClick={order} disabled={block !== null} aria-describedby={reason ? 'order-card-why' : undefined}>
           {t('orderButton')}
         </Button>
       </div>
       {reason && (
-        <p id="order-card-why" className="money-caption" role="status">
+        <p id="order-card-why" className="lt-hint" role="status">
           {reason}
         </p>
       )}
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -225,12 +223,12 @@ export function CardControlPanels({
   const { t } = cardDepthCopy.useCopy();
   const offered = useSecretsOffered();
   return (
-    <div className="bd-grid" data-card={card.id}>
+    <div data-card={card.id}>
       <CardLimitsPanel card={card} open={open} />
       <CardChannelsPanel card={card} open={open} />
       <CardBlocksPanel card={card} />
-      <DepthPanel title={t('detailsTitle')}>
-        <dl className="bd-facts">
+      <Panel level={3} title={t('detailsTitle')}>
+        <dl className="lt-kv">
           <Fact label={t('lastFour')}>
             <span lang="zxx" dir="ltr">
               {maskedPan(card.panTail)}
@@ -260,25 +258,25 @@ export function CardControlPanels({
           <Fact label={t('rewardsRate')}>{card.cashbackBps > 0 ? bps(card.cashbackBps) : t('rewardsRateNone')}</Fact>
         </dl>
         <CardDetailsReveal card={card} offered={offered} />
-      </DepthPanel>
-      <DepthPanel title={t('pinTitle')}>
+      </Panel>
+      <Panel level={3} title={t('pinTitle')}>
         <CardPinPanel card={card} offered={offered} />
-      </DepthPanel>
-      <DepthPanel title={t('walletTitle')}>
+      </Panel>
+      <Panel level={3} title={t('walletTitle')}>
         <CardWalletPanel card={card} offered={offered} />
-      </DepthPanel>
+      </Panel>
       <CardThreeDSPanel card={card} />
       <CardRecurringPanel card={card} />
       <CardRefundsPanel card={card} />
       <CardDisputesPanel card={card} />
       <CardFraudPanel card={card} />
-      <DepthPanel title={t('rewardsTitle')}>
-        <dl className="bd-facts">
+      <Panel level={3} title={t('rewardsTitle')}>
+        <dl className="lt-kv">
           <Fact label={t('rewardsBalance')}>{t('disabledBecause')}</Fact>
         </dl>
-        <p className="money-caption">{t('rewardsReason')}</p>
-      </DepthPanel>
-      <DepthPanel title={t('replaceTitle')}>
+        <p className="lt-hint">{t('rewardsReason')}</p>
+      </Panel>
+      <Panel level={3} title={t('replaceTitle')}>
         <p>{t('replaceBody')}</p>
         {blocked ? (
           <DisabledAction
@@ -294,11 +292,11 @@ export function CardControlPanels({
             }
           />
         ) : (
-          <a className="button button--secondary" href="#order-card">
+          <a className="lt-button lt-button-secondary" href="#order-card">
             {t('orderButton')}
           </a>
         )}
-      </DepthPanel>
+      </Panel>
     </div>
   );
 }

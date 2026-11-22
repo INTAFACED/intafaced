@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Switch } from '@intafaced/ui/lit';
 import { Skeleton, type Refusal as RoomRefusal } from '@intafaced/ui/lit/templates';
 import { isServiceNotConnected, type ApiResult } from '../../../shared/api';
 import type { Resource } from '../../../shared/resource';
@@ -278,6 +278,29 @@ export function Grid({
         </thead>
         <tbody>{children}</tbody>
       </table>
+    </div>
+  );
+}
+
+/** One on-or-off setting: its name, its state in words beside it, and the kit's switch, named by the setting. */
+export function ChannelSwitch({
+  label,
+  on,
+  state,
+  disabled,
+  onToggle,
+}: {
+  label: string;
+  on: boolean;
+  state: ReactNode;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="lt-toolbar">
+      <span>{label}</span>
+      <span className="lt-hint">{state}</span>
+      <Switch checked={on} label={label} disabled={disabled} onChange={() => onToggle()} />
     </div>
   );
 }

@@ -60,7 +60,7 @@ import { MoneyActivity } from './activity';
 import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstruction } from './ScheduleHistory';
 import { standingCopy } from './standing-copy';
 import { useBankView } from './bank-context';
-import { OwnerCards } from './Cards';
+import { CardsRoom } from './cards/CardsRoom';
 import { SelectedSpace } from './SelectedSpace';
 import { SpaceInflows } from './SpaceInflows';
 import { IncomeSorter } from './IncomeSorter';
@@ -1494,13 +1494,6 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
   );
 }
 
-function Cards({ open }: { open: (spec: ActionSpec) => void }) {
-  return (
-    <BankPage room="Cards" description={copyText('rooms.issuer.connectivity.and.card.outcomes.are.separate')}>
-      <OwnerCards open={open} />
-    </BankPage>
-  );
-}
 /** `/bank/ramps/new`: add money, inside the Ramps room. */
 function AddMoneyRoom() {
   const { t } = addMoneyCopy.useCopy();
@@ -2155,7 +2148,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/business/loan':
       return <BusinessLoanPreviewRoom />;
     case '/bank/cards':
-      return <Cards open={open} />;
+      return <CardsRoom open={open} />;
     case '/bank/cards/new':
       return <CardOrderRoom />;
     case '/bank/ramps':

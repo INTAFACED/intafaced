@@ -1,15 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import type { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
-import { displayAmount } from '../../shared/money';
-import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session';
-import { ResourceView, useBankRead } from './components';
-import { bankWrites, type cardSchema } from './contracts';
-import { DepthPanel } from './DepthParts';
+import type { ApiResult } from '../../../shared/api';
+import { displayAmount } from '../../../shared/money';
+import { Button, Field } from '@intafaced/ui/lit';
+import { useSession } from '../../session';
+import { useBankRead } from '../components';
+import { bankWrites, type cardSchema } from '../contracts';
+import { Panel, ResourceView } from '../bank-settings/parts';
 import { Refusal } from './CardJourney';
-import { cardDisputesCopy } from './card-disputes-copy';
-import { withPlainRefusal } from './money-refusal-copy';
+import { cardDisputesCopy } from '../card-disputes-copy';
+import { withPlainRefusal } from '../money-refusal-copy';
 
 /**
  * A cardholder's own card disputes (J-bank-15; BK-cdisp-01, svc-bank `cards.disputes.*`). Pressing Dispute this charge on
@@ -30,7 +30,7 @@ export function CardDisputesPanel({ card }: { card: CardRecord }) {
   const cases = useBankRead('cards.disputes.list', { cardId: card.id });
   const [chosen, setChosen] = useState<string | null>(null);
   return (
-    <DepthPanel title={t('title')} lead={t('lead')}>
+    <Panel level={3} title={t('title')} lead={t('lead')}>
       <ResourceView resource={cases.resource} reload={cases.reload}>
         {(rows) => {
           const disputed = new Set(rows.map((r) => r.authorizationRef));
@@ -39,7 +39,7 @@ export function CardDisputesPanel({ card }: { card: CardRecord }) {
               <ResourceView resource={payments.resource} reload={payments.reload}>
                 {(list) => {
                   const approved = list.filter((p) => p.decision === 'approved');
-                  if (!approved.length) return <p className="muted">{t('noPayments')}</p>;
+                  if (!approved.length) return <p className="lt-hint">{t('noPayments')}</p>;
                   return (
                     <ul aria-label={t('payments')}>
                       {approved.map((p) => (
@@ -52,7 +52,7 @@ export function CardDisputesPanel({ card }: { card: CardRecord }) {
                           {disputed.has(p.authorizationRef) ? (
                             t('disputed')
                           ) : (
-                            <Button variant="secondary" onClick={() => setChosen(p.authorizationRef)}>
+                            <Button tone="secondary" onClick={() => setChosen(p.authorizationRef)}>
                               {t('disputeThis')}
                             </Button>
                           )}
@@ -86,7 +86,7 @@ export function CardDisputesPanel({ card }: { card: CardRecord }) {
           );
         }}
       </ResourceView>
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -131,8 +131,8 @@ function DisputeForm({
           }
           return (
             <>
-              {f.test && <p className="money-caption">{t('testRules')}</p>}
-              <dl className="bd-facts">
+              {f.test && <p className="lt-hint">{t('testRules')}</p>}
+              <dl className="lt-kv">
                 <div>
                   <dt>{t('chargeRef')}</dt>
                   <dd lang="zxx" dir="ltr">
@@ -167,7 +167,7 @@ function DisputeForm({
                 <li>{t('ineligibleWindow')}</li>
               </ul>
               {f.standing === 'disputable' ? (
-                <form className="form-stack" onSubmit={(e) => void file(e)}>
+                <form onSubmit={(e) => void file(e)}>
                   <Field
                     label={t('amount', { asset })}
                     hint={t('amountHint', { amount: displayAmount(f.charge.disputable), asset })}
@@ -178,11 +178,11 @@ function DisputeForm({
                     required
                   />
                   <Field label={t('reason')} name="reason" value={reason} onChange={(e) => setReason(e.target.value)} required />
-                  <div className="actions">
-                    <Button type="submit" disabled={busy}>
+                  <div className="lt-actions">
+                    <Button tone="primary" type="submit" disabled={busy}>
                       {t('file')}
                     </Button>
-                    <Button type="button" variant="ghost" onClick={onClose}>
+                    <Button type="button" tone="quiet" onClick={onClose}>
                       {t('cancel')}
                     </Button>
                   </div>
@@ -227,16 +227,10 @@ function DisputeTracker({ disputeId, onChange }: { disputeId: string; onChange: 
       {(c) => {
         const credit = c.provisionalCredit;
         return (
-          <article
-            role="region"
-            aria-label={t('caseTitle', { ref: c.authorizationRef })}
-            data-dispute={c.id}
-            data-state={c.state}
-            className="form-stack"
-          >
+          <article role="region" aria-label={t('caseTitle', { ref: c.authorizationRef })} data-dispute={c.id} data-state={c.state}>
             <h5>{t('caseTitle', { ref: c.authorizationRef })}</h5>
             <p>{t('caseLine', { amount: displayAmount(c.amount), asset: c.assetId, reason: c.reason })}</p>
-            {c.test && <p className="money-caption">{t('testCase')}</p>}
+            {c.test && <p className="lt-hint">{t('testCase')}</p>}
             <p data-testid="dispute-state">{t('stateNow', { state: t(`state_${c.state}`) })}</p>
             <ol aria-label={t('tracker')}>
               {c.events.map((e) => (
@@ -272,26 +266,24 @@ function DisputeTracker({ disputeId, onChange }: { disputeId: string; onChange: 
             {c.state !== 'closed' && (
               <>
                 <form
-                  className="form-stack"
                   onSubmit={(e) => {
                     e.preventDefault();
                     void act('cards.disputes.evidence', { description: evidence });
                   }}
                 >
                   <Field label={t('evidence')} name="evidence" value={evidence} onChange={(e) => setEvidence(e.target.value)} required />
-                  <Button type="submit" variant="secondary" disabled={busy}>
+                  <Button type="submit" tone="secondary" disabled={busy}>
                     {t('addEvidence')}
                   </Button>
                 </form>
                 <form
-                  className="form-stack"
                   onSubmit={(e) => {
                     e.preventDefault();
                     void act('cards.disputes.withdraw', { reason: why });
                   }}
                 >
                   <Field label={t('withdrawReason')} name="withdraw-reason" value={why} onChange={(e) => setWhy(e.target.value)} required />
-                  <Button type="submit" variant="ghost" disabled={busy}>
+                  <Button type="submit" tone="quiet" disabled={busy}>
                     {t('withdraw')}
                   </Button>
                 </form>

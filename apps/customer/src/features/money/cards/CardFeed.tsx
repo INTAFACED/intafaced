@@ -1,9 +1,9 @@
 import type { z } from 'zod';
-import { displayAmount } from '../../shared/money';
-import { ResourceView, useBankRead } from './components';
-import type { cardSchema } from './contracts';
-import { DepthPanel } from './DepthParts';
-import { cardFeedCopy } from './card-feed-copy';
+import { displayAmount } from '../../../shared/money';
+import { useBankRead } from '../components';
+import type { cardSchema } from '../contracts';
+import { Panel, ResourceView } from '../bank-settings/parts';
+import { cardFeedCopy } from '../card-feed-copy';
 
 /**
  * A card's recurring payments and merchant refunds (J-bank-14 #6; BK-cpay-02). A recurring payment is one the card
@@ -21,7 +21,7 @@ export function CardRecurringPanel({ card }: { card: CardRecord }) {
   const { t } = cardFeedCopy.useCopy();
   const read = useBankRead('cards.recurring', { cardId: card.id, limit: 50 });
   return (
-    <DepthPanel title={t('recurringTitle')} lead={t('recurringLead')}>
+    <Panel level={3} title={t('recurringTitle')} lead={t('recurringLead')}>
       <ResourceView resource={read.resource} reload={read.reload}>
         {(rows) =>
           rows.length ? (
@@ -45,11 +45,11 @@ export function CardRecurringPanel({ card }: { card: CardRecord }) {
               })}
             </ul>
           ) : (
-            <p className="muted">{t('recurringNone')}</p>
+            <p className="lt-hint">{t('recurringNone')}</p>
           )
         }
       </ResourceView>
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -57,11 +57,11 @@ export function CardRefundsPanel({ card }: { card: CardRecord }) {
   const { t } = cardFeedCopy.useCopy();
   const read = useBankRead('cards.authorizations', { cardId: card.id, limit: 50 });
   return (
-    <DepthPanel title={t('refundsTitle')} lead={t('refundsLead')}>
+    <Panel level={3} title={t('refundsTitle')} lead={t('refundsLead')}>
       <ResourceView resource={read.resource} reload={read.reload}>
         {(rows) => {
           const refunded = rows.flatMap((row) => (row.refund ? [{ row, refund: row.refund }] : []));
-          if (!refunded.length) return <p className="muted">{t('refundsNone')}</p>;
+          if (!refunded.length) return <p className="lt-hint">{t('refundsNone')}</p>;
           return (
             <>
               <ul aria-label={t('refundsList')}>
@@ -84,11 +84,11 @@ export function CardRefundsPanel({ card }: { card: CardRecord }) {
                   );
                 })}
               </ul>
-              <p className="money-caption">{t('refundCashback')}</p>
+              <p className="lt-hint">{t('refundCashback')}</p>
             </>
           );
         }}
       </ResourceView>
-    </DepthPanel>
+    </Panel>
   );
 }

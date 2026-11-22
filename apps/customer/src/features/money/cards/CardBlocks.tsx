@@ -1,15 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
-import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session';
-import { ResourceView, useBankRead } from './components';
-import { bankWrites, type CardControls, type cardSchema } from './contracts';
-import { ChannelSwitch, DepthPanel } from './DepthParts';
+import type { ApiResult } from '../../../shared/api';
+import { Button, Field } from '@intafaced/ui/lit';
+import { useSession } from '../../session';
+import { useBankRead } from '../components';
+import { bankWrites, type CardControls, type cardSchema } from '../contracts';
+import { ChannelSwitch, Panel, ResourceView } from '../bank-settings/parts';
 import { Refusal } from './CardJourney';
-import { cardBlocksCopy, declineKey } from './card-blocks-copy';
-import { withPlainRefusal } from './money-refusal-copy';
-import './bank-depth.css';
+import { cardBlocksCopy, declineKey } from '../card-blocks-copy';
+import { withPlainRefusal } from '../money-refusal-copy';
 
 /**
  * A card's controls (J-bank-14 #1, BK-cctl-01): the categories, merchants and countries the person blocked, and the
@@ -24,11 +23,11 @@ export function CardBlocksPanel({ card }: { card: CardRecord }) {
   const { t } = cardBlocksCopy.useCopy();
   const read = useBankRead('cards.controls.get', { cardId: card.id });
   return (
-    <DepthPanel title={t('blocksTitle')} lead={t('blocksLead')} id={`card-blocks-${card.id}`}>
+    <Panel level={3} title={t('blocksTitle')} lead={t('blocksLead')} id={`card-blocks-${card.id}`}>
       <ResourceView resource={read.resource} reload={read.reload}>
         {(stored) => <Blocks key={card.id} card={card} stored={stored} />}
       </ResourceView>
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -73,19 +72,19 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
             <span lang="und" dir="auto">
               {c.value}
             </span>{' '}
-            <Button variant="ghost" disabled={busy || closed} onClick={() => void send('cards.controls.lift', { controlId: c.id })}>
+            <Button tone="quiet" disabled={busy || closed} onClick={() => void send('cards.controls.lift', { controlId: c.id })}>
               {t('allowAgain')}
             </Button>
           </li>
         ))}
       </ul>
     ) : (
-      <p className="money-caption">{t('noneBlocked')}</p>
+      <p className="lt-hint">{t('noneBlocked')}</p>
     );
   };
 
   return (
-    <div className="bd-stack">
+    <div>
       <section role="group" aria-label={t('categoriesTitle')}>
         <h4>{t('categoriesTitle')}</h4>
         {controls.categories.map((category) => {
@@ -109,7 +108,7 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
       <form aria-label={t('merchantsTitle')} onSubmit={submit('merchant', merchant, () => setMerchant(''))}>
         <h4>{t('merchantsTitle')}</h4>
         <Field label={t('merchantField')} value={merchant} maxLength={64} onChange={(e) => setMerchant(e.target.value)} />
-        <Button type="submit" disabled={busy || closed || !merchant.trim()}>
+        <Button tone="primary" type="submit" disabled={busy || closed || !merchant.trim()}>
           {t('blockMerchant')}
         </Button>
         {blockedList('merchant', `${t('merchantsTitle')}: ${t('blockedList')}`)}
@@ -117,18 +116,18 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
       <form aria-label={t('countriesTitle')} onSubmit={submit('country', country, () => setCountry(''))}>
         <h4>{t('countriesTitle')}</h4>
         <Field label={t('countryField')} value={country} maxLength={2} onChange={(e) => setCountry(e.target.value)} />
-        <Button type="submit" disabled={busy || closed || !country.trim()}>
+        <Button tone="primary" type="submit" disabled={busy || closed || !country.trim()}>
           {t('blockCountry')}
         </Button>
         {blockedList('country', `${t('countriesTitle')}: ${t('blockedList')}`)}
       </form>
       {failure && <Refusal failure={failure} />}
-      {closed && <p className="money-caption">{t('closedNote')}</p>}
+      {closed && <p className="lt-hint">{t('closedNote')}</p>}
       <section role="region" aria-label={t('lockTitle')}>
         <h4>{t('lockTitle')}</h4>
         <p role="status">{t(`lockNow_${card.status}` as 'lockNow_active')}</p>
         {controls.history.length ? (
-          <div className="table-scroll" role="region" aria-label={t('lockHistory')} tabIndex={0}>
+          <div role="region" aria-label={t('lockHistory')} tabIndex={0}>
             <table>
               <thead>
                 <tr>
@@ -151,7 +150,7 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
             </table>
           </div>
         ) : (
-          <p className="money-caption">{t('noHistory')}</p>
+          <p className="lt-hint">{t('noHistory')}</p>
         )}
       </section>
     </div>
@@ -163,7 +162,7 @@ export function DeclineReason({ code }: { code: string }) {
   const { t } = cardBlocksCopy.useCopy();
   const key = declineKey(code);
   return (
-    <p className="money-caption" data-testid="decline-reason" data-code={code}>
+    <p className="lt-hint" data-testid="decline-reason" data-code={code}>
       {key ? t(key) : t('declineUnknown')}
     </p>
   );
@@ -174,7 +173,7 @@ export function DecisionMerchant({ merchant, country }: { merchant: string | nul
   const { t } = cardBlocksCopy.useCopy();
   if (merchant === null && country === null) return null;
   return (
-    <dl className="money-card-merchant">
+    <dl>
       {merchant !== null && (
         <div>
           <dt>{t('merchantLabel')}</dt>

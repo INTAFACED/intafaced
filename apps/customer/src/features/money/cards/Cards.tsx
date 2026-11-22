@@ -1,20 +1,21 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { DecisionMerchant, DeclineReason } from './CardBlocks';
 import type { z } from 'zod';
-import { Button } from '../../shared/ui';
-import { displayAmount } from '../../shared/money';
-import { currentOwnerRecord, ReportedTime, useBankView } from './bank-context';
-import { cardCopy } from './card-copy';
-import { bps, Continuation, funds, ResourceView, Section, useBankRead, usePageLimit, type ActionSpec } from './components';
-import type { bankReads, cardSchema } from './contracts';
-import { t as copyText, Text } from './copy';
+import { Button } from '@intafaced/ui/lit';
+import { displayAmount } from '../../../shared/money';
+import { currentOwnerRecord, ReportedTime, useBankView } from '../bank-context';
+import { cardCopy } from '../card-copy';
+import { bps, funds, useBankRead, usePageLimit, type ActionSpec } from '../components';
+import { Continuation, Panel, ResourceView } from '../bank-settings/parts';
+import type { bankReads, cardSchema } from '../contracts';
+import { t as copyText, Text } from '../copy';
 import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
-import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
-import { useHoldings } from './holdings';
-import { useSession } from '../session';
+import { maskedPan, orderBlock, type OrderBlock } from '../card-controls';
+import { useHoldings } from '../holdings';
+import { useSession } from '../../session';
 import { CardCashback, CardJourney, CardPayFrom } from './CardJourney';
-import { cardOrderCopy } from './card-order-copy';
-import { cardFeedCopy } from './card-feed-copy';
+import { cardOrderCopy } from '../card-order-copy';
+import { cardFeedCopy } from '../card-feed-copy';
 
 type CardRecord = z.infer<typeof cardSchema>;
 type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
@@ -22,11 +23,11 @@ type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
 export function CardReference({ id }: { id: string }) {
   const { Copy } = cardCopy.useCopy();
   return (
-    <details className="money-card-details">
+    <details>
       <summary>
         <Copy k="details" />
       </summary>
-      <dl className="money-card-reference">
+      <dl>
         <dt>
           <Copy k="reference" />
         </dt>
@@ -41,7 +42,7 @@ export function CardReference({ id }: { id: string }) {
 function CardIdentity({ card }: { card: CardRecord }) {
   const { Copy } = cardCopy.useCopy();
   return (
-    <div className="money-card-identity">
+    <div>
       <CardFace card={card} />
       <h3>
         <Text k={card.simulated ? 'rooms.simulation.record' : 'rooms.card'} /> ·{' '}
@@ -54,14 +55,14 @@ function CardIdentity({ card }: { card: CardRecord }) {
         </bdi>
       </h3>
       <CardReference id={card.id} />
-      <p className="money-caption">
+      <p className="lt-hint">
         <Copy k="issuer" />:{' '}
         <bdi lang="und" dir="auto">
           {card.issuer}
         </bdi>
         {card.simulated && <Text k="rooms.not.a.live.card" />}
       </p>
-      <dl className="money-card-assets">
+      <dl>
         <div>
           <dt>
             <Copy k="funding" />
@@ -86,9 +87,9 @@ function CardIdentity({ card }: { card: CardRecord }) {
 function CardQuantity({ value, asset }: { value: string; asset: string }) {
   const { Copy } = cardCopy.useCopy();
   return asset.trim() ? (
-    <span className="money-card-quantity" lang="zxx" dir="ltr">
-      <span className="numeric">{funds(value, '').trimEnd()}</span>
-      <span className="money-caption">{asset}</span>
+    <span lang="zxx" dir="ltr">
+      <span className="lt-mono">{funds(value, '').trimEnd()}</span>
+      <span className="lt-hint">{asset}</span>
     </span>
   ) : (
     <Copy k="assetUnavailable" />
@@ -98,7 +99,7 @@ function CardQuantity({ value, asset }: { value: string; asset: string }) {
 function CardConfiguration({ card, expanded = false }: { card: CardRecord; expanded?: boolean }) {
   const { Copy } = cardCopy.useCopy();
   return (
-    <details className="money-card-configuration" open={expanded}>
+    <details open={expanded}>
       <summary>
         <Copy k="configured" />
       </summary>
@@ -142,11 +143,12 @@ export function CardActions({
   // would only update this record while the real issuer keeps approving payments.
   const changeable = !!programme && programme.id !== 'none' && card.issuer === programme.id && card.simulated === programme.simulated;
   const protect = (spec: ActionSpec) => {
-    if (!disabled && changeable && card.status !== 'closed' && current() && !document.querySelector('[role="dialog"]')) open(spec);
+    if (!disabled && changeable && card.status !== 'closed' && current() && !document.querySelector('[role="dialog"], dialog[open]'))
+      open(spec);
   };
   if (card.status === 'closed' || !changeable)
     return (
-      <p className="money-caption">
+      <p className="lt-hint">
         <Copy k={card.status === 'closed' ? 'closedNote' : 'noProgrammeNote'} />
       </p>
     );
@@ -162,9 +164,9 @@ export function CardActions({
     'status' in data &&
     data.status === input.status;
   return (
-    <div className="actions">
+    <div className="lt-actions">
       <Button
-        variant="secondary"
+        tone="secondary"
         disabled={disabled}
         onClick={() =>
           protect({
@@ -186,7 +188,7 @@ export function CardActions({
         {card.status === 'frozen' ? copyText('rooms.unfreeze') : copyText('rooms.freeze')}
       </Button>
       <Button
-        variant="ghost"
+        tone="quiet"
         disabled={disabled}
         onClick={() =>
           protect({
@@ -215,7 +217,7 @@ function PaidFrom({ row }: { row: CardDecision }) {
   if (!p) return null;
   const held = p.assetId !== null && row.decision === 'approved' && row.conversion !== null ? row.conversion : null;
   return (
-    <div className="money-card-pay-from" data-testid="card-paid-from" data-asset={p.assetId ?? ''}>
+    <div data-testid="card-paid-from" data-asset={p.assetId ?? ''}>
       {held && p.assetId ? (
         <dl>
           <div>
@@ -254,7 +256,7 @@ function PaidFrom({ row }: { row: CardDecision }) {
           )}
         </dl>
       ) : null}
-      <p className="money-caption" data-testid="card-paid-from-order">
+      <p className="lt-hint" data-testid="card-paid-from-order">
         {feed.t('paidFromOrder', { order: p.order.join(', ') })}
       </p>
     </div>
@@ -267,12 +269,12 @@ function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset
   // A pay-from payment's amount is in the asset the partner held from, or, before it held, the merchant's own asset.
   const asset = row.payFrom ? (row.payFrom.assetId ?? row.conversion?.settlementAssetId ?? settles) : cardAsset;
   return (
-    <article className="money-card-decision">
+    <article>
       <header>
         <h4 lang="und" dir="auto">
           {row.decision}
         </h4>
-        <dl className="money-card-status">
+        <dl>
           <dt>
             <Copy k="status" />
           </dt>
@@ -281,17 +283,19 @@ function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset
           </dd>
         </dl>
       </header>
+      {/* J-bank-29 #5 reads the declined amount through this class (`.money-card-funding dd`); it stays until that step
+          reads it by a test id. */}
       <dl className="money-card-funding">
-        <dt className="money-visually-hidden">
+        <dt className="lt-sr">
           <Copy k="quantity" />
         </dt>
         <dd>
           <CardQuantity value={row.amount} asset={asset} />
         </dd>
       </dl>
-      <dl className="money-card-decision-time">
+      <dl>
         <div>
-          <dt className="money-visually-hidden">
+          <dt className="lt-sr">
             <Copy k="decidedAt" />
           </dt>
           <dd>
@@ -313,7 +317,7 @@ function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset
           </dd>
         </div>
       </dl>
-      <dl className="money-card-authorization">
+      <dl>
         <dt>
           <Copy k="authorization" />
         </dt>
@@ -322,10 +326,10 @@ function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset
         </dd>
       </dl>
       <DecisionMerchant merchant={row.merchant ?? null} country={row.merchantCountry ?? null} />
-      {row.recurring && <p className="money-caption">{feed.t('feedRecurring')}</p>}
+      {row.recurring && <p className="lt-hint">{feed.t('feedRecurring')}</p>}
       <PaidFrom row={row} />
       {row.refund && (
-        <dl className="money-card-refund" data-refund={row.refund.status}>
+        <dl data-refund={row.refund.status}>
           <dt>{feed.t('feedRefund')}</dt>
           <dd>
             <CardQuantity value={row.refund.amount} asset={asset} />
@@ -333,7 +337,7 @@ function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset
         </dl>
       )}
       {row.declineCode !== null && (
-        <dl className="money-card-decline">
+        <dl>
           <dt>
             <Copy k="decline" />
           </dt>
@@ -344,7 +348,7 @@ function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset
       )}
       {row.declineCode ? <DeclineReason code={row.declineCode} /> : null}
       {row.conversion && (
-        <div className="money-card-conversion">
+        <div>
           <h5>
             <Copy k="conversion" />
           </h5>
@@ -423,35 +427,29 @@ function CardRead({
   return (
     <>
       {showFacts ? <CardIdentity card={card} /> : <CardReference id={card.id} />}
-      <div
-        className="money-card-history"
-        role="region"
-        aria-label={t('decisions')}
-        lang={languageFor('decisions')}
-        dir={directionFor('decisions')}
-      >
+      <div role="region" aria-label={t('decisions')} lang={languageFor('decisions')} dir={directionFor('decisions')}>
         <header>
           <h3>
             <Copy k="decisions" />
           </h3>
-          <p className="money-caption">
+          <p className="lt-hint">
             <Copy k="newest" params={{ limit }} />
           </p>
         </header>
         {notFound ? (
-          <div className="money-card-missing" role="status">
+          <div role="status">
             <h4>
               <Copy k="notFound" />
             </h4>
             <p>
               <Copy k="notFoundNote" />
             </p>
-            <div className="actions">
-              <Button onClick={retry}>
+            <div className="lt-actions">
+              <Button tone="primary" onClick={retry}>
                 <Copy k="retry" />
               </Button>
               <Button
-                variant="secondary"
+                tone="secondary"
                 onClick={() => {
                   if (current()) refreshCards();
                 }}
@@ -476,7 +474,7 @@ function CardRead({
             {(rows) => (
               <>
                 {rows.length ? (
-                  <ol className="money-card-decisions">
+                  <ol>
                     {rows.map((row, index) => (
                       <li key={`${row.id}:${index}`}>
                         <Decision row={row} asset={card.assetId} settles={card.settlementAssetId} />
@@ -484,7 +482,7 @@ function CardRead({
                     ))}
                   </ol>
                 ) : (
-                  <div className="money-card-missing" role="status">
+                  <div role="status">
                     <h4>
                       <Copy k="empty" />
                     </h4>
@@ -493,20 +491,20 @@ function CardRead({
                     </p>
                   </div>
                 )}
-                <div className="money-card-continuation">
-                  <p className="money-caption">
+                <div>
+                  <p className="lt-hint">
                     <Copy k="count" params={{ count: rows.length, limit }} />
                   </p>
-                  <p className="money-caption">
+                  <p className="lt-hint">
                     <Copy k="noReceipt" />
                   </p>
-                  <p className="money-caption">
+                  <p className="lt-hint">
                     <Copy k={limit === 200 ? 'cap' : 'window'} />
                   </p>
-                  <div className="actions">
+                  <div className="lt-actions">
                     {rows.length >= limit && limit < 200 && (
                       <Button
-                        variant="secondary"
+                        tone="secondary"
                         onClick={() => {
                           if (current()) setLimit(Math.min(200, limit + 50));
                         }}
@@ -514,7 +512,7 @@ function CardRead({
                         <Copy k="more" params={{ limit: Math.min(200, limit + 50) }} />
                       </Button>
                     )}
-                    <Button variant="ghost" onClick={retry}>
+                    <Button tone="quiet" onClick={retry}>
                       <Copy k="refreshDecisions" />
                     </Button>
                   </div>
@@ -590,7 +588,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
     if (current()) query.reload();
   };
   const arrive = (element: HTMLElement | null) => {
-    if (!current() || document.querySelector('[role="dialog"]')) return;
+    if (!current() || document.querySelector('[role="dialog"], dialog[open]')) return;
     element?.focus({ preventScroll: true });
     element?.scrollIntoView({ block: 'start' });
   };
@@ -599,8 +597,8 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
     else if (serial.current) arrive(listHeading.current);
   }, [selected?.serial]);
   return (
-    <div className="money-owner-cards" lang={languageFor('records')} dir={directionFor('records')}>
-      <div className="money-card-programme">
+    <div lang={languageFor('records')} dir={directionFor('records')}>
+      <div>
         <ResourceView
           resource={programme.resource}
           reload={() => {
@@ -613,7 +611,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                 {info.id === 'none' ? <Text k="rooms.card.issuer.is.not.connected" /> : info.displayName}
               </h3>
               {info.id !== 'none' && (
-                <p className="money-caption">
+                <p className="lt-hint">
                   {info.simulated ? (
                     <Text k="rooms.simulation.programme.it.does.not.issue.a" />
                   ) : (
@@ -625,22 +623,22 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
           )}
         </ResourceView>
       </div>
-      <a className="button button--primary" href="/bank/cards/new">
+      <a className="lt-button lt-button-primary" href="/bank/cards/new">
         {order.t('getCard')}
       </a>
       <CardCashback />
       <CardPayFrom />
       <OrderCard open={open} programme={orderProgramme} assets={orderAssets} />
       {selected && (
-        <section className="money-selected-card" aria-labelledby="money-selected-card-heading">
+        <section aria-labelledby="money-selected-card-heading">
           <header>
             <h2 id="money-selected-card-heading" ref={heading} tabIndex={-1}>
               <Copy k="selected" />
             </h2>
             <Button
-              variant="ghost"
+              tone="quiet"
               onClick={() => {
-                if (current() && !document.querySelector('[role="dialog"]')) setSelected(null);
+                if (current() && !document.querySelector('[role="dialog"], dialog[open]')) setSelected(null);
               }}
             >
               <Copy k="return" />
@@ -659,14 +657,14 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                   orderBlocked={ordering}
                 />
               ) : (
-                <div className="money-card-missing" role="status">
+                <div role="status">
                   <h3>
                     <Copy k={rows.some((row) => row.id.toLowerCase() === selected.id.toLowerCase()) ? 'conflict' : 'missing'} />
                   </h3>
                   <p>
                     <Copy k={rows.some((row) => row.id.toLowerCase() === selected.id.toLowerCase()) ? 'conflictNote' : 'missingNote'} />
                   </p>
-                  <Button variant="secondary" onClick={refresh}>
+                  <Button tone="secondary" onClick={refresh}>
                     <Copy k="refreshCards" />
                   </Button>
                 </div>
@@ -675,14 +673,15 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
           </ResourceView>
         </section>
       )}
-      <Section
+      <Panel
+        id="cards-list"
         title={
           <span id="money-card-list-heading" ref={listHeading} tabIndex={-1}>
             <Copy k={card ? 'other' : 'records'} />
           </span>
         }
         actions={
-          <Button variant="ghost" onClick={refresh}>
+          <Button tone="quiet" onClick={refresh}>
             <Copy k="refreshCards" />
           </Button>
         }
@@ -692,19 +691,23 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
             <>
               {other.length ? (
                 other.map((row, index) => (
-                  <article className="money-card-record" key={row.id} data-testid={`card-${row.id}`} data-index={index}>
+                  <article key={row.id} data-testid={`card-${row.id}`} data-index={index}>
                     <CardIdentity card={row} />
                     <CardJourney card={row} reload={refresh} />
-                    <div className="money-card-record-actions">
+                    <div>
                       <Button
-                        variant="secondary"
+                        tone="secondary"
                         aria-label={t('inspect', { reference: row.id })}
                         lang={languageFor('inspect')}
                         dir={directionFor('inspect')}
                         aria-controls="money-selected-card-heading"
                         disabled={!currentOwnerRecord(rows, row.id)}
                         onClick={() => {
-                          if (current() && currentOwnerRecord(rows, row.id) === row && !document.querySelector('[role="dialog"]'))
+                          if (
+                            current() &&
+                            currentOwnerRecord(rows, row.id) === row &&
+                            !document.querySelector('[role="dialog"], dialog[open]')
+                          )
                             setSelected({ id: row.id, serial: ++serial.current });
                         }}
                       >
@@ -716,7 +719,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                   </article>
                 ))
               ) : (
-                <div className="money-card-missing" role="status">
+                <div role="status">
                   <h3>
                     <Copy k={card ? 'noOther' : 'noCards'} />
                   </h3>
@@ -732,13 +735,13 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                   if (current()) setLimit(Math.min(200, limit + 50));
                 }}
               />
-              <p className="money-caption">
+              <p className="lt-hint">
                 <Copy k="listWindow" />
               </p>
             </>
           )}
         </ResourceView>
-      </Section>
+      </Panel>
     </div>
   );
 }

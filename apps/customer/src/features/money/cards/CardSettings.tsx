@@ -1,11 +1,11 @@
 import type { z } from 'zod';
-import { type ApiResult } from '../../shared/api';
-import { DepthPanel, DisabledAction, Fact, ChannelSwitch } from './DepthParts';
-import { cardDepthCopy } from './card-depth-copy';
-import { Button } from '../../shared/ui';
-import { funds, type ActionField, type ActionSpec } from './components';
-import { bankReads, type cardSchema } from './contracts';
-import { maskedPan } from './card-controls';
+import { type ApiResult } from '../../../shared/api';
+import { ChannelSwitch, DisabledAction, Fact, Panel } from '../bank-settings/parts';
+import { cardDepthCopy } from '../card-depth-copy';
+import { Button } from '@intafaced/ui/lit';
+import { funds, type ActionField, type ActionSpec } from '../components';
+import { bankReads, type cardSchema } from '../contracts';
+import { maskedPan } from '../card-controls';
 import {
   buildChannelsInput,
   buildLimitsInput,
@@ -20,10 +20,9 @@ import {
   sameSettings,
   type ChannelKey,
   type LimitKey,
-} from './card-limits';
-import { t as copyText } from './copy';
-import { useSession } from '../session';
-import './bank-depth.css';
+} from '../card-limits';
+import { t as copyText } from '../copy';
+import { useSession } from '../../session';
 
 type CardRecord = z.infer<typeof cardSchema>;
 
@@ -130,11 +129,11 @@ export function CardLimitsPanel({ card, open }: { card: CardRecord; open: (spec:
   const closed = card.status === 'closed';
   const none = t('limitNone');
   return (
-    <DepthPanel title={t('limitsTitle')} lead={t('limitsLead')}>
-      <dl className="bd-facts">
+    <Panel level={3} title={t('limitsTitle')} lead={t('limitsLead')}>
+      <dl className="lt-kv">
         {LIMIT_KEYS_ALL.map((key) => (
           <Fact key={key} label={t(LIMIT_LABEL[key])}>
-            <span className="numeric" lang="zxx" dir="ltr">
+            <span className="lt-mono" lang="zxx" dir="ltr">
               {limitText(card[key], card.assetId, none)}
             </span>
           </Fact>
@@ -143,13 +142,13 @@ export function CardLimitsPanel({ card, open }: { card: CardRecord; open: (spec:
       {closed ? (
         <DisabledAction label={t('limitEdit')} reason={t('limitEditClosedReason')} />
       ) : (
-        <div className="actions">
-          <Button variant="secondary" onClick={() => open(limitsSpec(card, copy, freshCard))}>
+        <div className="lt-actions">
+          <Button tone="secondary" onClick={() => open(limitsSpec(card, copy, freshCard))}>
             {t('limitEdit')}
           </Button>
         </div>
       )}
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -201,7 +200,7 @@ export function CardChannelsPanel({ card, open }: { card: CardRecord; open: (spe
   const freshCard = useFreshCard(card);
   const closed = card.status === 'closed';
   return (
-    <DepthPanel title={t('channelsTitle')} lead={t('channelsLead')}>
+    <Panel level={3} title={t('channelsTitle')} lead={t('channelsLead')}>
       {CHANNEL_KEYS.map((key) => (
         <ChannelSwitch
           key={key}
@@ -212,7 +211,7 @@ export function CardChannelsPanel({ card, open }: { card: CardRecord; open: (spe
           onToggle={() => open(channelSpec(card, key, copy, freshCard))}
         />
       ))}
-      {closed && <p className="money-caption">{t('channelsClosedReason')}</p>}
-    </DepthPanel>
+      {closed && <p className="lt-hint">{t('channelsClosedReason')}</p>}
+    </Panel>
   );
 }

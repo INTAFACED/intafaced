@@ -1,13 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import type { z } from 'zod';
-import { Button, Dialog, Field } from '../../shared/ui';
-import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session';
-import { useBankRead } from './components';
-import { bankWrites, type cardSchema } from './contracts';
-import { cardOrderCopy } from './card-order-copy';
-import { StepUpConfirm } from './StepUpConfirm';
-import './bank-depth.css';
+import { Button, Field, Radio } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import type { ApiResult } from '../../../shared/api';
+import { useSession } from '../../session';
+import { useBankRead } from '../components';
+import { bankWrites, type cardSchema } from '../contracts';
+import { cardOrderCopy } from '../card-order-copy';
+import { StepUpInline } from '../bank-settings/StepUpInline';
 
 /**
  * Each card's own panels on /bank/cards for getting a card (J-bank-13): its status in words, how many payments a
@@ -29,7 +29,7 @@ export function Refusal({ failure }: { failure: Failed }) {
   const code = failure.code ?? '';
   const said = SAY[code]?.(t) ?? failure.message;
   return (
-    <p role="alert" className="error-text" data-code={code}>
+    <p role="alert" data-code={code}>
       {said} {code.includes('.') ? t('reference', { code }) : null}
     </p>
   );
@@ -61,7 +61,7 @@ function UsesOf({ cardId, limit }: { cardId: string; limit: number }) {
   const uses = useBankRead('cards.uses', { cardId });
   const made = uses.resource.status === 'ready' ? uses.resource.data.usesMade : null;
   return (
-    <p className="money-caption" data-testid="card-uses">
+    <p className="lt-hint" data-testid="card-uses">
       {limit === 1 ? t('singleUseCard') : t('usesCard', { limit: String(limit) })}
       {made !== null && (
         <>
@@ -120,19 +120,19 @@ function ChangeAddress({
     <Field label={label} value={draft[key] ?? ''} onChange={(event) => setDraft({ ...draft, [key]: event.target.value })} />
   );
   return (
-    <Dialog title={t('changeAddress')} onClose={onClose}>
-      <form className="form-stack" onSubmit={save} noValidate>
+    <Sheet open title={t('changeAddress')} onClose={onClose}>
+      <form onSubmit={save} noValidate>
         {field('name', t('name'))}
         {field('line1', t('line1'))}
         {field('line2', t('line2'))}
         {field('city', t('city'))}
         {field('postalCode', t('postalCode'))}
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('saveAddress')}
         </Button>
         {failure && <Refusal failure={failure} />}
       </form>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -143,8 +143,8 @@ function Delivery({ card }: { card: CardRecord }) {
   if (delivery.resource.status === 'loading') return null;
   if (delivery.resource.status === 'failed') {
     return (
-      <section className="form-stack" data-testid="card-delivery">
-        <h4 className="bd-subhead">{t('deliveryTitle')}</h4>
+      <section data-testid="card-delivery">
+        <h4>{t('deliveryTitle')}</h4>
         <Refusal failure={delivery.resource.failure} />
       </section>
     );
@@ -153,8 +153,8 @@ function Delivery({ card }: { card: CardRecord }) {
   const speed = d.speed === 'express' ? t('express') : d.speed === 'signed' ? t('signed') : t('standard');
   const state = t(d.state);
   return (
-    <section className="form-stack" data-testid="card-delivery" data-state={d.state}>
-      <h4 className="bd-subhead">{t('deliveryTitle')}</h4>
+    <section data-testid="card-delivery" data-state={d.state}>
+      <h4>{t('deliveryTitle')}</h4>
       <p>{t('deliveryDesign', { name: d.designName ?? d.designId ?? '' })}</p>
       <p>{t('deliverySpeed', { speed })}</p>
       <p>{t('deliveryState', { state })}</p>
@@ -186,7 +186,7 @@ function Delivery({ card }: { card: CardRecord }) {
         </div>
       )}
       {card.status !== 'closed' && (
-        <Button variant="secondary" onClick={() => setChanging(true)}>
+        <Button tone="secondary" onClick={() => setChanging(true)}>
           {t('changeAddress')}
         </Button>
       )}
@@ -231,8 +231,8 @@ function Activate({ card, onDone, onClose }: { card: CardRecord; onDone: () => v
     onDone();
   }
   return (
-    <Dialog title={t('activate')} onClose={onClose}>
-      <StepUpConfirm
+    <Sheet open title={t('activate')} onClose={onClose}>
+      <StepUpInline
         request={() => ({ scope: 'bank.step_up.cards.activate', purpose: 'cards.activate', target: card.id, fields: { cardId: card.id } })}
         words={{
           why: t('activateWhy'),
@@ -246,7 +246,7 @@ function Activate({ card, onDone, onClose }: { card: CardRecord; onDone: () => v
         onApproved={(id) => void activate(id)}
       />
       {failure && <Refusal failure={failure} />}
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -268,22 +268,22 @@ function Report({ card, onDone, onClose }: { card: CardRecord; onDone: (replacem
     onDone(result.data.id);
   }
   return (
-    <Dialog title={t('report')} onClose={onClose}>
-      <form className="form-stack" onSubmit={send}>
-        <p className="muted">{t('reportLead')}</p>
+    <Sheet open title={t('report')} onClose={onClose}>
+      <form onSubmit={send}>
+        <p className="lt-hint">{t('reportLead')}</p>
         <fieldset>
           {(['lost', 'stolen'] as const).map((r) => (
-            <label key={r} className="choice">
-              <input type="radio" name="report-reason" checked={reason === r} onChange={() => setReason(r)} /> {t(r)}
-            </label>
+            <Radio key={r} name="report-reason" checked={reason === r} onSelect={() => setReason(r)}>
+              {t(r)}
+            </Radio>
           ))}
         </fieldset>
-        <Button type="submit" variant="danger" disabled={busy}>
+        <Button type="submit" tone="primary" disabled={busy}>
           {t('reportConfirm')}
         </Button>
         {failure && <Refusal failure={failure} />}
       </form>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -296,16 +296,20 @@ export function CardJourney({ card, reload }: { card: CardRecord; reload: () => 
   // after the list reloads and this panel is drawn again.
   const replacedBy = replaced ?? (card.status === 'closed' && card.cardType === 'physical' ? (card.replacedByCardId ?? null) : null);
   return (
-    <div className="form-stack" data-testid="card-journey">
+    <div data-testid="card-journey">
       <p data-testid="card-status" data-status={card.status}>
         {t('statusLabel', { status: statusWord(t, card.status) })}
       </p>
       <Uses card={card} />
       {card.cardType === 'physical' && <Delivery card={card} />}
-      <div className="actions">
-        {card.status === 'inactive' && <Button onClick={() => setDialog('activate')}>{t('activate')}</Button>}
+      <div className="lt-actions">
+        {card.status === 'inactive' && (
+          <Button tone="primary" onClick={() => setDialog('activate')}>
+            {t('activate')}
+          </Button>
+        )}
         {(card.status === 'active' || card.status === 'inactive' || card.status === 'frozen') && (
-          <Button variant="secondary" onClick={() => setDialog('report')}>
+          <Button tone="secondary" onClick={() => setDialog('report')}>
             {t('report')}
           </Button>
         )}
@@ -361,16 +365,16 @@ export function CardCashback() {
   if (read.resource.status === 'loading') return null;
   if (read.resource.status === 'failed') {
     return (
-      <section className="form-stack" data-testid="card-cashback">
-        <h3 className="bd-subhead">{t('cashbackTitle')}</h3>
+      <section data-testid="card-cashback">
+        <h3>{t('cashbackTitle')}</h3>
         <Refusal failure={read.resource.failure} />
       </section>
     );
   }
   const c = read.resource.data;
   return (
-    <section className="form-stack" data-testid="card-cashback" data-tier={c.tier}>
-      <h3 className="bd-subhead">{t('cashbackTitle')}</h3>
+    <section data-testid="card-cashback" data-tier={c.tier}>
+      <h3>{t('cashbackTitle')}</h3>
       <p>{t('cashbackTier', { tier: t(TIER_KEY[c.tier]) })}</p>
       <p>{c.rateBps === null ? t('cashbackNoRate') : t('cashbackRate', { percent: percentOf(c.rateBps), asset: c.assetId })}</p>
       <table aria-label={t('cashbackTable')}>
@@ -401,7 +405,7 @@ export function CardCashback() {
               {t('cashbackToWallet', { amount: c.toWallet, asset: c.assetId })} <a href="/uc/promotion">{t('cashbackToWalletLink')}</a>
             </p>
           )}
-          {c.simulated && <p className="money-caption">{t('cashbackSimulated')}</p>}
+          {c.simulated && <p className="lt-hint">{t('cashbackSimulated')}</p>}
         </>
       ) : (
         <p data-testid="card-cashback-paid" data-code="rail.card">
@@ -448,8 +452,8 @@ export function CardPayFrom() {
   if (read.resource.status === 'loading') return null;
   if (read.resource.status === 'failed') {
     return (
-      <section className="form-stack" data-testid="card-pay-from">
-        <h3 className="bd-subhead">{t('payFromTitle')}</h3>
+      <section data-testid="card-pay-from">
+        <h3>{t('payFromTitle')}</h3>
         <Refusal failure={read.resource.failure} />
       </section>
     );
@@ -486,9 +490,9 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
   }
   const known = (value: string | null, render: (v: string) => string) => (value === null ? t('payFromNotKnown') : render(value));
   return (
-    <section className="form-stack" data-testid="card-pay-from" data-mode={p.custodyMode ?? 'not_known'}>
-      <h3 className="bd-subhead">{t('payFromTitle')}</h3>
-      {p.test && <p className="money-caption">{t('payFromTest')}</p>}
+    <section data-testid="card-pay-from" data-mode={p.custodyMode ?? 'not_known'}>
+      <h3>{t('payFromTitle')}</h3>
+      {p.test && <p className="lt-hint">{t('payFromTest')}</p>}
       <p data-testid="card-pay-from-mode">
         {t('payFromHow')}: {t(p.custodyMode ? PAY_FROM_MODE[p.custodyMode] : 'payFromModeUnknown')}
       </p>
@@ -515,7 +519,7 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
                 <td data-testid={`card-pay-from-${row.assetId}-rate`}>
                   {offeredRow ? known(row.rate, (v) => `${v} ${p.settlementAssetId ?? ''}`.trim()) : null}
                   {offeredRow && row.rate !== null ? (
-                    <span className="money-caption" data-testid={`card-pay-from-${row.assetId}-rate-estimate`}>
+                    <span className="lt-hint" data-testid={`card-pay-from-${row.assetId}-rate-estimate`}>
                       {' '}
                       ({t('payFromEstimate')})
                     </span>
@@ -535,7 +539,7 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
           })}
         </tbody>
       </table>
-      <p className="money-caption" data-testid="card-pay-from-estimate">
+      <p className="lt-hint" data-testid="card-pay-from-estimate">
         {t('payFromEstimateNote')}
       </p>
       <p data-testid="card-pay-from-saved">
@@ -551,14 +555,14 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
           : t('payFromNoOrder')}
       </p>
       {draft.length > 0 && (
-        <form className="form-stack" onSubmit={save} noValidate aria-label={t('payFromOrderHead')}>
+        <form onSubmit={save} noValidate aria-label={t('payFromOrderHead')}>
           <ol data-testid="card-pay-from-order">
             {draft.map((assetId, index) => (
               <li key={assetId} data-asset={assetId}>
                 {assetId}{' '}
                 <Button
                   type="button"
-                  variant="secondary"
+                  tone="secondary"
                   disabled={index === 0}
                   onClick={() => move(index, -1)}
                   aria-label={t('payFromMoveUp', { asset: assetId })}
@@ -567,7 +571,7 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
                 </Button>{' '}
                 <Button
                   type="button"
-                  variant="secondary"
+                  tone="secondary"
                   disabled={index === draft.length - 1}
                   onClick={() => move(index, 1)}
                   aria-label={t('payFromMoveDown', { asset: assetId })}
@@ -577,7 +581,7 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
               </li>
             ))}
           </ol>
-          <Button type="submit" disabled={busy}>
+          <Button tone="primary" type="submit" disabled={busy}>
             {t('payFromSave')}
           </Button>
           {failure && <Refusal failure={failure} />}

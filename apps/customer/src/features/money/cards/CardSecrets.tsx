@@ -1,18 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
-import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session';
-import type { StepUpBegin } from '../account';
-import { ResourceView, useBankRead } from './components';
-import { bankWrites, type cardSchema, type CardWalletTokens } from './contracts';
-import { DisabledAction, Fact } from './DepthParts';
+import type { ApiResult } from '../../../shared/api';
+import { Button, Field } from '@intafaced/ui/lit';
+import { useSession } from '../../session';
+import type { StepUpBegin } from '../../account';
+import { useBankRead } from '../components';
+import { bankWrites, type cardSchema, type CardWalletTokens } from '../contracts';
+import { DisabledAction, Fact, ResourceView } from '../bank-settings/parts';
 import { Refusal } from './CardJourney';
-import { StepUpConfirm } from './StepUpConfirm';
-import { cardDepthCopy } from './card-depth-copy';
-import { cardSecretsCopy } from './card-secrets-copy';
-import { withPlainRefusal } from './money-refusal-copy';
-import './bank-depth.css';
+import { StepUpInline } from '../bank-settings/StepUpInline';
+import { cardDepthCopy } from '../card-depth-copy';
+import { cardSecretsCopy } from '../card-secrets-copy';
+import { withPlainRefusal } from '../money-refusal-copy';
 
 /**
  * A card's details, PIN and phone wallets (J-bank-14 #3 #4; BK-cctl-03, BK-cctl-04). Each reveal and each new PIN needs
@@ -90,10 +89,10 @@ export function CardDetailsReveal({ card, offered }: { card: CardRecord; offered
     fields: { cardId: card.id, revealId },
   });
   return (
-    <div className="form-stack" data-testid="card-details-reveal">
+    <div data-testid="card-details-reveal">
       {shown ? (
         <>
-          <dl className="bd-facts" aria-label={depth('detailsTitle')}>
+          <dl className="lt-kv" aria-label={depth('detailsTitle')}>
             <Fact label={t('pan')}>
               <span lang="zxx" dir="ltr" data-testid="card-pan">
                 {shown.pan}
@@ -110,23 +109,23 @@ export function CardDetailsReveal({ card, offered }: { card: CardRecord; offered
               </span>
             </Fact>
           </dl>
-          {shown.test && <p className="money-caption">{t('testDetails')}</p>}
-          <p className="money-caption" role="status">
+          {shown.test && <p className="lt-hint">{t('testDetails')}</p>}
+          <p className="lt-hint" role="status">
             {t('hidesAt', { time: timeOf(shown.expiresAt) })}
           </p>
-          <Button variant="ghost" onClick={() => setShown(null)}>
+          <Button tone="quiet" onClick={() => setShown(null)}>
             {t('hide')}
           </Button>
         </>
       ) : asking ? (
         <>
-          <StepUpConfirm request={() => request(asking)} words={words} disabled={busy} onApproved={(id) => void reveal(asking, id)} />
-          <Button variant="ghost" disabled={busy} onClick={() => setAsking(null)}>
+          <StepUpInline request={() => request(asking)} words={words} disabled={busy} onApproved={(id) => void reveal(asking, id)} />
+          <Button tone="quiet" disabled={busy} onClick={() => setAsking(null)}>
             {t('cancel')}
           </Button>
         </>
       ) : (
-        <Button variant="secondary" onClick={() => setAsking(crypto.randomUUID())}>
+        <Button tone="secondary" onClick={() => setAsking(crypto.randomUUID())}>
           {depth('detailsShow')}
         </Button>
       )}
@@ -152,7 +151,7 @@ export function CardPinPanel({ card, offered }: { card: CardRecord; offered: Off
   useDropAt(shown?.expiresAt ?? null, () => setShown(null));
   if (!offered?.pin || card.status === 'closed') {
     return (
-      <div className="actions">
+      <div className="lt-actions">
         <DisabledAction label={depth('pinView')} reason={depth('pinReason')} />
         <DisabledAction label={depth('pinChange')} reason={depth('pinReason')} />
       </div>
@@ -200,34 +199,34 @@ export function CardPinPanel({ card, offered }: { card: CardRecord; offered: Off
       ? { scope: 'bank.step_up.cards.pinReveal', purpose: 'cards.pinReveal', target: card.id, fields: { cardId: card.id, revealId: id } }
       : { scope: 'bank.step_up.cards.pinSet', purpose: 'cards.pinSet', target: card.id, fields: { cardId: card.id, commandId: id } };
   return (
-    <div className="form-stack" data-testid="card-pin">
+    <div data-testid="card-pin">
       {shown ? (
         <>
-          <dl className="bd-facts">
+          <dl className="lt-kv">
             <Fact label={t('pin')}>
               <span lang="zxx" dir="ltr" data-testid="card-pin-shown">
                 {shown.pin}
               </span>
             </Fact>
           </dl>
-          {shown.test && <p className="money-caption">{t('testPin')}</p>}
-          <p className="money-caption" role="status">
+          {shown.test && <p className="lt-hint">{t('testPin')}</p>}
+          <p className="lt-hint" role="status">
             {t('hidesAt', { time: timeOf(shown.expiresAt) })}
           </p>
-          <Button variant="ghost" onClick={() => setShown(null)}>
+          <Button tone="quiet" onClick={() => setShown(null)}>
             {t('hide')}
           </Button>
         </>
       ) : asking ? (
         <>
-          <StepUpConfirm
+          <StepUpInline
             request={() => request(asking.kind, asking.id)}
             words={asking.kind === 'view' ? viewWords : setWords}
             disabled={busy}
             onApproved={(id) => void send(asking.kind, asking.id, id)}
           />
           <Button
-            variant="ghost"
+            tone="quiet"
             disabled={busy}
             onClick={() => {
               setAsking(null);
@@ -239,10 +238,10 @@ export function CardPinPanel({ card, offered }: { card: CardRecord; offered: Off
         </>
       ) : (
         <>
-          <Button variant="secondary" onClick={() => setAsking({ kind: 'view', id: crypto.randomUUID() })}>
+          <Button tone="secondary" onClick={() => setAsking({ kind: 'view', id: crypto.randomUUID() })}>
             {depth('pinView')}
           </Button>
-          <form className="form-stack" onSubmit={startSet} aria-label={depth('pinChange')}>
+          <form onSubmit={startSet} aria-label={depth('pinChange')}>
             <Field
               label={t('pinField')}
               error={problem ?? undefined}
@@ -253,14 +252,16 @@ export function CardPinPanel({ card, offered }: { card: CardRecord; offered: Off
               onChange={(event) => setPin(event.target.value.trim())}
               data-testid="card-pin-field"
             />
-            <Button type="submit">{t('pinSubmit')}</Button>
+            <Button tone="primary" type="submit">
+              {t('pinSubmit')}
+            </Button>
           </form>
           {done && (
-            <p className="money-caption" role="status">
+            <p className="lt-hint" role="status">
               {t('pinDone')}
             </p>
           )}
-          {offered.test && <p className="money-caption">{t('testPin')}</p>}
+          {offered.test && <p className="lt-hint">{t('testPin')}</p>}
         </>
       )}
       {failure && <Refusal failure={failure} />}
@@ -276,7 +277,7 @@ export function CardWalletPanel({ card, offered }: { card: CardRecord; offered: 
     // The partner's own no reads as the partner's; otherwise no issuer that adds cards to phone wallets is connected.
     const reason = offered?.walletNotOffered ? depth('walletNotOffered') : depth('walletReason');
     return (
-      <div className="actions" data-testid="card-wallets" data-offered={offered?.walletNotOffered ? 'not-by-partner' : 'no-issuer'}>
+      <div className="lt-actions" data-testid="card-wallets" data-offered={offered?.walletNotOffered ? 'not-by-partner' : 'no-issuer'}>
         <DisabledAction label={depth('walletApple')} reason={reason} />
         <DisabledAction label={depth('walletGoogle')} reason={reason} />
       </div>
@@ -315,7 +316,7 @@ function Wallets({ card, tokens, reload }: { card: CardRecord; tokens: CardWalle
     reload();
   }
   return (
-    <div className="form-stack" data-testid="card-wallets">
+    <div data-testid="card-wallets">
       {tokens.tokens.length ? (
         <ul aria-label={t('walletList')}>
           {tokens.tokens.map((token) => (
@@ -325,21 +326,21 @@ function Wallets({ card, tokens, reload }: { card: CardRecord; tokens: CardWalle
           ))}
         </ul>
       ) : (
-        <p className="muted">{t('walletNone')}</p>
+        <p className="lt-hint">{t('walletNone')}</p>
       )}
       {active ? (
-        <div className="actions">
-          <Button variant="secondary" disabled={busy} onClick={() => void add('apple')}>
+        <div className="lt-actions">
+          <Button tone="secondary" disabled={busy} onClick={() => void add('apple')}>
             {depth('walletApple')}
           </Button>
-          <Button variant="secondary" disabled={busy} onClick={() => void add('google')}>
+          <Button tone="secondary" disabled={busy} onClick={() => void add('google')}>
             {depth('walletGoogle')}
           </Button>
         </div>
       ) : (
-        <p className="money-caption">{t('walletInactive')}</p>
+        <p className="lt-hint">{t('walletInactive')}</p>
       )}
-      {tokens.test && <p className="money-caption">{t('testWallet')}</p>}
+      {tokens.test && <p className="lt-hint">{t('testWallet')}</p>}
       {failure && <Refusal failure={failure} />}
     </div>
   );
