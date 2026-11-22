@@ -216,7 +216,6 @@
     "apps/customer/src/features/quant/StrategyPage.tsx": 1,
     "apps/customer/src/features/quant/StrategyPublish.tsx": 2,
     "apps/customer/src/features/quant/StrategyTeam.tsx": 1,
-    "apps/customer/src/features/trade/account/AccountMode.tsx": 1,
     "apps/customer/src/features/trade/Chart.tsx": 26,
     "apps/customer/src/features/trade/market-analytics/MarketAnalyticsRoom.tsx": 1,
     "apps/customer/src/features/trade/news/NewsRooms.tsx": 4,
