@@ -20,6 +20,18 @@ mod partner_probe;
 mod spaces_db;
 #[path = "store_pg.rs"]
 mod store_pg;
+#[path = "transfers_guards_db.rs"]
+mod transfers_guards_db;
+#[path = "transfers_schedules_db.rs"]
+mod transfers_schedules_db;
+#[path = "transfers_send_db.rs"]
+mod transfers_send_db;
+#[path = "transfers_step_up_db.rs"]
+mod transfers_step_up_db;
+#[path = "transfers_terms_db.rs"]
+mod transfers_terms_db;
+#[path = "transfers_withdrawal_db.rs"]
+mod transfers_withdrawal_db;
 #[path = "wire_replay.rs"]
 mod wire_replay;
 

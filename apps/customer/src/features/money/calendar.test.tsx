@@ -4,7 +4,7 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { ItemList, MonthGrid, Sources } from './Calendar';
+import { ItemList, MonthGrid, Sources } from './calendar/Calendar';
 import { bankReads, type CalendarItem, type CalendarView } from './contracts';
 
 /** BK-acct-10 screen half (J-bank-06 #5): the money calendar's grid, list and source notes. */
@@ -63,7 +63,7 @@ describe('the money calendar', () => {
       />,
     );
     // 1 November 2026 is a Sunday: six empty cells lead.
-    expect(html.match(/bd-cal__day--pad/g)).toHaveLength(6);
+    expect(html.match(/data-pad=""/g)).toHaveLength(6);
     expect(html).toMatch(/data-testid="cal-day-20".*href="\/bank\/transfers"[^>]*>Standing order</);
     expect(html).toMatch(/data-testid="cal-day-3".*href="\/bank\/direct-debits"[^>]*>Direct debit: TEST Gym</);
     expect(html).toMatch(/data-testid="cal-day-25".*href="\/bank\/earn"[^>]*>Earn matures</);
