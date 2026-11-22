@@ -5,18 +5,18 @@ import './home-layout.css';
 
 export function LayoutFrame({
   here,
+  heading = true,
   title,
   purpose,
   action,
-  heading = true,
   children,
 }: {
   here: string;
+  /** False when the page draws its own title on its template: no heading here, so the page keeps one. */
+  heading?: boolean;
   title: ReactNode;
   purpose?: ReactNode;
   action?: ReactNode;
-  /** False when the page draws its own title row (a page on its Volt template): the frame then draws no heading. */
-  heading?: boolean;
   children: ReactNode;
 }) {
   const { t } = c.useCopy();
@@ -25,9 +25,9 @@ export function LayoutFrame({
     <div className={`plo pfo-tabs ${dashboard ? 'plo--dashboard' : 'plo--list'} ${here === '/pay/payments' ? 'plo--payments' : ''}`}>
       <LayoutNavigation key={here} here={here} />
       <div data-testid="pp" className="plo-content pp">
-        {dashboard ? (
+        {!heading ? null : dashboard ? (
           <h1 className="pp-sr">{t('overviewHeading')}</h1>
-        ) : !heading ? null : (
+        ) : (
           <header data-testid="plo-heading" className="plo-heading">
             <div>
               <h1>{title}</h1>

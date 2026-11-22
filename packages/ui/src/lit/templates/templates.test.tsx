@@ -529,6 +529,17 @@ describe('gallery fixtures are shaped as the API sends them', () => {
   });
 });
 
+describe('the room title', () => {
+  it('takes a language of its own and is focusable only when the room holds its ref', async () => {
+    const { ReadingTemplate } = await import('./templates.js');
+    const plain = html(<ReadingTemplate title="Help" state={{ kind: 'ready' }} body="B" />);
+    expect(plain).toContain('<h1 class="lt-title">Help</h1>');
+    const ref = React.createRef<HTMLHeadingElement>();
+    const own = html(<ReadingTemplate title="Ayuda" titleLang="es" titleRef={ref} state={{ kind: 'ready' }} body="B" />);
+    expect(own).toContain('<h1 class="lt-title" lang="es" tabindex="-1">Ayuda</h1>');
+  });
+});
+
 describe("a limit's use and a brand sample", () => {
   it('Meter reads as a progress bar with its words, clamps the fill and marks full by a state', () => {
     const half = html(<Meter label="Daily intake" value={62.4} text="62% used" />);

@@ -374,6 +374,12 @@ import {
   AGENTS_OWN_TOOL_TEST,
   AGENTS_OWN_TEST_RUNS,
   AGENTS_OWN_ANALYTICS,
+  AGENTS_OWN_POLICY_ADD,
+  AGENTS_OWN_POLICY_REMOVE,
+  AGENTS_OWN_POLICY_REQUIRE,
+  AGENTS_OWN_SCHEDULES_LIST,
+  AGENTS_OWN_SCHEDULES_CANCEL,
+  AGENTS_OWN_TRIGGERS_LIST,
 } from './agents-own-procedures.js';
 
 import { AGENTS_ROUTES_DESK, AGENTS_ROUTES_PROPOSE, AGENTS_ROUTES_LIST } from './agents-routes-procedures.js';
@@ -852,6 +858,7 @@ import {
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
   IDENTITY_AUTH_STEP_UP_OPTIONS,
+  IDENTITY_AUTH_LOGOUT_ALL,
 } from './identity-auth-procedures.js';
 
 import {
@@ -1820,6 +1827,8 @@ import {
   TOKEN_LAUNCH_BASIS,
 } from './token-launch-procedures.js';
 
+import { TOKEN_MINT_EPOCH } from './token-mint-epoch-procedures.js';
+
 import { TOKEN_NEXT_EMISSION_EPOCH } from './token-next-emission-epoch-procedures.js';
 
 import {
@@ -2320,6 +2329,12 @@ const part_agents_own_procedures: readonly ProcedureRecord[] = [
   AGENTS_OWN_TOOL_TEST,
   AGENTS_OWN_TEST_RUNS,
   AGENTS_OWN_ANALYTICS,
+  AGENTS_OWN_POLICY_ADD,
+  AGENTS_OWN_POLICY_REMOVE,
+  AGENTS_OWN_POLICY_REQUIRE,
+  AGENTS_OWN_SCHEDULES_LIST,
+  AGENTS_OWN_SCHEDULES_CANCEL,
+  AGENTS_OWN_TRIGGERS_LIST,
 ];
 
 const part_agents_routes_procedures: readonly ProcedureRecord[] = [AGENTS_ROUTES_DESK, AGENTS_ROUTES_PROPOSE, AGENTS_ROUTES_LIST];
@@ -2825,6 +2840,7 @@ const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
   IDENTITY_AUTH_STEP_UP_OPTIONS,
+  IDENTITY_AUTH_LOGOUT_ALL,
 ];
 
 const part_identity_developer_keys_procedures: readonly ProcedureRecord[] = [
@@ -3836,6 +3852,8 @@ const part_token_launch_procedures: readonly ProcedureRecord[] = [
   TOKEN_LAUNCH_BASIS,
 ];
 
+const part_token_mint_epoch_procedures: readonly ProcedureRecord[] = [TOKEN_MINT_EPOCH];
+
 const part_token_next_emission_epoch_procedures: readonly ProcedureRecord[] = [TOKEN_NEXT_EMISSION_EPOCH];
 
 const part_token_procedures: readonly ProcedureRecord[] = [
@@ -4226,6 +4244,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_tax_procedures,
   ...part_token_distribute_revenue_procedures,
   ...part_token_launch_procedures,
+  ...part_token_mint_epoch_procedures,
   ...part_token_next_emission_epoch_procedures,
   ...part_token_procedures,
   ...part_trade_admin_procedures,

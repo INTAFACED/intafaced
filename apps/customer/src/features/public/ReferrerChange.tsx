@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { TextAreaField } from '@intafaced/ui/lit/templates';
+import { FailureNote, Waiting } from '../more';
 import { useSession } from '../session';
 import { referrerChangeCopy as copy } from './referrer-change-copy';
 import { IDENTITY_AFFILIATES_MY_REBIND, IDENTITY_AFFILIATES_WITHDRAW_REBIND } from '@intafaced/contracts/identity-affiliates-procedures';
@@ -61,16 +63,16 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
   // A request saved but not yet filed is filed by asking again, so only one under review hides the offer.
   const canOffer = offerToken !== null && resource.status === 'ready' && latest?.state !== 'under_review';
   return (
-    <section className="invitation__window invitation__change" aria-label={t('title')}>
+    <section className="lt-stack" aria-label={t('title')}>
       <h3>{t('title')}</h3>
       {resource.status === 'loading' ? (
-        <Loading />
+        <Waiting />
       ) : resource.status === 'failed' ? (
         <div lang="und">
-          <Failure result={resource.failure} retry={reload} />
+          <FailureNote result={resource.failure} retry={reload} />
         </div>
       ) : !latest ? (
-        <p className="muted">{t('none')}</p>
+        <p className="lt-hint">{t('none')}</p>
       ) : (
         <div>
           <p role="status" data-rebind={latest.state}>
@@ -79,10 +81,10 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
               appliedAt: latest.appliedAt ? when(latest.appliedAt) : '',
             })}
           </p>
-          <dl>
+          <dl className="lt-kv">
             <div>
               <dt>{t('toReferrer')}</dt>
-              <dd lang="zxx" data-testid="invitation__private" className="invitation__private">
+              <dd lang="zxx" data-testid="invitation__private" className="lt-mono lt-wrap">
                 {latest.toReferrerId}
               </dd>
             </div>
@@ -104,7 +106,7 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
             )}
           </dl>
           {OPEN.has(latest.state) && (
-            <Button variant="secondary" disabled={busy} onClick={() => void withdraw(latest.requestId)}>
+            <Button tone="secondary" disabled={busy} onClick={() => void withdraw(latest.requestId)}>
               {t('withdraw')}
             </Button>
           )}
@@ -112,27 +114,25 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
       )}
       {canOffer && (
         <form
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             void request(offerToken);
           }}
         >
           <h4>{t('offerTitle')}</h4>
-          <p className="muted">{t('offerBody')}</p>
-          <label htmlFor="referrer-change-reason">{t('reasonLabel')}</label>
-          <textarea
+          <p className="lt-hint">{t('offerBody')}</p>
+          <TextAreaField
             id="referrer-change-reason"
+            label={t('reasonLabel')}
+            hint={t('reasonHelp')}
             value={reason}
             minLength={3}
             maxLength={500}
             required
-            aria-describedby="referrer-change-help"
-            onChange={(event) => setReason(event.target.value)}
+            onChange={setReason}
           />
-          <p id="referrer-change-help" className="muted">
-            {t('reasonHelp')}
-          </p>
-          <Button type="submit" disabled={busy || reason.trim().length < 3}>
+          <Button tone="primary" type="submit" disabled={busy || reason.trim().length < 3}>
             {t(busy ? 'sending' : 'submit')}
           </Button>
         </form>
@@ -147,7 +147,7 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
           </div>
         ) : (
           <div lang="und">
-            <Failure result={refused} />
+            <FailureNote result={refused} />
           </div>
         ))}
     </section>

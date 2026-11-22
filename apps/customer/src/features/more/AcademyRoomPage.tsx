@@ -7,7 +7,7 @@ import { useResource } from '../../shared/resource';
 import { Button } from '../../shared/ui';
 import { useApi } from '../session';
 import { academyRoomPageCopy as copy } from './academy-room-page-copy';
-import { lessonHref } from './AcademyLearning';
+import { lessonHref } from './academy-learning-state';
 import { Select, type ActionControls } from './common';
 import { ACADEMY_UNPIN_LESSON } from '@intafaced/contracts/academy-unpin-lesson-procedures';
 import { ACADEMY_PIN_LESSON } from '@intafaced/contracts/academy-pin-lesson-procedures';

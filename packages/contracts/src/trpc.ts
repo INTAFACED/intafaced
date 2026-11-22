@@ -723,12 +723,14 @@ export const serviceProcedure = t.procedure.meta({ caller: 'service' }).use(({ c
  * A procedure only the listed services may call. No caller is UNAUTHORIZED; a
  * caller that is not listed is FORBIDDEN. When the caller was verified by its own
  * key (`serviceAuth: 'keypair'`) the name is proven; under the shared secret it is
- * a claim, which is why the list is still enforced either way.
+ * a claim, which is why the list is still enforced either way. `forbidden` keeps a door's own wording for an unlisted
+ * caller (FORBIDDEN with that message and no code), as `Access.forbidden` names it.
  */
-export function serviceProcedureFor(callers: readonly string[]) {
+export function serviceProcedureFor(callers: readonly string[], options: { readonly forbidden?: string } = {}) {
   return t.procedure.meta({ caller: 'service' }).use(({ ctx, next }) => {
     requireServiceCaller(ctx.service);
     if (!callers.includes(ctx.service)) {
+      if (options.forbidden !== undefined) throw new TRPCError({ code: 'FORBIDDEN', message: options.forbidden });
       throw new TRPCError({
         code: 'FORBIDDEN',
         message: 'This service is not allowed to call this procedure',
