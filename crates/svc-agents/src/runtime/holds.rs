@@ -212,14 +212,15 @@ pub(crate) fn read_own_caps(
     }))
 }
 
-/// \`OwnUsageLimits\`.
-struct UsageLimits {
-    alert_at: Option<Amount>,
-    hard_limit: Option<Amount>,
-    email: bool,
+/// `OwnUsageLimits`: what the person set; none is not set.
+pub(crate) struct UsageLimits {
+    pub(crate) alert_at: Option<Amount>,
+    pub(crate) hard_limit: Option<Amount>,
+    pub(crate) email: bool,
 }
 
-fn read_usage_limits(
+/// `readOwnUsageLimits`: the person's usage limits for one own agent, or none when they set none.
+pub(crate) fn read_usage_limits(
     tx: &mut impl GenericClient,
     owner: &str,
     agent: &str,
@@ -266,20 +267,29 @@ fn next_month(since: Instant) -> Instant {
     Instant(days_from_civil(y, m, 1) * 86_400_000)
 }
 
-/// \`ownAgentSpent\`: committed holds of one own agent in the month starting at \`since\`.
-fn own_agent_spent(
+/// `ownAgentSpent`: committed holds of one own agent in the month starting at `since`; with `held`, runs still held
+/// count at their worst case too.
+pub(crate) fn own_agent_spent(
     tx: &mut impl GenericClient,
     user_id: &str,
     agent: &str,
     since: Instant,
+    held: bool,
 ) -> Result<Amount, StoreError> {
+    let statuses = if held {
+        "('committed', 'held')"
+    } else {
+        "('committed')"
+    };
     sum_of(&tx.query(
-        "SELECT COALESCE(SUM(CASE WHEN r.status = 'held' THEN r.amount ELSE r.committed_amount END), 0::numeric)::text
-           FROM agents.spend_reservations r
-           JOIN agents.agent_sessions s ON s.id = r.session_id
-          WHERE r.user_id = $1::text AND s.user_id = $1::text AND s.agent_id = $2::text
-            AND r.status IN ('committed')
-            AND r.created_at >= $3::text::timestamptz AND r.created_at < $4::text::timestamptz",
+        &format!(
+            "SELECT COALESCE(SUM(CASE WHEN r.status = 'held' THEN r.amount ELSE r.committed_amount END), 0::numeric)::text
+               FROM agents.spend_reservations r
+               JOIN agents.agent_sessions s ON s.id = r.session_id
+              WHERE r.user_id = $1::text AND s.user_id = $1::text AND s.agent_id = $2::text
+                AND r.status IN {statuses}
+                AND r.created_at >= $3::text::timestamptz AND r.created_at < $4::text::timestamptz"
+        ),
         &[&user_id, &format!("{OWN_PREFIX}{agent}"), &since.iso(), &next_month(since).iso()],
     )?)
 }
@@ -338,7 +348,21 @@ fn note_usage_alert(
         return Ok(());
     };
     let asset_id: String = r.try_get(1)?;
+    // The month the run was held in, which is the month its spend counts in, even when it commits after midnight.
     let at = Instant(r.try_get(2)?);
+    record_usage_alert(tx, user_id, agent, &asset_id, at)
+}
+
+/// `recordUsageAlert`: the month's alert when this agent's committed spend in the month of `at` reached the alert the
+/// person set. Once per agent and month: a month already recorded is not summed again, and a second crossing writes
+/// nothing.
+pub(crate) fn record_usage_alert(
+    tx: &mut impl GenericClient,
+    user_id: &str,
+    agent: &str,
+    asset_id: &str,
+    at: Instant,
+) -> Result<(), StoreError> {
     let month = usage_month(at);
     let key = usage_alert_key(agent, &month);
     if !tx
@@ -356,7 +380,7 @@ fn note_usage_alert(
     let Some(alert_at) = limits.alert_at else {
         return Ok(());
     };
-    let spent = own_agent_spent(tx, user_id, agent, period_start("month", at))?;
+    let spent = own_agent_spent(tx, user_id, agent, period_start("month", at), false)?;
     if spent < alert_at {
         return Ok(());
     }

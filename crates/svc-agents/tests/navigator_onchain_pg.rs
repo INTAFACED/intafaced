@@ -32,8 +32,8 @@ use svc_agents::gateway::routing::RoutingTable;
 use svc_agents::metering::Metering;
 use svc_agents::navigator::onchain::abi::{self, Spec};
 use svc_agents::navigator::onchain::ports::{
-    Chain, Freeze, Linked, LinkedWallets, LiveGrant, Market, Mined, PoolTokens, SelfFreeze,
-    SendError, Sender, SessionCall, Token,
+    Chain, Freeze, Linked, LinkedWallet, LinkedWallets, LiveGrant, Market, Mined, PoolTokens,
+    SelfFreeze, SendError, Sender, SessionCall, Token,
 };
 use svc_agents::navigator::onchain::store;
 use svc_agents::runtime::Runtime;
@@ -245,7 +245,10 @@ impl World {
         let mut linked = BTreeMap::new();
         linked.insert(
             USER.to_owned(),
-            Some(Linked::Usable(vec![OWNER.to_owned()])),
+            Some(Linked::Usable(vec![LinkedWallet {
+                address: OWNER.to_owned(),
+                linked_at: "2026-11-09T00:00:00.000Z".to_owned(),
+            }])),
         );
         Some(World {
             db,
@@ -1209,7 +1212,10 @@ fn the_cap_is_the_accounts_orders_of_two_owners_count_together() {
     w.set(|st| {
         st.linked.insert(
             OTHER.to_owned(),
-            Some(Linked::Usable(vec![OWNER.to_owned()])),
+            Some(Linked::Usable(vec![LinkedWallet {
+                address: OWNER.to_owned(),
+                linked_at: "2026-11-09T00:00:00.000Z".to_owned(),
+            }])),
         );
         st.grant.as_mut().unwrap().spend_limit_wei = ETH * 15 / 100;
     });

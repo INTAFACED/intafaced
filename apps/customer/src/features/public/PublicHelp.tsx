@@ -383,7 +383,7 @@ export function PublicHelp() {
                     })}
                   </div>
                   {!articles.length && !ranking && (
-                    <div className="help__empty" role="status">
+                    <div className="help__empty" role="status" data-testid="help-empty">
                       <h2>{t(loaded.articles.length ? 'noMatches' : 'empty')}</h2>
                       <p className="muted">{t(loaded.articles.length ? 'noMatchesBody' : 'emptyBody')}</p>
                       {typed && <RequestEntry query={typed} found={false} contact />}

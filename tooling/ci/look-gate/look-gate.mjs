@@ -219,11 +219,19 @@ export function measure({ maxText }) {
     return `${el.tagName.toLowerCase()}${id ? `#${id}` : cls ? `.${cls}` : ''}`;
   };
 
+  // A closed <details> draws only its summary: the rest has boxes but no paint, so nobody can read it there.
+  const undrawn = (el) => {
+    for (let d = el.closest('details:not([open])'); d; d = d.parentElement?.closest('details:not([open])')) {
+      const summary = d.querySelector(':scope > summary');
+      if (!summary?.contains(el)) return true;
+    }
+    return false;
+  };
   const texts = [];
   let probe = 0;
   for (const el of document.querySelectorAll('body *')) {
     if (texts.length >= maxText) break;
-    if (el.closest('script,style,noscript,svg,[aria-hidden="true"]') || !visible(el)) continue;
+    if (el.closest('script,style,noscript,svg,[aria-hidden="true"]') || !visible(el) || undrawn(el)) continue;
     const nodes = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim());
     if (!nodes.length) continue;
     const c = getComputedStyle(el);
@@ -1346,6 +1354,18 @@ async function selfTestBrowser(eq) {
     eq((await page.evaluate(measure, { maxText: 50 })).small, [], 'inside the gallery picture of a page they are no targets');
     await page.setContent(`<body style="margin:40px"><div inert>${pair}</div></body>`);
     eq((await page.evaluate(measure, { maxText: 50 })).small.length, 2, 'inert buttons outside the picture marker are still measured');
+
+    // Contrast: text inside a closed <details> (anything but its summary) is not drawn, so it is not measured, as it is
+    // not for font; an open one, and the summary, still are.
+    const details = (open) =>
+      page.setContent(
+        `<body style="margin:0;background:#fff"><details${open ? ' open' : ''}><summary class="sum">Availability details</summary><span class="body" style="color:#fff">Not audited</span><details open><summary class="inner">Inner</summary><span class="deep">Deeper</span></details></details></body>`,
+      );
+    const textNames = async () => (await page.evaluate(measure, { maxText: 50 })).texts.map((t) => t.name);
+    await details(false);
+    eq(await textNames(), ['summary.sum'], 'a closed details: only its summary is measured');
+    await details(true);
+    eq(await textNames(), ['summary.sum', 'span.body', 'summary.inner', 'span.deep'], 'an open details: its body is measured too');
 
     // Forced colours: the browser paints authored grey as CanvasText, so it is no finding; a box that keeps its own
     // colours (forced-color-adjust: none) is measured as painted, and low contrast there is.
