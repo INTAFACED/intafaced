@@ -261,11 +261,6 @@ const ACCESS_OPTS = new Set(['module', 'plane', 'tier', 'person', 'ownSession', 
  */
 const KEPT_GUARDS = new Map([
   ['coachRunProcedure', 'checks agents:execute with its own refusal codes before the person-only check; no record field says that'],
-  [
-    'jobProcedure',
-    "is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
-  ],
-  ['personProcedure', 'refuses anyone but the person with no scope to name; a record has no caller for it yet'],
 ]);
 
 /** What an expression stands for, through parentheses, `as const`, a guard function's bound parameters and local consts. */
@@ -438,11 +433,27 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
   }
   if (name === 'serviceProcedureFor') {
     const list = literals(args[0]);
-    if (!list) {
+    // `forbidden`: the door's own wording for an unlisted caller, which the record keeps.
+    const rest = opts(args[1], new Set(['forbidden']));
+    if (!list || rest === null) {
       problems.push('serviceProcedureFor arguments a record cannot copy');
       return undefined;
     }
-    return { text: `{ caller: 'service', callers: [${list.join(', ')}] }` };
+    return { text: `{ caller: 'service', callers: [${list.join(', ')}]${rest} }` };
+  }
+  if (name === 'personProcedure') {
+    // `personProcedure()` or `personProcedure(null, …)`: no scope; else the scope, then the guards a record copies.
+    const none = !args[0] || (args[0].type === 'Literal' && args[0].value === null);
+    const scope = none ? undefined : literalOf(p, args[0], env);
+    const rest = opts(args[1], new Set(['module', 'plane', 'tier']));
+    if ((!none && typeof scope !== 'string') || rest === null) {
+      problems.push('personProcedure with a scope or options a record cannot copy');
+      return undefined;
+    }
+    return {
+      text: `{ caller: 'person'${scope === undefined ? '' : `, scope: '${scope}'`}${rest} }`,
+      ...(scope === undefined ? {} : { scope }),
+    };
   }
   problems.push(`guard ${name}() is not one a record names`);
   return undefined;
@@ -455,6 +466,7 @@ const BUILDERS = new Set([
   'publicJurisdictionProcedure',
   'anyScopeProcedure',
   'serviceProcedureFor',
+  'personProcedure',
 ]);
 
 /** The name of a kept guard this expression is, or calls: `founder`, `opsProcedure`, `coachRunProcedure()`. */

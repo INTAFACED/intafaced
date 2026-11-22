@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { StepUpCheck } from '@intafaced/contracts';
 import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, publicProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts/trpc';
 import {
   tokenAmountSchema as amountString,
   tokenBallotSchema as ballotWire,
@@ -41,7 +41,7 @@ import {
   type YieldRunResult,
 } from './token-service.js';
 import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
-import { requireTokenJobService } from './job-hmac.js';
+import { JOB_CALLER, JOB_FORBIDDEN } from './job-hmac.js';
 import { refuseDelegation, unavailableDelegation } from './delegation.js';
 import { userCopy } from './user-copy.js';
 import type { ChoiceTally } from './ballot-tally.js';
@@ -406,10 +406,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
   const stepUp = options.stepUp ?? null;
 
   /** HTTP job twin: HMAC as svc-token. Session admin:treasury is 401 unsigned. */
-  const jobProcedure = publicProcedure.use(({ ctx, next }) => {
-    requireTokenJobService(ctx.service);
-    return next({ ctx });
-  });
+  const jobProcedure = serviceProcedureFor([JOB_CALLER], { forbidden: JOB_FORBIDDEN });
 
   return router({
     health: publicProcedure

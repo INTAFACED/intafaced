@@ -1,42 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TRPCError } from '@trpc/server';
-import { JOB_CALLER, authorizeTokenJobHttp, requireTokenJobService } from './job-hmac.js';
-
-describe('requireTokenJobService', () => {
-  it('null is UNAUTHORIZED', () => {
-    try {
-      requireTokenJobService(null);
-      expect.unreachable();
-    } catch (err) {
-      expect(err).toBeInstanceOf(TRPCError);
-      expect(err).toMatchObject({ code: 'UNAUTHORIZED' });
-    }
-  });
-
-  it('svc-trade is FORBIDDEN', () => {
-    try {
-      requireTokenJobService('svc-trade');
-      expect.unreachable();
-    } catch (err) {
-      expect(err).toBeInstanceOf(TRPCError);
-      expect(err).toMatchObject({ code: 'FORBIDDEN' });
-    }
-  });
-
-  it('svc-cron is FORBIDDEN — not an unpublished allowlist', () => {
-    try {
-      requireTokenJobService('svc-cron');
-      expect.unreachable();
-    } catch (err) {
-      expect(err).toBeInstanceOf(TRPCError);
-      expect(err).toMatchObject({ code: 'FORBIDDEN' });
-    }
-  });
-
-  it('svc-token passes', () => {
-    expect(() => requireTokenJobService(JOB_CALLER)).not.toThrow();
-  });
-});
+import { JOB_CALLER, JOB_FORBIDDEN, authorizeTokenJobHttp } from './job-hmac.js';
 
 describe('authorizeTokenJobHttp', () => {
   it('null is 401 token.unauthenticated', () => {
@@ -53,7 +16,7 @@ describe('authorizeTokenJobHttp', () => {
       ok: false,
       status: 403,
       code: 'token.forbidden',
-      error: 'token job is callable only as svc-token',
+      error: JOB_FORBIDDEN,
     });
   });
 
