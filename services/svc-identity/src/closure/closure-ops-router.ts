@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import type { Context } from '@intafaced/contracts';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { userCopy } from '../user-copy.js';
 

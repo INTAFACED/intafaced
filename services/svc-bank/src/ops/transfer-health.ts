@@ -9,7 +9,7 @@
  * `ops.disputeRate24h` on svc-p2p. Bills use PAYBILLS' status words.
  * No per-user row and no id.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { ageSeconds, assertWindowHours, countOf, exactRatio, windowStart, type TransferOps } from './transfer-source.js';

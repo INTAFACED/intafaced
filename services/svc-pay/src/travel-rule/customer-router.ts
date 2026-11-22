@@ -1,4 +1,4 @@
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import { travelRuleToTrpcError } from './errors.js';
 import { customerStatusSchema } from './schemas.js';

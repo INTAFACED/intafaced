@@ -1,14 +1,13 @@
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import {
-  merchantLimitAskCapsSchema,
-  payCapSchema,
-  type FounderLimitRequestCloseResult,
-  type MerchantLimitIncreaseResult,
-  type MerchantLimitRequest,
-  type MerchantLimitTerminal,
-  type MerchantLimitWithdrawResult,
+import type {
+  FounderLimitRequestCloseResult,
+  MerchantLimitIncreaseResult,
+  MerchantLimitRequest,
+  MerchantLimitTerminal,
+  MerchantLimitWithdrawResult,
 } from '@intafaced/contracts';
+import { merchantLimitAskCapsSchema, payCapSchema } from '@intafaced/contracts/merchant-control';
 import { transaction, type Queryable } from '@intafaced/db';
 import { writeAudit } from './audit.js';
 import { ControlError } from './errors.js';

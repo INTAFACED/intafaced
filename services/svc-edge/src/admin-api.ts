@@ -20,16 +20,18 @@ import {
   type ComplianceQueueItem,
   type ModuleId,
 } from '@intafaced/config';
+import type {
+  ActionApproval,
+  ActionApprovalConsumeInput,
+  LagSource,
+  WarehouseLagProbe,
+  WarehouseSurfaceResult,
+} from '@intafaced/contracts';
 import {
   queryWarehouseSurface,
   resolveWarehouseReplicaConfig,
   warehouseSurfaceStatusLine,
-  type ActionApproval,
-  type ActionApprovalConsumeInput,
-  type LagSource,
-  type WarehouseLagProbe,
-  type WarehouseSurfaceResult,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-analytics-warehouse';
 import {
   defineReconciliationControlInputSchema,
   listReconciliationControlRunsInputSchema,

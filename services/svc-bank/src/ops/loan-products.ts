@@ -9,7 +9,7 @@
  * the same product. A product already used by open loans is never edited here;
  * loans snapshot their thresholds at opening.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { pointsConvertInputSchema, pointsProgrammeSchema, pointsRedeemInputSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { pointsProgramme, refusePoints } from '../points.js';
 import { guard, mapError } from './kit.js';

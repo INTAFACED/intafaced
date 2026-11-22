@@ -4,7 +4,7 @@
  * provider is not configured is `unset` and is not a healthy rail.
  * No provider heartbeat exists, so lastProbeAt is null with `no_heartbeat`.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';

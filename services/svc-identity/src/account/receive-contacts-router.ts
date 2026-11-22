@@ -4,7 +4,7 @@
  * one. An API key or a sub-account is refused.
  */
 import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { SecurityLockError } from '../auth/security-lock.js';
 import { ReceiveContactError, type ReceiveActor, type ReceiveContactService } from './receive-contacts.js';
 

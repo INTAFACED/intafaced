@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { PayError } from '../payment-service.js';
 
 /** A PayFac parent that lacks a metrics area is refused by name (`pay.submerchant_permission_denied`) as FORBIDDEN. */

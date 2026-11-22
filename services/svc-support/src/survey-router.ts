@@ -1,12 +1,12 @@
 import { TRPCError } from '@trpc/server';
+import type { SupportSurveyConfigureInput } from '@intafaced/contracts';
 import {
   SUPPORT_SURVEY_EMAIL_DELIVERY,
-  scopedProcedure,
   supportSurveyConfigureInputSchema,
   supportSurveyListViewSchema,
   supportSurveyViewSchema,
-  type SupportSurveyConfigureInput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-survey';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   SurveyCapError,
   SurveyIdConflictError,
