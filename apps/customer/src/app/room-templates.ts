@@ -375,7 +375,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/wallet/approvals': { template: 'record-list' },
   '/wallet/session-keys': { template: 'record-list' },
   '/wallet/accounts': { template: 'record-list' },
-  '/wallet/safety': { template: 'reading' },
+  '/wallet/safety': { template: 'reading', migrated: { file: 'features/protocol/wallet/SafetyPanel.tsx' } },
   '/wallet/venue': { template: 'flow', migrated: { file: 'features/protocol/venue-wallet/VenueWalletRoom.tsx' } },
   '/wallet/embedded': { template: 'flow', migrated: { file: 'features/protocol/embedded-wallet/EmbeddedWalletRoom.tsx' } },
   '/wallet/groups/:groupId': { template: 'record-list' },
