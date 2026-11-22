@@ -92,14 +92,12 @@ export function LaunchRequirements({ orders = false }: { orders?: boolean }) {
               </div>
             ))}
           </dl>
-          <details>
-            <summary>
-              <Copy k="details" />
-            </summary>
-            <p>
-              <Copy k="detailsBody" />
-            </p>
-          </details>
+          <h4>
+            <Copy k="details" />
+          </h4>
+          <p>
+            <Copy k="detailsBody" />
+          </p>
         </section>
       </section>
       <aside>
