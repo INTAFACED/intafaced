@@ -22,7 +22,7 @@ const SECTION_PATHS: Readonly<Record<MiningTab, string>> = {
 };
 
 /** The Mining room's sections, the open one pressed; another opens its own address, keeping the simulated view. */
-export function MiningSections({ value, paper }: { value: MiningTab; paper: boolean }) {
+function MiningSections({ value, paper }: { value: MiningTab; paper: boolean }) {
   const depth = miningDepthCopy.useCopy();
   return (
     <SectionTabs<MiningTab>

@@ -36,7 +36,7 @@ export function FeesRoom({ api, test }: { api: SettingsBApi; test: boolean }) {
 }
 
 /** What your payments cost: gross, fees taken, net and refunds, by day or week. The rate is shown only when INTAFACED has stored it. */
-export function Fees({
+function Fees({
   api,
   merchantId,
   test = false,
@@ -211,7 +211,7 @@ function EffectiveRatesList({ rates, children }: { rates: readonly EffectiveRate
 
 /**
  * The effective fee rate per asset: fees taken ÷ gross, exact decimal math, never a mix of assets (`EffectiveFeeRates` in
- * `../../ui/FeeRate`, drawn with the kit). Both lists come from reads the page already made.
+ * the portal's old fee-rate part, drawn with the kit). Both lists come from reads the page already made.
  */
 function EffectiveFeeRates({
   gross,

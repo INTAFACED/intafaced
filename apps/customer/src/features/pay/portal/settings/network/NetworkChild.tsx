@@ -20,7 +20,7 @@ export function NetworkChildRoom({ portal, childId, mode }: { portal: PortalApi;
 }
 
 /** `/pay/network/:child`: one sub-merchant, its last 30 days, its newest payments and who holds permissions over it. */
-export function NetworkChild({ portal, childId, mode }: { portal: PortalApi; childId: string; mode: string | null }) {
+function NetworkChild({ portal, childId, mode }: { portal: PortalApi; childId: string; mode: string | null }) {
   const node = useResource((s) => portal.subGet(childId, s), `portal:sub:${childId}`);
   const summary = useResource((s) => portal.subSummary(childId, s), `portal:sub-summary:${childId}`);
   if (!isPlatformAccount(mode)) return <NotPlatform />;

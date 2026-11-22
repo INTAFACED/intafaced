@@ -26,7 +26,7 @@ export function AnalyticsRoom({ api, test }: { api: SettingsBApi; test: boolean 
 }
 
 /** Captured volume over time: today, 7 or 30 days, or your own dates; by day or week; for one asset or all of them. */
-export function Analytics({
+function Analytics({
   api,
   merchantId,
   test = false,

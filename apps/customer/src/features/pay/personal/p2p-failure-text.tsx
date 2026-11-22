@@ -4,7 +4,7 @@ import type { ServiceFailure } from './p2p-chat-model';
 type ChatT = ReturnType<typeof p2pChatCopy.useCopy>['t'];
 
 /** The plain sentence for a kind of refusal. No service text and no code ever reaches the customer. */
-export function failureText(t: ChatT, kind: ServiceFailure): string {
+function failureText(t: ChatT, kind: ServiceFailure): string {
   switch (kind) {
     case 'signIn':
       return t('failSignIn');
