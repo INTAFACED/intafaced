@@ -1,3 +1,5 @@
+// volt-room: /pay/settings/notifications
+// volt-room: portal:settings-notifications
 import { extensionCopy as c, portalCopy } from './copy';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { useCallback, useEffect, useState } from 'react';

@@ -1,3 +1,4 @@
+// volt-room: /bank/business
 import type { RoomState } from '@intafaced/ui/lit/templates';
 import type { ActionSpec } from '../components';
 import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';

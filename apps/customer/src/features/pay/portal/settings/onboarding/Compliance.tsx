@@ -1,3 +1,5 @@
+// volt-room: /pay/compliance
+// volt-room: portal:compliance
 import type { ReactNode } from 'react';
 import type { z } from 'zod';
 import type { MerchantActivation } from '@intafaced/contracts/merchant-activation';

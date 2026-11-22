@@ -1,3 +1,6 @@
+// volt-room: /pay/settings
+// volt-room: /pay/settings/profile
+// volt-room: portal:settings
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import { useSession } from '../../../../session';

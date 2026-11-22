@@ -1,3 +1,9 @@
+// volt-room: /pay/contacts
+// volt-room: /pay/send/limits
+// volt-room: /pay/fees
+// volt-room: /pay/preferences
+// volt-room: /pay/contacts/groups/:groupId
+// volt-room: /pay/contacts/pools/:poolId
 import { useMemo, type ReactNode } from 'react';
 import { Button, Checkbox, Select } from '@intafaced/ui/lit';
 import { KeyValue, SettingsTemplate } from '@intafaced/ui/lit/templates';

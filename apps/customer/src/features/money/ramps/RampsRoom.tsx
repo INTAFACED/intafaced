@@ -1,3 +1,4 @@
+// volt-room: /bank/ramps
 import type { RoomState } from '@intafaced/ui/lit/templates';
 import type { ActionSpec } from '../components';
 import { t as copyText } from '../copy';
