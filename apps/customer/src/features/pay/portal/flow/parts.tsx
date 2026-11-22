@@ -138,7 +138,7 @@ export function TestBanner() {
 }
 
 /** An ID the merchant may need to quote. Copying says it worked, or says it didn't, to everyone including screen readers. */
-function CopyReference({ value, what }: { value: string; what?: string }) {
+export function CopyReference({ value, what }: { value: string; what?: string }) {
   const { t } = uiCopy.useCopy();
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   return (
