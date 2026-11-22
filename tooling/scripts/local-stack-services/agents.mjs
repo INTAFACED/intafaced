@@ -117,6 +117,9 @@ export function navigatorTrading(chain) {
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
   name: 'agents',
+  // The Rust binary (crates/svc-agents), built by the stack (ensureRustBinaries); it applies its own migrations
+  // (`svc-agents migrate`).
+  rust: true,
   env: () => ({
     ...c('svc-agents', PORTS.agents),
     DATABASE_URL: agentsCatalogueOff() ? onEmptyAgentsDb(dbUrl('svc_agents', secrets)) : dbUrl('svc_agents', secrets),

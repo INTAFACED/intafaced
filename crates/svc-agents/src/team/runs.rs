@@ -630,37 +630,26 @@ mod tests {
     #![allow(clippy::unwrap_used, reason = "a test")]
     use super::*;
 
-    const CATALOG: &str = include_str!("../../../../services/svc-agents/src/own/catalog.ts");
-
     #[test]
     fn the_grantable_tools_are_the_catalogs_non_money_tools_with_a_shape() {
-        // Each tool an own guardrail may grant is in the catalogue with a shape and its module and data class;
-        // `pay.metrics.read` (no shape) and the money tools are not grantable.
-        let grantable: Vec<_> = crate::own::catalog::own_tools()
-            .into_iter()
+        // Each tool an own guardrail may grant has a shape and is not a money tool; `pay.metrics.read` (no shape) and the
+        // money tools are not grantable, and every other catalogue tool is.
+        let tools = crate::own::catalog::own_tools();
+        let grantable: Vec<_> = tools
+            .iter()
             .filter(|t| !t.moves_money && t.shape.is_some())
             .collect();
+        let pay = tools.iter().find(|t| t.name == "pay.metrics.read").unwrap();
+        assert!(pay.shape.is_none() && !pay.moves_money);
+        assert!(!grantable.iter().any(|t| t.name == "pay.metrics.read"));
+        assert_eq!(
+            grantable.len() + 1,
+            tools.iter().filter(|t| !t.moves_money).count(),
+            "every non-money tool but pay.metrics.read is grantable"
+        );
         for t in &grantable {
-            let at = CATALOG.find(&format!("name: '{}'", t.name)).unwrap();
-            let entry = &CATALOG[at..at + CATALOG[at..].find("refusals").unwrap()];
-            assert!(
-                entry.contains(&format!("module: '{}'", t.module)),
-                "{}",
-                t.name
-            );
-            assert!(entry.contains("movesMoney: false"), "{}", t.name);
-            assert!(entry.contains("shape: {"), "{}", t.name);
-            assert_eq!(
-                entry.contains("dataClass: 'live_write'"),
-                t.writes(),
-                "{}",
-                t.name
-            );
+            assert_eq!(t.data_class == Some("live_write"), t.writes(), "{}", t.name);
         }
-        let names = CATALOG.matches("    name: '").count();
-        assert_eq!(names, grantable.len() + 1, "one more: pay.metrics.read");
-        let pay = CATALOG.find("name: 'pay.metrics.read'").unwrap();
-        assert!(CATALOG[pay..pay + 200].contains("shape: null"));
     }
 
     fn agent(tools: &[&str], cap: Option<&str>) -> OwnAgent {

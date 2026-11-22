@@ -2,48 +2,6 @@
   "about": "Every INSERT … ON CONFLICT (<target>) on main when tooling/ci/conflict-keys.mjs landed (18 Nov 2026) that leaves another unique key of its table unabsorbed, one entry per insert and key, with its verdict: safe and why, or a race with its bug issue. Read from the code by four reviewers and spot-checked; races are not yet reproduced. The list only shrinks: fix a race, then remove its entry. New code takes the fix the check prints, never a new entry here.",
   "entries": [
     {
-      "file": "services/svc-agents/src/coach/coach-run.ts",
-      "table": "coach_runs",
-      "target": "(user_id, request_id)",
-      "constraint": "coach_runs_run_key_key",
-      "verdict": "safe",
-      "why": "run_key = coachRunKey(session.id, requestId) (coach-run.ts:210) and session.id comes from openSession -> INSERT agents.agent_sessions with id DEFAULT gen_random_uuid() (runtime.ts:351, drizzle/0000_agents_init.sql:67), new on every call (coach-run.ts:478). Two attempts of one request carry different run_keys."
-    },
-    {
-      "file": "services/svc-agents/src/own/guardrails.ts",
-      "table": "own_agent_consents",
-      "target": "(owner_id, agent_id, data_class)",
-      "constraint": "own_agent_consents_key_uq",
-      "verdict": "race",
-      "issue": 8908,
-      "why": "consent_key is `agents:consent:<owner>:<agent>:<class>` (guardrails.ts:194), the same inputs as the target, and grant() runs with no lock (called from own/routes.ts:835). Two Grant presses at once for a class not yet granted both insert; the loser raises 23505 own_agent_consents_key_uq instead of taking the DO UPDATE."
-    },
-    {
-      "file": "services/svc-agents/src/runs/store.ts",
-      "table": "agent_runs",
-      "target": "(run_key)",
-      "constraint": "agent_runs_session_id_request_id_key",
-      "verdict": "race",
-      "issue": 8909,
-      "why": "run_key = runKeyOf(sessionId, requestId) (runs/store.ts:121) is derived from the other key's own columns, with no lock before the insert. A client retry of the same request id on a session that overlaps the first (the 'repeat returns the stored run' case the docstring at :110-113 promises) both insert; the loser raises 23505 agent_runs_session_id_request_id_key instead of DO NOTHING."
-    },
-    {
-      "file": "services/svc-agents/src/team/store.ts",
-      "table": "team_pools",
-      "target": "(business_id)",
-      "constraint": "team_pools_idempotency_key_key",
-      "verdict": "safe",
-      "why": "Same pg_advisory_xact_lock('agents.team:<business>') (team/store.ts:338) serialises all team_pools writers and the stored key is checked before the insert; the key `agents:pool:<business>:<n>` embeds the business, so it cannot sit on another row."
-    },
-    {
-      "file": "services/svc-agents/src/team/store.ts",
-      "table": "team_role_grants",
-      "target": "(business_id, member_user_id, role)",
-      "constraint": "team_role_grants_idempotency_key_key",
-      "verdict": "safe",
-      "why": "Every writer of team_role_grants takes lockBusiness = pg_advisory_xact_lock('agents.team:<business>') first (team/store.ts:277, :115-116) and re-reads the row by idempotency_key before inserting; the key embeds business, member and role, so it can only belong to this target row."
-    },
-    {
       "file": "services/svc-bank/src/business/business-cards.ts",
       "table": "business_reimbursements",
       "target": "(id)",

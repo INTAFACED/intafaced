@@ -173,6 +173,8 @@ const RUST_READS = new Set([
   // crates/svc-matching/tests/ported_f_conformance.rs: the shared-conformance ADR and exchange-contract's enums.
   'docs/adr/2026-09-18-matching-shared-conformance.md',
   'packages/exchange-contract/src/schemas.ts',
+  // crates/svc-agents/tests/boot.rs: the compose pins' env names are the ones .env.example documents.
+  '.env.example',
 ]);
 /** Source the Rust ledger's recorded tables come from (crates/svc-ledger/scripts/record-posting.mjs, checked in the Rust job). */
 const RUST_READS_UNDER = ['packages/ledger-client/src/'];
