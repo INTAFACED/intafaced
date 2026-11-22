@@ -423,7 +423,7 @@ export const PORTAL_TEMPLATES: Readonly<Record<PortalRoom, RoomTemplate>> = {
   invoice: { template: 'record-list' },
   money: { template: 'overview' },
   'money-activity': { template: 'record-list' },
-  'money-top-up': { template: 'flow' },
+  'money-top-up': { template: 'flow', migrated: { file: 'features/pay/portal/flow/TopUpRoom.tsx' } },
   reports: { template: 'record-list' },
   'report-exports': { template: 'record-list' },
   links: { template: 'record-list' },
