@@ -754,7 +754,9 @@ pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, Box<SendFailed>> {
         if reserved.announced_at.is_none() {
             announce_posted(d, &reserved);
         }
-        hold_received(d, &reserved.transfer_id);
+        if !hold_received(d, &reserved.transfer_id) {
+            credit_posted(d, &reserved, tx_id);
+        }
         return Ok(Sent::Posted(transfer_view(d, &reserved)?));
     }
 
@@ -819,8 +821,8 @@ pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, Box<SendFailed>> {
     if row.status == "posted" && row.announced_at.is_none() {
         announce_posted(d, &row);
     }
-    if row.status == "posted" {
-        hold_received(d, &row.transfer_id);
+    if row.status == "posted" && !hold_received(d, &row.transfer_id) {
+        credit_posted(d, &row, &ledger_tx_id);
     }
     Ok(Sent::Posted(transfer_view(d, &row)?))
 }
@@ -850,17 +852,46 @@ fn mark_posted(
     }
 }
 
-/// `holdReceived`: a posted payment the recipient's rule held is set aside. A failure is logged and finished by the
-/// recovery timer: the send has posted and its answer stands.
-///
-/// The TypeScript then hands a payment that is not held to the recipient's income sorter (`onCreditPosted`); the sorter
-/// is slice `automations`, and its own sweep picks up every credit this hand-off would have made.
-fn hold_received(d: &Deps<'_>, transfer_id: &str) {
-    if let Err(e) = holds::place_for(d, transfer_id, d.now) {
+/// `holdReceived`: a posted payment the recipient's rule held is set aside. True while it is held, so it is not handed
+/// to the income sorter. A failure is logged and finished by the recovery timer: the send has posted and its answer
+/// stands.
+fn hold_received(d: &Deps<'_>, transfer_id: &str) -> bool {
+    match holds::place_for(d, transfer_id, d.now) {
+        Ok(held) => held,
+        Err(e) => {
+            log(
+                "bank.received_hold_after_send_failed",
+                vec![
+                    ("transferId", Json::str(transfer_id)),
+                    ("detail", Json::str(refusal_text(&e))),
+                ],
+            );
+            // Unknown: treat it as held, so the sorter never moves money the hold may still need.
+            true
+        }
+    }
+}
+
+/// `creditPosted`: hand a posted send to the recipient's income sorter (`onCreditPosted`). The sorter's own sweep picks
+/// up anything this misses, so a failure here is logged and the send's answer stands.
+fn credit_posted(d: &Deps<'_>, row: &TransferRow, ledger_tx_id: &str) {
+    let Some(hook) = d.w.credit_posted.as_ref() else {
+        return;
+    };
+    let credit = super::ports::IncomingCredit {
+        transfer_id: row.transfer_id.clone(),
+        from_user_id: row.from_user_id.clone(),
+        to_user_id: row.to_user_id.clone(),
+        asset_id: row.asset_id.clone(),
+        amount: row.amount,
+        ledger_tx_id: ledger_tx_id.to_owned(),
+        posted_at: row.posted_at.unwrap_or(row.created_at),
+    };
+    if let Err(e) = hook.credit_posted(d, &credit) {
         log(
-            "bank.received_hold_after_send_failed",
+            "bank.sorter_after_send_failed",
             vec![
-                ("transferId", Json::str(transfer_id)),
+                ("transferId", Json::str(row.transfer_id.clone())),
                 ("detail", Json::str(refusal_text(&e))),
             ],
         );

@@ -10,6 +10,7 @@
 //! and `timers` (what else `index.ts` runs on a period); the binary (`main.rs`) puts them together.
 
 pub mod activity;
+pub mod automations;
 pub mod cards;
 pub mod credit_previews;
 pub mod db;

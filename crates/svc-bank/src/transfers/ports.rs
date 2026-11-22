@@ -202,6 +202,24 @@ impl Bus for MemoryBus {
     }
 }
 
+/// `IncomingCredit`: a posted payment from another person, as `bank.personal_transfers` holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncomingCredit {
+    pub transfer_id: String,
+    pub from_user_id: String,
+    pub to_user_id: String,
+    pub asset_id: String,
+    pub amount: service_kit::money::Amount,
+    pub ledger_tx_id: String,
+    pub posted_at: service_kit::time::Instant,
+}
+
+/// `onCreditPosted`: a posted send reached the recipient (the automations slice's income sorter). Called after every post
+/// and on a retried send, so it must be safe to repeat. Its failure is logged, never answered: the money has moved.
+pub trait CreditPosted: Send + Sync {
+    fn credit_posted(&self, d: &super::Deps<'_>, credit: &IncomingCredit) -> Result<(), Refusal>;
+}
+
 /// svc-identity over HTTP, signed as svc-bank.
 pub struct IdentityHttp {
     base: String,

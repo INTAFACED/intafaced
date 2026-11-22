@@ -90,7 +90,7 @@ impl RestDoor {
     }
 }
 
-pub(super) fn reply(status: u16, error: &str, code: &str) -> Response {
+pub(crate) fn reply(status: u16, error: &str, code: &str) -> Response {
     Response {
         status,
         body: Json::obj([("error", Json::str(error)), ("code", Json::str(code))]).compact(),
