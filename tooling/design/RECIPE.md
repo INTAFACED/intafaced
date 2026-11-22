@@ -26,3 +26,11 @@ row already on their template. One PR per batch.
    CI review judges the before and after pictures. A journey test changes only when the PR names its step and proves
    it again. Every `data-testid`, `data-cell` and `data-col` a journey test finds by stays:
    `node --test tooling/design/volt-keep-ids.test.mjs` (run with the tooling tests) names any the batch dropped.
+
+## Beside the call-records codemod
+
+The call-records codemod (`tooling/codemod/call-records/`, its `callAs` runs among them) rewrites the call sites in the
+same rooms. A redraw changes markup and kit parts only, never a call expression (`api.query`, `api.call`, `callAs`, a
+read hook's arguments). Whenever a call-records run lands on main, merge main into the layer branch
+(`volt/<template>`) at once. A conflict at a call site is settled by re-running that codemod on the branch, never by
+hand.
