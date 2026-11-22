@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
@@ -126,7 +127,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed') {
     return (
-      <section data-testid="security__card" className="security__card" aria-label={t('title')} lang={languageFor('title')}>
+      <section data-testid="security__card" aria-label={t('title')} lang={languageFor('title')}>
         <h2>{t('title')}</h2>
         <Failure result={resource.failure} retry={reload} />
       </section>
@@ -136,40 +137,24 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
   if (!state) return null;
   const worded = failure ? trustedDeviceCode(failure.code) : undefined;
   return (
-    <section
-      data-testid="security__card"
-      className="security__trusted-devices security__card"
-      aria-label={t('title')}
-      lang={languageFor('title')}
-    >
+    <section data-testid="security__card" className="security__trusted-devices" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
-      <p className="muted" role="status">
+      <p className="lt-hint" role="status">
         {state.check === 'on' ? t('checkOn') : t('checkOff')}
       </p>
-      {note && (
-        <p className="notice" role="status">
-          {note}
-        </p>
-      )}
-      {failure &&
-        (worded ? (
-          <p className="error-text" role="alert">
-            {t(worded)}
-          </p>
-        ) : (
-          <Failure result={failure} />
-        ))}
+      {note && <p role="status">{note}</p>}
+      {failure && (worded ? <p role="alert">{t(worded)}</p> : <Failure result={failure} />)}
       {state.waiting.length > 0 && (
-        <div className="stack">
+        <div>
           <h3>{t('waitingTitle')}</h3>
-          <p className="muted">{t('waitingBody')}</p>
-          <ul data-testid="security__rows" className="security__rows">
+          <p className="lt-hint">{t('waitingBody')}</p>
+          <ul data-testid="security__rows">
             {state.waiting.map((row) => (
-              <li key={row.flowId} data-testid="security__row" className="security__row">
+              <li key={row.flowId} data-testid="security__row">
                 <span>{t('waitingRow', { device: row.label, time: stamp(row.createdAt, timeZone) })}</span>
                 <Button
-                  variant="secondary"
+                  tone="secondary"
                   disabled={busy}
                   aria-label={t('approveLabel', { device: row.label })}
                   onClick={() => open({ kind: 'approve', id: row.flowId, label: row.label })}
@@ -182,19 +167,19 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
         </div>
       )}
       {state.devices.length === 0 ? (
-        <p className="muted">{t('empty')}</p>
+        <p className="lt-hint">{t('empty')}</p>
       ) : (
-        <ul data-testid="security__rows" className="security__rows">
+        <ul data-testid="security__rows">
           {state.devices.map((device) => (
-            <li key={device.id} data-testid="security__row" className="security__row">
+            <li key={device.id} data-testid="security__row">
               <div>
                 <strong>{device.label}</strong>{' '}
                 {device.current && (
-                  <span data-testid="security__ref" className="security__ref">
+                  <span data-testid="security__ref" className="lt-ref">
                     {t('thisDevice')}
                   </span>
                 )}
-                <span className="muted">
+                <span className="lt-hint">
                   {' · '}
                   {t('firstSeen', { time: stamp(device.firstSeenAt, timeZone) })}
                   {' · '}
@@ -203,7 +188,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
                   {device.trustedUntil ? t('until', { time: stamp(device.trustedUntil, timeZone) }) : t('untilRemoved')}
                 </span>
                 {device.newSignIn && (
-                  <p data-testid="security__new-sign-in" className="notice">
+                  <p data-testid="security__new-sign-in">
                     {t('newSignIn')} {device.current ? t('confirmElsewhere') : null}
                   </p>
                 )}
@@ -211,7 +196,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
               {/* The device the alert is about cannot clear it: "This was me" is answered from another device. */}
               {device.newSignIn && !device.current && (
                 <Button
-                  variant="secondary"
+                  tone="secondary"
                   disabled={busy}
                   aria-label={t('confirmLabel', { device: device.label })}
                   onClick={() => void confirmSignIn(device.id)}
@@ -220,7 +205,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
                 </Button>
               )}
               <Button
-                variant="secondary"
+                tone="secondary"
                 disabled={busy}
                 aria-label={t('removeLabel', { device: device.label })}
                 onClick={() => open({ kind: 'remove', id: device.id, label: device.label })}
@@ -234,7 +219,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
       {pending && (
         <form
           ref={form}
-          className="stack"
+
           noValidate
           aria-label={pending.kind === 'remove' ? t('removeTitle') : t('approveTitle')}
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -256,19 +241,15 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
             disabled={busy}
             data-security-sensitive="true"
           />
-          {problem && (
-            <p className="error-text" role="alert">
-              {t(problem)}
-            </p>
-          )}
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          {problem && <p role="alert">{t(problem)}</p>}
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('working') : t('withCode')}
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => form.current && void confirm('passkey', form.current)}>
+            <Button tone="secondary" disabled={busy} onClick={() => form.current && void confirm('passkey', form.current)}>
               {t('withPasskey')}
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => open(null)}>
+            <Button tone="quiet" disabled={busy} onClick={() => open(null)}>
               {t('cancel')}
             </Button>
           </div>

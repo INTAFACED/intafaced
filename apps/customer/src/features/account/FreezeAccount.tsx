@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { selfFreezeCopy as copy } from './self-freeze-copy';
@@ -123,16 +124,12 @@ export function FreezeAccount() {
     return (
       <section
         data-testid="security__card"
-        className="security__freeze security__card"
+
         aria-label={t('frozenTitle')}
         lang={languageFor('frozenTitle')}
       >
         <h2>{t('frozenTitle')}</h2>
-        {note && (
-          <p className="notice" role="status">
-            {note}
-          </p>
-        )}
+        {note && <p role="status">{note}</p>}
         <p>{t('frozenBody', { date: stamp(current.since, timeZone), reason: t(REASON_KEYS[current.reason] as 'reasonPersonal') })}</p>
         <h3>{t('liftTitle')}</h3>
         <p>{t('liftBody')}</p>
@@ -157,8 +154,8 @@ export function FreezeAccount() {
             onApproved={(approval) => void lift(since, approval)}
           />
         ) : (
-          <div className="actions">
-            <Button data-testid="freeze__lift" disabled={lifting} onClick={() => void lift(since, null)}>
+          <div className="lt-actions">
+            <Button tone="primary" data-testid="freeze__lift" disabled={lifting} onClick={() => void lift(since, null)}>
               {lifting ? t('working') : t('liftAsk')}
             </Button>
           </div>
@@ -169,28 +166,17 @@ export function FreezeAccount() {
 
   const refusal = failure && failure.code ? FREEZE_REFUSAL_KEYS[failure.code] : undefined;
   return (
-    <section data-testid="security__card" className="security__freeze security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
-      {note && (
-        <p className="notice" role="status">
-          {note}
-        </p>
-      )}
+      {note && <p role="status">{note}</p>}
       <p>{t('body')}</p>
       <p>{t('consequences')}</p>
-      {failure &&
-        (refusal ? (
-          <p className="notice" role="alert">
-            {t(refusal as 'refusedPassword')}
-          </p>
-        ) : (
-          <Failure result={failure} />
-        ))}
-      <form ref={form} method="post" className="stack" onSubmit={submit} noValidate>
+      {failure && (refusal ? <p role="alert">{t(refusal as 'refusedPassword')}</p> : <Failure result={failure} />)}
+      <form ref={form} method="post" onSubmit={submit} noValidate>
         <fieldset disabled={busy}>
           <legend>{t('reasonLabel')}</legend>
           {FREEZE_REASONS.map((value) => (
-            <label key={value} className="row">
+            <label key={value} className="lt-field">
               <input type="radio" name="freeze-reason" value={value} checked={reason === value} onChange={() => setReason(value)} />{' '}
               {t(REASON_KEYS[value] as 'reasonPersonal')}
             </label>
@@ -206,8 +192,8 @@ export function FreezeAccount() {
           error={problem ? t('passwordNeeded') : undefined}
           data-security-sensitive="true"
         />
-        <div className="actions">
-          <Button type="submit" variant="danger" disabled={busy}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={busy}>
             {busy ? t('working') : t('freezeAsk')}
           </Button>
         </div>
@@ -230,7 +216,7 @@ function LiftRefusal({ failure }: { failure: Failed }) {
   }
   if (words === null) return <Failure result={failure} />;
   return (
-    <p className="notice" role="alert" data-testid="freeze__lift-refusal">
+    <p role="alert" data-testid="freeze__lift-refusal">
       {words}
     </p>
   );

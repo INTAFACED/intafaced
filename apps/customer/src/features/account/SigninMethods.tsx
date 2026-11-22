@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { signWithBrowserWallet, useSession, walletChallengeSchema } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { ServiceOffNotice } from '../../shared/service-off';
+import { Button, Field } from '@intafaced/ui/lit';
+import { ServiceOffNotice } from '@intafaced/ui/lit/templates';
+import { serviceOffCopy } from '../../shared/service-off';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { shortAddress } from '../protocol';
@@ -33,6 +35,7 @@ const started = z.object({ provider: z.string(), authorizationUrl: z.string().ur
  */
 export function SigninMethods({ revision = 0, onChanged }: { revision?: number; onChanged?: () => void } = {}) {
   const { t, languageFor } = copy.useCopy();
+  const offWords = serviceOffCopy.useCopy().t;
   const { api, userId } = useSession();
   const { timeZone } = usePreferences();
   const [editing, setEditing] = useState<'password' | 'phone' | null>(null);
@@ -203,28 +206,34 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
   return (
     <section
       data-testid="security__signin-methods"
-      className="security__signin-methods security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       {note && (
-        <p className="notice" role="status">
+        <p className="lt-hint" role="status">
           {note}
         </p>
       )}
       {problem && (
-        <p className="error-text" role="alert">
+        <p className="lt-hint" role="alert">
           {problem}
         </p>
       )}
-      {off && <ServiceOffNotice code={off.code} action={off.action} role="status" />}
+      {off && (
+        <ServiceOffNotice
+          code={off.code}
+          sentence={offWords('sentence', { action: off.action, dependency: offWords(off.code) })}
+          role="status"
+        />
+      )}
       {failure && <Failure result={failure} />}
       {waiting && (
         <form
           ref={form}
-          className="stack security__confirm"
+
           aria-label={t('confirmTitle')}
           noValidate
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -243,31 +252,30 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             disabled={busy}
             data-security-sensitive="true"
           />
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('working') : t('save')}
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => form.current && void confirm('passkey', form.current)}>
+            <Button tone="secondary" disabled={busy} onClick={() => form.current && void confirm('passkey', form.current)}>
               {t('savePasskey')}
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => (setWaiting(null), setProblem(null))}>
+            <Button tone="quiet" disabled={busy} onClick={() => (setWaiting(null), setProblem(null))}>
               {t('cancel')}
             </Button>
           </div>
         </form>
       )}
-      <ul data-testid="security__rows" className="security__rows">
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('password')}>
+      <ul data-testid="security__rows">
+        <li data-testid="security__row" aria-label={t('password')}>
           <div>
-            <strong>{t('password')}</strong> <span className="muted">{methods.password ? t('passwordOn') : t('passwordOff')}</span>
+            <strong>{t('password')}</strong> <span className="lt-hint">{methods.password ? t('passwordOn') : t('passwordOff')}</span>
           </div>
           {methods.password ? (
-            <Button variant="secondary" disabled={busy} onClick={() => void attempt(change('unlink', 'password'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => void attempt(change('unlink', 'password'))}>
               {t('stopPassword')}
             </Button>
           ) : editing === 'password' ? (
             <form
-              className="stack"
               noValidate
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
@@ -276,25 +284,25 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               }}
             >
               <Field label={t('newPassword')} name="password" type="password" autoComplete="new-password" disabled={busy} />
-              <div className="row">
-                <Button type="submit" disabled={busy}>
+              <div className="lt-actions">
+                <Button tone="primary" type="submit" disabled={busy}>
                   {t('setPassword')}
                 </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => setEditing(null)}>
+                <Button tone="quiet" disabled={busy} onClick={() => setEditing(null)}>
                   {t('cancel')}
                 </Button>
               </div>
             </form>
           ) : (
-            <Button variant="secondary" disabled={busy} onClick={() => (clear(), setEditing('password'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => (clear(), setEditing('password'))}>
               {t('setPassword')}
             </Button>
           )}
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('emailCode')}>
+        <li data-testid="security__row" aria-label={t('emailCode')}>
           <div>
             <strong>{t('emailCode')}</strong>{' '}
-            <span className="muted">
+            <span className="lt-hint">
               {methods.emailCode.on
                 ? t(methods.emailCode.proved ? 'emailCodeOn' : 'emailCodeOnUnproved', { address: methods.emailCode.address ?? '' })
                 : methods.emailCode.proved
@@ -303,35 +311,35 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             </span>
           </div>
           {methods.emailCode.on ? (
-            <Button variant="secondary" disabled={busy} onClick={() => void attempt(change('unlink', 'email_code'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => void attempt(change('unlink', 'email_code'))}>
               {t('turnOff')}
             </Button>
           ) : (
-            <Button variant="secondary" disabled={busy} onClick={() => void attempt(change('link', 'email_code'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => void attempt(change('link', 'email_code'))}>
               {t('turnOn')}
             </Button>
           )}
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('passkeys')}>
+        <li data-testid="security__row" aria-label={t('passkeys')}>
           <div>
             <strong>{t('passkeys')}</strong>{' '}
-            <span className="muted">{methods.passkeys > 0 ? t('passkeyCount', { count: methods.passkeys }) : t('noPasskeys')}</span>
+            <span className="lt-hint">{methods.passkeys > 0 ? t('passkeyCount', { count: methods.passkeys }) : t('noPasskeys')}</span>
           </div>
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('wallets')}>
+        <li data-testid="security__row" aria-label={t('wallets')}>
           <div>
             <strong>{t('wallets')}</strong>
-            {methods.wallets.length === 0 && <span className="muted"> {t('noWallets')}</span>}
+            {methods.wallets.length === 0 && <span className="lt-hint"> {t('noWallets')}</span>}
             {methods.wallets.length > 0 && (
-              <ul className="security__wallets">
+              <ul>
                 {methods.wallets.map((wallet) => (
                   <li key={wallet.address}>
-                    <span lang="zxx" data-testid="security__ref" className="security__ref" title={wallet.address}>
+                    <span lang="zxx" data-testid="security__ref" className="lt-ref" title={wallet.address}>
                       {shortAddress(wallet.address)}
                     </span>{' '}
-                    <span className="muted">{t('walletLinked', { time: stamp(wallet.linkedAt, timeZone) })}</span>{' '}
+                    <span className="lt-hint">{t('walletLinked', { time: stamp(wallet.linkedAt, timeZone) })}</span>{' '}
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       disabled={busy}
                       aria-label={t('removeWallet', { address: shortAddress(wallet.address) })}
                       onClick={() => void attempt(change('unlink', walletMethod(wallet.address)))}
@@ -343,27 +351,27 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               </ul>
             )}
           </div>
-          <Button variant="secondary" disabled={busy} onClick={() => void linkWallet()}>
+          <Button tone="secondary" disabled={busy} onClick={() => void linkWallet()}>
             {t('linkWallet')}
           </Button>
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('phone')}>
+        <li data-testid="security__row" aria-label={t('phone')}>
           <div>
             <strong>{t('phone')}</strong>{' '}
             {methods.phone ? (
               <>
-                <span lang="zxx" data-testid="security__ref" className="security__ref">
+                <span lang="zxx" data-testid="security__ref" className="lt-ref">
                   {methods.phone}
                 </span>{' '}
-                <span className="muted">{t('phoneLinked')}</span>
+                <span className="lt-hint">{t('phoneLinked')}</span>
               </>
             ) : (
-              <span className="muted">{t('noPhone')}</span>
+              <span className="lt-hint">{t('noPhone')}</span>
             )}
           </div>
           {methods.phone ? (
             <Button
-              variant="secondary"
+              tone="secondary"
               disabled={busy}
               aria-label={t('removePhone', { phone: methods.phone })}
               onClick={() => void attempt(change('unlink', 'sms_code'))}
@@ -372,7 +380,6 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             </Button>
           ) : editing === 'phone' && texted ? (
             <form
-              className="stack"
               noValidate
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
@@ -390,21 +397,20 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
                 disabled={busy}
                 data-security-sensitive="true"
               />
-              <div className="row">
-                <Button type="submit" disabled={busy}>
+              <div className="lt-actions">
+                <Button tone="primary" type="submit" disabled={busy}>
                   {t('confirmPhone')}
                 </Button>
-                <Button variant="secondary" disabled={busy} onClick={() => void textCode(texted)}>
+                <Button tone="secondary" disabled={busy} onClick={() => void textCode(texted)}>
                   {t('resendCode')}
                 </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => (setEditing(null), setTexted(null), setWaiting(null))}>
+                <Button tone="quiet" disabled={busy} onClick={() => (setEditing(null), setTexted(null), setWaiting(null))}>
                   {t('cancel')}
                 </Button>
               </div>
             </form>
           ) : editing === 'phone' ? (
             <form
-              className="stack"
               noValidate
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
@@ -414,34 +420,34 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               }}
             >
               <Field label={t('phoneField')} name="phone" type="tel" autoComplete="tel" disabled={busy} />
-              <div className="row">
-                <Button type="submit" disabled={busy}>
+              <div className="lt-actions">
+                <Button tone="primary" type="submit" disabled={busy}>
                   {t('sendCode')}
                 </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => setEditing(null)}>
+                <Button tone="quiet" disabled={busy} onClick={() => setEditing(null)}>
                   {t('cancel')}
                 </Button>
               </div>
             </form>
           ) : (
-            <Button variant="secondary" disabled={busy} onClick={() => (clear(), setTexted(null), setEditing('phone'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => (clear(), setTexted(null), setEditing('phone'))}>
               {t('linkPhone')}
             </Button>
           )}
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('social')}>
+        <li data-testid="security__row" aria-label={t('social')}>
           <div>
             <strong>{t('social')}</strong>
-            {methods.providers.length === 0 && <span className="muted"> {t('noSocial')}</span>}
+            {methods.providers.length === 0 && <span className="lt-hint"> {t('noSocial')}</span>}
             {methods.providers.length > 0 && (
-              <ul className="security__wallets">
+              <ul>
                 {methods.providers.map((provider) => (
                   <li key={provider}>
-                    <span lang="zxx" data-testid="security__ref" className="security__ref">
+                    <span lang="zxx" data-testid="security__ref" className="lt-ref">
                       {provider}
                     </span>{' '}
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       disabled={busy}
                       aria-label={t('removeSocial', { provider })}
                       onClick={() => void attempt(change('unlink', `social:${provider}`))}
@@ -453,14 +459,14 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               </ul>
             )}
           </div>
-          <Button variant="secondary" disabled={busy} onClick={() => void linkSocial()}>
+          <Button tone="secondary" disabled={busy} onClick={() => void linkSocial()}>
             {t('linkSocial')}
           </Button>
         </li>
       </ul>
-      {last && <p className="muted">{t('lastOne')}</p>}
-      <div className="actions">
-        <Button variant="secondary" onClick={reload}>
+      {last && <p className="lt-hint">{t('lastOne')}</p>}
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={reload}>
           {t('refresh')}
         </Button>
       </div>
