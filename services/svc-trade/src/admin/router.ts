@@ -5,7 +5,7 @@
  */
 import { FEED_GAP_WINDOW_MAX_MINUTES } from './feed-health.js';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError } from '@intafaced/auth';
 import { TradeOpsError } from './common.js';
 import { SETTABLE_MARKET_MODES } from './market-mode.js';

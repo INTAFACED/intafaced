@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { scopedProcedure, supportWithdrawalFreezeRecordsResultSchema, supportWithdrawalFreezeResultSchema } from '@intafaced/contracts';
+import {
+  supportWithdrawalFreezeRecordsResultSchema,
+  supportWithdrawalFreezeResultSchema,
+} from '@intafaced/contracts/support-withdrawal-freeze';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { requireSupportOps } from './support-service.js';
 import type { WithdrawalFreezes } from './withdrawal-freeze.js';
 

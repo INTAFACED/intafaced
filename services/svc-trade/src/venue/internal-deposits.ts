@@ -11,7 +11,8 @@
  * are decimal strings (`encodeVenueWire`).
  */
 import type { FastifyInstance } from 'fastify';
-import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { VenueRefusalError, encodeVenueWire, type AsOf, type UserVenueDeposit } from '@intafaced/venue-contracts';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;

@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 
 export type CustodyApprovalErrorCode =
   | 'custody_approval.quorum_unset'

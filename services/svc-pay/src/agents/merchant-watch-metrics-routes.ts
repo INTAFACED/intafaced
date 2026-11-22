@@ -6,14 +6,10 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import {
-  DEFAULT_SERVICE_BODY_BIND_MODE,
-  retainRawBody,
-  verifyServiceRequest,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-  type ServiceBodyBindMode,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier, ServiceBodyBindMode } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { DEFAULT_SERVICE_BODY_BIND_MODE } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import type { MerchantWatchMetricsStore } from './merchant-watch-metrics-store.js';
 
 export const MERCHANT_WATCH_METRICS_PATH = '/internal/agents/merchant-watch-metrics' as const;

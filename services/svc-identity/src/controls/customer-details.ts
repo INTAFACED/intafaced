@@ -1,6 +1,18 @@
 import type { Queryable } from '@intafaced/db';
 import { createHmac, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type {
+  Context,
+  CustomerDetailDecisionInput,
+  CustomerDetailKey,
+  CustomerDetailReview,
+  CustomerDetails,
+  CustomerDetailsEditInput,
+  CustomerDetailsResult,
+  CustomerDetailsState,
+  HolderNameCheck,
+  HolderNameCheckInput,
+} from '@intafaced/contracts';
 import {
   CUSTOMER_DETAIL_KEYS,
   CUSTOMER_PROTECTED_DETAIL_KEYS,
@@ -12,18 +24,8 @@ import {
   customerDetailsResultSchema,
   customerDetailsSchema,
   customerDetailsStateSchema,
-  holderNameCheckInputSchema,
-  type Context,
-  type CustomerDetailDecisionInput,
-  type CustomerDetailKey,
-  type CustomerDetailReview,
-  type CustomerDetails,
-  type CustomerDetailsEditInput,
-  type CustomerDetailsResult,
-  type CustomerDetailsState,
-  type HolderNameCheck,
-  type HolderNameCheckInput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
+import { holderNameCheckInputSchema } from '@intafaced/contracts/identity';
 import { decryptDocument, encryptDocument } from '../kyc/document-crypto.js';
 import { FounderControlError, type FounderControls, type UserRow } from './founder-controls.js';
 

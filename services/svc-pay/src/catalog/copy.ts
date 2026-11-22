@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
-import { CATALOG_COPY_MAX_PRODUCTS, CATALOG_COPY_MAX_READ, type CatalogCopy } from '@intafaced/contracts';
+import type { CatalogCopy } from '@intafaced/contracts';
+import { CATALOG_COPY_MAX_PRODUCTS, CATALOG_COPY_MAX_READ } from '@intafaced/contracts/merchant-catalog';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import type { MerchantCaller } from '../merchant-ops/roles.js';
 import { keyId } from './import.js';

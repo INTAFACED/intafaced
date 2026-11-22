@@ -1,13 +1,11 @@
 import { z } from 'zod';
 import {
-  router,
-  protectedProcedure,
-  TRPCError,
   accountControlResultSchema,
   accountControlLookupInputSchema,
   accountControlHistoryInputSchema,
   accountControlStateSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
+import { router, protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { TradingControlError, type TradingControls } from './trading-controls.js';
 import { tradeRestrictInputSchema } from '../admin/trading-restrict.js';
 

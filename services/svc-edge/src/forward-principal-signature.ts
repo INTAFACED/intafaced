@@ -5,7 +5,7 @@ import {
   encodePrincipal,
   signPrincipalHeader,
   signPrincipalHeaderEd25519,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/edge';
 import type { Principal } from '@intafaced/auth';
 
 /** The edge's Ed25519 signing setting (see `edgeEd25519Config`). Absent while the shared secret signs. */

@@ -1,5 +1,6 @@
 import { getAddress, parseAbi, parseAbiItem, type Address, type PublicClient } from 'viem';
-import { CLAIM_ESCROW_UNSET, CLAIM_LINK_NOT_FOUND, type ProtocolClaimLink, type ProtocolClaimLinkConfig } from '@intafaced/contracts';
+import type { ProtocolClaimLink, ProtocolClaimLinkConfig } from '@intafaced/contracts';
+import { CLAIM_ESCROW_UNSET, CLAIM_LINK_NOT_FOUND } from '@intafaced/contracts/protocol-wallet-tx';
 import { isZeroAddress } from '../chain/availability.js';
 
 /**

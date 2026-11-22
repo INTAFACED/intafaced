@@ -189,6 +189,7 @@ fn engine_on(options: Options, bus: Box<dyn EventBus + Send>) -> MatchingEngine 
         snapshot_every: options.snapshot_every,
         sink: Box::new(options.sink),
         enabled: options.enabled,
+        spread_fills: false,
     })
 }
 

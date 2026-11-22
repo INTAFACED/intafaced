@@ -3,7 +3,7 @@
  * records the signed-in operator as its actor and writes one audit row. A staff member with the viewer role is refused
  * every change (`bank.card_programme_viewer`). Nothing here posts to the ledger.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { SETTING_KEYS } from '../cards/programme/programme-ops.js';

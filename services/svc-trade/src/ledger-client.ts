@@ -1,5 +1,6 @@
 import { createHttpLedgerClient, type LedgerClient } from '@intafaced/ledger-client';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { installPreTradeCredit } from './futures/pretrade-credit.js';
 import { installPositionMode } from './futures/position-mode.js';
 import { installCollateralHaircut } from './futures/collateral-haircut.js';

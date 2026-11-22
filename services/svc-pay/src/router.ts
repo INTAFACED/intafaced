@@ -29,15 +29,8 @@ import {
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, hasScope, requireMfa } from '@intafaced/auth';
+import { merchantStarterFeeSchema } from '@intafaced/contracts/merchant-portal';
 import {
-  payCheckoutSettingsGetInputSchema,
-  payCheckoutSettingsSchema,
-  payCreateLinkInputSchema,
-  payCreateLinkOutputSchema,
-  payGetLinkInputSchema,
-  payLinkListInputSchema,
-  payLinkListItemSchema,
-  payLinkListPageSchema,
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentAttemptSchema,
@@ -50,6 +43,19 @@ import {
   paySettlementLineSchema,
   paySettlementViewSchema,
   paySettlementLinesInputSchema,
+  paySettlementListInputSchema,
+} from '@intafaced/contracts/pay-merchant-reads';
+import {
+  payCreateLinkInputSchema,
+  payCreateLinkOutputSchema,
+  payGetLinkInputSchema,
+  payLinkListInputSchema,
+  payLinkListItemSchema,
+  payLinkListPageSchema,
+} from '@intafaced/contracts/pay-payment-links';
+import {
+  payCheckoutSettingsGetInputSchema,
+  payCheckoutSettingsSchema,
   payPayoutDestinationItemSchema,
   payDestinationAddOutputSchema,
   payDestinationCancelHoldInputSchema,
@@ -61,15 +67,10 @@ import {
   payRefundGetInputSchema,
   payRefundItemSchema,
   payRefundListInputSchema,
-  paySettlementListInputSchema,
   payStatementListInputSchema,
   payStatementPageSchema,
-  merchantStarterFeeSchema,
-  router,
-  scopedProcedure,
-  publicProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/pay-portal-reads';
+import { router, scopedProcedure, publicProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
 import type { MerchantTermsConfig } from './merchant-portal/terms.js';
 import { credentialAuthority } from './payment-authority.js';
