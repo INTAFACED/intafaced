@@ -593,7 +593,7 @@ export function nodeTargets(text, file) {
       if (/^\.\.?\//.test(s)) out.add(posix.normalize(posix.join(posix.dirname(file), s)));
       else if (at >= 0) out.add(posix.normalize(s.slice(at)));
       else if (file.startsWith('apps/customer/') && /^\/?src\//.test(s)) out.add(posix.normalize(`apps/customer/${s.replace(/^\//, '')}`));
-      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
+      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling|crates)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
     }
   }
   return { targets: [...out].filter((p) => !p.startsWith('..')).map((p) => p.replace(/\/$/, '')), any };
