@@ -495,3 +495,14 @@ describe('gallery fixtures are shaped as the API sends them', () => {
     for (const h of HOLDINGS) expect(h.amount).toMatch(/^\d+(\.\d+)?$/);
   });
 });
+
+describe('the room title', () => {
+  it('takes a language of its own and is focusable only when the room holds its ref', async () => {
+    const { ReadingTemplate } = await import('./templates.js');
+    const plain = html(<ReadingTemplate title="Help" state={{ kind: 'ready' }} body="B" />);
+    expect(plain).toContain('<h1 class="lt-title">Help</h1>');
+    const ref = React.createRef<HTMLHeadingElement>();
+    const own = html(<ReadingTemplate title="Ayuda" titleLang="es" titleRef={ref} state={{ kind: 'ready' }} body="B" />);
+    expect(own).toContain('<h1 class="lt-title" lang="es" tabindex="-1">Ayuda</h1>');
+  });
+});

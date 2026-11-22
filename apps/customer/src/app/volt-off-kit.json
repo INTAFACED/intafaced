@@ -9,8 +9,6 @@
   "/recover-account",
   "/freeze/confirm",
   "/appeal",
-  "/help",
-  "/helpdetail",
   "/status/confirm",
   "/status/manage",
   "/status/unsubscribe",
