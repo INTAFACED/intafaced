@@ -1,14 +1,10 @@
 import { z } from 'zod';
 import { getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
-import {
-  protocolBlockersRead,
-  router,
-  TRPCError,
-  type BlockerSource,
-  PRICE_SETTINGS_UNSET,
-  SWAP_SETTINGS_UNSET,
-} from '@intafaced/contracts';
+import type { BlockerSource } from '@intafaced/contracts';
+import { protocolBlockersRead } from '@intafaced/contracts/protocol-blockers';
+import { PRICE_SETTINGS_UNSET, SWAP_SETTINGS_UNSET } from '@intafaced/contracts/protocol-swap';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PROTOCOL_AMM_PAIRS,
   PROTOCOL_AMM_PRICES,

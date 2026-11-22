@@ -1,4 +1,4 @@
-import { TRPCError, router, scopedProcedure } from '@intafaced/contracts';
+import { TRPCError, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { type SandboxFundRefusal } from '@intafaced/contracts/developer-sandboxes';
 import type { Sql } from 'postgres';
 import type { SandboxFundSettings } from './settings.js';

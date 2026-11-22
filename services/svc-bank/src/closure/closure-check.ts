@@ -6,7 +6,8 @@
  * saw nothing open. It does not mean the other services are clear.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { add, formatAmount, isZero, type LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 

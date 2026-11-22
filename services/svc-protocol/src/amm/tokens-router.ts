@@ -1,5 +1,7 @@
 import type { Address } from 'viem';
-import { router, TRPCError, TOKENS_QUOTE_UNSET, TOKEN_NOT_LISTED, TOKEN_UNSUPPORTED, type TokenBasics } from '@intafaced/contracts';
+import type { TokenBasics } from '@intafaced/contracts';
+import { TOKENS_QUOTE_UNSET, TOKEN_NOT_LISTED, TOKEN_UNSUPPORTED } from '@intafaced/contracts/protocol-tokens';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   PROTOCOL_TOKENS_BRIEF,

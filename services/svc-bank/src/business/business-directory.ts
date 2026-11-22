@@ -10,7 +10,8 @@
  * email all come back empty. The query is never logged.
  */
 
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { z } from 'zod';
 
 export const BUSINESS_DIRECTORY_HANDLES_PATH = '/internal/business-directory/handles';

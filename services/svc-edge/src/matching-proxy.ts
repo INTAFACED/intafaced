@@ -17,7 +17,8 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
-import { actionApprovalSchema, serviceCallSigner } from '@intafaced/contracts';
+import { actionApprovalSchema } from '@intafaced/contracts/action-approval';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { statusForAuthError } from './admin-api.js';
 import { MATCHING_OPERATOR_EDGE_PATHS } from './routes.js';
 import type { EdgeS2s } from './s2s.js';

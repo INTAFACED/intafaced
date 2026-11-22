@@ -10,7 +10,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import {
   identityLearnerCardInputSchema,
   identityLearnerCardResultSchema,

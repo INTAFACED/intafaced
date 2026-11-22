@@ -27,7 +27,7 @@ import {
   BANK_CREDIT_PREVIEWS_REVOLVING,
   BANK_CREDIT_PREVIEWS_SCHEDULE,
 } from '@intafaced/contracts/bank-credit-preview-procedures';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { previewRefusalOnly, throwPreviewRefusal } from './loan-servicing-preview.js';
 const T = true as const;

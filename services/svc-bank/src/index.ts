@@ -6,17 +6,14 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv, isExplicitDevOrTest } from '@intafaced/config';
-import {
-  createEdgeContext,
-  createPayCustodyDepositClient,
-  createPayWithdrawalAddressesClient,
-  rawBodyOf,
-  retainRawBody,
-  s2sFromEnv,
-  verifyServiceHeaders,
-  verifyServiceRequest,
-  type HttpServiceRequest,
-} from '@intafaced/contracts';
+import type { HttpServiceRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { createPayCustodyDepositClient } from '@intafaced/contracts/pay-custody-deposit-client';
+import { createPayWithdrawalAddressesClient } from '@intafaced/contracts/pay-withdrawal-addresses-client';
+import { rawBodyOf, retainRawBody } from '@intafaced/contracts/raw-body';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { verifyServiceHeaders } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { parseRemindPolicy } from './transfers/personal-pay.js';

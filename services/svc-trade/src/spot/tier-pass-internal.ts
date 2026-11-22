@@ -9,7 +9,8 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Sql } from 'postgres';
-import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import type { OwnerFeeSchedule } from './fee-schedule.js';
 import { TIER_PASS_MAX_SECONDS, TIER_PASS_MIN_SECONDS, grantTierPass } from './tier-passes.js';
 

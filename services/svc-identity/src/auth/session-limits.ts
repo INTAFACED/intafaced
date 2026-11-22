@@ -1,7 +1,7 @@
 import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 
 /**
  * Idle sign-out and the signed-in device limit (I-signin-sessions-06, J-identity-06 #4).

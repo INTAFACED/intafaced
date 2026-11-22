@@ -1,4 +1,4 @@
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { FounderAuthority } from '../../founder-authority.js';
 import { founderProcedure, type FounderContext } from '../../namespaces/founder-procedure.js';

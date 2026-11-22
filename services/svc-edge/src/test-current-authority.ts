@@ -1,4 +1,5 @@
-import { currentAuthorityInputSchema, currentAuthorityResultSchema, type KycTierValue } from '@intafaced/contracts';
+import type { KycTierValue } from '@intafaced/contracts';
+import { currentAuthorityInputSchema, currentAuthorityResultSchema } from '@intafaced/contracts/account-controls';
 
 /** Synthetic currentAuthority replies for edge perimeter tests. */
 export function currentAuthorityTestReply(

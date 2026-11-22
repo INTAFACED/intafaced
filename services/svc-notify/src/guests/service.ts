@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
 import { createTranslator, isMessageKey } from '@intafaced/i18n';
+import type { GuestNotificationSendInput, GuestNotificationReceipt } from '@intafaced/contracts';
 import {
   guestNotificationSendInputSchema,
   guestNotificationGetInputSchema,
@@ -10,9 +11,7 @@ import {
   guestNotificationEraseInputSchema,
   guestNotificationEraseReceiptSchema,
   guestNotificationCodeSchema,
-  type GuestNotificationSendInput,
-  type GuestNotificationReceipt,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/guest-notifications';
 import type { z } from 'zod';
 import { ChannelDeliveryError, ChannelRefusal, type NotificationChannel, type OutboundMessage } from '../channels/channel.js';
 
