@@ -415,7 +415,7 @@ test('passive display changes long references and unreadable original storage pr
       };
       for (const language of ['es', 'fr', 'ar']) {
         await preferences(language, true);
-        await expect(panel.locator('.numeric')).toHaveText('••••');
+        await expect(panel.locator(':is(.numeric, .lt-num)')).toHaveText('••••');
         await expect(panel).not.toContainText(row.amount);
         await expect(panel).toContainText(row.railRef);
         await expect(page.locator('.money-rail-window')).toHaveAttribute('lang', language === 'ar' ? 'en' : language);
@@ -423,7 +423,7 @@ test('passive display changes long references and unreadable original storage pr
         await expect(focused).toBeFocused();
       }
       await preferences('en', false);
-      await expect(panel.locator('.numeric')).toHaveText(row.amount);
+      await expect(panel.locator(':is(.numeric, .lt-num)')).toHaveText(row.amount);
       await expect(focused).toBeFocused();
       const refresh = page.getByRole('button', { name: 'Refresh records', exact: true });
       state.rows.in = [{ ...row, railRef: 'current-response-reference' }];
@@ -449,7 +449,7 @@ test('passive display changes long references and unreadable original storage pr
     const panel = page.locator('.money-selected-ramp');
     await expect(panel).toContainText(row.assetId);
     await expect(panel).toContainText(row.railRef);
-    await expect(panel.locator('.numeric')).toHaveText('12,345,678,901,234,567,890.123456789012345678');
+    await expect(panel.locator(':is(.numeric, .lt-num)')).toHaveText('12,345,678,901,234,567,890.123456789012345678');
     const frame = await capture(page, state, 'long-selected-320');
     expect(frame.scrollWidth).toBeLessThanOrEqual(320);
     expect(frame.heading.top).toBeGreaterThanOrEqual(0);
@@ -461,7 +461,7 @@ test('passive display changes long references and unreadable original storage pr
     await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
     await expect(panel).toContainText('Asset not returned');
     await expect(panel).toContainText('Value not returned');
-    await expect(panel.locator('.numeric')).toHaveCount(0);
+    await expect(panel.locator(':is(.numeric, .lt-num)')).toHaveCount(0);
     await capture(page, state, 'missing-values-320');
   });
   await scenario(

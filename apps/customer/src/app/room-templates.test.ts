@@ -2,7 +2,7 @@
 // The route-to-template registry stays in step with the app's route table (the Volt kit).
 import { describe, expect, it, vi } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
-import { parsePortalRoute, PORTAL_ROOMS } from '../features/pay/portal/routes';
+import { PORTAL_ROOMS, parsePortalRoute } from '../features/pay/portal/routes';
 import { rooms } from './navigation';
 import { renderPart } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
@@ -29,6 +29,7 @@ const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
   ':campaignId': 'cmp_TEST',
   ':listingId': 'TEST-listing',
   ':projectId': 'TEST-launch',
+  ':poolId': `0x${'9'.repeat(40)}`,
 };
 const opened = (route: string) => route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_PARAMS[param] ?? param);
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
@@ -81,14 +82,18 @@ describe('room templates registry', () => {
     } finally {
       vi.useRealTimers();
     }
-    // A portal page has no route of its own in the room table to open: one marked migrated is drawn through its /pay
-    // address above, which must be marked in the same screen file (so the loop has checked it draws its template).
-    const drawnAbove = (page: string, file: string) =>
-      Object.keys(ROUTE_TEMPLATES).some((path) => (marks.get(path) ?? []).includes(file) && parsePortalRoute(path)?.room === page);
-    const portal = Object.keys(PORTAL_TEMPLATES).filter((page) => {
+    // A portal page has no route of its own in the room table to open: one marked as moved is drawn above through a /pay
+    // address that opens it, marked in the same file and on the same template.
+    for (const [page, entry] of Object.entries(PORTAL_TEMPLATES)) {
       const file = marks.get(`portal:${page}`)?.[0];
-      return file !== undefined && !drawnAbove(page, file);
-    });
-    expect(portal, 'a migrated merchant portal page: open its /pay address above and check it draws its template').toEqual([]);
+      if (!file) continue;
+      const addresses = Object.entries(ROUTE_TEMPLATES).filter(
+        ([path, row]) => isRoom(row) && parsePortalRoute(path)?.room === page && marks.get(path)?.[0] === file,
+      );
+      expect(
+        addresses.map(([, row]) => (row as RoomTemplate).template),
+        `the moved merchant portal page ${page} (${file}): a /pay address that opens it is marked in the same file, so it is drawn above`,
+      ).toContain(entry.template);
+    }
   });
 });

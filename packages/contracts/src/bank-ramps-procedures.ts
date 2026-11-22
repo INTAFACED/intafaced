@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
-import { destinationViewOutput, rampProgrammeOutput, onrampOutput, offrampOutput } from './bank-call-schemas.js';
+import { destinationViewOutput, rampProgrammeOutput, amountString, onrampOutput, offrampOutput } from './bank-call-schemas.js';
 import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -269,6 +269,28 @@ export const BANK_RAMPS_DESTINATIONS_REMOVE = defineProcedure({
   output: z.object({ destinationId: z.string(), removed: z.literal(true) }),
   samples: [
     { verdict: 'accept', input: { destinationId: '11111111-1111-4111-8111-111111111111', idempotencyKey: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_RAMPS_OFFRAMP = defineProcedure({
+  ...base,
+  name: 'bank.ramps.offramp',
+  kind: 'mutation',
+  path: 'ramps.offramp',
+  access: { caller: 'scope', scope: 'trade:withdraw', module: 'bank' },
+  refusals: {},
+  input: z.object({
+    offrampId: z.string().guid(),
+    assetId: assetIdSchema.min(1).max(16),
+    amount: amountString,
+    kind: z.enum(['crypto', 'fiat']).default('crypto'),
+    destinationRef: z.string().min(1).max(256).optional(),
+    clientRef: z.string().min(1).max(128),
+  }),
+  output: offrampOutput,
+  samples: [
+    { verdict: 'accept', input: { offrampId: '11111111-1111-4111-8111-111111111111', assetId: 'USDC', amount: '1', clientRef: 'USDC' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Dialog, Failure, Field, Panel } from '../../shared/ui';
-import { Read, Select } from './common';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, Dialog, Failure, Field, Panel, Read } from './agent-room/parts';
 import { agentGuardrailsCopy, hasGuardrailWords } from './agent-guardrails-copy';
 import {
   OWN_AGENT_RULE_CHOICES,
@@ -158,7 +158,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
         void save();
       }}
     >
-      <p className="muted">{t('rulesIntro')}</p>
+      <p className="lt-muted">{t('rulesIntro')}</p>
       {agent.tools.length ? (
         <>
           <Select
@@ -179,12 +179,12 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
             }}
             options={OWN_AGENT_RULE_CHOICES.map((value) => ({ value, label: t(`choice_${value}`) }))}
           />
-          <Button type="submit" disabled={busy || !tool}>
+          <Button tone="primary" type="submit" disabled={busy || !tool}>
             {t('saveRule')}
           </Button>
         </>
       ) : (
-        <p className="muted">{t('noTools')}</p>
+        <p className="lt-muted">{t('noTools')}</p>
       )}
       {saved ? <p role="status">{t('ruleSaved')}</p> : null}
       {refused ? <Answer failed={refused} /> : null}
@@ -196,7 +196,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
           ))}
         </ul>
       ) : (
-        <p className="muted">{t('noRules')}</p>
+        <p className="lt-muted">{t('noRules')}</p>
       )}
     </form>
   );
@@ -231,7 +231,7 @@ export function PermissionsPage({ agent }: { agent: OwnAgent }) {
         </Read>
       </Panel>
       <Panel title={t('domainsTitle')}>
-        <p className="muted">{t('domainsNone')}</p>
+        <p className="lt-muted">{t('domainsNone')}</p>
       </Panel>
       <Panel title={t('modeTitle')}>
         <p role="note">{t('modeParked')}</p>
@@ -257,7 +257,7 @@ function Consents({ agent, classes, stored }: { agent: OwnAgent; classes: OwnAge
     setRows((current) => [...current.filter((row) => row.dataClass !== dataClass), res.data]);
     setWithdrawn(dataClass);
   }
-  if (!classes.length) return <p className="muted">{t('classesEmpty')}</p>;
+  if (!classes.length) return <p className="lt-muted">{t('classesEmpty')}</p>;
   return (
     <>
       <ul aria-label={t('classesTitle')}>
@@ -269,7 +269,7 @@ function Consents({ agent, classes, stored }: { agent: OwnAgent; classes: OwnAge
               {row?.state === 'granted' ? (
                 <>
                   {' '}
-                  <Button variant="secondary" disabled={busy} onClick={() => void revoke(dataClass)}>
+                  <Button tone="secondary" disabled={busy} onClick={() => void revoke(dataClass)}>
                     {t('revoke')}
                   </Button>
                 </>
@@ -361,7 +361,7 @@ export function TryTool({
   return (
     <>
       <Panel title={t('tryTitle')} role="region" aria-label={t('tryTitle')}>
-        <p className="muted">{t('tryIntro')}</p>
+        <p className="lt-muted">{t('tryIntro')}</p>
         <Read resource={catalogue.resource} retry={catalogue.reload}>
           {(offered) => {
             const declared = offered.tools.find((entry) => entry.name === tool);
@@ -379,7 +379,7 @@ export function TryTool({
                     options={agent.tools.map((name) => ({ value: name, label: toolWords(t, name) }))}
                   />
                 ) : (
-                  <p className="muted">{t('noTools')}</p>
+                  <p className="lt-muted">{t('noTools')}</p>
                 )}
                 {Object.keys(declared?.shape?.input ?? {}).map((field) => (
                   <Field
@@ -391,7 +391,7 @@ export function TryTool({
                     onChange={(event) => setArgs((current) => ({ ...current, [field]: event.target.value }))}
                   />
                 ))}
-                <Button disabled={busy || !tool} onClick={() => void run(classOf)}>
+                <Button tone="primary" disabled={busy || !tool} onClick={() => void run(classOf)}>
                   {t('runTest')}
                 </Button>
               </>
@@ -411,10 +411,10 @@ export function TryTool({
           <Dialog title={t('consentTitle', { class: classWords(t, consent.dataClass) })} onClose={() => setConsent(null)}>
             <Answer failed={consent.failed} />
             <p>{t('consentBody', { class: classWords(t, consent.dataClass) })}</p>
-            <Button disabled={busy} onClick={() => void allow(consent.dataClass)}>
+            <Button tone="primary" disabled={busy} onClick={() => void allow(consent.dataClass)}>
               {t('allow')}
             </Button>
-            <Button variant="secondary" onClick={() => setConsent(null)}>
+            <Button tone="secondary" onClick={() => setConsent(null)}>
               {t('notNow')}
             </Button>
           </Dialog>
@@ -452,7 +452,7 @@ function ApprovalRequests({ agent, version }: { agent: OwnAgent; version: number
                 </tr>
               ))}
             </DataTable>
-            {rows.length === 0 ? <p className="muted">{t('requestsEmpty')}</p> : null}
+            {rows.length === 0 ? <p className="lt-muted">{t('requestsEmpty')}</p> : null}
           </>
         )}
       </Read>

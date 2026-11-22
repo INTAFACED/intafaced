@@ -11,7 +11,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use service_kit::json::Json;
 use support::{MemoryObjects, TestDb, at, base64, code_of, enrol, jp, seed_course, test_storage};

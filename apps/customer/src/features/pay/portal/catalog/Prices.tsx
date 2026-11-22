@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { SALE_CHANNELS, type SaleChannel } from '@intafaced/contracts/merchant-stores';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { MerchantPrice, MerchantProduct, PriceCreateInput, PriceReplaceInput } from '@intafaced/contracts/merchant-catalog';
 import { useResource } from '../../../../shared/resource';
 import { Field } from '../../ui-kit';
@@ -55,10 +55,10 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
   const chosen = prices.filter((p) => p.kind === 'customer_chosen' && p.status === 'active');
   return (
     <PaySection title={t('pricesTitle')} description={t('pricesPurpose')}>
-      <div className="stack">
+      <div className="lt-stack">
         {writable && !adding && !replacing && (
-          <div className="pp-actions">
-            <Button variant="primary" onClick={() => setAdding(true)}>
+          <div className="lt-actions">
+            <Button tone="primary" onClick={() => setAdding(true)}>
               {t('addPrice')}
             </Button>
           </div>
@@ -98,7 +98,7 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
         {list.state.status === 'failed' && <PortalFailure result={list.state.failure} retry={() => list.reload()} />}
         {list.state.status === 'ready' &&
           (prices.length === 0 && !list.state.hasMore ? (
-            <p className="muted">{t(writable ? 'pricesEmpty' : 'pricesEmptyReadOnly')}</p>
+            <p className="lt-muted">{t(writable ? 'pricesEmpty' : 'pricesEmptyReadOnly')}</p>
           ) : (
             <>
               <EntityList
@@ -114,11 +114,11 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
                       row.isDefault ? (
                         <strong>{t('defaultMark')}</strong>
                       ) : writable && row.status === 'active' ? (
-                        <Button variant="secondary" disabled={moving !== null} onClick={() => void makeDefault(row)}>
+                        <Button tone="secondary" disabled={moving !== null} onClick={() => void makeDefault(row)}>
                           {t('setDefault')}
                         </Button>
                       ) : (
-                        <span className="muted">—</span>
+                        <span className="lt-muted">—</span>
                       ),
                   },
                   { header: t('colStatus'), cell: (row) => t(`status_${row.status}`) },
@@ -128,7 +128,7 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
                     cell: (row) =>
                       writable && row.status === 'active' ? (
                         <Button
-                          variant="secondary"
+                          tone="secondary"
                           disabled={adding || replacing !== null}
                           onClick={() => {
                             setNote(null);
@@ -138,7 +138,7 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
                           {t('replacePrice')}
                         </Button>
                       ) : (
-                        <span className="muted">—</span>
+                        <span className="lt-muted">—</span>
                       ),
                   },
                 ]}
@@ -163,7 +163,7 @@ function PriceText({ price }: { price: MerchantPrice }) {
   const { t } = c.useCopy();
   if (price.kind === 'fixed' && price.amount) return <MoneyText value={price.amount} asset={price.assetId} />;
   return (
-    <span className="numeric">
+    <span className="lt-num">
       {t('priceChosenRange', {
         min: moneyWords(price.minAmount ?? '', price.assetId),
         max: moneyWords(price.maxAmount ?? '', price.assetId),
@@ -246,7 +246,7 @@ function PriceForm({
       {replacing && (
         <>
           <h3>{t('replaceTitle', { price: priceWords(replacing) })}</h3>
-          <p className="muted">{t('replacePurpose')}</p>
+          <p className="lt-muted">{t('replacePurpose')}</p>
           {usage.resource.status === 'loading' && <PortalLoading />}
           {usage.resource.status === 'failed' && <PortalFailure result={usage.resource.failure} retry={usage.reload} />}
           {usage.resource.status === 'ready' && usage.resource.data && (
@@ -324,16 +324,16 @@ function PriceForm({
           {refused}
         </p>
       )}
-      <div className="pp-actions">
+      <div className="lt-actions">
         <Button
-          variant="primary"
+          tone="primary"
           // A replacement is saved only once it has said what uses the old price.
           disabled={busy || (replacing !== undefined && usage.resource.status !== 'ready')}
           onClick={() => void save()}
         >
           {busy ? t('saving') : t(replacing ? 'saveReplacement' : 'savePrice')}
         </Button>
-        <Button variant="secondary" disabled={busy} onClick={onCancel}>
+        <Button tone="secondary" disabled={busy} onClick={onCancel}>
           {t('cancel')}
         </Button>
       </div>
@@ -366,7 +366,7 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
   return (
     <div data-testid="form-stack" className="form-stack pp-form" role="group" aria-label={t('checkTitle')}>
       <h3>{t('checkTitle')}</h3>
-      <p className="muted">{t('checkPurpose')}</p>
+      <p className="lt-muted">{t('checkPurpose')}</p>
       {prices.length > 1 && (
         <SelectField
           label={t('checkPrice')}
@@ -393,8 +393,8 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
           setAnswer(null);
         }}
       />
-      <div className="pp-actions">
-        <Button variant="secondary" disabled={busy || !amount.trim()} onClick={() => void check()}>
+      <div className="lt-actions">
+        <Button tone="secondary" disabled={busy || !amount.trim()} onClick={() => void check()}>
           {t('checkButton')}
         </Button>
       </div>
@@ -463,7 +463,7 @@ function SaleCheck({ portal, productId, prices }: { portal: PortalApi; productId
   return (
     <div data-testid="form-stack" className="form-stack pp-form" role="group" aria-label={t('saleCheckTitle')}>
       <h3>{t('saleCheckTitle')}</h3>
-      <p className="muted">{t('saleCheckPurpose')}</p>
+      <p className="lt-muted">{t('saleCheckPurpose')}</p>
       <SelectField
         label={t('saleCheckPrice')}
         value={price.id}
@@ -485,8 +485,8 @@ function SaleCheck({ portal, productId, prices }: { portal: PortalApi; productId
       {price.kind === 'customer_chosen' && (
         <Field label={t('checkAmount')} inputMode="decimal" value={amount} onChange={(e) => clear(setAmount)(e.target.value)} />
       )}
-      <div className="pp-actions">
-        <Button variant="secondary" disabled={busy || (price.kind === 'customer_chosen' && !amount.trim())} onClick={() => void check()}>
+      <div className="lt-actions">
+        <Button tone="secondary" disabled={busy || (price.kind === 'customer_chosen' && !amount.trim())} onClick={() => void check()}>
           {t('saleCheckButton')}
         </Button>
       </div>

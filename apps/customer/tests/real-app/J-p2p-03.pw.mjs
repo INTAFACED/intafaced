@@ -297,7 +297,7 @@ test('J-p2p-03 #6 the summary lists every field; confirming twice posts one ad, 
   await expect(boardRow).toContainText(AD.price);
   await expect(boardRow).toContainText(limits);
   await page.goto('/uc/ad');
-  const mineRow = page.locator(`li.p2p-offer-row[data-offer-id="${ads[0].id}"]`);
+  const mineRow = page.locator(`li[data-testid="p2p-offer-row"][data-offer-id="${ads[0].id}"]`);
   await expect(mineRow).toHaveCount(1);
   await expect(mineRow).toContainText(AD.price);
   await expect(mineRow).toContainText(limits);

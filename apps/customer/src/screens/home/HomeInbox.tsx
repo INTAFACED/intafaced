@@ -42,16 +42,14 @@ export function HomeInbox({ needsYou = null }: { needsYou?: NeedsYouShown | null
   const latest = last.current.find((item) => !shownInNeedsYou(item, needsYou));
   if (!latest || (needsYou !== null && !needsYou.settled)) return null;
   return (
-    <section data-testid="home-inbox" className="home-inbox" aria-labelledby="home-inbox-title">
-      <div className="home-section__head">
-        <h2 className="home-h2" id="home-inbox-title">
-          {t('Latest in your inbox')}
-        </h2>
-        <a className="home-link" href={HOME_LINKS.inbox}>
+    <section data-testid="home-inbox" className="lt-stack" aria-labelledby="home-inbox-title">
+      <div className="lt-title-row">
+        <h2 id="home-inbox-title">{t('Latest in your inbox')}</h2>
+        <a className="lt-link" href={HOME_LINKS.inbox}>
           {t('See all')}
         </a>
       </div>
-      <ul className="nf-list">
+      <ul className="lt-rows">
         <li>
           <NotificationRow item={latest} markets={markets} now={now} onOpen={(row) => inbox.read(row.id)} />
         </li>

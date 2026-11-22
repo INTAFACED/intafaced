@@ -85,5 +85,4 @@ export const rampsReads = {} as const;
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const rampsWrites = {
   'ramps.destinations.rename': destinationSchema,
-  'ramps.offramp': offrampSchema,
 } as const;

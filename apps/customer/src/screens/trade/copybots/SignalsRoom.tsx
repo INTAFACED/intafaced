@@ -54,7 +54,7 @@ function SignalsNav({ active }: { active: 'list' | 'mine' | 'earnings' | 'publis
     { id: 'publish', label: t('Publish a signal'), href: PUBLISH },
   ];
   return (
-    <nav className="cb-action-row" aria-label={t('Signal sections')}>
+    <nav className="lt-actions" aria-label={t('Signal sections')}>
       {links.map((l) => (
         <a key={l.id} href={l.href} aria-current={l.id === active ? 'page' : undefined}>
           {l.label}
@@ -147,7 +147,7 @@ function PublishSignal() {
           <EmptyState variant="refused" title={t('You are signed out')} reason={t('Sign in to publish a signal.')} />
         ) : (
           <form
-            className="cb-form"
+            className="lt-stack"
             aria-label={t('Publish a signal')}
             onSubmit={(e) => {
               e.preventDefault();
@@ -194,7 +194,7 @@ function PublishSignal() {
                 <strong>{refused.title}</strong> {refused.body}
               </div>
             ) : null}
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button type="submit" disabled={busy}>
                 {t('Publish')}
               </Button>

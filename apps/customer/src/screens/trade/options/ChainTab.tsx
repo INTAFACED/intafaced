@@ -120,7 +120,7 @@ export function ChainTab({
         return (
           <span>
             {formatAsOf(Date.parse(m.expiryDatetime), { now })}{' '}
-            <span className="text-fg-2">{left ? t('in {time}', { time: left }) : t('Expired')}</span>
+            <span className="lt-muted">{left ? t('in {time}', { time: left }) : t('Expired')}</span>
           </span>
         );
       },

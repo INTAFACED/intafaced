@@ -6150,6 +6150,438 @@
         }
       ]
     },
+    "ops.restore.backups": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "restore.backups",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "core-ops",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "archive": {
+            "type": "object",
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "probed": {
+                "type": "boolean"
+              },
+              "code": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["ops.restore_archive_unconfigured", "ops.restore_archive_unprobed"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["configured", "probed", "code"],
+            "additionalProperties": false
+          },
+          "backups": {
+            "readOnly": true,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["full", "incremental"]
+                },
+                "sequence": {
+                  "type": "string"
+                },
+                "takenAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "kind", "sequence", "takenAt"],
+              "additionalProperties": false
+            }
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["asOf", "archive", "backups", "reason"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "ops.restore.run": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "restore.run",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "core-ops",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "restoreNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["restoreNo"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "object",
+            "properties": {
+              "restoreNo": {
+                "type": "string"
+              },
+              "cutOff": {
+                "type": "string"
+              },
+              "startedBy": {
+                "type": "string"
+              },
+              "startedAt": {
+                "type": "string"
+              }
+            },
+            "required": ["restoreNo", "cutOff", "startedBy", "startedAt"],
+            "additionalProperties": false
+          },
+          "steps": {
+            "readOnly": true,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "restoreNo": {
+                  "type": "string"
+                },
+                "step": {
+                  "type": "string",
+                  "enum": ["restore_clean", "validate", "preview", "finalize"]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "approverId": {
+                  "type": ["string", "null"]
+                },
+                "detail": {
+                  "type": "object",
+                  "properties": {
+                    "attested": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "joint": {
+                      "type": "object",
+                      "properties": {
+                        "agree": {
+                          "type": "boolean"
+                        },
+                        "cutOff": {
+                          "type": "string"
+                        },
+                        "services": {
+                          "readOnly": true,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "service": {
+                                "type": "string",
+                                "enum": ["ledger", "identity", "bank", "pay"]
+                              },
+                              "ok": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "stamp_missing",
+                                      "position_differs",
+                                      "written_after_cutoff",
+                                      "read_missing",
+                                      "cutoff_invalid",
+                                      "read_not_as_of",
+                                      "read_before_cutoff"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "stamp": {
+                                "type": ["string", "null"]
+                              },
+                              "position": {
+                                "type": ["string", "null"]
+                              }
+                            },
+                            "required": ["service", "ok", "reason", "stamp", "position"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["agree", "cutOff", "services"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["attested"],
+                  "additionalProperties": false
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["restoreNo", "step", "actor", "approverId", "detail", "at"],
+              "additionalProperties": false
+            }
+          },
+          "restored": {
+            "type": "boolean"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["restore_clean", "validate", "preview", "finalize"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finalizeOffered": {
+            "type": "boolean"
+          },
+          "live": {
+            "type": "object",
+            "properties": {
+              "joint": {
+                "type": "object",
+                "properties": {
+                  "agree": {
+                    "type": "boolean"
+                  },
+                  "cutOff": {
+                    "type": "string"
+                  },
+                  "services": {
+                    "readOnly": true,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "service": {
+                          "type": "string",
+                          "enum": ["ledger", "identity", "bank", "pay"]
+                        },
+                        "ok": {
+                          "type": "boolean"
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "stamp_missing",
+                                "position_differs",
+                                "written_after_cutoff",
+                                "read_missing",
+                                "cutoff_invalid",
+                                "read_not_as_of",
+                                "read_before_cutoff"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "stamp": {
+                          "type": ["string", "null"]
+                        },
+                        "position": {
+                          "type": ["string", "null"]
+                        }
+                      },
+                      "required": ["service", "ok", "reason", "stamp", "position"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["agree", "cutOff", "services"],
+                "additionalProperties": false
+              },
+              "halt": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "halted": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "required": ["halted"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "halted": {
+                        "type": "boolean",
+                        "const": false
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["halted", "code", "message"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "reads": {
+                "readOnly": true,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "service": {
+                      "type": "string"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": ["string", "null"]
+                    },
+                    "message": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["service", "ok", "code", "message"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["joint", "halt", "reads"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["run", "steps", "restored", "next", "finalizeOffered", "live"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "restoreNo": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "ops.restore.runs": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "restore.runs",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "core-ops",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "ops.restore_storage_unconfigured": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "runs": {
+            "readOnly": true,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "restoreNo": {
+                  "type": "string"
+                },
+                "cutOff": {
+                  "type": "string"
+                },
+                "startedBy": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["restoreNo", "cutOff", "startedBy", "startedAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "runs"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "ops.restore.watermarks": {
       "service": "svc-ops",
       "module": "ops",

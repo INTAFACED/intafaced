@@ -230,9 +230,17 @@ import {
   IDENTITY_AFFILIATES_WITHDRAW_REBIND,
   IDENTITY_AFFILIATES_SHARE_TAG_HIT,
 } from '@intafaced/contracts/identity-affiliates-procedures';
-import { IDENTITY_WEBAUTHN_REMOVE } from '@intafaced/contracts/identity-webauthn-procedures';
+import {
+  IDENTITY_WEBAUTHN_REMOVE,
+  IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+} from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
-import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
+import {
+  IDENTITY_API_KEYS_REVOKE,
+  IDENTITY_API_KEYS_CREATE,
+  IDENTITY_API_KEYS_LIST,
+} from '@intafaced/contracts/identity-api-keys-procedures';
 
 /**
  * svc-identity's API (§4.1).
@@ -2354,14 +2362,18 @@ export function createIdentityRouter(
      * the same session tokens as password login, with `mfa: true`.
      */
     webauthn: router({
-      registerOptions: protectedProcedure.mutation(async ({ ctx }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
-        } catch (err) {
-          throw toFactorError(err);
-        }
-      }),
+      registerOptions: mountRecord(
+        IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+        async ({ ctx }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
+          } catch (err) {
+            throw toFactorError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       registerVerify: protectedProcedure
         .input(
@@ -2387,14 +2399,18 @@ export function createIdentityRouter(
           }
         }),
 
-      authOptions: publicProcedure.input(z.object({ identifier: z.string().min(1) })).mutation(async ({ input }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnAuthentication(input.identifier);
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      authOptions: mountRecord(
+        IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+        async ({ input }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnAuthentication(input.identifier);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       authVerify: publicProcedure
         .input(
@@ -3389,25 +3405,9 @@ export function createIdentityRouter(
       ),
 
       /** Limit required — omit never dumps API keys. */
-      list: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(
-          z.array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              prefix: z.string(),
-              scopes: z.array(z.string()),
-              lastUsedAt: z.string().nullable(),
-              revoked: z.boolean(),
-              mode: z.enum(['live', 'sandbox']),
-              requireSignature: z.boolean(),
-              requireNonEmptyIpAllowlist: z.boolean(),
-              ipAllowlist: z.array(z.string()),
-            }),
-          ),
-        )
-        .query(async ({ ctx, input }) => {
+      list: mountRecord(
+        IDENTITY_API_KEYS_LIST,
+        async ({ ctx, input }) => {
           try {
             const keys = await auth.listApiKeys(ctx.principal.userId, input.limit);
             return keys.map((k) => ({
@@ -3425,7 +3425,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       revoke: mountRecord(
         IDENTITY_API_KEYS_REVOKE,

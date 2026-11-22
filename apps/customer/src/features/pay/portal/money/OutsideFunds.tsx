@@ -1,12 +1,9 @@
 import type { OutsideFunds as Funds } from '@intafaced/contracts/merchant-receiving-wallet';
 import type { Resource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
-import { PortalLoading } from '../components';
 import { walletCopy as c } from '../payments/wallet-copy';
 import { DateTime } from '../ui/DateTime';
-import { EntityList } from '../ui/EntityList';
-import { MoneyText } from '../ui/MoneyText';
-import { MoneyFailure } from './common';
+import { EntityList, Loading, MoneyText, Section } from '../volt/parts';
+import { MoneyFailure } from './kit-parts';
 
 type Row = Funds['rows'][number];
 
@@ -20,11 +17,11 @@ export function OutsideFunds({ funds, retry, test }: { funds: Resource<Funds>; r
   const where = (r: Row) => c.t(r.holder === 'own_wallet' ? 'whereOwnWallet' : 'wherePartner');
   const source = (r: Row) => c.t(r.source === 'chain' ? 'sourceChain' : 'sourcePartner');
   return (
-    <PaySection title={c.t('outsideTitle')} description={c.t('outsidePurpose')}>
+    <Section title={c.t('outsideTitle')} description={c.t('outsidePurpose')}>
       <div data-testid="outside-funds">
-        {funds.status === 'loading' && <PortalLoading rows={2} />}
+        {funds.status === 'loading' && <Loading rows={2} />}
         {funds.status === 'failed' && <MoneyFailure result={funds.failure} retry={retry} />}
-        {funds.status === 'ready' && funds.data.rows.length === 0 && <p className="muted">{c.t('outsideEmpty')}</p>}
+        {funds.status === 'ready' && funds.data.rows.length === 0 && <p className="lt-hint">{c.t('outsideEmpty')}</p>}
         {funds.status === 'ready' && funds.data.rows.length > 0 && (
           <EntityList
             label={c.t('outsideTitle')}
@@ -39,19 +36,9 @@ export function OutsideFunds({ funds, retry, test }: { funds: Resource<Funds>; r
               { header: c.t('outsideAsOf'), cell: (r) => <DateTime value={r.asOf} /> },
               { header: c.t('outsidePayments'), cell: (r) => String(r.payments) },
             ]}
-            card={(r) => ({
-              title: `${r.assetId} · ${where(r)}`,
-              amount: <MoneyText value={r.available} asset={r.assetId} test={test} />,
-              status: (
-                <span className="muted">
-                  {c.t('outsideClearing')} <MoneyText value={r.clearing} asset={r.assetId} test={test} /> · {source(r)} ·{' '}
-                  <DateTime value={r.asOf} />
-                </span>
-              ),
-            })}
           />
         )}
       </div>
-    </PaySection>
+    </Section>
   );
 }

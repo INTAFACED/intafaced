@@ -203,7 +203,7 @@ describe('email invites', () => {
   it('shows the normalised address and the role in the review, with the wait stated', () => {
     const out = renderToString(<InviteReview email="  Priya.N@Example.com " label="" role="finance" />);
     expect(out).toContain('Invite priya.n@example.com as Finance. They join after confirming that email and accepting.');
-    expect(out).toContain('<code class="pp-wrap">priya.n@example.com</code>');
+    expect(out).toContain('<code class="lt-mono">priya.n@example.com</code>');
     expect(out).not.toContain('Account ID');
     expect(out).not.toMatch(/has an account|no account|already/i);
   });
@@ -213,7 +213,7 @@ describe('invite review', () => {
   it('always shows the full account ID, with the label beside it and never instead of it', () => {
     const id = 'user-0123456789abcdef-full-account-id';
     const withLabel = renderToString(<InviteReview userId={` ${id} `} label="Sam from finance" role="developer" />);
-    expect(withLabel).toContain(`<code class="pp-wrap">${id}</code>`);
+    expect(withLabel).toContain(`<code class="lt-mono">${id}</code>`);
     expect(withLabel).toContain('Sam from finance');
     const bare = renderToString(<InviteReview userId={id} label="" role="viewer" />);
     expect(bare).toContain(id);

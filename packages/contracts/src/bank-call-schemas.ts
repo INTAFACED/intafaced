@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { GLOBAL_HOLD_STATES } from './bank-global-procedures.js';
 import { LINKED_ACCOUNT_STATES, LINKED_ACCOUNT_BLOCKERS } from './bank-cash-out-procedures.js';
 import { assetIdSchema } from './asset-id.js';
+import { bankSpaceSchema } from './bank-spaces-list.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-bank's records share, copied from the service's router while its Rust port is in flight (the router keeps its own until the port's switch). */
@@ -431,17 +432,163 @@ export const balanceBreakdownOutput = z.object({
   ),
 });
 
-export const onrampOutput = z.object({
+/** One space as `spaces.list` returns it: the record's own schema (`@intafaced/contracts/bank-spaces-list`), never a copy. */
+export const spaceOutput = bankSpaceSchema;
+
+export const potStateOutput = spaceOutput.pick({ id: true, goalTarget: true, lockedUntil: true, unlocksAt: true, unlockRequestedAt: true });
+
+/**
+ * INCOME SORTER (BK-pots-03, J-bank-07 #4).
+ *
+ * A payment from another person into the account is split across the person's own named spaces by percentage, once.
+ * The sorter is an instruction; the credit is the posted row in `bank.personal_transfers`; each split is an own-space
+ * `bankTransfer` from the account into one space, keyed `sorter:<sorter>:<credit ledger tx>` with the leg's position as
+ * its occurrence. Whatever is not sorted stays in the account. No balance lives here.
+ *
+ * Two paths drive a credit, and both end in the same keys: the send that posted it (right after the post) and the
+ * sweep (`run-income-sorter`), which picks up a credit whose send crashed before sorting and any split whose outcome was
+ * unknown. A credit has one run, ever (`income_sorter_runs.credit_transfer_id` is unique), so it is sorted once by the
+ * sorter that was live when it arrived.
+ *
+ * The owner decides whether credits are sorted at all and from what size (`BANK_INCOME_SORTER_MIN_CREDIT`). Blank:
+ * making a sorter refuses `bank.sorter_terms_unset`, and no credit is sorted.
+ */
+export const SORTER_MAX_LEGS = 10;
+
+export const sorterView = z.object({
   id: z.string(),
   assetId: assetIdSchema,
+  status: z.enum(['active', 'cancelled']),
+  legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int() })),
+  createdAt: z.string(),
+  cancelledAt: z.string().nullable(),
+});
+
+export const autoInvestRuleOutput = z.object({
+  id: z.string(),
+  kind: z.enum(['threshold_sweep', 'dca', 'card_roundup']),
+  assetId: assetIdSchema,
+  threshold: amountString.nullable(),
+  targetPoolId: z.string().nullable(),
+  targetSpaceId: z.string().nullable(),
+  buyAssetId: z.string().nullable(),
+  amount: amountString.nullable(),
+  cadence: z.enum(['daily', 'weekly', 'monthly']).nullable(),
+  nextRunAt: z.string().nullable(),
+  status: z.enum(['active', 'paused', 'cancelled']),
+  createdAt: z.string(),
+});
+
+export const businessApprovalOutput = z.object({
+  id: z.string(),
+  accountId: z.string(),
+  makerUserId: z.string(),
+  checkerUserId: z.string().nullable(),
+  fromSpaceId: z.string(),
+  toSpaceId: z.string(),
+  assetId: assetIdSchema,
   amount: amountString,
-  kind: z.enum(['crypto', 'fiat']),
-  rail: z.string(),
-  railRef: z.string(),
-  simulated: z.boolean(),
-  status: z.string(),
+  status: z.enum(['pending', 'approved', 'rejected', 'cancelled']),
+  transferId: z.string().nullable(),
+  holdLedgerTxId: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
   createdAt: z.string(),
+});
+
+export const businessAccountOutput = z.object({
+  id: z.string(),
+  name: z.string(),
+  assetId: assetIdSchema,
+  spendThreshold: amountString,
+  status: z.enum(['active', 'closed']),
+  createdAt: z.string(),
+});
+
+/**
+ * CARDS (§8.1) — the LEDGER half only.
+ *
+ * ── WHAT IS DELIBERATELY NOT HERE ──────────────────────────────────────────
+ *
+ * There is no user-callable `authorize`, `capture` or `reverse`. Those three
+ * are the ISSUER speaking, not the user, and they are in `ops` behind
+ * `admin:treasury` for the same reason the risk sweep is: a user who can
+ * decide their own authorisation is a user who can approve a purchase the
+ * ledger would have declined, and a user who can trigger a capture can choose
+ * when their own money leaves.
+ *
+ * On a live rail they do not become user procedures either. They become a
+ * signed webhook endpoint owned by the issuer integration — which is
+ * `socket.live-issuer`, a card-scheme sponsor and an issuing BIN, and is a
+ * contract rather than code.
+ *
+ * ── EVERY SURFACE SAYS WHAT IT IS ──────────────────────────────────────────
+ *
+ * `simulated` is on the card output and it is not optional. A screen rendering
+ * a card from this router cannot accidentally present it as a real one, and a
+ * deployment with no issuer at all cannot get this far: it refuses with
+ * `bank.no_card_issuer` before a row is written.
+ */
+export const shippingAddressInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  line1: z.string().trim().min(1).max(200),
+  line2: z.string().trim().max(200).optional(),
+  city: z.string().trim().min(1).max(120),
+  region: z.string().trim().max(120).optional(),
+  postalCode: z.string().trim().min(1).max(32),
+  country: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{2}$/),
+});
+
+export const cardOutput = z.object({
+  id: z.string(),
+  /** Which balance the card draws on. Every posting against it is in this asset. */
+  assetId: assetIdSchema,
+  /**
+   * What merchants charge this card in (§18).
+   *
+   * Equal to `assetId` means no conversion happens and no rate is consulted.
+   * Different means every authorisation is quoted at the authorisation moment
+   * — and refuses by name where no rate can be got, which on a fiat settlement
+   * asset is every time, because this platform has no FX source.
+   */
+  settlementAssetId: z.string(),
+  /** The programme id, which is also the ledger rail label. */
+  issuer: z.string(),
+  /** TRUE MEANS THERE IS NO CARD. Never omitted, never defaulted. */
+  simulated: z.boolean(),
+  /** Four digits. Not a card number and not part of one. */
+  panTail: z.string(),
+  /** `inactive`: issued but not activated yet (BK-cissue-04); it declines every authorisation until it is. */
+  status: z.enum(['active', 'inactive', 'frozen', 'closed']),
+  cashbackBps: z.number().int(),
+  perAuthorizationLimit: amountString,
+  dailyLimit: amountString.nullable(),
+  monthlyLimit: amountString.nullable(),
+  cashLimit: amountString.nullable(),
+  online: z.boolean(),
+  contactless: z.boolean(),
+  atm: z.boolean(),
+  abroad: z.boolean(),
+  cardType: z.enum(['virtual', 'physical']),
+  shippingAddress: z
+    .object({
+      name: z.string(),
+      line1: z.string(),
+      line2: z.string().nullable(),
+      city: z.string(),
+      region: z.string().nullable(),
+      postalCode: z.string(),
+      country: z.string(),
+    })
+    .nullable(),
+  /** Single-use (1) or n-use: captured payments before it closes itself. NULL is no limit. */
+  usesAllowed: z.number().int().nullable(),
+  designId: z.string().nullable(),
+  deliverySpeed: z.string().nullable(),
+  replacesCardId: z.string().nullable(),
+  replacedByCardId: z.string().nullable(),
 });
 
 export const offrampOutput = z.object({
@@ -456,5 +603,18 @@ export const offrampOutput = z.object({
   status: z.string(),
   holdLedgerTxId: z.string().nullable(),
   settleLedgerTxId: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const onrampOutput = z.object({
+  id: z.string(),
+  assetId: assetIdSchema,
+  amount: amountString,
+  kind: z.enum(['crypto', 'fiat']),
+  rail: z.string(),
+  railRef: z.string(),
+  simulated: z.boolean(),
+  status: z.string(),
+  ledgerTxId: z.string().nullable(),
   createdAt: z.string(),
 });

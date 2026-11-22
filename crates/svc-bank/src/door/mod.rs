@@ -142,6 +142,8 @@ pub struct Ctx<'a> {
     /// `ctx.service`: the verified calling service, if any.
     pub service: Option<&'a str>,
     pub region: &'a str,
+    /// The jurisdiction check the door runs (`checkAccess`), for a handler that reports it (`safety.regionNotice`).
+    pub jurisdiction: &'a Jurisdiction,
     pub now: Instant,
 }
 
@@ -231,6 +233,18 @@ pub struct BankDoor {
     partner: crate::partner::router::Wiring,
     /// Slice `spaces`'s ledger and directory reads and owner values (`spaces::Wiring`); none until handed in.
     spaces: crate::spaces::Wiring,
+    /// Slice `transfers`'s identity reads, bus and owner values (`transfers::Wiring`); none until handed in.
+    transfers: crate::transfers::Wiring,
+    /// Slice `earn`'s owner values (`earn::Settings`); identity and the ledger are the slices' above.
+    earn: crate::earn::Settings,
+    /// Slice `cards`' issuer, rank door and owner values (`cards::Wiring`); no card programme until handed in.
+    cards: crate::cards::Wiring,
+    /// Slice `loans`'s marks, venue, affiliates and owner values (`loans::Wiring`).
+    loans: crate::loans::Wiring,
+    /// Slice `automations`' wiring, one part each (`automations::Wiring`); nothing until handed in.
+    pub(crate) automations: crate::automations::Wiring,
+    /// Slice `activity`'s history reads, cursor secret and owner values (`activity::Wiring`).
+    activity: crate::activity::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -276,6 +290,12 @@ impl BankDoor {
             store: config.store,
             partner: crate::partner::router::Wiring::none(),
             spaces: crate::spaces::Wiring::none(),
+            transfers: crate::transfers::Wiring::none(),
+            earn: crate::earn::Settings::default(),
+            cards: crate::cards::Wiring::none(),
+            loans: crate::loans::Wiring::none(),
+            automations: crate::automations::Wiring::none(),
+            activity: crate::activity::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -295,6 +315,162 @@ impl BankDoor {
         (self.now)()
     }
 
+    /// `f` given slice `transfers`' dependencies, read now: what a job or a recovery pass hands the slice.
+    pub fn transfers_deps<T>(&self, f: impl FnOnce(&crate::transfers::Deps<'_>) -> T) -> T {
+        let custody = self.partner.custody(&self.store);
+        f(&crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now: self.now(),
+        })
+    }
+
+    /// `f` given slice `earn`'s dependencies at `now`: what a call, a job or a recovery pass hands the slice.
+    pub fn earn_deps<T>(&self, now: Instant, f: impl FnOnce(&crate::earn::Deps<'_>) -> T) -> T {
+        f(&crate::earn::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody_layer: &self.partner.custody_layer,
+            recipients: self.transfers.recipients.as_ref(),
+            approvals: self.transfers.approvals.as_ref(),
+            settings: &self.earn,
+            now,
+        })
+    }
+
+    /// `f` given slice `loans`'s dependencies at `now`.
+    pub fn loans_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::loans::ports::Deps<'_>) -> T,
+    ) -> T {
+        let bus_calls = crate::loans::ports::BusMarginCalls {
+            bus: self.transfers.bus.as_ref(),
+            producer: "svc-bank",
+            now,
+        };
+        let record_only = crate::loans::ports::RecordOnly;
+        f(&crate::loans::ports::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody_layer: &self.partner.custody_layer,
+            approvals: self.transfers.approvals.as_ref(),
+            prices: self.loans.prices.as_ref(),
+            venue: self.loans.venue.as_ref(),
+            margin_calls: if self.loans.publish_margin_calls {
+                &bus_calls
+            } else {
+                &record_only
+            },
+            affiliates: self.loans.affiliates.as_ref(),
+            settings: &self.loans.settings,
+            now,
+        })
+    }
+
+    /// Slice `loans`'s wiring, built by the binary from the environment.
+    pub fn with_loans(mut self, wiring: crate::loans::Wiring) -> BankDoor {
+        self.loans = wiring;
+        self
+    }
+
+    /// Slice `activity`'s wiring, built by the binary from the environment.
+    pub fn with_activity(mut self, wiring: crate::activity::Wiring) -> BankDoor {
+        self.activity = wiring;
+        self
+    }
+
+    /// `f` given slice `activity`'s dependencies at `now`: what a call or the statement worker hands the slice.
+    pub fn activity_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::activity::Deps<'_>) -> T,
+    ) -> T {
+        f(&crate::activity::Deps {
+            door: self,
+            w: &self.activity,
+            now,
+        })
+    }
+
+    /// Slice `spaces`'s wiring.
+    pub fn spaces(&self) -> &crate::spaces::Wiring {
+        &self.spaces
+    }
+
+    /// Slice `transfers`'s wiring.
+    pub fn transfers(&self) -> &crate::transfers::Wiring {
+        &self.transfers
+    }
+
+    /// Slice `earn`'s owner values, built by the binary from the environment.
+    pub fn with_earn(mut self, settings: crate::earn::Settings) -> BankDoor {
+        self.earn = settings;
+        self
+    }
+
+    /// Slice `cards`' wiring, built by the binary from the environment.
+    pub fn with_cards(mut self, wiring: crate::cards::Wiring) -> BankDoor {
+        self.cards = wiring;
+        self
+    }
+
+    /// Slice `cards`' wiring.
+    pub fn cards(&self) -> &crate::cards::Wiring {
+        &self.cards
+    }
+
+    /// `f` given slice `cards`' dependencies at `now`: what a job door or another slice's call hands the slice.
+    pub fn cards_deps<T>(&self, now: Instant, f: impl FnOnce(&crate::cards::Deps<'_>) -> T) -> T {
+        let custody = self.partner.custody(&self.store);
+        let t = crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now,
+        };
+        f(&crate::cards::Deps {
+            t: &t,
+            w: &self.cards,
+        })
+    }
+
+    /// Slice `automations`' wiring, built by the binary from the environment.
+    pub fn with_automations(mut self, wiring: crate::automations::Wiring) -> BankDoor {
+        self.automations = wiring;
+        self
+    }
+
+    /// `f` given slice `automations`' dependencies at `now`: what a call, a job door or another slice hands the slice.
+    pub fn automations_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::automations::Deps<'_>) -> T,
+    ) -> T {
+        let custody = self.partner.custody(&self.store);
+        let t = crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now,
+        };
+        f(&crate::automations::Deps {
+            t: &t,
+            w: &self.automations,
+            earn: &self.earn,
+        })
+    }
+
     /// Slice `partner`'s wiring, built by the binary from the environment.
     pub fn with_partner(mut self, wiring: crate::partner::router::Wiring) -> BankDoor {
         self.partner = wiring;
@@ -304,6 +480,11 @@ impl BankDoor {
     /// Slice `spaces`'s wiring, built by the binary from the environment.
     pub fn with_spaces(mut self, wiring: crate::spaces::Wiring) -> BankDoor {
         self.spaces = wiring;
+        self
+    }
+
+    pub fn with_transfers(mut self, wiring: crate::transfers::Wiring) -> BankDoor {
+        self.transfers = wiring;
         self
     }
 
@@ -336,9 +517,89 @@ impl BankDoor {
             Slice::Partner => crate::partner::router::answer(&self.partner, &self.store, ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
             Slice::Spaces => {
-                crate::spaces::router::answer(&self.spaces, &self.partner, &self.store, ctx)
-                    .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
+                let freeze = |card_id: &str, user: &str| {
+                    self.cards_deps(ctx.now, |d| {
+                        crate::cards::core::freeze_for_holder(d, card_id, user)
+                    })
+                };
+                crate::spaces::router::answer(
+                    &self.spaces,
+                    &self.partner,
+                    &self.store,
+                    ctx,
+                    &freeze,
+                )
+                .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
             }
+            // `transfers.list` is the activity feed narrowed to transfers (`router/transfers.router.ts`).
+            Slice::Transfers if ctx.call.path == "transfers.list" => self
+                .activity_deps(ctx.now, |d| crate::activity::feed::transfers_list(d, ctx))
+                .map(Some),
+            Slice::Transfers => crate::transfers::router::answer(
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::Transfers))),
+            Slice::OpsDesk => crate::ops_desk::answer(
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::OpsDesk))),
+            Slice::Earn => {
+                let user = ctx
+                    .principal
+                    .map(|p| p.user_id.as_str())
+                    .unwrap_or_default();
+                self.earn_deps(ctx.now, |d| {
+                    crate::earn::router::answer(d, user, ctx.call.path, &ctx.input)
+                })
+                .map(|r| {
+                    r.map(Some).map_err(|e| {
+                        crate::errors::to_trpc(e, || {
+                            service_kit::approvals::random_uuid().unwrap_or_default()
+                        })
+                    })
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::Earn)))
+            }
+            Slice::Cards => crate::cards::router::answer(
+                &self.cards,
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::Cards))),
+            Slice::Loans => {
+                let user = ctx
+                    .principal
+                    .map(|p| p.user_id.as_str())
+                    .unwrap_or_default();
+                self.loans_deps(ctx.now, |d| {
+                    crate::loans::router::answer(d, user, ctx.call.path, &ctx.input)
+                })
+                .map(|r| {
+                    r.map(Some).map_err(|e| {
+                        crate::errors::to_trpc(e, || {
+                            service_kit::approvals::random_uuid().unwrap_or_default()
+                        })
+                    })
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::Loans)))
+            }
+            Slice::Automations => self
+                .automations_deps(ctx.now, |d| crate::automations::router::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Automations))),
+            Slice::Activity => self
+                .activity_deps(ctx.now, |d| crate::activity::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Activity))),
             other => Err(not_ported(other)),
         }
     }
@@ -525,6 +786,7 @@ impl BankDoor {
             principal: principal.as_ref(),
             service: service.as_deref(),
             region: &region,
+            jurisdiction: &self.jurisdiction,
             now,
         })
     }
