@@ -59,7 +59,7 @@ function isFounderType(p, t, depth = 0) {
 }
 
 /** True when the guard expression `node` stands for the service's founder guard. */
-export function isFounderGuard(p, node, env = undefined, depth = 0) {
+function isFounderGuard(p, node, env = undefined, depth = 0) {
   node = unwrap(node);
   if (!node || depth > 8) return false;
   if (node.type === 'CallExpression') return node.callee.type === 'Identifier' && isFounderBuilder(p, node.callee);

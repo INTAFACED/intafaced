@@ -22,7 +22,7 @@ export const IDENTITY_STAFF_ACCEPT_INVITE = defineProcedure({
   input: staffAcceptInputSchema,
   output: staffAcceptResultSchema,
   samples: [
-    { verdict: 'accept', input: { token: '11111111-1111-4111-8111-111111111111', password: 'placeholder' } },
+    { verdict: 'accept', input: { token: 'placeholder-invite-token-0000000000000000', password: 'placeholder' } },
     { verdict: 'refuse', input: 42 },
   ],
 });
@@ -37,7 +37,7 @@ export const IDENTITY_STAFF_INVITATION = defineProcedure({
   input: staffInvitationInputSchema,
   output: staffInvitationSchema,
   samples: [
-    { verdict: 'accept', input: { token: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'accept', input: { token: 'placeholder-invite-token-0000000000000000' } },
     { verdict: 'refuse', input: 42 },
   ],
 });
