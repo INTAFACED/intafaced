@@ -86,9 +86,9 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
       <div className="lt-row lt-row-between">
         <div className="lt-row">
           <CoinIcon asset={market.base} size="md" />
-          <h1 data-testid="dk-pair" className="lt-panel-title">
+          <h2 data-testid="dk-pair" className="lt-panel-title">
             {pair}
-          </h1>
+          </h2>
           {test ? (
             <span data-testid="dk-test" className="lt-test" title={t('Test market title')}>
               {t('Test market')}

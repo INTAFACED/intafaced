@@ -152,7 +152,7 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, 
                 </button>
               ))}
               <Menu>
-                <MenuTrigger className="dk-more" data-testid="dk-more" data-active={moreActive || undefined}>
+                <MenuTrigger data-testid="dk-more" data-active={moreActive || undefined}>
                   {moreActive ? intervalLabel(interval) : t('More intervals')}
                   <span aria-hidden="true"> ▾</span>
                 </MenuTrigger>

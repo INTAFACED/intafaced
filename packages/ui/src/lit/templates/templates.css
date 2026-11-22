@@ -543,7 +543,10 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  min-block-size: 1.5rem;
+  /* An inline box ignores a minimum height, so a link (an <a>, inline by default) is an inline block, 24 px tall to touch
+     (WCAG 2.5.8): in CSS pixels, as the rule counts them, since a rem is smaller than 16 px at the desk's root. */
+  display: inline-block;
+  min-block-size: 24px;
 }
 
 .lt-actions,
@@ -793,6 +796,10 @@
   font-size: var(--lit-type-label-size);
   font-weight: 600;
   white-space: nowrap;
+}
+/* A chip that is a control (a status chip that opens its details) is 24 px tall to touch (WCAG 2.5.8). */
+:is(button, a).lt-chip {
+  min-block-size: 24px;
 }
 
 .lt-chip-mark {
@@ -1409,6 +1416,20 @@
 }
 .lt-quiet {
   color: var(--lit-text-2);
+}
+/* A line key: which drawn line is which, in the colour the chart draws it (a chart's moving averages read the same roles). */
+.lt-line-key {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+.lt-line-key > [data-line='1'] {
+  color: var(--if-ma-1);
+}
+.lt-line-key > [data-line='2'] {
+  color: var(--if-ma-2);
+}
+.lt-line-key > [data-line='3'] {
+  color: var(--if-ma-3);
 }
 .lt-small {
   font-size: var(--lit-type-label-size);

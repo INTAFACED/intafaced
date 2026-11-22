@@ -181,7 +181,11 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   };
   const stepLabel = (value: number) => groupItems[String(value)];
 
+  // A grid owns rows only (axe aria-required-children): the notes and the buy and sell share sit after it, and a state
+  // with no rows (loading, error, refused) is drawn in its place.
   let content: React.ReactNode;
+  let after: React.ReactNode = null;
+  let grid = false;
   if (book.status === 'loading') {
     content = (
       <div data-testid="dk-bk-skeleton" className="lt-stack-tight" role="status" aria-busy="true" aria-label={t('Order book')}>
@@ -196,12 +200,13 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
     const words = refusalCopy(book.code, { pair: market.symbol.replace('/', '-') });
     content = <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />;
   } else {
+    grid = true;
     content = (
       <>
         <div className="lt-level lt-level-head" role="row">
-          <span>{t('Price column', { asset: market.quote })}</span>
-          <span>{t('Amount column', { asset: market.base })}</span>
-          <span>{t('Total column', { asset: market.base })}</span>
+          <span role="columnheader">{t('Price column', { asset: market.quote })}</span>
+          <span role="columnheader">{t('Amount column', { asset: market.base })}</span>
+          <span role="columnheader">{t('Total column', { asset: market.base })}</span>
         </div>
         <div className="lt-levels" role="rowgroup">
           {view !== 'bids' ? (
@@ -248,6 +253,10 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
             </div>
           ) : null}
         </div>
+      </>
+    );
+    after = (
+      <>
         {empty ? (
           <p data-testid="dk-bk-note" className="lt-note">
             {t('No orders')}
@@ -321,9 +330,14 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
           </SelectContent>
         </Select>
       </div>
-      <div className="lt-stack-tight" role="grid" aria-label={t('Order book')}>
-        {content}
-      </div>
+      {grid ? (
+        <div className="lt-stack-tight" role="grid" aria-label={t('Order book')}>
+          {content}
+        </div>
+      ) : (
+        content
+      )}
+      {after}
     </div>
   );
 }

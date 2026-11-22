@@ -248,4 +248,18 @@ describe('header search: where a page lives and the Help group', () => {
     expect(panel()).not.toBeNull();
     expect(document.activeElement).toBe(input());
   });
+
+  it('closes when Tab moves the focus out to another control, and stays open when the focus goes nowhere (a press on a result)', async () => {
+    await mount();
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    await act(async () => input().focus());
+    await type('password');
+    expect(panel()).not.toBeNull();
+    await act(async () => void input().dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })));
+    expect(panel()).not.toBeNull();
+    await act(async () => outside.focus());
+    expect(panel()).toBeNull();
+    outside.remove();
+  });
 });

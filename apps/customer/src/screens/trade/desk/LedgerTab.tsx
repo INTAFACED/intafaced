@@ -89,7 +89,7 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
         <StateBlock kind="empty" title={t('Ledger empty')} />
       ) : (
         <>
-          <div className="lt-table-scroll">
+          <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Ledger history')}>
             <table data-testid="dk-table" className="lt-table lt-table-dense" aria-label={t('Ledger history')}>
               <thead>
                 <tr>
@@ -141,7 +141,7 @@ function Totals({ entries, balances }: { entries: LedgerEntry[]; balances: Loada
   const { t } = deskCopy.useCopy();
   const sums = sumByAsset(entries);
   return (
-    <div className="lt-table-scroll">
+    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Ledger totals')}>
       <table data-testid="dk-table" className="lt-table lt-table-dense" aria-label={t('Ledger totals')}>
         <thead>
           <tr>

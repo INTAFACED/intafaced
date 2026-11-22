@@ -263,7 +263,7 @@ export function OrdersTable({
   const detailsTitle = t('Order details open');
   return (
     <>
-      <div className="lt-table-scroll">
+      <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={withAction ? t('Open orders') : t('Order history')}>
         <table data-testid="dk-table" className="lt-table lt-table-dense">
           <thead>
             <tr>
@@ -507,7 +507,7 @@ export function FillsTable({
     );
   };
   return (
-    <div className="lt-table-scroll">
+    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Trade history')}>
       <table data-testid="dk-table" className="lt-table lt-table-dense" data-layout={layout}>
         <thead>
           <tr>

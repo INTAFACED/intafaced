@@ -826,6 +826,8 @@
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
+  /* The tab row scrolls; a tab never shrinks below its words (longer copy spilled out of its box). */
+  flex-shrink: 0;
 }
 .lt-panel-tab[data-active] {
   color: var(--lit-text-1);
