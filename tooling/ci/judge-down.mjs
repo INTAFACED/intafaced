@@ -26,6 +26,7 @@
  * App token, issues on project-state). Every failure warns: this runs only in steps that can't fail their job
  * (continue-on-error), and the seal waits whatever it does.
  */
+import { runJobs } from './run-jobs.mjs';
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { VERDICT_STEPS, isJudgeDown, reviewRan } from './review-marker.mjs';
@@ -280,7 +281,7 @@ async function backCatchUp(source) {
     repo: REPO,
     skipSha: HEAD_SHA,
     jobsOf: async (run) =>
-      (await call(GH_TOKEN, 'GET', `/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`)).json?.jobs ?? [],
+      (await runJobs(`/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest`, async (p) => (await call(GH_TOKEN, 'GET', p)).json)) ?? [],
   });
   // A whole run re-run: its own Start the seal job starts that head's seal when the review ends.
   const done = [];

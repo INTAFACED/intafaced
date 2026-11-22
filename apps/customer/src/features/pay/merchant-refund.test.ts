@@ -24,6 +24,7 @@ const merchant = {
   kybStatus: 'approved',
   kybRef: 'isolated-approved',
   feeBps: null,
+  starterFee: null,
 };
 const response = (data: unknown) => new Response(JSON.stringify({ result: { data } }));
 const payment = {
@@ -39,6 +40,10 @@ const payment = {
   capturedAmount: '100',
   refundedAmount: '0',
   createdAt: '2026-10-10T09:00:00Z',
+  pricingSnapshot: null,
+  failure: null,
+  attempts: [],
+  confirmations: null,
 };
 
 describe('Merchant original refund recovery', () => {
@@ -215,7 +220,8 @@ describe('Refund-specific terminal evidence', () => {
     const f = fixture();
     f.d.values.set(operationKey, originalRaw);
     f.state.history = [{ ...event(), ts: '2026-10-10T09:42:00+24:00' }];
-    expect(await f.refund.checkOriginal(paymentId, current)).toMatchObject({ ok: true, data: { receipt: null } });
+    // The history record's answer refuses a timestamp that is not a real offset, so the read is unverified; the original stays.
+    expect(await f.refund.checkOriginal(paymentId, current)).toMatchObject({ ok: false, reason: 'invalid_response' });
     expect(f.d.values.get(operationKey)).toBe(originalRaw);
   });
 

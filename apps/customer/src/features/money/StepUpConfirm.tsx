@@ -2,9 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Field, Loading } from '@intafaced/ui/lit';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
-import { confirmWithStepUp, factorStatus, type StepUpBegin, type StepUpMethod } from '../account';
-import { stepUpRefusalKeys } from './withdraw-step-up-copy';
-import { withdrawStepUpCopy } from './withdraw-step-up-copy';
+import { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from '../account';
+import { stepUpRefusalKeys, withdrawStepUpCopy } from './withdraw-step-up-copy';
+import { IDENTITY_FACTOR_STATUS } from '@intafaced/contracts/identity-factor-status-procedures';
 
 const refusalKeys = { ...stepUpRefusalKeys, 'stepUp.no_passkey': 'noPasskey' } as const;
 
@@ -28,7 +28,7 @@ export function StepUpConfirm({
 }) {
   const { api, userId } = useSession();
   const { t } = withdrawStepUpCopy.useCopy();
-  const factors = useResource((signal) => api.query('identity', 'factorStatus', undefined, factorStatus, { signal }), `factors:${userId}`);
+  const factors = useResource((signal) => api.call(IDENTITY_FACTOR_STATUS, undefined, { signal }), `factors:${userId}`);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<'code' | 'passkey' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
