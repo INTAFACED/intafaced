@@ -39,6 +39,7 @@ import {
   Controls,
   Icons,
   MarketList,
+  MoneyParts,
   Overlays,
   ScanCodes,
   SmallCandles,
@@ -329,6 +330,14 @@ export default function VoltKit() {
             <VoltStack portfolio={{ status: 'loading' }} hidden={false} />
           </figure>
         </div>
+      </Block>
+
+      <Block
+        id="money-parts"
+        title="Money parts"
+        note="An asset's mark (a lettered disc when the kit has no art), the info tip, the hero figure shown, hidden and missing, the small-balances fold and the card stack."
+      >
+        <MoneyParts />
       </Block>
 
       <Block id="buttons" title="Buttons" note="One primary per view. Every variant at rest, disabled and busy.">

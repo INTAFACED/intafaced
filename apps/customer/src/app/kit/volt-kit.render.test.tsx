@@ -97,12 +97,13 @@ async function open(path: string) {
   });
 }
 
-// The blocks intafaced issue 9302 lists, in its order, with the parts issue 9326 adds.
+// The blocks intafaced issue 9302 lists, in its order, with the parts issues 9326 and 9563 add.
 const BLOCKS = [
   'colour',
   'type',
   'balance',
   'object',
+  'money-parts',
   'buttons',
   'inputs',
   'controls',
@@ -215,5 +216,41 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     first.focus();
     await act(async () => first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
     expect(document.activeElement?.closest('tr')?.dataset.index, 'ArrowDown moves to the next row').toBe(String(start + 1));
+  });
+
+  it('/kit shows the money parts issue 9563 adds, and the info tip opens on focus, tap and hover and closes on Escape', async () => {
+    await open('/kit');
+    const block = host.querySelector('[data-testid="volt-kit"] [data-block="money-parts"]')!;
+    expect(block.querySelector('[data-slot="asset-icon"][data-asset="BTC"] svg'), 'a listed asset draws its art').not.toBeNull();
+    expect(
+      block.querySelector('[data-slot="asset-icon"][data-asset="XYZ"]')?.getAttribute('data-fallback'),
+      'an unknown asset is lettered',
+    ).toBe('lettered');
+    expect(block.querySelector('[data-slot="hero-figure"] .lit-figure[data-size="hero"]'), 'the hero figure').not.toBeNull();
+    expect(block.querySelector('[data-slot="hero-figure"][data-unknown]')?.getAttribute('aria-label'), 'no figure is a dash').toBe(
+      'Not available',
+    );
+    expect(block.querySelector('details.lit-fold [data-part="count"]')?.textContent, 'the fold counts its items').toBe('3');
+    expect(block.querySelectorAll('.lit-stack a.lit-stack__card').length, 'the stack: two cards, each a link').toBe(2);
+
+    const tip = block.querySelector<HTMLButtonElement>('[data-testid="kit-tip"]')!;
+    const bubble = () => block.querySelector('.lit-tip__bubble');
+    const described = document.getElementById(tip.getAttribute('aria-describedby')!);
+    expect(described?.textContent, 'the text is the button’s description, with no hover').toContain('in US dollars');
+    expect(bubble()).toBeNull();
+    await act(async () => tip.focus());
+    expect(tip.getAttribute('aria-expanded'), 'focus opens it').toBe('true');
+    await act(async () => tip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(bubble(), 'Escape closes it').toBeNull();
+    await act(async () => tip.click());
+    expect(bubble()?.textContent, 'a tap opens it').toContain('in US dollars');
+    await act(async () => tip.click());
+    expect(bubble(), 'a second tap closes it').toBeNull();
+
+    const hide = [...block.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Hide balances')!;
+    await act(async () => hide.click());
+    const hero = block.querySelector('[data-slot="hero-figure"][data-hidden]');
+    expect(hero?.getAttribute('aria-label'), 'hidden, the figure is masked and said so').toBe('Balance hidden');
+    expect(hero?.textContent).not.toContain('12,468');
   });
 });
