@@ -7,6 +7,7 @@ import '../../../../app/redesign.css';
 import '../../../../app/shell.css';
 import '../../../../app/lit-look-styles';
 import './harness-tokens.css';
+import '../../../../app/lit-look-styles';
 import { StrictMode, useEffect, type ComponentType, type MouseEvent, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HideBalancesProvider, TooltipProvider } from '@intafaced/ui';

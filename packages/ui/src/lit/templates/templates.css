@@ -189,6 +189,10 @@
   .lt-grid-flow {
     grid-template-columns: minmax(0, 40rem) minmax(17.5rem, 1fr);
   }
+  /* A ticket beside the work it makes (an order form beside its orders, on a tool desk). */
+  .lt-grid-ticket-work {
+    grid-template-columns: 22.5rem minmax(0, 1fr);
+  }
   .lt-grid-settings {
     grid-template-columns: 13.75rem minmax(0, 1fr) minmax(13.75rem, 18.75rem);
   }
@@ -258,6 +262,15 @@
       'pairs chart book ticket'
       'pairs chart tape ticket'
       'pairs orders orders orders';
+  }
+  /* A pro desk with no markets list (a tool desk: execution, terminal) gives that column back to the rest. */
+  .lt-desk[data-desk='pro']:not(:has(> [data-region='pairs'])) {
+    grid-template-columns: minmax(0, 1fr) 16.25rem 18.75rem;
+    grid-template-areas:
+      'instrument instrument instrument'
+      'chart book ticket'
+      'chart tape ticket'
+      'orders orders orders';
   }
   .lt-desk[data-desk='simple'] {
     grid-template-columns: minmax(0, 1fr) 21.25rem;
@@ -594,6 +607,10 @@
   direction: ltr;
   unicode-bidi: isolate;
 }
+/* Code inside a mono block keeps the kit's mono face, not the browser's own `monospace`. */
+.lt-mono :where(code, kbd, samp, pre) {
+  font-family: inherit;
+}
 
 .lt-receipt,
 .lt-review {
@@ -825,6 +842,56 @@
   border-style: dashed;
 }
 
+/* Freshness of a polled read: live is a filled dot, stale a ring, unknown dashed, refused a turned square. */
+.lt-chip[data-freshness='live'] {
+  color: var(--lit-accent-text);
+}
+.lt-chip[data-freshness='live'] .lt-chip-mark {
+  background: currentColor;
+}
+.lt-chip[data-freshness='stale'] {
+  color: var(--lit-status-stale);
+}
+.lt-chip[data-freshness='unknown'] {
+  color: var(--lit-text-2);
+}
+.lt-chip[data-freshness='unknown'] .lt-chip-mark {
+  border-style: dashed;
+}
+.lt-chip[data-freshness='refused'] {
+  color: var(--lit-status-failed);
+}
+.lt-chip[data-freshness='refused'] .lt-chip-mark {
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+/* How far a piece of work has come, as a short bar beside its figure (the figure carries the meaning). */
+.lt-meter {
+  inline-size: 4rem;
+  block-size: 0.375rem;
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+  background: var(--lit-solid-bg-raised);
+  overflow: hidden;
+}
+.lt-meter::-webkit-meter-bar {
+  background: var(--lit-solid-bg-raised);
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+}
+.lt-meter::-webkit-meter-optimum-value {
+  background: var(--lit-accent);
+}
+.lt-meter::-moz-meter-bar {
+  background: var(--lit-accent);
+}
+
+.lt-chip-when {
+  color: var(--lit-text-2);
+  font-weight: 400;
+}
+
 .lt-tabs {
   display: flex;
   gap: calc(var(--lit-gap-item) / 2);
@@ -862,7 +929,10 @@
   }
 }
 
+/* A tab keeps its whole name: the row scrolls instead (the 24 px target floor would otherwise let it shrink under
+   its words, so the names overlap). */
 .lt-tab {
+  flex: none;
   display: inline-flex;
   align-items: center;
   min-block-size: var(--lit-control-h);
@@ -874,10 +944,112 @@
   border: 1px solid var(--lit-line);
 }
 
-.lt-tab[aria-current='page'] {
+.lt-tab[aria-current='page'],
+.lt-tab[aria-selected='true'] {
   color: var(--lit-text-1);
   background: var(--lit-solid-bg-raised);
   border-color: var(--lit-control-rim-active);
+}
+
+/* In-page tabs are buttons: the same pill, no button chrome of their own. */
+button.lt-tab {
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.lt-tab:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  padding-block-start: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+
+.lt-tab-panel:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+/* ---- select: a button that opens a list ---- */
+.lt-select {
+  position: relative;
+  min-inline-size: 0;
+}
+
+.lt-select-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  inline-size: 100%;
+  min-block-size: var(--lit-control-h);
+  padding-inline: var(--lit-gap-item);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.lt-select-button:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-select-button:disabled {
+  color: var(--lit-text-3);
+  cursor: not-allowed;
+}
+
+.lt-select-mark {
+  flex: none;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.lt-select-list {
+  position: absolute;
+  z-index: 10;
+  inset-inline: 0;
+  inset-block-start: calc(100% + 0.25rem);
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  max-block-size: 16rem;
+  overflow-y: auto;
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  box-shadow: var(--lit-solid-shadow);
+}
+
+.lt-select-list [role='option'] {
+  padding-block: 0.5rem;
+  padding-inline: var(--lit-gap-item);
+  border-radius: calc(var(--lit-radius-control) - 0.25rem);
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+
+.lt-select-list [role='option'][aria-selected='true'] {
+  color: var(--lit-text-1);
+  font-weight: 600;
+}
+
+.lt-select-list [role='option'][data-active] {
+  background: var(--lit-solid-bg);
+  color: var(--lit-text-1);
 }
 
 .lt-sheet {
@@ -936,6 +1108,16 @@
 
 .lt-table tr[data-selected] td {
   background: var(--lit-solid-bg-raised);
+}
+
+/* A pickable row (a grid) is one Tab stop: it shows its focus and reads as clickable. */
+.lt-table[role='grid'] tbody tr[data-row] {
+  cursor: pointer;
+}
+
+.lt-table[role='grid'] tbody tr[data-row]:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: -2px;
 }
 
 .lt-row-link {
@@ -1235,6 +1417,12 @@
   margin: 0;
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
+}
+
+/* Sample output shown in place of what is not built yet: blurred, never read as a result. The element carries its own
+   text alternative (an aria-label that says it is sample data). */
+.lt-blurred {
+  filter: blur(0.125rem);
 }
 
 /* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a

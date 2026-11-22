@@ -4,7 +4,9 @@
  * reused if the same ladder is sent again.
  */
 import { useMemo, useState } from 'react';
-import { Button, Field, Input, KeyValue, SegmentedControl, Switch, Table, fmtAmount, fmtPrice, type TableColumn } from '../rooms/ui';
+import { Button, Segmented, Switch } from '@intafaced/ui/lit';
+import { KeyValue, Table, type Column } from '@intafaced/ui/lit/templates';
+import { fmtAmount, fmtPrice } from '../rooms/ui';
 import { useRoomApi } from '../rooms/read';
 import type { BatchOrder } from '../rooms/api';
 import type { RoomWriter } from '../rooms/write';
@@ -23,7 +25,7 @@ import {
   type Side,
 } from './model';
 import type { BatchItem } from '../rooms/api';
-import { ConfirmDialog, Pick, Why, placesFor } from './parts';
+import { ConfirmDialog, DecimalField, Pick, TextField, Unknown, Why, placesFor } from './parts';
 
 export interface ScaledRun {
   nonce: string;
@@ -123,20 +125,14 @@ export function ScaledForm({
     } else if (result.kind !== 'uncertain') onRun(null);
   }
 
-  const columns: TableColumn<LadderRow>[] = [
-    { id: 'n', header: '#', pin: 'start', value: (r) => String(r.index) },
-    { id: 'price', header: t('Price'), numeric: true, value: (r) => r.price, cell: (r) => fmtPrice(r.price, market?.tickSize) },
-    { id: 'size', header: t('Size'), numeric: true, value: (r) => r.size, cell: (r) => fmtAmount(r.size, { places: lotPlaces }) },
-    { id: 'notional', header: t('Value'), numeric: true, value: (r) => r.notional, cell: (r) => fmtAmount(r.notional, { places: 4 }) },
-    {
-      id: 'cumSize',
-      header: t('Total size'),
-      numeric: true,
-      value: (r) => r.cumSize,
-      cell: (r) => fmtAmount(r.cumSize, { places: lotPlaces }),
-    },
-    { id: 'cumHold', header: t('Total held'), numeric: true, value: (r) => r.cumHold, cell: (r) => fmtAmount(r.cumHold, { places: 4 }) },
-    { id: 'flag', header: t('Check'), cell: (r) => (r.belowMin ? t('Below minimum') : t('OK')) },
+  const columns: Column<LadderRow>[] = [
+    { key: 'n', label: '#', cell: (r) => String(r.index) },
+    { key: 'price', label: t('Price'), align: 'end', cell: (r) => fmtPrice(r.price, market?.tickSize) },
+    { key: 'size', label: t('Size'), align: 'end', cell: (r) => fmtAmount(r.size, { places: lotPlaces }) },
+    { key: 'notional', label: t('Value'), align: 'end', cell: (r) => fmtAmount(r.notional, { places: 4 }) },
+    { key: 'cumSize', label: t('Total size'), align: 'end', cell: (r) => fmtAmount(r.cumSize, { places: lotPlaces }) },
+    { key: 'cumHold', label: t('Total held'), align: 'end', cell: (r) => fmtAmount(r.cumHold, { places: 4 }) },
+    { key: 'flag', label: t('Check'), cell: (r) => (r.belowMin ? t('Below minimum') : t('OK')) },
   ];
 
   const summary = ladder
@@ -159,131 +155,104 @@ export function ScaledForm({
       ]
     : [];
 
+  const digits = (v: string) => v.replace(/\D/g, '');
   return (
-    <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <section aria-label={t('New ladder')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
-        <h3 className="m-0 text-md font-medium text-fg">{t('New ladder')}</h3>
-        <Field label={t('Market')}>
-          <Pick
-            label={t('Market')}
-            value={symbol}
-            options={markets.map((m) => ({ value: m.symbol, label: m.symbol }))}
-            onChange={setSymbol}
-          />
-        </Field>
-        <SegmentedControl
-          aria-label={t('Side')}
-          size={32}
-          fullWidth
+    <div className="lt-grid lt-grid-ticket-work">
+      <section aria-label={t('New ladder')} className="lt-col-main">
+        <h3>{t('New ladder')}</h3>
+        <Pick
+          label={t('Market')}
+          value={symbol}
+          options={markets.map((m) => ({ value: m.symbol, label: m.symbol }))}
+          onChange={setSymbol}
+        />
+        <Segmented
+          label={t('Side')}
           value={side}
-          onValueChange={(v) => setSide(v as Side)}
-          items={[
-            { value: 'buy', label: t('Buy'), tone: 'up' },
-            { value: 'sell', label: t('Sell'), tone: 'down' },
+          onChange={setSide}
+          options={[
+            { value: 'buy', label: t('Buy') },
+            { value: 'sell', label: t('Sell') },
           ]}
         />
-        <Field
+        <DecimalField
           label={t('Total size ({asset})', { asset: market?.base ?? '' })}
           error={first === 'total' && total ? word('total') : first === 'lot' ? word('lot') : undefined}
-        >
-          <Input
-            kind="decimal"
-            aria-label={t('Total size ({asset})', { asset: market?.base ?? '' })}
-            value={total}
-            onValueChange={setTotal}
-            precision={lotPlaces}
-            density="dense"
-          />
-        </Field>
-        <Field
+          value={total}
+          onValueChange={setTotal}
+          precision={lotPlaces}
+        />
+        <TextField
           label={t('Number of orders')}
           hint={t('{min} to {max}', { min: String(MIN_ORDERS), max: String(MAX_ORDERS) })}
           error={problems.includes('count') ? word('count') : undefined}
-        >
-          <Input aria-label={t('Number of orders')} value={count} onValueChange={(v) => setCount(v.replace(/\D/g, ''))} density="dense" />
-        </Field>
-        <Field label={t('First price')} error={problems.includes('range') ? word('range') : undefined}>
-          <Input
-            kind="decimal"
-            aria-label={t('First price')}
-            value={start}
-            onValueChange={setStart}
-            precision={placesFor(market?.tickSize)}
-            density="dense"
-          />
-        </Field>
-        <Field label={t('Last price')}>
-          <Input
-            kind="decimal"
-            aria-label={t('Last price')}
-            value={end}
-            onValueChange={setEnd}
-            precision={placesFor(market?.tickSize)}
-            density="dense"
-          />
-        </Field>
-        <Field label={t('Size distribution')}>
-          <Pick
-            label={t('Size distribution')}
-            value={distribution}
-            options={[
-              { value: 'equal', label: t('Equal') },
-              { value: 'ascending', label: t('Ascending') },
-              { value: 'descending', label: t('Descending') },
-              { value: 'ratio', label: t('By ratio') },
-            ]}
-            onChange={setDistribution}
-          />
-        </Field>
+          value={count}
+          onValueChange={(v) => setCount(digits(v))}
+        />
+        <DecimalField
+          label={t('First price')}
+          error={problems.includes('range') ? word('range') : undefined}
+          value={start}
+          onValueChange={setStart}
+          precision={placesFor(market?.tickSize)}
+        />
+        <DecimalField label={t('Last price')} value={end} onValueChange={setEnd} precision={placesFor(market?.tickSize)} />
+        <Pick
+          label={t('Size distribution')}
+          value={distribution}
+          options={[
+            { value: 'equal', label: t('Equal') },
+            { value: 'ascending', label: t('Ascending') },
+            { value: 'descending', label: t('Descending') },
+            { value: 'ratio', label: t('By ratio') },
+          ]}
+          onChange={setDistribution}
+        />
         {distribution === 'ratio' ? (
-          <Field
+          <TextField
             label={t('Last size to first size')}
             hint={t('A whole number, 1 to 100')}
             error={problems.includes('ratio') ? word('ratio') : undefined}
-          >
-            <Input
-              aria-label={t('Last size to first size')}
-              value={ratio}
-              onValueChange={(v) => setRatio(v.replace(/\D/g, ''))}
-              density="dense"
-            />
-          </Field>
+            value={ratio}
+            onValueChange={(v) => setRatio(digits(v))}
+          />
         ) : null}
-        <Field label={t('Time in force')} hint={t('Good till cancelled')}>
-          <Input aria-label={t('Time in force')} value="GTC" readOnly density="dense" />
-        </Field>
-        <Field label={t('Post only')} orientation="horizontal" hint={t('Post only hint')}>
-          <Switch aria-label={t('Post only')} checked={postOnly} onCheckedChange={setPostOnly} />
-        </Field>
+        <TextField label={t('Time in force')} hint={t('Good till cancelled')} value="GTC" readOnly />
+        <div className="lt-field">
+          <div className="lt-toolbar">
+            <Switch label={t('Post only')} checked={postOnly} onChange={setPostOnly} />
+            <span aria-hidden="true">{t('Post only')}</span>
+          </div>
+          <small>{t('Post only hint')}</small>
+        </div>
         {market ? (
-          <p className="m-0 text-sm text-fg-2">
-            {t('Free {asset} {amount}', { asset: holdAsset, amount: fmtAmount(freeOf(holdAsset), { places: 6 }) })}
-          </p>
+          <p className="lt-hint">{t('Free {asset} {amount}', { asset: holdAsset, amount: fmtAmount(freeOf(holdAsset), { places: 6 }) })}</p>
         ) : null}
         {first === 'samePrices' || first === 'tooSmall' ? <Why>{word(first)}</Why> : null}
         {blocker ? <Why>{blocker}</Why> : null}
-        <Button size={40} fullWidth disabled={!canReview} onClick={() => setReview(true)}>
+        <Button tone="primary" block disabled={!canReview} onClick={() => setReview(true)}>
           {t('Review ladder')}
         </Button>
         {writer.note.state !== 'none' ? <Why>{t('Locked by unconfirmed request')}</Why> : null}
       </section>
-      <section aria-label={t('Ladder preview')} className="flex min-w-0 flex-col gap-3">
-        <p className="m-0 text-sm text-fg-2">
+      <section aria-label={t('Ladder preview')} className="lt-col-main">
+        <p className="lt-hint">
           {t('Rounding note', { tick: market?.tickSize ?? '—', lot: market?.lotSize ?? '—' })}
           {ladder && ladder.residual !== '0'
             ? ` ${t('Residual note', { residual: ladder.residual ?? '—', n: String(ladder.rows.length) })}`
             : ''}
         </p>
         <Table
-          label={t('Ladder preview')}
-          density="dense"
+          caption={t('Ladder preview')}
+          mode="pro"
           columns={columns}
           rows={ladder?.rows ?? []}
-          minWidth={720}
-          getRowId={(r) => String(r.index)}
-          emptyState={<p className="m-0 p-3 text-sm text-fg-2">{t('Fill the form to see the ladder')}</p>}
+          rowKey={(r) => String(r.index)}
+          empty={<p className="lt-hint">{t('Fill the form to see the ladder')}</p>}
         />
-        {ladder ? <KeyValue density="dense" aria-label={t('Cost')} items={summary} /> : null}
+        {ladder ? (
+          <KeyValue label={t('Cost')} rows={summary.map((r) => ({ label: r.label, value: r.value ?? <Unknown />, note: r.hint }))} />
+        ) : null}
       </section>
       <ConfirmDialog
         open={review}

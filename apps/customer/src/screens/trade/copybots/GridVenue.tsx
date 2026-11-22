@@ -11,6 +11,7 @@ import type { createRoomApi, GridBot, GridRequest } from './api';
 import { roomCopy } from './copy';
 import type { Failure } from './guard';
 import { InfoNote, RefusalNote } from './parts';
+import './copybots.css';
 
 /**
  * The spot grid on the person's own venue account (J-copy-bots-otc-14; svc-trade src/grid/venue-grid.ts). INTAFACED holds

@@ -34,6 +34,7 @@ import type { CopyDesk, FollowRequest, LeaderRow, RoomApi } from './api';
 import { bpsText, deskState } from './desk';
 import { roomCopy } from './copy';
 import { InfoNote, RefusalNote } from './parts';
+import './copybots.css';
 
 type Step = 1 | 2 | 3 | 4;
 
