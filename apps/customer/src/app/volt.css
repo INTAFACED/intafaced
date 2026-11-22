@@ -37,6 +37,16 @@
   padding-inline: var(--if-gutter);
   padding-block-start: 1.5rem;
 }
+/* The chart desk (the charts workbench: a pro desk with the markets list and no book, trades or ticket) is a working
+   surface, as it was before Volt: it takes the page's whole width, so a maximised chart has the screen. */
+:root
+  :is(.if-app, .public-shell)
+  > main
+  .lt-room[data-template='desk']:has(> .lt-body > .lt-desk[data-desk='pro'] > [data-region='pairs']):not(
+    :has(> .lt-body > .lt-desk > :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+  ) {
+  max-inline-size: none;
+}
 
 /* Phone: the doors float as one pill above the page, the open door a solid ink pill inside it. The pill's look is not
    inside the phone query, so the kit page can draw it at any width (app/kit); shell.css shows the bar on a phone only. */

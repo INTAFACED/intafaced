@@ -304,6 +304,43 @@
   }
 }
 
+/* A chart desk (the charts workbench) is a working surface: it is drawn at the pro density whatever the person's mode,
+   and each field's label sits beside its control, so the plot opens on the first screen as it did before Volt. */
+.lt-room[data-template='desk']:has(> .lt-body > .lt-desk[data-desk='pro'] > [data-region='pairs']):not(
+    :has(> .lt-body > .lt-desk > :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+  ) {
+  --lit-gap-section: 1rem;
+  --lit-gap-item: 0.5rem;
+  --lit-pad-panel: 0.875rem;
+  --lit-row-h: 2.5rem;
+  --lit-control-h: 2.25rem;
+}
+.lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+    :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+  )
+  :is(.lt-toolbar, .lt-row)
+  > .lt-field:not(:has(> input:is([type='checkbox'], [type='radio']))) {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--lit-gap-item);
+}
+.lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+    :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+  )
+  > [data-region='chart']
+  .lt-button {
+  min-block-size: var(--lit-control-h);
+}
+/* Its plot keeps a working height (40% of the screen, within a floor and a ceiling), so a study pane under the price
+   pane never squeezes the price pane to a sliver. */
+.lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+    :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+  )
+  > [data-region='chart']
+  .lt-chart-stage {
+  min-block-size: clamp(16.25rem, 40vh, 32rem);
+}
+
 /* ---- stepper ---- */
 
 .lt-stepper {
