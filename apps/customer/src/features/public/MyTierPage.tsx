@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
+import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
@@ -9,7 +10,6 @@ import { feeTierFetcher, snapshotTime, type FeeTier, type FeeTierBenefits } from
 import { feeTierCopy } from './fee-tier-copy';
 import { VipApply } from './VipApply';
 import { VenueTier } from './VenueFees';
-import '../../shared/public-pages.css';
 
 /**
  * /fees/my-tier: the person's own fee tier (SP-fees-vip-03, J-cex-spot-10 #5-#6). The tier their next order keeps,
@@ -23,18 +23,21 @@ export function MyTierPage() {
   const copy = feeTierCopy.useCopy();
   if (!session) {
     return (
-      <div className="pub-page" data-room="my-tier">
-        <header className="pub-heading">
-          <h1>{copy.t('title')}</h1>
-          <p>{copy.t('lead')}</p>
-        </header>
-        <section className="pub-notice" role="status" data-tier-page="sign-in">
-          <h2>{copy.t('signInTitle')}</h2>
-          <p>{copy.t('signInBody')}</p>
-          <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(safeReturnTo(location))}`}>
-            {copy.t('signInAction')}
-          </a>
-        </section>
+      <div data-room="my-tier">
+        <ReadingTemplate
+          title={copy.t('title')}
+          description={copy.t('lead')}
+          state={{ kind: 'ready' }}
+          body={
+            <section role="status" data-tier-page="sign-in">
+              <h2>{copy.t('signInTitle')}</h2>
+              <p>{copy.t('signInBody')}</p>
+              <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(safeReturnTo(location))}`}>
+                {copy.t('signInAction')}
+              </a>
+            </section>
+          }
+        />
       </div>
     );
   }
@@ -52,35 +55,42 @@ function SignedInTier() {
 export function MyTierView({ load, apply, venue }: { load: Loadable<FeeTier | null>; apply?: ReactNode; venue?: ReactNode }) {
   const copy = feeTierCopy.useCopy();
   return (
-    <div className="pub-page" data-room="my-tier">
-      <header className="pub-heading">
-        <h1>{copy.t('title')}</h1>
-        <p>{copy.t('lead')}</p>
-      </header>
-      {load.status === 'loading' ? <p role="status">{copy.t('loading')}</p> : null}
-      {load.status === 'error' ? (
-        <p role="alert">
-          {copy.t('failed')}{' '}
-          <button type="button" className="text-link" onClick={load.retry}>
-            {copy.t('retry')}
-          </button>
-        </p>
-      ) : null}
-      {load.status === 'refused' ? <p role="alert">{refusalCopy(load.code).title}</p> : null}
-      {load.status === 'empty' || (load.status === 'ready' && load.data === null) ? (
-        <section className="pub-notice" role="status" data-tier-page="blank">
-          <h2>{copy.t('blankTitle')}</h2>
-          <p>{copy.t('blankBody')}</p>
-        </section>
-      ) : null}
-      {venue}
-      {load.status === 'ready' && load.data ? <Tier tier={load.data} /> : null}
-      {apply}
-      <p>
-        <a className="text-link" href="/fees">
-          {copy.t('feesLink')} →
-        </a>
-      </p>
+    <div data-room="my-tier">
+      <ReadingTemplate
+        title={copy.t('title')}
+        description={copy.t('lead')}
+        state={{ kind: 'ready' }}
+        body={
+          <>
+            {load.status === 'loading' ? <p role="status">{copy.t('loading')}</p> : null}
+            {load.status === 'error' ? (
+              <p role="alert">
+                {copy.t('failed')}{' '}
+                <button type="button" className="lt-link" onClick={load.retry}>
+                  {copy.t('retry')}
+                </button>
+              </p>
+            ) : null}
+            {load.status === 'refused' ? <p role="alert">{refusalCopy(load.code).title}</p> : null}
+            {load.status === 'empty' || (load.status === 'ready' && load.data === null) ? (
+              <section role="status" data-tier-page="blank">
+                <h2>{copy.t('blankTitle')}</h2>
+                <p>{copy.t('blankBody')}</p>
+              </section>
+            ) : null}
+            {venue}
+            {load.status === 'ready' && load.data ? <Tier tier={load.data} /> : null}
+            {apply}
+          </>
+        }
+        related={
+          <p>
+            <a className="lt-link" href="/fees">
+              {copy.t('feesLink')} →
+            </a>
+          </p>
+        }
+      />
     </div>
   );
 }
@@ -91,7 +101,7 @@ function Tier({ tier }: { tier: FeeTier }) {
   const { program, volume } = tier;
   return (
     <>
-      <section className="pub-card" aria-label={copy.t('yourTier', { tier: name(tier.tier) })} data-tier-page="tier">
+      <section aria-label={copy.t('yourTier', { tier: name(tier.tier) })} data-tier-page="tier">
         <h2 data-tier={tier.tier}>{copy.t('yourTier', { tier: name(tier.tier) })}</h2>
         <p>
           {tier.trial ? (
@@ -106,7 +116,7 @@ function Tier({ tier }: { tier: FeeTier }) {
       </section>
       {program && volume ? (
         <>
-          <section className="pub-card" aria-label={copy.t('volumeTitle')} data-tier-page="volume">
+          <section aria-label={copy.t('volumeTitle')} data-tier-page="volume">
             <h2>{copy.t('volumeTitle')}</h2>
             <p data-volume={volume.amount}>
               <strong>{copy.t('volumeLine', { amount: volume.amount, fills: String(volume.fills) })}</strong>
@@ -117,7 +127,7 @@ function Tier({ tier }: { tier: FeeTier }) {
                 ? copy.t('nextTier', { tier: name(tier.next.tierId), min: tier.next.minVolume30d, remaining: tier.next.remaining })
                 : copy.t('topTier')}
             </p>
-            <table className="pub-table" aria-label={copy.t('thresholdsTitle')}>
+            <table className="lt-table" aria-label={copy.t('thresholdsTitle')}>
               <thead>
                 <tr>
                   <th scope="col">{copy.t('colTier')}</th>
@@ -134,7 +144,7 @@ function Tier({ tier }: { tier: FeeTier }) {
               </tbody>
             </table>
           </section>
-          <section className="pub-card" aria-label={copy.t('snapshotTitle')} data-tier-page="snapshot">
+          <section aria-label={copy.t('snapshotTitle')} data-tier-page="snapshot">
             <h2>{copy.t('snapshotTitle')}</h2>
             <p data-next-snapshot={tier.nextSnapshotAt ?? ''}>
               {!tier.snapshotsRunning
@@ -145,7 +155,7 @@ function Tier({ tier }: { tier: FeeTier }) {
             </p>
             <p>{copy.t('graceNotSet')}</p>
           </section>
-          <section className="pub-card" aria-label={copy.t('countsTitle')} data-tier-page="counts">
+          <section aria-label={copy.t('countsTitle')} data-tier-page="counts">
             <h2>{copy.t('countsTitle')}</h2>
             <ul>
               <li data-counted="spot">{copy.t('counted', { quotes: program.volumeQuotes.join(', ') })}</li>
@@ -164,12 +174,12 @@ function Tier({ tier }: { tier: FeeTier }) {
         yours={tier.tier}
         name={name}
       />
-      <section className="pub-card" aria-label={copy.t('snapshotsTitle')} data-tier-page="snapshots">
+      <section aria-label={copy.t('snapshotsTitle')} data-tier-page="snapshots">
         <h2>{copy.t('snapshotsTitle')}</h2>
         {tier.snapshots.length === 0 ? (
           <p>{copy.t('noSnapshots')}</p>
         ) : (
-          <table className="pub-table">
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{copy.t('colTime')}</th>
@@ -217,14 +227,14 @@ function Benefits({
   const copy = feeTierCopy.useCopy();
   const flag = (value: boolean | null) => (value === null ? copy.t('benefitNotSet') : value ? copy.t('benefitYes') : copy.t('benefitNo'));
   return (
-    <section className="pub-card" aria-labelledby="tier-benefits-title" data-tier-page="benefits">
+    <section aria-labelledby="tier-benefits-title" data-tier-page="benefits">
       <h2 id="tier-benefits-title">{copy.t('benefitsTitle')}</h2>
       {benefits === null ? (
         <p data-benefits="not-set">{copy.t('benefitsNotSet')}</p>
       ) : (
         <>
           <p>{copy.t('benefitsLead')}</p>
-          <table className="pub-table" aria-labelledby="tier-benefits-title">
+          <table className="lt-table" aria-labelledby="tier-benefits-title">
             <thead>
               <tr>
                 <th scope="col">{copy.t('colTier')}</th>
