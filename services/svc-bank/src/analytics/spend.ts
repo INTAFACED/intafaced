@@ -77,6 +77,12 @@ export class SpendAnalytics {
     private readonly custody: PartnerCustody = custodialOnly,
   ) {}
 
+  /** The live primary space plus every named space ever held, archived or not, funded or not. */
+  private async historySpaces(userId: string, assetId: string) {
+    const [live, named] = await Promise.all([this.spaces.namedSpaces(userId, assetId), this.spaces.allNamedSpaces(userId, assetId)]);
+    return [...live.filter((s) => s.kind !== 'named'), ...named];
+  }
+
   /** A partner-held person's outflow category for one line that left them. */
   private partnerCategory(move: PartnerMove): SpendCategory {
     if (move.to.userId === PARTNER_PAYOUTS_OWNER) return 'withdrawals';
@@ -96,7 +102,9 @@ export class SpendAnalytics {
   async spendSummary(input: { userId: string; assetId: string; range: HistoryRange }): Promise<SpendSummary> {
     // A person the partner holds money for: the same fold, over the partner's record. The ledger has no line for them.
     const partner = this.custody.bankFor(input.userId);
-    const spaces = partner ? [] : await this.spaces.namedSpaces(input.userId, input.assetId);
+    // History is every space the user ever held: an archived empty pot keeps its past postings in the window,
+    // so the same entries over the same range give the same totals.
+    const spaces = partner ? [] : await this.historySpaces(input.userId, input.assetId);
 
     const outflow = new Map<SpendCategory, Amount>();
     let depositInflow: Amount = 0n;
