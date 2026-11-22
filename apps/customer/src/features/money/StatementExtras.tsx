@@ -56,7 +56,8 @@ export function useStatementLetters() {
     setSaid(code ? { kind: 'off', code } : { kind: 'refused', words: t('letterRefused'), code: result.code ?? null });
   }
 
-  return { t, busy, said, ask };
+  // `t` by its catalog's name, so the hook's type can be written out (TS5088: inferred, it is cyclic).
+  return { t: t as typeof statementExtrasCopy.t, busy, said, ask };
 }
 
 type Tax = { kind: 'loading' } | { kind: 'list'; count: number } | Exclude<Said, null>;
@@ -91,5 +92,6 @@ export function useTaxStatements() {
     };
   }, [api, year]);
 
-  return { t, thisYear, year, setYear, tax };
+  // `t` by its catalog's name, so the hook's type can be written out (TS5088: inferred, it is cyclic).
+  return { t: t as typeof statementExtrasCopy.t, thisYear, year, setYear, tax };
 }

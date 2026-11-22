@@ -65,7 +65,8 @@ export function useWithdrawStepUp({ run, onDone }: { run: (token: string) => Pro
     void confirm({ code }, 'code');
   }
   return {
-    t,
+    // `t` by its catalog's name, so the hook's type can be written out (TS5088: inferred, it is cyclic).
+    t: t as typeof withdrawStepUpCopy.t,
     code,
     setCode: (value: string) => setCodeRaw(value.trim().slice(0, 11)),
     busy,
@@ -124,7 +125,8 @@ export function useStepUpConfirm({
   }
   const status = factors.resource;
   return {
-    t,
+    // `t` by its catalog's name, so the hook's type can be written out (TS5088: inferred, it is cyclic).
+    t: t as typeof withdrawStepUpCopy.t,
     /** The factors are still being read: show "Checking" and nothing else. */
     checking: status.status === 'loading',
     /** No authenticator and no passkey: the request goes without an approval, and the bank alone decides. */

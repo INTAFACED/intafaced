@@ -72,7 +72,8 @@ export function useIncomeSorter(spaces: Space[], open: (spec: ActionSpec) => voi
       submit: t('stop'),
     });
 
-  return { t, read, named, nameOf, assets, setUp, stop };
+  // `t` by its catalog's name, so the hook's type can be written out (TS5088: inferred, it is cyclic).
+  return { t: t as typeof sorterCopy.t, read, named, nameOf, assets, setUp, stop };
 }
 
 export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: ActionSpec) => void }) {
