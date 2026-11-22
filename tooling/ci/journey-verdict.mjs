@@ -370,6 +370,10 @@ export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {},
  * money (the stricter of the two), so it is never passed over as inherited. `moneyByHead` lists those steps. (Failure it
  * prevents: #9539 made apps/admin money on main, so 8 regression steps read "the baseline says money false, the money rule
  * at this commit says true" on every pull request's seal, #9601's fix and #9603's revert included, and none could merge.)
+ * `headBaseline`, given with `headMoney`, is the baseline the merge would hold (the head's when the pull request changes it,
+ * else main's): a step whose flag there the head's own rule disagrees with is red too, as money, so a change that makes a
+ * baselined step money without moving its entry is stopped before main's verdict is. (Failure it prevents: #9539's own
+ * verdict was red on those 8 steps, and the seal, reading main's consistent rule, passed it.)
  */
 export function judge({
   newest,
@@ -383,6 +387,7 @@ export function judge({
   setAside = {},
   onMain = false,
   headMoney = null,
+  headBaseline = null,
 }) {
   const inScope = (step, files) => !target || target.has(files[step]);
   const asideNow = (step) => setAside[step]?.active && !(guard[step] ?? true);
@@ -411,6 +416,8 @@ export function judge({
   const red = [];
   const kept = [];
   const moneyByHead = [];
+  const headEntries = new Map();
+  if (headMoney) for (const e of headBaseline?.steps ?? []) if (!headEntries.has(e?.step)) headEntries.set(e?.step, e);
   for (const step of [...failing].sort(byStep)) {
     const ruled = money[step] ?? true; // a step missing from journeys.json counts as money
     const e = entries.get(step);
@@ -420,6 +427,9 @@ export function judge({
     const isMoney = byHead ? ruled || e.money : ruled;
     const entryMoney = byHead ? e.money : ruled;
     if (byHead) moneyByHead.push(step);
+    const he = headEntries.get(step);
+    const headRuled = headMoney?.[step] ?? true;
+    const headOff = Boolean(he && he.money !== headRuled);
     const no = (why, mark = {}) => red.push({ step, why, money: isMoney, ...mark });
     // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, the run just before this one
     // showed it passing (two failures in a row is broken; an unknown previous result excuses nothing), and its baseline
@@ -429,6 +439,7 @@ export function judge({
       newest.states[step] === 'failed' &&
       PASSED_BEFORE.has(setAside[step].before) &&
       !dupes.has(step) &&
+      !headOff &&
       (!e || e.money === isMoney)
     ) {
       kept.push(step);
@@ -445,6 +456,8 @@ export function judge({
     } else if (dupes.has(step)) no('listed more than once in the baseline');
     else if (e.money !== entryMoney)
       no(`the baseline says money ${e.money}, the money rule at this commit says ${ruled}`, { mismatch: true });
+    else if (headOff)
+      no(`with this pull request, the baseline says money ${he.money}, the money rule at its head says ${headRuled}`, { money: true });
     else if (e.state === 'unbuilt') {
       if (passedSince[step] !== undefined)
         no(`called unbuilt, but passed on main in run ${passedSince[step]}, after the baseline's run ${runNo}`);

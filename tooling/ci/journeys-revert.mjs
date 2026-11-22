@@ -50,6 +50,7 @@
  *   (back)    GH_TOKEN GITHUB_REPOSITORY STEPS BAD BACK RUN_URL;  (confirm-files) STEPS BAD   (writes GITHUB_OUTPUT)
  *   (spent)   GH_TOKEN GITHUB_REPOSITORY RUN_ID
  */
+import { runJobs } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -1146,8 +1147,8 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
   const lines = ['### Journeys revert, as each shard ends', ''];
   const start = now();
   for (;;) {
-    const { json } = await gh('GET', `/repos/${repo}/actions/runs/${env.RUN_ID}/jobs?filter=latest&per_page=100`);
-    const jobs = json?.jobs ?? [];
+    const jobs =
+      (await runJobs(`/repos/${repo}/actions/runs/${env.RUN_ID}/jobs?filter=latest`, async (p) => (await gh('GET', p)).json)) ?? [];
     for (const { shard } of endedShards(jobs, seen)) {
       seen.add(shard);
       const report = await runReport(gh, repo, env.RUN_ID, env.GH_TOKEN, { shards: [shard] });
