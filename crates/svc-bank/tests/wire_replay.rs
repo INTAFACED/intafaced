@@ -169,6 +169,7 @@ fn serve() -> BankDoor {
         },
         env,
         now: door::system_now,
+        store: svc_bank::db::Store::Down("no database".to_owned()),
     })
     .unwrap()
 }
