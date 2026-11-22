@@ -22,6 +22,7 @@ import type { LearnerDeskReply, LearnersView, LearnerView } from './learners-mod
 import { isLearnerOp, learnerChange, type LearnerOp } from './learners-ops';
 import { ACADEMY_ADMIN_LEARNER, ACADEMY_ADMIN_LEARNER_PROGRESS, ACADEMY_ADMIN_LEARNERS } from '@intafaced/contracts/academy-admin-records';
 import { ACADEMY_ADMIN_LEARNER_TAGS } from '@intafaced/contracts/academy-admin-procedures';
+import { IDENTITY_LEARNER_CARD_LOOKUP } from '@intafaced/contracts/identity-learner-card-procedures';
 
 /**
  * One learner on the staff desk (J-academy-14), as the signed-in operator. svc-academy records the operator from their own
@@ -73,7 +74,7 @@ const readAdded = (raw: unknown): { added: number } | null =>
 
 export async function loadLearner(ctx: FounderCallContext, userId: string): Promise<LearnerView> {
   const [card, page, progress] = await Promise.all([
-    founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', { userId }, readCard),
+    founderRecordRead(ctx, IDENTITY_LEARNER_CARD_LOOKUP, { userId }, readCard),
     founderRecordRead(ctx, ACADEMY_ADMIN_LEARNER, { userId }, readPage),
     founderRecordRead(ctx, ACADEMY_ADMIN_LEARNER_PROGRESS, { userId }, readProgress),
   ]);
@@ -91,7 +92,7 @@ export async function findLearner(ctx: FounderCallContext, term: string) {
   const value = term.trim();
   // A handle may be typed with its @; an address has an @ after its first character.
   const input = value.startsWith('@') ? { handle: value.slice(1) } : value.includes('@') ? { email: value } : { handle: value };
-  return partFrom(await founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', input, readCard), (d) => d.card, IDENTITY);
+  return partFrom(await founderRecordRead(ctx, IDENTITY_LEARNER_CARD_LOOKUP, input, readCard), (d) => d.card, IDENTITY);
 }
 
 /** The learners report. Rows name accounts by id: each learner's page reads identity once, when it is opened. */

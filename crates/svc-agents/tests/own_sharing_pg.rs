@@ -4,10 +4,10 @@
 //!
 //! Ported case for case from `services/svc-agents/src/own/`: the "own agent identity" block of `identity.test.ts`; the
 //! "account access" block of `access.test.ts`, through own-controls' `own.policy.check` and `own.policy.forService`,
-//! which meet this slice's access gate first (the trade-draft case is own-runs'); the "own agent sharing" block of
+//! which meet this slice's access gate first (the trade-draft case is in `own_runs_pg.rs`); the "own agent sharing" block of
 //! `publishing.test.ts`; the sharing cases of `memory.test.ts`; and `self-freeze.test.ts` #1, #4, and #2 and failing
-//! closed with this slice's and own-controls' calls (own-runs' rows are written in SQL, and the refusals of its
-//! schedules, triggers and sessions while frozen are its to port).
+//! closed with this slice's and own-controls' calls (own-runs' rows are written in SQL; its own halves, the trade draft
+//! and its schedules, triggers and sessions while frozen, are `own_runs_pg.rs` and `own_automation_pg.rs`).
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

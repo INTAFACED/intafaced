@@ -101,6 +101,7 @@ import {
   type JournalLocks,
 } from '../../shared/minimal-original-journal';
 import { P2P_DISPUTES_GET, P2P_DISPUTES_OPEN, P2P_DISPUTES_APPEND_EVIDENCE } from '@intafaced/contracts/p2p-disputes-procedures';
+import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
 
 /** Future session integration seam, not a claim inferred from a JWT mode or merchant KYB.
  * Only supply this from an authoritative verified company membership/merchant association.
@@ -1551,21 +1552,12 @@ export function createBusinessPayApi(
         return payRefusal('chooseOnlyPayPermissionsHeldByThis', { code: 'pay.key_permission_invalid' });
       const checked = await merchant();
       if (!checked.ok) return checked;
-      return guard.run(`${userId}:sandbox-key-create`, () =>
-        api.mutate(
-          'identity',
-          'apiKeys.create',
-          { name, scopes, mode: 'sandbox' },
-          z.object({ id: z.string(), key: z.string(), prefix: z.string(), mode: z.literal('sandbox') }),
-        ),
-      );
+      return guard.run(`${userId}:sandbox-key-create`, () => api.call(IDENTITY_API_KEYS_CREATE, { name, scopes, mode: 'sandbox' }));
     },
     async revokeKey(keyId: string) {
       const checked = await merchant();
       if (!checked.ok) return checked;
-      return guard.run(`${userId}:key:${keyId}`, () =>
-        api.mutate('identity', 'apiKeys.revoke', { keyId }, z.object({ revoked: z.boolean() })),
-      );
+      return guard.run(`${userId}:key:${keyId}`, () => api.call(IDENTITY_API_KEYS_REVOKE, { keyId }));
     },
     async webhookEndpoints(signal?: AbortSignal) {
       const checked = await merchant(signal);
