@@ -10,16 +10,14 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
+import type { ServiceAuthMode, ServiceVerifier, SupportRecordOwnershipInput } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import {
-  retainRawBody,
   SUPPORT_RECORD_OWNERSHIP_CALLERS,
   SUPPORT_RECORD_OWNERSHIP_PATH,
   supportRecordOwnershipInputSchema,
-  verifyServiceRequest,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-  type SupportRecordOwnershipInput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-record-ownership';
 
 export async function recordOwned(sql: Sql, input: SupportRecordOwnershipInput): Promise<boolean> {
   const rows =

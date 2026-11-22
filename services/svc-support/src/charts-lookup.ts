@@ -1,15 +1,12 @@
+import type { ServiceAuthMode, ServiceSigner, SupportChartsAlertsRead, SupportDeskLayoutsRead } from '@intafaced/contracts';
+import { unwrapTrpcData } from '@intafaced/contracts/action-approval-client';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import {
-  serviceCallSigner,
   SUPPORT_CHARTS_ALERTS_PROCEDURE,
   supportChartsAlertsReadSchema,
   supportDeskLayoutsPath,
   supportDeskLayoutsReadSchema,
-  unwrapTrpcData,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type SupportChartsAlertsRead,
-  type SupportDeskLayoutsRead,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-charts-lookup';
 import { identitySecretSet } from './identity-grounding-honesty.js';
 
 /**

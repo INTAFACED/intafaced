@@ -1,4 +1,5 @@
-import { router, TRPCError, withdrawalAllowanceInputSchema, withdrawalAllowanceSchema } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { withdrawalAllowanceInputSchema, withdrawalAllowanceSchema } from '@intafaced/contracts/withdrawal-allowance';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';

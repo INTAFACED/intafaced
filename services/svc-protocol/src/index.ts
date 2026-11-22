@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createDb } from '@intafaced/db';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { JetStreamEventBus } from '@intafaced/events';
 import { checkAccess, edgeTrustFromEnv } from '@intafaced/config';
 import type { Address } from 'viem';

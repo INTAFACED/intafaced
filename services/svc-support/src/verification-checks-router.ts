@@ -1,10 +1,7 @@
 import { TRPCError } from '@trpc/server';
-import {
-  SUPPORT_VERIFICATION_ERROR_CODES,
-  scopedProcedure,
-  supportTicketOnlyInputSchema,
-  type SupportVerificationErrorCode,
-} from '@intafaced/contracts';
+import type { SupportVerificationErrorCode } from '@intafaced/contracts';
+import { SUPPORT_VERIFICATION_ERROR_CODES, supportTicketOnlyInputSchema } from '@intafaced/contracts/support-verification-checks';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   SUPPORT_DESK_READ_DISCLOSURE,

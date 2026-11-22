@@ -7,17 +7,14 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type { SupportSurvey, SupportSurveyConfig, SupportSurveyConfigureInput, SupportSurveyList } from '@intafaced/contracts';
 import {
   SUPPORT_SURVEY_CAP_REACHED,
   SUPPORT_SURVEY_CAP_UNSET,
   SUPPORT_SURVEY_ID_CONFLICT,
   SUPPORT_SURVEY_NOT_FOUND,
   SUPPORT_SURVEY_REVISION_STALE,
-  type SupportSurvey,
-  type SupportSurveyConfig,
-  type SupportSurveyConfigureInput,
-  type SupportSurveyList,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-survey';
 
 export class SurveyStaleError extends Error {
   readonly code = SUPPORT_SURVEY_REVISION_STALE;

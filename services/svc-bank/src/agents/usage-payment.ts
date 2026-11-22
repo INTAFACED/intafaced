@@ -17,18 +17,20 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Sql } from 'postgres';
+import type {
+  AgentsUsagePaymentCollect,
+  AgentsUsagePaymentRead,
+  AgentsUsagePaymentRequest,
+  ServiceAuthMode,
+  ServiceVerifier,
+} from '@intafaced/contracts';
 import {
   AGENTS_USAGE_PAYMENT_PATH,
   agentsUsagePaymentCollectSchema,
   agentsUsagePaymentReadSchema,
   agentsUsagePaymentRequestSchema,
-  verifyServiceRequest,
-  type AgentsUsagePaymentCollect,
-  type AgentsUsagePaymentRead,
-  type AgentsUsagePaymentRequest,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/agents-usage-payment';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import {

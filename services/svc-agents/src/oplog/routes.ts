@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { transaction, type Queryable } from '@intafaced/db';
 
 /**

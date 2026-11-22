@@ -1,11 +1,10 @@
 // The pre-push hook on planted repos: a worktree with no node_modules (here or in the main checkout) pushes; formatting
-// is left to .githooks/pre-commit and CI's Format job, so an unformatted push goes through; a direct push to main is still refused;
-// CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR. A push
-// that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it. The lint
-// ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files and refuses a rise; CI's other Doctrine gates
-// (gates.mjs --before-push) run too, and a red one refuses the push, as does a red typecheck of the packages it reaches.
-// Without the install either refuses, naming the command. Every check runs on every push and every refusal is named in
-// that one run, with the list at the end; a direct push to main is refused before any check runs.
+// is left to .githooks/pre-commit and CI's Format job, so an unformatted push goes through; a direct push to main is still refused.
+// Only the cheap checks whose failure costs a CI round trip run here: the lint ratchet on the pushed files (it refuses a
+// rise, and refuses without oxlint), the tooling tests that read every journey file and the seal's title rule when a
+// journey file is pushed, and the CI review's size count. CI's other checks never run here (since 22 Nov: the Doctrine
+// gates, the cross-package read scan, the typecheck and rust:check run on GitHub only; .githooks/pre-push says where).
+// Every refusal is named in one run, with the list at the end; a direct push to main is refused before any check runs.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -95,12 +94,12 @@ test('formatting is not checked here: a prettier that would refuse is never run'
 });
 
 test('a direct push to main is still refused, before any check runs', () => {
-  const p = plant({ prettier: 'exit 0', base: { ...scan(false), ...gatesStep(1) }, change: JOURNEY });
+  const p = plant({ prettier: 'exit 0', base: { ...scan(false), ...sizeStep(1) }, change: JOURNEY });
   try {
     const r = p.push('main');
     assert.notEqual(r.code, 0, r.out);
     assert.match(r.out, /Direct push to main refused/);
-    assert.doesNotMatch(r.out, /journey scan ran|gates step/);
+    assert.doesNotMatch(r.out, /journey scan ran|size step/);
   } finally {
     p.done();
   }
@@ -350,168 +349,65 @@ test("the size count's pass lets the push through, and a push that only deletes 
   }
 });
 
-// CI's Doctrine gates (tooling/ci/gates.mjs --before-push), planted: it names what it was given and answers `code`.
-const gatesStep = (code) => ({
-  'tooling/ci/gates.mjs': `console.log('gates step:', process.argv.slice(2).join(' '));\n${code ? "console.error('✖ BOUNDARY SCAN FAILED — 1 violation(s)');\n" : ''}process.exit(${code});\n`,
-});
-
-test("a red Doctrine gate refuses the push with the gate's own message (#8616's first head, the boundary scan)", () => {
-  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
-  try {
-    const r = p.push();
-    assert.equal(r.code, 1, r.out);
-    assert.match(r.out, /gates step: --before-push/);
-    assert.match(r.out, /BOUNDARY SCAN FAILED — 1 violation\(s\)/);
-    assert.match(r.out, /a Doctrine gate failed — push refused/);
-  } finally {
-    p.done();
-  }
-});
-
-test('green Doctrine gates let the push through; a push that only deletes a branch never runs them', () => {
-  const p = plant({ prettier: 'exit 0', base: gatesStep(0) });
-  try {
-    const r = p.push('feat');
-    assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /gates step: --before-push/);
-    writeFileSync(join(p.work, 'tooling', 'ci', 'gates.mjs'), gatesStep(1)['tooling/ci/gates.mjs']);
-    const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
-    assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
-    assert.doesNotMatch(`${d.stdout}${d.stderr}`, /gates step/);
-  } finally {
-    p.done();
-  }
-});
-
-test('no node_modules in the worktree: the push is refused, with how to install it, before any gate runs', () => {
-  const p = plant({ base: gatesStep(0) });
-  try {
-    const r = p.push();
-    assert.equal(r.code, 1, r.out);
-    assert.match(r.out, /the Doctrine gates need this worktree's install — push refused\. Install it: pnpm install --frozen-lockfile/);
-    assert.doesNotMatch(r.out, /gates step/);
-  } finally {
-    p.done();
-  }
-});
-
-// The typecheck of the packages a push reaches (tooling/scripts/pre-push-typecheck.mjs), planted: it answers `code`.
-const typecheckStep = (code) => ({
-  'tooling/scripts/pre-push-typecheck.mjs': `console.log('typecheck step');\n${code ? "console.error('src/x.ts(1,7): error TS2322');\n" : ''}process.exit(${code});\n`,
-});
-
-test('a red typecheck refuses the push with its compiler line; a green one lets it through; a delete never runs it', () => {
-  const p = plant({ prettier: 'exit 0', base: typecheckStep(1) });
-  try {
-    const r = p.push();
-    assert.equal(r.code, 1, r.out);
-    assert.match(r.out, /typecheck step/);
-    assert.match(r.out, /error TS2322/);
-    writeFileSync(join(p.work, 'tooling', 'scripts', 'pre-push-typecheck.mjs'), typecheckStep(0)['tooling/scripts/pre-push-typecheck.mjs']);
-    const g = p.push();
-    assert.equal(g.code, 0, g.out);
-    assert.match(g.out, /typecheck step/);
-    writeFileSync(join(p.work, 'tooling', 'scripts', 'pre-push-typecheck.mjs'), typecheckStep(1)['tooling/scripts/pre-push-typecheck.mjs']);
-    const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
-    assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
-    assert.doesNotMatch(`${d.stdout}${d.stderr}`, /typecheck step/);
-  } finally {
-    p.done();
-  }
-});
-
 // One run names every refusal. fix/ps-3343-curriculum's head 09d41f0f86 (19 Nov) was refused for unicorn/no-thenable by the
 // lint ratchet; its second push, for the secret scan; its third, for the CI review's size count: three pushes for three
-// refusals the first run could have named. Replayed: the real lint ratchet on a real rise, and the Doctrine gates and the
-// size count planted with the messages that head got; the one push names all three and lists them at the end.
+// refusals the first run could have named. Replayed: the real lint ratchet on a real rise, and the size count planted
+// with the refusal that head got; the one push names both and lists them at the end. (The secret scan is a Doctrine gate,
+// CI's alone since 22 Nov: its Fast gates job names it about two minutes after the push.)
 test('every check runs and every refusal is named in one run, listed at the end (fix/ps-3343-curriculum 09d41f0f86, replayed)', () => {
   const file = 'crates/svc-academy/scripts/record-curriculum.mjs';
   const p = plant({
     prettier: 'exit 0',
     oxlint: true,
-    base: {
-      ...RATCHET,
-      [file]: 'export const n = 1;\n',
-      'tooling/ci/gates.mjs':
-        "console.log('gates step:', process.argv.slice(2).join(' '));\nconsole.error('✖ SECRET SCAN FAILED — 1 credential-shaped literal(s) in tracked files');\nprocess.exit(1);\n",
-      ...sizeStep(1),
-    },
+    base: { ...RATCHET, [file]: 'export const n = 1;\n', ...sizeStep(1) },
     change: { [file]: 'export const n = 1;\nexport const reply = { then: () => n };\n' },
   });
   try {
     const r = p.push();
     assert.equal(r.code, 1, r.out);
     assert.match(r.out, /unicorn\/no-thenable rose from 0 to 1 in the touched files/);
-    assert.match(r.out, /SECRET SCAN FAILED — 1 credential-shaped literal/);
     assert.match(r.out, /size step: --size --head [0-9a-f]{40} --branch feat/);
     assert.match(
       r.out,
-      /push refused by 3 check\(s\), each named above, all from this one run:\n {6}- lint-ratchet\n {6}- Doctrine gates\n {6}- CI review size \(feat\)\n/,
+      /push refused by 2 check\(s\), each named above, all from this one run:\n {6}- lint-ratchet\n {6}- CI review size \(feat\)\n/,
     );
   } finally {
     p.done();
   }
 });
 
-test('a missing install refuses the checks it stops and still runs the rest', () => {
-  const p = plant({ base: { ...gatesStep(0), ...typecheckStep(1) } });
-  try {
-    const r = p.push();
-    assert.equal(r.code, 1, r.out);
-    assert.match(r.out, /the Doctrine gates need this worktree's install — push refused/);
-    assert.doesNotMatch(r.out, /gates step/);
-    assert.match(r.out, /error TS2322/);
-    assert.match(r.out, /push refused by 2 check\(s\)[^\n]*\n {6}- Doctrine gates \(no install\)\n {6}- typecheck\n/);
-  } finally {
-    p.done();
-  }
-});
-
-// rust:check on a shared machine (project-state#3420): INTAFACED_LOCAL_JOBS becomes cargo's build jobs and test threads,
-// a planted failing Rust test still refuses the push, and a bad value refuses it naming the setting. `cargo` and `pnpm`
-// are planted first on PATH; the planted pnpm prints what cargo would be given and fails as a red test would.
-test('INTAFACED_LOCAL_JOBS bounds rust:check, which still refuses a failing Rust test', () => {
+// CI's own checks, planted red where the hook used to call them (the Doctrine gates, the cross-package read scan, the
+// typecheck and rust:check): none runs before a push, and the push goes through. CI runs each on GitHub (.githooks/pre-push).
+test('the Doctrine gates, the cross-package read scan, the typecheck and rust:check never run here: planted reds leave the push alone', () => {
+  const red = (name) => `console.log('${name} ran');\nprocess.exit(1);\n`;
   const p = plant({
+    prettier: 'exit 0',
     base: {
+      'tooling/ci/gates.mjs': red('gates'),
+      'tooling/ci/cross-package-reads.mjs': red('cross-package reads'),
+      'tooling/scripts/pre-push-typecheck.mjs': red('typecheck'),
       'Cargo.toml': '[workspace]\n',
-      'tooling/ci/ci-affected.mjs': "if (process.argv.includes('--rust-files')) console.log('true');\n",
+      'tooling/ci/ci-affected.mjs': "console.log('ci-affected ran'); console.log('true');\n",
     },
+    change: { 'src/b.test.ts': 'export {};\n', 'crates/x/src/lib.rs': 'pub fn x() {}\n' },
   });
   const bin = join(p.work, '..', 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'cargo'), '#!/bin/sh\nexit 0\n');
-  writeFileSync(
-    join(bin, 'pnpm'),
-    '#!/bin/sh\necho "rust:check jobs=${CARGO_BUILD_JOBS:-unset} threads=${RUST_TEST_THREADS:-unset}"\necho "test planted ... FAILED"\nexit 101\n',
-  );
+  writeFileSync(join(bin, 'cargo'), '#!/bin/sh\necho "cargo ran"\nexit 1\n');
+  writeFileSync(join(bin, 'pnpm'), '#!/bin/sh\necho "pnpm ran: $*"\nexit 1\n');
   chmodSync(join(bin, 'cargo'), 0o755);
   chmodSync(join(bin, 'pnpm'), 0o755);
-  const { INTAFACED_LOCAL_JOBS: _a, CARGO_BUILD_JOBS: _b, RUST_TEST_THREADS: _c, ...env } = BUILDER;
-  const at = (extra) => p.push('feat', { ...env, ...extra, PATH: `${bin}:${process.env.PATH}` });
   try {
-    const bounded = at({ INTAFACED_LOCAL_JOBS: '3' });
-    assert.equal(bounded.code, 1, bounded.out);
-    assert.match(bounded.out, /rust:check jobs=3 threads=3/);
-    assert.match(bounded.out, /test planted \.\.\. FAILED/);
-    assert.match(bounded.out, /rust:check failed — push refused/);
-    const own = at({ INTAFACED_LOCAL_JOBS: '3', CARGO_BUILD_JOBS: '5' });
-    assert.match(own.out, /rust:check jobs=5 threads=3/);
-    const unset = at({});
-    assert.equal(unset.code, 1, unset.out);
-    assert.match(unset.out, /rust:check jobs=unset threads=unset/);
-    for (const bad of ['0', 'two', '-1']) {
-      const r = at({ INTAFACED_LOCAL_JOBS: bad });
-      assert.equal(r.code, 1, r.out);
-      assert.match(r.out, /INTAFACED_LOCAL_JOBS must be a whole number of at least 1/);
-      assert.doesNotMatch(r.out, /rust:check jobs=/);
-    }
+    const r = p.push('feat', { ...BUILDER, PATH: `${bin}:${process.env.PATH}` });
+    assert.equal(r.code, 0, r.out);
+    assert.doesNotMatch(r.out, /gates ran|cross-package reads ran|typecheck ran|ci-affected ran|cargo ran|pnpm ran/);
   } finally {
     p.done();
   }
 });
 
 // A push that brings nothing of its own skips every check (22 Nov: moving seven volt/* layer branches to main took over 30
-// minutes of checks on main's own commits). Each case plants a red Doctrine gate, so a check that runs refuses the push.
+// minutes of checks on main's own commits). Each case plants a red size count, so a check that runs refuses the push.
 // Main gains a commit on the remote after the branch was pushed, as it does between two syncs of a layer branch.
 function mainGains(p, files) {
   git(p.work, 'checkout', '-q', 'main');
@@ -529,7 +425,7 @@ function mainGains(p, files) {
 const SKIPPED = /this push adds nothing beyond origin\/main and what the remote already holds; the checks are skipped/;
 
 test('a branch moved to a commit on main skips every check, even a red one', () => {
-  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  const p = plant({ prettier: 'exit 0', base: sizeStep(1) });
   try {
     git(p.work, 'push', '-q', '--no-verify', 'origin', 'origin/main:refs/heads/volt/layer');
     mainGains(p, { 'main.txt': 'main\n' });
@@ -538,7 +434,7 @@ test('a branch moved to a commit on main skips every check, even a red one', () 
     const r = p.push('volt/layer');
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, SKIPPED);
-    assert.doesNotMatch(r.out, /gates step/);
+    assert.doesNotMatch(r.out, /size step/);
     assert.ok(Date.now() - started < 5_000, `the push took ${Date.now() - started} ms`);
   } finally {
     p.done();
@@ -546,7 +442,7 @@ test('a branch moved to a commit on main skips every check, even a red one', () 
 });
 
 test('a clean merge of main into the pushed branch skips every check, even a red one', () => {
-  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  const p = plant({ prettier: 'exit 0', base: sizeStep(1) });
   try {
     git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/feat');
     mainGains(p, { 'main.txt': 'main\n' });
@@ -554,14 +450,14 @@ test('a clean merge of main into the pushed branch skips every check, even a red
     const r = p.push();
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, SKIPPED);
-    assert.doesNotMatch(r.out, /gates step/);
+    assert.doesNotMatch(r.out, /size step/);
   } finally {
     p.done();
   }
 });
 
-test('a merge with a conflict resolution, or an edit folded into a clean merge, runs every check (planted red gate)', () => {
-  const p = plant({ prettier: 'exit 0', base: gatesStep(1), change: { 'README.md': 'branch\n' } });
+test('a merge with a conflict resolution, or an edit folded into a clean merge, runs every check (planted red size count)', () => {
+  const p = plant({ prettier: 'exit 0', base: sizeStep(1), change: { 'README.md': 'branch\n' } });
   try {
     git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/feat');
     mainGains(p, { 'README.md': 'main\n' });
@@ -571,13 +467,13 @@ test('a merge with a conflict resolution, or an edit folded into a clean merge, 
     const r = p.push();
     assert.equal(r.code, 1, r.out);
     assert.doesNotMatch(r.out, SKIPPED);
-    assert.match(r.out, /gates step: --before-push/);
-    assert.match(r.out, /a Doctrine gate failed — push refused/);
+    assert.match(r.out, /size step: --size/);
+    assert.match(r.out, /push refused by 1 check\(s\)[^\n]*\n {6}- CI review size \(/);
   } finally {
     p.done();
   }
   // A clean merge with an edit amended into it is not what git's merge gives: it runs the checks too.
-  const q = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  const q = plant({ prettier: 'exit 0', base: sizeStep(1) });
   try {
     git(q.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/feat');
     mainGains(q, { 'main.txt': 'main\n' });
@@ -587,14 +483,14 @@ test('a merge with a conflict resolution, or an edit folded into a clean merge, 
     const e = q.push();
     assert.equal(e.code, 1, e.out);
     assert.doesNotMatch(e.out, SKIPPED);
-    assert.match(e.out, /a Doctrine gate failed — push refused/);
+    assert.match(e.out, /push refused by 1 check\(s\)[^\n]*\n {6}- CI review size \(/);
   } finally {
     q.done();
   }
 });
 
-test('a new commit on top of a clean merge of main runs every check (planted red gate)', () => {
-  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+test('a new commit on top of a clean merge of main runs every check (planted red size count)', () => {
+  const p = plant({ prettier: 'exit 0', base: sizeStep(1) });
   try {
     git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/feat');
     mainGains(p, { 'main.txt': 'main\n' });
@@ -605,7 +501,7 @@ test('a new commit on top of a clean merge of main runs every check (planted red
     const r = p.push();
     assert.equal(r.code, 1, r.out);
     assert.doesNotMatch(r.out, SKIPPED);
-    assert.match(r.out, /a Doctrine gate failed — push refused/);
+    assert.match(r.out, /push refused by 1 check\(s\)[^\n]*\n {6}- CI review size \(/);
   } finally {
     p.done();
   }
@@ -630,7 +526,7 @@ test('a lint rise of the branch’s own, then a clean merge of main, still fails
 });
 
 test('a push to main is refused though it brings nothing new (main moved back to an older commit of its own)', () => {
-  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  const p = plant({ prettier: 'exit 0', base: sizeStep(1) });
   try {
     mainGains(p, { 'main.txt': 'main\n' });
     const r = (({ status, stdout, stderr }) => ({ code: status, out: `${stdout}${stderr}` }))(

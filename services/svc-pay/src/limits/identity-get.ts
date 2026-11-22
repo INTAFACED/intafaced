@@ -1,4 +1,5 @@
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 /** How svc-pay reaches svc-identity's service-authenticated internal reads. */
 export interface IdentityReadOptions {

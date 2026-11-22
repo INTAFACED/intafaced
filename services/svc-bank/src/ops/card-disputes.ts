@@ -3,7 +3,7 @@
  * records the signed-in operator as its actor. The provisional credit and the decision are the card partner's to carry out:
  * nothing here posts to the ledger.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { DISPUTE_CLOSURES, DISPUTE_EVENT_KINDS, DISPUTE_OUTCOMES, DISPUTE_STATES } from '../cards/card-disputes.js';

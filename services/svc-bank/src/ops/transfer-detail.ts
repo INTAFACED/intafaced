@@ -6,7 +6,7 @@
  * (ADMINOPS is the support desk; BANKOPS did not add one), so each read writes
  * one structured log line: actor and id. Nothing is inserted.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import {
   RECOVERY_KEY_KINDS,
   RECOVERY_LABEL_MAX,

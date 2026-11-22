@@ -125,6 +125,7 @@ fn engine_on(journal: Box<dyn EngineJournal + Send>, bus: Bus) -> MatchingEngine
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: true,
     })
 }
 

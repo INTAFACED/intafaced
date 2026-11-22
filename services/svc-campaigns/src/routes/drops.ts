@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   dropClaimInputSchema,
   dropClaimResultSchema,

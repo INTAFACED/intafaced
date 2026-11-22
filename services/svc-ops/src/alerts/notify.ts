@@ -20,7 +20,7 @@ import {
   VENDOR_EMAIL,
   VENDOR_PUSH,
   VENDOR_SMS,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-alert-notify';
 import { OpsError } from '../codes.js';
 import { assertChannelTarget } from './channel-target.js';
 

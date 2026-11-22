@@ -1,7 +1,8 @@
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { env } from './env.js';
