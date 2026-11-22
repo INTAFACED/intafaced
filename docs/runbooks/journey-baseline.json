@@ -2052,21 +2052,21 @@
       "step": "J-dex-protocol-12#1",
       "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-12#2",
       "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-12#3",
       "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
@@ -2122,35 +2122,35 @@
       "step": "J-dex-protocol-13#3",
       "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-13#4",
       "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-13#5",
       "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-13#6",
       "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-13#7",
       "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
@@ -2290,35 +2290,35 @@
       "step": "J-dex-protocol-16#2",
       "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
       "step": "J-dex-protocol-16#3",
       "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-16#4",
       "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-16#5",
       "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
       "step": "J-dex-protocol-16#6",
       "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "/chain"
     },
     {
@@ -2759,14 +2759,14 @@
       "step": "J-dex-protocol-24#5",
       "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-24#6",
       "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
@@ -2794,42 +2794,42 @@
       "step": "J-dex-protocol-25#1",
       "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
       "step": "J-dex-protocol-25#2",
       "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
       "step": "J-dex-protocol-25#3",
       "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-25#4",
       "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-25#5",
       "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-dex-protocol-25#6",
       "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "expect(locator).toBeVisible() failed"
     },
     {
@@ -3004,21 +3004,21 @@
       "step": "J-dex-protocol-29#1",
       "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
       "step": "J-dex-protocol-29#2",
       "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
       "step": "J-dex-protocol-29#3",
       "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
@@ -3053,7 +3053,7 @@
       "step": "J-dex-protocol-29#8",
       "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
@@ -3109,7 +3109,7 @@
       "step": "J-dex-protocol-30#7",
       "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
@@ -3123,7 +3123,7 @@
       "step": "J-dex-protocol-30#9",
       "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
@@ -3186,7 +3186,7 @@
       "step": "J-dex-protocol-31#8",
       "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
@@ -3425,7 +3425,7 @@
       "step": "J-ops-console-01#4",
       "file": "apps/customer/tests/real-app/J-ops-console-01-service-page.pw.mjs",
       "state": "regression",
-      "money": true,
+      "money": false,
       "issue": 6750,
       "why": "service page panel shows its content: who is on call: no on-call source exists (the on-call desk, its rota and who holds the pager, is not built), so the panel cannot show anyone, and with no source t"
     },
@@ -3433,7 +3433,7 @@
       "step": "J-ops-console-01#6",
       "file": "apps/customer/tests/real-app/J-ops-console-01.pw.mjs",
       "state": "regression",
-      "money": true,
+      "money": false,
       "issue": 6750,
       "why": "no operator without ledger scope exists: the console has no per-operator scope yet"
     },
@@ -3441,7 +3441,7 @@
       "step": "J-ops-console-02#3",
       "file": "apps/customer/tests/real-app/J-ops-console-02-customer-record.pw.mjs",
       "state": "regression",
-      "money": true,
+      "money": false,
       "issue": 6975,
       "why": "no staff member without the cards scope can sign in to the console: it signs in founders only until staff access (OPS-admin-access-03) is built"
     },
@@ -3518,14 +3518,14 @@
       "step": "J-ops-console-22#3",
       "file": "apps/customer/tests/real-app/J-ops-console-22.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "Test timeout of 30000ms exceeded."
     },
     {
       "step": "J-ops-console-22#5",
       "file": "apps/customer/tests/real-app/J-ops-console-22.pw.mjs",
       "state": "unbuilt",
-      "money": true,
+      "money": false,
       "why": "Test timeout of 30000ms exceeded."
     },
     {
