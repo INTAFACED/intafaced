@@ -90,14 +90,14 @@ impl RestDoor {
     }
 }
 
-fn reply(status: u16, error: &str, code: &str) -> Response {
+pub(super) fn reply(status: u16, error: &str, code: &str) -> Response {
     Response {
         status,
         body: Json::obj([("error", Json::str(error)), ("code", Json::str(code))]).compact(),
     }
 }
 
-fn fastify_error(status: u16, code: &str, error: &str, message: &str) -> Response {
+pub(super) fn fastify_error(status: u16, code: &str, error: &str, message: &str) -> Response {
     Response {
         status,
         body: Json::obj([
@@ -125,7 +125,7 @@ fn poisoned(v: &Json) -> bool {
 }
 
 /// Fastify's body parsers: the body as the handler reads it (`undefined` when absent), or Fastify's refusal.
-fn read_body(req: &Request<'_>) -> Result<Value, Response> {
+pub(super) fn read_body(req: &Request<'_>) -> Result<Value, Response> {
     let unsupported = || {
         fastify_error(
             415,

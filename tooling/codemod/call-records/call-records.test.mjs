@@ -23,7 +23,7 @@ import {
   schemaArgOf,
 } from './index.mjs';
 import { answerFromCallers } from './answer.mjs';
-import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
+import { applyEdits, forget, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
@@ -128,6 +128,27 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
   assert.match(record, /input: idInput,\s+output: agentOut,/);
   assert.match(record, /access: \{ caller: ["']scope["'], scope: ["']agents:read["'] \}/);
+});
+
+test('the report plans a door service from the commit before its TypeScript was deleted, refuses one in flight, and skips a name no service has', async () => {
+  const { howToPlan } = await import('./report.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-how-'));
+  for (const d of [
+    'crates/svc-agents',
+    'services/svc-agents/src',
+    'services/svc-ops/src',
+    'crates/svc-academy/src/door',
+    'crates/svc-ledger/src',
+  ])
+    mkdirSync(join(root, d), { recursive: true });
+  writeFileSync(join(root, 'services/svc-ops/src/router.ts'), '');
+  writeFileSync(join(root, 'crates/svc-academy/src/door/calls.rs'), '');
+  const deleted = (s) => (s === 'svc-academy' ? 'abc123' : '');
+  assert.deepEqual(howToPlan('svc-academy', root, deleted), { door: 'crates/svc-academy', fromRev: 'abc123^' });
+  assert.deepEqual(howToPlan('svc-ops', root, deleted), {});
+  assert.match(howToPlan('svc-agents', root, deleted).refused, /svc-agents's Rust port is in flight/);
+  assert.equal(howToPlan('svc-ledger', root, deleted), undefined, 'a crate with no door and no TypeScript service: nothing to plan');
+  assert.equal(howToPlan('svc-merchant', root, deleted), undefined);
 });
 
 test('an import read only as a JSX tag or a re-export stays; one nothing reads goes', () => {
@@ -1351,4 +1372,104 @@ test("a call whose router writes no answer schema takes its callers' one pure zo
   const reader = { ...sites[0], node: sites[0].node, reader: true };
   const none = answerFromCallers(repo, [reader], { schemaOf: () => undefined, checksOf: answerChecks });
   assert.match(none.why ?? '', /with its own reader function, not a zod schema/);
+});
+
+/** A scratch repo with these files, committed so `git ls-files` sees them. */
+function plantRepo(prefix, files) {
+  const repo = mkdtempSync(join(tmpdir(), prefix));
+  for (const [path, lines] of Object.entries(files)) {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  }
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  return repo;
+}
+
+test("a bank write spec's `procedure: 'x.y'` becomes `record: RECORD`, its hand schema's checks kept in view; a near case stays named", () => {
+  const money = 'apps/customer/src/features/money';
+  const repo = plantRepo('call-records-spec-', {
+    [`${money}/contracts-earn.ts`]: [
+      "import { z } from 'zod';",
+      "export const earnWrites = { 'earn.deposit': z.object({ positionId: z.string() }), 'earn.withdraw': z.object({ id: z.string() }).refine((x) => x.id !== '') };",
+    ],
+    [`${money}/components.tsx`]: ['export type ActionSpec = { title: string; procedure: string; notes: string[]; input: () => object };'],
+    [`${money}/Earn.tsx`]: [
+      "import { type ActionSpec } from './components';",
+      "export const deposit = (open: (s: ActionSpec) => void) => open({ title: 'In', procedure: 'earn.deposit', notes: [], input: () => ({}) });",
+      "export const withdraw = (): ActionSpec => ({ title: 'Out', procedure: 'earn.withdraw', notes: [], input: () => ({}) });",
+      // Near cases: a spec named by a template, and a list of reads that is no spec.
+      'export const life = (a: string): ActionSpec => ({ title: a, procedure: `autoInvest.${a}`, notes: [], input: () => ({}) });',
+      "export const sources = { incoming: { procedure: 'ramps.onramps', label: 'in' } };",
+    ],
+    // A spec-shaped object in a file that never names ActionSpec is no write spec.
+    [`${money}/Other.tsx`]: ["export const o = { title: 'x', procedure: 'cards.issue', notes: [], input: () => ({}) };"],
+  });
+  const sites = findSites(repo).filter((s) => s.shape !== 'keyed-schema');
+  const at = (path) => sites.find((s) => s.path === path);
+  assert.deepEqual(
+    sites.filter((s) => s.shape === 'write-spec').map((s) => [s.module, s.path, s.kind]),
+    [
+      ['bank', 'earn.deposit', 'mutation'],
+      ['bank', 'earn.withdraw', 'mutation'],
+    ],
+  );
+  for (const path of ['ramps.onramps', 'cards.issue']) assert.equal(at(path)?.shape, 'procedure-prop', path);
+  assert.ok(
+    sites.some((s) => s.shape === 'procedure-prop' && s.path === undefined),
+    'the template stays named',
+  );
+  // The hand schema the dialog held each answer to: a check there is found, so that spec is left for its check to move.
+  assert.deepEqual(answerChecks(at('earn.deposit').schema.p, at('earn.deposit').schema.node), []);
+  assert.match(answerChecks(at('earn.withdraw').schema.p, at('earn.withdraw').schema.node)[0], /^\.refine\(\) \(.*contracts-earn\.ts:2\)$/);
+  assert.equal(schemaArgOf(at('earn.deposit')), undefined);
+
+  const changes = new Changes();
+  rewriteSite(changes, at('earn.deposit'), 'BANK_EARN_DEPOSIT', '@intafaced/contracts/bank-earn-procedures', false);
+  const f = changes.of(at('earn.deposit').file);
+  const code = applyEdits(load(at('earn.deposit').file).src, f.edits);
+  assert.match(code, /open\(\{ title: 'In', record: BANK_EARN_DEPOSIT, notes: \[\], input: \(\) => \(\{\}\) \}\)/);
+  assert.match(code, /procedure: 'earn\.withdraw'/, 'only the moved spec changes');
+  assert.deepEqual(
+    [...f.imports].map(([spec, names]) => [spec, [...names]]),
+    [['@intafaced/contracts/bank-earn-procedures', ['BANK_EARN_DEPOSIT']]],
+  );
+});
+
+test('dead-hand-schemas deletes only the bank hand schemas no caller spells, each with its own comment', async () => {
+  const { deadHandSchemas, deleteDead } = await import('./dead-hand-schemas.mjs');
+  const money = 'apps/customer/src/features/money';
+  const repo = plantRepo('dead-hand-', {
+    [`${money}/contracts-earn.ts`]: [
+      "import { z } from 'zod';",
+      'export const earnReads = {',
+      "  'earn.pools': z.array(z.string()),",
+      '  /** Nobody reads this one. */',
+      "  'earn.dead': z.object({ a: z.string() }),",
+      "  'earn.byTest': z.string(),",
+      '} as const;',
+      'export const earnWrites = {',
+      "  'autoInvest.cancel': z.object({ ok: z.literal(true) }),",
+      "  'ramps.setWithdrawDestination': z.object({ kind: z.string() }),",
+      '} as const;',
+    ],
+    [`${money}/Earn.tsx`]: [
+      "export const a = useBankRead('earn.pools', undefined);",
+      // A template that starts with a call's segment names what it can spell; one that starts with a value names nothing.
+      'export const b = (action: string) => ({ procedure: `autoInvest.${action}` });',
+      'export const c = (x: string, y: string) => `${x}.${y}`;',
+    ],
+    [`${money}/earn.test.ts`]: ["expect(bankReads['earn.byTest'].parse('x')).toBe('x');"],
+  });
+  assert.deepEqual(
+    deadHandSchemas(repo).map((h) => h.name),
+    ['earn.dead', 'ramps.setWithdrawDestination'],
+  );
+  const deleted = deleteDead(repo);
+  assert.equal(deleted.length, 2);
+  const after = readFileSync(join(repo, `${money}/contracts-earn.ts`), 'utf8');
+  assert.doesNotMatch(after, /earn\.dead|Nobody reads|setWithdrawDestination/);
+  for (const kept of ['earn.pools', 'earn.byTest', 'autoInvest.cancel']) assert.match(after, new RegExp(kept.replace('.', '\\.')));
+  forget(join(repo, `${money}/contracts-earn.ts`));
+  assert.deepEqual(deadHandSchemas(repo), [], 'a second run finds nothing: safe to rerun');
 });
