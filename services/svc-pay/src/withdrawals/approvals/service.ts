@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
 import type { BankApproverEligibilityPort } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayError } from '../../payment-service.js';
 import type { UserMoneyService } from '../../user-money-service.js';
@@ -619,7 +620,7 @@ export class WithdrawalApprovalService {
     return {
       id: r.id,
       userId: r.user_id,
-      assetId: r.asset_id,
+      assetId: asAssetId(r.asset_id),
       amount: formatAmount(parseAmount(r.amount)),
       rail: r.rail,
       destination: r.destination,

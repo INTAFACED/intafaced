@@ -24,6 +24,7 @@ import {
   judgeSteps,
   mainReference,
   moneyAt,
+  moneyInput,
   splitInherited,
   mainsOwn,
   trackingIssue,
@@ -2914,13 +2915,17 @@ test('sealPull: a money-flag mismatch main made passes on a head whose own money
     rangeOf: async () => ({ files: [], commits: 1, short: false }),
   });
   assert.equal(passedOver.passed.length, 0, 'a money red is never passed over as inherited');
-  // A clean verdict reads no head rule.
+  // A clean verdict reads no head rule, on a pull request that changes no file the rule or the baseline is read from.
   asked.length = 0;
   const clean = await sealPull({
     repo: REPO,
     number: 9601,
     sha: HEAD,
-    io: { ...io({ headMoney: { [step]: false } }), verdictOf: async () => ({ red: [], failing: 0, missing: [] }) },
+    io: {
+      ...io({ headMoney: { [step]: false } }),
+      files: async () => ['apps/admin/src/lib/ops-desk/catalog.ts'],
+      verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
+    },
   });
   assert.equal(clean.ok, true);
   assert.deepEqual(asked, []);
@@ -2953,4 +2958,90 @@ test("moneyAt reads the money rule a checkout holds, as rootInputs does (the sea
   assert.ok(moved.length > 0 && moved.every((k) => withIt[k] && !without[k]), 'the admin manifest is read');
   // Unreadable: it throws, so the seal keeps the red.
   await assert.rejects(moneyAt({ list, blobs, text: async () => null }), /journeys\.json could not be read/);
+});
+
+// ---- A change that makes a baselined step money, judged with its head's own money rule (#9539, project-state #3686 half 1) ----
+
+// Built from #9539 at d0887b4 (its journeys run 44971771966 was red on 8 such rows, 22 Nov 2026): it gave apps/admin a
+// ledger-client dependency, so its own rule called J-ops-console-22 #3 money while the baseline says money false. Main's
+// rule (125ec198c) still agreed with the baseline, so the seal, reading main's inputs alone, passed it and broke main.
+test("sealPull: a pull request whose own money rule makes a baselined step money is red, though main's rule agrees (#9539)", async () => {
+  const step = 'J-ops-console-22#3';
+  const file = 'J-ops-console-22.pw.mjs';
+  const parked = {
+    issue: { number: 9, state: 'open', title: 'Journey broken on main: J-ops-console-22' },
+    comments: [
+      { author_association: 'MEMBER', created_at: '2026-11-01T00:00:00Z', body: 'Regression state: parked — needs the stack. Lane B1.' },
+    ],
+  };
+  const named = { states: { [step]: 'failed' }, files: { [step]: file }, ran: [file] };
+  const entry = { step, state: 'regression', money: false, issue: 9 };
+  const inputs = { baseline: { run: { number: 100, id: 1, sha: PASS_SHA }, steps: [entry] }, money: { [step]: false }, reports: new Map() };
+  const read = () => ({ named, passedSince: {}, issues: { 9: parked }, problems: [], shas: {} });
+  const rep = { states: { [step]: 'failed' }, files: { [step]: file }, ran: [...CANARY, file] };
+  const asked = [];
+  const seal = ({ headMoney, files = ['apps/admin/package.json'], headBaseline = null }) =>
+    sealPull({
+      repo: REPO,
+      number: 9539,
+      sha: HEAD,
+      io: {
+        pull: async () => ({ state: 'open', head: { sha: HEAD }, title: 'admin: the ops desk reads the ledger', body: '' }),
+        runs: async () => [run(1)],
+        reportOf: reports({ 1: rep }),
+        files: async () => files,
+        text: async (p) => (p === 'docs/runbooks/journey-baseline.json' && headBaseline ? JSON.stringify(headBaseline) : null),
+        verdictOf: async (report, r, o = {}) => fullVerdict({ repo: REPO, report, run: r, inputs, read, ...o }),
+        headMoney: async (sha) => {
+          asked.push(sha);
+          if (headMoney instanceof Error) throw headMoney;
+          return headMoney;
+        },
+      },
+    });
+  // The planted fault: the head's rule calls the step money, the baseline it would merge says not.
+  const broke = await seal({ headMoney: { [step]: true } });
+  assert.equal(broke.ok, false, broke.lines.join('\n'));
+  assert.match(
+    broke.lines.join('\n'),
+    /J-ops-console-22#3: with this pull request, the baseline says money false, the money rule at its head says true/,
+  );
+  assert.deepEqual(asked, [HEAD]);
+  // As money, so it is never passed over as inherited.
+  const v = fullVerdict({ repo: REPO, report: rep, run: run(1), inputs, read, headMoney: { [step]: true } });
+  assert.deepEqual(
+    v.red.map((x) => [x.step, x.money]),
+    [[step, true]],
+  );
+  // Known good: a head whose rule still agrees, and one that moves the entry with its rule (money, unbuilt), both seal.
+  assert.equal((await seal({ headMoney: { [step]: false } })).ok, true);
+  const moved = await seal({
+    headMoney: { [step]: true },
+    files: ['apps/admin/package.json', 'docs/runbooks/journey-baseline.json'],
+    headBaseline: { ...inputs.baseline, steps: [{ step, state: 'unbuilt', money: true }] },
+  });
+  assert.equal(moved.ok, true, moved.lines.join('\n'));
+  // Unreadable: the head's rule, or the baseline it changes, fails the seal closed.
+  for (const o of [
+    { headMoney: new Error('GraphQL: HTTP 502') },
+    { headMoney: { [step]: false }, files: ['docs/runbooks/journey-baseline.json'] },
+  ]) {
+    const v = await seal(o);
+    assert.equal(v.ok, false, JSON.stringify(o));
+    assert.match(v.lines.join('\n'), /which the money rule or the baseline is read from, and its head's couldn't be read .*fails closed/);
+  }
+});
+
+test('moneyInput: the files the money rule and the baseline are read from', () => {
+  for (const p of [
+    'docs/roadmap/journeys.json',
+    'docs/roadmap/slices.json',
+    'docs/runbooks/journey-baseline.json',
+    'apps/admin/package.json',
+    'packages/ledger-client/package.json',
+    'crates/svc-ledger/Cargo.toml',
+  ])
+    assert.equal(moneyInput(p), true, p);
+  for (const p of ['apps/admin/src/a.ts', 'package.json', 'apps/admin/sub/package.json', 'docs/roadmap/other.json'])
+    assert.equal(moneyInput(p), false, p);
 });

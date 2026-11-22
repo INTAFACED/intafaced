@@ -22,6 +22,9 @@ const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const here = (f) => join(REPO, 'tooling/codemod/call-records', f);
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: REPO, stdio: ['ignore', 'inherit', 'inherit'], ...opts });
 const out = (cmd, args) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8' });
+// A step handed the changed record files does nothing when none changed (a re-run on a branch whose records already
+// exist), and the run goes on: prettier given no paths fails, and the others would read nothing.
+const prettier = (files) => files.length && sh(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...files]);
 
 export function run(argv) {
   const refusals = argv.includes('--refusals');
@@ -77,10 +80,15 @@ export function run(argv) {
     build();
     let skipped;
     for (;;) {
-      sh('node', [here('samples.mjs'), '--unportable', unportable, ...door, ...recordFiles()]);
+      const files = recordFiles();
+      if (!files.length) {
+        skipped = {};
+        break;
+      }
+      sh('node', [here('samples.mjs'), '--unportable', unportable, ...door, ...files]);
       skipped = JSON.parse(readFileSync(unportable, 'utf8'));
       if (!Object.keys(skipped).length) break;
-      const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...door, ...recordFiles()]));
+      const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...door, ...files]));
       if (!fixed.fixed) break;
       for (const f of fixed.files) if (tracked.has(f)) kept.add(f);
       build();
@@ -96,15 +104,15 @@ export function run(argv) {
     skip = { ...skip, ...skipped };
     writeFileSync(skipFile, JSON.stringify(skip));
   }
-  sh(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...recordFiles()]);
-  if (refusals) {
+  prettier(recordFiles());
+  if (refusals && recordFiles().length) {
     build();
     sh('node', [here('refusals.mjs'), '--service', service, ...recordFiles()]);
-    sh(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...recordFiles()]);
+    prettier(recordFiles());
   }
   build();
   // A door's records are held to the door before anything else reads them: kind, access and the exact input tree.
-  if (door.length) sh('node', [here('door-check.mjs'), ...door, '--service', service, ...recordFiles()]);
+  if (door.length && recordFiles().length) sh('node', [here('door-check.mjs'), ...door, '--service', service, ...recordFiles()]);
   sh('pnpm', ['procedures:write'], { cwd: join(REPO, 'packages/contracts'), stdio: ['ignore', 'ignore', 'inherit'] });
   sh('node', [here('doubles.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
   for (const f of [summary, unportable, patchFile, skipFile]) if (existsSync(f)) rmSync(f);
