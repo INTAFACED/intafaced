@@ -206,9 +206,9 @@ export function TabList<T extends string>({
     refs.current.get(next.value)?.focus();
     onChange(next.value);
   };
-  const keys = (event: React.KeyboardEvent, index: number) => {
+  const keys = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-    const rtl = (event.currentTarget as HTMLElement).closest('[dir="rtl"]') !== null;
+    const rtl = event.currentTarget.closest('[dir="rtl"]') !== null;
     if (step !== undefined) go(index + (rtl && (event.key === 'ArrowRight' || event.key === 'ArrowLeft') ? -step : step));
     else if (event.key === 'Home') go(0);
     else if (event.key === 'End') go(items.length - 1);
