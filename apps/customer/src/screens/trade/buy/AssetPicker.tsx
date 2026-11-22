@@ -1,6 +1,6 @@
-import { useId, useMemo, useState, type ReactNode } from 'react';
-import { Search } from 'lucide-react';
-import { CoinIcon, Dialog, DialogContent, DialogHeader, DialogTitle } from './deps';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Button, CoinMark, Field } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 
 export interface PickerItem {
   asset: string;
@@ -14,7 +14,7 @@ export interface PickerItem {
 }
 
 /**
- * Search-and-pick list in a kit Dialog (UI-SPEC 5.9 item 3). Used for the coin on Buy and for From and To on Convert.
+ * Search-and-pick list in the kit's Sheet (UI-SPEC 5.9 item 3). Used for the coin on Buy and for From and To on Convert.
  * Rows are real buttons; the first match is reachable with Tab from the search box.
  */
 export function AssetPicker({
@@ -38,72 +38,62 @@ export function AssetPicker({
   onPick: (asset: string) => void;
 }) {
   const [query, setQuery] = useState('');
-  const inputId = useId();
   const shown = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return needle
       ? items.filter((item) => item.asset.toLowerCase().includes(needle) || (item.name ?? '').toLowerCase().includes(needle))
       : items;
   }, [items, query]);
+  const close = () => {
+    setQuery('');
+    onOpenChange(false);
+  };
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) setQuery('');
-        onOpenChange(next);
-      }}
-    >
-      <DialogContent className="picker">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        <label className="picker__search" htmlFor={inputId}>
-          <Search size={16} aria-hidden="true" />
-          <input
-            id={inputId}
-            type="text"
+    <Sheet open={open} title={title} onClose={close}>
+      {/* Drawn only while open, as the old dialog was: a closed picker holds no rows a test or a reader could find. */}
+      {open ? (
+        <>
+          <Field
+            type="search"
+            label={searchLabel}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={searchLabel}
-            aria-label={searchLabel}
             autoComplete="off"
             spellCheck={false}
           />
-        </label>
-        <ul data-testid="picker__list" className="picker__list">
-          {shown.map((item) => (
-            <li key={item.asset}>
-              <button
-                type="button"
-                data-testid="picker__row"
-                className="picker__row"
-                aria-pressed={item.asset === selected}
-                disabled={item.disabled}
-                onClick={() => {
-                  onPick(item.asset);
-                  setQuery('');
-                  onOpenChange(false);
-                }}
-              >
-                <CoinIcon asset={item.asset} size={32} />
-                <span className="picker__names">
-                  <span data-testid="picker__ticker" className="picker__ticker">
-                    {item.asset}
+          <ul data-testid="picker__list">
+            {shown.map((item) => (
+              <li key={item.asset}>
+                <Button
+                  tone="quiet"
+                  block
+                  data-testid="picker__row"
+                  aria-pressed={item.asset === selected}
+                  disabled={item.disabled}
+                  onClick={() => {
+                    onPick(item.asset);
+                    close();
+                  }}
+                >
+                  <CoinMark asset={item.asset} />
+                  <span>
+                    <span data-testid="picker__ticker">{item.asset}</span>
+                    {item.name ? <span> {item.name}</span> : null}
+                    {item.note ? <span> {item.note}</span> : null}
                   </span>
-                  {item.name ? <span className="picker__name">{item.name}</span> : null}
-                  {item.note ? <span className="picker__name">{item.note}</span> : null}
-                </span>
-                {item.detail ? <span className="picker__detail">{item.detail}</span> : null}
-              </button>
-            </li>
-          ))}
-        </ul>
-        {shown.length === 0 ? (
-          <p data-testid="picker__none" className="picker__none">
-            {noMatch(query.trim())}
-          </p>
-        ) : null}
-      </DialogContent>
-    </Dialog>
+                  {item.detail ? <span>{item.detail}</span> : null}
+                </Button>
+              </li>
+            ))}
+          </ul>
+          {shown.length === 0 ? (
+            <p data-testid="picker__none" className="lt-hint">
+              {noMatch(query.trim())}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </Sheet>
   );
 }

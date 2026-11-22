@@ -262,10 +262,10 @@ test('too small, and not enough: said before any price is asked for', async ({ p
   const api = await mock(page);
   await open(page);
   await amount(page).fill('3');
-  await expect(page.locator('[data-slot="amount-input"]').first()).toContainText('Minimum is about 5.21 USDT.');
+  await expect(page.locator('[data-slot="decimal-field"]').first()).toContainText('Minimum is about 5.21 USDT.');
   await shot(page, 'convert-1440x900-minimum');
   await amount(page).fill('20000');
-  await expect(page.locator('[data-slot="amount-input"]').first()).toContainText('Not enough USDT. You have 9,993 USDT available.');
+  await expect(page.locator('[data-slot="decimal-field"]').first()).toContainText('Not enough USDT. You have 9,993 USDT available.');
   await expect(page.getByRole('button', { name: 'Preview conversion' })).toBeDisabled();
   await shot(page, 'convert-1440x900-insufficient');
   await page.waitForTimeout(900);
@@ -328,7 +328,7 @@ test('refused: not verified shows the way to Verify; instant buys paused shows U
   const api = await mock(page, { quote: () => trpcRefusal('tier.insufficient', 'tier insufficient', 403) });
   await open(page);
   await amount(page).fill('10');
-  const state = page.locator('[data-slot="state-block"][data-kind="refused"]');
+  const state = page.locator('[data-kind="refused"]');
   await expect(state).toContainText('Verify your identity first');
   await expect(state.locator('a', { hasText: 'Verify now' })).toHaveAttribute('href', '/verification');
   expect(await state.innerText()).not.toMatch(/tier|insufficient/i);
@@ -367,7 +367,7 @@ test('the quote call fails: the card says so and "Get a new price" asks again', 
   const api = await mock(page, { quote: 'error' });
   await open(page);
   await amount(page).fill('10');
-  const state = page.locator('[data-slot="state-block"][data-kind="error"]');
+  const state = page.locator('[data-kind="error"]');
   await expect(state).toContainText('Couldn’t get a price');
   await shot(page, 'convert-1440x900-quote-error');
   api.set('quote', undefined);
@@ -557,7 +557,7 @@ test('loading: skeletons of the final size while markets arrive', async ({ page 
 test('empty: no open market', async ({ page }) => {
   await mock(page, { markets: () => [] });
   await open(page);
-  const state = page.locator('[data-slot="state-block"][data-kind="empty"]');
+  const state = page.locator('[data-kind="empty"]');
   await expect(state).toContainText('Nothing to convert right now');
   await expect(state.locator('a', { hasText: 'Go to Markets' })).toHaveAttribute('href', '/trade');
   await shot(page, 'convert-1440x900-empty-markets');
@@ -566,7 +566,7 @@ test('empty: no open market', async ({ page }) => {
 test('error: markets fail inside the card', async ({ page }) => {
   await mock(page, { markets: 'error' });
   await open(page);
-  await expect(page.locator('[data-slot="state-block"][data-kind="error"]')).toContainText('Couldn’t load assets.');
+  await expect(page.locator('[data-kind="error"]')).toContainText('Couldn’t load assets.');
   await shot(page, 'convert-1440x900-error');
 });
 
@@ -582,13 +582,15 @@ test('plain words, the questions, and a keyboard path', async ({ page }) => {
   await open(page);
   expect(await page.getByTestId('if-convert').innerText()).not.toMatch(forbidden);
   await expect(page.getByTestId('cvt-faq').locator('h2')).toHaveText('Questions');
-  await expect(page.locator('[data-slot="accordion-trigger"]')).toHaveText([
+  await expect(page.locator('[data-testid="cvt-faq"] summary')).toHaveText([
     'How is the price set?',
     'Why does the price expire?',
     'Where do I see my conversion?',
   ]);
-  await page.locator('[data-slot="accordion-trigger"]').first().click();
-  await expect(page.locator('[data-slot="accordion-panel"]').first()).toContainText('The price you review is the price you get.');
+  await page.locator('[data-testid="cvt-faq"] summary').first().click();
+  await expect(page.locator('[data-testid="cvt-faq"] [data-part="panel"]').first()).toContainText(
+    'The price you review is the price you get.',
+  );
   await shot(page, 'convert-1440x900-questions');
   await amount(page).fill('10');
   await expect(preview(page)).toBeEnabled();

@@ -28,6 +28,12 @@ const messages = {
   'Available loading': 'Available —',
   Max: 'Max',
   'Estimated price': 'Estimated price',
+  // Freshness of the price and the orders list
+  'Fresh live': 'Live',
+  'Fresh stale': 'Stale',
+  'Fresh unknown': 'Unknown',
+  'Fresh refused': 'Refused',
+  'Fresh as of': 'as of',
   Fee: 'Fee',
   'Estimated cost': 'Estimated cost',
   'Estimated value': 'Estimated value',

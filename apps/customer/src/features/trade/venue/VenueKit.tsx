@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { Badge, Checkbox } from '@intafaced/ui';
+import { Checkbox } from '@intafaced/ui';
 import { Button, DataTable } from '../../../shared/ui';
-import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
 import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
 import { useSession } from '../../session';
-import { WalletProvider, usePolled, useWallet } from '../../protocol';
+import { usePolled, useWallet } from '../../protocol';
 import {
   keys,
   venueApi,
@@ -16,16 +15,19 @@ import {
   type KeptSignature,
   type PreparedAnswer,
   type VenueApi,
-  type VenueBalance,
   type VenueFill,
   type VenueIntent,
   type VenueOrder,
   type VenueOutcome,
   type VenueUp,
 } from '../venue-api';
-import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
 import { feeShown } from './fee-rates';
+import { AsOfLine, TestMark, useAsOfText } from './VenueParts';
+
+// Drawn from the kit in VenueParts.tsx; re-exported so every desk keeps importing them from here.
+export { AsOfLine, BalancesPanel, TestMark, VenueFrame, useAsOfText } from './VenueParts';
+export { WalletBar } from './WalletBar';
 
 type T = ReturnType<typeof venueCopy.useCopy>['t'];
 
@@ -37,48 +39,10 @@ export function useVenueApi(): VenueApi {
   return useMemo(() => venueApi(api), [api]);
 }
 
-/** The TEST label every venue figure carries while the venue is a TEST one. */
-export function TestMark({ test }: { test: boolean }) {
-  const { t } = venueCopy.useCopy();
-  if (!test) return null;
-  return (
-    <Badge tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
-      {t('TEST')}
-    </Badge>
-  );
-}
-
 /** A figure the venue may not publish: its value, or "not known", never 0. */
 export function Known({ value, render = (v) => displayAmount(v) }: { value: MaybeKnown<string>; render?: (v: string) => ReactNode }) {
   const { t } = venueCopy.useCopy();
   return <>{value.known ? render(value.value) : t('Not known')}</>;
-}
-
-export function useAsOfText(): (iso: string) => string {
-  const { timeZone } = usePreferences();
-  const { t } = venueCopy.useCopy();
-  return useCallback(
-    (iso: string) => {
-      let text: string;
-      try {
-        text = new Intl.DateTimeFormat('en-GB', { timeZone, dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso));
-      } catch {
-        text = iso;
-      }
-      return t('As of', { time: text });
-    },
-    [timeZone, t],
-  );
-}
-
-export function AsOfLine({ asOf }: { asOf: string | null }) {
-  const text = useAsOfText();
-  if (!asOf) return null;
-  return (
-    <p className="muted" data-testid="venue-as-of">
-      {text(asOf)}
-    </p>
-  );
 }
 
 /** A word from the copy for a venue enum value, or the value itself when the copy has none. */
@@ -90,20 +54,6 @@ export function word(t: T, prefix: string, value: string): string {
   } catch {
     return value;
   }
-}
-
-/**
- * The venue frame: the person's wallet on the network the venue signs on (its status names it; the app's own chain
- * otherwise), the venue named with its TEST label and the trading-mode line. Every desk in venue mode sits inside it.
- */
-export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode: 'on' }>; children: ReactNode }) {
-  const status = mode.status;
-  const chainId = status.available && status.chainId ? status.chainId : undefined;
-  return (
-    <WalletProvider chainId={chainId} scope="venue-desk">
-      {children}
-    </WalletProvider>
-  );
 }
 
 export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title: ReactNode; feeLine?: ReactNode }) {
@@ -121,55 +71,6 @@ export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title
       </p>
       {feeLine ? <p data-testid="venue-fee-line">{feeLine}</p> : null}
     </header>
-  );
-}
-
-/** Connect, the connected address and network, and the switch when the wallet is on another network. */
-export function WalletBar() {
-  const { t } = venueCopy.useCopy();
-  const wallet = useWallet();
-  return (
-    <section className="dk-panel form-stack" aria-label={t('Your wallet')} data-testid="venue-wallet">
-      <h2 className="dk-tab-title">{t('Your wallet')}</h2>
-      {wallet.status === 'connected' && wallet.address ? (
-        <>
-          <dl className="protocol-facts">
-            <div>
-              <dt>{t('Connected address')}</dt>
-              <dd className="numeric" data-testid="venue-wallet-address">
-                {wallet.address.toLowerCase()}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Network')}</dt>
-              <dd className="numeric">{wallet.chainId ?? ''}</dd>
-            </div>
-          </dl>
-          {wallet.guard && !wallet.guard.ok ? (
-            <p role="alert">
-              {t('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <Button onClick={() => void wallet.switchNetwork()}>{t('Switch network')}</Button>
-            </p>
-          ) : null}
-          <Button variant="secondary" onClick={wallet.disconnect}>
-            {t('Disconnect')}
-          </Button>
-        </>
-      ) : wallet.wallets.length === 0 ? (
-        <p className="muted">{t('No wallet')}</p>
-      ) : (
-        wallet.wallets.map((entry) => (
-          <Button key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
-            {t('Connect wallet', { name: entry.info.name })}
-          </Button>
-        ))
-      )}
-      {wallet.problem ? (
-        <p className="failure" role="alert">
-          {wallet.problem}
-        </p>
-      ) : null}
-    </section>
   );
 }
 
@@ -512,38 +413,6 @@ export function ReadProblem({ failure, venueName }: { failure: { message: string
     <p className="failure" role="alert" data-testid="venue-read-problem">
       {down ? t('Venue down', { venue: venueName, detail: failure.message }) : t('Read failed', { detail: failure.message })}
     </p>
-  );
-}
-
-export function BalancesPanel({ balances, test }: { balances: AsOf<VenueBalance[]> | null; test: boolean }) {
-  const { t } = venueCopy.useCopy();
-  return (
-    <section className="dk-panel" aria-label={t('Balances')} data-testid="venue-balances">
-      <h2 className="dk-tab-title">
-        {t('Balances')} <TestMark test={test} />
-      </h2>
-      {balances && balances.value.length > 0 ? (
-        <DataTable label={t('Balances')} headers={[t('Asset'), t('Free'), t('Used'), t('Total')]}>
-          {balances.value.map((b) => (
-            <tr key={b.asset} data-asset={b.asset}>
-              <td>{b.asset}</td>
-              <td className="numeric" data-cell="free">
-                {displayAmount(b.free)}
-              </td>
-              <td className="numeric" data-cell="used">
-                {displayAmount(b.locked)}
-              </td>
-              <td className="numeric" data-cell="total">
-                {displayAmount(b.total)}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
-      ) : balances ? (
-        <p className="muted">{t('No balances')}</p>
-      ) : null}
-      <AsOfLine asOf={balances?.asOf ?? null} />
-    </section>
   );
 }
 

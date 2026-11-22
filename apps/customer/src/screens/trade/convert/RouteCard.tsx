@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { AmountInput, Button, CoinIcon, createToolApi, useSession } from '../buy/deps';
+import { Button, CoinMark, DecimalField } from '@intafaced/ui/lit';
+import { createToolApi, useSession } from '../buy/deps';
 import { convertCopy } from './copy';
 import { useConvertRoute } from './use-pairs';
 
@@ -16,63 +17,52 @@ export function RouteCard({ from, to }: { from: string; to: string }) {
   const [amount, setAmount] = useState('');
 
   return (
-    <section data-testid="cvt-card" className="cvt-card" aria-label={t('Convert')}>
-      <div data-testid="cvt-card__head" className="cvt-card__head">
+    <section data-testid="cvt-card" aria-label={t('Convert')}>
+      <div data-testid="cvt-card__head" className="lt-title-row">
         <h2>{t('Convert')}</h2>
       </div>
-      <div className="cvt-fields">
-        <div className="cvt-field" data-testid="from-field">
-          <span className="cvt-field__label">{t('From')}</span>
-          <div className="cvt-field__main">
-            <span className="cvt-asset">
-              <CoinIcon asset={from} size={28} />
-              <span>{from}</span>
-            </span>
-            <AmountInput
-              size="hero"
-              aria-label={t('Amount to convert')}
-              value={amount}
-              onValueChange={setAmount}
-              precision={2}
-              placeholder="0"
-              className="cvt-amount"
-            />
-          </div>
-        </div>
-        <div className="cvt-field" data-testid="to-field">
-          <span className="cvt-field__label">{t('To')}</span>
-          <div className="cvt-field__main">
-            <span className="cvt-asset">
-              <CoinIcon asset={to} size={28} />
-              <span>{to}</span>
-            </span>
-          </div>
+      <div data-testid="from-field">
+        <p className="lt-hint">{t('From')}</p>
+        <div className="lt-toolbar">
+          <CoinMark asset={from} size="sm" />
+          <span>{from}</span>
+          <DecimalField
+            label={t('Amount to convert')}
+            labelHidden
+            size="hero"
+            typedMark="either"
+            value={amount}
+            onValueChange={setAmount}
+            precision={2}
+            placeholder="0"
+          />
         </div>
       </div>
-      {route.status === 'loading' ? (
-        <p className="cvt-rate cvt-rate--wait" role="status">
-          {t('Route checking', { from, to })}
-        </p>
-      ) : null}
+      <div data-testid="to-field">
+        <p className="lt-hint">{t('To')}</p>
+        <div className="lt-toolbar">
+          <CoinMark asset={to} size="sm" />
+          <span>{to}</span>
+        </div>
+      </div>
+      {route.status === 'loading' ? <p role="status">{t('Route checking', { from, to })}</p> : null}
       {route.status === 'refused' ? (
-        <div className="cvt-note" role="alert" data-testid="cvt-route-refused" data-code={route.code}>
+        <div role="alert" data-testid="cvt-route-refused" data-code={route.code}>
           <p>
             <strong>{route.code === 'trade.convert_two_leg_unbuilt' ? t('Two leg title') : t('Route unlisted title')}.</strong>{' '}
             {route.code === 'trade.convert_two_leg_unbuilt' ? t('Two leg body', { from, to }) : t('Route unlisted body', { from, to })}
           </p>
         </div>
       ) : null}
-      {route.status === 'unread' ? (
-        <p className="cvt-note" role="alert">
-          {t('Route unread', { from, to })}
-        </p>
-      ) : null}
-      <Button variant="primary" size={56} fullWidth disabled>
+      {route.status === 'unread' ? <p role="alert">{t('Route unread', { from, to })}</p> : null}
+      <Button tone="primary" size="lg" block disabled>
         {t('Preview conversion')}
       </Button>
-      <a className="text-link" href="/trade/convert" data-testid="cvt-route-other">
-        {t('Choose other coins')}
-      </a>
+      <div className="lt-actions">
+        <a className="lt-link" href="/trade/convert" data-testid="cvt-route-other">
+          {t('Choose other coins')}
+        </a>
+      </div>
     </section>
   );
 }

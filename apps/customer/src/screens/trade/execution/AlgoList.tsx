@@ -1,6 +1,6 @@
 /** The schedules this device knows, each re-read from the service, and the detail of the one picked. */
 import { Badge, Button, EmptyState, KeyValue, Table, fmtAmount, fmtPrice, type Loadable, type TableColumn } from '../rooms/ui';
-import { Freshness } from '../rooms/RoomNotices';
+import { Freshness } from '../rooms/RoomFreshness';
 import { roomWords } from '../rooms/refusals';
 import { compareDecimals, percentOf } from '../rooms/math';
 import { execCopy } from './copy';

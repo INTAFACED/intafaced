@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from 'react';
 import { Button, SegmentedControl } from '../rooms/ui';
-import { Freshness } from '../rooms/RoomNotices';
+import { Freshness } from '../rooms/RoomFreshness';
 import { useClosedOrders, useFills, useOpenOrders, useRefreshPrivate } from '../desk/data';
 import { execCopy } from './copy';
 import type { ParentRead } from './data';

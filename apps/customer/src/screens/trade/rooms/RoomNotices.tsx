@@ -1,33 +1,22 @@
 /**
  * Shared notices for the rooms: a refusal in plain words, the state of the last write, the device note of an unresolved
- * request, and a freshness chip. Status is a shape plus a word, never colour alone.
+ * request. Status is a shape plus a word, never colour alone. The freshness chip is in RoomFreshness.tsx.
  */
 import type { ReactNode } from 'react';
-import { Button, EmptyState, StatusChip, formatAsOf } from './ui';
+import { Button, RefusalBox } from '@intafaced/ui/lit';
 import type { Words } from './refusals';
 import { BLOCK_WORDS, type RoomWriter } from './write';
-import { STALE_AFTER_MS } from './read';
 
-export function Refusal({ words, onRetry, size = 'panel' }: { words: Words; onRetry?: () => void; size?: 'inline' | 'panel' }) {
+/** The retry's words, as the old kit's refusal drew them (these rooms have no copy catalogue yet). */
+const TRY_AGAIN = 'Try again';
+
+/** A refusal in the service's words, with its code; `size` is kept for callers and draws the same kit refusal. */
+export function Refusal({ words, onRetry }: { words: Words; onRetry?: () => void; size?: 'inline' | 'panel' }) {
   return (
-    <EmptyState
-      variant="refused"
-      size={size}
-      title={words.title}
-      reason={words.body}
-      code={words.code ?? undefined}
-      action={onRetry ? { label: 'Try again', onClick: onRetry, variant: 'secondary' } : undefined}
-    />
+    <RefusalBox refusal={{ variant: 'refused', title: words.title, body: words.body, ...(words.code ? { reference: words.code } : {}) }}>
+      {onRetry ? <Button onClick={onRetry}>{TRY_AGAIN}</Button> : null}
+    </RefusalBox>
   );
-}
-
-/** Freshness of a polled region. `asOf` null means no good answer (unknown), `refused` means the service said no. */
-export function Freshness({ asOf, refused = false, now }: { asOf: number | null; refused?: boolean; now?: number }) {
-  return <StatusChip asOf={asOf} refused={refused} staleAfterMs={STALE_AFTER_MS} now={now} showAsOf={asOf !== null} />;
-}
-
-export function asOfText(asOf: number | null): string {
-  return asOf === null ? 'not read' : (formatAsOf(asOf) ?? 'unknown');
 }
 
 /**
@@ -48,34 +37,22 @@ export function WriteNotice({
   const { outcome, note } = writer;
   const pendingId = note.state === 'pending' ? note.pending.id : outcome.kind === 'uncertain' ? outcome.id : null;
   return (
-    <div className="flex flex-col gap-2" aria-live="polite">
-      {outcome.kind === 'done' && done ? <p className="m-0 text-sm text-fg">{done}</p> : null}
+    <div aria-live="polite">
+      {outcome.kind === 'done' && done ? <p>{done}</p> : null}
       {outcome.kind === 'refused' ? <Refusal words={outcome.words} size="inline" /> : null}
-      {outcome.kind === 'blocked' ? (
-        <p role="alert" className="m-0 text-sm text-warn">
-          {BLOCK_WORDS[outcome.reason]}
-        </p>
-      ) : null}
+      {outcome.kind === 'blocked' ? <p role="alert">{BLOCK_WORDS[outcome.reason]}</p> : null}
       {outcome.kind === 'uncertain' ? (
-        <p role="alert" className="m-0 text-sm text-warn">
+        <p role="alert">
           {outcome.words.title}. {outcome.words.body}
         </p>
       ) : null}
-      {note.state === 'unreadable' ? (
-        <p role="alert" className="m-0 text-sm text-warn">
-          {BLOCK_WORDS.unreadable}
-        </p>
-      ) : null}
+      {note.state === 'unreadable' ? <p role="alert">{BLOCK_WORDS.unreadable}</p> : null}
       {pendingId ? (
-        <div className="flex flex-wrap items-center gap-3 text-sm text-fg-2">
+        <div className="lt-toolbar">
           <span>
-            Unconfirmed request <span className="font-mono text-fg">{pendingId}</span>. New requests stay locked until it is checked.
+            Unconfirmed request <span className="lt-mono">{pendingId}</span>. New requests stay locked until it is checked.
           </span>
-          {onCheck ? (
-            <Button variant="secondary" size={32} onClick={() => onCheck(pendingId)}>
-              Check status
-            </Button>
-          ) : null}
+          {onCheck ? <Button onClick={() => onCheck(pendingId)}>Check status</Button> : null}
         </div>
       ) : null}
     </div>

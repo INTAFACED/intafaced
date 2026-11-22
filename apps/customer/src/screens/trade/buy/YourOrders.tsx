@@ -1,7 +1,4 @@
 import { useMemo, useRef, useState } from 'react';
-import './buy.css';
-import { ORDERS_HREF } from './BuyCard';
-import { buyCopy } from './copy';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -10,21 +7,23 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  Badge,
   Button,
+  Tag,
+} from '@intafaced/ui/lit';
+import { Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
+import { ORDERS_HREF } from './BuyCard';
+import { FreshWord, StateNote } from './buy-parts';
+import { buyCopy } from './copy';
+import {
   createTradeApi,
   defaultPoller,
   fmtAmount,
   refusalCopy,
-  StateBlock,
-  StatusChip,
-  Table,
   useClosedOrders,
   useOpenOrders,
   useSession,
   type Loadable,
   type Order,
-  type TableColumn,
   type TradeApi,
 } from './deps';
 import { baseOf, canCancel, pickRows, statusWord, type OrderStatusWord } from './orders-view';
@@ -182,63 +181,50 @@ function OrdersPanel() {
   };
   const sideWord = (order: Order) => (order.side === 'sell' ? t('Sell') : t('Buy'));
 
-  const columns: TableColumn<Order>[] = [
-    { id: 'time', header: t('Time'), cell: (order) => timeFormat.format(order.timestamp), width: 130 },
-    { id: 'market', header: t('Market'), value: (order) => order.symbol },
+  const columns: Column<Order>[] = [
+    { key: 'time', label: t('Time'), cell: (order) => timeFormat.format(order.timestamp) },
+    { key: 'market', label: t('Market'), cell: (order) => order.symbol },
     {
-      id: 'side',
-      header: t('Side'),
-      cell: (order) => (
-        <Badge density="dense" tone={order.side === 'sell' ? 'down' : 'up'}>
-          {sideWord(order)}
-        </Badge>
-      ),
-      width: 80,
+      key: 'side',
+      label: t('Side'),
+      cell: (order) => <Tag tone={order.side === 'sell' ? 'down' : 'up'}>{sideWord(order)}</Tag>,
     },
     {
-      id: 'amount',
-      header: t('Amount'),
-      numeric: true,
+      key: 'amount',
+      label: t('Amount'),
+      align: 'end',
       cell: (order) => `${fmtAmount(order.amount, { places: 8 })} ${baseOf(order.symbol)}`,
     },
-    { id: 'filled', header: t('Filled'), numeric: true, cell: (order) => fmtAmount(order.filled, { places: 8 }) },
+    { key: 'filled', label: t('Filled'), align: 'end', cell: (order) => fmtAmount(order.filled, { places: 8 }) },
     {
-      id: 'status',
-      header: t('Status'),
+      key: 'status',
+      label: t('Status'),
       cell: (order) => {
         const word = statusWord(order);
         if (word === null) return null;
         const reason = order.recoveryRequired ? order.recoveryReason : null;
         return (
-          <Badge
-            density="dense"
-            tone={word === 'checking' || word === 'rejected' ? 'warn' : word === 'open' || word === 'partly' ? 'lime' : 'neutral'}
-            title={reason ?? undefined}
-          >
+          <Tag tone={word === 'open' || word === 'partly' ? 'accent' : 'neutral'} title={reason ?? undefined} data-status-word={word}>
             {words[word]}
-          </Badge>
+          </Tag>
         );
       },
-      width: 140,
     },
     {
-      id: 'action',
-      header: '',
-      headerLabel: t('Cancel order'),
+      key: 'action',
+      label: t('Cancel order'),
       align: 'end',
-      width: 100,
       cell: (order) =>
         canCancel(order) ? (
           <Button
-            variant="secondary"
-            size={28}
+            tone="secondary"
             disabled={busy}
             aria-label={t('Cancel order for {market}', { market: order.symbol, side: sideWord(order).toLowerCase() })}
             onClick={() => setConfirming(order)}
           >
             {t('Cancel')}
           </Button>
-        ) : undefined,
+        ) : null,
     },
   ];
 
@@ -247,64 +233,53 @@ function OrdersPanel() {
     refused?.status === 'refused' ? (
       (() => {
         const copy = refusalCopy(refused.code);
-        return <StateBlock kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />;
+        return <StateNote kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />;
       })()
     ) : (
-      <StateBlock kind="error" title={t('Couldn’t load orders')} onRetry={retry} retryLabel={t('Retry')} />
+      <StateNote kind="error" title={t('Couldn’t load orders')} onRetry={retry} retryLabel={t('Retry')} />
     );
 
   return (
-    <section className="buy-orders" aria-label={t('Your orders')} data-testid="your-orders">
-      <header className="buy-orders__head">
-        <div>
-          <h2>{t('Your orders')}</h2>
-          <p>{t('Your orders hint')}</p>
+    <section aria-label={t('Your orders')} data-testid="your-orders">
+      <header>
+        <h2>{t('Your orders')}</h2>
+        <p className="lt-hint">{t('Your orders hint')}</p>
+        <div className="lt-actions">
+          <FreshWord data-testid="orders-freshness" asOf={asOf} staleAfterMs={ORDERS_STALE_AFTER_MS} refused={refused !== undefined} />
+          <a className="lt-link" href={ORDERS_HREF}>
+            {t('Open in Activity')}
+          </a>
         </div>
-        <StatusChip
-          density="dense"
-          data-testid="orders-freshness"
-          asOf={asOf}
-          staleAfterMs={ORDERS_STALE_AFTER_MS}
-          refused={refused !== undefined}
-        />
-        <Button variant="ghost" size={32} nativeButton={false} render={<a href={ORDERS_HREF} />}>
-          {t('Open in Activity')}
-        </Button>
       </header>
       {lostCancel && !notice?.recheck ? (
-        <div className="buy-orders__notice" role="status" data-tone="warn" data-testid="orders-lost-cancel">
+        <div className="lt-actions" role="status" data-tone="warn" data-testid="orders-lost-cancel">
           <span>{lostText ?? t('Cancel not confirmed')}</span>
-          <Button variant="secondary" size={28} loading={busy} onClick={() => checkLostCancel(lostCancel)}>
+          <Button tone="secondary" disabled={busy} aria-busy={busy || undefined} onClick={() => checkLostCancel(lostCancel)}>
             {t('Check again')}
           </Button>
         </div>
       ) : null}
       {notice ? (
-        <div className="buy-orders__notice" role="status" data-tone={notice.tone} data-testid="orders-notice">
+        <div className="lt-actions" role="status" data-tone={notice.tone} data-testid="orders-notice">
           <span>{notice.text}</span>
           {notice.recheck ? (
-            <Button variant="secondary" size={28} loading={busy} onClick={() => checkAgain(notice.recheck!)}>
+            <Button tone="secondary" disabled={busy} aria-busy={busy || undefined} onClick={() => checkAgain(notice.recheck!)}>
               {t('Check again')}
             </Button>
           ) : null}
         </div>
       ) : null}
-      <Table
-        label={t('Your orders')}
-        density="dense"
-        columns={columns}
-        rows={status === 'ready' ? rows : []}
-        getRowId={(order) => order.id}
-        status={status}
-        loadingRows={4}
-        errorState={errorState}
-        onRetry={retry}
-        emptyState={<StateBlock kind="empty" title={t('Orders empty title')} body={t('Orders empty body')} />}
-        onRowActivate={() => window.location.assign(ORDERS_HREF)}
-        minWidth={640}
-      />
+      {status === 'loading' ? (
+        <Skeleton shape="rows" count={4} />
+      ) : status === 'error' ? (
+        errorState
+      ) : rows.length === 0 ? (
+        <StateNote kind="empty" title={t('Orders empty title')} body={t('Orders empty body')} />
+      ) : (
+        <Table caption={t('Your orders')} columns={columns} rows={rows} rowKey={(order) => order.id} rowHref={() => ORDERS_HREF} />
+      )}
       {checking.length > 0 ? (
-        <ul className="buy-orders__reasons">
+        <ul>
           {checking.map((order) => (
             <li key={order.id}>
               {order.symbol}: {order.recoveryReason}
@@ -318,7 +293,7 @@ function OrdersPanel() {
           if (!next && !busy) setConfirming(null);
         }}
       >
-        <AlertDialogContent className="buy-dialog">
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('Cancel this order title')}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -332,10 +307,10 @@ function OrdersPanel() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="secondary" size={40} />} disabled={busy}>
+            <AlertDialogClose render={<Button tone="secondary" />} disabled={busy}>
               {t('Keep order')}
             </AlertDialogClose>
-            <Button variant="sell" size={40} loading={busy} onClick={() => confirming && confirmCancel(confirming)}>
+            <Button tone="primary" disabled={busy} aria-busy={busy || undefined} onClick={() => confirming && confirmCancel(confirming)}>
               {busy ? t('Cancelling') : t('Cancel order')}
             </Button>
           </AlertDialogFooter>

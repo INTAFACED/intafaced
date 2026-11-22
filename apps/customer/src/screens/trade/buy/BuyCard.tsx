@@ -1,31 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ArrowDownUp } from 'lucide-react';
-import './buy.css';
+import { Button, CoinMark, DecimalField, Select } from '@intafaced/ui/lit';
+import { Segmented, Skeleton } from '@intafaced/ui/lit/templates';
 import { AssetPicker, type PickerItem } from './AssetPicker';
 import { BuyReview, type ReviewState } from './BuyReview';
 import { recheckCancel } from './cancel-recheck';
 import { CostBlock } from './CostBlock';
 import { costRows } from './cost';
 import { buyCopy, coinName } from './copy';
+import { FreshWord, StateNote } from './buy-parts';
 import {
-  AmountInput,
-  Button,
-  CoinIcon,
   createTradeApi,
   defaultPoller,
   fmtAmount,
   fmtPrice,
   fmtUsd,
   refusalCopy,
-  SegmentedControl,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-  StatusChip,
-  StateBlock,
   useMarkets,
   usePortfolio,
   useSession,
@@ -114,29 +104,26 @@ export function BuyCard({
   const coin = coins.find((option) => option.base === base) ?? coins[0] ?? null;
 
   const frame = (children: React.ReactNode) => (
-    <section data-testid="buy-card" className="buy-card" data-compact={compact || undefined} aria-label={t('Buy or sell')}>
+    <section data-testid="buy-card" data-compact={compact || undefined} aria-label={t('Buy or sell')}>
       {children}
     </section>
   );
 
   if (markets.status === 'loading')
     return frame(
-      <div data-testid="buy-card__skeleton" className="buy-card__skeleton" aria-busy="true">
-        <Skeleton height={40} width={200} circle />
-        <Skeleton height={56} className="buy-card__field" />
-        <Skeleton height={112} className="buy-card__field" />
-        <Skeleton height={compact ? 48 : 56} circle />
+      <div data-testid="buy-card__skeleton" aria-busy="true">
+        <Skeleton shape="form" count={4} />
       </div>,
     );
   if (markets.status === 'error')
-    return frame(<StateBlock kind="error" title={t('Couldn’t load coins')} onRetry={markets.retry} retryLabel={t('Retry')} />);
+    return frame(<StateNote kind="error" title={t('Couldn’t load coins')} onRetry={markets.retry} retryLabel={t('Retry')} />);
   if (markets.status === 'refused') {
     const copy = refusalCopy(markets.code);
-    return frame(<StateBlock kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />);
+    return frame(<StateNote kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />);
   }
   if (!coin)
     return frame(
-      <StateBlock
+      <StateNote
         kind="empty"
         title={t('No coins title')}
         body={t('No coins body')}
@@ -176,37 +163,29 @@ function ReceiptView({ receipt, coin, compact, onDone }: { receipt: Receipt; coi
   const none = receipt.status === 'none';
   const open = receipt.status === 'open';
   return (
-    <div className="buy-receipt" role="status" data-testid="receipt" data-status={receipt.status}>
-      <span className="buy-receipt__badge" aria-hidden="true" data-tone={none || open ? 'neutral' : 'ok'}>
+    <div role="status" data-testid="receipt" data-status={receipt.status}>
+      <span aria-hidden="true" data-tone={none || open ? 'neutral' : 'ok'}>
         {none || open ? '·' : '✓'}
       </span>
       {none ? (
         <>
-          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
-            {t('Not filled title')}
-          </h2>
-          <p className="buy-receipt__body">{t('Not filled body')}</p>
+          <h2 data-testid="buy-receipt__title">{t('Not filled title')}</h2>
+          <p>{t('Not filled body')}</p>
         </>
       ) : open ? (
         <>
-          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
-            {t('Still working title')}
-          </h2>
-          <p className="buy-receipt__body">{t('Still working body')}</p>
+          <h2 data-testid="buy-receipt__title">{t('Still working title')}</h2>
+          <p>{t('Still working body')}</p>
         </>
       ) : (
         <>
-          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
+          <h2 data-testid="buy-receipt__title">
             {selling
               ? t('You sold {amount} {coin}', { amount: filled, coin: coin.base })
               : t('You bought {amount} {coin}', { amount: filled, coin: coin.base })}
           </h2>
-          {partial ? (
-            <p className="buy-receipt__body">
-              {t('Partly filled', { done: filled, total: fmtAmount(receipt.amount, { places: 8 }), coin: coin.base })}
-            </p>
-          ) : null}
-          <dl className="buy-receipt__rows">
+          {partial ? <p>{t('Partly filled', { done: filled, total: fmtAmount(receipt.amount, { places: 8 }), coin: coin.base })}</p> : null}
+          <dl className="lt-kv">
             <div>
               <dt>{selling ? t('Received') : t('Paid')}</dt>
               <dd data-testid="receipt-cost">{paid}</dd>
@@ -228,11 +207,11 @@ function ReceiptView({ receipt, coin, compact, onDone }: { receipt: Receipt; coi
           </dl>
         </>
       )}
-      <div className="buy-receipt__actions">
-        <Button variant="primary" size={compact ? 48 : 56} fullWidth nativeButton={false} render={<a href={ACTIVITY_HREF} />}>
+      <div className="lt-actions">
+        <a className="lt-button lt-button-primary" href={ACTIVITY_HREF}>
           {t('View in Activity')}
-        </Button>
-        <Button variant="secondary" size={compact ? 48 : 56} fullWidth onClick={onDone}>
+        </a>
+        <Button tone="secondary" size={compact ? 'md' : 'lg'} block onClick={onDone}>
           {none ? t('Try again') : t('Done')}
         </Button>
       </div>
@@ -534,7 +513,7 @@ function BuyForm({
     limits.status !== 'loading' &&
     estimate.state !== 'refused' &&
     busy === null;
-  const buttonSize = compact ? 48 : 56;
+  const buttonSize = compact ? 'md' : 'lg';
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
   // Nothing typed (or not a valid size) is "—", never a made-up zero (spec 1.1-4).
   const approx = !plan.ok
@@ -547,28 +526,27 @@ function BuyForm({
   const priceLine = price === null ? '—' : `$${fmtPrice(price, market.tickSize)}`;
 
   return (
-    <div className="buy-form">
-      <div data-testid="buy-form__top" className="buy-form__top">
-        <SegmentedControl
-          size={40}
-          fullWidth={compact}
-          className={compact ? undefined : 'w-50'}
-          aria-label={t('Buy or sell')}
+    <div>
+      <div data-testid="buy-form__top">
+        <Segmented
+          label={t('Buy or sell')}
           value={side}
-          onValueChange={(next) => {
+          onChange={(next) => {
             if (next === 'buy' || next === 'sell') onSide(next);
           }}
-          items={[
-            { value: 'buy', label: t('Buy'), tone: 'up' },
-            { value: 'sell', label: t('Sell'), tone: 'down' },
+          options={[
+            { value: 'buy', label: t('Buy') },
+            { value: 'sell', label: t('Sell') },
           ]}
         />
       </div>
 
-      <div className="buy-form__amount">
-        <AmountInput
+      <div>
+        <DecimalField
           size="hero"
-          aria-label={t('Amount in {unit}', { unit: unit === 'quote' ? 'USD' : market.base })}
+          typedMark="either"
+          labelHidden
+          label={t('Amount in {unit}', { unit: unit === 'quote' ? 'USD' : market.base })}
           value={amount}
           onValueChange={(next) => {
             reset();
@@ -582,13 +560,12 @@ function BuyForm({
           maxLabel={t('Max')}
           disabled={busy === 'max'}
         />
-        <div className="buy-form__approx">
+        <div className="lt-actions">
           <span data-testid="approx" data-tone={plan.ok && buying ? 'up' : undefined}>
             {approx}
           </span>
-          <button
-            type="button"
-            className="buy-form__swap"
+          <Button
+            tone="quiet"
             onClick={() => {
               setAmount('');
               setUnit(unit === 'quote' ? 'base' : 'quote');
@@ -597,67 +574,51 @@ function BuyForm({
           >
             <ArrowDownUp size={14} aria-hidden="true" />
             {t('Enter in {unit}', { unit: unit === 'quote' ? market.base : 'USD' })}
-          </button>
+          </Button>
         </div>
       </div>
 
-      <div className="buy-form__rows">
+      <div>
         {lockAsset ? (
-          <div data-testid="buy-row" className="buy-row" data-static="true">
-            <CoinIcon asset={coin.base} size={32} />
-            <span data-testid="buy-row__text" className="buy-row__text">
-              <span className="buy-row__label">{buying ? t('Coin row buy') : t('Coin row sell')}</span>
-              <span className="buy-row__value">{coin.base}</span>
+          <div data-testid="buy-row" data-static="true">
+            <CoinMark asset={coin.base} />
+            <span data-testid="buy-row__text">
+              <span>{buying ? t('Coin row buy') : t('Coin row sell')}</span> <span>{coin.base}</span>
             </span>
           </div>
         ) : (
-          <button type="button" data-testid="buy-row" className="buy-row" onClick={() => setPickerOpen(true)} aria-label={t('Change coin')}>
-            <CoinIcon asset={coin.base} size={32} />
-            <span data-testid="buy-row__text" className="buy-row__text">
-              <span className="buy-row__label">{buying ? t('Coin row buy') : t('Coin row sell')}</span>
-              <span className="buy-row__value" data-testid="coin-row">
+          <Button tone="quiet" block data-testid="buy-row" onClick={() => setPickerOpen(true)} aria-label={t('Change coin')}>
+            <CoinMark asset={coin.base} />
+            <span data-testid="buy-row__text">
+              <span>{buying ? t('Coin row buy') : t('Coin row sell')}</span>{' '}
+              <span data-testid="coin-row">
                 {coin.base}
-                {coinLabel ? <span className="buy-row__name"> · {coinLabel}</span> : null}
+                {coinLabel ? <span> · {coinLabel}</span> : null}
               </span>
             </span>
-            <ChevronRight size={20} aria-hidden="true" className="buy-row__chev" />
-          </button>
+            <ChevronRight size={20} aria-hidden="true" />
+          </Button>
         )}
-        <div data-testid="buy-row" className="buy-row" data-static="true">
-          <span data-testid="buy-row__text" className="buy-row__text">
-            <span className="buy-row__label">{buying ? t('Pay with') : t('Receive in')}</span>
+        <div data-testid="buy-row" data-static="true">
+          <span data-testid="buy-row__text">
             {payChoices.length > 1 ? (
               <Select
-                items={Object.fromEntries(payChoices.map((asset) => [asset, t('{asset} balance', { asset })]))}
+                label={buying ? t('Pay with') : t('Receive in')}
+                options={payChoices.map((asset) => [asset, t('{asset} balance', { asset })] as const)}
                 value={quote}
-                onValueChange={(next) => {
-                  if (typeof next === 'string') {
-                    setPayer(next);
-                    setAmount('');
-                    reset();
-                  }
+                onChange={(next) => {
+                  setPayer(next);
+                  setAmount('');
+                  reset();
                 }}
-              >
-                <SelectTrigger
-                  size={32}
-                  className="buy-row__select h-6 bg-transparent px-0 text-sm text-fg-2 hover:bg-transparent hover:text-fg data-popup-open:bg-transparent"
-                  aria-label={buying ? t('Pay with') : t('Receive in')}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {payChoices.map((asset) => (
-                    <SelectItem key={asset} value={asset}>
-                      {t('{asset} balance', { asset })}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             ) : (
-              <span className="buy-row__value">{t('{asset} balance', { asset: quote })}</span>
+              <>
+                <span>{buying ? t('Pay with') : t('Receive in')}</span> <span>{t('{asset} balance', { asset: quote })}</span>
+              </>
             )}
           </span>
-          <span className="buy-row__aside" data-testid="available">
+          <span className="lt-hint" data-testid="available">
             {available.state === 'ready'
               ? t('Available {value}', {
                   value: hideBalances ? HIDDEN_MASK : `${fmtAmount(available.value, { places: 8, round: 'down' })} ${spendAsset}`,
@@ -669,13 +630,12 @@ function BuyForm({
 
       {plan.ok ? (
         <>
-          <dl className="buy-form__summary">
+          <dl className="lt-kv">
             <div>
               <dt>{t('Estimated price')}</dt>
               <dd data-testid="price">
-                <span>{priceLine}</span>
-                <StatusChip
-                  density="dense"
+                <span>{priceLine}</span>{' '}
+                <FreshWord
                   data-testid="price-freshness"
                   asOf={ticker.status === 'ready' ? ticker.asOf : null}
                   staleAfterMs={PRICE_STALE_AFTER_MS}
@@ -704,9 +664,8 @@ function BuyForm({
       ) : null}
 
       {estimate.state === 'refused' ? (
-        <StateBlock
+        <StateNote
           kind="refused"
-          className="buy-state"
           title={estimate.copy.title}
           body={estimate.copy.body}
           code={estimate.copy.reference}
@@ -714,56 +673,54 @@ function BuyForm({
         />
       ) : null}
       {estimate.state === 'refused' && classifyRefusal(estimate.code) === 'tradingOnHold' ? <TradingHoldReason /> : null}
-      {problem ? (
-        <StateBlock kind="refused" className="buy-state" title={problem.title} body={problem.body ?? ''} action={problem.action} />
-      ) : null}
+      {problem ? <StateNote kind="refused" title={problem.title} body={problem.body ?? ''} action={problem.action} /> : null}
       {/* J-identity-14 #2: a trading hold gives the restriction's stored reason here too, in the status page's words. */}
       {problem && classifyRefusal(problem.code) === 'tradingOnHold' ? <TradingHoldReason /> : null}
       {note.state === 'pending' ? (
-        <div className="buy-pending" role="alert" data-testid="pending">
-          <p className="buy-pending__title">{uncertainId === note.pending.id ? t('Not confirmed title') : t('Earlier order title')}</p>
-          <p className="buy-pending__body">
+        <div role="alert" data-testid="pending">
+          <p>{uncertainId === note.pending.id ? t('Not confirmed title') : t('Earlier order title')}</p>
+          <p className="lt-hint">
             {uncertainId === note.pending.id
               ? t('Not confirmed body')
               : note.pending.kind === 'convert'
                 ? t('Earlier convert body')
                 : t('Earlier order body')}
           </p>
-          {checked ? <p className="buy-pending__body">{checked}</p> : null}
-          <div className="buy-pending__actions">
+          {checked ? <p className="lt-hint">{checked}</p> : null}
+          <div className="lt-actions">
             {note.pending.kind === 'cancel' ? (
-              <Button variant="secondary" size={40} loading={busy === 'check'} onClick={onCheckCancel}>
+              <Button tone="secondary" disabled={busy === 'check'} aria-busy={busy === 'check' || undefined} onClick={onCheckCancel}>
                 {busy === 'check' ? t('Checking order') : t('Check again')}
               </Button>
             ) : null}
             {note.pending.kind === 'place' ? (
-              <Button variant="secondary" size={40} loading={busy === 'check'} onClick={onCheck}>
+              <Button tone="secondary" disabled={busy === 'check'} aria-busy={busy === 'check' || undefined} onClick={onCheck}>
                 {busy === 'check' ? t('Checking order') : t('Check order')}
               </Button>
             ) : null}
-            <Button variant="ghost" size={40} nativeButton={false} render={<a href={ACTIVITY_HREF} />}>
+            <a className="lt-link" href={ACTIVITY_HREF}>
               {t('View in Activity')}
-            </Button>
+            </a>
           </div>
         </div>
       ) : null}
       {note.state === 'unreadable' ? (
-        <p className="buy-pending__body" role="alert">
+        <p className="lt-hint" role="alert">
           {t('No safe storage')}
         </p>
       ) : null}
 
       {signedOut ? (
-        <Button variant="primary" size={buttonSize} fullWidth nativeButton={false} render={<a href={loginHref} />}>
+        <a className="lt-button lt-button-primary" href={loginHref}>
           {buying ? t('Log in to buy') : t('Log in to sell')}
-        </Button>
+        </a>
       ) : (
         <Button
-          variant={buying ? 'buy' : 'sell'}
+          tone="primary"
           size={buttonSize}
-          fullWidth
-          disabled={!ready}
-          loading={busy === 'review'}
+          block
+          disabled={!ready || busy === 'review'}
+          aria-busy={busy === 'review' || undefined}
           onClick={onReview}
         >
           {busy === 'review'
@@ -778,7 +735,7 @@ function BuyForm({
         </Button>
       )}
       {priceStale && !signedOut ? (
-        <p className="buy-pending__body" data-testid="stale-hint">
+        <p className="lt-hint" data-testid="stale-hint">
           {t('Price stale hint')}
         </p>
       ) : null}
@@ -813,5 +770,5 @@ function BuyForm({
 function PickerPrice({ symbol, tick }: { symbol: string; tick: string }) {
   const tickers = useTickers();
   const last = tickers.status === 'ready' ? tickers.data[symbol]?.last : null;
-  return <span className="if-num">{last ? `$${fmtPrice(last, tick)}` : '—'}</span>;
+  return <span>{last ? `$${fmtPrice(last, tick)}` : '—'}</span>;
 }

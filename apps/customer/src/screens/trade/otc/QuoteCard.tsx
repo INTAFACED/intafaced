@@ -3,7 +3,8 @@ import { CircleCheck, CircleDashed, CircleHelp, CircleSlash, Hourglass, Triangle
 import { usePreferences } from '../../../shared/preferences';
 import { dayTime } from '../desk/time';
 import type { RoomApi, RfqQuote } from '../rooms/api';
-import { Freshness, Refusal } from '../rooms/RoomNotices';
+import { Refusal } from '../rooms/RoomNotices';
+import { Freshness } from '../rooms/RoomFreshness';
 import { compareDecimals } from '../rooms/math';
 import { roomWords } from '../rooms/refusals';
 import type { RoomWriter } from '../rooms/write';
