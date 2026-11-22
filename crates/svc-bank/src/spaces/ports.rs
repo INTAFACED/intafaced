@@ -289,6 +289,8 @@ pub struct TxEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LedgerTx {
     pub id: String,
+    /// The business key it was booked under (`idempotencyKey`).
+    pub key: String,
     pub posted_at: service_kit::time::Instant,
     pub entries: Vec<TxEntry>,
 }
@@ -383,7 +385,7 @@ fn post_failure(f: CallFailure) -> PostFailure {
 }
 
 /// A booked transaction from `txById`'s or a receipt's JSON.
-fn ledger_tx(id: &str, posted_at: &str, entries: &Json) -> Result<LedgerTx, String> {
+fn ledger_tx(id: &str, key: &str, posted_at: &str, entries: &Json) -> Result<LedgerTx, String> {
     let at = service_kit::time::js_date(posted_at)
         .filter(|t| t.iso() == posted_at)
         .ok_or_else(|| "svc-ledger answer: postedAt is not an ISO instant".to_owned())?;
@@ -407,6 +409,7 @@ fn ledger_tx(id: &str, posted_at: &str, entries: &Json) -> Result<LedgerTx, Stri
         .collect::<Result<Vec<_>, String>>()?;
     Ok(LedgerTx {
         id: id.to_owned(),
+        key: key.to_owned(),
         posted_at: at,
         entries,
     })
@@ -481,7 +484,13 @@ impl Ledger for LedgerHttp {
                 if !matches!(&entries, Json::Array(e) if e.len() >= 2) {
                     return Err("svc-ledger answer: fewer than two legs".to_owned());
                 }
-                ledger_tx(tx_id, &text(&answer, "postedAt")?, &entries).map(Some)
+                ledger_tx(
+                    tx_id,
+                    &text(&answer, "idempotencyKey")?,
+                    &text(&answer, "postedAt")?,
+                    &entries,
+                )
+                .map(Some)
             }
             _ => Err("svc-ledger answer: found is not a boolean".to_owned()),
         }
@@ -526,7 +535,7 @@ impl Ledger for LedgerHttp {
             .get("entries")
             .cloned()
             .unwrap_or(Json::Array(Vec::new()));
-        ledger_tx(&id, &at, &entries).map_err(|e| unknown(&e))
+        ledger_tx(&id, key, &at, &entries).map_err(|e| unknown(&e))
     }
 }
 

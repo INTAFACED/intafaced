@@ -6,7 +6,7 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, staffFreeze, toUnits, signOutBrowser } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { partnerBookMoves, partnerHolds as partnerHoldsIn } from './partner.mjs';
+import { partnerBookMoves, partnerMainBalance } from './partner.mjs';
 import { keptSession } from '../../../../tooling/scripts/kept-session.mjs';
 
 // J-bank-04, in the running app (docs/roadmap/journeys.json): I send money to a person from the bank's Transfers room.
@@ -449,7 +449,7 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   // What the ledger holds for each of them: a send the partner makes posts nothing to it.
   const ledgerBefore = { sender: await ledgerUsdtVia(asSender), recipient: await ledgerUsdt(recipient) };
   // The partner's own book of each of them, read on loopback from the TEST partner, never through our doors.
-  const partnerHolds = (userId) => partnerHoldsIn(userId, 'USDT');
+  const partnerHolds = (userId) => partnerMainBalance(userId, 'USDT');
   const ids = { sender: await senderId(), recipient: await userIdOf(recipient) };
   const bookBefore = { sender: await partnerHolds(ids.sender), recipient: await partnerHolds(ids.recipient) };
   const movesBefore = await partnerBookMoves(ids.sender);
