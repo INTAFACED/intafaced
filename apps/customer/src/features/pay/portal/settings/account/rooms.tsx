@@ -12,7 +12,7 @@ import { Security } from '../security/Security';
 import { InvitationsOnly, TeamRoom } from '../team/Team';
 import { NoBusiness } from '../../access/NoBusiness';
 import { Network } from '../network/Network';
-import { NetworkChild } from '../network/NetworkChild';
+import { NetworkChildRoom } from '../network/NetworkChild';
 import { PermissionsRoom as PermissionsSettings } from '../network/Permissions';
 import { LinkButton } from '../../volt/parts';
 import { extensionCopy, portalCopy, settingsCopy } from '../copy';
@@ -39,9 +39,8 @@ function NetworkRoom({ portal }: { portal: PortalApi }) {
   const mode = useMode();
   return <WithAccount>{({ merchantId }) => <Network portal={portal} merchantId={merchantId} mode={mode} />}</WithAccount>;
 }
-function NetworkChildRoom({ portal, child }: { portal: PortalApi; child: string }) {
-  const mode = useMode();
-  return <WithAccount>{() => <NetworkChild portal={portal} childId={child} mode={mode} />}</WithAccount>;
+function NetworkChildPage({ portal, child }: { portal: PortalApi; child: string }) {
+  return <NetworkChildRoom portal={portal} childId={child} mode={useMode()} />;
 }
 function PermissionsRoom({ portal }: { portal: PortalApi }) {
   return <PermissionsSettings portal={portal} mode={useMode()} />;
@@ -124,7 +123,8 @@ export const accountRooms: RoomTable = {
   'network-child': {
     header: () => ({ title: settingsCopy.t('networkChildTitle'), purpose: settingsCopy.t('networkChildPurpose') }),
     here: '/pay/network',
-    render: (route, { portal }) => <NetworkChildRoom portal={portal} child={route.param ?? ''} />,
+    ownTitle: true,
+    render: (route, { portal }) => <NetworkChildPage portal={portal} child={route.param ?? ''} />,
   },
   permissions: {
     header: () => ({ title: settingsCopy.t('permissionsTitle'), purpose: settingsCopy.t('permissionsPurpose') }),

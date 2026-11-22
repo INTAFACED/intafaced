@@ -17,7 +17,6 @@ import type { SubMerchant } from '../account/schemas';
 import { ReadGate } from '../account/ui';
 
 import { NotPlatform } from './NotPlatform';
-export { NotPlatform };
 
 /** `/pay/network`: the businesses under this platform account, and a way to add one. */
 export function Network({ portal, merchantId, mode }: { portal: PortalApi; merchantId: string; mode: string | null }) {
