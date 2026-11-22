@@ -16,7 +16,7 @@ use service_kit::edge::{EdgeKey, MIN_SECRET_LENGTH};
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
 use service_kit::nats::{JetStream, stream_config};
-use service_kit::s2s::{parse_keyring, s2s_from_env, system_seconds};
+use service_kit::s2s::{CallSigner, parse_keyring, s2s_from_env, system_seconds};
 use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
@@ -30,8 +30,12 @@ use svc_bank::partner::router::Wiring;
 use svc_bank::partner::{TestPartner, cash_leg, pay_in};
 use svc_bank::ready;
 use svc_bank::recovery::{self, AdvisoryLock, RecoveryCounts};
+use svc_bank::spaces;
+use svc_bank::spaces::ports::{DirectoryHttp, LedgerHttp, Lookups, NoDirectory};
 use svc_bank::test_age;
 use svc_bank::timers::{self, Timer};
+use svc_bank::transfers;
+use svc_bank::transfers::ports::{IdentityHttp, JetStreamBus, NoIdentity};
 
 fn process_env() -> BTreeMap<String, String> {
     std::env::vars_os()
@@ -115,12 +119,166 @@ fn partner_wiring(env: &BankEnv) -> Result<Wiring, String> {
     })
 }
 
+/// Slice `spaces`'s wiring (`index.ts`): svc-ledger's balance and asset reads, svc-identity's business directory
+/// (none without `IDENTITY_URL`, so every lookup refuses), each signed as svc-bank, and the owner's values as published.
+fn spaces_wiring(env: &BankEnv) -> Result<spaces::Wiring, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-bank", audience, &secret, keyed.clone());
+    let owned = |k: &str| env.raw.get(k).cloned();
+    let card = ready::card_programme(env.str("BANK_CARD_ISSUER").unwrap_or("none"));
+    Ok(spaces::Wiring {
+        ledger: Box::new(LedgerHttp::new(
+            env.str("LEDGER_URL").unwrap_or_default(),
+            signer("svc-ledger"),
+            Box::new(UreqFetch::new()),
+        )),
+        directory: match env.str("IDENTITY_URL") {
+            Some(url) => Box::new(DirectoryHttp::new(
+                url,
+                signer("svc-identity"),
+                Box::new(UreqFetch::new()),
+            )),
+            None => Box::new(NoDirectory),
+        },
+        lookups: Lookups::default(),
+        rules: spaces::space::Rules {
+            space_limit: owned("BANK_SPACE_LIMIT"),
+            unlock_wait_hours: owned("BANK_SPACE_UNLOCK_WAIT_HOURS"),
+        },
+        terms: spaces::shared::Terms {
+            invite_minutes: owned("BANK_SHARED_POT_INVITE_MINUTES"),
+            people_cap: owned("BANK_SHARED_POT_PEOPLE_CAP"),
+            card_programme: (
+                match card.get("id") {
+                    Some(Json::String(id)) => id.clone(),
+                    _ => "none".to_owned(),
+                },
+                card.get("simulated") == Some(&Json::Bool(true)),
+            ),
+        },
+        tables: spaces::Tables {
+            account_terms: owned("BANK_ACCOUNT_TERMS_JSON"),
+            currencies: owned("BANK_ACCOUNT_CURRENCIES"),
+            plans: owned("BANK_PLANS_JSON"),
+            fees: owned("BANK_FEE_SCHEDULE_JSON"),
+            dormancy: owned("BANK_DORMANCY_RULES_JSON"),
+        },
+    })
+}
+
+/// Slice `transfers`'s wiring (`index.ts`): svc-identity's recipient state, security lock, handles and extra checks and
+/// its approvals (none without `IDENTITY_URL`, so each refuses as unset), the bus for the slice's notices, and the owner's
+/// values as published.
+fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wiring, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let identity = |url: &str| {
+        IdentityHttp::new(
+            url,
+            CallSigner::new("svc-bank", "svc-identity", &secret, keyed.clone()),
+            Box::new(UreqFetch::new()),
+        )
+    };
+    let owned = |k: &str| env.raw.get(k).cloned().filter(|v| !v.trim().is_empty());
+    let settings = transfers::Settings {
+        send_review: owned("BANK_PERSONAL_SEND_REVIEW_JSON"),
+        remind_policy: owned("BANK_REQUEST_REMIND_POLICY_JSON"),
+        stranger_hold_days: env
+            .str("BANK_STRANGER_HOLD_DAYS")
+            .and_then(|d| d.trim().parse().ok()),
+        schedule_edit_cutoff: owned("BANK_SCHEDULE_EDIT_CUTOFF_MINUTES"),
+        step_up_required: env.str("BANK_STEP_UP_MONEY_OUT") == Some("required"),
+        blocked_region_notice: owned("BANK_BLOCKED_REGION_NOTICE"),
+        scheduled_transfers: env.flag("SCHEDULED_TRANSFERS_ENABLED").unwrap_or(false),
+        batch_size: env.int("TRANSFER_BATCH_SIZE"),
+        producer: env.str("SERVICE_NAME").unwrap_or("svc-bank").to_owned(),
+    };
+    let bus: Box<dyn transfers::ports::Bus> = Box::new(JetStreamBus(bus.clone()));
+    Ok(match env.str("IDENTITY_URL") {
+        Some(url) => transfers::Wiring {
+            recipients: Box::new(identity(url)),
+            lock: Box::new(identity(url)),
+            handles: Some(Box::new(identity(url))),
+            extras: Box::new(identity(url)),
+            approvals: Box::new(service_kit::approvals::IdentityClient::new(
+                "svc-bank",
+                url,
+                &secret,
+                Arc::new(UreqFetch::new()),
+                system_seconds,
+            )),
+            bus,
+            settings,
+        },
+        None => transfers::Wiring {
+            recipients: Box::new(NoIdentity),
+            lock: Box::new(NoIdentity),
+            handles: None,
+            extras: Box::new(NoIdentity),
+            approvals: Box::new(transfers::NoApprovals),
+            bus,
+            settings,
+        },
+    })
+}
+
+/// A pass's rows as the timer counts them: `completed`, or `failed` when the row stays owed.
+fn outcomes(rows: Vec<Result<(), String>>) -> Vec<String> {
+    rows.into_iter()
+        .map(|r| if r.is_ok() { "completed" } else { "failed" }.to_owned())
+        .collect()
+}
+
 /// The recovery jobs whose work is ported, in `recovery::JOBS`' order. Each comes with its slice.
 fn recovery_jobs<'a>(
-    _door: &'a BankDoor,
+    door: &'a BankDoor,
     _env: &'a BankEnv,
 ) -> Vec<(&'static str, recovery::Job<'a>)> {
-    Vec::new()
+    vec![
+        (
+            "bank.recovery.announce_posted_transfers",
+            Box::new(move |batch| {
+                door.transfers_deps(|d| {
+                    transfers::personal::announce_unannounced(d, i64::from(batch))
+                        .map(outcomes)
+                        .map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        (
+            "bank.recovery.sweep_received_holds",
+            Box::new(move |batch| {
+                door.transfers_deps(|d| Ok(outcomes(transfers::holds::sweep(d, i64::from(batch)))))
+            }),
+        ),
+    ]
 }
 
 /// The recovery timer's log lines, as `index.ts` writes them.
@@ -184,11 +342,13 @@ fn service_auth(env: &BankEnv) -> Result<ServiceAuth, String> {
 }
 
 /// The door, built once from the environment, with the store.
-fn door(env: &BankEnv, store: Store) -> Result<BankDoor, String> {
+fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let raw = |k: &str| env.raw.get(k).map(String::as_str);
     let test_age = test_age::open(raw(test_age::ENV), raw("APP_ENV"), raw("NODE_ENV"))?;
     let partner = partner_wiring(env)?;
+    let spaces = spaces_wiring(env)?;
+    let transfers = transfers_wiring(env, bus)?;
     let door = BankDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         services: service_auth(env)?,
@@ -197,7 +357,9 @@ fn door(env: &BankEnv, store: Store) -> Result<BankDoor, String> {
         store,
     })?
     .with_test_age(test_age)
-    .with_partner(partner);
+    .with_partner(partner)
+    .with_spaces(spaces)
+    .with_transfers(transfers);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(
@@ -254,7 +416,8 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
     })
     .map_err(|e| e.0)?;
     let ready_body = ready::body(env);
-    let door = door(env, store)?;
+    let bus = Arc::new(bus);
+    let door = door(env, store, &bus)?;
 
     let app = App {
         wire: door,

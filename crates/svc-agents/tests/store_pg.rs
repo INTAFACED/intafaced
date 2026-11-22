@@ -29,7 +29,7 @@ use svc_agents::gateway::readiness::ReadyInput;
 use svc_agents::gateway::routing;
 use svc_agents::migrate::MIGRATIONS;
 
-mod support;
+use crate::support;
 use support::TestDb;
 
 /// Every table `README.md` names, slice by slice.

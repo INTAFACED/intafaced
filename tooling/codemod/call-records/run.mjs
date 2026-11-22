@@ -8,7 +8,8 @@
 //   4. with --refusals, refusals.mjs lists what the service's own tests see each new record's handler refuse;
 //   5. procedures:write regenerates the registry and procedures/<service>.schema.json;
 //   with --door (a service the Rust door serves, its router read --from-rev), door-check.mjs holds each record to it;
-//   6. doubles.mjs gives every test's API client double that reaches a record caller a `call` (its own query or mutate).
+//   6. doubles.mjs gives every test's API client double that reaches a record caller a `call` (its own query or mutate);
+//   7. dead-hand-schemas.mjs deletes each bank hand schema the moved callers were the last to name, in the same change.
 // With --callers-only (a service whose Rust port is in flight) the service and its crate are never touched: step 1 mounts
 // nothing and moves no declaration out of the service, step 3 is skipped (its fixes would change a record away from the
 // router it copies, or the service's replay test), so a refused record is left by name; and the run fails if anything
@@ -124,6 +125,7 @@ export function run(argv) {
   if (door.length && recordFiles().length) sh('node', [here('door-check.mjs'), ...door, '--service', service, ...recordFiles()]);
   sh('pnpm', ['procedures:write'], { cwd: join(REPO, 'packages/contracts'), stdio: ['ignore', 'ignore', 'inherit'] });
   sh('node', [here('doubles.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
+  sh('node', [here('dead-hand-schemas.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
   for (const f of [summary, unportable, patchFile, skipFile]) if (existsSync(f)) rmSync(f);
   if (callersOnly) {
     const touched = out('git', ['status', '--porcelain', '--', 'services', 'crates']).trim();

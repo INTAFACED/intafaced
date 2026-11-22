@@ -328,8 +328,6 @@
   "apps/customer/src/features/developers/quant/python-client.ts#QUANT_PYTHON_CLIENT_LINES",
   "apps/customer/src/features/developers/rate-limits/rate-limits-api.ts#LIMIT_FORM_REFUSALS",
   "apps/customer/src/features/money/AccountDetails.tsx#DETAIL_FIELDS",
-  "apps/customer/src/features/money/AnalyticsBudgets.tsx#budgetsCopy",
-  "apps/customer/src/features/money/Calendar.tsx#dayIn",
   "apps/customer/src/features/money/CardJourney.tsx#percentOf",
   "apps/customer/src/features/money/CardJourney.tsx#reportId",
   "apps/customer/src/features/money/CardPanels.tsx#addressLine",

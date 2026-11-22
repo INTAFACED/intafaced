@@ -439,10 +439,13 @@ jobs:
       # (warnings are errors) and on a failing test, each planted in an untracked test file and removed after. The
       # failing-test run appends a name filter (pnpm passes it to the script's last command, `cargo test --workspace`),
       # so it runs only the planted test, not the whole Postgres suite the step above just passed (5-6 min each time).
-      - name: rust:check fails on a planted clippy warning and on a planted failing test
+      # A crate's test files are modules of its one test binary, tests/it.rs (tooling/scripts/rust-test-roots.mjs), so
+      # each plant is listed there first; the third is left unlisted, and the root's own test must refuse it.
+      - name: rust:check fails on a planted clippy warning, a planted failing test and an unlisted test file
         run: |
           plant() {
             printf '%s\n' "$2" > crates/svc-tax/tests/planted.rs
+            [ -n "$5" ] || node tooling/scripts/rust-test-roots.mjs
             if pnpm -s rust:check ${4:+"$4"} > "$RUNNER_TEMP/planted-$1.log" 2>&1; then
               cat "$RUNNER_TEMP/planted-$1.log"; echo "::error::rust:check passed a planted $1"; exit 1
             fi
@@ -452,16 +455,20 @@ jobs:
             echo "rust:check failed the planted $1, as it must: $(grep -m1 "$3" "$RUNNER_TEMP/planted-$1.log")"
           }
           plant 'clippy warning' $'#[test]\nfn planted_warning() {\n    let v = vec![1];\n    assert_eq!(v.len(), 1);\n}' 'clippy::useless-vec. implied by .-D warnings'
-          plant 'failing test' $'#[test]\nfn planted_failure() {\n    assert_eq!(svc_tax::SERVICE, "planted");\n}' 'test planted_failure ... FAILED' planted_failure
+          plant 'failing test' $'#[test]\nfn planted_failure() {\n    assert_eq!(svc_tax::SERVICE, "planted");\n}' 'test planted::planted_failure ... FAILED' planted_failure
+          git checkout -- crates/svc-tax/tests/it.rs
+          plant 'unlisted test file' $'#[test]\nfn planted_unlisted() {}' 'tests/it.rs does not list \["planted.rs"\]' every_test_file_is_listed unlisted
           rm crates/svc-tax/tests/planted.rs
-      # The Rust ledger's posting tables and door callers are recorded from packages/ledger-client/src/gate (who may post
-      # what, which recipe has which legs, who may call each door). A gate change whose recorded tables were not rewritten
+      # The Rust ledger's posting tables, door callers and postRecipe door are recorded from packages/ledger-client (who
+      # may post what, which recipe has which legs, who may call each door, what the door takes and builds). A gate change whose recorded tables were not rewritten
       # fails here, and the check is shown to fail on a planted grant before it is trusted.
       - name: The ledger's recorded gate tables match packages/ledger-client
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter "@intafaced/ledger-client^..." build
           TZ=UTC node --import tsx crates/svc-ledger/scripts/record-posting.mjs --check
+          # The postRecipe door's schema, zod verdicts and svc-bank bodies, from the ledger client's record and recipes.
+          TZ=UTC node --import tsx crates/svc-ledger/scripts/record-post-recipe.mjs --check
           gate=packages/ledger-client/src/gate/caller-allowlist.ts
           sed -i "s#^  'svc-academy': {#  'svc-academy': {\n    deposit: g('ledger', 'planted'),#" "$gate"
           if TZ=UTC node --import tsx crates/svc-ledger/scripts/record-posting.mjs --check > "$RUNNER_TEMP/planted-gate.log" 2>&1; then

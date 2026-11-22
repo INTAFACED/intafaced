@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Button, Field, Select } from '@intafaced/ui/lit';
-import { Table } from '@intafaced/ui/lit/templates';
+import { ScrollTable } from '../../more';
 import { displayAmount, parseAmount, formatAmount } from '../../../shared/money';
 import { usePolled } from '../../protocol';
 import { draftId, keys, type AsOf, type VenueAccountMode, type VenueAccountModeRead, type VenueBalance } from '../venue-api';
-import { VENUE_POLL_MS, useOwner, useVenueActions, useVenueApi, type ActionResult } from '../venue/VenueKit';
+import { VENUE_POLL_MS } from '../venue/poll';
+import { useOwner, useVenueActions, useVenueApi, type ActionResult } from '../venue/VenueKit';
 import { accountModeCopy } from './account-mode-copy';
 
 /**
@@ -59,43 +60,28 @@ function AsOfLine({ iso, t }: { iso: string | null; t: T }) {
 function Balances({ rows, title, name, t }: { rows: readonly VenueBalance[]; title: string; name: string; t: T }) {
   return (
     <div data-testid={`mode-${name}`}>
-      <h4 className="lt-panel-title">{title}</h4>
+      <h4>{title}</h4>
       {rows.length === 0 ? (
-        <p className="lt-quiet" data-empty="">
+        <p className="lt-hint" data-empty="">
           {t('empty')}
         </p>
       ) : (
-        <Table
-          caption={title}
-          scroll
-          columns={[
-            { key: 'asset', label: t('hAsset'), cell: (b) => b.asset },
-            {
-              key: 'free',
-              label: t('hFree'),
-              align: 'end',
-              cell: (b) => displayAmount(b.free, 2),
-              cellMarks: (b) => ({ 'data-cell': 'free', 'data-value': b.free }),
-            },
-            {
-              key: 'locked',
-              label: t('hLocked'),
-              align: 'end',
-              cell: (b) => displayAmount(b.locked, 2),
-              cellMarks: (b) => ({ 'data-cell': 'locked', 'data-value': b.locked }),
-            },
-            {
-              key: 'total',
-              label: t('hTotal'),
-              align: 'end',
-              cell: (b) => displayAmount(b.total, 2),
-              cellMarks: (b) => ({ 'data-cell': 'total', 'data-value': b.total }),
-            },
-          ]}
-          rows={rows}
-          rowKey={(b) => b.asset}
-          rowMarks={(b) => ({ 'data-asset': b.asset })}
-        />
+        <ScrollTable label={title} headers={[t('hAsset'), t('hFree'), t('hLocked'), t('hTotal')]}>
+          {rows.map((b) => (
+            <tr key={b.asset} data-asset={b.asset}>
+              <td>{b.asset}</td>
+              <td className="lt-mono" data-cell="free" data-value={b.free}>
+                {displayAmount(b.free, 2)}
+              </td>
+              <td className="lt-mono" data-cell="locked" data-value={b.locked}>
+                {displayAmount(b.locked, 2)}
+              </td>
+              <td className="lt-mono" data-cell="total" data-value={b.total}>
+                {displayAmount(b.total, 2)}
+              </td>
+            </tr>
+          ))}
+        </ScrollTable>
       )}
     </div>
   );
@@ -141,8 +127,8 @@ export function AccountModePanel({
   const known = mode.state === 'known' ? mode.read : null;
   return (
     <div className="lt-stack" data-testid="account-mode" data-mode={known?.mode ?? (mode.state === 'unknown' ? 'unknown' : '')}>
-      <h3 className="lt-panel-title">{t('title')}</h3>
-      <p className="lt-quiet">
+      <h3>{t('title')}</h3>
+      <p className="lt-hint">
         {t('source', { venue: venue.name })} · <AsOfLine iso={mode.state === 'loading' ? null : mode.asOf} t={t} />
       </p>
       {mode.state === 'loading' ? null : known ? (
@@ -150,11 +136,11 @@ export function AccountModePanel({
           <p data-testid="account-mode-line" data-value={known.mode}>
             {t('modeLine', { mode: modeWord(t, known.mode) })}
           </p>
-          <p className="lt-quiet" data-testid="account-mode-meaning">
+          <p className="lt-hint" data-testid="account-mode-meaning">
             {meaningOf(t, known.mode)}
           </p>
           {known.mode === 'standard' ? (
-            <div className="lt-cols-2">
+            <div className="lt-grid">
               <Balances rows={known.spot ?? []} title={t('spotTitle')} name="spot" t={t} />
               <Balances rows={known.perps ?? []} title={t('perpsTitle')} name="perps" t={t} />
             </div>
@@ -168,7 +154,7 @@ export function AccountModePanel({
           <p data-testid="account-mode-line" data-value="unknown">
             {t('modeUnknown')}
           </p>
-          <p className="lt-quiet" data-testid="account-mode-meaning">
+          <p className="lt-hint" data-testid="account-mode-meaning">
             {t('unknownLine', { venue: venue.name })}
           </p>
         </>
@@ -192,12 +178,12 @@ function Actions({ read, venue, t }: { read: VenueAccountModeRead & { mode: Venu
   const a = read.actions;
   if (!a)
     return (
-      <p className="lt-quiet" data-testid="mode-actions">
+      <p className="lt-hint" data-testid="mode-actions">
         {t('actionsUnknown', { venue })}
       </p>
     );
   return (
-    <p className="lt-quiet" data-testid="mode-actions" data-used={a.usedToday} data-limit={a.dailyLimit ?? ''}>
+    <p className="lt-hint" data-testid="mode-actions" data-used={a.usedToday} data-limit={a.dailyLimit ?? ''}>
       {a.dailyLimit === null
         ? t('actionsFree', { used: a.usedToday.toLocaleString('en-US'), venue })
         : t('actionsLimited', {
@@ -299,7 +285,7 @@ function MoveForm({
   const accepted = stage.at === 'done' && stage.result.kind === 'outcome' && stage.result.outcome.accepted;
   return (
     <section className="lt-stack" data-testid="mode-move" aria-label={t('moveTitle')}>
-      <h4 className="lt-panel-title">{t('moveTitle')}</h4>
+      <h4>{t('moveTitle')}</h4>
       <Select
         label={t('moveDirection')}
         data-testid="mode-move-direction"
@@ -327,7 +313,7 @@ function MoveForm({
         {t('moveReview')}
       </Button>
       {problem ? (
-        <p role="alert" className="lt-note lt-note-bad" data-testid="mode-move-refused">
+        <p role="alert" className="lt-refusal" data-testid="mode-move-refused">
           {problem}
         </p>
       ) : null}
@@ -429,9 +415,9 @@ function SwitchForm({
         : null;
   return (
     <section className="lt-stack" data-testid="mode-switch" aria-label={t('switchTitle')}>
-      <h4 className="lt-panel-title">{t('switchTitle')}</h4>
-      <p className="lt-quiet">{t('switchLine')}</p>
-      <div className="lt-row">
+      <h4>{t('switchTitle')}</h4>
+      <p className="lt-hint">{t('switchLine')}</p>
+      <div className="lt-actions">
         {(current ? targets : MODES).map((m) => (
           <Button tone="primary" key={m} data-testid={`mode-switch-${m}`} onClick={() => ask(m)}>
             {t('switchTo', { mode: modeWord(t, m) })}
@@ -439,7 +425,7 @@ function SwitchForm({
         ))}
       </div>
       {problem ? (
-        <p role="alert" className="lt-note lt-note-bad" data-testid="mode-switch-refused">
+        <p role="alert" className="lt-refusal" data-testid="mode-switch-refused">
           {problem}
         </p>
       ) : null}
@@ -457,7 +443,7 @@ function SwitchForm({
       {stage.at === 'done' ? (
         <p
           role={accepted ? 'status' : 'alert'}
-          className={accepted ? undefined : 'lt-note lt-note-bad'}
+          className={accepted ? undefined : 'lt-refusal'}
           data-testid="mode-switch-result"
           data-accepted={accepted ? 'true' : 'false'}
         >
@@ -488,7 +474,7 @@ export function ActionLimitWarning({ venueName, venueId }: { venueName: string; 
   const a = mode.read.actions;
   if (!a || a.dailyLimit === null || a.usedToday < a.dailyLimit * NEAR_LIMIT_SHARE) return null;
   return (
-    <p role="alert" className="lt-note lt-note-bad" data-testid="action-limit-warning" data-used={a.usedToday} data-limit={a.dailyLimit}>
+    <p role="alert" className="lt-refusal" data-testid="action-limit-warning" data-used={a.usedToday} data-limit={a.dailyLimit}>
       {t('limitNear', {
         venue: venueName,
         limit: a.dailyLimit.toLocaleString('en-US'),
@@ -575,7 +561,7 @@ export function SpotShortOffer({
   if (lock === null) return null;
   if (mode.state === 'unknown')
     return (
-      <p role="alert" className="lt-note lt-note-bad" data-testid="spot-short" data-state="mode-unknown">
+      <p role="alert" className="lt-refusal" data-testid="spot-short" data-state="mode-unknown">
         {t('spotShortUnknown', { venue: venueName })}
       </p>
     );
@@ -587,7 +573,7 @@ export function SpotShortOffer({
   const needed = formatAmount(neededUnits);
   if (neededUnits > units(perpsFree))
     return (
-      <p role="alert" className="lt-note lt-note-bad" data-testid="spot-short" data-state="perps-short">
+      <p role="alert" className="lt-refusal" data-testid="spot-short" data-state="perps-short">
         {t('spotShortNoPerps', { free: spotFree, lock, perps: perpsFree })}
       </p>
     );
@@ -601,7 +587,7 @@ export function SpotShortOffer({
     onLanded();
   };
   return (
-    <div role="alert" className="lt-note lt-note-bad" data-testid="spot-short" data-state="offer" data-needed={needed}>
+    <div role="alert" className="lt-refusal" data-testid="spot-short" data-state="offer" data-needed={needed}>
       <p>{t('spotShort', { free: spotFree, lock, needed })}</p>
       <Button tone="primary" data-testid="spot-short-move" disabled={busy} onClick={() => void move()}>
         {t('spotShortSign', { needed })}

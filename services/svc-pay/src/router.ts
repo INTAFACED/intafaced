@@ -158,6 +158,7 @@ import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedur
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
 import { PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE } from '@intafaced/contracts/pay-settlement-procedures';
 import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
+import { PAY_FRAUD_LIST_OPEN_REVIEWS } from '@intafaced/contracts/pay-fraud-procedures';
 
 /** A JSON object column read back from Postgres: the records type it as JSON, so it is checked as JSON at the edge. */
 const jsonRecordSchema = z.record(z.string(), jsonValueSchema);
@@ -1611,20 +1612,9 @@ export function createPayRouter(
           }),
         ),
 
-      listOpenReviews: scopedProcedure('admin:treasury', { module: 'pay' })
-        .input(
-          z
-            .object({
-              merchantId: z.string().min(1).optional(),
-              /**
-               * Page size. Optional so omit reaches `pay.fraud_review_list_limit_unset`.
-               * Blank is not 50; pass 50 explicitly. Read stays single-operator.
-               */
-              limit: z.number().int().min(1).max(200).optional(),
-            })
-            .optional(),
-        )
-        .query(async ({ input }) => {
+      listOpenReviews: mountRecord(
+        PAY_FRAUD_LIST_OPEN_REVIEWS,
+        async ({ input }) => {
           try {
             const rows = fraudReviews
               ? await fraudReviews.listOpen(input?.merchantId, input?.limit)
@@ -1651,7 +1641,9 @@ export function createPayRouter(
             }
             throw e;
           }
-        }),
+        },
+        payRefusal,
+      ),
 
       claimReview: scopedProcedure('admin:treasury', { module: 'pay' })
         .input(z.object({ id: z.string().min(1) }))

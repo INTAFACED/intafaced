@@ -97,33 +97,39 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="promotions" lang="en">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div lang="en">
+<div class="lt-room" data-template="overview" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Promotions &amp; invitations</h1>
-<p class="muted">Your invitation link and referral records. Visits are not sign-ups or commission payments.</p>
+<h1 class="lt-title">Promotions &amp; invitations</h1>
+<p class="lt-description">Your invitation link and referral records. Visits are not sign-ups or commission payments.</p>
 </div>
 </header>
-<p class="promotions__owner">
+<div class="lt-body">
+<section class="lt-region" data-region="rooms">
+<nav class="lt-tabs" aria-label="Promotion sections">
+<a href="/uc/promotion" class="lt-tab" aria-current="page">Overview</a>
+<a href="/uc/promotion/mycards" class="lt-tab">Invitation link</a>
+<a href="/uc/promotion/mypromotion" class="lt-tab">Referral records</a>
+<a href="/uc/promotion/points" class="lt-tab">Points programme</a>
+<a href="/uc/promotion/perks" class="lt-tab">Tier and perks</a>
+</nav>
+</section>
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+<section class="lt-region" data-region="hero" aria-label="Balance">
+<p data-testid="promotions-owner">
 <span lang="en" dir="ltr" data-i18n="account.promotions.owner">Personal account</span> · <span lang="zxx">00000000-0000-4000-8000-000000000001</span>
 </p>
-<nav class="promotions__tabs" aria-label="Promotion sections">
-<a href="/uc/promotion" aria-current="page">Overview</a>
-<a href="/uc/promotion/mycards">Invitation link</a>
-<a href="/uc/promotion/mypromotion">Referral records</a>
-<a href="/uc/promotion/points">Points programme</a>
-<a href="/uc/promotion/perks">Tier and perks</a>
-</nav>
-<section class="rewards-hub" aria-label="Welcome checklist" data-testid="welcome-checklist" data-state="failed">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Welcome checklist</h2>
-</header>
-<div class="if-panel__body">
-<p class="muted">Tasks for a new account, each ticked from what really happened on your account, never from a button. Each task’s reward is claimed once, inside your welcome window.</p>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Activity">
+<div class="lt-stack">
+<section class="lt-stack" aria-label="Welcome checklist" data-testid="welcome-checklist" data-state="failed">
+<div class="lt-stack">
+<h2>Welcome checklist</h2>
+<p class="lt-hint">Tasks for a new account, each ticked from what really happened on your account, never from a button. Each task’s reward is claimed once, inside your welcome window.</p>
 <div data-testid="welcome-failed">
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -135,16 +141,12 @@
 </div>
 </div>
 </section>
-</section>
-<section class="rewards-hub" aria-label="My rewards" data-testid="rewards-hub" data-state="failed">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">My rewards</h2>
-</header>
-<div class="if-panel__body">
-<p class="muted">Every campaign reward on your account, read from the campaigns service each time you open this page.</p>
+<section class="lt-stack" aria-label="My rewards" data-testid="rewards-hub" data-state="failed">
+<div class="lt-stack">
+<h2>My rewards</h2>
+<p class="lt-hint">Every campaign reward on your account, read from the campaigns service each time you open this page.</p>
 <div data-testid="rewards-failed">
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -156,30 +158,29 @@
 </div>
 </div>
 </section>
-</section>
-<div class="promotions__columns">
-<section class="promotions__link" aria-label="Your invitation link">
+<div class="lt-stack">
+<section class="lt-stack" aria-label="Your invitation link">
 <h2 tabindex="-1">
 <span lang="en" dir="ltr" data-i18n="account.promotions.linkTitle">Your invitation link</span>
 </h2>
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.promotions.noLink">No link to show yet</span>
 </h3>
-<p class="muted">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.promotions.noLinkBody">Review a request to get your existing live link, or create one if you don’t have one.</span>
 </p>
-<button type="button" class="button button--primary ">
+<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.promotions.reviewCreate">Review link request</span>
 </button>
-<p class="promotions__caption">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.promotions.lifetime">The link stays in this tab and is discarded when account access changes. Getting a link can create one, so it isn’t a read-only status check.</span>
 </p>
 </section>
-<section class="promotions__link" aria-label="Your referral code">
+<section class="lt-stack" aria-label="Your referral code">
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.referralCode.title">Your referral code</span>
 </h2>
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -189,15 +190,15 @@
 </button>
 </div>
 </section>
-<section class="promotions__link" aria-label="One-tap share">
+<section class="lt-stack" aria-label="One-tap share">
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.shareSheet.title">One-tap share</span>
 </h2>
-<p class="muted">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.shareSheet.body">Each share carries a signed tag for where it was shared from. Edited tags are refused, and one browser session counts once.</span>
 </p>
-<div class="promotions__actions">
-<button type="button" class="button button--primary ">
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.shareSheet.share">Share</span>
 </button>
 </div>
@@ -206,18 +207,18 @@
 </h3>
 <p role="alert">
 <span lang="en" dir="ltr" data-i18n="account.shareSheet.statsFailed">Visit counts could not be read.</span> </p>
-<button type="button" class="button button--secondary ">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.shareSheet.refresh">Refresh counts</span>
 </button>
 </section>
-<section class="promotions__link" aria-label="Partner programme">
+<section class="lt-stack" aria-label="Partner programme">
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.partnerProgramme.title">Partner programme</span>
 </h2>
-<p class="muted">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.partnerProgramme.intro">Partners earn a share of the fees on their own invitees’ trades, level by level, to the programme depth.</span>
 </p>
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -228,15 +229,12 @@
 </div>
 </section>
 <div id="promotion-referrals">
-<section class="referral-block referral-section" aria-label="Your invitees" data-testid="referral-invitees" data-state="failed">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Your invitees</h2>
-</header>
-<div class="if-panel__body">
-<p class="muted">Everyone who joined through your link or code, in the order they joined. Each step ticks from what really happened on their account. You see only whether each step is done, never who they are or any amount.</p>
+<section class="lt-stack" aria-label="Your invitees" data-testid="referral-invitees" data-state="failed">
+<div class="lt-stack">
+<h2>Your invitees</h2>
+<p class="lt-hint">Everyone who joined through your link or code, in the order they joined. Each step ticks from what really happened on their account. You see only whether each step is done, never who they are or any amount.</p>
 <div data-testid="referral-invitees-failed">
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -248,27 +246,26 @@
 </div>
 </div>
 </section>
-</section>
-<section class="referral-records" aria-label="Referral records" lang="en">
-<header class="referral-heading">
+<section class="lt-stack" aria-label="Referral records" lang="en">
+<header class="lt-title-row">
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.referrals.title">Referral records</span>
 </h2>
-<button type="button" class="button button--ghost ">
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.referrals.refresh">Refresh records</span>
 </button>
 </header>
-<details class="referral-caption">
+<details class="lt-hint">
 <summary>
 <span lang="en" dir="ltr" data-i18n="account.referrals.disclosure">Details</span>
 </summary>
 <span lang="en" dir="ltr" data-i18n="account.referrals.owner">Your account ID</span>: <span>00000000-0000-4000-8000-000000000001</span>
 </details>
-<section class="referral-block" aria-label="Your recorded referrer">
+<section class="lt-stack" aria-label="Your recorded referrer">
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.referrals.referrer">Your recorded referrer</span>
 </h3>
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -278,11 +275,11 @@
 </button>
 </div>
 </section>
-<section class="referral-block" aria-label="How long this relationship lasts">
+<section class="lt-stack" aria-label="How long this relationship lasts">
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.referrals.term">How long this relationship lasts</span>
 </h3>
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -292,8 +289,8 @@
 </button>
 </div>
 </section>
-<section class="referral-block" aria-label="Referral chain">
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<section class="lt-stack" aria-label="Referral chain">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -303,14 +300,14 @@
 </button>
 </div>
 </section>
-<section class="referral-block referral-section" aria-label="Commission records">
+<section class="lt-stack" aria-label="Commission records">
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.referrals.accruals">Commission records</span>
 </h3>
-<p class="referral-description">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.referrals.meaning">Recorded fee allocations. These records do not confirm a balance or payout.</span>
 </p>
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -323,11 +320,18 @@
 </section>
 </div>
 </div>
-<div class="actions">
-<a class="text-link" href="#promotion-referrals">
+<div class="lt-actions">
+<a class="lt-link" href="#promotion-referrals">
 <span lang="en" dir="ltr" data-i18n="account.promotions.referrals">Inspect referral records</span> ↓</a>
-<a class="text-link" href="/uc/account">
+<a class="lt-link" href="/uc/account">
 <span lang="en" dir="ltr" data-i18n="account.promotions.account">Open Account</span> →</a>
+</div>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
 </div>
 </div>
 </div>

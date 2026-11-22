@@ -7,6 +7,7 @@ import { AcademyDiscussionThreadRoom } from './AcademyDiscussion';
 import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
 import { AcademyCourseRoom } from './AcademyCourseRoom';
 import { AcademyReaderRoom } from './academy-reader/AcademyReaderRoom';
+import { AcademyProgressRoom } from './academy-progress/AcademyProgressRoom';
 import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
@@ -15,10 +16,10 @@ import { AgentApprovalsRoom } from './agent-approvals/AgentApprovalsRoom';
 import { AgentConnect } from './AgentConnect';
 import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
-import { agentsTeamCopy } from './agents-team-copy';
+import { agentRunCopy } from './agent-run-copy';
 import { Blueprint } from './Blueprint';
 import { BlueprintSharedRoom } from './BlueprintSharedCard';
-import { Campaigns } from './Campaigns';
+import { Campaigns, CampaignsRoom } from './Campaigns';
 import { CampaignDetail } from './campaign-detail/CampaignDetailRoom';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { DropRoom } from './DropRoom';
@@ -49,6 +50,9 @@ import { preservePaperHref } from './trade-context';
 import { Fragment, type ReactNode } from 'react';
 import { TokenProposalRoom } from './token-proposal/TokenProposalRoom';
 import { LaunchRequirementsRoom } from './launch-requirements/LaunchRequirementsRoom';
+import { TokenEconomyRoom } from './token-economy/TokenEconomyRoom';
+import { MiningStatusRoom } from './mining-section/MiningStatusRoom';
+import { MiningWorkerRoom } from './mining-section/MiningWorkerRoom';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -95,6 +99,8 @@ function MoreRooms({ path }: { path: string }) {
         signedIn={Boolean(userId)}
       />
     );
+  } else if (userId && academy?.kind === 'progress') {
+    volt = <AcademyProgressRoom />;
   } else if (academy?.kind === 'course') {
     volt = <AcademyCourseRoom key={`${p}:${url.search}`} slug={academy.slug} signedIn={Boolean(userId)} />;
   } else if (academy) {
@@ -132,19 +138,13 @@ function MoreRooms({ path }: { path: string }) {
     content = <OwnAgentPage key={id} id={id} />;
   } else if (p === '/agents/approvals') {
     volt = <AgentApprovalsRoom />;
-  } else if (p === '/agents/team') {
-    title = <agentsTeamCopy.Copy k="title" />;
-    description = <agentsTeamCopy.Copy k="description" />;
-    content = <AgentsTeam />;
   } else if (p === '/blueprint') {
     room = 'blueprint';
     title = copyText('moreroutes.identity.blueprint');
     description = copyText('moreroutes.a.profile.you.can.keep.private.share');
     content = <Blueprint path={path} />;
   } else if (p === '/campaigns') {
-    title = copyText('moreroutes.campaigns');
-    description = copyText('moreroutes.your.campaign.participation');
-    content = <Campaigns />;
+    volt = <CampaignsRoom title={copyText('moreroutes.campaigns')} description={copyText('moreroutes.your.campaign.participation')} />;
   } else if (p === '/campaigns/mine') {
     title = <campaignCatalogueCopy.Copy k="myCampaigns" />;
     description = <campaignCatalogueCopy.Copy k="mineTitle" />;
@@ -204,6 +204,10 @@ function MoreRooms({ path }: { path: string }) {
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
       if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
+      else if (hit.route.pattern === '/token/economy') volt = <TokenEconomyRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/status') volt = <MiningStatusRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/workers/:workerId')
+        volt = <MiningWorkerRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
       else if (hit.route.pattern === '/blueprint/shared/:cardId') volt = <BlueprintSharedRoom path={path} paper={paper} />;
       else if (hit.route.kind === 'detail' && room === 'token')
         volt = <TokenProposalRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
@@ -241,6 +245,8 @@ function MoreRooms({ path }: { path: string }) {
     content = wrap(content);
     if (volt) volt = wrap(volt);
   }
+  // The Team room is on its settings template: it draws its own title, so it is not put inside the old page.
+  if (p === '/agents/team') return <AgentsTeam key={userId ?? 'anonymous'} />;
   if (volt) return <Fragment key={userId ?? 'anonymous'}>{volt}</Fragment>;
   return (
     <div className="more-feature">

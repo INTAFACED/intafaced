@@ -3,6 +3,7 @@ import { isRecord } from '@intafaced/contracts/guards';
 import { defineProcedure } from '@intafaced/contracts/procedure';
 import { MoneyError, parseAmount } from './money.js';
 import { recipes, type RecipeName } from './recipes/index.js';
+import { BANK_TRANSFER_KEY_SPACES } from './recipes/bank.js';
 import { LedgerError, type PostRequest } from './types.js';
 
 /**
@@ -21,7 +22,9 @@ import { LedgerError, type PostRequest } from './types.js';
  *
  * Adding a recipe to the door is one entry in `RECIPE_DOORS` (its inputs' wire shape and the conversion to its bigints),
  * its line in `postRecipeInput`, and its grant in the ledger gate's `gate/caller-allowlist.ts`. On the door now: svc-academy's two
- * recipes, and svc-agents' usage charge (`feeCharge` in its asset mode, `chargeEarn`, `chargeCollect`).
+ * recipes, svc-agents' usage charge (`feeCharge` in its asset mode, `chargeEarn`, `chargeCollect`), and svc-bank's
+ * transfer (`bankTransfer`, every key space) and its holds on received funds (`payReceivedHold`, `payReceivedRelease`,
+ * `payReceivedReturn`).
  */
 
 /** A positive or zero decimal string, at most 18 places: the recipe refuses zero where it must. */
@@ -70,6 +73,44 @@ const REASON = z
   .max(64)
   .regex(/^[a-z0-9][a-z0-9._-]*$/);
 
+/**
+ * A bank transfer's own id, without spaces: a transfer id, a standing order's id, or a recovery sweep's
+ * `<claim>:<account>` (`recoverySweepTransferId`). At most 160, so `bank.transfer.<space>:<id>:<occurrence>` stays
+ * within the ledger's 200-character key.
+ */
+const TRANSFER_ID = z
+  .string()
+  .min(1)
+  .max(160)
+  .regex(/^[^\s]+$/);
+/** Which firing of a transfer this is: a whole number from zero (`requireOccurrence`), at most ten digits in the key. */
+const OCCURRENCE = z.number().int().min(0).max(2_147_483_647);
+/** A hold on received funds' own id (svc-bank's hold row), without spaces; its pot `pay:recv:<holdId>` fits the ledger's 128. */
+const HOLD_ID = z
+  .string()
+  .min(1)
+  .max(119)
+  .regex(/^[^\s]+$/);
+/** An asset as the ledger's account names it (at most 16), without spaces. */
+const ACCOUNT_ASSET = z
+  .string()
+  .min(1)
+  .max(16)
+  .regex(/^[^\s]+$/);
+/** A rail's boundary account (`railBoundary`): `rail:<railId>`, a platform id that is never a UUID. */
+const RAIL_OWNER = z
+  .string()
+  .max(128)
+  .regex(/^rail:[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$/);
+/**
+ * An account a bank transfer moves between: a person's or a named space's available balance (`accountForSpace`, an
+ * heir's `userAvailable`), or a rail's boundary (`railBoundary`). Never a lock: those have their own recipes.
+ */
+const BANK_ACCOUNT = z.discriminatedUnion('ownerType', [
+  z.object({ ownerType: z.enum(['user', 'subaccount']), ownerId: UUID, assetId: ACCOUNT_ASSET, kind: z.literal('available') }).strict(),
+  z.object({ ownerType: z.literal('treasury'), ownerId: RAIL_OWNER, assetId: ACCOUNT_ASSET, kind: z.literal('available') }).strict(),
+]);
+
 /** One recipe on the door: its inputs' wire shape, and how they become the registry recipe's own inputs. */
 interface RecipeDoor {
   readonly wire: z.ZodObject;
@@ -110,6 +151,26 @@ const chargeEarnWire = z
   })
   .strict();
 const chargeCollectWire = z.object({ module: MODULE, userId: UUID, to: PLACE, paymentId: REF, assetId: ASSET, amount: AMOUNT }).strict();
+/**
+ * `bankTransfer`: the two accounts as svc-bank resolves them (`accountForSpace`, a rail boundary, an heir), every key
+ * space named (the legacy shared `bank.transfer:` key is not on the door), and the kind that goes with it.
+ */
+const bankTransferWire = z
+  .object({
+    transferId: TRANSFER_ID,
+    occurrence: OCCURRENCE,
+    from: BANK_ACCOUNT,
+    to: BANK_ACCOUNT,
+    amount: AMOUNT,
+    kind: z.enum(['manual', 'scheduled']),
+    keySpace: z.enum(BANK_TRANSFER_KEY_SPACES),
+  })
+  .strict();
+const receivedHoldFields = { holdId: HOLD_ID, userId: UUID, assetId: ACCOUNT_ASSET, amount: AMOUNT };
+const payReceivedHoldWire = z.object(receivedHoldFields).strict();
+/** A release or a return moves the whole hold: the amount the hold was placed for is sent beside it (RH-2). */
+const payReceivedReleaseWire = z.object({ ...receivedHoldFields, heldAmount: AMOUNT }).strict();
+const payReceivedReturnWire = z.object({ ...receivedHoldFields, heldAmount: AMOUNT, payerUserId: UUID }).strict();
 
 /**
  * The recipes the door posts, one entry each, plus its line in `postRecipeInput` below. TypeScript checks each `build`
@@ -129,6 +190,14 @@ const RECIPE_DOORS = {
     return recipes.chargeEarn({ ...i, price: { perUnit }, units });
   }),
   chargeCollect: door(chargeCollectWire, (i) => recipes.chargeCollect({ ...i, amount: parseAmount(i.amount) })),
+  bankTransfer: door(bankTransferWire, (i) => recipes.bankTransfer({ ...i, amount: parseAmount(i.amount) })),
+  payReceivedHold: door(payReceivedHoldWire, (i) => recipes.payReceivedHold({ ...i, amount: parseAmount(i.amount) })),
+  payReceivedRelease: door(payReceivedReleaseWire, (i) =>
+    recipes.payReceivedRelease({ ...i, amount: parseAmount(i.amount), heldAmount: parseAmount(i.heldAmount) }),
+  ),
+  payReceivedReturn: door(payReceivedReturnWire, (i) =>
+    recipes.payReceivedReturn({ ...i, amount: parseAmount(i.amount), heldAmount: parseAmount(i.heldAmount) }),
+  ),
 } as const satisfies Partial<Record<RecipeName, RecipeDoor>>;
 
 export type PostRecipeName = keyof typeof RECIPE_DOORS;
@@ -151,6 +220,10 @@ const postRecipeInput = z.discriminatedUnion('recipe', [
   variant('feeCharge'),
   variant('chargeEarn'),
   variant('chargeCollect'),
+  variant('bankTransfer'),
+  variant('payReceivedHold'),
+  variant('payReceivedRelease'),
+  variant('payReceivedReturn'),
 ]);
 
 const postedEntry = z.object({
@@ -204,14 +277,26 @@ const sampleCollect = {
   amount: '0.25',
 };
 
+const SAMPLE_PAYEE = '33333333-3333-4333-8333-333333333333';
+const sampleTransfer = {
+  transferId: SAMPLE_BUSINESS,
+  occurrence: 0,
+  from: { ownerType: 'user', ownerId: SAMPLE_USER, assetId: 'USDC', kind: 'available' },
+  to: { ownerType: 'user', ownerId: SAMPLE_PAYEE, assetId: 'USDC', kind: 'available' },
+  amount: '12.5',
+  kind: 'manual',
+  keySpace: 'p2p',
+};
+const sampleHold = { holdId: SAMPLE_BUSINESS, userId: SAMPLE_PAYEE, assetId: 'USDC', amount: '12.5' };
+
 export const LEDGER_POST_RECIPE = defineProcedure({
   name: 'ledger.postRecipe',
   service: 'svc-ledger',
   transport: 'http',
   method: 'POST',
   path: '/trpc/postRecipe',
-  /** The services granted a recipe on this door (`gate/caller-allowlist.ts`); svc-ledger's `post-recipe-door.test.ts` holds them equal. */
-  access: { caller: 'service', callers: ['svc-academy', 'svc-agents'] },
+  /** The services granted a recipe on this door (`gate/caller-allowlist.ts`); each holds a grant for one of its recipes (`post-recipe-client.test.ts`). */
+  access: { caller: 'service', callers: ['svc-academy', 'svc-agents', 'svc-bank'] },
   /** Plain-HTTP refusals: status and `{ message, code }` from svc-ledger's `httpError`. */
   refusals: {
     [POST_RECIPE_UNKNOWN]: 'BAD_REQUEST',
@@ -250,7 +335,38 @@ export const LEDGER_POST_RECIPE = defineProcedure({
     { verdict: 'accept', input: { recipe: 'feeCharge', input: sampleFee } },
     { verdict: 'accept', input: { recipe: 'chargeEarn', input: sampleEarn } },
     { verdict: 'accept', input: { recipe: 'chargeCollect', input: sampleCollect } },
+    { verdict: 'accept', input: { recipe: 'bankTransfer', input: sampleTransfer } },
+    {
+      verdict: 'accept',
+      input: { recipe: 'bankTransfer', input: { ...sampleTransfer, occurrence: 3, kind: 'scheduled', keySpace: 'sched' } },
+    },
+    { verdict: 'accept', input: { recipe: 'payReceivedHold', input: sampleHold } },
+    { verdict: 'accept', input: { recipe: 'payReceivedRelease', input: { ...sampleHold, heldAmount: '12.5' } } },
+    {
+      verdict: 'accept',
+      input: { recipe: 'payReceivedReturn', input: { ...sampleHold, heldAmount: '12.5', payerUserId: SAMPLE_USER } },
+    },
     { verdict: 'refuse', input: { recipe: 'deposit', input: samplePurchase } },
+    { verdict: 'refuse', input: { recipe: 'bankTransfer', input: { ...sampleTransfer, keySpace: undefined } } },
+    { verdict: 'refuse', input: { recipe: 'bankTransfer', input: { ...sampleTransfer, keySpace: 'legacy' } } },
+    { verdict: 'refuse', input: { recipe: 'bankTransfer', input: { ...sampleTransfer, occurrence: -1 } } },
+    { verdict: 'refuse', input: { recipe: 'bankTransfer', input: { ...sampleTransfer, occurrence: '0' } } },
+    { verdict: 'refuse', input: { recipe: 'bankTransfer', input: { ...sampleTransfer, transferId: 'a b' } } },
+    { verdict: 'refuse', input: { recipe: 'bankTransfer', input: { ...sampleTransfer, amount: 12.5 } } },
+    {
+      verdict: 'refuse',
+      input: { recipe: 'bankTransfer', input: { ...sampleTransfer, to: { ...sampleTransfer.to, kind: 'hold', purpose: 'x' } } },
+    },
+    {
+      verdict: 'refuse',
+      input: {
+        recipe: 'bankTransfer',
+        input: { ...sampleTransfer, to: { ...sampleTransfer.to, ownerType: 'house', ownerId: 'fees:bank' } },
+      },
+    },
+    { verdict: 'refuse', input: { recipe: 'payReceivedHold', input: { ...sampleHold, holdId: 'h'.repeat(120) } } },
+    { verdict: 'refuse', input: { recipe: 'payReceivedRelease', input: sampleHold } },
+    { verdict: 'refuse', input: { recipe: 'payReceivedReturn', input: { ...sampleHold, heldAmount: '12.5' } } },
     { verdict: 'refuse', input: { recipe: 'feeCharge', input: { ...sampleFee, mode: 'token' } } },
     { verdict: 'refuse', input: { recipe: 'feeCharge', input: { ...sampleFee, chargeId: 'a b' } } },
     { verdict: 'refuse', input: { recipe: 'chargeEarn', input: { ...sampleEarn, price: { perUnit: null } } } },

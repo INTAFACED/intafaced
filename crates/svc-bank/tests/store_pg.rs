@@ -25,7 +25,7 @@ use svc_bank::migrate::MIGRATIONS;
 use svc_bank::recovery::{AdvisoryLock, Lock};
 use svc_bank::restore_watermark;
 
-mod support;
+use crate::support;
 use support::TestDb;
 
 const INTERNAL: &str = "placeholder-bank-store-pg-internal-secret-0";

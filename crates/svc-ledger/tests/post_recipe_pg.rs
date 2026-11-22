@@ -12,6 +12,10 @@
 //!   Its who-may-call and body refusals are `post_recipe_parity.rs` and `wire_replay.rs`.
 //!
 //! The calls and posts are the TypeScript's own, recorded by `scripts/record-door-books.mjs`.
+//!
+//! svc-bank's recipes (`bank_*`), under svc-bank's own key: one of each booked on the real book with the custody layer
+//! on (each moves a customer's balance), a retry booking nothing twice, the custody layer off refusing them, and a
+//! service other than svc-bank refused before anything is read. Their bodies are `post_recipe_parity.rs`'s.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -20,7 +24,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use service_kit::json::Json;
 use service_kit::money::{format_amount, parse_amount};
@@ -28,7 +32,8 @@ use service_kit::s2s::Mode;
 use support::TestDb;
 use support::door::{Kit, Setup, fx, fx_list, migrated};
 use svc_ledger::errors::{
-    FROZEN, IDEMPOTENCY_CONFLICT, INSUFFICIENT_FUNDS, POST_RECIPE_INPUT_INVALID,
+    CALLER_FORBIDDEN, CUSTODY_LAYER_OFF, FROZEN, IDEMPOTENCY_CONFLICT, INSUFFICIENT_FUNDS,
+    POST_RECIPE_INPUT_INVALID,
 };
 use svc_ledger::freeze;
 
@@ -469,4 +474,234 @@ fn property_for_random_valid_purchases_and_their_refunds_the_two_doors_leave_the
     // Most runs book (a treasury wallet may go below zero): the property is not only refusals agreeing.
     assert!(booked > 20, "only {booked} of 60 runs booked");
     println!("postRecipe property: 60 runs, {booked} booked on both doors");
+}
+
+// ── svc-bank's recipes ───────────────────────────────────────────────────────────────────────────────────────────
+
+const PAYER: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const PAYEE: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const TRANSFER: &str = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const HOLD: &str = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const SECOND_HOLD: &str = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+fn account(owner_id: &str, kind: &str, purpose: Option<&str>) -> Json {
+    let mut fields = vec![
+        ("ownerType", Json::str("user")),
+        ("ownerId", Json::str(owner_id)),
+        ("assetId", Json::str("USDC")),
+        ("kind", Json::str(kind)),
+    ];
+    if let Some(p) = purpose {
+        fields.push(("purpose", Json::str(p)));
+    }
+    Json::Object(fields.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+}
+
+fn available(owner_id: &str) -> Json {
+    account(owner_id, "available", None)
+}
+
+fn pot(owner_id: &str, hold_id: &str) -> Json {
+    account(owner_id, "hold", Some(&format!("pay:recv:{hold_id}")))
+}
+
+fn call(recipe: &str, input: Json) -> Json {
+    Json::obj([("recipe", Json::str(recipe)), ("input", input)])
+}
+
+/// svc-bank's p2p transfer of 12.5 USDC from PAYER to PAYEE.
+fn transfer() -> Json {
+    call(
+        "bankTransfer",
+        Json::obj([
+            ("transferId", Json::str(TRANSFER)),
+            ("occurrence", Json::int(0)),
+            ("from", available(PAYER)),
+            ("to", available(PAYEE)),
+            ("amount", Json::str("12.5")),
+            ("kind", Json::str("manual")),
+            ("keySpace", Json::str("p2p")),
+        ]),
+    )
+}
+
+/// A hold, release or return of 12.5 USDC PAYEE received (`extra` adds the outcome's own fields).
+fn received(recipe: &str, hold_id: &str, extra: &[(&str, Json)]) -> Json {
+    let mut fields = vec![
+        ("holdId", Json::str(hold_id)),
+        ("userId", Json::str(PAYEE)),
+        ("assetId", Json::str("USDC")),
+        ("amount", Json::str("12.5")),
+    ];
+    fields.extend(extra.iter().cloned());
+    call(
+        recipe,
+        Json::Object(fields.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()),
+    )
+}
+
+/// The door with svc-bank's and svc-academy's keys, over a book where PAYER holds 100 USDC.
+fn bank_door(custody_on: bool) -> Option<(TestDb, Kit)> {
+    let db = migrated()?;
+    let k = Kit::new(
+        &db,
+        &Setup {
+            mode: Some(Mode::Keypair),
+            services: &["svc-bank", "svc-academy"],
+            custody_on,
+        },
+    );
+    if custody_on {
+        k.engine(&Json::obj([
+            ("idempotencyKey", Json::str("deposit:test:post-recipe-bank")),
+            ("module", Json::str("ledger")),
+            ("reason", Json::str("deposit")),
+            (
+                "entries",
+                Json::Array(vec![
+                    Json::obj([
+                        (
+                            "account",
+                            Json::obj([
+                                ("ownerType", Json::str("treasury")),
+                                ("ownerId", Json::str("rail:crypto-native")),
+                                ("assetId", Json::str("USDC")),
+                                ("kind", Json::str("available")),
+                            ]),
+                        ),
+                        ("direction", Json::str("credit")),
+                        ("amount", Json::str("100")),
+                    ]),
+                    Json::obj([
+                        ("account", available(PAYER)),
+                        ("direction", Json::str("debit")),
+                        ("amount", Json::str("100")),
+                    ]),
+                ]),
+            ),
+        ]));
+    }
+    Some((db, k))
+}
+
+fn bank(k: &Kit, body: &Json) -> (u16, Json) {
+    k.keyed("svc-bank", "/trpc/postRecipe", body)
+}
+
+#[test]
+fn bank_books_one_of_each_recipe_once_under_its_business_key_and_the_balances_move_as_the_recipes_say()
+ {
+    let Some((_db, k)) = bank_door(true) else {
+        return;
+    };
+    let key = format!("bank.transfer.p2p:{TRANSFER}:0");
+    let tx = booked(bank(&k, &transfer()));
+    assert_eq!(s(&tx, "idempotencyKey"), key);
+    assert_eq!(s(&tx, "module"), "bank");
+    assert_eq!(s(&tx, "reason"), "bank.transfer.manual");
+    assert_eq!(
+        legs(&tx),
+        [
+            ("credit".to_owned(), "12.5".to_owned()),
+            ("debit".to_owned(), "12.5".to_owned())
+        ]
+    );
+    // A retry after a lost reply is the same key and body: the same transaction, nothing booked twice.
+    assert_eq!(s(&booked(bank(&k, &transfer())), "txId"), s(&tx, "txId"));
+    assert_eq!(k.rows(&key), 1);
+    assert_eq!(k.bal(&available(PAYER)), "87.5");
+    assert_eq!(k.bal(&available(PAYEE)), "12.5");
+
+    // Held, then released whole: the pot fills and empties, the recipient's available comes back.
+    let held = booked(bank(&k, &received("payReceivedHold", HOLD, &[])));
+    assert_eq!(s(&held, "idempotencyKey"), format!("pay.recv.hold:{HOLD}"));
+    assert_eq!(k.bal(&available(PAYEE)), "0");
+    assert_eq!(k.bal(&pot(PAYEE, HOLD)), "12.5");
+    let whole = [("heldAmount", Json::str("12.5"))];
+    let released = booked(bank(&k, &received("payReceivedRelease", HOLD, &whole)));
+    assert_eq!(
+        s(&released, "idempotencyKey"),
+        format!("pay.recv.release:{HOLD}")
+    );
+    assert_eq!(k.bal(&pot(PAYEE, HOLD)), "0");
+    assert_eq!(k.bal(&available(PAYEE)), "12.5");
+    // One outcome per hold: a return after the release finds the pot empty.
+    let returned = [
+        ("heldAmount", Json::str("12.5")),
+        ("payerUserId", Json::str(PAYER)),
+    ];
+    let (status, refused) = bank(&k, &received("payReceivedReturn", HOLD, &returned));
+    assert_eq!(
+        (status, code(&refused).as_deref()),
+        (400, Some(INSUFFICIENT_FUNDS))
+    );
+    assert_eq!(k.rows(&format!("pay.recv.return:{HOLD}")), 0);
+
+    // A second hold, returned to the payer by a ruling.
+    booked(bank(&k, &received("payReceivedHold", SECOND_HOLD, &[])));
+    let back = booked(bank(
+        &k,
+        &received("payReceivedReturn", SECOND_HOLD, &returned),
+    ));
+    assert_eq!(
+        s(&back, "idempotencyKey"),
+        format!("pay.recv.return:{SECOND_HOLD}")
+    );
+    assert_eq!(k.bal(&pot(PAYEE, SECOND_HOLD)), "0");
+    assert_eq!(k.bal(&available(PAYEE)), "0");
+    assert_eq!(k.bal(&available(PAYER)), "100");
+}
+
+#[test]
+fn bank_a_partial_release_is_refused_before_the_book_and_nothing_is_booked() {
+    let Some((_db, k)) = bank_door(true) else {
+        return;
+    };
+    booked(bank(&k, &transfer()));
+    booked(bank(&k, &received("payReceivedHold", HOLD, &[])));
+    let part = received(
+        "payReceivedRelease",
+        HOLD,
+        &[("heldAmount", Json::str("20"))],
+    );
+    let (status, refused) = bank(&k, &part);
+    assert_eq!(
+        (status, code(&refused).as_deref()),
+        (400, Some(POST_RECIPE_INPUT_INVALID))
+    );
+    assert_eq!(k.rows(&format!("pay.recv.release:{HOLD}")), 0);
+    assert_eq!(k.bal(&pot(PAYEE, HOLD)), "12.5");
+}
+
+#[test]
+fn bank_with_the_custody_layer_off_a_transfer_between_customers_is_refused_412_and_nothing_is_booked()
+ {
+    let Some((_db, k)) = bank_door(false) else {
+        return;
+    };
+    let (status, refused) = bank(&k, &transfer());
+    assert_eq!(
+        (status, code(&refused).as_deref()),
+        (412, Some(CUSTODY_LAYER_OFF))
+    );
+    assert_eq!(k.rows(&format!("bank.transfer.p2p:{TRANSFER}:0")), 0);
+}
+
+#[test]
+fn bank_a_service_other_than_svc_bank_may_not_post_svc_banks_recipes_403_nothing_booked() {
+    let Some((_db, k)) = bank_door(true) else {
+        return;
+    };
+    for body in [transfer(), received("payReceivedHold", HOLD, &[])] {
+        let (status, refused) = k.keyed("svc-academy", "/trpc/postRecipe", &body);
+        assert_eq!(
+            (status, code(&refused).as_deref()),
+            (403, Some(CALLER_FORBIDDEN)),
+            "{}",
+            refused.compact()
+        );
+    }
+    assert_eq!(k.rows(&format!("bank.transfer.p2p:{TRANSFER}:0")), 0);
+    assert_eq!(k.rows(&format!("pay.recv.hold:{HOLD}")), 0);
+    assert_eq!(k.bal(&available(PAYER)), "100");
 }
