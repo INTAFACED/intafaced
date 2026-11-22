@@ -696,15 +696,15 @@
     padding: var(--if-space-4) var(--if-space-6);
   }
   /* Pro: activity rows 40 (Simple 48) */
-  .if-money--activity .lt-table td {
-    height: 48px;
+  /* The shared tables draw from the kit, whose unlayered row height wins over this layer: they take these rows through its token. */
+  .if-money--activity .lt-table {
+    --lit-row-h: var(--if-space-12);
   }
   .if-money--activity[data-density='pro'] .money-table--activity td {
     height: 40px;
   }
-  .if-money--activity[data-density='pro'] .lt-table td,
-  .if-money--activity[data-density='pro'] .lt-table[data-layout='activity'] td {
-    height: 40px;
+  .if-money--activity[data-density='pro'] .lt-table {
+    --lit-row-h: var(--if-space-10);
   }
   .if-money--activity[data-density='pro'] .money-act__icon {
     width: 24px;

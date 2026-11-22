@@ -473,7 +473,7 @@ export function FillsTable({
         <td>{dayTime(fill.timestamp, timeZone)}</td>
         {activity ? (
           <td>
-            <span className="lt-stack">
+            <span className="lt-lines">
               <span data-testid="dk-trade-what" data-side={fill.side}>
                 {t(fill.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', { amount, asset: baseOf(fill.symbol) })}
               </span>
