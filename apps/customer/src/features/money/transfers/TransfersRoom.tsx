@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { Button } from '@intafaced/ui/lit';
-import { FlowTemplate, Tabs } from '@intafaced/ui/lit/templates';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { Checkbox, FlowTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../session';
 import { bankLabels, useBankNav } from '../bank-nav';
 import { validateTransfer, type Space } from '../client';
@@ -102,36 +102,26 @@ export function TransfersRoom({ open, search }: { open: (spec: ActionSpec) => vo
                       </p>
                     )}
                     <div>
-                      <label className="lt-field">
-                        <span id="bank-transfer-source-label">
-                          <Text k="rooms.from.your.space" />
-                        </span>
-                        <select
-                          aria-labelledby="bank-transfer-source-label"
-                          value={from?.id ?? ''}
-                          onChange={(event) => setFrom(event.target.value)}
-                        >
-                          <option value="">
-                            <Text k="rooms.choose.source" />
-                          </option>
-                          {spaces
+                      <Select
+                        label={copyText('rooms.from.your.space')}
+                        value={from?.id ?? ''}
+                        onChange={(event) => setFrom(event.target.value)}
+                        options={[
+                          ['', copyText('rooms.choose.source')],
+                          ...spaces
                             .filter((space) => currentSpace(spaces, space.id, userId ?? ''))
-                            .map((space) => (
-                              <option key={space.id} value={space.id}>
-                                {spaceName(space)}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                      <label className="lt-field">
-                        <span>
-                          <Text k="rooms.destination" />
-                        </span>
-                        <select value={destination} onChange={(event) => setDestination(event.target.value as 'space' | 'user')}>
-                          <option value="space">{depth.t('toYourSpace')}</option>
-                          <option value="user">{depth.t('toPerson')}</option>
-                        </select>
-                      </label>
+                            .map((space) => [space.id, spaceName(space)] as const),
+                        ]}
+                      />
+                      <Select
+                        label={copyText('rooms.destination')}
+                        value={destination}
+                        onChange={(event) => setDestination(event.target.value as 'space' | 'user')}
+                        options={[
+                          ['space', depth.t('toYourSpace')],
+                          ['user', depth.t('toPerson')],
+                        ]}
+                      />
                       {destination === 'user' && (
                         <>
                           <TransferRecipient value={recipient} onChange={setRecipient} />
@@ -143,42 +133,33 @@ export function TransfersRoom({ open, search }: { open: (spec: ActionSpec) => vo
                           {from && ownSpaces(spaces, from, userId ?? '').length === 0 ? depth.t('noOtherSpace') : depth.t('spaceNote')}
                         </p>
                       )}
-                      <label className="lt-field">
-                        <span>{depth.t('noteField')}</span>
-                        <input
-                          name="note"
-                          value={note}
-                          disabled={scheduled}
-                          autoComplete="off"
-                          onChange={(event) => setNote(event.target.value)}
-                          aria-invalid={Boolean(noteWords)}
-                          aria-describedby="transfer-note-help"
-                        />
-                        <small id="transfer-note-help">
-                          {scheduled ? depth.t('messageScheduledReason') : (noteWords ?? depth.t('noteHint'))}
-                        </small>
-                      </label>
-                      <label className="lt-field">
-                        <span>{depth.t('referenceField')}</span>
-                        <input
-                          name="reference"
-                          value={reference}
-                          disabled={scheduled}
-                          autoComplete="off"
-                          autoCapitalize="none"
-                          spellCheck={false}
-                          onChange={(event) => setReference(event.target.value)}
-                          aria-invalid={Boolean(referenceWords)}
-                          aria-describedby="transfer-reference-help"
-                        />
-                        <small id="transfer-reference-help">
-                          {scheduled ? depth.t('messageScheduledReason') : (referenceWords ?? depth.t('referenceHint'))}
-                        </small>
-                      </label>
-                      <label className="lt-field">
-                        <input type="checkbox" checked={scheduled} onChange={(event) => setScheduled(event.target.checked)} />
-                        <Text k="rooms.repeat.on.a.schedule" />
-                      </label>
+                      <Field
+                        label={depth.t('noteField')}
+                        name="note"
+                        value={note}
+                        disabled={scheduled}
+                        autoComplete="off"
+                        onChange={(event) => setNote(event.target.value)}
+                        aria-invalid={Boolean(noteWords)}
+                        hint={scheduled ? depth.t('messageScheduledReason') : (noteWords ?? depth.t('noteHint'))}
+                      />
+                      <Field
+                        label={depth.t('referenceField')}
+                        name="reference"
+                        value={reference}
+                        disabled={scheduled}
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        onChange={(event) => setReference(event.target.value)}
+                        aria-invalid={Boolean(referenceWords)}
+                        hint={scheduled ? depth.t('messageScheduledReason') : (referenceWords ?? depth.t('referenceHint'))}
+                      />
+                      <Checkbox
+                        label={<Text k="rooms.repeat.on.a.schedule" />}
+                        checked={scheduled}
+                        onChange={(event) => setScheduled(event.target.checked)}
+                      />
                       <Button
                         tone="primary"
                         disabled={

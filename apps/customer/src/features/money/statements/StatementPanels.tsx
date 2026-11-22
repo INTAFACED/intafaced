@@ -1,6 +1,6 @@
 import { useId } from 'react';
 
-import { Button } from '@intafaced/ui/lit';
+import { Button, Select } from '@intafaced/ui/lit';
 
 import { ServiceOffNotice as KitServiceOffNotice, type NotConnectedCode } from '@intafaced/ui/lit/templates';
 
@@ -90,16 +90,12 @@ export function TaxStatements() {
       <h3 id={heading}>{t('taxTitle')}</h3>
       <p>{t('taxLead')}</p>
       <section data-testid="tax-statements" aria-label={t('taxTitle')}>
-        <label className="lt-field">
-          <span>{t('taxYear')}</span>
-          <select value={year} onChange={(event) => setYear(Number(event.target.value))}>
-            {Array.from({ length: 6 }, (_, back) => thisYear - back).map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label={t('taxYear')}
+          value={String(year)}
+          onChange={(event) => setYear(Number(event.target.value))}
+          options={Array.from({ length: 6 }, (_, back) => String(thisYear - back)).map((y) => [y, y] as const)}
+        />
         {tax.kind === 'loading' && <p role="status">{t('taxLoading')}</p>}
         {tax.kind === 'list' && tax.count === 0 && <p role="status">{t('taxEmpty')}</p>}
         {tax.kind === 'off' && <ServiceOff code={tax.code} action={t('taxAction')} role="status" />}

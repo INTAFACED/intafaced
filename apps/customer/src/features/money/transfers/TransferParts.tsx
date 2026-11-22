@@ -1,5 +1,5 @@
 import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
-import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Button, EmptyState, Field } from '@intafaced/ui/lit';
 import { Sheet, Skeleton } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useFailureWords } from '../../../shared/failure-words';
@@ -38,30 +38,8 @@ export function Failure({ result, retry }: { result: Failed; retry?: () => void 
   );
 }
 
-/** A labelled text input, as `Field` in shared/ui draws it: the label's first span names the input, the hint or error follows. */
-export function TextField({
-  label,
-  hint,
-  error,
-  ...input
-}: InputHTMLAttributes<HTMLInputElement> & { label: ReactNode; hint?: ReactNode; error?: ReactNode }) {
-  const generatedId = useId();
-  const id = input.id ?? `${input.name ?? 'field'}-${generatedId}`;
-  const describedBy = [input['aria-describedby'], hint || error ? `${id}-help` : undefined].filter(Boolean).join(' ') || undefined;
-  return (
-    <label className="lt-field" htmlFor={id}>
-      <span id={`${id}-label`}>{label}</span>
-      <input
-        {...input}
-        id={id}
-        aria-labelledby={input['aria-label'] ? undefined : `${id}-label`}
-        aria-invalid={Boolean(error)}
-        aria-describedby={describedBy}
-      />
-      {(hint || error) && <small id={`${id}-help`}>{error ?? hint}</small>}
-    </label>
-  );
-}
+/** A labelled text input: the kit's `Field`, under the name the transfer parts already use. */
+export const TextField = Field;
 
 /** A read's three states: loading, failed with its retry, or its data. */
 export function Loaded<T>({ resource, reload, children }: { resource: Resource<T>; reload: () => void; children: (data: T) => ReactNode }) {
