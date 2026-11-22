@@ -116,23 +116,15 @@ fn run_due_transfers(door: &BankDoor) -> Response {
             "bank.transfers_disabled",
         );
     }
-    let custody = door.partner.custody(&door.store);
-    let d = crate::transfers::Deps {
-        store: &door.store,
-        ledger: door.spaces.ledger.as_ref(),
-        custody: &custody,
-        partner: &door.partner,
-        spaces: &door.spaces,
-        w,
-        now: door.now(),
-    };
     #[allow(clippy::cast_precision_loss, reason = "a batch size of at most 10000")]
     let limit = w.settings.batch_size.map(|b| b as f64);
-    match crate::transfers::schedules::run_due(
-        &d,
-        limit,
-        crate::transfers::calendar::MAX_CATCH_UP_PER_PASS,
-    ) {
+    match door.transfers_deps(|d| {
+        crate::transfers::schedules::run_due(
+            d,
+            limit,
+            crate::transfers::calendar::MAX_CATCH_UP_PER_PASS,
+        )
+    }) {
         Ok(report) => Response {
             status: 200,
             body: report.json().compact(),

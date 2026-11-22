@@ -298,6 +298,20 @@ impl BankDoor {
         (self.now)()
     }
 
+    /// `f` given slice `transfers`' dependencies, read now: what a job or a recovery pass hands the slice.
+    pub fn transfers_deps<T>(&self, f: impl FnOnce(&crate::transfers::Deps<'_>) -> T) -> T {
+        let custody = self.partner.custody(&self.store);
+        f(&crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now: self.now(),
+        })
+    }
+
     /// Slice `partner`'s wiring, built by the binary from the environment.
     pub fn with_partner(mut self, wiring: crate::partner::router::Wiring) -> BankDoor {
         self.partner = wiring;

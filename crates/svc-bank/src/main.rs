@@ -249,12 +249,36 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
     })
 }
 
+/// A pass's rows as the timer counts them: `completed`, or `failed` when the row stays owed.
+fn outcomes(rows: Vec<Result<(), String>>) -> Vec<String> {
+    rows.into_iter()
+        .map(|r| if r.is_ok() { "completed" } else { "failed" }.to_owned())
+        .collect()
+}
+
 /// The recovery jobs whose work is ported, in `recovery::JOBS`' order. Each comes with its slice.
 fn recovery_jobs<'a>(
-    _door: &'a BankDoor,
+    door: &'a BankDoor,
     _env: &'a BankEnv,
 ) -> Vec<(&'static str, recovery::Job<'a>)> {
-    Vec::new()
+    vec![
+        (
+            "bank.recovery.announce_posted_transfers",
+            Box::new(move |batch| {
+                door.transfers_deps(|d| {
+                    transfers::personal::announce_unannounced(d, i64::from(batch))
+                        .map(outcomes)
+                        .map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        (
+            "bank.recovery.sweep_received_holds",
+            Box::new(move |batch| {
+                door.transfers_deps(|d| Ok(outcomes(transfers::holds::sweep(d, i64::from(batch)))))
+            }),
+        ),
+    ]
 }
 
 /// The recovery timer's log lines, as `index.ts` writes them.
