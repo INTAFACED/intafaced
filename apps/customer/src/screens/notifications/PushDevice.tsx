@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSession } from '../../features/session/session';
-import { Button } from './deps';
+import { Button } from '@intafaced/ui/lit';
 import { centreCopy } from './centre-copy';
 import { pushKey, registerTarget } from './notify-api';
 import { askPermission, deviceAddress, readPermission, type DevicePermission, type PushHost } from './push-device';
@@ -61,14 +61,14 @@ export function PushDevice({ onSent, onChanged }: { onSent: () => void; onChange
     return { kind: 'sent', note: registerNote(result.data.status) };
   }
 
-  if (unsupported) return <p className="nf-why">{copy.t('pushUnsupported')}</p>;
+  if (unsupported) return <p className="lt-hint">{copy.t('pushUnsupported')}</p>;
   return (
-    <div className="nf-push" data-permission={permission ?? undefined}>
-      <Button variant="secondary" size={32} disabled={step.kind === 'working'} onClick={() => void allow()}>
+    <div data-permission={permission ?? undefined}>
+      <Button tone="secondary" disabled={step.kind === 'working'} onClick={() => void allow()}>
         {copy.t('pushAllow')}
       </Button>
       {permission && (
-        <p data-testid="nf-push__state" className="nf-push__state" role="status">
+        <p data-testid="nf-push__state" role="status">
           {copy.t(
             permission === 'granted'
               ? step.kind === 'sent' && step.note === 'codeSent'
@@ -80,15 +80,13 @@ export function PushDevice({ onSent, onChanged }: { onSent: () => void; onChange
           )}
         </p>
       )}
-      {step.kind === 'denied' && <p className="nf-why">{copy.t('pushDeniedHow')}</p>}
-      {step.kind === 'dismissed' && <p className="nf-why">{copy.t('pushDismissed')}</p>}
-      {step.kind === 'noGateway' && (
-        <ServiceOffNotice code={NOT_CONNECTED} action={copy.t('pushRegisterAction')} className="nf-why nf-push__off" />
-      )}
-      {step.kind === 'keyFailed' && <p className="nf-note">{copy.t('actionFailed')}</p>}
-      {step.kind === 'subscribeFailed' && <p className="nf-note">{copy.t('pushSubscribeFailed')}</p>}
+      {step.kind === 'denied' && <p className="lt-hint">{copy.t('pushDeniedHow')}</p>}
+      {step.kind === 'dismissed' && <p className="lt-hint">{copy.t('pushDismissed')}</p>}
+      {step.kind === 'noGateway' && <ServiceOffNotice code={NOT_CONNECTED} action={copy.t('pushRegisterAction')} className="lt-hint" />}
+      {step.kind === 'keyFailed' && <p className="lt-hint">{copy.t('actionFailed')}</p>}
+      {step.kind === 'subscribeFailed' && <p className="lt-hint">{copy.t('pushSubscribeFailed')}</p>}
       {step.kind === 'sent' && (
-        <p className="nf-note" role="status">
+        <p className="lt-hint" role="status">
           {copy.t(step.note === 'codeSent' ? 'pushCodeSent' : step.note)}
         </p>
       )}
