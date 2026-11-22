@@ -1,22 +1,22 @@
 import { useRef, useState } from 'react';
-import { Field } from '../../ui-kit';
+import { Field, TextArea } from '@intafaced/ui/lit';
+import { Meter } from '@intafaced/ui/lit/templates';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { parseAmount } from '../../../../shared/money';
-import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
-import { Facts, NotConfigured, PortalFailure, PortalLoading, UsageBar } from '../components';
 import type { PortalApi } from '../api';
+import { portalCopy } from '../copy';
 import { useReadAt } from '../hooks';
 import { newRequestId } from '../model';
 import { isNotLive } from '../refusal';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { capKinds } from '../schemas';
 import { DateTime } from '../ui/DateTime';
-import { Freshness } from '../ui/Freshness';
-import { KpiStrip } from '../ui/Kpi';
-import { MoneyText } from '../ui/MoneyText';
-import { PortalReview } from '../ui/PortalReview';
-import { NamedBlocker, TestBanner, useTestMode } from './common';
+import { Facts, Failure, Freshness, KpiStrip, Loading, MoneyText, NotConfigured, Section } from '../volt/parts';
+import { Review } from '../volt/Review';
+import { SettingsRoom } from '../volt/SettingsRoom';
+import { NamedBlocker, TestBanner } from './kit-parts';
+import { useTestMode } from './test-mode';
 import { formatMoney } from '../ui/format';
 import { mc } from './copy';
 import { bpsPercent, closestToLimit, limitRows, type LimitRow } from './model';
@@ -46,9 +46,9 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
     tiers.reload();
     open.reload();
   };
-  if (control.resource.status === 'loading' || usage.resource.status === 'loading') return <PortalLoading rows={4} />;
+  if (control.resource.status === 'loading' || usage.resource.status === 'loading') return <Loading rows={4} />;
   if (control.resource.status === 'failed' && usage.resource.status === 'failed')
-    return <PortalFailure result={control.resource.failure} retry={reload} />;
+    return <Failure result={control.resource.failure} retry={reload} />;
   const profile = control.resource.status === 'ready' ? control.resource.data : null;
   const use = usage.resource.status === 'ready' ? usage.resource.data : null;
   const rows = limitRows(use, profile);
@@ -61,7 +61,7 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
   const tierData = tiers.resource.status === 'ready' ? tiers.resource.data : null;
   const tierName = tierData?.status === 'configured' ? (tierData.tiers.find((x) => x.id === tierData.ownTierId)?.name ?? null) : null;
   return (
-    <div className="stack">
+    <>
       <TestBanner />
       <Freshness asOf={use?.asOf ?? readAt} />
       <KpiStrip
@@ -97,21 +97,21 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
         ]}
       />
 
-      <PaySection title={t('usageTitle')} description={t('usageBody')}>
-        {usage.resource.status === 'failed' && <PortalFailure result={usage.resource.failure} retry={reload} />}
-        {control.resource.status === 'failed' && <PortalFailure result={control.resource.failure} retry={reload} />}
+      <Section id={SECTION.usage} title={t('usageTitle')} description={t('usageBody')}>
+        {usage.resource.status === 'failed' && <Failure result={usage.resource.failure} retry={reload} />}
+        {control.resource.status === 'failed' && <Failure result={control.resource.failure} retry={reload} />}
         {configured.length === 0 && use !== null && (
-          <div className="pp-callout pp-callout--warn" role="note">
+          <p className="lt-hint" role="note">
             <NotConfigured /> {t('limitsNotConfiguredBody')}
-          </div>
+          </p>
         )}
-        <ul className="pp-limits" aria-label={t('usageTitle')}>
+        <ul aria-label={t('usageTitle')}>
           {rows.map((row, i) => (
             <LimitItem key={`${row.kind}:${row.assetCode ?? ''}:${i}`} row={row} test={test} />
           ))}
         </ul>
-        <p className="muted pp-note">{t('usageHow')}</p>
-      </PaySection>
+        <p className="lt-hint">{t('usageHow')}</p>
+      </Section>
 
       <TierLadder tiers={tiers.resource} retry={tiers.reload} test={test} />
 
@@ -124,39 +124,65 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
         reload={reload}
         test={test}
       />
-    </div>
+    </>
   );
+}
+
+/** Where the page's index links to. `request` is the address the page's heading action opens (`/pay/limits#request`). */
+const SECTION = { usage: 'limits-usage', ladder: 'limits-ladder', request: 'request' };
+
+/** `/pay/limits` on the settings template: the index of its parts, what it means, and the page for the account. */
+export function LimitsRoom({ portal }: { portal: PortalApi }) {
+  const { t } = mc.useCopy();
+  return (
+    <SettingsRoom
+      sections={[
+        { id: SECTION.usage, label: t('usageTitle') },
+        { id: SECTION.ladder, label: t('tierLadderTitle') },
+        { id: SECTION.request, label: t('lrTitle') },
+      ]}
+      explain={<p>{t('limitsExplain')}</p>}
+    >
+      {({ merchantId }) => <Limits portal={portal} merchantId={merchantId} />}
+    </SettingsRoom>
+  );
+}
+
+/** How much of one limit is used, as the kit's meter with its words (`UsageBar` in `../components`). */
+function UsageBar({ pct, label }: { pct: number; label: string }) {
+  const { t } = portalCopy.useCopy();
+  return <Meter label={label} value={pct} text={pct >= 100 ? t('usageFull') : t('usagePct', { pct: Math.round(pct) })} />;
 }
 
 /** The tiers INTAFACED shows merchants, each with its limits and reserve. The merchant's own tier is marked. */
 export function TierLadder({ tiers, retry, test }: { tiers: Resource<TierList>; retry: () => void; test: boolean }) {
   const { t } = mc.useCopy();
   return (
-    <PaySection title={t('tierLadderTitle')} description={t('tierLadderBody')}>
+    <Section id={SECTION.ladder} title={t('tierLadderTitle')} description={t('tierLadderBody')}>
       {tiers.status === 'loading' ? (
-        <PortalLoading rows={2} />
+        <Loading rows={2} />
       ) : tiers.status === 'failed' ? (
         isNotLive(tiers.failure) ? (
           <NamedBlocker title={t('tierLadderTitle')} why="reasonLists" needs="merchantControl.tiers.list">
             {t('tierLadderNone')}
           </NamedBlocker>
         ) : (
-          <PortalFailure result={tiers.failure} retry={retry} />
+          <Failure result={tiers.failure} retry={retry} />
         )
       ) : tiers.data.status === 'not_configured' ? (
-        <p className="muted">{t('tierLadderNone')}</p>
+        <p className="lt-hint">{t('tierLadderNone')}</p>
       ) : (
         <>
-          <ul className="pp-limits" aria-label={t('tierLadderTitle')}>
+          <ul aria-label={t('tierLadderTitle')}>
             {tiers.data.tiers.map((tier) => (
               <TierItem key={tier.id} tier={tier} yours={tier.id === tiers.data.ownTierId} test={test} />
             ))}
           </ul>
-          {tiers.data.ownTierId === null && <p className="muted pp-note">{t('tierLadderNoneYours')}</p>}
-          {tiers.data.tiers.length === 1 && tiers.data.ownTierId !== null && <p className="muted pp-note">{t('tierLadderOne')}</p>}
+          {tiers.data.ownTierId === null && <p className="lt-hint">{t('tierLadderNoneYours')}</p>}
+          {tiers.data.tiers.length === 1 && tiers.data.ownTierId !== null && <p className="lt-hint">{t('tierLadderOne')}</p>}
         </>
       )}
-    </PaySection>
+    </Section>
   );
 }
 
@@ -164,26 +190,28 @@ function TierItem({ tier, yours, test }: { tier: TierSummary; yours: boolean; te
   const { t } = mc.useCopy();
   const caps = capKinds.flatMap((kind) => tier.caps.filter((c) => c.kind === kind));
   return (
-    <li className="pp-limit">
-      <div className="pp-limit-head">
-        <h3>{tier.name}</h3>
-        {yours && <strong>{t('tierLadderYours')}</strong>}
-      </div>
+    <li>
+      <h3>{tier.name}</h3>
+      {yours && (
+        <p>
+          <strong>{t('tierLadderYours')}</strong>
+        </p>
+      )}
       <Facts
         items={[
           [
             t('tierLadderCaps'),
             caps.length === 0 ? (
-              <span className="muted">{t('tierLadderNoCaps')}</span>
+              <span>{t('tierLadderNoCaps')}</span>
             ) : (
-              <span className="pp-stack">
+              <ul>
                 {caps.map((cap) => (
-                  <span key={`${cap.kind}:${'assetCode' in cap ? cap.assetCode : ''}`}>
+                  <li key={`${cap.kind}:${'assetCode' in cap ? cap.assetCode : ''}`}>
                     {kindName(t, cap.kind)}:{' '}
                     {'assetCode' in cap ? <MoneyText value={cap.limit} asset={cap.assetCode} test={test} /> : String(cap.limit)}
-                  </span>
+                  </li>
                 ))}
-              </span>
+              </ul>
             ),
           ],
           [
@@ -196,7 +224,7 @@ function TierItem({ tier, yours, test }: { tier: TierSummary; yours: boolean; te
                   : ''}
               </>
             ) : (
-              <span className="muted">{t('tierLadderNoReserve')}</span>
+              <span>{t('tierLadderNoReserve')}</span>
             ),
           ],
         ]}
@@ -210,11 +238,9 @@ function LimitItem({ row, test }: { row: LimitRow; test: boolean }) {
   const kind = kindName(t, row.kind);
   const countCap = row.kind === 'beneficiaries_per_day';
   return (
-    <li className="pp-limit">
-      <div className="pp-limit-head">
-        <h3>{row.assetCode ? `${kind} (${row.assetCode})` : kind}</h3>
-      </div>
-      <p className="muted pp-note">{t(`limitKindBody_${row.kind}` as 'limitKindBody_daily_intake')}</p>
+    <li>
+      <h3>{row.assetCode ? `${kind} (${row.assetCode})` : kind}</h3>
+      <p className="lt-hint">{t(`limitKindBody_${row.kind}` as 'limitKindBody_daily_intake')}</p>
       {!row.configured || row.limit === null ? (
         <p>
           <NotConfigured />
@@ -240,7 +266,7 @@ function LimitItem({ row, test }: { row: LimitRow; test: boolean }) {
                     ],
                     [t('capResets'), row.resetsAt ? <DateTime value={row.resetsAt} /> : '—'],
                   ] as const)
-                : ([[t('capUsed'), <span className="muted">{t('capNoUsage')}</span>]] as const)),
+                : ([[t('capUsed'), <span>{t('capNoUsage')}</span>]] as const)),
             ]}
           />
         </>
@@ -314,25 +340,24 @@ function RequestIncrease({
             ? t('reasonNeeded')
             : null;
   return (
-    <PaySection title={t('lrTitle')} description={t('lrBody')}>
-      <span id="request" />
+    <Section id={SECTION.request} title={t('lrTitle')} description={t('lrBody')}>
       {open.status === 'loading' ? (
-        <PortalLoading rows={2} />
+        <Loading rows={2} />
       ) : open.status === 'failed' ? (
         isNotLive(open.failure) ? (
           <NamedBlocker title={t('lrTitle')} why="reasonActions" needs="merchantControl.limits.open">
             {t('lrBlocked')}
           </NamedBlocker>
         ) : (
-          <PortalFailure result={open.failure} retry={reload} />
+          <Failure result={open.failure} retry={reload} />
         )
       ) : open.data.status === 'pending' ? (
         <Pending request={open.data.request} portal={portal} merchantId={merchantId} reload={reload} mayAsk={mayAsk} test={test} />
       ) : (
-        <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
-          {tiers.status === 'ready' && tiers.data.status === 'not_configured' && <p className="muted pp-note">{t('lrNoTier')}</p>}
+        <form data-testid="form-stack" noValidate onSubmit={(e) => e.preventDefault()}>
+          {tiers.status === 'ready' && tiers.data.status === 'not_configured' && <p className="lt-hint">{t('lrNoTier')}</p>}
           {rows.length === 0 ? (
-            <p className="muted">{t('lrNoLimits')}</p>
+            <p className="lt-hint">{t('lrNoLimits')}</p>
           ) : (
             rows.map((row) => (
               <Field
@@ -345,19 +370,15 @@ function RequestIncrease({
               />
             ))
           )}
-          <label className="field">
-            <span>{t('lrReason')} *</span>
-            <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={3} />
-            <small>{t('hDecisionReason')}</small>
-          </label>
-          <PortalReview
+          <TextArea label={`${t('lrReason')} *`} value={reason} onChange={setReason} maxLength={500} rows={3} hint={t('hDecisionReason')} />
+          <Review
             title={t('lrSubmit')}
             variant="primary"
             description={t('lrReviewBody')}
             disabled={why !== null}
             disabledReason={why ?? undefined}
             review={
-              <dl data-testid="pp-facts" className="pp-facts">
+              <dl data-testid="pp-facts" className="lt-kv">
                 {check.caps.map((cap) => {
                   const row = rows.find(
                     (r) => keyOf(r) === (cap.kind === 'beneficiaries_per_day' ? `${cap.kind}:` : `${cap.kind}:${cap.assetCode}`),
@@ -396,13 +417,13 @@ function RequestIncrease({
             }}
           />
           {sent && (
-            <p className="pp-callout" role="status">
+            <p className="lt-hint" role="status">
               {t('lrSent')}
             </p>
           )}
         </form>
       )}
-    </PaySection>
+    </Section>
   );
 }
 
@@ -426,12 +447,12 @@ function Pending({
   const caps = Array.isArray(request.caps) ? request.caps : null;
   const ok = why.trim().length >= 3 && why.trim().length <= 500;
   return (
-    <div data-testid="form-stack" className="form-stack">
-      <p className="pp-callout" role="status">
+    <div data-testid="form-stack">
+      <p className="lt-hint" role="status">
         {t('lrOpen')} <DateTime value={request.createdAt} />
       </p>
       {caps ? (
-        <dl data-testid="pp-facts" className="pp-facts">
+        <dl data-testid="pp-facts" className="lt-kv">
           {caps.map((cap) => (
             <div key={cap.kind + ('assetCode' in cap ? cap.assetCode : '')}>
               <dt>{kindName(t, cap.kind)}</dt>
@@ -444,20 +465,24 @@ function Pending({
           </div>
         </dl>
       ) : (
-        <p className="muted">{t('lrUnreadable')}</p>
+        <p className="lt-hint">{t('lrUnreadable')}</p>
       )}
-      <label className="field">
-        <span>{t('lrWithdrawReason')} *</span>
-        <textarea value={why} onChange={(e) => setWhy(e.target.value)} maxLength={500} rows={2} disabled={!mayAsk} />
-        <small>{t('hDecisionReason')}</small>
-      </label>
-      <PortalReview
+      <TextArea
+        label={`${t('lrWithdrawReason')} *`}
+        value={why}
+        onChange={setWhy}
+        maxLength={500}
+        rows={2}
+        disabled={!mayAsk}
+        hint={t('hDecisionReason')}
+      />
+      <Review
         title={t('lrWithdraw')}
         description={t('lrWithdrawBody')}
         disabled={!mayAsk || !ok}
         disabledReason={!mayAsk ? t('lrNotAllowed') : !ok ? t('reasonNeeded') : undefined}
         review={
-          <dl data-testid="pp-facts" className="pp-facts">
+          <dl data-testid="pp-facts" className="lt-kv">
             <div>
               <dt>{t('lrWithdrawReason')}</dt>
               <dd>{why.trim()}</dd>
