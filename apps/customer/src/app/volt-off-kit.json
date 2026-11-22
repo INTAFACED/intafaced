@@ -52,7 +52,6 @@
   "/otc",
   "/otc/:quoteId",
   "/otc/tradeInfo",
-  "/pay",
   "/pay/send",
   "/pay/request",
   "/pay/receive",
