@@ -8,9 +8,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   JUDGE_CHECK,
   JUDGE_DOWN_STEP,
@@ -26,6 +27,7 @@ import { inputsGoing, isModelDown, readGoing, sealNow, CI_JOBS_NAME } from './jo
 import {
   CATCH_UP_CAP,
   JOBS_READ_CAP,
+  ISSUE_TITLE,
   KEY_ISSUE_TITLE,
   KEY_LABEL,
   LABEL,
@@ -47,6 +49,64 @@ const stepOf = (name, text = REVIEW) => {
   const next = text.indexOf('\n      - ', at + 1);
   return text.slice(at, next === -1 ? undefined : next);
 };
+
+// ---- judge-down.mjs run as its step runs it, with fetch answered from routes and each request logged ----
+const STUB_FETCH = `import { appendFileSync, readFileSync } from 'node:fs';
+const routes = JSON.parse(readFileSync(process.env.STUB_ROUTES, 'utf8'));
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(String(url));
+  const method = (init.method ?? 'GET').toUpperCase();
+  const path = u.pathname + u.search;
+  appendFileSync(process.env.STUB_LOG, JSON.stringify({ method, path, body: init.body ? JSON.parse(init.body) : null }) + '\\n');
+  const r = routes.find((x) => (x.method ?? 'GET') === method && new RegExp(x.path).test(path));
+  if (!r) return new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 });
+  return new Response(r.json === undefined ? '' : JSON.stringify(r.json), { status: r.status ?? 200 });
+};
+`;
+/** Runs `judge-down.mjs <args>` with `env` and fetch answered by `routes`: { status, stdout, requests }. */
+function judgeDown(args, env, routes) {
+  const dir = mkdtempSync(join(tmpdir(), 'judge-down-'));
+  try {
+    writeFileSync(join(dir, 'stub.mjs'), STUB_FETCH);
+    writeFileSync(join(dir, 'routes.json'), JSON.stringify(routes));
+    writeFileSync(join(dir, 'log'), '');
+    const r = spawnSync(
+      process.execPath,
+      ['--import', pathToFileURL(join(dir, 'stub.mjs')).href, join(ROOT, 'tooling/ci/judge-down.mjs'), ...args],
+      {
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, STUB_ROUTES: join(dir, 'routes.json'), STUB_LOG: join(dir, 'log'), ...env },
+      },
+    );
+    const requests = readFileSync(join(dir, 'log'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr, requests };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const JD_ENV = {
+  GH_TOKEN: 't',
+  ISSUE_TOKEN: 't',
+  REPO: 'o/r',
+  HEAD_SHA: HEAD,
+  RUN_URL: 'https://example.test/run/1',
+  PR_NUMBER: '7',
+  VERDICT: 'failure',
+};
+/** Every command the Review job runs, as `judge-down.mjs <cmd> <source> <part>`. */
+const JD_COMMANDS = [
+  ['down', 'CI review', 'status'],
+  ['down', 'CI review', 'issue'],
+  ['back', 'CI review', 'status'],
+  ['back', 'CI review', 'issue'],
+  ['back', 'CI review', 'catchup'],
+  ['second', 'CI review', 'key'],
+  ['first', 'CI review', 'key'],
+  ['merged', 'CI review', 'issue'],
+];
 
 // The answers a planted bad key and a used-up account get from the reviewer CLI (the 429 is the real one of 10 Nov).
 const BAD_KEY = {
@@ -163,9 +223,17 @@ test('the workflow: on down the verdict steps are skipped, Judge down is the mar
   assert.match(marker, /\n {8}continue-on-error: true\n/);
   assert.ok(WF.indexOf(`- name: ${JUDGE_DOWN_STEP}\n`) > WF.indexOf('- name: Verdict\n'), 'the marker comes after the verdicts');
   assert.doesNotMatch(REVIEW, /statuses: write/);
-  // The step's own failure exits 0 (judge-down.mjs), so the marker can't turn into a failed step.
-  const js = readFileSync(new URL('./judge-down.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(js.slice(js.indexOf('if (process.argv[1]')), /run\(source\)[\s\S]*process\.exit\(1\)/);
+  // The step's own failure exits 0 (judge-down.mjs), so the marker can't turn into a failed step: every command, with
+  // GitHub refusing each call, ends 0 and says why in a warning.
+  for (const cmd of JD_COMMANDS) {
+    const r = judgeDown(cmd, JD_ENV, [
+      { method: 'GET', path: '.', status: 403, json: { message: 'Forbidden' } },
+      ...['POST', 'PATCH'].map((method) => ({ method, path: '.', status: 403 })),
+    ]);
+    assert.equal(r.status, 0, `${cmd.join(' ')} exits 0 when GitHub refuses: ${r.stderr}`);
+    assert.match(r.stdout, new RegExp(`::warning::judge-down ${cmd[0]} ${cmd[2]}: GitHub 403 on (GET|POST) `), cmd.join(' '));
+    assert.ok(r.requests.length >= 1, `${cmd.join(' ')} called GitHub`);
+  }
 });
 
 const ok = (verdict) => ({
@@ -387,8 +455,25 @@ test('judgeDownNeed: a head whose CI review was down needs the judge, whatever i
 });
 
 test('the judge-down issue pages no one: it carries only its own label (CI review on 0cef53f9b, item 5)', () => {
-  const js = readFileSync(new URL('./judge-down.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(js, /'nino'/);
+  // Every issue judge-down.mjs opens, with none open yet: the judge-down issue, the second-key issue and the after-merge fix.
+  const opened = [];
+  for (const cmd of [JD_COMMANDS[1], JD_COMMANDS[5], JD_COMMANDS[7]]) {
+    const r = judgeDown(cmd, JD_ENV, [
+      { method: 'GET', path: '/issues\\?state=open', json: [] },
+      { method: 'GET', path: '^/repos/o/r/pulls/7$', json: { number: 7, merged_at: '2026-11-20T00:00:00Z' } },
+      { method: 'POST', path: '/issues$', status: 201, json: { number: 1, html_url: 'u' } },
+    ]);
+    assert.equal(r.status, 0, r.stderr);
+    const posts = r.requests.filter((q) => q.method === 'POST' && q.path.endsWith('/issues'));
+    assert.equal(posts.length, 1, `${cmd.join(' ')} opens one issue: ${r.stdout}`);
+    opened.push([posts[0].body.title, posts[0].body.labels]);
+  }
+  assert.deepEqual(opened, [
+    [ISSUE_TITLE, [LABEL]],
+    [KEY_ISSUE_TITLE, [KEY_LABEL]],
+    ['CI review after merge: #7', [AFTER_MERGE_LABEL]],
+  ]);
+  assert.ok(!opened.flatMap(([, labels]) => labels).includes('nino'), 'no issue carries a label that pages anyone');
 });
 
 test('catch-up: the oldest heads with no verdict first, at most the cap, never a running run or this head', async () => {
