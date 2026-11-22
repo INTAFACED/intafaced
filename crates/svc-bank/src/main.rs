@@ -541,8 +541,36 @@ fn ramps_book_wiring(env: &BankEnv) -> Result<ramps::book::Wiring, String> {
 }
 
 /// Slice `ramps`' on-ramp: the programme, the rate source and the pay-in partner, from the environment.
-fn ramps_onramp_wiring(_env: &BankEnv) -> Result<ramps::onramp::Wiring, String> {
-    Ok(ramps::onramp::Wiring::none())
+fn ramps_onramp_wiring(env: &BankEnv) -> Result<ramps::onramp::Wiring, String> {
+    use ramps::onramp::{payin, rails, sim};
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let refused = |(code, words): (&str, &str)| format!("{words} ({code})");
+    let stand_in = sim::stand_in_for(
+        raw("BANK_ONRAMP_RATES"),
+        raw("BANK_ONRAMP_SIM_JSON"),
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+    )
+    .map_err(refused)?;
+    let partner = payin::partner_for(
+        raw("BANK_ONRAMP_PARTNER"),
+        &payin::Config {
+            catalogue: raw("BANK_PAYIN_SIM_JSON"),
+            page_url: raw("BANK_PAYIN_SIM_PAGE_URL"),
+            return_url: raw("BANK_PAYIN_SIM_RETURN_URL"),
+            deliver_url: raw("BANK_PAYIN_SIM_DELIVER_URL"),
+        },
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+        || Box::new(UreqFetch::new()) as Box<dyn Fetch>,
+    )
+    .map_err(refused)?;
+    Ok(ramps::onramp::Wiring {
+        programme: rails::programme_for(raw("BANK_RAMP_MODE")),
+        stand_in,
+        partner,
+        ..ramps::onramp::Wiring::none()
+    })
 }
 
 /// Slice `ramps`' wiring: the owner's values as the TypeScript reads them, and each part's own.
