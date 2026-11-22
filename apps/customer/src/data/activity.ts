@@ -7,8 +7,7 @@
  */
 import { useMemo, useSyncExternalStore } from 'react';
 import { z } from 'zod';
-import { callAs, type ApiClient } from '../shared/api';
-import { BANK_ACTIVITY_LIST } from '@intafaced/contracts/bank-activity-procedures';
+import type { ApiClient } from '../shared/api';
 import { useSession } from '../features/session/session';
 import { classifyFailure } from './poll';
 import type { Source } from './source';
@@ -247,7 +246,7 @@ export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}
       ...(options.year !== undefined ? { year: options.year } : {}),
       ...(options.address ? { address: options.address } : {}),
     };
-    const result = await callAs(api, BANK_ACTIVITY_LIST, input, activityPageSchema, { signal: controller.signal });
+    const result = await api.query('bank', 'activity.list', input, activityPageSchema, { signal: controller.signal });
     if (inflight !== controller || controller.signal.aborted) return;
     inflight = null;
     if (result.ok) {

@@ -78,7 +78,15 @@ describe('Personal Pay network boundary', () => {
               ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
             },
           ]);
-        return response({ ledgerTxId: 'ledger-confirmed', amount: '0.000000000000000001' });
+        // svc-bank's whole `transfers.toUser` reply, which its record checks: no partner move, note, reference or request.
+        return response({
+          ledgerTxId: 'ledger-confirmed',
+          partnerMove: null,
+          amount: '0.000000000000000001',
+          note: null,
+          reference: null,
+          requestId: null,
+        });
       },
     });
     const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
@@ -893,7 +901,16 @@ describe('Send original context admission and settlement', () => {
     const stored = journal();
     const api = createApiClient({
       fetch: async (_url, options) =>
-        options?.method === 'POST' ? response({ ledgerTxId: 'current-original', amount: input.amount }) : response(spaces),
+        options?.method === 'POST'
+          ? response({
+              ledgerTxId: 'current-original',
+              partnerMove: null,
+              amount: input.amount,
+              note: null,
+              reference: null,
+              requestId: null,
+            })
+          : response(spaces),
     });
     expect(await createPersonalPayApi(api, userId, stored.guard).send(input, () => true)).toMatchObject({ ok: true });
     expect([stored.saves(), stored.removals(), stored.values.size]).toEqual([1, 1, 0]);
