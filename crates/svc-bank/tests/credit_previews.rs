@@ -31,6 +31,7 @@ fn bank() -> BankDoor {
         services: ServiceAuth::unwired(),
         env,
         now: door::system_now,
+        store: svc_bank::db::Store::Down("no database".to_owned()),
     })
     .unwrap()
 }
