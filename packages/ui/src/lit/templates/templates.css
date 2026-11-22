@@ -874,10 +874,36 @@
   border: 1px solid var(--lit-line);
 }
 
-.lt-tab[aria-current='page'] {
+.lt-tab[aria-current='page'],
+.lt-tab[aria-selected='true'] {
   color: var(--lit-text-1);
   background: var(--lit-solid-bg-raised);
   border-color: var(--lit-control-rim-active);
+}
+
+/* In-page tabs are buttons: the same pill, no button chrome of their own. */
+button.lt-tab {
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.lt-tab:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  padding-block-start: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+
+.lt-tab-panel:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
 }
 
 /* ---- select: a button that opens a list ---- */

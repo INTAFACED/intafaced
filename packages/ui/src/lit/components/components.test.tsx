@@ -269,4 +269,44 @@ describe('b2 controls the desk rooms use', () => {
     expect(alert).toContain('aria-label="Cancel this order?"');
     expect(alert).not.toContain('>Close</button>');
   });
+
+  it('Tabs draw links with aria-current, or in-page tabs: a tablist of tabs, the shown one selected and the one Tab stop', () => {
+    const links = html(<B2.Tabs label="Rooms" current="/a" items={[{ label: 'A', href: '/a' }]} />);
+    expect(links).toContain('aria-current="page"');
+    expect(links).not.toContain('role="tab"');
+    const tabs = html(
+      <B2.Tabs
+        id="exec"
+        label="Sections"
+        value="b"
+        onChange={() => undefined}
+        items={[
+          { label: 'A', value: 'a' },
+          { label: 'B', value: 'b' },
+        ]}
+      />,
+    );
+    expect(tabs).toMatch(/role="tablist" aria-label="Sections"/);
+    expect(tabs).toMatch(/id="exec-tab-b" aria-controls="exec-panel-b" aria-selected="true" tabindex="0"/);
+    expect(tabs).toMatch(/id="exec-tab-a" aria-controls="exec-panel-a" aria-selected="false" tabindex="-1"/);
+    expect(B2.nextTabIndex(1, 'ArrowRight', 2)).toBe(0);
+    expect(B2.nextTabIndex(0, 'ArrowLeft', 2)).toBe(1);
+    expect(B2.nextTabIndex(1, 'Home', 2)).toBe(0);
+    expect(B2.nextTabIndex(0, 'End', 2)).toBe(1);
+    expect(B2.nextTabIndex(0, 'x', 2)).toBeNull();
+    expect(
+      html(
+        <B2.TabPanel id="exec" value="a" current="b">
+          hidden
+        </B2.TabPanel>,
+      ),
+    ).toBe('');
+    expect(
+      html(
+        <B2.TabPanel id="exec" value="b" current="b">
+          shown
+        </B2.TabPanel>,
+      ),
+    ).toMatch(/role="tabpanel" id="exec-panel-b" aria-labelledby="exec-tab-b"/);
+  });
 });

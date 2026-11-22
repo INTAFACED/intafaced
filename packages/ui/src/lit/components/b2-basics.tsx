@@ -142,15 +142,91 @@ export function StatusChip({ status, label, returned = false }: { status: MoneyS
 }
 
 /** A door's room row: links, with the open room marked for assistive tech as well as by look. */
-export function Tabs({ items, current, label }: { items: readonly { label: string; href: string }[]; current: string; label: string }) {
+export type TabsProps =
+  | { items: readonly { label: string; href: string }[]; current: string; label: string }
+  | {
+      /** In-page tabs: each item names the panel it shows. */
+      items: readonly { label: string; value: string }[];
+      value: string;
+      onChange: (value: string) => void;
+      label: string;
+      /** Prefix for the tab and panel ids, shared with each `TabPanel`. */
+      id: string;
+    };
+
+/**
+ * One row of tabs. With `href`s it is a door's room row: links, the open room marked `aria-current`. With `value`s and
+ * `onChange` it is in-page tabs: a `tablist` of `tab`s, the shown one `aria-selected`, one Tab stop, and the arrow keys,
+ * Home and End move and show (the panel is a `TabPanel` with the same `id`).
+ */
+export function Tabs(props: TabsProps) {
+  const refs = React.useRef<(HTMLButtonElement | null)[]>([]);
+  if (!('onChange' in props)) {
+    const { items, current, label } = props;
+    return (
+      <nav className="lt-tabs" aria-label={label}>
+        {items.map((t) => (
+          <a key={t.href} href={t.href} className="lt-tab" aria-current={t.href === current ? 'page' : undefined}>
+            {t.label}
+          </a>
+        ))}
+      </nav>
+    );
+  }
+  const { items, value, onChange, label, id } = props;
+  const at = Math.max(
+    0,
+    items.findIndex((t) => t.value === value),
+  );
+  const move = (event: React.KeyboardEvent, index: number) => {
+    const next = nextTabIndex(index, event.key, items.length);
+    if (next === null) return;
+    event.preventDefault();
+    onChange(items[next]!.value);
+    refs.current[next]?.focus();
+  };
   return (
-    <nav className="lt-tabs" aria-label={label}>
-      {items.map((t) => (
-        <a key={t.href} href={t.href} className="lt-tab" aria-current={t.href === current ? 'page' : undefined}>
+    <div className="lt-tabs" role="tablist" aria-label={label}>
+      {items.map((t, i) => (
+        <button
+          key={t.value}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          type="button"
+          role="tab"
+          id={`${id}-tab-${t.value}`}
+          aria-controls={`${id}-panel-${t.value}`}
+          aria-selected={i === at}
+          tabIndex={i === at ? 0 : -1}
+          className="lt-tab"
+          onClick={() => onChange(t.value)}
+          onKeyDown={(e) => move(e, i)}
+        >
           {t.label}
-        </a>
+        </button>
       ))}
-    </nav>
+    </div>
+  );
+}
+
+/** The tab an arrow, Home or End key moves to from `index` (wrapping), or null for any other key. */
+export function nextTabIndex(index: number, key: string, count: number): number | null {
+  if (count === 0) return null;
+  if (key === 'ArrowRight' || key === 'ArrowDown') return (index + 1) % count;
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return (index - 1 + count) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
+}
+
+/** The panel an in-page tab shows. Only the shown panel is rendered, so a hidden one reads nothing. */
+export function TabPanel({ id, value, current, children }: { id: string; value: string; current: string; children: React.ReactNode }) {
+  if (value !== current) return null;
+  return (
+    <div className="lt-tab-panel" role="tabpanel" id={`${id}-panel-${value}`} aria-labelledby={`${id}-tab-${value}`} tabIndex={0}>
+      {children}
+    </div>
   );
 }
 
