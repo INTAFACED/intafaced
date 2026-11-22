@@ -45,7 +45,7 @@ export function reasonOf(why) {
     [/can't be exported|cannot be exported/, exportReason],
     [/has no procedure/, 'procedure the codemod cannot find'],
     [/two procedures under one path/, 'two procedures under one path (a switch router)'],
-    [/clashes with another/, 'helper name clash (a rerun places it)'],
+    [/clashes with another/, 'helper name clash (in its record file and its sub-area file)'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],
     [/guard \S+ kept by hand/, 'guard kept by hand (named, with its reason)'],

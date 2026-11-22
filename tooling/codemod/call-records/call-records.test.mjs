@@ -219,6 +219,152 @@ test('a helper the shared file names another way lands beside its record once: a
   );
 });
 
+test('a helper name taken in the record file or the shared file never lands twice: the record reuses its copy, takes the free file, or moves to its sub-area file', () => {
+  // svc-pay on main (weed project-state#3759): registries and deposit freezes each declare their own networkIdSchema under
+  // founderAdmin.*; deposit travel rules declare a userIdSchema the founder-admin record file already holds; mandateView
+  // reads pay-subscription-procedures' amountSchema, which the shared file declares otherwise.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-clash-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const files = {
+    'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-agents/src/router.ts': [
+      "import { z } from 'zod';",
+      "import { schedulesRouter } from './schedules.js';",
+      "import { feeProcedures } from './fees.js';",
+      "import { amountSchema } from '@intafaced/contracts/agents-amounts';",
+      'const idInput = z.object({ id: z.string().min(1) });',
+      'const tagInput = z.object({ tag: z.string() });',
+      'export function createAgentsRouter() {',
+      '  return router({ own: router({',
+      "    get: scopedProcedure('agents:read').input(idInput).output(z.string()).query(() => ''),",
+      "    tags: scopedProcedure('agents:read').input(tagInput).output(z.string()).query(() => ''),",
+      "    stats: scopedProcedure('agents:read').input(z.object({ amount: amountSchema })).output(z.string()).query(() => ''),",
+      '    schedules: schedulesRouter,',
+      '    ...feeProcedures(),',
+      '  }) });',
+      '}',
+      '',
+    ].join('\n'),
+    // The same name, declared otherwise, under the same area.
+    'services/svc-agents/src/schedules.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().uuid() });',
+      "export const schedulesRouter = router({ list: scopedProcedure('agents:read').input(idInput).output(z.string()).query(() => '') });",
+      '',
+    ].join('\n'),
+    // A third idInput, read by two calls with no sub-area (svc-bank's loans.* read their router's own amountString).
+    'services/svc-agents/src/fees.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().email() });',
+      'export function feeProcedures() {',
+      '  return {',
+      "    fee: scopedProcedure('agents:read').input(idInput).output(z.string()).query(() => ''),",
+      "    feeRefund: scopedProcedure('agents:write').input(idInput).output(z.string()).mutation(() => ''),",
+      '  };',
+      '}',
+      '',
+    ].join('\n'),
+    'crates/svc-agents/src/lib.rs': '// the port\n',
+    'apps/customer/src/features/agents/agent.ts': [
+      "import { z } from 'zod';",
+      "export const a = (api) => api.query('agents', 'own.get', { id: 'x' }, z.string());",
+      "export const b = (api) => api.query('agents', 'own.schedules.list', { id: 'x' }, z.string());",
+      "export const c = (api) => api.query('agents', 'own.tags', { tag: 'x' }, z.string());",
+      "export const d = (api) => api.query('agents', 'own.stats', { amount: '1' }, z.string());",
+      "export const e = (api) => api.query('agents', 'own.fee', { id: 'a@b.c' }, z.string());",
+      "export const f = (api) => api.mutate('agents', 'own.feeRefund', { id: 'a@b.c' }, z.string());",
+      '',
+    ].join('\n'),
+    // An earlier run's record file, already holding tagInput as the router writes it.
+    'packages/contracts/src/agents-own-procedures.ts': [
+      "import { z } from 'zod';",
+      '',
+      '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.',
+      'export const tagInput = z.object({ tag: z.string() });',
+      '',
+    ].join('\n'),
+    // The shared file declares its own amountSchema; the router reads another contracts file's.
+    'packages/contracts/src/agents-call-schemas.ts': "import { z } from 'zod';\n\nexport const amountSchema = z.string();\n",
+    'packages/contracts/src/agents-amounts.ts': "import { z } from 'zod';\n\nexport const amountSchema = z.string().regex(/^\\d+$/);\n",
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'agents', '--callers-only', '--write', '--json', join(root, '.git/summary.json')], {
+    cwd: root,
+    stdio: 'pipe',
+  });
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.hand, [], 'no call is left for a name clash');
+  assert.deepEqual(summary.records.sort(), [
+    'AGENTS_OWN_FEE',
+    'AGENTS_OWN_FEE_REFUND',
+    'AGENTS_OWN_GET',
+    'AGENTS_OWN_SCHEDULES_LIST',
+    'AGENTS_OWN_STATS',
+    'AGENTS_OWN_TAGS',
+  ]);
+  const read = (f) => readFileSync(join(root, 'packages/contracts/src', f), 'utf8');
+  // Each file binds each name once: never declared and imported, never declared twice.
+  for (const f of [
+    'agents-own-procedures.ts',
+    'agents-own-schedules-procedures.ts',
+    'agents-own-2-procedures.ts',
+    'agents-call-schemas.ts',
+  ]) {
+    const src = read(f);
+    const imported = [...src.matchAll(/^import (?:type )?\{([^}]*)\} from/gm)].flatMap((m) =>
+      m[1].split(',').map((x) => x.trim().split(/ as /).pop()),
+    );
+    const declared = [...src.matchAll(/^(?:export )?(?:const|function|type) (\w+)/gm)].map((m) => m[1]);
+    const all = [...imported, ...declared].filter(Boolean);
+    assert.deepEqual(
+      all.filter((n, i) => all.indexOf(n) !== i),
+      [],
+      `${f} binds a name twice:\n${src}`,
+    );
+  }
+  const own = read('agents-own-procedures.ts');
+  assert.match(own, /export const AGENTS_OWN_TAGS = [\s\S]*input: tagInput,/, 'the record reads the copy already in its file');
+  assert.match(own, /export const AGENTS_OWN_GET = /);
+  const sub = read('agents-own-schedules-procedures.ts');
+  assert.match(sub, /export const AGENTS_OWN_SCHEDULES_LIST = /);
+  // Each record reads its own router's idInput: declared in its file, or imported from the file that declares it.
+  const idInputOf = (f) => {
+    const src = read(f);
+    const from = /import \{[^}]*\bidInput\b[^}]*\} from ["']\.\/([\w-]+)\.js["']/.exec(src)?.[1];
+    return from ? idInputOf(`${from}.ts`) : /const idInput = z\.object\(\{ id: z\.string\(\)\.(\w+)\(/.exec(src)?.[1];
+  };
+  assert.equal(idInputOf('agents-own-schedules-procedures.ts'), 'uuid', 'the schedules record reads its own idInput');
+  assert.equal(idInputOf('agents-own-procedures.ts'), 'min', 'the get record reads its own idInput');
+  // Two calls with no sub-area whose router's idInput is taken in both files land together in their area's second file.
+  const second = read('agents-own-2-procedures.ts');
+  assert.match(second, /export const AGENTS_OWN_FEE = [\s\S]*export const AGENTS_OWN_FEE_REFUND = /);
+  assert.equal(idInputOf('agents-own-2-procedures.ts'), 'email', "the fee records read their own router's idInput");
+  assert.match(second, /svc-agents `own\.\*`/, 'its header names the area, not one call');
+  assert.doesNotMatch(
+    read('agents-call-schemas.ts'),
+    /agents-amounts/,
+    'the shared file keeps its own amountSchema, never imports the other',
+  );
+  const caller = readFileSync(join(root, 'apps/customer/src/features/agents/agent.ts'), 'utf8');
+  assert.match(caller, /api\.call\(AGENTS_OWN_SCHEDULES_LIST, /);
+  assert.match(caller, /from ["']@intafaced\/contracts\/agents-own-schedules-procedures["']/);
+  assert.match(caller, /api\.call\(AGENTS_OWN_FEE, /);
+  assert.match(caller, /from ["']@intafaced\/contracts\/agents-own-2-procedures["']/);
+});
+
 test('the report plans a door service from the commit before its TypeScript was deleted, refuses one in flight, and skips a name no service has', async () => {
   const { howToPlan } = await import('./report.mjs');
   const root = mkdtempSync(join(tmpdir(), 'call-records-how-'));
@@ -600,8 +746,8 @@ test('the report sorts each hand reason into the kind one script change or one d
     'one input sent to each of a closed set of calls',
   );
   assert.equal(
-    reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
-    'helper name clash (a rerun places it)',
+    reasonOf("helper amountString clashes with another amountString in this record file and its sub-area's"),
+    'helper name clash (in its record file and its sub-area file)',
   );
   assert.equal(
     reasonOf("r: s comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it"),
