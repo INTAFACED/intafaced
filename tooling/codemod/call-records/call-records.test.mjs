@@ -62,8 +62,7 @@ test('a service whose Rust port is in flight is refused, by name, before anythin
 });
 
 /** The codemod, copied into a small repo: svc-agents with its crate beside it, a helper two router files declare, and three callers. */
-function agentsRepo() {
-  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+function agentsRepo(root) {
   const here = new URL('.', import.meta.url).pathname;
   const files = {
     'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
@@ -113,11 +112,12 @@ function agentsRepo() {
   git('init', '-q');
   git('add', '.');
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
-  return { root, git };
+  return git;
 }
 
 test('--callers-only moves a caller of a service mid-port to a record written from its router, leaves a near case, and never touches the service or its crate', () => {
-  const { root, git } = agentsRepo();
+  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+  const git = agentsRepo(root);
   const index = join(root, 'tooling/codemod/call-records/index.mjs');
   const run = (...a) => execFileSync('node', [index, '--module', 'agents', ...a], { cwd: root, encoding: 'utf8', stdio: 'pipe' });
   // Without the mode the service is still refused, by name, exit 3.
@@ -161,7 +161,8 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
 });
 
 test("--door: the router read from the commit before its deletion keeps one copy of a shared helper, and access is the door's", () => {
-  const { root, git } = agentsRepo();
+  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+  const git = agentsRepo(root);
   // The switch: the door serves the calls (svc-agents' calls.rs, nested Scoped), and services/svc-agents is deleted.
   const row = (path) =>
     `    Call {\n        path: "${path}",\n        kind: Kind::Query,\n        access: Access::Scope(Scoped {\n            scope: "agents:read",\n            person: true,\n            module: true,\n        }),\n        pre: Pre::None,\n        post: Post {\n            key: false,\n            sub_account: false,\n            lacks_identity_write: false,\n        },\n        slice: Slice::Runtime,\n        has_input: true,\n    },`;
