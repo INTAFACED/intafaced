@@ -5,4 +5,5 @@
 export * from './contracts.js';
 export { flat, lit, litLight, solid, pro, litType, renderLitCss } from './tokens.js';
 export * from './components/index.js';
+export * from './components/b3-controls.js';
 export { contrastRatio, deltaE2000, hue, luminance, parseColour, toHex } from './colour.js';
