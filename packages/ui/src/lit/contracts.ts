@@ -285,6 +285,7 @@ export const components = {
   ActionKey: 'Icon key with caption (Add, Send, Buy); `lit` for the one key that is the light',
   Switch: 'Glass disc knob toggle',
   Segmented: 'Ranges, Buy/Sell, Simple/Pro',
+  ToggleChips: "A list's filter chips: a named group of pressed buttons, one on at a time, optionally pressed off",
   Field: 'Input with label, hint and typed error',
   Figure: 'A money figure from a decimal string (never a number), with TEST and stale marks',
   Change: 'Up or down change as text, with sign and arrow, never colour alone',
@@ -303,7 +304,8 @@ export const components = {
   Logo: 'Mark, wordmark or lockup, drawn by the brand set from the kit files in packages/ui/brand',
   Stage: 'Host for a 3D object (from ./fx), with poster first and a flat tier; never on confirm or review',
   EqualChoice: '(B2) Two or more choices of equal weight: cooling-off, payee check, scam stop',
-  Table: '(B2) Table with a phone row form (rows become stacked cards under compact)',
+  Table:
+    '(B2) Table with a phone row form (rows become stacked cards under compact); sortable headers (aria-sort), row and cell data marks, and window virtualisation for long lists',
   Sheet: '(B2) Bottom sheet on phone, side sheet on computer; a glass layer',
   Stepper: '(B2) Steps of a flow',
   Skeleton: '(B2) Loading placeholder shaped like the content, never a flash of "no records"',
@@ -314,6 +316,7 @@ export const components = {
   Checkbox: '(B2) A tick with its words on one row',
   LineChart: '(B2) Price or value over time',
   AreaChart: '(B2) Value over time with a lit fill',
+  Sparkline: '(B2) A small trend line for a card or a row, named for a screen reader; nothing from fewer than two points',
   Bars: '(B2) Bars (volume, monthly totals)',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
 } as const;

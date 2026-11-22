@@ -1386,11 +1386,62 @@ import {
   TOKEN_GOVERNANCE_SET_ROLE,
 } from './token-procedures.js';
 
+import {
+  TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
+  TRADE_ADMIN_AGENT_DESK_AUDIT,
+  TRADE_ADMIN_AGENT_DESK_CONNECTION,
+  TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+} from './trade-admin-procedures.js';
+
+import { TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT } from './trade-algo-procedures.js';
+
+import {
+  TRADE_BOTS_GRID_SETUP,
+  TRADE_BOTS_GRID_PRESETS,
+  TRADE_BOTS_GRID_STOP,
+  TRADE_BOTS_GRID_TOP_UP_FREE,
+  TRADE_BOTS_GRID_TOP_UP,
+  TRADE_BOTS_GRID_MODIFY,
+  TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+} from './trade-bots-procedures.js';
+
 import { TRADE_BUILDER_ACCOUNT_MODE } from './trade-builder-mode-procedures.js';
+
+import {
+  TRADE_CONVERT_PAIRS,
+  TRADE_CONVERT_LIMITS,
+  TRADE_CONVERT_LIMIT_PLACE,
+  TRADE_CONVERT_LIMIT_CANCEL,
+  TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_LIST,
+} from './trade-convert-procedures.js';
 
 import { COPY_MY_COPY_FEES } from './trade-copy-procedures.js';
 
+import {
+  TRADE_COPY_MY_LEAD_APPLICATION,
+  TRADE_COPY_LEAD_ELIGIBILITY,
+  TRADE_COPY_APPLY_TO_LEAD,
+  TRADE_COPY_MY_LEAD,
+  TRADE_COPY_LEADER_TRADES,
+  TRADE_COPY_FOLLOW,
+  TRADE_COPY_CHECK_VENUE_FOLLOW,
+  TRADE_COPY_AMEND_FOLLOW,
+  TRADE_COPY_GRANT_SESSION_KEY,
+  TRADE_COPY_KILL_SESSION_KEY,
+  TRADE_COPY_CLOSE_COPIED_POSITION,
+  TRADE_COPY_SKIP_LOG,
+  TRADE_COPY_LEAD_EARNINGS,
+  TRADE_COPY_LEAD_LEVEL,
+  TRADE_COPY_LEAD_MISSIONS,
+  TRADE_COPY_LEAD_TRADES,
+  TRADE_COPY_LEAD_COPIERS,
+  TRADE_COPY_PLATFORM_PAUSES,
+} from './trade-copy-records.js';
+
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
+
+import { TRADE_OTC_MAKERS_LIST, TRADE_OTC_ACCEPT, TRADE_OTC_SETTLE, TRADE_OTC_CONVERT_BOUNDS } from './trade-otc-procedures.js';
 
 import {
   RECURRING_CREATE,
@@ -1400,6 +1451,10 @@ import {
   RECURRING_UPDATE,
   RECURRING_TERMINATE,
 } from './trade-recurring-procedures.js';
+
+import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from './trade-rfq-procedures.js';
+
+import { TRADE_SIGNALS_WEBHOOKS_CREATE } from './trade-signals-procedures.js';
 
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 
@@ -2835,11 +2890,67 @@ const part_token_procedures: readonly ProcedureRecord[] = [
   TOKEN_GOVERNANCE_SET_ROLE,
 ];
 
+const part_trade_admin_procedures: readonly ProcedureRecord[] = [
+  TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
+  TRADE_ADMIN_AGENT_DESK_AUDIT,
+  TRADE_ADMIN_AGENT_DESK_CONNECTION,
+  TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+];
+
+const part_trade_algo_procedures: readonly ProcedureRecord[] = [TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT];
+
+const part_trade_bots_procedures: readonly ProcedureRecord[] = [
+  TRADE_BOTS_GRID_SETUP,
+  TRADE_BOTS_GRID_PRESETS,
+  TRADE_BOTS_GRID_STOP,
+  TRADE_BOTS_GRID_TOP_UP_FREE,
+  TRADE_BOTS_GRID_TOP_UP,
+  TRADE_BOTS_GRID_MODIFY,
+  TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+];
+
 const part_trade_builder_mode_procedures: readonly ProcedureRecord[] = [TRADE_BUILDER_ACCOUNT_MODE];
+
+const part_trade_convert_procedures: readonly ProcedureRecord[] = [
+  TRADE_CONVERT_PAIRS,
+  TRADE_CONVERT_LIMITS,
+  TRADE_CONVERT_LIMIT_PLACE,
+  TRADE_CONVERT_LIMIT_CANCEL,
+  TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_LIST,
+];
 
 const part_trade_copy_procedures: readonly ProcedureRecord[] = [COPY_MY_COPY_FEES];
 
+const part_trade_copy_records: readonly ProcedureRecord[] = [
+  TRADE_COPY_MY_LEAD_APPLICATION,
+  TRADE_COPY_LEAD_ELIGIBILITY,
+  TRADE_COPY_APPLY_TO_LEAD,
+  TRADE_COPY_MY_LEAD,
+  TRADE_COPY_LEADER_TRADES,
+  TRADE_COPY_FOLLOW,
+  TRADE_COPY_CHECK_VENUE_FOLLOW,
+  TRADE_COPY_AMEND_FOLLOW,
+  TRADE_COPY_GRANT_SESSION_KEY,
+  TRADE_COPY_KILL_SESSION_KEY,
+  TRADE_COPY_CLOSE_COPIED_POSITION,
+  TRADE_COPY_SKIP_LOG,
+  TRADE_COPY_LEAD_EARNINGS,
+  TRADE_COPY_LEAD_LEVEL,
+  TRADE_COPY_LEAD_MISSIONS,
+  TRADE_COPY_LEAD_TRADES,
+  TRADE_COPY_LEAD_COPIERS,
+  TRADE_COPY_PLATFORM_PAUSES,
+];
+
 const part_trade_grid_procedures: readonly ProcedureRecord[] = [GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD];
+
+const part_trade_otc_procedures: readonly ProcedureRecord[] = [
+  TRADE_OTC_MAKERS_LIST,
+  TRADE_OTC_ACCEPT,
+  TRADE_OTC_SETTLE,
+  TRADE_OTC_CONVERT_BOUNDS,
+];
 
 const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
   RECURRING_CREATE,
@@ -2849,6 +2960,10 @@ const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
   RECURRING_UPDATE,
   RECURRING_TERMINATE,
 ];
+
+const part_trade_rfq_procedures: readonly ProcedureRecord[] = [TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE];
+
+const part_trade_signals_procedures: readonly ProcedureRecord[] = [TRADE_SIGNALS_WEBHOOKS_CREATE];
 
 const part_ws_procedures: readonly ProcedureRecord[] = [WS_SBE_CONSUMERS];
 
@@ -3047,9 +3162,17 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_token_launch_procedures,
   ...part_token_next_emission_epoch_procedures,
   ...part_token_procedures,
+  ...part_trade_admin_procedures,
+  ...part_trade_algo_procedures,
+  ...part_trade_bots_procedures,
   ...part_trade_builder_mode_procedures,
+  ...part_trade_convert_procedures,
   ...part_trade_copy_procedures,
+  ...part_trade_copy_records,
   ...part_trade_grid_procedures,
+  ...part_trade_otc_procedures,
   ...part_trade_recurring_procedures,
+  ...part_trade_rfq_procedures,
+  ...part_trade_signals_procedures,
   ...part_ws_procedures,
 ];

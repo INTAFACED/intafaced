@@ -1,5 +1,5 @@
 /**
- * Owner: lane B2 (templates). LineChart, AreaChart, Bars and Parts: plain SVG, every chart with its data as a
+ * Owner: lane B2 (templates). LineChart, AreaChart, Sparkline, Bars and Parts: plain SVG, every chart with its data as a
  * table (its text equivalent, and Pro's "table behind the chart"). Values arrive as decimal strings; they become
  * floats here only to place pixels (the kit's rule: floats for drawing only). Parts never draws a whole its
  * parts don't add up to: it adds "Other" for the difference or refuses.
@@ -104,17 +104,28 @@ export function AreaChart({ soft, ...props }: SeriesProps & { soft?: boolean }) 
 }
 
 /**
- * A small trend line with no axes, for a card or a row: the line only, coloured by its last value against its first.
+ * A small trend line with no axes, for a card or a row: the line only, coloured by its last value against its first,
+ * or by `tone` when the room already shows a direction (the sign of its change figure), so the two never disagree.
  * Fewer than two points draw nothing (never a made-up line); the caller says why. `label` names it for a screen reader.
  */
-export function Sparkline({ label, values }: { label: string; values: readonly DecimalString[] }) {
+export function Sparkline({
+  label,
+  values,
+  tone,
+  size = 'card',
+}: {
+  label: string;
+  values: readonly DecimalString[];
+  tone?: 'up' | 'down' | 'neutral';
+  size?: 'card' | 'row';
+}) {
   if (values.length < 2) return null;
   const { x, y, ys } = scale(values.map((value, i) => ({ at: String(i), value })));
   const d = ys.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const first = ys[0] ?? 0;
   const last = ys.at(-1) ?? first;
   return (
-    <figure className="lt-chart lt-spark" data-tone={last > first ? 'up' : last < first ? 'down' : 'neutral'}>
+    <figure className="lt-chart lt-spark" data-size={size} data-tone={tone ?? (last > first ? 'up' : last < first ? 'down' : 'neutral')}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
         <path className="lt-chart-line" d={d} vectorEffect="non-scaling-stroke" />
       </svg>

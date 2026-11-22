@@ -63,12 +63,15 @@ function progress(p: AlgoParent, filledQty: string): AlgoProgress {
     parentId: p.id,
     status: p.status,
     haltReason: p.haltReason,
+    stopReason: null,
     childrenEmitted: p.childrenEmitted,
     missesRecorded: p.missesRecorded,
     slicesPlanned: p.slicesPlanned,
     nextSliceIndex: p.nextSliceIndex,
     filledQty,
     totalQty: p.totalQty,
+    nextSliceAt: p.nextDueAt ?? null,
+    scheduler: { running: true, reason: null },
   };
 }
 
