@@ -1,5 +1,6 @@
 import { Button } from '@intafaced/ui/lit';
 import type { RefusalCopy } from '../../../data/types';
+import { moneyCopy } from '../copy';
 
 /**
  * The profit and loss room's small parts, drawn only from the Volt kit, with the same words, roles and test ids as the
@@ -11,8 +12,9 @@ const MASK = '••••';
 
 /** A money figure, masked when balances are hidden. */
 export function Amount({ value, hidden }: { value: string; hidden: boolean }) {
+  const { t } = moneyCopy.useCopy();
   return hidden ? (
-    <span data-hidden="true" aria-label="Hidden">
+    <span data-hidden="true" aria-label={t('Hidden figure')}>
       {MASK}
     </span>
   ) : (
