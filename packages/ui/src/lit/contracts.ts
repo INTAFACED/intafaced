@@ -339,6 +339,8 @@ export const components = {
   CardStack: 'The account as two cards you hold, each a link: matte black metal in front, the lit card behind',
   AmountField:
     'The box an amount of money is typed into: a decimal string (inputMode decimal, never a number), its unit beside it, what is available and a Max key under it, a refusal announced',
+  Toast:
+    'A short confirmation at the top of the screen (ToastProvider once, useToast().add), announced politely; never the only place a result is shown',
 } as const;
 export type ComponentName = keyof typeof components;
 

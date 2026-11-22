@@ -1027,3 +1027,81 @@
   color: var(--lit-error-text);
   font-size: var(--lit-type-label-size);
 }
+
+/* Toast: a short confirmation at the top of the screen, under the top bar; an opaque raised panel, never glass. The
+   region lets taps through where no toast is. */
+.lit-toasts {
+  position: fixed;
+  z-index: 60;
+  inset-block-start: calc(var(--lit-topbar-h) + 0.75rem);
+  inset-inline: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding-inline: 1rem;
+  pointer-events: none;
+}
+.lit-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  inline-size: 100%;
+  max-inline-size: 24rem;
+  padding-block: 0.75rem;
+  padding-inline: 1rem 0.5rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+  color: var(--lit-text-1);
+  pointer-events: auto;
+  animation: lit-toast-in var(--lit-t-base) var(--lit-ease);
+}
+.lit-toast [data-part='text'] {
+  flex: 1;
+  min-inline-size: 0;
+}
+.lit-toast p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.lit-toast [data-part='title'] {
+  font-weight: 600;
+}
+.lit-toast [data-part='body'] {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lit-toast [data-part='close'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  margin-block: -0.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+.lit-toast [data-part='close']:hover {
+  color: var(--lit-text-1);
+}
+.lit-toast [data-part='close']:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+@keyframes lit-toast-in {
+  from {
+    opacity: 0;
+    translate: 0 -0.5rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lit-toast {
+    animation: none;
+  }
+}
