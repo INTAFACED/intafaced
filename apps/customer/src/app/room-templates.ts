@@ -302,7 +302,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/mining': { template: 'catalogue' },
   '/token': { template: 'catalogue' },
   '/blueprint': { template: 'catalogue' },
-  '/support': { template: 'reading' },
+  '/support': { template: 'reading', migrated: { file: 'features/more/Support.tsx' } },
   '/campaigns': { template: 'overview' },
   '/campaigns/drops': { template: 'catalogue' },
   '/campaigns/mine': { template: 'record-list' },

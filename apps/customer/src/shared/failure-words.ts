@@ -57,6 +57,8 @@ export function embeddedKey(message: string): string | undefined {
 /** What a failed read or write says, in the words the shared `Failure` uses, for a room drawn on the kit. */
 export interface FailureWords {
   title: string;
+  /** The language the title's words are in, when the app's own copy gave them. */
+  titleLang?: string;
   body: string;
   /** The language the body's words are in, when the answer's own message copy chose them. */
   bodyLang?: string;
@@ -78,13 +80,21 @@ export function useFailureWords(): (result: Failed) => FailureWords {
   return (result) => {
     const retryLabel = t('retry');
     if (isServiceNotConnected(result.code))
-      return { title: t('not_mounted'), body: t('serviceNotConnected'), role: 'status', retry: false, retryLabel };
+      return {
+        title: t('not_mounted'),
+        titleLang: languageFor('not_mounted'),
+        body: t('serviceNotConnected'),
+        role: 'status',
+        retry: false,
+        retryLabel,
+      };
     const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
     if (rawCode && !result.messageCopy) {
       const words = refusalCopy(result.code ?? rawCode);
       const uncertain = result.reason === 'uncertain';
       return {
         title: uncertain ? t('uncertain') : words.title,
+        titleLang: uncertain ? languageFor('uncertain') : undefined,
         body: uncertain ? t('gatewayUncertain') : (words.body ?? ''),
         action: !uncertain && words.action ? words.action : undefined,
         reference: words.reference,
@@ -96,6 +106,7 @@ export function useFailureWords(): (result: Failed) => FailureWords {
     const unauthorized = result.reason === 'unauthorized';
     return {
       title: t(result.reason),
+      titleLang: languageFor(result.reason),
       body: result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message,
       bodyLang: result.messageCopy ? languageFor(result.messageCopy.key) : undefined,
       action: unauthorized
