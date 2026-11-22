@@ -11,7 +11,6 @@ import { AgentApprovals } from './AgentApprovals';
 import { AgentConnect } from './AgentConnect';
 import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
-import { agentRunCopy } from './agent-run-copy';
 import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
@@ -101,8 +100,7 @@ function MoreRooms({ path }: { path: string }) {
     content = <NewAgent />;
   } else if (agentRunId(p)) {
     const runId = agentRunId(p)!;
-    title = agentRunCopy.t('title');
-    content = <AgentRunPage key={runId} runId={runId} />;
+    volt = <AgentRunPage key={runId} runId={runId} />;
   } else if (ownAgentId(p)) {
     const id = ownAgentId(p)!;
     title = <OwnAgentTitle id={id} />;

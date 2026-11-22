@@ -275,7 +275,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/agents/approvals': { template: 'record-list' },
   '/agents/connect': { template: 'flow' },
   '/agents/new': { template: 'flow' },
-  '/agents/runs/:runId': { template: 'reading' },
+  '/agents/runs/:runId': { template: 'reading', migrated: { file: 'features/more/AgentRun.tsx' } },
   '/agents/:agentId': { template: 'catalogue' },
   '/quant': { template: 'desk' },
   '/quant/sandbox': { template: 'desk' },
