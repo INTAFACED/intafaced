@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApi } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, Failure, Field, Panel } from './agent-room/parts';
 import { agentAutomationCopy, hasAutomationWords } from './agent-automation-copy';
 import {
   OWN_AGENT_AUTOMATION_LIMITS,
@@ -225,7 +226,7 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
             setAsk(event.target.value);
           }}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('createSchedule')}
         </Button>
         {refused ? <Answer failed={refused} /> : null}
@@ -247,11 +248,11 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
             <td data-testid="schedule-status">{t(`status_${schedule.state}`)}</td>
             <td data-testid="next-occurrence">{when(schedule.nextDueAt) ?? t('none')}</td>
             <td>
-              <Button variant="secondary" onClick={() => setOpen(schedule.id)}>
+              <Button tone="secondary" onClick={() => setOpen(schedule.id)}>
                 {t('recentRuns')}
               </Button>
               {schedule.state === 'active' ? (
-                <Button variant="ghost" disabled={busy} onClick={() => void cancel(schedule)}>
+                <Button tone="quiet" disabled={busy} onClick={() => void cancel(schedule)}>
                   {t('cancel')}
                 </Button>
               ) : null}
@@ -381,7 +382,7 @@ function Triggers({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgentT
             setAsk(event.target.value);
           }}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('addTrigger')}
         </Button>
         {refused ? <Answer failed={refused} /> : null}

@@ -1,10 +1,11 @@
 import { NAVIGATOR_TRADE_REFUSALS, type NavigatorOrder, type NavigatorTrading } from '@intafaced/contracts/agents-onchain';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Failure } from '../../shared/ui';
+import { Tag } from '@intafaced/ui/lit';
 import { useApi } from '../session';
 import { formatUnits, utcTime } from '../protocol';
 import { navigatorOnchainCopy } from './navigator-onchain-copy';
+import { FailureNote } from './volt-parts';
 import { AGENTS_NAVIGATOR_TRADING, AGENTS_NAVIGATOR_ORDERS } from '@intafaced/contracts/agents-navigator-procedures';
 
 type T = ReturnType<typeof navigatorOnchainCopy.forLocale>['t'];
@@ -87,12 +88,12 @@ function OrderFacts({ order, t }: { order: NavigatorOrder; t: T }) {
 export function NavigatorOrderView({ order }: { order: NavigatorOrder }) {
   const { t } = navigatorOnchainCopy.useCopy();
   return (
-    <section aria-label={t('orderTitle')} className="navigator-order">
+    <section aria-label={t('orderTitle')} className="lt-stack">
       <h4>{t('orderTitle')}</h4>
       <p>
-        <span className="pill" data-placed-by={order.placedBy}>
+        <Tag tone="neutral" data-placed-by={order.placedBy}>
           {t('byAssistant')}
-        </span>
+        </Tag>
       </p>
       <OrderFacts order={order} t={t} />
       <p className="lt-muted">{t('orderInsideCap')}</p>
@@ -127,11 +128,11 @@ export function NavigatorTradeRefusalView({
   trading: NavigatorTrading | null;
 }) {
   const { t } = navigatorOnchainCopy.useCopy();
-  if (!isNavigatorTradeRefusal(failure)) return <Failure result={failure} />;
+  if (!isNavigatorTradeRefusal(failure)) return <FailureNote result={failure} />;
   const code = TRADE_CODES.has(failure.message) ? failure.message : failure.code!;
   const key = trading?.key ?? null;
   return (
-    <section aria-label={t('refusalTitle')} className="navigator-refusal">
+    <section aria-label={t('refusalTitle')} className="lt-stack">
       <h4>{t('refusalTitle')}</h4>
       <p role="alert" data-refusal-code={code}>
         {code === 'agents.navigator_trade_over_cap' && key
@@ -153,21 +154,21 @@ export function NavigatorOrders({ sessionId, revision = 0 }: { sessionId: string
     `navigator-orders:${sessionId}:${revision}`,
   );
   return (
-    <div className="navigator-orders" data-testid="navigator-orders">
+    <div className="lt-stack" data-testid="navigator-orders">
       <h4>{t('ordersTitle')}</h4>
       {resource.status === 'loading' ? (
         <p role="status">{t('reading')}</p>
       ) : resource.status === 'failed' ? (
-        <Failure result={resource.failure} retry={reload} />
+        <FailureNote result={resource.failure} retry={reload} />
       ) : resource.data.orders.length === 0 ? (
         <p className="lt-muted">{t('ordersEmpty')}</p>
       ) : (
         <ul>
           {resource.data.orders.map((order) => (
             <li key={order.id} data-order-key={order.orderKey}>
-              <span className="pill" data-placed-by={order.placedBy}>
+              <Tag tone="neutral" data-placed-by={order.placedBy}>
                 {t('byAssistant')}
-              </span>
+              </Tag>
               <OrderFacts order={order} t={t} />
             </li>
           ))}

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Dialog, Failure, Field, Panel } from '../../shared/ui';
-import { Read } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, Dialog, Failure, Field, Panel, Read } from './agent-room/parts';
 import { agentMemoryCopy } from './agent-memory-copy';
 import type { Failed } from './AgentGuardrails';
 import {
@@ -144,7 +144,7 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
             </td>
             <td>{new Date(item.createdAt).toLocaleString()}</td>
             <td>
-              <Button variant="ghost" disabled={busy} onClick={() => void clear(item.id)}>
+              <Button tone="quiet" disabled={busy} onClick={() => void clear(item.id)}>
                 {t('clear')}
               </Button>
             </td>
@@ -274,13 +274,13 @@ function Share({ agent, stored }: { agent: OwnAgent; stored: OwnAgentShare }) {
         <span data-testid="share-state">{t(state)}</span>
       </p>
       {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
-      <label className="agent-surface-choice">
+      <label className="lt-field">
         <input type="checkbox" checked={transcripts} onChange={(event) => setTranscripts(event.target.checked)} /> {t('includeTranscripts')}
       </label>
-      <label className="agent-surface-choice">
+      <label className="lt-field">
         <input type="checkbox" checked={memory} onChange={(event) => setMemory(event.target.checked)} /> {t('includeMemory')}
       </label>
-      <Button disabled={busy} onClick={() => void runCheck()}>
+      <Button tone="primary" disabled={busy} onClick={() => void runCheck()}>
         {t('share')}
       </Button>
       {refused ? <Refused failed={refused} /> : null}
@@ -298,10 +298,10 @@ function Share({ agent, stored }: { agent: OwnAgent; stored: OwnAgentShare }) {
           ) : (
             <p>{t('checkNothing')}</p>
           )}
-          <Button disabled={busy} onClick={() => void confirm()}>
+          <Button tone="primary" disabled={busy} onClick={() => void confirm()}>
             {t('confirmShare')}
           </Button>
-          <Button variant="secondary" onClick={() => setCheck(null)}>
+          <Button tone="secondary" onClick={() => setCheck(null)}>
             {t('cancel')}
           </Button>
         </Dialog>
