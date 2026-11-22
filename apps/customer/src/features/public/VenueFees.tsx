@@ -263,7 +263,8 @@ function StakingDiscountView({ discount, builder, t }: { discount: Discount; bui
                 <td data-cell="taker-after" data-value={bps(m.after.takerFeeBps)}>
                   <RateCell rate={m.after.takerFeeBps} t={t} />
                 </td>
-                <td data-cell="builder-fee" data-value={ours?.known ? ours.value : ''}>
+                {/* No data-value until our fees answer: "loading" is never read as "not set" (J-cex-spot-21 #4). */}
+                <td data-cell="builder-fee" data-value={builder === null ? undefined : ours?.known ? ours.value : ''}>
                   {ours === null ? t('loading') : ours.known ? t('pct', { pct: bpsToPercent(ours.value) }) : t('notSet')}
                 </td>
               </tr>

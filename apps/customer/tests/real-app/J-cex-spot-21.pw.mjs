@@ -294,9 +294,17 @@ test(`${J} #4 opens My tier: the venue's staking discount for the staked amount,
     if (m.before.takerFeeBps.known && toUnits(m.after.takerFeeBps.value) < toUnits(m.before.takerFeeBps.value)) lowered += 1;
     // Our builder fee, named apart, the same as before any staking.
     const ours = builder[m.symbol];
+    // It comes from a second read: the cell has no value until that read answers, so wait for it.
     if (ours) {
-      const shown = await row.locator('[data-cell="builder-fee"]').getAttribute('data-value');
-      expect(ours.known ? sameDecimal(shown, ours.value) : shown === '', `${m.symbol} builder fee`).toBe(true);
+      await expect
+        .poll(
+          async () => {
+            const shown = await row.locator('[data-cell="builder-fee"]').getAttribute('data-value');
+            return shown !== null && (ours.known ? sameDecimal(shown, ours.value) : shown === '');
+          },
+          { message: `${m.symbol} builder fee`, timeout: 20_000 },
+        )
+        .toBe(true);
     }
   }
   expect(lowered).toBeGreaterThan(0);
