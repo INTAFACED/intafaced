@@ -53,6 +53,7 @@ fn engine_on(journal: MemoryJournal) -> MatchingEngine {
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: true,
     })
 }
 

@@ -18,6 +18,7 @@ pub mod book;
 pub mod liquidity;
 pub mod operator;
 pub mod rulebook;
+pub mod spreads;
 pub mod venue;
 
 use std::sync::{LazyLock, Mutex, PoisonError};
@@ -75,6 +76,7 @@ impl Slice {
                 | Slice::Triggers
                 | Slice::Liquidity
                 | Slice::Venue
+                | Slice::Spreads
                 | Slice::Operator
         )
     }
@@ -781,6 +783,13 @@ impl MatchingDoor {
         let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
         match route.slice {
             Slice::Liquidity => liquidity::serve(route, &param, &parsed, &mut engine),
+            Slice::Spreads => {
+                let approvals = spreads::Approvals {
+                    consumer: self.cfg.approvals.as_ref(),
+                    operator_ids: &self.cfg.operator_ids,
+                };
+                spreads::serve(route, req, &param, &parsed, &mut engine, &approvals)
+            }
             Slice::Venue => venue::serve(&self.cfg, route, req, &param, &parsed, &mut engine),
             Slice::Operator => operator::serve(
                 &self.cfg,
