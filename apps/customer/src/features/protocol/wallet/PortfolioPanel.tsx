@@ -8,17 +8,14 @@ import { createProtocolApi } from '../api';
 import { portfolioCopy, type PortfolioTranslate } from './portfolio-copy';
 import { tokenAmount, usdDisplay } from './portfolio-format';
 import { usePolled } from './use-polled';
+import { CONVENTIONS, conventionPath, type Convention } from './portfolio-paths';
 import { useWallet } from './WalletProvider';
 
 /** How often the portfolio is read again while it is open: a new block can change any figure. */
 const READ_EVERY_MS = 3_000;
 
-/** Every convention with its own page under /wallet/conventions/<id>. */
-export const CONVENTIONS = ['pnl', 'drawdown', 'prices', 'entry', 'modes'] as const;
 /** The ones the profit and loss view links. */
 const PNL_CONVENTIONS = ['pnl', 'drawdown', 'prices', 'entry'] as const;
-export type Convention = (typeof CONVENTIONS)[number];
-export const conventionPath = (id: Convention) => `/wallet/conventions/${id}`;
 export const holdingPath = (token: string) => `/wallet/tokens/${token.toLowerCase()}`;
 
 /** The connected wallet's portfolio, read again every few seconds; null with no wallet on this network. */

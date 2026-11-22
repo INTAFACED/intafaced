@@ -19,7 +19,7 @@ pub mod slice;
 use postgres::{Client, GenericClient};
 
 use service_kit::json::{self, Json};
-use service_kit::money::{Amount, format_amount};
+use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::pg::Pool;
 use service_kit::time::Instant;
 use service_kit::trpc::TrpcError;
@@ -30,6 +30,7 @@ use crate::metering::meter::{self, MeterError};
 use crate::metering::ports::Bus;
 use crate::metering::settle;
 use crate::runtime::{self, Rt, RunError, ThinkInput, denied, ms};
+use crate::webhooks::{self, FinishedRun};
 
 /// `SessionRunSettings`: the owner's values. Each `None` is blank and refuses a new run.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -290,6 +291,51 @@ fn steps_of(c: &mut impl GenericClient, run_id: &str) -> Result<Vec<StepRow>, Ru
         .collect()
 }
 
+/// `deliverEnded`: the ended run's webhook delivery (J-agents-12 #5), in the transaction that ended it: its state, the
+/// last reply, the steps' summed cost and the failure code. A background run ends once, so its event is sequence 1.
+fn deliver_ended(
+    tx: &mut impl GenericClient,
+    run_id: &str,
+    fee_asset_id: &str,
+) -> Result<(), RunError> {
+    let rows = tx.query(
+        "SELECT user_id, session_id::text, agent_id, state, failure_code \
+           FROM agents.session_background_runs WHERE id = $1::text::uuid",
+        &[&run_id],
+    )?;
+    let Some(r) = rows.first() else {
+        return Ok(());
+    };
+    let (user_id, session_id, agent_id, state): (String, String, String, String) =
+        (r.try_get(0)?, r.try_get(1)?, r.try_get(2)?, r.try_get(3)?);
+    let failure: Option<String> = r.try_get(4)?;
+    let steps = steps_of(tx, run_id)?;
+    let costs = steps
+        .iter()
+        .filter_map(|st| st.cost.as_deref())
+        .map(parse_amount)
+        .collect::<Result<Vec<Amount>, String>>()
+        .map_err(RunError::Other)?;
+    let reply = steps.iter().rev().find_map(|st| st.reply.as_deref());
+    webhooks::enqueue_run_finished(
+        tx,
+        &FinishedRun {
+            event_id: webhooks::finished_event_id(webhooks::Kind::Background, run_id, 1),
+            kind: webhooks::Kind::Background,
+            user_id: &user_id,
+            run_id,
+            session_id: &session_id,
+            agent_id: &agent_id,
+            state: &state,
+            reply,
+            cost: (!costs.is_empty()).then(|| format_amount(costs.iter().sum())),
+            asset_id: (!costs.is_empty()).then_some(fee_asset_id),
+            refusal_codes: failure.into_iter().collect(),
+        },
+    )?;
+    Ok(())
+}
+
 /// `err instanceof AgentError ? err.code : 'agents.provider_failed'`: a guardrail's refusal is `agents.refused`.
 fn failure_code(e: &RunError) -> String {
     match e {
@@ -353,6 +399,7 @@ fn finish_step(
                      finished_at = now(), updated_at = now() WHERE id = $1::text::uuid",
                     &[&run.id, &code],
                 )?;
+                deliver_ended(tx, &run.id, &x.m.fee_asset_id)?;
             }
             Ok(false)
         }
@@ -562,6 +609,7 @@ pub fn stop(x: &Rt<'_>, run_id: &str, user_id: &str) -> Result<Option<Json>, Run
              WHERE id = $1::text::uuid",
             &[&run.id, &result.compact()],
         )?;
+        deliver_ended(tx, &run.id, &x.m.fee_asset_id)?;
         Ok(Some(false))
     })?;
     let Some(repeated) = outcome else {
@@ -660,6 +708,7 @@ pub fn advance(x: &Rt<'_>, step_ms: i64, batch: i64) -> Result<i64, RunError> {
                      WHERE id = $1::text::uuid",
                     &[&id],
                 )?;
+                deliver_ended(tx, &id, &x.m.fee_asset_id)?;
                 return Ok(true);
             }
             let next = i32::try_from(taken + 1).map_err(|e| RunError::Other(e.to_string()))?;

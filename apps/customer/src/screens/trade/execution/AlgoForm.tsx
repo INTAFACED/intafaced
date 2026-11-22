@@ -396,7 +396,11 @@ export function AlgoForm({
       )}
       {twap ? (
         <>
-          <Checkbox label={t('Random slice sizes')} checked={form.random} onChange={(v) => set('random', v)} />
+          <Checkbox
+            label={t('Random slice sizes')}
+            checked={form.random}
+            onChange={(event) => set('random', event.currentTarget.checked)}
+          />
           {form.random ? (
             <TextField
               label={t('Seed')}

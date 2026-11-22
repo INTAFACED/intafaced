@@ -913,7 +913,7 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
             label={t('Reverse tier accept', { tier: String(tier.projected), to: sideWord(t, to) })}
             checked={tierAccepted}
             disabled={finished}
-            onChange={setTierAccepted}
+            onChange={(event) => setTierAccepted(event.currentTarget.checked)}
           />
         ) : null}
       </section>

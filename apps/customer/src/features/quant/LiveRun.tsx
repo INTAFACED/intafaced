@@ -9,7 +9,7 @@ import { DeskTemplate, Segmented, type RoomState } from '@intafaced/ui/lit/templ
 import { venueBalanceSchema, venueFillSchema, venueOrderSchema, venuePositionSchema } from '../trade';
 import { useApi } from '../session';
 import { liveRunCopy } from './live-run-copy';
-import { KitFailure, KitRead, KitTable } from './kit-parts';
+import { KitFailure, KitTable } from './kit-parts';
 
 // hand-declared-ok: svc-trade's live-run answers (src/quant/live-run/rest.ts) have no browser-safe schema in @intafaced/contracts; the venue rows reuse trade/venue-api's.
 
@@ -81,11 +81,14 @@ const detailSchema = runSchema.extend({
   log: z.array(z.object({ n: z.number(), at: iso, kind: z.string(), detail: z.string() })),
 });
 type Detail = z.infer<typeof detailSchema>;
-const listSchema = z.object({ runs: z.array(runSchema) });
+/** The list `/quant/live` reads (live-runs/LiveRunsRoom.tsx). */
+export const listSchema = z.object({ runs: z.array(runSchema) });
 const manualSchema = z.object({ run: runSchema, order: orderSchema });
 const liquidateSchema = z.object({ run: runSchema, orders: z.array(orderSchema) });
 
 const BASE = '/quant/live-runs';
+/** The live-runs path, for the list room (live-runs/LiveRunsRoom.tsx). */
+export const liveRunsBase = BASE;
 const KNOWN = new Set([
   'quant.permission_denied',
   'quant.account_frozen',
@@ -104,7 +107,7 @@ const refusalOf = (res: Extract<ApiResult<unknown>, { ok: false }>): Refusal => 
   code: res.code && /^quant\.[a-z_]+$/.test(res.code) ? res.code : null,
   message: res.message,
 });
-const timeText = (value: string) => value.slice(0, 19).replace('T', ' ');
+export const timeText = (value: string) => value.slice(0, 19).replace('T', ' ');
 
 function Refused({ refusal }: { refusal: Refusal }) {
   const { t } = liveRunCopy.useCopy();
@@ -115,43 +118,6 @@ function Refused({ refusal }: { refusal: Refusal }) {
         : refusal.message || t('code_other')}{' '}
       {refusal.code ? <code lang="zxx">{refusal.code}</code> : null}
     </p>
-  );
-}
-
-/** `/quant/live`: the person's live runs, newest first. */
-export function LiveRuns() {
-  const api = useApi();
-  const { t } = liveRunCopy.useCopy();
-  const list = useResource((signal) => api.rest(BASE, listSchema, { signal }), 'quant-live-runs');
-  return (
-    <section aria-label={t('listTitle')} data-testid="live-runs">
-      <p className="lt-hint">{t('intro')}</p>
-      <KitRead resource={list.resource} retry={list.reload}>
-        {(data) =>
-          data.runs.length === 0 ? (
-            <p className="lt-hint">{t('none')}</p>
-          ) : (
-            <KitTable label={t('listTitle')} headers={[t('colStrategy'), t('colState'), t('colStarted'), '']}>
-              {data.runs.map((r) => (
-                <tr key={r.runId} data-testid="live-run-row" data-id={r.runId}>
-                  <td>
-                    {r.strategyName} · {t('version', { version: r.strategyVersion })}
-                  </td>
-                  <td data-testid="live-run-row-state" data-state={r.state} data-halted={r.halt ? 'true' : 'false'}>
-                    {t(`state_${r.state}`)}
-                    {r.halt ? ` · ${t('haltedShort')}` : ''}
-                  </td>
-                  <td data-align="end">{r.startedAt ? timeText(r.startedAt) : '—'}</td>
-                  <td>
-                    <a href={`/quant/live/${encodeURIComponent(r.runId)}`}>{t('open')}</a>
-                  </td>
-                </tr>
-              ))}
-            </KitTable>
-          )
-        }
-      </KitRead>
-    </section>
   );
 }
 
