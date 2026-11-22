@@ -1,9 +1,10 @@
-import { z } from 'zod';
 import { UNRESOLVED_REGION, isRegionResolved } from '@intafaced/config';
-import { router, scopedProcedure } from '@intafaced/contracts/trpc';
-import { kycLevelsDescribeOutputSchema } from '@intafaced/contracts/identity-kyc-levels';
+import { router } from '@intafaced/contracts/trpc';
 import type { KycTier } from '@intafaced/config';
 import { describeLevels, type KycLadderSettings } from './levels.js';
+import { IDENTITY_KYC_LEVELS_DESCRIBE } from '@intafaced/contracts/identity-kyc-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 /**
  * `kyc.levels.describe` (I-kyc-compliance-04/05): the caller's own ladder. The held level is `kycTier`, the function the
@@ -13,10 +14,9 @@ import { describeLevels, type KycLadderSettings } from './levels.js';
  */
 export function createKycLevelsRouter(deps: { kycTier: (userId: string) => Promise<KycTier>; settings: KycLadderSettings }) {
   return router({
-    describe: scopedProcedure('identity:read')
-      .input(z.object({}).strict().optional())
-      .output(kycLevelsDescribeOutputSchema)
-      .query(async ({ ctx }) => {
+    describe: mountRecord(
+      IDENTITY_KYC_LEVELS_DESCRIBE,
+      async ({ ctx }) => {
         const region = ctx.region?.trim() || UNRESOLVED_REGION;
         return describeLevels({
           held: await deps.kycTier(ctx.principal.userId),
@@ -24,6 +24,8 @@ export function createKycLevelsRouter(deps: { kycTier: (userId: string) => Promi
           regionResolved: isRegionResolved(region),
           settings: deps.settings,
         });
-      }),
+      },
+      codedRefusal,
+    ),
   });
 }

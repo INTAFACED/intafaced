@@ -6,8 +6,10 @@ import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { devicesCopy as copy } from './devices-copy';
-import { byFamily, deviceName, deviceList, familyEnded, othersEnded } from './devices-api';
+import { byFamily, deviceName, deviceList } from './devices-api';
 import { idleSince } from './identity-session-guards';
+import { IDENTITY_REVOKE_SESSION_FAMILY } from '@intafaced/contracts/identity-revoke-session-family-procedures';
+import { IDENTITY_REVOKE_OTHER_SESSIONS } from '@intafaced/contracts/identity-revoke-other-sessions-procedures';
 
 const LIMIT = 100;
 
@@ -108,7 +110,7 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
                     aria-label={t('signOutLabel', { device: name })}
                     onClick={() =>
                       void run(
-                        () => api.mutate('identity', 'revokeSessionFamily', { familyId: device.familyId }, familyEnded),
+                        () => api.call(IDENTITY_REVOKE_SESSION_FAMILY, { familyId: device.familyId }),
                         (data) => (data.revoked ? t('endedOne') : t('endedNone')),
                       )
                     }
@@ -136,7 +138,7 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
               disabled={busy}
               onClick={() =>
                 void run(
-                  () => api.mutate('identity', 'revokeOtherSessions', {}, othersEnded),
+                  () => api.call(IDENTITY_REVOKE_OTHER_SESSIONS, {}),
                   (data) => (data.revokedFamilies > 0 ? t('endedOthers', { count: data.revokedFamilies }) : t('endedNoOthers')),
                 )
               }

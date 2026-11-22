@@ -11,11 +11,7 @@ import {
 } from '@intafaced/contracts/kyb-application';
 import {
   kybDocumentChecklistViewSchema,
-  kybDocumentFileInputSchema,
-  kybDocumentFileSchema,
   kybDocumentReviewInputSchema,
-  kybDocumentReviewViewInputSchema,
-  kybDocumentReviewViewSchema,
   kybDocumentsChecklistInputSchema,
   kybDocumentsUploadInputSchema,
   kybDocumentsUploadResultSchema,
@@ -25,8 +21,6 @@ import {
   kybRequestAnswerInputSchema,
   kybRequestCloseInputSchema,
   kybRequestCreateInputSchema,
-  kybRequestFileBytesSchema,
-  kybRequestFileInputSchema,
   kybRequestResultSchema,
   kybRequestsListInputSchema,
   kybRequestsViewSchema,
@@ -52,6 +46,14 @@ import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ow
 import { PayError } from './payment-service.js';
 import { PspModeError, type PspModeService } from './psp-mode.js';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
+import {
+  PAY_KYB_DOCUMENTS_FILE,
+  PAY_KYB_REQUESTS_FILE,
+  PAY_KYB_REQUESTS_REVIEW_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+} from '@intafaced/contracts/pay-kyb-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from './record-refusal.js';
 
 /**
  * DIGITAL KYB + PSP PRICING / MODE — operator + merchant surfaces (`pay.psp`).
@@ -333,15 +335,15 @@ export function createKybPspRouter(
           ),
 
         /** Compliance: a merchant's current application and each document, with who gave each verdict. Interactive sign-in with a second factor. */
-        reviewView: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybDocumentReviewViewInputSchema)
-          .output(kybDocumentReviewViewSchema)
-          .query(({ ctx, input }) =>
+        reviewView: mountRecord(
+          PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return documentService().reviewView(input.merchantId);
             }),
-          ),
+          payRefusal,
+        ),
 
         /**
          * Compliance: one verdict on a current upload. Accepted reads Verified to the business; rejected reads Invalid
@@ -366,15 +368,15 @@ export function createKybPspRouter(
           ),
 
         /** Compliance: the bytes of one upload, so the reviewer can read it. A mutation, because every read is recorded. */
-        file: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybDocumentFileInputSchema)
-          .output(kybDocumentFileSchema)
-          .mutation(({ ctx, input }) =>
+        file: mountRecord(
+          PAY_KYB_DOCUMENTS_FILE,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return documentService().file({ ...input, actorId: ctx.principal.userId });
             }),
-          ),
+          payRefusal,
+        ),
       }),
 
       /** Information requests (J-merchant-02 step 4): compliance asks, the business answers once, compliance closes. */
@@ -408,15 +410,15 @@ export function createKybPspRouter(
           ),
 
         /** For compliance: one merchant's requests. */
-        reviewList: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybRequestsListInputSchema)
-          .output(kybRequestsViewSchema)
-          .query(({ ctx, input }) =>
+        reviewList: mountRecord(
+          PAY_KYB_REQUESTS_REVIEW_LIST,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return requestService().list(input.merchantId);
             }),
-          ),
+          payRefusal,
+        ),
 
         /** For compliance: ask a merchant for more, with a due date in the future. The request key makes it idempotent. */
         create: scopedProcedure('admin:compliance', { module: 'pay' })
@@ -441,15 +443,15 @@ export function createKybPspRouter(
           ),
 
         /** For compliance: the decrypted bytes of an answer's file. Each read is recorded. */
-        file: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybRequestFileInputSchema)
-          .output(kybRequestFileBytesSchema)
-          .mutation(({ ctx, input }) =>
+        file: mountRecord(
+          PAY_KYB_REQUESTS_FILE,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return requestService().file({ requestId: input.requestId, actorId: ctx.principal.userId });
             }),
-          ),
+          payRefusal,
+        ),
       }),
 
       requirements: router({

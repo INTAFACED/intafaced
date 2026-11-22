@@ -4,7 +4,9 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { sessionLimitsCopy as copy } from './session-limits-copy';
-import { OUT_OF_RANGE, minutesFrom, sessionSettings, spoken } from './session-limits-api';
+import { OUT_OF_RANGE, minutesFrom, spoken } from './session-limits-api';
+import { IDENTITY_SESSION_SETTINGS } from '@intafaced/contracts/identity-session-settings-procedures';
+import { IDENTITY_SET_IDLE_SIGNOUT } from '@intafaced/contracts/identity-set-idle-signout-procedures';
 
 /**
  * Idle sign-out and the signed-in device limit in Security (slice I-signin-sessions-06, journey J-identity-06 #4): the
@@ -27,10 +29,7 @@ export function SessionLimits() {
     };
   }, []);
   const { resource, reload } = useResource(
-    (signal) =>
-      userId
-        ? api.query('identity', 'sessionSettings', {}, sessionSettings, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(IDENTITY_SESSION_SETTINGS, {}, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `session-limits:${userId}`,
   );
 
@@ -47,7 +46,7 @@ export function SessionLimits() {
     setFailure(null);
     setNote(null);
     try {
-      const answer = await api.mutate('identity', 'setIdleSignout', { seconds }, sessionSettings);
+      const answer = await api.call(IDENTITY_SET_IDLE_SIGNOUT, { seconds });
       if (!mounted.current) return;
       if (!answer.ok) {
         if (answer.reason !== 'uncertain' && answer.code === OUT_OF_RANGE) {

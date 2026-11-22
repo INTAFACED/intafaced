@@ -11,6 +11,7 @@ const api = {
     world.asked.push(args.slice(0, 3));
     return world.answer();
   },
+  call: (record: { module: string; path: string }, input: unknown) => api.query(record.module, record.path, input),
 };
 vi.mock('../session/session', () => ({
   useSession: () => ({ userId: USER, api }),

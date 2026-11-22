@@ -130,6 +130,7 @@ it.each(['success', 'pay.idempotency_conflict', 'pay.subscription_mandate_open']
                 kybStatus: 'approved',
                 kybRef: 'verified',
                 feeBps: null,
+                starterFee: null,
               },
             },
           }),
@@ -301,7 +302,16 @@ describe('a lost create is checked before anything is sent again', () => {
   };
   const merchantReply = {
     result: {
-      data: { id: merchantId, userId, mode: 'gateway', status: 'active', kybStatus: 'approved', kybRef: 'verified', feeBps: null },
+      data: {
+        id: merchantId,
+        userId,
+        mode: 'gateway',
+        status: 'active',
+        kybStatus: 'approved',
+        kybRef: 'verified',
+        feeBps: null,
+        starterFee: null,
+      },
     },
   };
   type Body = { idempotencyKey?: string; mandateId?: string; path?: string };
