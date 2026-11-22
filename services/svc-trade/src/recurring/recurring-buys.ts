@@ -631,7 +631,10 @@ export class RecurringBuys {
       if (sent === 'refused') await this.deps.store.updateOrder({ ...order, status: 'refused', closedAt: this.deps.now() });
     }
     await this.readOrders(rule, actor);
-    await this.deps.store.setSlotOutcome(rule.ruleId, slot.slot, 'bought');
+    // An order whose answer is still unknown (a submit that timed out, a read-back that found nothing) keeps the slot
+    // pending, so the next pass runs it again under the same key and re-sends only the stored bytes.
+    const unanswered = (await this.deps.store.orders(rule.ruleId)).some((o) => o.slot === slot.slot && o.status === 'open');
+    if (!unanswered) await this.deps.store.setSlotOutcome(rule.ruleId, slot.slot, 'bought');
   }
 
   /** What one buy cost in the quote: its fills' quote and any fee the venue charged in the quote. */

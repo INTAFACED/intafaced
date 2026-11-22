@@ -9,7 +9,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod authoring_kit;
+use crate::authoring_kit;
 
 use authoring_kit::{at, code, equals, iso, len, matches, n, s, same, store, v};
 use service_kit::json::Json;

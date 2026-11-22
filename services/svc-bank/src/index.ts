@@ -51,7 +51,7 @@ import {
   TEST_RAMP_PARTNER_RECORD_BASE,
   TEST_RAMP_PARTNER_RECORD_PATHS,
 } from './ramps/test-ramp-partner-record.js';
-import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
+import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_PERSON_PATHS, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
 import {
   answerTestCardPartnerRecord,
   TEST_CARD_PARTNER_RECORD_BASE,
@@ -956,9 +956,7 @@ if (testPartner) {
     return reply.code(status).header('cache-control', 'no-store').send(body);
   };
   app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
-  app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
-  app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
-  app.post(`${TEST_PARTNER_RECORD_BASE}/onboarding`, read);
+  for (const path of TEST_PARTNER_PERSON_PATHS) app.post(`${TEST_PARTNER_RECORD_BASE}${path}`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/direct-debits`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/dd-refund`, read);
 }

@@ -13,7 +13,7 @@ export function CompromisedEntry() {
   return (
     <section
       data-testid="security__compromised"
-      className="security__card"
+
       aria-labelledby="security-compromised"
       lang={languageFor('title')}
     >
@@ -21,12 +21,12 @@ export function CompromisedEntry() {
       <p>{t('body')}</p>
       <ul>
         <li>
-          <a className="text-link" href="/uc/safe/compromised">
+          <a className="lt-link" href="/uc/safe/compromised">
             {t('compromised')}
           </a>
         </li>
         <li>
-          <a className="text-link" href="/support/new?topic=phishing">
+          <a className="lt-link" href="/support/new?topic=phishing">
             {t('report')}
           </a>
         </li>
@@ -42,7 +42,7 @@ export function ScamGuidesLink() {
   const { t, languageFor } = guides.useCopy();
   return (
     <p lang={languageFor('link')}>
-      <a className="text-link" href="/help/official-channels">
+      <a className="lt-link" href="/help/official-channels">
         {t('link')}
       </a>
     </p>

@@ -11,8 +11,9 @@ import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
-import { Details, Read } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { Details } from './catalogue-parts';
+import { EmptyNote, FailureNote, KitRead as Read, ScrollTable, Section, Waiting } from './volt-parts';
 import { tokenEconomyCopy } from './token-economy-copy';
 
 /** The token service's `emissionSchedule` read: the owner's parameters and the next epochs' rewards, or why they are blank. */
@@ -82,8 +83,8 @@ export function SupplyView({
   /** A blank owner value is not reported; one the service cannot read says so. */
   const absent = (reason: string | null) => (reason === 'token.params_invalid' ? t('unreadable') : t('notReported'));
   return (
-    <Panel title={t('supplyTitle')} aria-label={t('supplyTitle')}>
-      <p className="muted">
+    <Section title={t('supplyTitle')} aria-label={t('supplyTitle')}>
+      <p className="lt-hint">
         <Copy k="supplyBody" />
       </p>
       <div data-testid="supply-figures">
@@ -102,8 +103,8 @@ export function SupplyView({
         <Copy k="distributionUnset" />
       </p>
       {/* A failed schedule or treasury read already shows its refusal and retry in the emission panel above. */}
-      {buyback.resource.status === 'failed' && <Failure result={buyback.resource.failure} retry={buyback.reload} />}
-    </Panel>
+      {buyback.resource.status === 'failed' && <FailureNote result={buyback.resource.failure} retry={buyback.reload} />}
+    </Section>
   );
 }
 
@@ -113,8 +114,8 @@ export function EmissionScheduleView({ schedule, minted }: { schedule: Loaded<Em
   const { Copy, t } = tokenEconomyCopy.useCopy();
   const shown = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));
   return (
-    <Panel title={t('emissionTitle')} aria-label={t('emissionTitle')}>
-      <p className="muted">
+    <Section title={t('emissionTitle')} aria-label={t('emissionTitle')}>
+      <p className="lt-hint">
         <Copy k="emissionBody" />
       </p>
       <Read resource={schedule.resource} retry={schedule.reload}>
@@ -137,20 +138,20 @@ export function EmissionScheduleView({ schedule, minted }: { schedule: Loaded<Em
                   {data.reason === 'token.params_invalid' ? t('scheduleUnreadable') : t('scheduleUnset')}
                 </p>
               )}
-              <DataTable headers={[t('epoch'), t('reward'), t('change')]} label={t('epochsTitle')}>
+              <ScrollTable headers={[t('epoch'), t('reward'), t('change')]} label={t('epochsTitle')}>
                 {epochs.map((row) => {
                   // Epochs count from 0, so a halving takes effect at each multiple of the interval (economics/emission.ts).
                   const halving = data.params !== null && row.epoch > 0 && row.epoch % data.params.halvingIntervalEpochs === 0;
                   return (
                     <tr key={row.epoch}>
                       <td>{row.epoch}</td>
-                      <td className="numeric">{shown(row.reward)}</td>
+                      <td data-align="end">{shown(row.reward)}</td>
                       <td>{halving ? t('halvedHere') : ''}</td>
                     </tr>
                   );
                 })}
-              </DataTable>
-              {epochs.length === 0 && <EmptyState title={t('noEpochs')} />}
+              </ScrollTable>
+              {epochs.length === 0 && <EmptyNote title={t('noEpochs')} />}
             </>
           );
         }}
@@ -163,7 +164,7 @@ export function EmissionScheduleView({ schedule, minted }: { schedule: Loaded<Em
       <p data-testid="emission-minter">
         <Copy k="minterRule" />
       </p>
-    </Panel>
+    </Section>
   );
 }
 
@@ -217,36 +218,36 @@ export function YieldHistoryView({
   const { hideBalances } = usePreferences();
   const { Copy, t } = tokenEconomyCopy.useCopy();
   return (
-    <Panel title={t('yieldTitle')} aria-label={t('yieldTitle')}>
-      <p className="muted">
+    <Section title={t('yieldTitle')} aria-label={t('yieldTitle')}>
+      <p className="lt-hint">
         <Copy k="yieldBody" />
       </p>
       <Read resource={read.resource} retry={read.reload}>
         {(data) => (
           <>
-            <DataTable headers={[t('window'), t('paid'), t('asset'), t('posting')]} label={t('yieldTable')}>
+            <ScrollTable headers={[t('window'), t('paid'), t('asset'), t('posting')]} label={t('yieldTable')}>
               {data.items.map((row) => (
                 <tr key={row.windowId}>
                   <td>{row.windowId}</td>
-                  <td className="numeric">
+                  <td data-align="end">
                     {row.amount === null ? t('amountUnread') : hideBalances ? t('hidden') : displayAmount(row.amount)}
                   </td>
                   <td>{row.assetId ?? t('postingUnread')}</td>
                   <td>{row.ledgerTxId ?? t('postingUnread')}</td>
                 </tr>
               ))}
-            </DataTable>
-            {data.items.length === 0 && <EmptyState title={t('noYield')} />}
-            {more?.busy && <Loading />}
-            {more?.failure && <Failure result={more.failure} retry={() => data.nextCursor && more.more(data.nextCursor)} />}
+            </ScrollTable>
+            {data.items.length === 0 && <EmptyNote title={t('noYield')} />}
+            {more?.busy && <Waiting />}
+            {more?.failure && <FailureNote result={more.failure} retry={() => data.nextCursor && more.more(data.nextCursor)} />}
             {data.nextCursor && more && !more.busy && (
-              <Button variant="secondary" onClick={() => data.nextCursor && more.more(data.nextCursor)}>
+              <Button tone="secondary" onClick={() => data.nextCursor && more.more(data.nextCursor)}>
                 {t('olderWindows')}
               </Button>
             )}
           </>
         )}
       </Read>
-    </Panel>
+    </Section>
   );
 }

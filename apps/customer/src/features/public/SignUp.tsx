@@ -197,7 +197,7 @@ export function SignUp() {
       <header className="pub-heading">
         <p className="eyebrow">{t('eyebrow')}</p>
         <h1>{t('title')}</h1>
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
       </header>
       <ol className="pub-steps" aria-label={t('stepsLabel')}>
         <li className={`pub-step pub-step--${pending ? 'done' : 'current'}`} aria-current={pending ? undefined : 'step'}>
@@ -216,7 +216,7 @@ export function SignUp() {
                       checked={accountType === kind}
                       onChange={() => setAccountType(kind)}
                     />{' '}
-                    {t(kind)} <small className="muted">{t(kind === 'individual' ? 'individualHint' : 'businessHint')}</small>
+                    {t(kind)} <small className="lt-muted">{t(kind === 'individual' ? 'individualHint' : 'businessHint')}</small>
                   </label>
                 ))}
               </fieldset>
@@ -260,7 +260,7 @@ export function SignUp() {
                   {t('screeningUnset')}
                 </p>
               )}
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('country')}</span>
                 <select name="country" required disabled={busy} value={country} onChange={(e) => setCountry(e.target.value)}>
                   <option value="" disabled>
@@ -274,7 +274,7 @@ export function SignUp() {
                 </select>
               </label>
               {provinces.length > 0 && (
-                <label className="field">
+                <label className="lt-field">
                   <span>{t('subdivision')}</span>
                   <select key={country} name="subdivision" disabled={busy} defaultValue="">
                     <option value="">{t('subdivisionPick')}</option>
@@ -288,14 +288,14 @@ export function SignUp() {
               )}
               <fieldset className="pub-choice" disabled={busy}>
                 <legend>{t('usPerson')}</legend>
-                <small className="muted">{t('usPersonHint')}</small>
+                <small className="lt-muted">{t('usPersonHint')}</small>
                 {(['yes', 'no'] as const).map((answer) => (
                   <label key={answer}>
                     <input type="radio" name="usPerson" value={answer} /> {t(answer === 'yes' ? 'usPersonYes' : 'usPersonNo')}
                   </label>
                 ))}
               </fieldset>
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('nationality')}</span>
                 <select name="nationality" disabled={busy} defaultValue="">
                   <option value="">{t('nationalityPick')}</option>
@@ -319,10 +319,10 @@ export function SignUp() {
           <h2>{pending ? t('checkEmail') : t('step2')}</h2>
           {pending && (
             <form ref={form} method="post" className="pub-form" onSubmit={confirm}>
-              <p role="status" className="muted">
+              <p role="status" className="lt-muted">
                 {t('checkEmailBody', { email: pending.email })}
               </p>
-              {resent && <p className="muted">{t('resent')}</p>}
+              {resent && <p className="lt-muted">{t('resent')}</p>}
               <Field
                 label={t('code')}
                 name="code"
@@ -339,7 +339,7 @@ export function SignUp() {
               <Button variant="secondary" disabled={busy || wait > 0} onClick={() => void resend()}>
                 {t('resend')}
               </Button>
-              {wait > 0 && <small className="muted">{t('resendIn', { seconds: wait })}</small>}
+              {wait > 0 && <small className="lt-muted">{t('resendIn', { seconds: wait })}</small>}
               <Button
                 variant="ghost"
                 disabled={busy}
@@ -373,7 +373,7 @@ export function SignUp() {
             </Button>
           )}
           {(code === 'identity.signup_code_used' || code === 'auth.email_taken') && (
-            <a className="text-link" href={publicAuthHref(context, '/login')}>
+            <a className="lt-link" href={publicAuthHref(context, '/login')}>
               {t('signIn')}
             </a>
           )}
@@ -385,9 +385,9 @@ export function SignUp() {
           </div>
         )
       )}
-      <p className="muted">
+      <p className="lt-muted">
         {t('haveAccount')}{' '}
-        <a className="text-link" href={publicAuthHref(context, '/login')}>
+        <a className="lt-link" href={publicAuthHref(context, '/login')}>
           {t('signIn')}
         </a>
       </p>

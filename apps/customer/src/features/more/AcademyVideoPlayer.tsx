@@ -10,8 +10,7 @@ import {
 import { useResource } from '../../shared/resource';
 import { useApi, useSession } from '../session';
 import { useKeepInView } from '../../shared/media-element';
-import { Button, Loading } from '../../shared/ui';
-import { AcademyRefusal } from './AcademyLmsParts';
+import { Button } from '../../shared/ui';
 import { clock, cuePlainText, useVideoPlayer, VIDEO_SPEEDS, type VideoPlayerProps } from './academy-video-state';
 import { academyLmsCopy } from './academy-lms-copy';
 import { callAs } from '../../shared/api';
@@ -84,7 +83,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
         </video>
         {/* The element stays: a link that expires mid-play keeps playing what the browser holds, and the place is kept. */}
         {(loadFailed || (expired && !playing)) && (
-          <div data-testid="failure" className="failure" role="status" data-video-expired>
+          <div data-testid="failure" className="lt-refusal" role="status" data-video-expired>
             <p>{loadFailed ? t('videoLoadFailed') : t('videoExpired')}</p>
             <Button variant="secondary" onClick={renew}>
               {t('requestNewLink')}
@@ -111,7 +110,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
           <Button variant="ghost" onClick={() => setMuted((value) => !value)} aria-pressed={muted}>
             {muted ? t('videoUnmute') : t('videoMute')}
           </Button>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('videoSpeed')}</span>
             <select value={String(speed)} onChange={(event) => changeSpeed(Number(event.target.value))} data-video-speed>
               {VIDEO_SPEEDS.map((value) => (
@@ -121,7 +120,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('videoQuality')}</span>
             <select value="original" onChange={() => undefined} aria-describedby={`${id}-quality`} data-video-quality>
               {player.renditions.map((rendition) => (
@@ -131,7 +130,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('videoCaptions')}</span>
             {tracks.length === 0 ? (
               <select value="" disabled data-video-captions="none" onChange={() => undefined}>
@@ -153,16 +152,16 @@ export function VideoPlayerView(props: VideoPlayerProps) {
           </Button>
         </div>
       </div>
-      <p id={`${id}-quality`} className="muted">
+      <p id={`${id}-quality`} className="lt-muted">
         {t('videoQualityOnly')}
       </p>
-      <p id={`${id}-keys`} className="muted">
+      <p id={`${id}-keys`} className="lt-muted">
         {t('videoKeys')}
       </p>
-      <p className="muted" data-video-save-interval={player.saveEverySeconds ?? 'unset'}>
+      <p className="lt-muted" data-video-save-interval={player.saveEverySeconds ?? 'unset'}>
         {player.saveEverySeconds === null ? t('videoSaveUnset') : t('videoSaveEvery', { seconds: player.saveEverySeconds })}
       </p>
-      <p className="muted" data-video-threshold={player.watchThresholdSeconds ?? 'unset'}>
+      <p className="lt-muted" data-video-threshold={player.watchThresholdSeconds ?? 'unset'}>
         {player.watchThresholdSeconds === null
           ? t('videoWatchUnset')
           : t('videoWatchThreshold', { time: clock(player.watchThresholdSeconds) })}
@@ -182,7 +181,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
         {transcript ? (
           <TranscriptList cues={transcript.cues} language={transcript.language} current={current} seek={seekTo} />
         ) : (
-          <p className="muted">{t('videoTranscriptNone')}</p>
+          <p className="lt-muted">{t('videoTranscriptNone')}</p>
         )}
       </section>
     </figure>
@@ -213,33 +212,6 @@ function TranscriptList({
         </li>
       ))}
     </ol>
-  );
-}
-
-/**
- * One video, read from Academy: player settings and tracks, a signed link, and the stored position. Each save is named
- * by this viewing and its count (`video:<slug>:<opened>:<n>`), so a save sent again after a lost reply is the same save.
- */
-export function AcademyVideoPlayer({ videoSlug, onCompleted }: { videoSlug: string; onCompleted?: (items: string[]) => void }) {
-  const { player, playback, position, save } = useVideoReads(videoSlug);
-  for (const read of [player, playback, position]) {
-    if (read.resource.status === 'failed') return <AcademyRefusal failure={read.resource.failure} retry={read.reload} />;
-  }
-  if (player.resource.status !== 'ready' || playback.resource.status !== 'ready' || position.resource.status !== 'ready')
-    return <Loading />;
-  return (
-    <VideoPlayerView
-      key={playback.resource.data.playbackUrl}
-      player={player.resource.data}
-      playback={playback.resource.data}
-      resumeAt={position.resource.data.positionSeconds}
-      save={save}
-      renewLink={() => {
-        position.reload();
-        playback.reload();
-      }}
-      onCompleted={onCompleted}
-    />
   );
 }
 

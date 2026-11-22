@@ -1,6 +1,6 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, FreshnessChip, Tabs, SectionTabs, Checkbox, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, FreshnessChip, Tabs, SectionTabs, Disclosure, Checkbox, Dialog, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
@@ -184,8 +184,8 @@ export function Tabs(props: TabsProps) {
     0,
     items.findIndex((t) => t.value === value),
   );
-  const move = (event: React.KeyboardEvent, index: number) => {
-    const next = nextTabIndex(index, event.key, items.length);
+  const move = (event: React.KeyboardEvent<HTMLElement>, index: number) => {
+    const next = nextTabIndex(index, readingArrow(event.key, isRightToLeft(event.currentTarget)), items.length);
     if (next === null) return;
     const item = items[next];
     if (!item) return;
@@ -226,6 +226,20 @@ export function nextTabIndex(index: number, key: string, count: number): number 
   if (key === 'Home') return 0;
   if (key === 'End') return count - 1;
   return null;
+}
+
+/**
+ * A key as the row reads it: on a right-to-left page the row reads from the right, so ArrowLeft goes to the next tab and
+ * ArrowRight to the one before. Every other key is itself.
+ */
+export function readingArrow(key: string, rtl: boolean): string {
+  if (!rtl) return key;
+  return key === 'ArrowLeft' ? 'ArrowRight' : key === 'ArrowRight' ? 'ArrowLeft' : key;
+}
+
+/** Whether an element sits in a right-to-left run: the nearest `dir` on it or an ancestor says `rtl`. */
+export function isRightToLeft(el: Pick<Element, 'closest'>): boolean {
+  return el.closest('[dir]')?.getAttribute('dir')?.toLowerCase() === 'rtl';
 }
 
 /** What a keyboard can reach inside a panel. */
@@ -287,7 +301,7 @@ export function TabPanel({
 
 /**
  * A room's own sections, one button each, the open one pressed: the same row as Tabs, for sections a room switches
- * itself (it navigates in `onChange`) rather than by link. Scrolls when it overflows, as Tabs do.
+ * itself (it navigates in `onChange`) rather than by link. Wraps onto a second line when it overflows, as Tabs do.
  */
 export function SectionTabs<T extends string>({
   items,
@@ -311,6 +325,56 @@ export function SectionTabs<T extends string>({
   );
 }
 
+export interface DisclosureItem {
+  /** Names the section in `defaultOpen`; stable across renders. */
+  value: string;
+  title: React.ReactNode;
+  body: React.ReactNode;
+}
+
+/**
+ * Sections that fold: each one's heading is a button that opens and closes it, and its open body is a region named by
+ * that heading. One is open at a time unless `multiple`; `defaultOpen` names the ones open at first. A closed body is
+ * not drawn, so nothing folded away is read out or reached by Tab.
+ */
+export function Disclosure({
+  items,
+  defaultOpen = [],
+  multiple = false,
+}: {
+  items: readonly DisclosureItem[];
+  defaultOpen?: readonly string[];
+  multiple?: boolean;
+}) {
+  const [open, setOpen] = React.useState<readonly string[]>(defaultOpen);
+  const base = React.useId();
+  const toggle = (value: string) =>
+    setOpen((now) => (now.includes(value) ? now.filter((v) => v !== value) : multiple ? [...now, value] : [value]));
+  return (
+    <div className="lt-disclosure">
+      {items.map((item, i) => {
+        const isOpen = open.includes(item.value);
+        const head = `${base}-${i}-head`;
+        const body = `${base}-${i}-body`;
+        return (
+          <div key={item.value} className="lt-disclosure-item" data-open={isOpen || undefined}>
+            <h3 className="lt-disclosure-head">
+              <button type="button" id={head} aria-expanded={isOpen} aria-controls={body} onClick={() => toggle(item.value)}>
+                {item.title}
+              </button>
+            </h3>
+            {isOpen ? (
+              <div id={body} role="region" aria-labelledby={head} className="lt-disclosure-body">
+                {item.body}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** A tick with its words, one row: the box, then the label. Every other attribute goes to the native checkbox. */
 export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: React.ReactNode }) {
   return (
@@ -318,6 +382,54 @@ export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTM
       <input {...input} type="checkbox" />
       <span>{label}</span>
     </label>
+  );
+}
+
+/**
+ * A modal dialog in the middle of the screen: a review before a step that cannot be undone, or one short task. It is
+ * open while it is drawn (the caller decides when it shows and owns its own submission), keeps focus inside, and closes
+ * on Escape or its Close button by calling `onClose`. Built on the native <dialog> element, named by its title.
+ */
+export function Dialog({
+  title,
+  onClose,
+  closeLabel,
+  children,
+}: {
+  title: React.ReactNode;
+  onClose: () => void;
+  closeLabel: string;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLDialogElement>(null);
+  const titleId = React.useId();
+  React.useEffect(() => {
+    const d = ref.current;
+    if (!d || d.open) return;
+    // A host without modal dialogs (an older engine, a test DOM) still shows it, in the flow.
+    if (typeof d.showModal === 'function') d.showModal();
+    else d.setAttribute('open', '');
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="lt-dialog"
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <header className="lt-sheet-head">
+        <h2 id={titleId} className="lt-sheet-title">
+          {title}
+        </h2>
+        <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} onClick={onClose}>
+          ×
+        </button>
+      </header>
+      <div className="lt-sheet-body">{children}</div>
+    </dialog>
   );
 }
 
@@ -339,12 +451,18 @@ export function Sheet({
   closeButton = role !== 'alertdialog',
   closeLabel,
   closeLang,
+  titleLang,
   footer,
   testId,
   children,
 }: {
   open: boolean;
   title: string;
+  /**
+   * The language of `title`, when the room's copy fell back to another one than the page's: the heading carries it and
+   * names the sheet, so the name is read in the words' own language.
+   */
+  titleLang?: string;
   /** What the sheet asks or does, read out with its name (`aria-describedby`). */
   description?: React.ReactNode;
   onClose: () => void;
@@ -362,6 +480,7 @@ export function Sheet({
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
   const descriptionId = React.useId();
+  const titleId = React.useId();
   const alert = role === 'alertdialog';
   // Focus goes back to what opened the sheet when it closes or goes away, as a modal dialog's should.
   const opener = React.useRef<HTMLElement | null>(null);
@@ -391,7 +510,8 @@ export function Sheet({
       data-testid={testId}
       role={alert ? 'alertdialog' : undefined}
       aria-modal={alert || undefined}
-      aria-label={title}
+      aria-label={titleLang ? undefined : title}
+      aria-labelledby={titleLang ? titleId : undefined}
       aria-describedby={description ? descriptionId : undefined}
       onClose={alert ? undefined : onClose}
       onCancel={(e) => {
@@ -400,7 +520,9 @@ export function Sheet({
       }}
     >
       <header className="lt-sheet-head">
-        <h2 className="lt-sheet-title">{title}</h2>
+        <h2 className="lt-sheet-title" id={titleLang ? titleId : undefined} lang={titleLang}>
+          {title}
+        </h2>
         {closeButton ? (
           <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} lang={closeLang} onClick={onClose}>
             Close
@@ -666,9 +788,18 @@ type DecimalBoxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value'
 };
 
 function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, onKeyDown, ...rest }: DecimalBoxProps) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  const caret = React.useRef<number | null>(null);
+  // After a cleaned keystroke the value changes and the box draws again: put the caret back where the person typed.
+  React.useLayoutEffect(() => {
+    const at = caret.current;
+    caret.current = null;
+    if (at !== null && ref.current && ref.current === document.activeElement) placeCaret(ref.current, at);
+  });
   return (
     <input
       {...rest}
+      ref={ref}
       onKeyDown={(e) => {
         onKeyDown?.(e);
         if (tick === undefined || rest.readOnly || rest.disabled || e.defaultPrevented) return;
@@ -683,8 +814,21 @@ function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, o
       spellCheck={false}
       value={value}
       onChange={(e) => {
-        const next = nextDecimalValue(value, e.currentTarget.value, { precision });
-        if (next !== value) onValueChange(next);
+        const box = e.currentTarget;
+        const raw = box.value;
+        const next = nextDecimalValue(value, raw, { precision });
+        // What was refused or cleaned away sat before the caret: the caret keeps its place in what stays.
+        const at = Math.max(0, (box.selectionStart ?? raw.length) - (raw.length - next.length));
+        if (next !== value) {
+          caret.current = at;
+          onValueChange(next);
+          return;
+        }
+        // A refused keystroke changes no value, so nothing draws again; React puts the old text back once this event
+        // is done, which sends the caret to the end. Put it back after that.
+        queueMicrotask(() => {
+          if (box.isConnected && box.value === value) placeCaret(box, at);
+        });
       }}
       onPaste={(e) => {
         if (rest.readOnly || rest.disabled) return;
@@ -699,6 +843,11 @@ function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, o
       }}
     />
   );
+}
+
+function placeCaret(box: HTMLInputElement, at: number) {
+  const pos = Math.min(at, box.value.length);
+  box.setSelectionRange(pos, pos);
 }
 
 /** The TEST label an illustrative figure or sample list carries (AGENTS.md: an illustrative figure says TEST). */
@@ -719,6 +868,10 @@ export function FreshnessChip({
   showAsOf = false,
   now,
   reason,
+  kind: fixed,
+  labels,
+  asOfLabel,
+  timeZone,
 }: {
   asOf: AsOf;
   staleAfterMs: number;
@@ -727,19 +880,27 @@ export function FreshnessChip({
   now?: number;
   /** Why it is unknown, refused or behind: in the title and read out (a title alone is not read reliably). */
   reason?: string;
+  /** A fixed kind (a lifecycle state drawn in the chip's shapes); absent, it is read from `asOf`. */
+  kind?: Freshness;
+  /** The room's own words for each kind. */
+  labels?: Partial<Record<Freshness, string>>;
+  /** The room's own words for "as of". */
+  asOfLabel?: string;
+  /** IANA zone for the as-of time; the browser's own when not given. */
+  timeZone?: string;
 }) {
-  const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused });
-  const kind = freshnessOf({ asOf, now: clock, staleAfterMs, refused });
+  const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused, enabled: fixed == null });
+  const kind = fixed ?? freshnessOf({ asOf, now: clock, staleAfterMs, refused });
   const iso = showAsOf ? asOfIso(asOf) : null;
-  const shown = iso ? formatAsOf(asOf, { now: clock }) : null;
+  const shown = iso ? formatAsOf(asOf, { now: clock, timeZone }) : null;
   return (
     <span className="lt-chip" role="status" data-freshness={kind} title={reason}>
       <span className="lt-chip-mark" aria-hidden="true" />
       <span>
-        <span data-part="word">{FRESHNESS_WORDS[kind]}</span>
+        <span data-part="word">{labels?.[kind] ?? FRESHNESS_WORDS[kind]}</span>
         {iso && shown ? (
           <span className="lt-chip-when">
-            {' · as of '}
+            {asOfLabel === undefined ? ' · as of ' : ` · ${asOfLabel} `}
             <time dateTime={iso}>{shown}</time>
           </span>
         ) : null}

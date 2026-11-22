@@ -10,8 +10,7 @@
     reason = "a test: a failure is the point"
 )]
 
-#[allow(dead_code, reason = "each test file uses its own share of the helpers")]
-mod ported_c_common;
+use crate::ported_c_common;
 
 use ported_c_common::{
     Answer, Body, ORDERS, at, first_order, get, kinds, levels, live_ids, mount, post, send, text,

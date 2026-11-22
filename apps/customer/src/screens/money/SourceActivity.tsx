@@ -12,7 +12,8 @@ import { venueConvertApi } from '../../features/trade/venue-convert-api';
 import { WalletBar, useAsOfText, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
-import { Amount, Button, coinHref, fmtAmount, StateBlock, useActivity } from './deps';
+import { Amount, Button, StateBlock } from './ui-deps';
+import { coinHref, fmtAmount, useActivity } from './deps';
 import { stamp } from './time';
 import type { ActivityFilters } from './activity-filter';
 import {
@@ -181,8 +182,8 @@ function Sources({
   const anyReading = asked.some((part) => part.state === 'reading');
 
   return (
-    <div data-testid="activity-by-source" data-user={userId ?? ''} className="form-stack">
-      <p className="money-caption">{t('Lede')}</p>
+    <div data-testid="activity-by-source" data-user={userId ?? ''} className="lt-stack">
+      <p className="lt-muted">{t('Lede')}</p>
       <WalletBar />
       <div className="money-sources">
         {!source || source === 'wallet' ? (
@@ -283,7 +284,7 @@ function SourceNote({
     part.state === 'read' ? part.note : part.state === 'off' ? words.off : part.state === 'reading' ? words.reading : words.unread;
   if (text === null) return null;
   return (
-    <p data-testid="money-source-note" data-source={kind} data-state={part.state} className="money-caption">
+    <p data-testid="money-source-note" data-source={kind} data-state={part.state} className="lt-muted">
       {text}
       {test && part.state === 'read' ? (
         <>
@@ -508,16 +509,16 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
       <td colSpan={4}>
         <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this order')} className="money-act__parts">
           <h3 className="money-detail__h">{t('Parts of this order')}</h3>
-          <p className="money-detail__note" data-label="fill-reference">
+          <p className="lt-hint" data-label="fill-reference">
             {t('Fill reference')} <code className="money-code">{line.ref}</code>
           </p>
           {order ? (
-            <p className="money-detail__note" data-label="order-reference">
+            <p className="lt-hint" data-label="order-reference">
               {t('Order reference')} <code className="money-code">{order}</code>
             </p>
           ) : null}
           {record && OPEN.has(record.status) ? (
-            <p className="money-detail__note" data-label="still-held">
+            <p className="lt-hint" data-label="still-held">
               {t('Still held', { amount: exact(record.locked), asset: record.lockedAsset })}
             </p>
           ) : null}

@@ -25,7 +25,7 @@ use svc_bank::migrate::MIGRATIONS;
 use svc_bank::recovery::{AdvisoryLock, Lock};
 use svc_bank::restore_watermark;
 
-mod support;
+use crate::support;
 use support::TestDb;
 
 const INTERNAL: &str = "placeholder-bank-store-pg-internal-secret-0";
@@ -264,11 +264,11 @@ fn a_job_door_answers_401_unsigned_then_names_its_slice() {
         body.compact(),
         r#"{"error":"service credentials required","code":"bank.unauthenticated"}"#
     );
-    let (status, body) = post(&d, "/internal/jobs/accrue-loan-interest", Some("svc-bank"));
+    let (status, body) = post(&d, "/internal/jobs/run-auto-invest", Some("svc-bank"));
     assert_eq!(status, 500);
     assert_eq!(
         body.compact(),
-        r#"{"error":"svc-bank in Rust: the loans slice is not ported"}"#
+        r#"{"error":"svc-bank in Rust: the automations slice is not ported"}"#
     );
     d.end();
 }

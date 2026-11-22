@@ -22,6 +22,8 @@ export interface Column<Row> {
   cell: (row: Row) => React.ReactNode;
   /** The cell's own marks (`data-cell`, `data-testid`). */
   cellMarks?: (row: Row) => DataMarks;
+  /** The column header's own marks (`data-col`, `data-testid`). */
+  headMarks?: DataMarks;
   /** Figures align to the end. */
   align?: 'start' | 'end';
   /** Shown only in Pro (column chooser default). */
@@ -66,6 +68,10 @@ interface TableBase<Row> {
   dense?: boolean;
   /** A wide table: it scrolls sideways in a labelled region of its own (a keyboard stop, so it can be scrolled). */
   scroll?: boolean;
+  /** The header row's own marks (`data-testid`). */
+  headMarks?: DataMarks;
+  /** The rows are placeholders while the list loads: the table says it is busy. */
+  busy?: boolean;
 }
 
 export type TableProps<Row> = TableBase<Row> &
@@ -178,6 +184,8 @@ export function Table<Row>({
   onSort,
   empty,
   rowMarks,
+  headMarks,
+  busy,
   virtual,
   onSelect,
   dense = false,
@@ -257,12 +265,14 @@ export function Table<Row>({
       data-mode={mode}
       role={onSelect ? 'grid' : undefined}
       aria-rowcount={windowed ? rows.length + 1 : undefined}
+      aria-busy={busy || undefined}
     >
       <caption className="lt-sr">{caption}</caption>
       <thead>
-        <tr aria-rowindex={windowed ? 1 : undefined}>
+        <tr {...headMarks} aria-rowindex={windowed ? 1 : undefined}>
           {cols.map((c) => (
             <th
+              {...c.headMarks}
               key={c.key}
               scope="col"
               data-align={c.align ?? 'start'}

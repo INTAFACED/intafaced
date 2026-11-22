@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount } from '../../shared/money';
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Field, Tag } from '@intafaced/ui/lit';
 import { DeskTemplate } from '@intafaced/ui/lit/templates';
 import { FailureNote, Waiting } from './volt-parts';
 import { Details, presentActionFailure, Read, Select, TextArea, useAction } from './common';
@@ -297,8 +297,10 @@ export function Quant({ mode, paper = false, bars }: { mode: 'sandbox' | 'studio
   const intro = (
     <div className="lt-col-main">
       <QuantRooms active={mode} paper={paper} />
-      <p className="lt-badge">
-        <Text k="quant.simulated.no.live.trading.authority" />
+      <p>
+        <Tag>
+          <Text k="quant.simulated.no.live.trading.authority" />
+        </Tag>
       </p>
       {action.dialog}
     </div>

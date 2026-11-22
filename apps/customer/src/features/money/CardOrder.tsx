@@ -51,7 +51,7 @@ export function CardOrderRoom() {
   if (catalogue.resource.status === 'loading') return <Loading />;
   if (catalogue.resource.status === 'failed') {
     return (
-      <div className="bd-stack">
+      <div className="lt-stack">
         <Refusal failure={catalogue.resource.failure} />
         <Button variant="ghost" onClick={catalogue.reload}>
           {t('retry')}
@@ -138,10 +138,10 @@ export function CardOrderRoom() {
 
   const speedName = (s: string) => (s === 'express' ? t('express') : s === 'signed' ? t('signed') : t('standard'));
   return (
-    <div className="bd-stack">
+    <div className="lt-stack">
       <h1>{t('title')}</h1>
-      <p className="muted">{t('description')}</p>
-      <a className="text-link" href="/bank/cards">
+      <p className="lt-muted">{t('description')}</p>
+      <a className="lt-link" href="/bank/cards">
         {t('back')}
       </a>
       <DepthPanel title={t('programmeTitle')}>
@@ -162,10 +162,10 @@ export function CardOrderRoom() {
             {t('physicalProduct')} · {t('network', { network: c.network })}
           </li>
         </ul>
-        <p className="money-caption">{t('feeNotSet')}</p>
+        <p className="lt-muted">{t('feeNotSet')}</p>
       </DepthPanel>
       <DepthPanel title={t('eligibilityTitle')}>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('countryLabel')}</span>
           <select value={country} onChange={(event) => setCountry(event.target.value)}>
             {countries.map((o) => (
@@ -186,8 +186,8 @@ export function CardOrderRoom() {
         </ul>
       </DepthPanel>
       <DepthPanel title={t('termsTitle')}>
-        <div data-testid="card-terms" className="form-stack">
-          <p className="money-caption">{t('termsVersion', { version: c.terms.version })}</p>
+        <div data-testid="card-terms" className="lt-stack">
+          <p className="lt-muted">{t('termsVersion', { version: c.terms.version })}</p>
           <p>{c.terms.text}</p>
           {accepted ? (
             <p role="status">
@@ -211,7 +211,7 @@ export function CardOrderRoom() {
         </div>
       </DepthPanel>
       <DepthPanel title={t('orderTitle')}>
-        <form className="form-stack" onSubmit={order} noValidate>
+        <form className="lt-stack" onSubmit={order} noValidate>
           <fieldset>
             {(['virtual', 'physical'] as const).map((type) => (
               <label key={type} className="choice">
@@ -219,7 +219,7 @@ export function CardOrderRoom() {
               </label>
             ))}
           </fieldset>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('funding')}</span>
             <select value={asset} onChange={(event) => setAsset(event.target.value)}>
               {assets.map((id) => (
@@ -267,7 +267,7 @@ export function CardOrderRoom() {
                 value={address.postalCode}
                 onChange={(event) => setAddress({ ...address, postalCode: event.target.value })}
               />
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('deliveryCountry')}</span>
                 <select value={deliverTo} onChange={(event) => setAddress({ ...address, country: event.target.value })}>
                   {c.deliveryCountries.map((code) => (
@@ -277,7 +277,7 @@ export function CardOrderRoom() {
                   ))}
                 </select>
               </label>
-              <p className="money-caption" data-code="hardware">
+              <p className="lt-muted" data-code="hardware">
                 {t('hardware')}
               </p>
             </>
@@ -285,7 +285,7 @@ export function CardOrderRoom() {
           <Button type="submit" disabled={busy || blocker !== null}>
             {cardType === 'physical' ? t('orderPhysical') : t('issueVirtual')}
           </Button>
-          {blocker && <p className="money-caption">{blocker}</p>}
+          {blocker && <p className="lt-muted">{blocker}</p>}
           {failure && <Refusal failure={failure} />}
         </form>
         {result && (

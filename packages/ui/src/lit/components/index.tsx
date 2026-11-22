@@ -135,7 +135,8 @@ export function Switch({ checked, onChange, label, className, onClick, ...rest }
 }
 
 export type SegmentedProps<T extends string> = {
-  options: readonly { value: T; label: string }[];
+  /** `disabled`: a choice listed but not open now (the room says why beside it). */
+  options: readonly { value: T; label: string; disabled?: boolean }[];
   value: T;
   onChange: (v: T) => void;
   label: string;
@@ -146,7 +147,7 @@ export function Segmented<T extends string>({ options, value, onChange, label, c
   return (
     <div className={clsx('lit-segmented', className)} role="group" aria-label={label}>
       {options.map((o) => (
-        <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
+        <button key={o.value} type="button" aria-pressed={o.value === value} disabled={o.disabled} onClick={() => onChange(o.value)}>
           {o.label}
         </button>
       ))}
@@ -221,12 +222,17 @@ export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'o
   hint?: string;
 };
 
-/** A choice from a short list: the browser's own select, in the kit's field, its words above it. */
+/**
+ * A choice from a short list: the browser's own select, in the kit's field, its words above it. The words name it
+ * through `aria-labelledby` (unless the caller names it with `aria-label`): a select inside its label would otherwise be named by the label and its chosen option
+ * ("Status All statuses").
+ */
 export function Select({ label, options, onChange, hint, className, ...rest }: SelectProps) {
+  const labelId = `${React.useId()}-label`;
   return (
     <label className={clsx('lt-field', className)}>
-      <span>{label}</span>
-      <select {...rest} onChange={(e) => onChange?.(e.target.value)}>
+      <span id={labelId}>{label}</span>
+      <select aria-labelledby={rest['aria-label'] ? undefined : labelId} {...rest} onChange={(e) => onChange?.(e.target.value)}>
         {options.map((o) => {
           const value = typeof o === 'string' ? o : o.value;
           return (
@@ -371,11 +377,12 @@ export const FinePrint = ({ className, ...rest }: React.HTMLAttributes<HTMLSpanE
   <span {...rest} className={clsx('lit-fine', className)} />
 );
 
+/** A small tag with words, toned by what it marks (colour is never the only cue: the words say it). */
 export const Tag = ({
   tone,
   className,
   ...rest
-}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' }) => (
+}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' | 'warn' | 'error' }) => (
   <span {...rest} className={clsx('lit-tag', className)} data-tone={tone} />
 );
 

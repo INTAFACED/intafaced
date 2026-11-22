@@ -1,21 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { Badge, Button } from '@intafaced/ui/lit';
+import { useCallback, useRef, type ReactNode } from 'react';
+import { Button, Tag } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
-import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
 import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
-import { useSession } from '../../session';
 import { WalletProvider, usePolled, useWallet } from '../../protocol';
 import {
   keys,
-  venueApi,
   walletTypedData,
   type AsOf,
   type MaybeKnown,
   preparedStep,
   type KeptSignature,
   type PreparedAnswer,
-  type VenueApi,
   type VenueBalance,
   type VenueFill,
   type VenueIntent,
@@ -26,25 +22,21 @@ import {
 import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
 import { feeShown } from './fee-rates';
+import { VENUE_POLL_MS } from './poll';
+import { useAsOfText, useVenueApi, word } from './venue-words';
 
-type T = ReturnType<typeof venueCopy.useCopy>['t'];
-
-/** How often the venue's record is read while a desk shows it. */
-export const VENUE_POLL_MS = 2_000;
-
-export function useVenueApi(): VenueApi {
-  const { api } = useSession();
-  return useMemo(() => venueApi(api), [api]);
-}
+export { VENUE_POLL_MS };
+export { SETTLED_STATUSES, outcomeText, useAsOfText, useVenueApi, word } from './venue-words';
+export { OutcomeLine, ReadBack } from './volt/VoltVenue';
 
 /** The TEST label every venue figure carries while the venue is a TEST one. */
 export function TestMark({ test }: { test: boolean }) {
   const { t } = venueCopy.useCopy();
   if (!test) return null;
   return (
-    <Badge tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
+    <Tag tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
       {t('TEST')}
-    </Badge>
+    </Tag>
   );
 }
 
@@ -52,23 +44,6 @@ export function TestMark({ test }: { test: boolean }) {
 export function Known({ value, render = (v) => displayAmount(v) }: { value: MaybeKnown<string>; render?: (v: string) => ReactNode }) {
   const { t } = venueCopy.useCopy();
   return <>{value.known ? render(value.value) : t('Not known')}</>;
-}
-
-export function useAsOfText(): (iso: string) => string {
-  const { timeZone } = usePreferences();
-  const { t } = venueCopy.useCopy();
-  return useCallback(
-    (iso: string) => {
-      let text: string;
-      try {
-        text = new Intl.DateTimeFormat('en-GB', { timeZone, dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso));
-      } catch {
-        text = iso;
-      }
-      return t('As of', { time: text });
-    },
-    [timeZone, t],
-  );
 }
 
 export function AsOfLine({ asOf }: { asOf: string | null }) {
@@ -79,17 +54,6 @@ export function AsOfLine({ asOf }: { asOf: string | null }) {
       {text(asOf)}
     </p>
   );
-}
-
-/** A word from the copy for a venue enum value, or the value itself when the copy has none. */
-export function word(t: T, prefix: string, value: string): string {
-  const key = `${prefix}_${value}`;
-  try {
-    const out = (t as (k: string) => string)(key);
-    return out && out !== key ? out : value;
-  } catch {
-    return value;
-  }
 }
 
 /**
@@ -124,56 +88,8 @@ export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title
   );
 }
 
-/** Connect, the connected address and network, and the switch when the wallet is on another network. */
-export function WalletBar() {
-  const { t } = venueCopy.useCopy();
-  const wallet = useWallet();
-  return (
-    <section className="lt-panel" aria-label={t('Your wallet')} data-testid="venue-wallet">
-      <h2 className="lt-panel-title">{t('Your wallet')}</h2>
-      {wallet.status === 'connected' && wallet.address ? (
-        <>
-          <dl className="lt-kv">
-            <div>
-              <dt>{t('Connected address')}</dt>
-              <dd className="lt-num lt-end" data-testid="venue-wallet-address">
-                {wallet.address.toLowerCase()}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Network')}</dt>
-              <dd className="lt-num lt-end">{wallet.chainId ?? ''}</dd>
-            </div>
-          </dl>
-          {wallet.guard && !wallet.guard.ok ? (
-            <p role="alert">
-              {t('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <Button tone="primary" onClick={() => void wallet.switchNetwork()}>
-                {t('Switch network')}
-              </Button>
-            </p>
-          ) : null}
-          <Button tone="secondary" onClick={wallet.disconnect}>
-            {t('Disconnect')}
-          </Button>
-        </>
-      ) : wallet.wallets.length === 0 ? (
-        <p className="lt-quiet">{t('No wallet')}</p>
-      ) : (
-        wallet.wallets.map((entry) => (
-          <Button tone="primary" key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
-            {t('Connect wallet', { name: entry.info.name })}
-          </Button>
-        ))
-      )}
-      {wallet.problem ? (
-        <p className="lt-note lt-note-bad" role="alert">
-          {wallet.problem}
-        </p>
-      ) : null}
-    </section>
-  );
-}
+// The wallet panel is drawn from the Volt kit in its own file, so a room that shows it draws only from the kit.
+export { WalletBar } from './WalletBar';
 
 /** The connected wallet's address, lowercase, which is the venue account's owner; null until connected on the right network. */
 export function useOwner(): string | null {
@@ -418,97 +334,12 @@ export function useVenueActions(owner: string | null) {
   return { run, resend, keptSignature };
 }
 
-/** The words for one action's result. An order's outcome names its status on the venue. */
-export function outcomeText(t: T, result: ActionResult): string {
-  switch (result.kind) {
-    case 'rejected':
-      return t('Outcome rejected wallet');
-    case 'waiting':
-      return t('Outcome waiting');
-    case 'wallet_failed':
-      return t('Outcome wallet failed', { message: result.message });
-    case 'unknown':
-      return t('Outcome unknown');
-    case 'refused':
-      return result.beforeWallet && /step_up/.test(result.code ?? '')
-        ? t('Outcome step up', { detail: result.message })
-        : t('Outcome refused', { detail: result.message });
-    case 'outcome': {
-      const o = result.outcome;
-      if (!o.accepted) return t('Outcome refused', { detail: o.refusal.detail });
-      const status = o.order?.status;
-      const main =
-        status === 'open'
-          ? t('Outcome open')
-          : status === 'filled'
-            ? t('Outcome filled')
-            : status === 'partially_filled'
-              ? t('Outcome partly')
-              : status === 'canceled'
-                ? t('Outcome cancelled')
-                : t('Outcome done');
-      return result.reused ? `${main} ${t('Outcome reused')}` : main;
-    }
-  }
-}
-
 /**
  * Whether a draft's id must be held for the next press: until the venue answers definitely, a press is the same action
  * (read back, or prompted again); after a definite answer a new press is a new action with a new id.
  */
 export function keepsDraft(result: ActionResult): boolean {
   return result.kind !== 'outcome';
-}
-
-/** The order statuses after which the venue does nothing more with an order. */
-export const SETTLED_STATUSES: readonly string[] = ['filled', 'canceled', 'rejected', 'expired'];
-
-/**
- * Reads an order back by its client id until the venue names it, for an answer that was not definite. An order not found
- * yet is only that: it keeps being read, and nothing is sent again. `onSettled` hears the venue's own settled record.
- */
-export function ReadBack({
-  owner,
-  clientOrderId,
-  onSettled,
-  venueId,
-}: {
-  owner: string;
-  clientOrderId: string;
-  onSettled?: (order: VenueOrder) => void;
-  /** The venue the order was sent to (J-derivatives-28 routing); none is the primary venue. */
-  venueId?: string;
-}) {
-  const { t } = venueCopy.useCopy();
-  const venue = useVenueApi();
-  const read = usePolled(
-    (signal) =>
-      venueId ? venue.ordersByClientIdOn(venueId, owner, clientOrderId, signal) : venue.orderByClientId(owner, clientOrderId, signal),
-    `rb:${venueId ?? ''}:${owner}:${clientOrderId}`,
-    VENUE_POLL_MS,
-  );
-  const order = read.data?.value ?? null;
-  const settled = order && SETTLED_STATUSES.includes(order.status) ? order : null;
-  useEffect(() => {
-    if (settled) onSettled?.(settled);
-  }, [settled, onSettled]);
-  if (!read.data) return <p className="lt-quiet">{t('Checking venue')}</p>;
-  return (
-    <p data-testid="venue-read-back">{order ? t('Read back', { status: word(t, 'status', order.status) }) : t('Read back missing')}</p>
-  );
-}
-
-export function OutcomeLine({ result, owner, venueId }: { result: ActionResult | null; owner: string | null; venueId?: string }) {
-  const { t } = venueCopy.useCopy();
-  if (!result) return null;
-  return (
-    <div role="status" data-testid="venue-outcome">
-      <p>{outcomeText(t, result)}</p>
-      {result.kind === 'unknown' && result.clientOrderId && owner ? (
-        <ReadBack owner={owner} clientOrderId={result.clientOrderId} {...(venueId ? { venueId } : {})} />
-      ) : null}
-    </div>
-  );
 }
 
 /** A venue read that failed, in the venue's words: down, refused or unreachable. */

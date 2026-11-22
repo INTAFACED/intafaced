@@ -260,7 +260,7 @@
   color: var(--lit-text-2);
 }
 
-/* The big balance: Home's own rule for its total (screens/home/volt.css) draws it. */
+/* The big balance: the kit's hero figure draws it. */
 :root .vk-balance {
   display: flex;
   align-items: center;

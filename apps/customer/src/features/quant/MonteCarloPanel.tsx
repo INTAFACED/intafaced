@@ -2,7 +2,7 @@ import { QUANT_BACKTEST_MONTE_CARLO } from '@intafaced/contracts/quant-backtest-
 import type { QuantMonteCarlo } from '@intafaced/contracts/quant-research';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Field, Tag } from '@intafaced/ui/lit';
 import { useApi } from '../session';
 import { researchCopy } from './research-copy';
 import { refusalCode } from './StrategyTeam';
@@ -73,8 +73,8 @@ export function MonteCarloPanel({ runId }: { runId: string }) {
       {failure && <KitFailure result={failure} />}
       {result && (
         <div data-testid="quant-montecarlo-result" data-runs={result.runs} data-seed={result.seed} data-trips={result.roundTrips}>
-          <p className="lt-badge" data-testid="quant-montecarlo-label">
-            {result.claimLabel}
+          <p>
+            <Tag data-testid="quant-montecarlo-label">{result.claimLabel}</Tag>
           </p>
           <p>{t('mcPaths', { runs: result.runs, trips: result.roundTrips, seed: result.seed, cash: result.startCash })}</p>
           <KitTable label={t('mcTitle')} headers={[t('mcPercentile'), t('mcDrawdown'), t('mcFinal')]}>

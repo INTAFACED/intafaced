@@ -411,7 +411,7 @@ function ProposalForm({
       <h3>{name}</h3>
       {access && <p role="note">{accessNote(access, t)}</p>}
       {!editing && (
-        <label className="field">
+        <label className="lt-field">
           <span>{t('kind')}</span>
           <select value={kind} onChange={(e) => setKind(KINDS.find((k) => k === e.target.value) ?? '')} required>
             <option value="">{t('chooseKind')}</option>
@@ -424,7 +424,7 @@ function ProposalForm({
         </label>
       )}
       {!editing && (
-        <label className="field">
+        <label className="lt-field">
           <span>{t('votingType')}</span>
           <select value={votingType} onChange={(e) => setVotingType(TOKEN_VOTING_TYPES.find((v) => v === e.target.value) ?? 'basic')}>
             {TOKEN_VOTING_TYPES.map((type) => (
@@ -438,7 +438,7 @@ function ProposalForm({
       {!editing && votingType !== 'basic' && (
         <>
           <TextArea label={t('choices')} value={choices} onChange={setChoices} />
-          <p className="muted">{t('choicesHint')}</p>
+          <p className="lt-muted">{t('choicesHint')}</p>
         </>
       )}
       <Field label={t('title')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
@@ -486,7 +486,7 @@ function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal
       <h3>{name}</h3>
       <p role="note">{t('cancelNote')}</p>
       <TextArea label={t('cancelReason')} value={reason} onChange={setReason} />
-      <p className="muted">{t('cancelReasonHint')}</p>
+      <p className="lt-muted">{t('cancelReasonHint')}</p>
       <div className="more-toolbar">
         <Button type="submit" variant="danger" disabled={busy}>
           {t('cancelSubmit')}

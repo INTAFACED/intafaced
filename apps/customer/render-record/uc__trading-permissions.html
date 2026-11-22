@@ -118,16 +118,33 @@
 </nav>
 <div data-testid="acct-body" class="acct-body legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="settings" data-state="empty" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Trading permissions</h1>
+<h1 class="lt-title">Trading permissions</h1>
 </div>
 </header>
-<div class="empty-state">
-<span class="empty-mark" aria-hidden="true">↗</span>
-<h3>Trading permissions</h3>
-<p>Venue trading is not switched on here, so there is no venue approval to show.</p>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="Trading permissions sections">
+<ul>
+<li>
+<a class="lt-link" href="#trading-permissions-title">Trading permissions</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings" data-holds-state="">
+<div class="lt-empty">
+<p class="lt-empty-title">Trading permissions</p>
+<p class="lt-empty-body">Venue trading is not switched on here, so there is no venue approval to show.</p>
+</div>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>An approval is the most a venue lets us charge as our builder fee on your orders there, as the venue reports it. A revoke is signed by your main wallet only; nothing is sent without it, and no money moves.</p>
+</section>
+</div>
 </div>
 </div>
 </div>

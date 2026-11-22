@@ -33,8 +33,31 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@intafaced/ui';
-import { Rail, ToggleChips, typeRoles, type DoorLink, type TypeRole } from '@intafaced/ui/lit';
-import { Sparkline as LineSpark, sortRows, Stepper, Table, type Column, type SortState } from '@intafaced/ui/lit/templates';
+import {
+  AssetIcon,
+  CardStack,
+  CardStackLoading,
+  Fold,
+  HeroFigure,
+  InfoTip,
+  Rail,
+  ToggleChips,
+  typeRoles,
+  type DoorLink,
+  type FigurePart,
+  type TypeRole,
+} from '@intafaced/ui/lit';
+import {
+  Candles,
+  QrCode,
+  Sparkline as LineSpark,
+  sortRows,
+  Stepper,
+  Table,
+  type Candle as KitCandle,
+  type Column,
+  type SortState,
+} from '@intafaced/ui/lit/templates';
 import type { OrderBook as WireBook } from '@intafaced/exchange-contract/schemas';
 import { ShellIcon, type ShellIconName } from '../icons';
 import { PriceChart } from '../../screens/trade/chart/PriceChart';
@@ -411,6 +434,55 @@ export function CandleChart() {
   );
 }
 
+/** The kit's QR code: dark on its own light ground on the dark page, in both sizes, and its failure line. */
+export function ScanCodes() {
+  return (
+    <div className="vk-row">
+      <QrCode
+        value="https://example.test/pay/link/TEST-0001"
+        label="Scan to open the TEST payment link"
+        failed="This link is too long for a code."
+      />
+      <QrCode
+        value="ethereum:0x000000000000000000000000000000000000dEaD@84532"
+        label="Scan to send to this TEST address"
+        failed="This address is too long for a code."
+        size="sm"
+        showValue
+      />
+      <QrCode value={'x'.repeat(3000)} label="Scan" failed="This TEST text is too long for a code, so none is drawn." />
+    </div>
+  );
+}
+
+/** The kit's own small candle chart, for a pool's or a token's page: the same TEST candles, placed by time. */
+export function SmallCandles() {
+  const window = { start: START / 1000, seconds: 48 * 3600, width: 3600 };
+  // A quiet stretch: candles 20 to 27 are left out, so the chart shows the gap.
+  const candles: KitCandle[] = TEST_CANDLES.filter((_, i) => i < 20 || i > 27).map((c) => ({
+    key: String(c.t),
+    at: c.t / 1000,
+    open: c.o,
+    high: c.h,
+    low: c.l,
+    close: c.c,
+    title: `${new Date(c.t).toISOString().slice(11, 16)} UTC: open ${c.o}, high ${c.h}, low ${c.l}, close ${c.c}, TEST`,
+    marks: { 'data-testid': 'kit-candle' },
+  }));
+  return (
+    <div className="vk-grid">
+      <Candles
+        label="TEST/USDT, hourly candles over two days, TEST"
+        candles={candles}
+        window={window}
+        empty="No trades in these two days, so there is no price to draw."
+        caption="Hourly candles, TEST. The gap is eight hours with no trade."
+      />
+      <Candles label="TEST/USDT, hourly candles, TEST" candles={[]} empty="No trades in these two days, so there is no price to draw." />
+    </div>
+  );
+}
+
 const MARKET: DeskMarket = {
   symbol: 'BTC/USDT',
   base: 'BTC',
@@ -464,6 +536,73 @@ export function Book() {
   return (
     <div className="if-desk vk-book">
       <BookPanel market={MARKET} book={book} ticker={ticker} zone="UTC" onPick={() => {}} onPickPrice={() => {}} />
+    </div>
+  );
+}
+
+// TEST figures, already formatted (a room gets these from packages/i18n's *ToParts formatters, from decimal strings).
+const usdParts = (integer: string, fraction: string): FigurePart[] => [
+  { type: 'currency', value: '$' },
+  { type: 'integer', value: integer },
+  { type: 'decimal', value: '.' },
+  { type: 'fraction', value: fraction },
+];
+
+/**
+ * The money parts the Money and Home rooms move onto (intafaced issue 9563): an asset's mark with its honest fallback,
+ * the info tip, the hero figure shown, hidden and missing, the small-balances fold and the card stack. TEST figures.
+ */
+export function MoneyParts() {
+  const [hidden, setHidden] = useState(false);
+  return (
+    <div className="vk-grid" data-kit="money-parts">
+      <div className="vk-row">
+        {(['BTC', 'ETH', 'USDT', 'USDC', 'XYZ'] as const).map((a) => (
+          <AssetIcon key={a} asset={a} size="lg" label={a === 'XYZ' ? 'XYZ, an asset with no artwork' : undefined} />
+        ))}
+        <AssetIcon asset="BTC" />
+        <AssetIcon asset="BTC" size="sm" />
+      </div>
+      <div className="vk-row">
+        <HeroFigure parts={usdParts('12,468', '50')} hidden={hidden} hiddenLabel="Balance hidden" unknownLabel="Not available" test />
+        <InfoTip
+          label="About this number"
+          text="TEST. Your cash and crypto at today's prices, in US dollars."
+          side="end"
+          data-testid="kit-tip"
+        />
+        <Button variant="ghost" size={32} onClick={() => setHidden((h) => !h)} aria-pressed={hidden}>
+          Hide balances
+        </Button>
+      </div>
+      <div className="vk-row">
+        <HeroFigure parts={null} hiddenLabel="Balance hidden" unknownLabel="Not available" />
+      </div>
+      <Fold title="Small balances" count={3}>
+        <ul className="vk-list">
+          {[
+            ['DOGE', '12.00 DOGE'],
+            ['SHIB', '41,000 SHIB'],
+            ['XYZ', '0.10 XYZ'],
+          ].map(([asset, held]) => (
+            <li key={asset} className="vk-list__row">
+              <AssetIcon asset={asset!} />
+              <span className="vk-list__name">
+                <strong>{asset}</strong>
+                <small>{held} · TEST</small>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Fold>
+      <div className="vk-object">
+        <CardStack
+          label="TEST holdings"
+          back={{ label: 'Crypto', value: hidden ? '••••' : '$3,250.00', href: '/kit' }}
+          front={{ label: 'Cash', value: hidden ? '••••' : '$9,218.50', href: '/kit' }}
+        />
+        <CardStackLoading />
+      </div>
     </div>
   );
 }

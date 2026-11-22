@@ -102,9 +102,9 @@
 <div>
 <p class="eyebrow">Money</p>
 <h1>Add money</h1>
-<p class="muted">Pay in crypto to your account. Choose the asset and network, then send to the address shown here.</p>
+<p class="lt-muted">Pay in crypto to your account. Choose the asset and network, then send to the address shown here.</p>
 </div>
-<div class="actions">
+<div class="lt-actions">
 <a class="text-link" href="/uc/assets">Supported assets and networks ↗</a>
 </div>
 </header>
@@ -114,46 +114,46 @@
 <li data-method="crypto">
 <div class="bd-method bd-method--here" aria-current="page">
 <strong>Crypto</strong>
-<span class="money-caption">Send from another wallet or exchange to your own address on this page.</span>
+<span class="lt-muted">Send from another wallet or exchange to your own address on this page.</span>
 <span class="bd-method__here">You are here</span>
 </div>
 </li>
 <li data-method="card">
 <a class="bd-method" href="/bank/ramps">
 <strong>Card</strong>
-<span class="money-caption">Needs a payment partner, which is not connected.</span>
+<span class="lt-muted">Needs a payment partner, which is not connected.</span>
 </a>
 </li>
 <li data-method="bank">
 <a class="bd-method" href="/bank/ramps">
 <strong>Bank transfer</strong>
-<span class="money-caption">Needs a payment partner, which is not connected.</span>
+<span class="lt-muted">Needs a payment partner, which is not connected.</span>
 </a>
 </li>
 <li data-method="p2p">
 <a class="bd-method" href="/p2p">
 <strong>Person to person</strong>
-<span class="money-caption">Offers, orders and counterparties in the person-to-person room.</span>
+<span class="lt-muted">Offers, orders and counterparties in the person-to-person room.</span>
 </a>
 </li>
 <li data-method="user">
 <a class="bd-method" href="/pay/receive">
 <strong>From an INTAFACED user</strong>
-<span class="money-caption">Share your handle and they can send you money straight away.</span>
+<span class="lt-muted">Share your handle and they can send you money straight away.</span>
 </a>
 </li>
 </ul>
 </nav>
 <div class="bd-columns">
-<div class="bd-stack">
+<div class="lt-stack">
 <section class="bd-panel" aria-labelledby="_r_3_">
 <h3 id="_r_3_">Asset</h3>
-<label class="field">
+<label class="lt-field">
 <span>Search assets</span>
 <input autocomplete="off" aria-describedby="_r_4_" type="search" value="">
 <small id="_r_4_" role="status">7 of 7 assets</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Asset</span>
 <select>
 <option value="USDT">USDT</option>
@@ -166,7 +166,7 @@
 </select>
 <small>Coins you hold come first.</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Network</span>
 <select disabled="" aria-describedby="_r_5_">
 <option value="">No networks available</option>
@@ -195,13 +195,13 @@
 </div>
 </dl>
 </section>
-<section class="bd-panel" aria-labelledby="_r_7_">
+<section class="lt-region lt-stack" aria-labelledby="_r_7_">
 <h3 id="_r_7_">Bank transfer details</h3>
-<p class="money-caption">The account numbers a bank transfer to you uses, one set for each currency.</p>
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
+<p class="lt-hint">The account numbers a bank transfer to you uses, one set for each currency.</p>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+</p>
 <p class="lt-refusal-body">No services run in the look gate.</p>
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
@@ -217,10 +217,10 @@
 </ul>
 </section>
 </div>
-<div class="bd-stack">
+<div class="lt-stack">
 <section class="bd-panel" aria-labelledby="_r_9_">
 <h3 id="_r_9_">On its way</h3>
-<p class="money-caption">Deposits seen on the network that are waiting to be credited.</p>
+<p class="lt-muted">Deposits seen on the network that are waiting to be credited.</p>
 <div class="empty-state">
 <span class="empty-mark" aria-hidden="true">↗</span>
 <h3>We could not load your deposit records.</h3>
@@ -229,9 +229,9 @@
 </section>
 <section class="bd-panel" aria-labelledby="_r_10_">
 <h3 id="_r_10_">Deposit records</h3>
-<p class="money-caption">Every crypto deposit to your addresses, with its state, newest first.</p>
+<p class="lt-muted">Every crypto deposit to your addresses, with its state, newest first.</p>
 <div class="bd-filter">
-<label class="field">
+<label class="lt-field">
 <span>Asset</span>
 <select>
 <option value="">Any</option>
@@ -244,7 +244,7 @@
 <option value="XRP">XRP</option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Status</span>
 <select>
 <option value="">Any</option>
@@ -261,11 +261,11 @@
 <option value="needs_review">Needs review</option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Transaction id</span>
 <input value="">
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Address</span>
 <input value="">
 </label>
@@ -278,9 +278,9 @@
 </section>
 <section class="bd-panel" aria-labelledby="_r_11_">
 <h3 id="_r_11_">Your deposits</h3>
-<p class="money-caption">Money credited to your account, newest first.</p>
+<p class="lt-muted">Money credited to your account, newest first.</p>
 <div class="bd-filter">
-<span class="money-caption">Showing USDT only</span>
+<span class="lt-muted">Showing USDT only</span>
 <button type="button" class="button button--ghost ">Show all assets</button>
 </div>
 <table class="bd-table">
@@ -298,7 +298,7 @@
 <time datetime="2026-10-12T10:00:00.000Z" lang="en-GB" dir="auto">12 Oct, 10:00</time>
 </td>
 <td>
-<a class="text-link" href="/money/activity/a8">Deposit</a>
+<a class="lt-link" href="/money/activity/a8">Deposit</a>
 </td>
 <td class="bd-num numeric">+1,000 USDT</td>
 <td>Credited</td>
@@ -308,14 +308,14 @@
 <time datetime="2026-10-10T06:00:00.000Z" lang="en-GB" dir="auto">10 Oct, 06:00</time>
 </td>
 <td>
-<a class="text-link" href="/money/activity/a9">Welcome test funds</a>
+<a class="lt-link" href="/money/activity/a9">Welcome test funds</a>
 </td>
 <td class="bd-num numeric">+4,000 USDT</td>
 <td>Credited</td>
 </tr>
 </tbody>
 </table>
-<p class="money-caption">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="customer.bank.deposit.total">Total shown: 5,000 USDT</span>
 </p>
 <button type="button" class="button button--secondary ">Load more</button>
