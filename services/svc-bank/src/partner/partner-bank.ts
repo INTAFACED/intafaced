@@ -155,6 +155,12 @@ export interface PartnerBank {
   /** Every account the partner holds for the person, in every currency. */
   balances(userId: string): Promise<PartnerBalance[]>;
   /**
+   * Opens the person's main account in one currency at the partner (J-bank-01 #3), once: asking again answers the same
+   * account and opens no second one. Refuses `bank.partner_unavailable` when down, nothing opened. A partner that opens
+   * accounts on first credit leaves it out.
+   */
+  openCurrency?(userId: string, assetId: string): Promise<PartnerBalance>;
+  /**
    * Make one move under its key. Refuses before anything moves: `bank.partner_unavailable` (not answering),
    * `bank.partner_insufficient_funds` (the source does not hold it), `bank.partner_move_conflict` (another move under
    * this key). `bank.partner_reply_lost` means the move may have been made and the outcome is not known: retry it under
