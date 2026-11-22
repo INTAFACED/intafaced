@@ -378,6 +378,9 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         if j.slice == Slice::Loans {
             return Some(loan_job(door, j.path, &body));
         }
+        if j.slice == Slice::Ramps {
+            return Some(crate::ramps::onramp::job(door, j.path, &body));
+        }
         return Some(not_ported(j.slice));
     }
     if caller != "svc-ops" {

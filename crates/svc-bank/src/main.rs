@@ -31,6 +31,7 @@ use svc_bank::migrate;
 use svc_bank::partner::custody::LedgerFreeze;
 use svc_bank::partner::router::Wiring;
 use svc_bank::partner::{TestPartner, cash_leg, pay_in};
+use svc_bank::ramps;
 use svc_bank::ready;
 use svc_bank::recovery::{self, AdvisoryLock, RecoveryCounts};
 use svc_bank::spaces;
@@ -509,6 +510,36 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Slice `ramps`' address book: identity's mail and trusted devices, from the environment.
+fn ramps_book_wiring(_env: &BankEnv) -> Result<ramps::book::Wiring, String> {
+    Ok(ramps::book::Wiring::none())
+}
+
+/// Slice `ramps`' on-ramp: the programme, the rate source and the pay-in partner, from the environment.
+fn ramps_onramp_wiring(_env: &BankEnv) -> Result<ramps::onramp::Wiring, String> {
+    Ok(ramps::onramp::Wiring::none())
+}
+
+/// Slice `ramps`' wiring: the owner's values as the TypeScript reads them, and each part's own.
+fn ramps_wiring(env: &BankEnv) -> Result<ramps::Wiring, String> {
+    let owned = |k: &str| env.raw.get(k).cloned().filter(|v| !v.trim().is_empty());
+    Ok(ramps::Wiring {
+        settings: ramps::Settings {
+            ramp_mode: owned("BANK_RAMP_MODE"),
+            offramp_cooling_hours: owned("BANK_OFFRAMP_COOLING_HOURS"),
+            address_book_cap: owned("BANK_ADDRESS_BOOK_CAP"),
+            destination_sanctions: owned("BANK_DESTINATION_SANCTIONS"),
+            wallet_proof_window_minutes: owned("BANK_WALLET_PROOF_WINDOW_MINUTES"),
+            wallet_proof_valid_days: owned("BANK_WALLET_PROOF_VALID_DAYS"),
+            address_approval_link_minutes: owned("BANK_ADDRESS_APPROVAL_LINK_MINUTES"),
+            app_env: owned("APP_ENV"),
+            node_env: owned("NODE_ENV"),
+        },
+        book: ramps_book_wiring(env)?,
+        onramp: ramps_onramp_wiring(env)?,
+    })
+}
+
 /// The door, built once from the environment, with the store.
 fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -531,7 +562,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_transfers(transfers)
     .with_earn(earn_settings(env))
     .with_cards(cards)
-    .with_loans(loans_wiring(env)?);
+    .with_loans(loans_wiring(env)?)
+    .with_ramps(ramps_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

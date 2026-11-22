@@ -241,6 +241,8 @@ pub struct BankDoor {
     cards: crate::cards::Wiring,
     /// Slice `loans`'s marks, venue, affiliates and owner values (`loans::Wiring`).
     loans: crate::loans::Wiring,
+    /// Slice `ramps`' owner values, identity ports, programme and partner (`ramps::Wiring`).
+    ramps: crate::ramps::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -290,6 +292,7 @@ impl BankDoor {
             earn: crate::earn::Settings::default(),
             cards: crate::cards::Wiring::none(),
             loans: crate::loans::Wiring::none(),
+            ramps: crate::ramps::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -370,6 +373,29 @@ impl BankDoor {
     pub fn with_loans(mut self, wiring: crate::loans::Wiring) -> BankDoor {
         self.loans = wiring;
         self
+    }
+
+    /// Slice `ramps`' wiring, built by the binary from the environment.
+    pub fn with_ramps(mut self, wiring: crate::ramps::Wiring) -> BankDoor {
+        self.ramps = wiring;
+        self
+    }
+
+    /// Slice `ramps`' wiring.
+    pub fn ramps(&self) -> &crate::ramps::Wiring {
+        &self.ramps
+    }
+
+    /// `f` given slice `ramps`' dependencies at `now`: what a call, a job door or a TEST page hands the slice.
+    pub fn ramps_deps<T>(&self, now: Instant, f: impl FnOnce(&crate::ramps::Deps<'_>) -> T) -> T {
+        f(&crate::ramps::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            partner: &self.partner,
+            transfers: &self.transfers,
+            w: &self.ramps,
+            now,
+        })
     }
 
     /// Slice `earn`'s owner values, built by the binary from the environment.
@@ -526,6 +552,9 @@ impl BankDoor {
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::Loans)))
             }
+            Slice::Ramps => self
+                .ramps_deps(ctx.now, |d| crate::ramps::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Ramps))),
             other => Err(not_ported(other)),
         }
     }
@@ -559,6 +588,9 @@ impl BankDoor {
             ) {
                 return res;
             }
+        }
+        if let Some(res) = crate::ramps::onramp::doors(self, req, peer) {
+            return res;
         }
         if let Some(res) = rest::answer(self, req) {
             return res;
