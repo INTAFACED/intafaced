@@ -843,7 +843,7 @@ export const quantTierSetOutputSchema = z.object({
 
 /**
  * Paper runs on the exchange's own prices (AL-live-01). A paper run keeps going until it is stopped; its fills,
- * position and equity are derived on every read from the exchange's own closed candles since it started, by the same
+ * position and equity are derived on every read from the venue's own closed candles since it started, by the same
  * engine and costs as a backtest. Our own venue data is the only feed that starts; an outside market feed is listed and
  * refuses `feed.market` (not connected in this build). Nothing here posts to a ledger: every figure is paper.
  */
@@ -876,6 +876,12 @@ export const quantPaperRunSchema = quantPaperRunSummarySchema.extend({
   costs: z.object({ feeRole: z.enum(QUANT_FEE_ROLES), slippageBps: decimalText, delayBars: z.number().int().nonnegative() }),
   symbol: z.string(),
   barSize: z.string(),
+  /**
+   * Where the run's prices come from (J-algo-dev-04 #2): the venue's own prints on the spot market we list on the
+   * strategy's asset (`venueMarket`, TEST on a TEST venue), never a book of ours. While the venue is not read, `venueMarket`
+   * is null and `unavailable` says why: the run is unpriced and nothing fills.
+   */
+  prices: z.object({ venueMarket: z.string().nullable(), test: z.boolean(), unavailable: z.string().nullable() }),
   /** Whether a closed bar has traded since the start. Before one has, nothing fills: no price is carried over. */
   priced: z.boolean(),
   /** The end of the newest closed bar read, or null before the first. */

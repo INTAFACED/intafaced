@@ -1339,6 +1339,27 @@ export class UserVenueDoor {
     return { ...(await venue.trades(symbol, limit)), test: isTestVenue(venue.venue) };
   }
 
+  /**
+   * The candles of the venue's own prints on the spot market we list on `base` (J-algo-dev-04 #2: a paper run prices its
+   * fills, position and equity from them, never from a book of ours), with the market's symbol. Refuses `not_offered` when
+   * we list no spot market on that asset or the venue publishes no candles.
+   */
+  async spotCandles(base: string, interval: VenueCandleInterval, limit: number) {
+    const venue = await this.venue();
+    const wanted = base.toUpperCase();
+    const spot = (await this.markets()).value.find((m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted);
+    if (!spot)
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'not_offered',
+        detail: `no spot market on ${wanted} is listed on this venue`,
+      });
+    if (!venue.candles)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no candles' });
+    const read = await venue.candles(spot.symbol, interval, limit);
+    return { ...read, symbol: spot.symbol, test: isTestVenue(venue.venue) };
+  }
+
   async marketCandles(symbol: string, interval: VenueCandleInterval, limit: number) {
     const venue = await this.listedVenue(symbol);
     if (!venue.candles)

@@ -25,7 +25,8 @@ pub const RULE_CHOICES: [&str; 4] = [
 /// `OWN_AGENT_DATA_CLASSES`.
 pub const DATA_CLASSES: [&str; 4] = ["own_data", "market_data", "draft_write", "live_write"];
 
-fn looseness(choice: &str) -> usize {
+/// A choice's place in [`RULE_CHOICES`]: the higher, the looser.
+pub fn looseness(choice: &str) -> usize {
     RULE_CHOICES
         .iter()
         .position(|c| *c == choice)

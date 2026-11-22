@@ -15,7 +15,16 @@ import {
 import { createEdgeContext, encodePrincipal, procedureCallers, signPrincipalHeader, type Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { missingLake } from './backtest/lake.js';
-import { missingFees, missingHistory, missingMarginRules, tradeFeePort, tradeHistoryPort, tradeMarginRulesPort } from './engine/ports.js';
+import {
+  missingFees,
+  missingHistory,
+  missingMarginRules,
+  missingVenuePrices,
+  tradeFeePort,
+  tradeHistoryPort,
+  tradeMarginRulesPort,
+  tradeVenuePricePort,
+} from './engine/ports.js';
 import { openDisclosureRepository } from './disclosure/open.js';
 import { openShareRepository } from './share/open.js';
 import { openTemplateRepository } from './templates/open.js';
@@ -127,12 +136,29 @@ function candleRows(): [number, string, string, string, string, string][] {
   });
 }
 
-/** svc-trade's public reads the history, fee and venue margin-rules ports make, answered the same on every run. */
+/** svc-trade's public reads the history, fee, venue price and venue margin-rules ports make, answered the same on every run. */
 async function tradeStub(url: string) {
   const path = url.replace('http://trade.test', '').split('?')[0]!;
   if (path.startsWith('/api/v1/ohlcv/')) return { ok: true, status: 200, json: async () => candleRows() };
   if (path === '/api/v1/fees/published')
     return { ok: true, status: 200, json: async () => ({ version: 'replay:v1', fees: { 'BTC/USDT': { makerBps: 8, takerBps: 10 } } }) };
+  if (path === '/api/v1/venue/spot-candles')
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        symbol: 'BTC-USDC',
+        test: true,
+        value: candleRows().map(([at, open, high, low, close, volume]) => ({
+          openAt: new Date(at).toISOString(),
+          openPrice: open,
+          highPrice: high,
+          lowPrice: low,
+          closePrice: close,
+          baseVolume: volume,
+        })),
+      }),
+    };
   if (path === '/api/v1/venue/margin-rules')
     return {
       ok: true,
@@ -155,6 +181,9 @@ function build(env: QuantEnv, clock: (() => number) | undefined): { router: Retu
   const history = env.TRADE_URL ? tradeHistoryPort({ tradeUrl: env.TRADE_URL, now, fetch: tradeStub as never }) : missingHistory();
   const fees = env.TRADE_URL ? tradeFeePort({ tradeUrl: env.TRADE_URL, fetch: tradeStub as never }) : missingFees();
   const marginRules = env.TRADE_URL ? tradeMarginRulesPort({ tradeUrl: env.TRADE_URL, fetch: tradeStub as never }) : missingMarginRules();
+  const venuePrices = env.TRADE_URL
+    ? tradeVenuePricePort({ tradeUrl: env.TRADE_URL, now, fetch: tradeStub as never })
+    : missingVenuePrices();
   const quota = openQuota(dbEnv, {
     defaultProfile: env.QUANT_DEFAULT_QUOTA_PROFILE ?? null,
     seed: parseQuotaSeed(env.QUANT_TEST_QUOTA_SEED),
@@ -197,6 +226,7 @@ function build(env: QuantEnv, clock: (() => number) | undefined): { router: Retu
     lake,
     history,
     fees,
+    venuePrices,
     ...(clock ? { now: clock } : {}),
     judgement: {
       criteria: {
