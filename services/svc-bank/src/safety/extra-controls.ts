@@ -12,7 +12,8 @@
  * (`bank.extra_controls_unavailable`): nothing is sent and the person may retry. No IDENTITY_URL is a deployment gap
  * (`bank.extra_controls_unset`).
  */
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { extraControlsForSchema, type ExtraControlsFor } from '@intafaced/contracts/identity-safety';
 import { compare, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';

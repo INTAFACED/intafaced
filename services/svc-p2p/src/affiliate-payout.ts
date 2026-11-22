@@ -9,7 +9,8 @@
  * accrued) and identity-down are swallowed. Never unwind escrowRelease.
  */
 
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { AffiliateP2pFeeLeg } from './affiliate-accrue.js';
 
 export const AFFILIATE_PRODUCER_PAYOUT_PATH = '/internal/affiliates/payout';

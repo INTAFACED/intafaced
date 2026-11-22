@@ -27,6 +27,7 @@ import {
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
+import { partsFor } from './guard-check.mjs';
 import { findSites } from './sites.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
@@ -89,8 +90,8 @@ function refusalReaders(serviceDir) {
   return out;
 }
 /** A record naming its service's own check (`check:`) is mounted with the parts that hand it over, in its router's file. */
-function readerFor(readers, file, access = '') {
-  if (/\bcheck: '/.test(access)) return readers.find((r) => r.parts && r.file === file);
+function readerFor(readers, file, guard = undefined) {
+  if (/\bcheck: '/.test(guard?.text ?? '')) return partsFor(readers, file, guard, () => readerFor(readers, file));
   return (
     readers.find((r) => !r.parts && r.file === file) ??
     readers
@@ -142,7 +143,10 @@ function plan(opts) {
     }
     const arg = schemaArgOf(s);
     const checks = s.schema ? answerChecks(s.schema.p, s.schema.node) : arg ? answerChecks(load(s.file), arg) : [];
-    if (checks.length) {
+    // A customer query or mutate whose schema only checks the answer (no transform) keeps that schema: the call goes to its
+    // record through `callAs`, which holds the answer to it and returns what it parses (apps/customer/src/shared/api.ts).
+    if (checks.length && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
+    else if (checks.length) {
       hand.push({
         site: s,
         why: `its own schema checks the answer, ${checks.join(', ')}: move the check to the call's \`accept\` by hand`,
@@ -181,7 +185,7 @@ function plan(opts) {
       continue;
     }
     const chain = chainOf(proc);
-    let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard?.text);
+    let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard);
     if (door) {
       // The door is the wire: its kind and access stand for the router's, which only checks them against it; a guard
       // the router writes its own way is the door's access all the same.
@@ -203,7 +207,7 @@ function plan(opts) {
       const why =
         chain.problems.join('; ') ||
         (/\bcheck: '/.test(chain.guard?.text ?? '')
-          ? `${path} names its service's own check, but its router's file declares no \`: ServiceParts\` to mount it with`
+          ? `${path} names its service's own check, but its router's file declares no \`: ServiceParts\` and the check is not exported to mount it with`
           : `${opts.service} has no refusal reader this file can import (no exported \`: RefusalOf\`)`);
       for (const s of list) hand.push({ site: s, why });
       continue;
@@ -391,7 +395,8 @@ function build(opts, planned) {
       changes.edit(p.file, node.start, node.end, `mountRecord(${r.name}, ${text(p, r.chain.handler)}, ${reader.name})`);
       changes.imp(p.file, contractsSpec(file), r.name);
       changes.imp(p.file, '@intafaced/contracts/procedure-mount', 'mountRecord');
-      if (reader.file !== p.file) changes.imp(p.file, relImport(p.file, reader.file), reader.name);
+      for (const i of reader.imports ?? [{ file: reader.file, name: reader.name }])
+        if (i.file !== p.file) changes.imp(p.file, relImport(p.file, i.file), i.name);
       for (const s of r.sites) rewriteSite(changes, s, r.name, contractsSpec(file), !r.chain.input);
       done.push(r);
     }
@@ -463,6 +468,22 @@ const RECORD_FORMS = {
 const ANSWER_CHECKS = new Set(['refine', 'superRefine', 'transform', 'pipe', 'check', 'preprocess', 'catch', 'overwrite']);
 
 /** The checks a caller's schema makes on the answer: `name (file:line)`, following the app's own consts and imports. */
+/** A check that changes the answer, not only refuses one: the caller's schema can't stand as an `accept`. */
+const CHANGES_ANSWER = /^\.(transform|pipe|preprocess|catch|overwrite)\(\)/;
+const CUSTOMER_SRC = '/apps/customer/src/';
+/** The customer app's API client file, in the same checkout as `file`. */
+const customerApi = (file) => `${file.slice(0, file.indexOf(CUSTOMER_SRC))}${CUSTOMER_SRC}shared/api.ts`;
+
+/** Whether a site with answer checks moves through `callAs`: a customer `query`/`mutate` whose schema only refuses. */
+export function checkedCall(s, arg, checks) {
+  return (
+    (s.shape === 'query' || s.shape === 'mutate') &&
+    Boolean(arg) &&
+    s.file.includes(CUSTOMER_SRC) &&
+    !checks.some((c) => CHANGES_ANSWER.test(c))
+  );
+}
+
 export function answerChecks(p, node, seen = new Set()) {
   const found = [];
   const visit = (q, n) => {
@@ -510,6 +531,12 @@ function callText(changes, s, name, takesNone) {
   const n = s.node;
   const a = n.arguments;
   const input = takesNone ? 'undefined' : text(p, inputArg(s));
+  if ((s.shape === 'query' || s.shape === 'mutate') && s.checked) {
+    // The customer app imports its own files with no extension.
+    changes.imp(s.file, relImport(s.file, customerApi(s.file)).replace(/\.js$/, ''), 'callAs');
+    const rest = [input, s.checked, ...(a[4] ? [text(p, a[4])] : [])];
+    return `callAs(${text(p, n.callee.object)}, ${name}, ${rest.join(', ')})`;
+  }
   if (s.shape === 'query' || s.shape === 'mutate') {
     const recv = text(p, n.callee.object);
     const rest = [input, ...(a[4] ? [text(p, a[4])] : [])];
@@ -560,7 +587,8 @@ export function rewriteSite(changes, s, name, spec, takesNone) {
   const n = s.node;
   // The hand schema the caller parsed with: its types now come from the record (`retype`).
   const schemaArg = schemaArgOf(s);
-  if (schemaArg?.type === 'Identifier') {
+  // A checked call keeps its schema as the caller wrote it (`callAs`), so it is not retyped from the record.
+  if (schemaArg?.type === 'Identifier' && !s.checked) {
     const f = changes.of(s.file);
     f.schemas ??= new Map();
     if (!f.schemas.has(schemaArg.name)) f.schemas.set(schemaArg.name, new Set());
@@ -768,6 +796,8 @@ function mergeImports(old, imports) {
 /** Writes every change, adds the imports, drops the imports nothing reads any more, and formats what it touched. */
 function write(result) {
   const touched = [];
+  // What each changed file imports before its calls move: a namespace member it read (`s.schema`) goes with the call.
+  const imported = new Map([...result.changes.files.keys()].filter((f) => !f.startsWith(CONTRACTS)).map((f) => [f, importedFrom(f)]));
   for (const [file, body] of result.created) {
     writeFileSync(file, body);
     touched.push(file);
@@ -787,18 +817,21 @@ function write(result) {
   const sources = new Set();
   for (const file of touched) {
     if (file.startsWith(CONTRACTS)) continue;
-    const before = importedFrom(file);
+    const before = imported.get(file) ?? importedFrom(file);
     pruneImports(file);
     const after = importedFrom(file);
-    for (const [name, src] of before) if (!after.has(name) && src && !touched.includes(src)) sources.add(src);
+    // A touched file too: it was pruned before this caller stopped reading it.
+    for (const [name, src] of before) if (!after.has(name) && src) sources.add(src);
   }
   for (const file of touched) if (file.startsWith(CONTRACTS)) pruneImports(file);
+  // A re-export kept at plan time for an importer whose read then moved to contracts serves no one, once that import is gone.
+  for (const [file, ch] of result.changes.files) if (ch.exports.size) pruneReExports(file, ch.exports, (name) => importersOf(file, name));
   for (const src of sources) {
     const was = readFileSync(src, 'utf8');
     pruneSchemas(src);
     if (readFileSync(src, 'utf8') !== was) {
       pruneImports(src);
-      touched.push(src);
+      if (!touched.includes(src)) touched.push(src);
     }
   }
   if (touched.length)
@@ -808,16 +841,70 @@ function write(result) {
   return touched;
 }
 
-/** The other files that import `name` from `file` (by its module name), the files a re-export of it must keep serving. */
+/**
+ * The other files that import `name` from `file`, the files a re-export of it must keep serving. A relative or `@/`
+ * import counts only when it resolves to `file` (two apps' `schemas.ts` are not one); a package import by its module name.
+ */
 function importersOf(file, name) {
   const stem = basename(file).replace(/\.tsx?$/, '');
   try {
-    return execFileSync('git', ['grep', '-l', '-w', name, '--', 'apps', 'packages', 'services'], { cwd: REPO, encoding: 'utf8' })
+    // Only code files are read (a README that names it is no importer), and a failure is thrown, never read as "no
+    // importer": a swallowed parse error once deleted schemas still read.
+    return execFileSync('git', ['grep', '-l', '-w', name, '--', 'apps', 'packages', 'services'], {
+      cwd: REPO,
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+    })
       .split('\n')
-      .filter((f) => f && join(REPO, f) !== file && new RegExp(`from '[^']*${stem}(\\.js)?'`).test(readFileSync(join(REPO, f), 'utf8')));
-  } catch {
-    return [];
+      .filter(
+        (f) => /\.(c|m)?[jt]sx?$/.test(f) && !f.endsWith('.d.ts') && join(REPO, f) !== file && importsFile(join(REPO, f), file, stem, name),
+      );
+  } catch (e) {
+    // git grep exits 1 when nothing matches: that alone is "no importer".
+    if (e.status === 1 && !e.stdout) return [];
+    throw e;
   }
+}
+
+/**
+ * True when `from` imports `name` from `file`: by name, as a member it reads through `import * as ns`, or by
+ * `export { name } from`. A relative or `@/` module counts when it resolves to `file`; a package one by its last segment `stem`.
+ */
+export function importsFile(from, file, stem, name) {
+  const app = from.match(/^(.*\/apps\/[^/]+)\//)?.[1];
+  const isFile = (spec) =>
+    spec.startsWith('.')
+      ? resolveRelative(from, spec) === file
+      : spec.startsWith('@/') && app
+        ? resolveRelative(join(app, 'src', 'x.ts'), `./${spec.slice(2)}`) === file
+        : new RegExp(`/${stem}(\\.js)?$`).test(spec);
+  forget(from);
+  const p = load(from);
+  for (const stmt of p.program.body) {
+    if (!stmt.source || !isFile(stmt.source.value)) continue;
+    if (stmt.type === 'ExportAllDeclaration') return true;
+    for (const sp of stmt.specifiers ?? []) {
+      if (stmt.type === 'ExportNamedDeclaration' && (sp.local.name ?? sp.local.value) === name) return true;
+      if (sp.type === 'ImportSpecifier' && (sp.imported.name ?? sp.imported.value) === name) return true;
+      if (sp.type === 'ImportNamespaceSpecifier') {
+        let read = false;
+        walk(p.program, (n) => {
+          if (read) return false;
+          if (
+            n.type === 'MemberExpression' &&
+            !n.computed &&
+            n.object.type === 'Identifier' &&
+            n.object.name === sp.local.name &&
+            n.property.name === name
+          )
+            read = true;
+        });
+        if (read) return true;
+      }
+      if (sp.type === 'ImportDefaultSpecifier' && name === 'default') return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -975,7 +1062,7 @@ export function pruneSchemas(file) {
 }
 
 /** Each name a file imports from a file of its own app (`./x`, `@/x`), with that file. */
-function importedFrom(file) {
+export function importedFrom(file) {
   forget(file);
   const p = load(file);
   const app = file.match(/^(.*\/apps\/[^/]+)\//)?.[1];
@@ -985,9 +1072,41 @@ function importedFrom(file) {
     const spec = stmt.source.value;
     const src =
       spec.startsWith('@/') && app ? resolveRelative(join(app, 'src', 'x.ts'), `./${spec.slice(2)}`) : resolveRelative(file, spec);
-    for (const sp of stmt.specifiers ?? []) out.set(sp.local.name, src);
+    for (const sp of stmt.specifiers ?? []) {
+      out.set(sp.local.name, src);
+      // `import * as s`: each member read (`s.disputeSchema`) is an import of its own, so a schema whose last reader moved is seen.
+      if (sp.type === 'ImportNamespaceSpecifier')
+        walk(p.program, (n) => {
+          if (n.type === 'MemberExpression' && !n.computed && n.object.type === 'Identifier' && n.object.name === sp.local.name)
+            out.set(`${sp.local.name}.${n.property.name}`, src);
+        });
+    }
   }
   return out;
+}
+
+/**
+ * Drops from a file's `export { ... }` each of `names` (as written: `x` or `type x`) that `importers(name)` says no
+ * other file imports any more; the statement goes when it keeps none.
+ */
+export function pruneReExports(file, names, importers) {
+  forget(file);
+  const p = load(file);
+  const bare = new Set([...names].map((n) => n.replace(/^type /, '')));
+  const edits = [];
+  for (const stmt of p.program.body) {
+    if (stmt.type !== 'ExportNamedDeclaration' || stmt.declaration || stmt.source) continue;
+    const keep = stmt.specifiers.filter((sp) => !bare.has(sp.local.name) || importers(sp.exported.name ?? sp.exported.value).length > 0);
+    if (keep.length === stmt.specifiers.length) continue;
+    edits.push(
+      keep.length === 0
+        ? { start: statementStart(p, stmt), end: statementEnd(p, stmt), text: '' }
+        : { start: stmt.start, end: stmt.end, text: `export { ${keep.map((sp) => text(p, sp)).join(', ')} };` },
+    );
+  }
+  if (!edits.length) return;
+  writeFileSync(file, applyEdits(p.src, edits));
+  forget(file);
 }
 
 /** Removes named import specifiers a file no longer reads (only those: a side-effect import stays). */

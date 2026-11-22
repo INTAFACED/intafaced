@@ -33,6 +33,8 @@
  * by tsc (INTAFACED/project-state#3609). Every package.json script and every tool that type-checks or builds calls
  * this file, never tsc itself (tsc.test.mjs stops a new one).
  *
+ * Off CI, a check that still runs tsc (no tsrs, a pass-through, a build tsrs refused) runs it on one thread (threadsOf).
+ *
  * Failure it prevents (INTAFACED/project-state#3374): builders ran bare `npx tsc` 527 times in four days, with no
  * incremental mode, no cache and no lock. One check of apps/customer took 10 s and 7 GB on the Mac, about 57 s and
  * 5 GB on the box; on 19 Nov, 22:17 to 22:57 UTC, one weed's three helpers ran it at once in one worktree and filled
@@ -228,9 +230,19 @@ export function skippedDependents(before, after) {
   });
 }
 
+/**
+ * Off CI, tsc runs on one thread: TypeScript 7 otherwise starts a checker per core, and on the box (16 cores, up to 16
+ * builders) each check held 24 to 137 threads at load 125 on 22 Nov 2026 (INTAFACED/project-state row d99). The answer
+ * is the same; a caller that set its own `--singleThreaded`, `--checkers` or `--builders` keeps it. CI keeps tsc's own.
+ */
+export const threadsOf = (args, env = process.env) =>
+  env.CI || args.some((a) => ['--singleThreaded', '--checkers', '--builders'].includes(a.split('=')[0]))
+    ? args
+    : [...args, '--singleThreaded'];
+
 /** Runs the compiler; resolves to its exit code, and with `capture` to `{ code, out, err }` (its output held back). */
 function tsc(args, cwd, { capture = false, checker = 'tsc' } = {}) {
-  const child = spawn(process.execPath, [checker === 'tsrs' ? TSRS : TSC, ...args], {
+  const child = spawn(process.execPath, checker === 'tsrs' ? [TSRS, ...args] : [TSC, ...threadsOf(args)], {
     cwd,
     stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
   });

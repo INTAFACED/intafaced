@@ -1,4 +1,4 @@
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { CampaignsError } from '../codes.js';
 import type { RiskService } from '../risk.js';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';

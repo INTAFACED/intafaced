@@ -6,18 +6,14 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { closeAccountCopy as copy } from './close-account-copy';
-import {
-  BLOCKER_KEYS,
-  CLOSE_REFUSAL_KEYS,
-  closeStepUp,
-  closureCheck,
-  closureStatus,
-  closureView,
-  daysLeft,
-  isSixDigits,
-  type ClosureView,
-} from './close-account';
+import { BLOCKER_KEYS, CLOSE_REFUSAL_KEYS, closeStepUp, daysLeft, isSixDigits, type ClosureView } from './close-account';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
+import {
+  IDENTITY_ACCOUNT_CLOSURE_STATUS,
+  IDENTITY_ACCOUNT_CLOSURE_CHECK,
+  IDENTITY_ACCOUNT_CLOSURE_REQUEST,
+  IDENTITY_ACCOUNT_CLOSURE_CANCEL,
+} from '@intafaced/contracts/identity-account-closure-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -45,16 +41,14 @@ export function CloseAccount() {
   }, []);
   const status = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'accountClosure.status', undefined, closureStatus, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_ACCOUNT_CLOSURE_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `closure-status:${userId}`,
   );
   const open = status.resource.status === 'ready' && status.resource.data?.closure?.status === 'requested';
   const check = useResource(
     (signal) =>
       userId && status.resource.status === 'ready' && !open
-        ? api.query('identity', 'accountClosure.check', undefined, closureCheck, { signal })
+        ? api.call(IDENTITY_ACCOUNT_CLOSURE_CHECK, undefined, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `closure-check:${userId}:${status.resource.status}:${open}`,
   );
@@ -71,13 +65,11 @@ export function CloseAccount() {
       if (!approved.ok) return setFailure(approved);
       const answer =
         intent === 'request'
-          ? await api.mutate(
-              'identity',
-              'accountClosure.request',
-              { stepUpApprovalId: approved.data.stepUpApprovalId, clientRequestId: requestId },
-              closureView,
-            )
-          : await api.mutate('identity', 'accountClosure.cancel', { stepUpApprovalId: approved.data.stepUpApprovalId }, closureView);
+          ? await api.call(IDENTITY_ACCOUNT_CLOSURE_REQUEST, {
+              stepUpApprovalId: approved.data.stepUpApprovalId,
+              clientRequestId: requestId,
+            })
+          : await api.call(IDENTITY_ACCOUNT_CLOSURE_CANCEL, { stepUpApprovalId: approved.data.stepUpApprovalId });
       if (!mounted.current) return;
       // The service spends the approval first, so after any refusal the next try starts a new confirmation.
       if (!answer.ok) return setFailure(answer);

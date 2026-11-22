@@ -1,14 +1,13 @@
 import { TRPCError } from '@trpc/server';
 import {
-  router,
-  scopedProcedure,
   staffHoldConfirmInputSchema,
   staffHoldListInputSchema,
   staffHoldListSchema,
   staffHoldPlaceInputSchema,
   staffHoldReleaseInputSchema,
   staffHoldResultSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-staff-holds';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError, STAFF_HOLD_NOT_FOUND } from '../codes.js';
 import type { StaffHoldDesk } from './desk.js';
 

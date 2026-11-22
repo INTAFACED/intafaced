@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { hasScope, requireScope, type Scope } from '@intafaced/auth';
-import { anyScopeProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
+import { anyScopeProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { wrapOps } from './merchant-ops/errors.js';
 import { SHUT } from './owner-pay-grant-recheck.js';
 

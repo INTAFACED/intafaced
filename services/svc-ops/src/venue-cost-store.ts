@@ -1,7 +1,8 @@
 import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { OPS_COST_CATEGORIES, type OpsCostCategory, type OpsCostEntry } from '@intafaced/contracts';
+import type { OpsCostCategory, OpsCostEntry } from '@intafaced/contracts';
+import { OPS_COST_CATEGORIES } from '@intafaced/contracts/ops-venue-economics';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from './codes.js';
 
 /** What the operator typed, already validated and with the amount normalised. */

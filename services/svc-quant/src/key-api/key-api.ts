@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import {
   QUANT_DATABASE_URL_UNSET,

@@ -1,4 +1,6 @@
-import { s2sFromEnv, serviceCallSigner, type S2sEnv, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { S2sEnv, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 /**
  * svc-edge's own service key (S2S v3), used for the service calls the edge makes with a dedicated shared secret, never

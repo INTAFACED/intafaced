@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 
 export type CustodyPolicyErrorCode =
   | 'custody_policy.draft_invalid'

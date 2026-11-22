@@ -1,5 +1,7 @@
 import type { Context, OperatorAuthority } from '@intafaced/contracts';
-import { accountOperatorEntitlementSchema, forwardedPrincipalHeaders, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { accountOperatorEntitlementSchema } from '@intafaced/contracts/account-controls';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { serviceAuthHeadersForBody } from '@intafaced/contracts/service-auth';
 import { OutreachError } from './config.js';
 
 export type FounderAuthority = (ctx: Context) => Promise<string>;

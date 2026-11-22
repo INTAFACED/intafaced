@@ -88,6 +88,7 @@ fn parts(journal: MemoryJournal, bus: Box<dyn EventBus + Send>, clock: fn() -> i
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: true,
     }
 }
 
@@ -1235,6 +1236,7 @@ fn the_drain_disables_the_engine_and_dropping_the_door_releases_the_journal_lock
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: true,
     });
     let door = door_over(engine, ticking);
     // While the process holds the journal, a second writer is refused.

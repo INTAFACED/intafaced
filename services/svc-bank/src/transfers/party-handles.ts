@@ -6,7 +6,8 @@
  * either party, and the receipt says so.
  */
 import { z } from 'zod';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 export class PartyHandleUnavailableError extends Error {
   constructor(message = 'identity did not answer a handle lookup') {
