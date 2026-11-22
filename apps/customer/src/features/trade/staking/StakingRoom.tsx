@@ -129,7 +129,9 @@ function Room({ status }: { status: VenueUp }) {
   const venue = status.venue.displayName;
   const [revision, setRevision] = useState(0);
   const [form, setForm] = useState<{ action: Action; validator: Validator | null; amount: string } | null>(null);
-  const terms = usePolled((signal) => api.staking(signal), `staking:terms:${revision}`, POLL_MS);
+  // The venue's terms are not this person's: a move re-reads their own staking and spot, never the terms, so the open
+  // form (and its answer) stays on screen.
+  const terms = usePolled((signal) => api.staking(signal), 'staking:terms', POLL_MS);
   const mine = usePolled(
     (signal) => (owner ? api.stakingAccount(owner, signal) : Promise.resolve(null)),
     `staking:mine:${owner ?? ''}:${revision}`,
