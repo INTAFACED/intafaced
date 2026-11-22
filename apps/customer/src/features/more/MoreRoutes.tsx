@@ -165,6 +165,8 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.token');
     description = copyText('moreroutes.exact.stake.records.access.and.governance');
     content = <Token />;
+  } else if (quant && 'bare' in quant && quant.bare) {
+    volt = quant.content;
   } else if (quant) {
     ({ title, description, content } = quant);
   } else if (p === '/support/chat') {

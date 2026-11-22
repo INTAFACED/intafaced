@@ -8,11 +8,11 @@ import type { QuantApprovalState } from '@intafaced/contracts/quant-research';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field } from '../../shared/ui';
-import { Read } from '../more';
 import { useApi } from '../session';
 import { researchCopy } from './research-copy';
 import { refusalCode, useLastReady } from './StrategyTeam';
+import { Button, Field } from '@intafaced/ui/lit';
+import { EmptyNote, FailureNote, Read, ScrollTable } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utc = (iso: string) => iso.slice(0, 19).replace('T', ' ');
@@ -64,7 +64,7 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
         </p>
         {owner && (
           <Button
-            variant="secondary"
+            tone="secondary"
             disabled={busy}
             onClick={() =>
               void act(() =>
@@ -84,6 +84,7 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
         </p>
         {owner && (
           <Button
+            tone="primary"
             disabled={busy}
             onClick={() => void act(() => api.call(QUANT_APPROVAL_REQUEST, { strategyId: data.strategyId, strategyVersion: data.version }))}
           >
@@ -91,9 +92,9 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
           </Button>
         )}
         {data.approvals.length === 0 ? (
-          <EmptyState title={t('apNone')} />
+          <EmptyNote title={t('apNone')} />
         ) : (
-          <DataTable
+          <ScrollTable
             label={t('apTitle')}
             headers={[t('apColVersion'), t('apColDecision'), t('apColReviewer'), t('apColRequested'), t('apColState')]}
           >
@@ -116,12 +117,13 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
                 <td>{row.current ? t('apCurrent') : t('apStale')}</td>
               </tr>
             ))}
-          </DataTable>
+          </ScrollTable>
         )}
         {pending && (
           <div data-testid="quant-approval-decide" data-approval-id={pending.approvalId}>
             <Field label={t('apReason')} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
             <Button
+              tone="primary"
               disabled={busy}
               onClick={() =>
                 void act(() =>
@@ -137,7 +139,7 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
               {t('apApprove', { version: pending.strategyVersion })}
             </Button>
             <Button
-              variant="secondary"
+              tone="secondary"
               disabled={busy}
               onClick={() =>
                 void act(() =>
@@ -161,7 +163,7 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
   return (
     <section aria-label={t('apTitle')} data-testid="quant-approval">
       <h3>{t('apTitle')}</h3>
-      <p className="muted">{t('apIntro')}</p>
+      <p>{t('apIntro')}</p>
       {kept ? (
         view(kept)
       ) : (
@@ -174,7 +176,7 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
           {refused.text}
         </p>
       )}
-      {failure && <Failure result={failure} />}
+      {failure && <FailureNote result={failure} />}
     </section>
   );
 }

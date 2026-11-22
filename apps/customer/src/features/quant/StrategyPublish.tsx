@@ -20,11 +20,12 @@ import {
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field, Loading } from '../../shared/ui';
-import { Read, Select, TextArea } from '../more';
 import { useApi } from '../session';
 import { libraryCopy } from './library-copy';
 import { refusalCode, useLastReady } from './StrategyTeam';
+import { Button, Field } from '@intafaced/ui/lit';
+import { CheckField, SelectField, TextAreaField } from '@intafaced/ui/lit/templates';
+import { EmptyNote, FailureNote, Read, ScrollTable, Waiting } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type Refusal = { code: string; text: string };
@@ -68,7 +69,7 @@ export function StrategyLineage({ strategy }: { strategy: QuantStrategyDetail })
   return (
     <p data-testid="quant-lineage" data-listing-id={row.listingId} data-source-version={row.sourceVersion}>
       {t('lineage', { title: row.listingTitle, version: String(row.sourceVersion), at: utcText(row.clonedAt) })}{' '}
-      <a className="text-link" href={`/quant/library/${encodeURIComponent(row.listingId)}`}>
+      <a className="lt-link" href={`/quant/library/${encodeURIComponent(row.listingId)}`}>
         {t('openListing', { title: row.listingTitle })}
       </a>
     </p>
@@ -87,7 +88,7 @@ export function StrategyPublish({ strategy }: { strategy: QuantStrategyDetail })
   return (
     <section aria-label={t('publishTitle')} data-testid="quant-publish">
       <h3>{t('publishTitle')}</h3>
-      <p className="muted">{t('publishIntro')}</p>
+      <p>{t('publishIntro')}</p>
       <Read resource={options.resource} retry={options.reload}>
         {(data) => <PublishForm strategy={strategy} options={data} onPublished={reload} />}
       </Read>
@@ -174,7 +175,7 @@ function PublishForm({
         void publish();
       }}
     >
-      <Select
+      <SelectField
         label={t('version')}
         value={String(version)}
         onChange={(value) => setVersion(Number(value))}
@@ -183,24 +184,21 @@ function PublishForm({
           .map((row) => ({ value: String(row.version), label: t('versionOf', { version: String(row.version) }) }))}
       />
       <Field label={t('listingTitle')} value={title} maxLength={120} onChange={(event) => setTitle(event.currentTarget.value)} />
-      <TextArea label={t('listingDescription')} value={description} onChange={setDescription} maxLength={4000} />
+      <TextAreaField label={t('listingDescription')} value={description} onChange={setDescription} maxLength={4000} />
       <fieldset>
         <legend>{t('tags')}</legend>
         {QUANT_LIBRARY_TAGS.map((tag) => (
-          <label key={tag} className="quant-check-line">
-            <input className="quant-run-check" type="checkbox" checked={tags.includes(tag)} onChange={() => toggleTag(tag)} />{' '}
-            {t(`tag_${tag}`)}
-          </label>
+          <CheckField key={tag} label={t(`tag_${tag}`)} checked={tags.includes(tag)} onChange={() => toggleTag(tag)} />
         ))}
       </fieldset>
-      <Select
+      <SelectField
         label={t('visibility')}
         value={visibility}
         onChange={(value) => setVisibility(QUANT_LISTING_VISIBILITIES.find((row) => row === value) ?? 'open')}
         options={QUANT_LISTING_VISIBILITIES.map((row) => ({ value: row, label: t(`visibility_${row}`) }))}
       />
       {options.licences ? (
-        <Select
+        <SelectField
           label={t('licence')}
           value={licence}
           onChange={setLicence}
@@ -213,30 +211,27 @@ function PublishForm({
         <legend>{t('checklistTitle')}</legend>
         {options.checklist ? (
           <>
-            <p className="muted">{t('checklistVersion', { version: options.checklist.version })}</p>
+            <p>{t('checklistVersion', { version: options.checklist.version })}</p>
             {items.map((item, i) => (
-              <label key={i} className="quant-check-line">
-                <input
-                  className="quant-run-check"
-                  type="checkbox"
-                  checked={accepted.includes(i)}
-                  onChange={() => setAccepted((prev) => (prev.includes(i) ? prev.filter((row) => row !== i) : [...prev, i]))}
-                />{' '}
-                <span lang="und">{item}</span>
-              </label>
+              <CheckField
+                key={i}
+                label={<span lang="und">{item}</span>}
+                checked={accepted.includes(i)}
+                onChange={() => setAccepted((prev) => (prev.includes(i) ? prev.filter((row) => row !== i) : [...prev, i]))}
+              />
             ))}
           </>
         ) : (
           <p>{t('checklistUnset')}</p>
         )}
       </fieldset>
-      <Button variant="secondary" onClick={() => void runChecks()} disabled={busy}>
+      <Button tone="secondary" onClick={() => void runChecks()} disabled={busy}>
         {t('runChecks')}
       </Button>{' '}
-      <Button type="submit" disabled={busy}>
+      <Button tone="primary" type="submit" disabled={busy}>
         {t('publish')}
       </Button>
-      {busy && <Loading />}
+      {busy && <Waiting />}
       {checked && <CheckList reading={checked} />}
       {note && (
         <p role="status" data-testid="quant-publish-note">
@@ -248,7 +243,7 @@ function PublishForm({
           {refused.text}
         </p>
       )}
-      {failure && <Failure result={failure} />}
+      {failure && <FailureNote result={failure} />}
     </form>
   );
 }
@@ -263,7 +258,7 @@ function CheckList({ reading }: { reading: QuantListingCheck }) {
       data-version={reading.strategyVersion}
     >
       <h4>{t('checksTitle')}</h4>
-      <DataTable label={t('checksTitle')} headers={[t('checksTitle'), t('state'), '']}>
+      <ScrollTable label={t('checksTitle')} headers={[t('checksTitle'), t('state'), '']}>
         {reading.checks.map((row) => (
           <tr key={row.id} data-testid="quant-listing-check" data-check={row.id} data-passed={row.passed}>
             <td>{t(`check_${row.id}`)}</td>
@@ -273,7 +268,7 @@ function CheckList({ reading }: { reading: QuantListingCheck }) {
             </td>
           </tr>
         ))}
-      </DataTable>
+      </ScrollTable>
       <p data-testid="quant-listing-checks-summary">{reading.passed ? t('allPassed') : t('someFailed')}</p>
     </section>
   );
@@ -281,10 +276,10 @@ function CheckList({ reading }: { reading: QuantListingCheck }) {
 
 function MyListings({ listings, onChange }: { listings: QuantListing[]; onChange: () => void }) {
   const { t } = libraryCopy.useCopy();
-  if (!listings.length) return <EmptyState title={t('noListings')} />;
+  if (!listings.length) return <EmptyNote title={t('noListings')} />;
   return (
     <>
-      <DataTable label={t('listingsTitle')} headers={[t('colTitle'), t('version'), t('colVisibility'), t('listed'), t('state')]}>
+      <ScrollTable label={t('listingsTitle')} headers={[t('colTitle'), t('version'), t('colVisibility'), t('listed'), t('state')]}>
         {listings.map((row) => (
           <tr
             key={row.listingId}
@@ -294,7 +289,7 @@ function MyListings({ listings, onChange }: { listings: QuantListing[]; onChange
             data-stale={row.stale}
           >
             <td lang="und">
-              <a className="text-link" href={`/quant/library/${encodeURIComponent(row.listingId)}`}>
+              <a className="lt-link" href={`/quant/library/${encodeURIComponent(row.listingId)}`}>
                 {t('openListing', { title: row.title })}
               </a>
             </td>
@@ -304,7 +299,7 @@ function MyListings({ listings, onChange }: { listings: QuantListing[]; onChange
             <td data-testid="quant-my-listing-state">{row.stale ? t('stale', { head: String(row.headVersion ?? '') }) : t('current')}</td>
           </tr>
         ))}
-      </DataTable>
+      </ScrollTable>
       {listings
         .filter((row) => row.visibility === 'invite')
         .map((row) => (
@@ -335,28 +330,31 @@ function ListingAccess({ listing, onChange }: { listing: QuantListing; onChange:
     <section aria-label={t('accessTitle', { title: listing.title })} data-testid="quant-listing-access" data-listing-id={listing.listingId}>
       <h5>{t('accessTitle', { title: listing.title })}</h5>
       {listing.access.length === 0 ? (
-        <EmptyState title={t('noAccess')} />
+        <EmptyNote title={t('noAccess')} />
       ) : (
-        <DataTable label={t('accessTitle', { title: listing.title })} headers={[t('accessUser'), t('accessState'), '']}>
+        <ScrollTable label={t('accessTitle', { title: listing.title })} headers={[t('accessUser'), t('accessState'), '']}>
           {listing.access.map((row) => (
             <tr key={row.userId} data-testid="quant-access-row" data-user={row.userId} data-state={row.state}>
               <td lang="zxx">{row.userId}</td>
               <td>{t(`access_${row.state}`)}</td>
               <td>
                 {row.state === 'granted' ? (
-                  <Button variant="danger" onClick={() => void act('revoke', row.userId, row.rows)}>
+                  <Button tone="secondary" onClick={() => void act('revoke', row.userId, row.rows)}>
                     {t('revoke', { user: row.userId })}
                   </Button>
                 ) : (
-                  <Button onClick={() => void act('grant', row.userId, row.rows)}>{t('grant', { user: row.userId })}</Button>
+                  <Button tone="primary" onClick={() => void act('grant', row.userId, row.rows)}>
+                    {t('grant', { user: row.userId })}
+                  </Button>
                 )}
               </td>
             </tr>
           ))}
-        </DataTable>
+        </ScrollTable>
       )}
       <Field label={t('grantUser')} value={userId} onChange={(event) => setUserId(event.currentTarget.value)} />
       <Button
+        tone="primary"
         onClick={() => {
           const user = userId.trim().toLowerCase();
           void act('grant', user, listing.access.find((row) => row.userId === user)?.rows ?? 0);
@@ -364,7 +362,7 @@ function ListingAccess({ listing, onChange }: { listing: QuantListing; onChange:
       >
         {t('grantNew')}
       </Button>
-      {failure && <Failure result={failure} />}
+      {failure && <FailureNote result={failure} />}
     </section>
   );
 }

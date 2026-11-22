@@ -3,11 +3,12 @@ import { QUANT_PAPER_GET, QUANT_PAPER_LIST, QUANT_PAPER_START, QUANT_PAPER_STOP 
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Field, Loading } from '../../shared/ui';
-import { Read, Select } from '../more';
 import { useApi } from '../session';
 import { paperCopy } from './paper-copy';
 import { QuotaAwareFailure } from './quota-refusal';
+import { Button, Field } from '@intafaced/ui/lit';
+import { SelectField } from '@intafaced/ui/lit/templates';
+import { EmptyNote, Read, ScrollTable, Waiting } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -43,8 +44,8 @@ export function PaperRuns({ strategy }: { strategy: QuantStrategyDetail }) {
   return (
     <section aria-label={t('title')} data-testid="quant-paper">
       <h3>{t('title')}</h3>
-      <p className="muted">{t('label')}</p>
-      <p className="muted">{t('intro')}</p>
+      <p>{t('label')}</p>
+      <p>{t('intro')}</p>
       {note && (
         <p role="status" data-testid="quant-paper-note">
           {note}
@@ -67,6 +68,7 @@ export function PaperRuns({ strategy }: { strategy: QuantStrategyDetail }) {
               />
             ) : (
               <Button
+                tone="primary"
                 onClick={() => {
                   setNote(null);
                   setOpening(true);
@@ -77,9 +79,9 @@ export function PaperRuns({ strategy }: { strategy: QuantStrategyDetail }) {
             )}
             {failure && <QuotaAwareFailure result={failure} />}
             {data.runs.length === 0 ? (
-              <EmptyState title={t('none')} />
+              <EmptyNote title={t('none')} />
             ) : (
-              <DataTable label={t('title')} headers={[t('startedAt'), t('version'), t('state'), t('stoppedAt'), t('actions')]}>
+              <ScrollTable label={t('title')} headers={[t('startedAt'), t('version'), t('state'), t('stoppedAt'), t('actions')]}>
                 {data.runs.map((run) => (
                   <tr
                     key={run.runId}
@@ -93,19 +95,19 @@ export function PaperRuns({ strategy }: { strategy: QuantStrategyDetail }) {
                     <td>{run.state === 'running' ? t('running') : t('stoppedState')}</td>
                     <td lang="zxx">{run.stoppedAt ? utcText(run.stoppedAt) : ''}</td>
                     <td>
-                      <Button variant="secondary" onClick={() => setShown(shown === run.runId ? null : run.runId)}>
+                      <Button tone="secondary" onClick={() => setShown(shown === run.runId ? null : run.runId)}>
                         {t('open', { at: utcText(run.startedAt) })}
                       </Button>
                       {run.state === 'running' && (
-                        <Button variant="secondary" onClick={() => void stop(run.runId)} disabled={busy !== null}>
+                        <Button tone="secondary" onClick={() => void stop(run.runId)} disabled={busy !== null}>
                           {t('stop', { at: utcText(run.startedAt) })}
                         </Button>
                       )}
-                      {busy === run.runId && <Loading label={t('stopping')} />}
+                      {busy === run.runId && <Waiting label={t('stopping')} />}
                     </td>
                   </tr>
                 ))}
-              </DataTable>
+              </ScrollTable>
             )}
             {shown && <PaperRunView key={`${shown}:${revision}`} runId={shown} />}
           </>
@@ -170,7 +172,7 @@ function StartForm(props: {
         void start();
       }}
     >
-      <Select
+      <SelectField
         label={t('version')}
         value={version}
         onChange={setVersion}
@@ -193,7 +195,7 @@ function StartForm(props: {
       <p data-testid="quant-paper-holdings">
         <strong>{t('holdings')}:</strong> {t('holdingsNone')}
       </p>
-      <Select
+      <SelectField
         label={t('feed')}
         value={feed}
         onChange={setFeed}
@@ -207,7 +209,7 @@ function StartForm(props: {
           {t('feedOutsideNotice')}
         </p>
       )}
-      <Select
+      <SelectField
         label={t('feeRole')}
         value={feeRole}
         onChange={setFeeRole}
@@ -218,13 +220,13 @@ function StartForm(props: {
       />
       <Field label={t('slippage')} value={slippage} onChange={(event) => setSlippage(event.currentTarget.value)} inputMode="decimal" />
       <Field label={t('delay')} value={delay} onChange={(event) => setDelay(event.currentTarget.value)} inputMode="numeric" />
-      <Button type="submit" disabled={busy}>
+      <Button tone="primary" type="submit" disabled={busy}>
         {t('go')}
       </Button>
-      <Button type="button" variant="secondary" onClick={props.onCancel} disabled={busy}>
+      <Button tone="secondary" type="button" onClick={props.onCancel} disabled={busy}>
         {t('cancel')}
       </Button>
-      {busy && <Loading label={t('starting')} />}
+      {busy && <Waiting label={t('starting')} />}
       {feedRefused && (
         <p role="alert" data-testid="quant-paper-refusal" data-input="feed" data-code="feed.market">
           {t('feedRefused')}
@@ -275,9 +277,9 @@ function PaperRunView({ runId }: { runId: string }) {
           </p>
           <h4>{t('fills')}</h4>
           {data.trades.length === 0 ? (
-            <p className="muted">{t('noFills')}</p>
+            <p>{t('noFills')}</p>
           ) : (
-            <DataTable label={t('fills')} headers={[t('at'), t('side'), t('qty'), t('price'), t('fee')]}>
+            <ScrollTable label={t('fills')} headers={[t('at'), t('side'), t('qty'), t('price'), t('fee')]}>
               {data.trades.map((trade, index) => (
                 <tr
                   key={`${trade.ts}:${index}`}
@@ -295,7 +297,7 @@ function PaperRunView({ runId }: { runId: string }) {
                   <td lang="zxx">{trade.fee}</td>
                 </tr>
               ))}
-            </DataTable>
+            </ScrollTable>
           )}
         </div>
       )}

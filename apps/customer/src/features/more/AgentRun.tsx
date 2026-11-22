@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react';
 import { sessionRunSchema, sessionRunStopSchema, type SessionRun } from '@intafaced/contracts/agents-runs';
-import { Button, KeyValue } from '@intafaced/ui/lit';
-import { CheckField, ReadingTemplate, SelectField, ServiceOffNotice, TextAreaField, TextField } from '@intafaced/ui/lit/templates';
+import { Button } from '@intafaced/ui/lit';
+import {
+  CheckField,
+  KeyValue,
+  ReadingTemplate,
+  SelectField,
+  ServiceOffNotice,
+  TextAreaField,
+  TextField,
+} from '@intafaced/ui/lit/templates';
 import { useApi } from '../session';
 import { serviceOffCopy } from '../../shared/service-off';
 import { displayAmount } from '../../shared/money';

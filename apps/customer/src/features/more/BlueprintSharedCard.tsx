@@ -202,7 +202,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
   const modal = full && fullRef.current === full && artifactCurrent(full.artifact) ? full : null;
   const parsed = sharedCardSelection.safeParse(draft);
   return (
-    <section aria-labelledby="blueprint-shared-title" lang={languageFor('title')}>
+    <section aria-labelledby="blueprint-shared-title" data-blueprint-shared lang={languageFor('title')}>
       <h2 id="blueprint-shared-title">{t('title')}</h2>
       <p>{t('intro')}</p>
       <form
@@ -248,7 +248,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
       </form>
       {selected && dimensions && (
         <div data-size={selected.size}>
-          <p>
+          <p data-part="context">
             <span>{t('requested')}</span> <code>{selected.userId}</code>{' '}
             <span>
               {t(selected.size)} · {dimensions.width} × {dimensions.height}
@@ -258,6 +258,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
           {artifact && (
             <>
               <img
+                data-part="image"
                 src={artifact.url}
                 alt={t('alt')}
                 width={artifact.card.width}
@@ -271,7 +272,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
                   setView({ status: 'failed', intent: artifact.intent, failure: 'invalidResponse' });
                 }}
               />
-              <div className="lt-actions">
+              <div className="lt-actions" data-part="actions">
                 <Button
                   tone="secondary"
                   onClick={() => {
@@ -316,7 +317,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
             </>
           )}
           {failure && (
-            <div role="status">
+            <div role="status" data-part="failure">
               <h3>{t(failure.failure === 'unsafe' ? 'invalidResponse' : failure.failure)}</h3>
               <p>
                 {t(

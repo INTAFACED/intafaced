@@ -11,11 +11,12 @@ import {
 import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource, type Resource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field, Loading } from '../../shared/ui';
-import { Read, Select } from '../more';
 import { useApi } from '../session';
 import { QuotaAwareFailure } from './quota-refusal';
 import { teamCopy } from './team-copy';
+import { Button, Field } from '@intafaced/ui/lit';
+import { CheckField, SelectField } from '@intafaced/ui/lit/templates';
+import { EmptyNote, FailureNote, Read, ScrollTable, Waiting } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 19).replace('T', ' ');
@@ -73,11 +74,11 @@ export function EditLock({ strategyId, lock, onChange }: { strategyId: string; l
             : t('lockHeld', { holder: lock.holderId ?? '', until: utcText(lock.expiresAt ?? '') })}
       </p>
       {lock.mine ? (
-        <Button variant="secondary" onClick={() => void act(QUANT_TEAM_UNLOCK)} disabled={busy}>
+        <Button tone="secondary" onClick={() => void act(QUANT_TEAM_UNLOCK)} disabled={busy}>
           {t('lockRelease')}
         </Button>
       ) : (
-        <Button onClick={() => void act(QUANT_TEAM_LOCK)} disabled={busy}>
+        <Button tone="primary" onClick={() => void act(QUANT_TEAM_LOCK)} disabled={busy}>
           {t('lockTake')}
         </Button>
       )}
@@ -86,7 +87,7 @@ export function EditLock({ strategyId, lock, onChange }: { strategyId: string; l
           {refused.text}
         </p>
       )}
-      {failure && <Failure result={failure} retry={() => void act(QUANT_TEAM_LOCK)} />}
+      {failure && <FailureNote result={failure} retry={() => void act(QUANT_TEAM_LOCK)} />}
     </section>
   );
 }
@@ -105,7 +106,7 @@ export function StrategyTeam({ strategy }: { strategy: QuantStrategyDetail }) {
   return (
     <section aria-label={t('teamTitle')} data-testid="quant-team">
       <h3>{t('teamTitle')}</h3>
-      <p className="muted">{t('teamIntro')}</p>
+      <p>{t('teamIntro')}</p>
       {kept ? (
         <>
           <Collaborators team={kept} onChange={reload} />
@@ -139,9 +140,9 @@ function Collaborators({ team, onChange }: { team: QuantTeam; onChange: () => vo
     <div data-testid="quant-collaborators">
       <h4>{t('collaborators')}</h4>
       {team.collaborators.length === 0 ? (
-        <EmptyState title={t('noCollaborators')} />
+        <EmptyNote title={t('noCollaborators')} />
       ) : (
-        <DataTable label={t('collaborators')} headers={[t('member'), t('permission'), t('liveControl'), t('added'), '']}>
+        <ScrollTable label={t('collaborators')} headers={[t('member'), t('permission'), t('liveControl'), t('added'), '']}>
           {team.collaborators.map((row) => (
             <tr
               key={row.memberId}
@@ -155,20 +156,20 @@ function Collaborators({ team, onChange }: { team: QuantTeam; onChange: () => vo
               <td>{row.liveControl ? t('liveYes') : t('liveNo')}</td>
               <td lang="zxx">{utcText(row.addedAt)}</td>
               <td>
-                <Button variant="danger" onClick={() => void remove(row.memberId)}>
+                <Button tone="secondary" onClick={() => void remove(row.memberId)}>
                   {t('remove', { member: row.memberId })}
                 </Button>
               </td>
             </tr>
           ))}
-        </DataTable>
+        </ScrollTable>
       )}
       {note && (
         <p role="status" data-testid="quant-team-note">
           {note}
         </p>
       )}
-      {failure && <Failure result={failure} />}
+      {failure && <FailureNote result={failure} />}
     </div>
   );
 }
@@ -215,7 +216,7 @@ function ShareForm({ strategyId, onChange }: { strategyId: string; onChange: () 
         value={memberId}
         onChange={(event) => setMemberId(event.currentTarget.value)}
       />
-      <Select
+      <SelectField
         label={t('permissionField')}
         value={role}
         onChange={(value) => setRole(value === 'edit' ? 'edit' : 'view')}
@@ -224,19 +225,11 @@ function ShareForm({ strategyId, onChange }: { strategyId: string; onChange: () 
           { value: 'edit', label: t('edit') },
         ]}
       />
-      <label className="quant-check-line">
-        <input
-          className="quant-run-check"
-          type="checkbox"
-          checked={liveControl}
-          onChange={(event) => setLiveControl(event.currentTarget.checked)}
-        />{' '}
-        {t('liveField')}
-      </label>
-      <Button type="submit" disabled={busy}>
+      <CheckField label={t('liveField')} checked={liveControl} onChange={setLiveControl} />
+      <Button tone="primary" type="submit" disabled={busy}>
         {t('share')}
       </Button>
-      {busy && <Loading />}
+      {busy && <Waiting />}
       {note && (
         <p role="status" data-testid="quant-share-note">
           {note}
@@ -281,9 +274,9 @@ function SupportAccess({ team, onChange }: { team: QuantTeam; onChange: () => vo
   return (
     <section aria-label={t('supportTitle')} data-testid="quant-support">
       <h4>{t('supportTitle')}</h4>
-      <p className="muted">{t('supportIntro')}</p>
+      <p>{t('supportIntro')}</p>
       <Field label={t('grantField')} inputMode="decimal" value={minutes} onChange={(event) => setMinutes(event.currentTarget.value)} />
-      <Button onClick={() => void grant()} disabled={busy}>
+      <Button tone="primary" onClick={() => void grant()} disabled={busy}>
         {t('grant')}
       </Button>
       {note && (
@@ -296,12 +289,12 @@ function SupportAccess({ team, onChange }: { team: QuantTeam; onChange: () => vo
           {refused}
         </p>
       )}
-      {failure && <Failure result={failure} retry={() => void grant()} />}
+      {failure && <FailureNote result={failure} retry={() => void grant()} />}
       <h5>{t('grants')}</h5>
       {team.grants.length === 0 ? (
-        <EmptyState title={t('noGrants')} />
+        <EmptyNote title={t('noGrants')} />
       ) : (
-        <DataTable label={t('grants')} headers={[t('grantFrom'), t('grantUntil'), t('grantState')]}>
+        <ScrollTable label={t('grants')} headers={[t('grantFrom'), t('grantUntil'), t('grantState')]}>
           {team.grants.map((row) => (
             <tr key={row.grantId} data-testid="quant-grant" data-active={row.active}>
               <td lang="zxx">{utcText(row.createdAt)}</td>
@@ -309,13 +302,13 @@ function SupportAccess({ team, onChange }: { team: QuantTeam; onChange: () => vo
               <td>{row.active ? t('active') : t('ended')}</td>
             </tr>
           ))}
-        </DataTable>
+        </ScrollTable>
       )}
       <h5>{t('reads')}</h5>
       {team.reads.length === 0 ? (
-        <EmptyState title={t('noReads')} />
+        <EmptyNote title={t('noReads')} />
       ) : (
-        <DataTable label={t('reads')} headers={[t('readAt'), t('reader'), t('readWhat')]}>
+        <ScrollTable label={t('reads')} headers={[t('readAt'), t('reader'), t('readWhat')]}>
           {team.reads.map((row, i) => (
             <tr key={`${row.readAt}:${i}`} data-testid="quant-support-read" data-granted={row.granted}>
               <td lang="zxx">{utcText(row.readAt)}</td>
@@ -323,7 +316,7 @@ function SupportAccess({ team, onChange }: { team: QuantTeam; onChange: () => vo
               <td>{row.granted ? t('sawSource') : t('sawMetadata')}</td>
             </tr>
           ))}
-        </DataTable>
+        </ScrollTable>
       )}
     </section>
   );
