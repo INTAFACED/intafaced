@@ -1,16 +1,10 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
+import { Button, Field, Switch } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import {
-  Button,
   changeHandle,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   fetchHandleSettings,
   setHandleDiscoverable,
-  Switch,
   useSession,
   useToast,
   type HandleChangeCode,
@@ -130,47 +124,43 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
             : payCopy.t('Changes left {n}', { n: String(settings.changesLeft) });
 
   return (
-    <div className="pay-block" data-testid="handle-settings">
+    <div className="lt-body" data-testid="handle-settings">
       {loaded.status === 'failed' ? (
-        <p className="pay-problem" role="alert">
+        <p role="alert">
           {payCopy.t('Handle settings failed')}
-          <button type="button" className="pay-chip" onClick={() => setRevision((n) => n + 1)}>
+          <Button tone="quiet" onClick={() => setRevision((n) => n + 1)}>
             {payCopy.t('Try again')}
-          </button>
+          </Button>
         </p>
       ) : null}
 
-      <div className="pay-handle-row">
-        <div className="pay-handle-row__text">
-          <span className="pay-section-title" id={switchLabelId}>
-            {payCopy.t('Find me label')}
-          </span>
-          <span className="pay-hint" id={switchHintId}>
+      <div className="lt-title-row">
+        <div className="lt-field">
+          <span id={switchLabelId}>{payCopy.t('Find me label')}</span>
+          <span className="lt-hint" id={switchHintId}>
             {settings === null ? payCopy.t('Checking handle') : settings.discoverable ? payCopy.t('Find me on') : payCopy.t('Find me off')}
           </span>
         </div>
         <Switch
+          label={payCopy.t('Find me label')}
           aria-labelledby={switchLabelId}
           aria-describedby={switchHintId}
           checked={settings?.discoverable ?? false}
           disabled={settings === null || toggling}
-          onCheckedChange={(next) => void toggle(next)}
+          onChange={(next) => void toggle(next)}
           data-testid="handle-discoverable"
         />
       </div>
       {toggleFailed ? (
-        <p className="pay-problem" role="alert">
-          {toggleFailed === 'failed' ? payCopy.t('Find me failed') : refusalText(toggleFailed, current)}
-        </p>
+        <p role="alert">{toggleFailed === 'failed' ? payCopy.t('Find me failed') : refusalText(toggleFailed, current)}</p>
       ) : null}
 
-      <div className="pay-handle-row">
-        <span className="pay-hint" data-testid="handle-changes-left">
+      <div className="lt-title-row">
+        <span className="lt-hint" data-testid="handle-changes-left">
           {left}
         </span>
         <Button
-          variant="secondary"
-          size={40}
+          tone="secondary"
           disabled={settings === null}
           onClick={() => {
             setDraft(current);
@@ -182,53 +172,36 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
         </Button>
       </div>
 
-      <Dialog open={open} onOpenChange={(next) => !saving && setOpen(next)}>
-        <DialogContent>
-          <form onSubmit={(event) => void save(event)} noValidate>
-            <DialogHeader>
-              <DialogTitle>{payCopy.t('Change your handle')}</DialogTitle>
-              <DialogDescription>{payCopy.t('Change handle body')}</DialogDescription>
-            </DialogHeader>
-            <div className="pay-field">
-              <label className="pay-field__label" htmlFor={inputId}>
-                {payCopy.t('New handle')}
-              </label>
-              <div className="pay-to">
-                <span className="pay-to__at" aria-hidden="true">
-                  @
-                </span>
-                <input
-                  id={inputId}
-                  className="pay-to__input"
-                  type="text"
-                  value={draft}
-                  autoComplete="off"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  maxLength={64}
-                  aria-invalid={refusal !== null || undefined}
-                  onChange={(event) => setDraft(event.target.value)}
-                />
-              </div>
-              {left ? <span className="pay-hint">{left}</span> : null}
-            </div>
-            {refusal ? (
-              <p className="pay-problem" role="alert">
-                {refusalText(refusal.code, refusal.tried)}
-              </p>
-            ) : null}
-            <DialogFooter>
-              <Button type="button" variant="ghost" size={40} disabled={saving} onClick={() => setOpen(false)}>
+      <Sheet open={open} title={payCopy.t('Change your handle')} onClose={() => setOpen(false)}>
+        {open ? (
+          <form className="lt-body" onSubmit={(event) => void save(event)} noValidate>
+            <p className="lt-description">{payCopy.t('Change handle body')}</p>
+            <Field
+              id={inputId}
+              label={payCopy.t('New handle')}
+              hint={left ?? undefined}
+              type="text"
+              value={draft}
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={64}
+              aria-invalid={refusal !== null || undefined}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            {refusal ? <p role="alert">{refusalText(refusal.code, refusal.tried)}</p> : null}
+            <div className="lt-actions">
+              <Button type="button" tone="quiet" disabled={saving} onClick={() => setOpen(false)}>
                 {payCopy.t('Cancel')}
               </Button>
-              <Button type="submit" variant="primary" size={40} loading={saving}>
+              <Button type="submit" tone="primary" disabled={saving} aria-busy={saving || undefined}>
                 {payCopy.t('Save')}
               </Button>
-            </DialogFooter>
+            </div>
           </form>
-        </DialogContent>
-      </Dialog>
+        ) : null}
+      </Sheet>
     </div>
   );
 }

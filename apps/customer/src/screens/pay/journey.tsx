@@ -5,9 +5,9 @@ import { sourcesFrom, type Source } from './send-model';
 /** Why a journey cannot run, in plain words, always on screen. */
 export function Reason({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="pay-reason" role="note" data-testid="pay-reason">
-      <p className="pay-reason__title">{title}</p>
-      <p className="pay-reason__body">{children}</p>
+    <div className="lt-refusal" role="note" data-testid="pay-reason">
+      <p className="lt-refusal-title">{title}</p>
+      <p className="lt-refusal-body">{children}</p>
     </div>
   );
 }
@@ -15,7 +15,7 @@ export function Reason({ title, children }: { title: string; children: ReactNode
 /** The steps of a journey, numbered, so a customer can see the whole path before it is connected. */
 export function Steps({ items }: { items: readonly string[] }) {
   return (
-    <ol className="pay-steps" data-testid="pay-steps">
+    <ol className="lt-steps" data-testid="pay-steps">
       {items.map((label) => (
         <li key={label}>{label}</li>
       ))}

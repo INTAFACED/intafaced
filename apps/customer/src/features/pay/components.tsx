@@ -1,15 +1,14 @@
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { payCopy, PayCopy, payAuthoredMessage } from './copy';
-import { isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, ReviewDialog as Dialog, StateBlock, Amount, StatusTag } from '@intafaced/ui';
 import { EmptyState } from './ui-kit';
 import type { MoneyKind } from './portal/access/money-step';
-import { payStepUp } from './portal/access/step-up-store';
 import { StepUpNote } from './portal/access/step-up';
-import { stepUpRequired, stepUpWords } from './portal/access/step-up-words';
+import { useReviewedAction } from './reviewed-action';
 
 function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { t, languageFor, requestedLocale } = uiCopy.useCopy();
@@ -321,104 +320,22 @@ export function ReviewedAction<T>({
   ready?: boolean;
   notReadyReason?: string;
 }) {
-  const [opened, setOpened] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ApiResult<T> | null>(null);
-  const inFlight = useRef(false);
-  const asking = useRef(false);
-  const lifetime = useRef({ mounted: true, opened, disabled, ready, review: 0 });
-  const reviewId = lifetime.current.review;
-  useLayoutEffect(() => {
-    lifetime.current.opened = opened;
-    lifetime.current.disabled = disabled;
-    lifetime.current.ready = ready;
-  });
-  useLayoutEffect(() => {
-    lifetime.current.mounted = true;
-    return () => {
-      lifetime.current.mounted = false;
-    };
-  }, []);
-  const currentReview = () => lifetime.current.mounted && lifetime.current.opened && lifetime.current.review === reviewId;
-  async function confirm() {
-    if (inFlight.current || !currentReview() || lifetime.current.disabled || !lifetime.current.ready) return;
-    inFlight.current = true;
-    setBusy(true);
-    try {
-      const outcome = stepUp ? await payStepUp.run(stepUp, () => perform(currentReview), stepUpWords) : await perform(currentReview);
-      if (!currentReview()) return;
-      setResult(outcome);
-      if (outcome.ok) {
-        lifetime.current.opened = false;
-        lifetime.current.review += 1;
-        onConfirmed?.(outcome.data);
-        setOpened(false);
-      } else if (outcome.reason === 'uncertain') {
-        // The answer is unknown: close the review so the recovery message and its check button are not covered.
-        lifetime.current.opened = false;
-        lifetime.current.review += 1;
-        setOpened(false);
-      }
-    } finally {
-      if (lifetime.current.mounted) setBusy(false);
-      inFlight.current = false;
-    }
-  }
+  const { opened, busy, result, uncertain, open, close, confirm } = useReviewedAction({ perform, onConfirmed, disabled, ready, stepUp });
   return (
     <div className="pay-action" title={disabled ? disabledReason : undefined}>
-      <Button
-        variant={variant}
-        disabled={disabled || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
-        onClick={() => {
-          if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current || asking.current) return;
-          if (!stepUp) {
-            lifetime.current.review += 1;
-            setResult(null);
-            setOpened(true);
-            return;
-          }
-          // Money out: confirm it's them first, then show the review.
-          asking.current = true;
-          void payStepUp.ensure(stepUp).then((confirmed) => {
-            asking.current = false;
-            if (!lifetime.current.mounted || lifetime.current.disabled) return;
-            if (!confirmed) {
-              // Declining is the person's own choice and needs no message; a page with no one to ask says what is needed.
-              setResult(payStepUp.canAsk ? null : stepUpRequired());
-              return;
-            }
-            lifetime.current.review += 1;
-            setResult(null);
-            setOpened(true);
-          });
-        }}
-      >
+      <Button variant={variant} disabled={disabled || busy || uncertain} onClick={open}>
         {title}
       </Button>
       <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
       {opened && (
-        <Dialog
-          closeLabel={uiCopy.t('closeDialog')}
-          title={payCopy.t('review', { title: title })}
-          onClose={() => {
-            if (!inFlight.current) {
-              lifetime.current.opened = false;
-              lifetime.current.review += 1;
-              setOpened(false);
-            }
-          }}
-        >
+        <Dialog closeLabel={uiCopy.t('closeDialog')} title={payCopy.t('review', { title: title })} onClose={close}>
           <div data-testid="form-stack" className="form-stack">
             <p className="muted">{description}</p>
             {review}
             {stepUp && <StepUpNote kind={stepUp} />}
             <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
             {!ready && notReadyReason ? <p className="muted">{notReadyReason}</p> : null}
-            <Button
-              variant={variant}
-              disabled={!ready || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
-              onClick={() => void confirm()}
-            >
+            <Button variant={variant} disabled={!ready || busy || uncertain} onClick={() => void confirm()}>
               {busy ? payCopy.t('waitingForConfirmation') : title}
             </Button>
           </div>
