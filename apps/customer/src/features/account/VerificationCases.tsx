@@ -64,10 +64,7 @@ export function VerificationCases({
         </>
       );
     const { cases } = resource.data;
-    if (cases.length === 0)
-      return (
-        <EmptyState title={t('empty')} body={t('intro')} />
-      );
+    if (cases.length === 0) return <EmptyState title={t('empty')} body={t('intro')} />;
     // Only the newest case can be followed by a new request; an older rejected case already was, or a newer one is open.
     const newest = cases[0]!;
     return (

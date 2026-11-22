@@ -101,12 +101,7 @@ export function VerificationLadder({
       </p>
       <ol>
         {ladder.levels.map((rung) => (
-          <li
-            key={rung.level}
-            data-testid="verification__rung"
-            data-level={rung.level}
-            aria-current={rung.current ? 'step' : undefined}
-          >
+          <li key={rung.level} data-testid="verification__rung" data-level={rung.level} aria-current={rung.current ? 'step' : undefined}>
             <div>
               <h3>
                 <Copy k={rung.level} />

@@ -47,12 +47,7 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
         </p>
         <ul data-testid="verification__capabilities" data-mapped={mapped}>
           {capabilities.map((c) => (
-            <li
-              key={c.capability}
-              data-testid="verification__capability"
-              data-capability={c.capability}
-              data-state={c.state}
-            >
+            <li key={c.capability} data-testid="verification__capability" data-capability={c.capability} data-state={c.state}>
               <div>
                 <span>
                   <Copy k={c.capability} />
