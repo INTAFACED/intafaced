@@ -1,3 +1,4 @@
+// volt-room: /bank/ramps/cash-out
 import { FlowTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { useBankNav } from '../bank-nav';
 import { cashOutCopy } from '../cash-out-copy';

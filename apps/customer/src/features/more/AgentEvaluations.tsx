@@ -7,13 +7,12 @@ import { Read } from './common';
 import { agentEvalsCopy, hasEvalWords } from './agent-evals-copy';
 import {
   OWN_AGENT_EVAL_LIMITS,
-  ownAgentEvalRunSchema,
-  ownAgentEvalsSchema,
   type OwnAgent,
   type OwnAgentEvalCase,
   type OwnAgentEvalRun,
   type OwnAgentEvals,
 } from '@intafaced/contracts/agents-own';
+import { AGENTS_OWN_EVALS_GET, AGENTS_OWN_EVALS_START } from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Evaluations page (AG-testing-02). Every answer is svc-agents': the stored test set (a visible warning
@@ -65,7 +64,7 @@ export function EvaluationsPage({ agent }: { agent: OwnAgent }) {
   const again = useState<{ requestId: string } | null>(null);
   const keys = useRef<RequestKeys>({ visit: Date.now().toString(36), presses: 0, pending: null });
   const loaded = useResource(
-    (signal) => api.query('agents', 'own.evals.get', { id: agent.id, limit: 50 }, ownAgentEvalsSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_EVALS_GET, { id: agent.id, limit: 50 }, { signal }),
     `own-evals:${agent.id}:${version}`,
   );
   return (
@@ -118,12 +117,7 @@ function Evaluations({
       keys.pending = `own-eval:${agent.id}:${keys.visit}:${keys.presses}`;
     }
     const requestId = keys.pending;
-    const res = await api.mutate(
-      'agents',
-      'own.evals.start',
-      { id: agent.id, requestId, cases, repeats, threshold },
-      ownAgentEvalRunSchema,
-    );
+    const res = await api.call(AGENTS_OWN_EVALS_START, { id: agent.id, requestId, cases, repeats, threshold });
     setBusy(false);
     // A clear answer settles the request. One whose outcome is unknown (a timeout, a gateway error) keeps its key, so
     // pressing Start again is the same request and can never run the evaluation twice.
@@ -136,12 +130,13 @@ function Evaluations({
     setBusy(true);
     setAgain(null);
     setAgainRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.evals.start',
-      { id: agent.id, requestId: run.requestId, cases: run.cases, repeats: String(run.repeats), threshold: run.threshold },
-      ownAgentEvalRunSchema,
-    );
+    const res = await api.call(AGENTS_OWN_EVALS_START, {
+      id: agent.id,
+      requestId: run.requestId,
+      cases: run.cases,
+      repeats: String(run.repeats),
+      threshold: run.threshold,
+    });
     setBusy(false);
     if (!res.ok) return setAgainRefused(res);
     if (res.data.id === run.id) setAgain({ requestId: run.requestId });

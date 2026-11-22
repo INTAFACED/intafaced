@@ -1,3 +1,4 @@
+// volt-room: /wallet/scan
 import { useEffect, useRef, useState } from 'react';
 import { Button, Field, Tag } from '@intafaced/ui/lit';
 import { FlowTemplate, SectionTabs, Sheet } from '@intafaced/ui/lit/templates';

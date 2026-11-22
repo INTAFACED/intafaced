@@ -248,4 +248,20 @@ describe('header search: where a page lives and the Help group', () => {
     expect(panel()).not.toBeNull();
     expect(document.activeElement).toBe(input());
   });
+
+  it('closes when focus moves to a control outside it, and stays open when focus goes nowhere (a press on a row)', async () => {
+    await mount();
+    const after = document.createElement('button');
+    document.body.append(after);
+    await act(async () => input().focus());
+    await type('earn');
+    expect(panel()).not.toBeNull();
+    // A press on a result row takes no focus: the input blurs to nothing and the row's click must still find the panel.
+    await act(async () => void input().dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })));
+    expect(panel()).not.toBeNull();
+    // Tab to the next control on the page.
+    await act(async () => after.focus());
+    expect(panel()).toBeNull();
+    after.remove();
+  });
 });

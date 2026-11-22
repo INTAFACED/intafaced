@@ -1,3 +1,4 @@
+// volt-room: /trade/bots/signals/publish
 import { useState } from 'react';
 import { Button, ChoiceGroup, DecimalField, Field, Freshness, RefusalBox, Tag } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, Tabs } from '@intafaced/ui/lit/templates';
