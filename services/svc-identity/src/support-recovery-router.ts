@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { protectedProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { supportRecoveryCaseSchema, supportRecoveryRedeemSchema } from '@intafaced/contracts/identity';
 import {
   SupportRecoveryError,

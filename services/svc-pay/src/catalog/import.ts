@@ -1,7 +1,8 @@
 import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { PRODUCT_IMPORT_MAX_PROBLEMS, type ProductImport, type ProductImportProblem } from '@intafaced/contracts';
+import type { ProductImport, ProductImportProblem } from '@intafaced/contracts';
+import { PRODUCT_IMPORT_MAX_PROBLEMS } from '@intafaced/contracts/merchant-catalog';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { iso } from '../merchant-ops/money.js';
 import type { MerchantCaller } from '../merchant-ops/roles.js';

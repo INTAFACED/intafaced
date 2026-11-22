@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { ACTION_APPROVAL_MISSING } from './auth/privileged-dual-control.js';
 import type { ActionApprovalService } from './auth/action-approval-service.js';

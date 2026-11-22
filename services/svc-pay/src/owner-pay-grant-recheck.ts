@@ -13,7 +13,7 @@
 
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { grantedOwnerPayScopes, type OwnerPayScopeMerchant } from './merchant-pay-grant-path.js';
 
 export type OwnedMerchantLookup = (userId: string) => Promise<OwnerPayScopeMerchant | null>;

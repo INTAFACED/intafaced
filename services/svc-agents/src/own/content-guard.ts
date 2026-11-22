@@ -2,7 +2,7 @@ import type { OwnAgentTestGuard, OwnAgentValuePayload } from '@intafaced/contrac
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { OwnAgentRefusal } from './catalog.js';
 import { testEngineReply } from './evaluations.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /**
  * HOSTILE CONTENT AND OUTPUT GUARDS ON A TEST RUN OF A PERSON'S OWN AGENT (AG-guardrails-03; J-agents-10 #1, #2, #3).

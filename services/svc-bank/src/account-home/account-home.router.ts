@@ -1,6 +1,6 @@
 import { assertPartnerOffers } from '../partner/test-partner.js';
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { BankServices } from '../bank-service.js';
 import { accountFeatures, accountTermsOutput } from './account-terms.js';
 import { profileField, profileOutput, profileView } from './profile.js';

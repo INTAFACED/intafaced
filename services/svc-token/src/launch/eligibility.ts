@@ -1,11 +1,6 @@
-import {
-  campaignParticipantSchema,
-  kycTierSchema,
-  serviceCallSigner,
-  type CampaignParticipant,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { CampaignParticipant, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { campaignParticipantSchema, kycTierSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { LaunchError } from './errors.js';
 import type { LaunchEvent } from './launch-service.js';
 

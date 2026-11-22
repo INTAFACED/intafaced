@@ -1,20 +1,22 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type {
+  BankScamTransferPort,
+  SupportBereavementInput,
+  SupportMulePolicy,
+  SupportScamReportInput,
+  SupportComplaintInput,
+  SupportSafetyAcknowledgement,
+  SupportSafetyCaseKind,
+  SupportTicket,
+} from '@intafaced/contracts';
 import {
   SUPPORT_BEREAVEMENT_DATE_INVALID,
   SUPPORT_SAFETY_KEY_REUSED,
   SUPPORT_SCAM_TRANSFER_NOT_YOURS,
   SUPPORT_SCAM_TRANSFER_UNCHECKED,
   supportSafetyAcknowledgementSchema,
-  type BankScamTransferPort,
-  type SupportBereavementInput,
-  type SupportMulePolicy,
-  type SupportScamReportInput,
-  type SupportComplaintInput,
-  type SupportSafetyAcknowledgement,
-  type SupportSafetyCaseKind,
-  type SupportTicket,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-safety';
 import { SupportError } from './support-service.js';
 
 /**

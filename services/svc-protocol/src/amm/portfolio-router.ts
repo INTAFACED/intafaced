@@ -1,5 +1,6 @@
 import type { Address } from 'viem';
-import { PRICE_SETTINGS_UNSET, router, TRPCError } from '@intafaced/contracts';
+import { PRICE_SETTINGS_UNSET } from '@intafaced/contracts/protocol-swap';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { PROTOCOL_PORTFOLIO_READ } from '@intafaced/contracts/protocol-chain-procedures';
 import { isZeroAddress } from '../chain/availability.js';

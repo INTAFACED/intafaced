@@ -5,7 +5,8 @@
  * Terminal trades are `released` and `cancelled` (state.ts). Anything else is open.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import type { Sql } from 'postgres';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { isInteractiveFounderPrincipal } from './auth/action-approval-audience.js';
 import { AuthKeyError, type AuthKeyRing } from './auth/auth-key-ring.js';
 
