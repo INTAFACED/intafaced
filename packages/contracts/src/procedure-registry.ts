@@ -1200,11 +1200,11 @@ const part0: readonly ProcedureRecord[] = [
   BANK_CREDIT_CARD_PREVIEW,
   BANK_CREDIT_CARD_APPLICATION,
   BANK_OPS_FRAUD_PREVIEW,
+];
+const part1: readonly ProcedureRecord[] = [
   BANK_DEPOSITS_ASSETS,
   BANK_DEPOSITS_ADDRESS,
   BANK_DEPOSITS_ADDRESSES_LIST,
-];
-const part1: readonly ProcedureRecord[] = [
   BANK_DEPOSITS_ADDRESSES_CREATE,
   BANK_DEPOSITS_ADDRESSES_LABEL,
   BANK_DEPOSITS_PENDING,
@@ -1402,11 +1402,11 @@ const part1: readonly ProcedureRecord[] = [
   NOTIFY_HEALTH,
   NOTIFY_INBOX_POLICY,
   NOTIFY_NAV_METRICS_SEARCH_MISSES,
+];
+const part2: readonly ProcedureRecord[] = [
   NOTIFY_NAV_METRICS_SEARCH_MISS,
   NOTIFY_CHANNEL_SETTINGS,
   NOTIFY_TEMPLATES,
-];
-const part2: readonly ProcedureRecord[] = [
   NOTIFY_OPERATOR_NOTICES,
   NOTIFY_DRAFT_NOTICE,
   NOTIFY_NOTICE_PROPOSAL,
@@ -1604,6 +1604,8 @@ const part2: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_PAIRS,
   PROTOCOL_AMM_PRICES,
   PROTOCOL_AMM_SWAP_SETTINGS,
+];
+const part3: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_FEE_LEVELS,
   PROTOCOL_AMM_ROUTES,
   PROTOCOL_AMM_QUOTE_FROM_POOL,
@@ -1618,8 +1620,6 @@ const part2: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_V2_SETTINGS,
   PROTOCOL_AMM_APPROVAL_ROUTE,
   PROTOCOL_AMM_BUILD_PERMIT,
-];
-const part3: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_PATHS,
   PROTOCOL_AMM_BUILD_SWAP_V2,
   PROTOCOL_AMM_FEE_TIERS,
@@ -1806,6 +1806,8 @@ const part3: readonly ProcedureRecord[] = [
   SUPPORT_CATEGORIES,
   SUPPORT_CREATE,
   SUPPORT_LIST_MINE,
+];
+const part4: readonly ProcedureRecord[] = [
   SUPPORT_CREATED_BY_REQUEST,
   SUPPORT_RATED_MINE,
   SUPPORT_GET,
@@ -1820,8 +1822,6 @@ const part3: readonly ProcedureRecord[] = [
   SUPPORT_ATTACH,
   SUPPORT_TICKET_ATTACHMENTS,
   SUPPORT_ATTACHMENT_DOWNLOAD,
-];
-const part4: readonly ProcedureRecord[] = [
   SUPPORT_ATTACHMENT_LIMITS,
   SUPPORT_KB_FEEDBACK,
   SUPPORT_KB_RELATED,
