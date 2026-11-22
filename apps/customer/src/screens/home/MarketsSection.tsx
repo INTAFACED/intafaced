@@ -87,10 +87,8 @@ export function MarketsRow({
 /** As many placeholders as the final row will have, so nothing moves when the data arrives (critic M4). */
 export function MarketsSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div data-testid="home-cards" className="lt-actions" aria-hidden="true">
-      {Array.from({ length: Math.min(4, count) }, (_, index) => index).map((index) => (
-        <Ghost key={index} shape="chart" />
-      ))}
+    <div data-testid="home-cards" aria-hidden="true">
+      <Ghost shape="grid" count={Math.min(4, count)} />
     </div>
   );
 }
