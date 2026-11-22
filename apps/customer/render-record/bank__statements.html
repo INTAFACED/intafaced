@@ -97,91 +97,74 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money / Bank</p>
-<h1>Statements and exports</h1>
-<p class="muted">Signed files of your own posted lines: a monthly statement, your ledger or your trades over dates, and balances.</p>
+<h1 class="lt-title">Statements and exports</h1>
+<p class="lt-description">Signed files of your own posted lines: a monthly statement, your ledger or your trades over dates, and balances.</p>
 </div>
-<div class="actions">
-<a class="button button--secondary" href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.rooms.bank.overview">Bank overview</span>
-</a>
+<div class="lt-room-action">
+<a class="lt-link" href="/bank">Bank overview</a>
 </div>
 </header>
-<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
-<a href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
-</a>
-<a href="/bank/spaces">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
-</a>
-<a href="/bank/transfers">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
-</a>
-<a href="/bank/earn">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
-</a>
-<a href="/bank/loans">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
-</a>
-<a href="/bank/cards">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
-</a>
-<a href="/bank/ramps">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
-</a>
-<a href="/bank/analytics" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
-</a>
-<a href="/bank/business">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
-</a>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<nav data-testid="money-bank-nav" class="lt-tabs" aria-label="Bank rooms">
+<a href="/bank" class="lt-tab">Overview</a>
+<a href="/bank/spaces" class="lt-tab">Spaces</a>
+<a href="/bank/transfers" class="lt-tab">Transfers</a>
+<a href="/bank/earn" class="lt-tab">Earn</a>
+<a href="/bank/loans" class="lt-tab">Loans</a>
+<a href="/bank/cards" class="lt-tab">Cards</a>
+<a href="/bank/ramps" class="lt-tab">Ramps</a>
+<a href="/bank/analytics" class="lt-tab" aria-current="page">Analytics</a>
+<a href="/bank/business" class="lt-tab">Business</a>
 </nav>
-<section class="bd-panel" aria-labelledby="_r_3_">
+<section aria-labelledby="_r_3_">
 <h3 id="_r_3_">Statements and exports</h3>
-<p class="money-caption">This is not a tax form. It lists what happened and works out no gain, loss or tax.</p>
-<form class="bd-stack" data-testid="statement-centre" aria-label="Statements and exports">
-<fieldset class="bd-stack">
+<p>This is not a tax form. It lists what happened and works out no gain, loss or tax.</p>
+<form data-testid="statement-centre" aria-label="Statements and exports">
+<fieldset>
 <legend>What to export</legend>
-<div class="bd-choice-row" role="radiogroup" aria-label="What to export">
-<label class="bd-choice bd-choice--on" data-report="statement">
+<div role="radiogroup" aria-label="What to export">
+<label class="lt-field" data-report="statement">
 <input type="radio" value="statement" checked="" name="statement-report">
 <strong>Account statement</strong>
-<span class="money-caption">Every line posted in one finished month (UTC).</span>
+<span class="lt-hint">Every line posted in one finished month (UTC).</span>
 </label>
-<label class="bd-choice " data-report="ledger">
+<label class="lt-field" data-report="ledger">
 <input type="radio" value="ledger" name="statement-report">
 <strong>Ledger</strong>
-<span class="money-caption">Every posted transaction between two dates: deposits, transfers, trades, fees and the rest.</span>
+<span class="lt-hint">Every posted transaction between two dates: deposits, transfers, trades, fees and the rest.</span>
 </label>
-<label class="bd-choice " data-report="trades">
+<label class="lt-field" data-report="trades">
 <input type="radio" value="trades" name="statement-report">
 <strong>Trades</strong>
-<span class="money-caption">Your trade lines between two dates. A trade’s fee is taken from what you receive, so each line is the amount after its fee.</span>
+<span class="lt-hint">Your trade lines between two dates. A trade’s fee is taken from what you receive, so each line is the amount after its fee.</span>
 </label>
-<label class="bd-choice " data-report="balances">
+<label class="lt-field" data-report="balances">
 <input type="radio" value="balances" name="statement-report">
 <strong>Balances</strong>
-<span class="money-caption">What you held at the end of a past day.</span>
+<span class="lt-hint">What you held at the end of a past day.</span>
 </label>
 </div>
 </fieldset>
-<label class="field">
+<label class="lt-field">
 <span>Month</span>
 <input max="2026-09" type="month" value="2026-09">
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Format</span>
 <select>
 <option value="pdf">PDF</option>
 <option value="csv">CSV</option>
 </select>
 </label>
-<p class="money-caption">Statements, ledgers and trades list lines. They do not state a balance. Times are UTC and the newest line comes first.</p>
-<div class="actions">
-<button type="submit" class="button button--secondary ">
+<p class="lt-hint">Statements, ledgers and trades list lines. They do not state a balance. Times are UTC and the newest line comes first.</p>
+<div class="lt-actions">
+<button type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download" aria-hidden="true">
 <path d="M12 15V3">
 </path>
@@ -190,39 +173,39 @@
 <path d="m7 10 5 5 5-5">
 </path>
 </svg>Download</button>
-<button type="button" class="button button--ghost ">Make in the background</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Make in the background</button>
 </div>
 <p role="status" aria-live="polite" data-testid="statement-centre-status">
 </p>
 </form>
-<section class="bd-stack" data-testid="statement-documents" aria-label="Your documents">
+<section data-testid="statement-documents" aria-label="Your documents">
 <h4>Your documents</h4>
-<p class="money-caption">Long exports are made in the background. Ask once: the same request is the same document, and it waits here until you download it.</p>
-<div class="bd-stack">
-<p role="alert" class="error-text">Your documents could not be read just now. This can't be done right now</p>
-<div class="actions">
-<button type="button" class="button button--secondary ">Try again</button>
+<p>Long exports are made in the background. Ask once: the same request is the same document, and it waits here until you download it.</p>
+<div>
+<p role="alert">Your documents could not be read just now. This can't be done right now</p>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
 </section>
-<section class="bd-panel" aria-labelledby="_r_4_">
+<section aria-labelledby="_r_4_">
 <h3 id="_r_4_">Letters and certificates</h3>
-<p class="money-caption">An account ownership letter or a balance certificate, for a landlord, an employer or an auditor.</p>
-<section class="bd-stack" data-testid="statement-letters" aria-label="Letters and certificates">
-<div class="actions">
-<button type="button" class="button button--secondary ">Ask for an ownership letter</button>
-<button type="button" class="button button--ghost ">Ask for a balance certificate</button>
+<p>An account ownership letter or a balance certificate, for a landlord, an employer or an auditor.</p>
+<section data-testid="statement-letters" aria-label="Letters and certificates">
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Ask for an ownership letter</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Ask for a balance certificate</button>
 </div>
 <p role="status" aria-live="polite">
 </p>
 </section>
 </section>
-<section class="bd-panel" aria-labelledby="_r_5_">
+<section aria-labelledby="_r_5_">
 <h3 id="_r_5_">Tax statements</h3>
-<p class="money-caption">Statements of your income for a tax year, for your tax return.</p>
-<section class="bd-stack" data-testid="tax-statements" aria-label="Tax statements">
-<label class="field">
+<p>Statements of your income for a tax year, for your tax return.</p>
+<section data-testid="tax-statements" aria-label="Tax statements">
+<label class="lt-field">
 <span>Tax year</span>
 <select>
 <option value="2026">2026</option>
@@ -233,9 +216,15 @@
 <option value="2021">2021</option>
 </select>
 </label>
-<p role="alert" class="error-text">The bank refused to list tax statements.</p>
+<p role="alert">The bank refused to list tax statements.</p>
 </section>
 </section>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>

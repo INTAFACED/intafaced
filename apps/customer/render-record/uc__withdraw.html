@@ -97,25 +97,27 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money</p>
-<h1>Withdraw</h1>
-<p class="muted">Send money out of INTAFACED, and see where each withdrawal stands.</p>
+<h1 class="lt-title">Withdraw</h1>
+<p class="lt-description">Send money out of INTAFACED, and see where each withdrawal stands.</p>
 </div>
 </header>
-<div class="withdrawal-page">
-<div class="bd-stack" data-testid="withdraw-form">
-<section class="bd-panel" aria-labelledby="_r_3_">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div data-testid="withdraw-form">
+<section aria-labelledby="_r_3_">
 <h3 id="_r_3_">Send money out</h3>
-<p class="money-caption">Choose what to send and where it goes. You see the fee and your limit before you confirm.</p>
-<div class="bd-address" role="status">
+<p class="lt-hint">Choose what to send and where it goes. You see the fee and your limit before you confirm.</p>
+<div role="status">
 <strong>New withdrawal unavailable</strong>
 <p>Sending money out of INTAFACED (to a wallet, card or bank) isn't connected: no custody signer is set up, so a send to an outside wallet is refused before anything is held. A send to another INTAFACED account's address works: it settles inside at once, with no fee. Your existing withdrawals stay visible here.</p>
 </div>
-<form class="bd-stack" novalidate="">
-<label class="field">
+<form novalidate="">
+<label class="lt-field">
 <span>Asset</span>
 <select>
 <option value="USDT">USDT</option>
@@ -124,104 +126,96 @@
 </select>
 <small>Only coins you hold are listed.</small>
 </label>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
-<fieldset class="bd-stack">
-<legend class="bd-subhead">Send to</legend>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<fieldset>
+<legend>Send to</legend>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
-<label class="field">
+<label class="lt-field">
 <span>Or enter a new address</span>
 <input autocomplete="off" autocapitalize="off" spellcheck="false" aria-invalid="false" aria-describedby="withdraw-new-hint" value="">
-<small id="withdraw-new-hint" class="">Paste an address to check it. Another INTAFACED account’s address can be sent to at once; any other address must be in your address book.</small>
+<small id="withdraw-new-hint">Paste an address to check it. Another INTAFACED account’s address can be sent to at once; any other address must be in your address book.</small>
 </label>
 </fieldset>
-<label class="field">
+<label class="lt-field">
 <span>Amount</span>
 <input inputmode="decimal" autocomplete="off" aria-invalid="false" aria-describedby="withdraw-amount-help" value="">
-<small id="withdraw-amount-help" class="">Available: 4,100 USDT</small>
+<small id="withdraw-amount-help">Available: 4,100 USDT</small>
 </label>
-<p class="muted" data-testid="withdraw-locked-rewards" data-state="failed">Campaign rewards could not be read just now, so any locked reward is not shown.</p>
+<p class="lt-hint" data-testid="withdraw-locked-rewards" data-state="failed">Campaign rewards could not be read just now, so any locked reward is not shown.</p>
 <div>
-<button type="button" class="bd-link">Use all available</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Use all available</button>
 </div>
-<div class="bd-stack" data-testid="withdraw-limit">
+<div data-testid="withdraw-limit">
 <strong>Your limit</strong>
-<p class="failure" role="status">No services run in the look gate.</p>
+<p role="status">No services run in the look gate.</p>
 </div>
-<div class="bd-stack" data-testid="withdraw-fee">
-<dl class="bd-facts">
-<div class="bd-fact">
+<div data-testid="withdraw-fee">
+<dl class="lt-kv">
+<div>
 <dt>Fee</dt>
 <dd>Get the fee to see it</dd>
 </div>
 </dl>
 <div>
-<button type="button" class="button button--secondary " disabled="">Get the fee</button>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Get the fee</button>
 </div>
 </div>
 </form>
 </section>
-<section class="bd-panel" aria-labelledby="_r_4_">
+<section aria-labelledby="_r_4_">
 <h3 id="_r_4_">Review</h3>
-<p class="money-caption">Check these details, then confirm it is you.</p>
-<dl class="bd-facts" data-testid="withdraw-review">
-<div class="bd-fact">
+<p class="lt-hint">Check these details, then confirm it is you.</p>
+<dl class="lt-kv" data-testid="withdraw-review">
+<div>
 <dt>You send</dt>
 <dd>Not chosen yet</dd>
 </div>
-<div class="bd-fact">
+<div>
 <dt>Network</dt>
 <dd>Not chosen yet</dd>
 </div>
-<div class="bd-fact">
+<div>
 <dt>To</dt>
 <dd>Not chosen yet</dd>
 </div>
-<div class="bd-fact">
+<div>
 <dt>Network fee</dt>
 <dd>Get the fee to see it</dd>
 </div>
 </dl>
-<div class="bd-disabled">
-<button type="button" class="button button--primary " disabled="" aria-describedby="_r_5_">Review withdrawal</button>
-<p id="_r_5_" class="money-caption">Choose a saved address that is ready, an amount within your balance and limit, and get the fee first.</p>
+<div>
+<button disabled="" aria-describedby="_r_5_" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Review withdrawal</button>
+<p id="_r_5_" class="lt-hint">Choose a saved address that is ready, an amount within your balance and limit, and get the fee first.</p>
 </div>
 </section>
 </div>
-<section class="money-section">
+<section>
 <header>
 <div>
 <h2>Your withdrawals</h2>
-<p class="muted">Newest first. Filter by coin and status, then show older ones page by page.</p>
+<p class="lt-hint">Newest first. Filter by coin and status, then show older ones page by page.</p>
 </div>
-<div class="actions">
-<button type="button" class="button button--secondary ">Refresh records</button>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Refresh records</button>
 </div>
 </header>
-<div class="withdrawal-filters" data-testid="withdrawal-filters">
-<label class="field">
+<div class="lt-toolbar" data-testid="withdrawal-filters">
+<label class="lt-field">
 <span>Coin</span>
 <select name="withdrawal-coin" aria-describedby="withdrawal-coins-unread">
 <option value="">Every coin</option>
 </select>
 <small id="withdrawal-coins-unread">The coin list could not be read, so History shows every coin.</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Status</span>
 <select name="withdrawal-status">
 <option value="">Every status</option>
@@ -241,40 +235,41 @@
 </label>
 </div>
 <div lang="und">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section class="money-section">
+<section>
 <header>
 <div>
 <h2>Find a withdrawal</h2>
-<p class="muted">Open a withdrawal by its ID, even if it isn’t in the list above.</p>
+<p class="lt-hint">Open a withdrawal by its ID, even if it isn’t in the list above.</p>
 </div>
 </header>
-<form class="withdrawal-lookup">
-<label class="field" for="field-_r_6_">
-<span id="field-_r_6_-label">
-<span lang="en">Withdrawal ID</span>
-</span>
-<input autocomplete="off" spellcheck="false" lang="und" id="field-_r_6_" aria-labelledby="field-_r_6_-label" aria-invalid="false" value="">
-</label>
-<button type="submit" class="button button--primary ">Open record</button>
+<form>
+<div class="lit-field-control">
+<label for="_r_6_">Withdrawal ID</label>
+<input autocomplete="off" spellcheck="false" lang="und" id="_r_6_" value="">
+</div>
+<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Open record</button>
 </form>
 </section>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="summary" aria-label="Summary">
 <p>
-<a class="text-link" href="/uc/withdraw/approvals">Withdrawal approvals ↗</a> <a class="text-link" href="/uc/withdraw/allowlist">Withdrawal address list ↗</a> <a class="text-link" href="/uc/assets">Supported assets and networks ↗</a>
+<a class="lt-link" href="/uc/withdraw/approvals">Withdrawal approvals ↗</a> <a class="lt-link" href="/uc/withdraw/allowlist">Withdrawal address list ↗</a> <a class="lt-link" href="/uc/assets">Supported assets and networks ↗</a>
 </p>
 <p>
-<a class="text-link withdrawal-back" href="/portfolio">Back to Money ↗</a>
+<a class="lt-link" href="/portfolio">Back to Money ↗</a>
 </p>
+</section>
+</div>
+</div>
 </div>
 </div>
 </div>

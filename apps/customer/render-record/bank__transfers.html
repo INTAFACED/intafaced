@@ -97,62 +97,45 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money / Bank</p>
-<h1>Transfers</h1>
-<p class="muted">Move available quantities between spaces or to another user.</p>
+<h1 class="lt-title">Transfers</h1>
+<p class="lt-description">Move available quantities between spaces or to another user.</p>
 </div>
-<div class="actions">
-<a class="button button--secondary" href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.rooms.bank.overview">Bank overview</span>
-</a>
+<div class="lt-room-action">
+<a class="lt-link" href="/bank">Bank overview</a>
 </div>
 </header>
-<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
-<a href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
-</a>
-<a href="/bank/spaces">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
-</a>
-<a href="/bank/transfers" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
-</a>
-<a href="/bank/earn">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
-</a>
-<a href="/bank/loans">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
-</a>
-<a href="/bank/cards">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
-</a>
-<a href="/bank/ramps">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
-</a>
-<a href="/bank/analytics">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
-</a>
-<a href="/bank/business">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
-</a>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<nav data-testid="money-bank-nav" class="lt-tabs" aria-label="Bank rooms">
+<a href="/bank" class="lt-tab">Overview</a>
+<a href="/bank/spaces" class="lt-tab">Spaces</a>
+<a href="/bank/transfers" class="lt-tab" aria-current="page">Transfers</a>
+<a href="/bank/earn" class="lt-tab">Earn</a>
+<a href="/bank/loans" class="lt-tab">Loans</a>
+<a href="/bank/cards" class="lt-tab">Cards</a>
+<a href="/bank/ramps" class="lt-tab">Ramps</a>
+<a href="/bank/analytics" class="lt-tab">Analytics</a>
+<a href="/bank/business" class="lt-tab">Business</a>
 </nav>
-<p class="money-caption">
-<a class="text-link" href="/bank/direct-debits">Direct debits</a> Mandates, upcoming collections, block and refunds</p>
-<p class="money-caption">
-<a class="text-link" href="/bank/calendar">Calendar</a> Everything dated, by day</p>
-<p class="money-caption">
-<a class="text-link" href="/bank/rules">Rules and notifications</a> Payment reminders, failure notices and your notification choices</p>
-<section class="money-section">
+<p>
+<a class="lt-link" href="/bank/direct-debits">Direct debits</a> Mandates, upcoming collections, block and refunds</p>
+<p>
+<a class="lt-link" href="/bank/calendar">Calendar</a> Everything dated, by day</p>
+<p>
+<a class="lt-link" href="/bank/rules">Rules and notifications</a> Payment reminders, failure notices and your notification choices</p>
+<section>
 <header>
 <div>
 <h2>New transfer</h2>
 </div>
 </header>
-<div class="money-transfer-setup">
-<label class="field">
+<div>
+<label class="lt-field">
 <span id="bank-transfer-source-label">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.from.your.space">From your space</span>
 </span>
@@ -162,7 +145,7 @@
 </option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.destination">Destination</span>
 </span>
@@ -171,110 +154,94 @@
 <option value="user">Another person</option>
 </select>
 </label>
-<p class="money-caption">Moves between your own accounts stay inside your bank.</p>
-<label class="field">
+<p class="lt-hint">Moves between your own accounts stay inside your bank.</p>
+<label class="lt-field">
 <span>Note for the recipient</span>
 <input autocomplete="off" aria-invalid="false" aria-describedby="transfer-note-help" value="" name="note">
-<small id="transfer-note-help" class="">Optional. Plain text the recipient can read, up to 140 characters.</small>
+<small id="transfer-note-help">Optional. Plain text the recipient can read, up to 140 characters.</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Payment reference</span>
 <input autocomplete="off" autocapitalize="none" spellcheck="false" aria-invalid="false" aria-describedby="transfer-reference-help" value="" name="reference">
-<small id="transfer-reference-help" class="">Optional. Up to 64 letters, numbers or symbols from a standard keyboard, such as an invoice number.</small>
+<small id="transfer-reference-help">Optional. Up to 64 letters, numbers or symbols from a standard keyboard, such as an invoice number.</small>
 </label>
-<label class="money-check">
+<label class="lt-field">
 <input type="checkbox">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.repeat.on.a.schedule"> Schedule it for a later date, once or repeating</span>
 </label>
-<button type="button" class="button button--primary " disabled="">
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.continue">Continue</span>
 </button>
 </div>
-<div class="money-continuation">
+<div>
 <span>3<span lang="en" dir="ltr" data-i18n="customer.money.components.records.returned.requested.limit"> shown</span>. That is the whole list.</span>
 </div>
 <div data-testid="plan-rule">
-<h4 class="bd-subhead">Paying more than you hold</h4>
-<div class="money-caption">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<h4>Paying more than you hold</h4>
+<div>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </div>
 </section>
-<div class="bd-stack" data-testid="rail-send">
-<section class="bd-panel" aria-labelledby="_r_3_">
+<div data-testid="rail-send">
+<section aria-labelledby="_r_3_">
 <h3 id="_r_3_">Send to a bank account</h3>
-<p class="money-caption">Send from one of your spaces to a bank account. Each way of sending asks for its own details.</p>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<p>Send from one of your spaces to a bank account. Each way of sending asks for its own details.</p>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_4_">
+<section aria-labelledby="_r_4_">
 <h3 id="_r_4_">Your sends to bank accounts</h3>
-<p class="money-caption">Every send you asked for, newest first, with where it stands.</p>
+<p>Every send you asked for, newest first, with where it stands.</p>
 <div data-testid="rail-send-list">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_5_">
+<section aria-labelledby="_r_5_">
 <h3 id="_r_5_">Your bank recipients</h3>
-<p class="money-caption">Save the accounts you send to. A new recipient waits the time the bank sets before money can go to it.</p>
-<div class="bd-stack" data-testid="payee-book">
+<p>Save the accounts you send to. A new recipient waits the time the bank sets before money can go to it.</p>
+<div data-testid="payee-book">
 <div data-testid="payee-list">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
-<label class="field" for="_r_6_">
+<label class="lt-field" for="_r_6_">
 <span>Country of the account</span>
 <select id="_r_6_">
 <option value="">
 </option>
 </select>
 </label>
-<div class="bd-stack" data-testid="payee-invite">
+<div data-testid="payee-invite">
 <h3>Invite someone to add their own details</h3>
-<p class="money-caption">They get a link to enter their bank details, so you do not type them.</p>
-<label class="field" for="field-_r_7_">
+<p>They get a link to enter their bank details, so you do not type them.</p>
+<label class="lt-field" for="field-_r_7_">
 <span id="field-_r_7_-label">Their email</span>
 <input autocomplete="off" id="field-_r_7_" aria-labelledby="field-_r_7_-label" aria-invalid="false" type="email" value="">
 </label>
-<div class="actions">
-<button type="button" class="button button--primary " disabled="">Send the invite</button>
+<div class="lt-actions">
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Send the invite</button>
 </div>
 </div>
 </div>
 </section>
 </div>
-<div class="money-standing-orders" lang="en" dir="ltr">
-<section class="money-section">
+<div lang="en" dir="ltr">
+<section>
 <header>
 <div>
 <h2>
@@ -283,22 +250,24 @@
 </span>
 </h2>
 </div>
-<div class="actions">
-<button type="button" class="button button--ghost ">
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.money.standing.refresh">Refresh instructions</span>
 </button>
 </div>
 </header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
 </div>
 </div>
 </div>
