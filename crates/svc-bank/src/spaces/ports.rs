@@ -176,7 +176,7 @@ impl LedgerHttp {
     }
 
     /// `createLedgerTransport`'s `call`: the body serialised once, signed and sent per attempt, within `budget`.
-    fn call_with(&self, path: &str, body: &Json, budget: Budget) -> Result<Json, CallFailure> {
+    pub fn call_with(&self, path: &str, body: &Json, budget: Budget) -> Result<Json, CallFailure> {
         let payload = body.compact();
         let started = Clock::now();
         let left = || {
