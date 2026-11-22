@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { Badge, Button } from '@intafaced/ui/lit';
+import { Button, Tag } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
@@ -42,9 +42,9 @@ export function TestMark({ test }: { test: boolean }) {
   const { t } = venueCopy.useCopy();
   if (!test) return null;
   return (
-    <Badge tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
+    <Tag tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
       {t('TEST')}
-    </Badge>
+    </Tag>
   );
 }
 

@@ -287,7 +287,6 @@ export const components = {
   Segmented: 'Ranges, Buy/Sell, Simple/Pro',
   Field: 'Input with label, hint and typed error',
   Figure: 'A money figure from a decimal string (never a number), with TEST and stale marks',
-  Change: 'Up or down change as text, with sign and arrow, never colour alone',
   FinePrint: 'Mono micro text for codes and scales (never legal text)',
   Tag: 'Chamfered tag',
   Brackets: 'HUD corner brackets around a figure or chart',

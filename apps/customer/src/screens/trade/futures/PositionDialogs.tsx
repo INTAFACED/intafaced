@@ -2,8 +2,8 @@ import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useMounted } from '../../../shared/outside';
 import { useResource } from '../../../shared/resource';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Button, FormField, Input, Menu, Segmented } from '@intafaced/ui/lit';
-import { Checkbox, KeyValue, Sheet } from '@intafaced/ui/lit/templates';
+import { Button, Menu, Segmented } from '@intafaced/ui/lit';
+import { Checkbox, DecimalInput, KeyValue, Sheet } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
 import type { ConditionalOrder, PositionPreview, Reverse, RiskStop, StopInput } from './api';
@@ -209,7 +209,7 @@ export function MarginDialog({
         </>
       }
     >
-      <FormField
+      <DecimalInput
         label={t('Margin amount', { asset })}
         error={amount !== '' && problem && problem !== 'empty' ? t(`Problem ${problem}`) : undefined}
         hint={
@@ -219,9 +219,11 @@ export function MarginDialog({
               : t('Margin free', { free: fmtAmount(free, { places: 8 }), asset })
             : t('Margin reduce note')
         }
-      >
-        <Input kind="decimal" value={amount} onValueChange={setAmount} precision={8} trailing={asset} />
-      </FormField>
+        value={amount}
+        onValueChange={setAmount}
+        precision={8}
+        unit={asset}
+      />
       <p className="lt-hint">{t('Margin recompute')}</p>
       <WriteNotice writer={writer} onCheck={() => void check()} />
     </Frame>
@@ -270,13 +272,15 @@ export function LeverageDialog({ position, cap, onClose, onDone, onRefusal }: Di
         </>
       }
     >
-      <FormField
+      <DecimalInput
         label={t('Leverage field')}
         error={value !== '' && problem && problem !== 'empty' ? t(`Problem ${problem}`) : undefined}
         hint={cap === null ? t('Leverage cap unknown') : t('Leverage cap', { cap: fmtAmount(cap, { places: 2 }) })}
-      >
-        <Input kind="decimal" value={value} onValueChange={setValue} precision={2} trailing="x" />
-      </FormField>
+        value={value}
+        onValueChange={setValue}
+        precision={2}
+        unit="x"
+      />
       <div className="lt-actions">
         {leveragePresets(cap).map((preset) => (
           <Button key={preset} tone="secondary" aria-label={t('Leverage preset', { value: preset })} onClick={() => setValue(preset)}>
@@ -348,13 +352,14 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
         </>
       }
     >
-      <FormField
+      <DecimalInput
         label={t('Close size field')}
         hint={t('Close size hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
         error={sizeRaw !== '' && problem ? t(`Close problem ${problem}`) : undefined}
-      >
-        <Input kind="decimal" value={sizeRaw} onValueChange={setSizeRaw} precision={8} />
-      </FormField>
+        value={sizeRaw}
+        onValueChange={setSizeRaw}
+        precision={8}
+      />
       <div role="group" aria-label={t('Close share group')} className="lt-actions">
         {[25, 50, 75, 100].map((pct) => (
           <Button key={pct} tone="secondary" onClick={() => setSizeRaw(pct === 100 ? '' : (closeShare(position.contracts, pct) ?? ''))}>
@@ -497,29 +502,34 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
     const estimate = value.trim() === '' || problems[leg] ? null : signedAmount(estimatedResult(position, value.trim(), size), 8);
     return (
       <div className="lt-stack-tight">
-        <FormField
+        <DecimalInput
           label={t(leg === 'take_profit' ? 'Protect field take profit' : 'Protect field stop loss', { quote: asset })}
           hint={side === null ? undefined : t(`Protect side ${side}`)}
           error={problems[leg] ? t('Protect problem invalid') : undefined}
-        >
-          <Input kind="decimal" value={value} onValueChange={edit(set)} precision={8} trailing={asset} disabled={orders === null} />
-          {value.trim() !== '' && !problems[leg] ? (
-            <span className="lt-hint">
-              {estimate === null
-                ? t('Protect estimate unknown')
-                : size === null
-                  ? t('Protect estimate', { result: estimate, asset })
-                  : t('Protect estimate part', { result: estimate, asset, size: fmtAmount(size, { places: 8 }) })}
-            </span>
-          ) : null}
-        </FormField>
-        <FormField
+          value={value}
+          onValueChange={edit(set)}
+          precision={8}
+          unit={asset}
+          disabled={orders === null}
+        />
+        {value.trim() !== '' && !problems[leg] ? (
+          <span className="lt-hint">
+            {estimate === null
+              ? t('Protect estimate unknown')
+              : size === null
+                ? t('Protect estimate', { result: estimate, asset })
+                : t('Protect estimate part', { result: estimate, asset, size: fmtAmount(size, { places: 8 }) })}
+          </span>
+        ) : null}
+        <DecimalInput
           label={t(leg === 'take_profit' ? 'Protect part take profit' : 'Protect part stop loss')}
           hint={t('Protect part hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
           error={parts[leg] ? t(`Protect part problem ${parts[leg]}`) : undefined}
-        >
-          <Input kind="decimal" value={part} onValueChange={edit(setPart)} precision={8} disabled={orders === null} />
-        </FormField>
+          value={part}
+          onValueChange={edit(setPart)}
+          precision={8}
+          disabled={orders === null}
+        />
       </div>
     );
   };
@@ -1001,9 +1011,15 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
     }
   };
   const price = (label: string, hint: string, value: string, set: (v: string) => void, problem: string | null) => (
-    <FormField label={label} hint={hint} error={problem === 'invalid' ? t('Stop problem invalid') : undefined}>
-      <Input kind="decimal" value={value} onValueChange={edit(set)} precision={8} trailing={asset} />
-    </FormField>
+    <DecimalInput
+      label={label}
+      hint={hint}
+      error={problem === 'invalid' ? t('Stop problem invalid') : undefined}
+      value={value}
+      onValueChange={edit(set)}
+      precision={8}
+      unit={asset}
+    />
   );
 
   return (
@@ -1061,13 +1077,14 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
         />
         <p className="lt-hint">{t(`Stop source how ${source}`)}</p>
       </div>
-      <FormField
+      <DecimalInput
         label={t('Stop size')}
         hint={t('Stop size hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
         error={sizeProblem && size.trim() !== '' ? t(`Close problem ${sizeProblem}`) : undefined}
-      >
-        <Input kind="decimal" value={size} onValueChange={edit(setSize)} precision={8} />
-      </FormField>
+        value={size}
+        onValueChange={edit(setSize)}
+        precision={8}
+      />
       {takes.trigger
         ? price(
             t('Stop trigger', { quote: asset }),
@@ -1214,13 +1231,15 @@ export function RiskStopDialog({ position, onClose, onDone, onRefusal }: DialogB
           ])}
         />
       ) : null}
-      <FormField
+      <DecimalInput
         label={t('Risk stop level')}
         error={level !== '' && problem && problem !== 'empty' ? t(`Risk stop problem ${problem}`) : undefined}
         hint={t('Risk stop level hint')}
-      >
-        <Input kind="decimal" value={level} onValueChange={setLevel} precision={16} trailing="%" />
-      </FormField>
+        value={level}
+        onValueChange={setLevel}
+        precision={16}
+        unit="%"
+      />
       <WriteNotice writer={writer} onCheck={() => void check()} />
       <section aria-label={t('Risk stop current')} className="lt-region">
         <h3>{t('Risk stop current')}</h3>

@@ -8,8 +8,6 @@ import {
   Gate,
   ActionKey,
   Button,
-  Change,
-  Checkbox,
   Dock,
   Field,
   Figure,
@@ -17,14 +15,14 @@ import {
   Logo,
   Radio,
   Rail,
-  RefusalBox,
   RiskMoment,
-  Select,
   Surface,
   TextArea,
   type DoorLink,
 } from './index.js';
 import * as B2 from './b2-basics.js';
+import { RefusalBox } from '../templates/frame.js';
+import { ChangeText } from './b2-values.js';
 import { Table, gridKey } from './b2-table.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -116,9 +114,11 @@ describe('components', () => {
     expect(out.indexOf('lit-figure__unit')).toBeGreaterThan(out.indexOf('>12<'));
   });
 
-  it('Change says the direction in words, not only colour', () => {
-    expect(html(<Change text="£84.10" dir="up" spoken="en hausse" />)).toContain('<span class="lit-sr">en hausse </span>');
-    expect(html(<Change text="£6.40" dir="down" spoken="down" />)).toContain('▼');
+  it('ChangeText says the direction in its signed words and an arrow, not only colour', () => {
+    const up = html(<ChangeText value="+£84.10" sensitive={false} />);
+    expect(up).toContain('data-direction="up"');
+    expect(up).toContain('+£84.10');
+    expect(html(<ChangeText value="−£6.40" sensitive={false} />)).toContain('▼');
   });
 
   it('RefusalBox names the blocker, keeps the code small, and draws hold and pause apart', () => {
@@ -127,10 +127,13 @@ describe('components', () => {
         refusal={{ variant: 'account-hold', title: 'Your account is on hold', body: 'Checks are running.', reference: 'identity.hold' }}
       />,
     );
-    expect(hold).toContain('data-variant="account-hold"');
-    expect(hold).toContain('identity.hold');
+    expect(hold).toContain('data-refusal="account-hold"');
+    expect(hold).toContain('<p class="lt-ref">identity.hold</p>');
     expect(html(<RefusalBox refusal={{ variant: 'platform-pause', title: 'Payments are paused', body: 'For everyone.' }} />)).toContain(
-      'data-variant="platform-pause"',
+      'data-refusal="platform-pause"',
+    );
+    expect(html(<RefusalBox refusal={{ variant: 'unreachable', title: 'Can’t reach it', body: 'Try again soon.' }} />)).toContain(
+      'role="alert"',
     );
   });
 
@@ -159,13 +162,6 @@ describe('components', () => {
     expect(out).toContain('aria-describedby="terms a-hint"');
   });
 
-  it('Select is a labelled native select whose change hands back the value', () => {
-    const out = html(<Select label="Role" value="b" options={['a', { value: 'b', label: 'Bee' }]} hint="Pick one" />);
-    expect(out).toMatch(/^<label class="lt-field"><span>Role<\/span><select>/);
-    expect(out).toContain('<option value="a">a</option><option value="b" selected="">Bee</option>');
-    expect(out).toContain('<small>Pick one</small>');
-  });
-
   it('Radio is a native radio button named by its words, one of a shared name', () => {
     const out = html(
       <Radio name="scope" value="all" checked readOnly>
@@ -175,17 +171,6 @@ describe('components', () => {
     expect(out).toBe(
       '<label class="lt-field"><input readOnly="" type="radio" name="scope" checked="" value="all"/><span>All components</span></label>',
     );
-  });
-
-  it('Checkbox is a native tick box named by its words or its own label', () => {
-    const out = html(
-      <Checkbox checked readOnly aria-label="Allow Runner">
-        Allowed
-      </Checkbox>,
-    );
-    expect(out).toMatch(/^<label class="lt-field"><input [^>]*type="checkbox"[^>]*\/><span>Allowed<\/span><\/label>$/);
-    expect(out).toContain('checked=""');
-    expect(out).toContain('aria-label="Allow Runner"');
   });
 
   it('TextArea is a labelled native text box whose hint describes it and whose change hands back the text', () => {
@@ -256,8 +241,10 @@ describe('components', () => {
     );
     expect(fig.match(/dir="ltr" data-ltr=""/g)).toHaveLength(2);
     expect(fig).not.toMatch(/lit-figure__marks"[^>]*dir=/);
-    const change = html(<Change text="+£45.53 (+0.37%)" dir="up" spoken="up" />);
-    expect(change).toContain('<span dir="ltr" data-ltr="">+£45.53 (+0.37%)</span>');
+    const change = html(<ChangeText value="+£45.53 (+0.37%)" sensitive={false} />);
+    expect(change).toMatch(
+      /<span dir="ltr" data-ltr="" class="lt-num lt-signed" data-direction="up"><span aria-hidden="true">▲ <\/span>\+£45\.53 \(\+0\.37%\)<\/span>/,
+    );
   });
 });
 

@@ -1,6 +1,7 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, FreshnessChip, Tabs, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, FreshnessChip, Tabs, Sheet, Select, DecimalInput, Checkbox (a one-of-many switch is `Segmented`, in
+ * `./index.tsx`). They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
@@ -27,39 +28,6 @@ export function EqualChoice({ choices }: { choices: readonly { label: string; on
           </button>
         ),
       )}
-    </div>
-  );
-}
-
-/**
- * One choice of two or more that stays selected (Buy or Sell on a ticket): a radio group drawn as one switch. The
- * options keep equal size and style; only the selected one is marked, by a state the switch shows, not by colour.
- */
-export function Segmented({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: readonly { value: string; label: string }[];
-  value: string;
-  onChange?: (value: string) => void;
-}) {
-  return (
-    <div className="lt-segmented" role="radiogroup" aria-label={label}>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          role="radio"
-          aria-checked={o.value === value}
-          className="lt-segment"
-          onClick={() => onChange?.(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
     </div>
   );
 }

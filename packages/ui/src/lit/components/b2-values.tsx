@@ -1,7 +1,7 @@
 /**
- * Volt's dense value parts for desks and tables: a number in a row (amount, price, percent, change), a coin's mark,
- * an order's status word, a small tag, a whole-panel state and the loading line. The look is
- * `components.css` (`lt-num`, `lt-coin`, `lt-status`, `lt-badge`, `lt-state`, `lt-table-scroll`), roles only.
+ * Volt's dense value parts for desks and tables: a number in a row (amount, price, percent), a coin's mark, an order's
+ * status word, a whole-panel state and the loading line, and a change line (a small tag is `Tag`, in `./index.tsx`).
+ * The look is `components.css` (`lt-num`, `lt-coin`, `lt-status`, `lt-state`, `lt-table-scroll`), roles only.
  * Amounts and changes hide when the person hides balances (the same switch the older kit reads).
  */
 import * as React from 'react';
@@ -166,13 +166,6 @@ export function StatusTag({
       {label ?? STATUS_WORD[status]}
     </span>
   );
-}
-
-export type BadgeTone = 'neutral' | 'accent' | 'warn' | 'error' | 'up' | 'down';
-
-/** A small tinted tag with words (colour alone is never the cue). */
-export function Badge({ tone = 'neutral', className, ...props }: React.ComponentProps<'span'> & { tone?: BadgeTone }) {
-  return <span data-slot="badge" data-tone={tone} className={clsx('lt-badge', className)} {...props} />;
 }
 
 export interface StateAction {

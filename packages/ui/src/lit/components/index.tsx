@@ -179,51 +179,6 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
-export type SelectOption = string | { value: string; label: string };
-
-export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'onChange' | 'children'> & {
-  label: string;
-  options: readonly SelectOption[];
-  onChange?: (value: string) => void;
-  hint?: string;
-};
-
-/** A choice from a short list: the browser's own select, in the kit's field, its words above it. */
-export function Select({ label, options, onChange, hint, className, ...rest }: SelectProps) {
-  return (
-    <label className={clsx('lt-field', className)}>
-      <span>{label}</span>
-      <select {...rest} onChange={(e) => onChange?.(e.target.value)}>
-        {options.map((o) => {
-          const value = typeof o === 'string' ? o : o.value;
-          return (
-            <option key={value} value={value}>
-              {typeof o === 'string' ? o : o.label}
-            </option>
-          );
-        })}
-      </select>
-      {hint ? <small>{hint}</small> : null}
-    </label>
-  );
-}
-
-export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'children'> & {
-  /** The words beside the box. A box whose words don't name it alone (a column of "Allowed" ticks) also takes an `aria-label`. */
-  children: React.ReactNode;
-  onCheckedChange?: (checked: boolean) => void;
-};
-
-/** A tick box and its words, one row, the browser's own control in the kit's accent. */
-export function Checkbox({ children, onCheckedChange, className, ...rest }: CheckboxProps) {
-  return (
-    <label className={clsx('lt-field', className)}>
-      <input {...rest} type="checkbox" onChange={(e) => onCheckedChange?.(e.target.checked)} />
-      <span>{children}</span>
-    </label>
-  );
-}
-
 export type RadioProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'children'> & {
   /** The words beside the button; they name it. Buttons of one choice share a `name` inside a `fieldset`. */
   children: React.ReactNode;
@@ -311,38 +266,17 @@ export function Figure({ parts, size = 'figure', test, stale, className }: Figur
   );
 }
 
-export type ChangeProps = {
-  text: string;
-  dir: 'up' | 'down' | 'flat';
-  /** The direction in the reader's language ("up", "down", "no change"), from the i18n catalogue. */
-  spoken: string;
-  className?: string;
-};
-
-/** Up or down as words and an arrow, never colour alone. The figures are left to right on any page. */
-export function Change({ text, dir, spoken, className }: ChangeProps) {
-  const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '';
-  return (
-    <span className={clsx('lit-change', className)} data-dir={dir}>
-      {arrow && <span aria-hidden="true">{arrow} </span>}
-      <span className="lit-sr">{spoken} </span>
-      <span dir="ltr" data-ltr="">
-        {text}
-      </span>
-    </span>
-  );
-}
-
 /** Mono fine print for codes and scales. Never legal text. */
 export const FinePrint = ({ className, ...rest }: React.HTMLAttributes<HTMLSpanElement>) => (
   <span {...rest} className={clsx('lit-fine', className)} />
 );
 
+/** A small tag with words, toned by what it marks (colour is never the only cue: the words say it). */
 export const Tag = ({
   tone,
   className,
   ...rest
-}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' }) => (
+}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' | 'warn' | 'error' }) => (
   <span {...rest} className={clsx('lit-tag', className)} data-tone={tone} />
 );
 
@@ -367,28 +301,6 @@ export function Holdings({ items, label, className }: { items: readonly Holding[
         </li>
       ))}
     </ul>
-  );
-}
-
-/** A refusal: the blocker in words, the code small, one next step. Neutral, never accent-tinted. */
-export function RefusalBox({ refusal, className }: { refusal: Refusal; className?: string }) {
-  return (
-    <div className={clsx('lit-refusal', className)} data-variant={refusal.variant} role="status">
-      <div>
-        <div data-part="title">{refusal.title}</div>
-        <div data-part="body">{refusal.body}</div>
-        {refusal.reference && (
-          <FinePrint data-part="reference" style={{ display: 'block' }}>
-            {refusal.reference}
-          </FinePrint>
-        )}
-        {refusal.action && (
-          <a className="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" href={refusal.action.href}>
-            {refusal.action.label}
-          </a>
-        )}
-      </div>
-    </div>
   );
 }
 

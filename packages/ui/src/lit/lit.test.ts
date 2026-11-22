@@ -308,3 +308,23 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
     }
   });
 });
+
+describe('one part per role', () => {
+  it('no part is defined twice in the kit: each exported name lives in one file under src/lit', () => {
+    const files = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        const path = join(dir, name);
+        if (statSync(path).isDirectory()) return name === '__gallery__' ? [] : files(path);
+        return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : [];
+      });
+    const where = new Map<string, string[]>();
+    for (const file of files(here)) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/^export (?:function|const|class) ([A-Z][A-Za-z0-9]*)\b/gm)) {
+        const name = m[1]!;
+        where.set(name, [...(where.get(name) ?? []), file.slice(here.length)]);
+      }
+    }
+    const twice = [...where].filter(([, at]) => at.length > 1);
+    expect(twice).toEqual([]);
+  });
+});
