@@ -4,8 +4,9 @@ import { CAMPAIGNS_TASKS_CLAIM, CAMPAIGNS_TASKS_PROGRESS } from '@intafaced/cont
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Loading, Panel } from '../../shared/ui';
-import { StatRow } from './depth-kit';
+import { Button } from '@intafaced/ui/lit';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
 import { campaignTasksCopy } from './campaign-tasks-copy';
 
 /**
@@ -92,9 +93,9 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
   const code = refusal ? claimCode(refusal.code) : null;
   return (
     <>
-      <Panel title={t('stepsTitle')}>
-        <StatRow
-          items={[
+      <Section title={t('stepsTitle')}>
+        <KeyValue
+          rows={[
             {
               label: t('claimWindow'),
               value: (
@@ -141,21 +142,21 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
           ]}
         />
         {progress.resource.status === 'loading' ? (
-          <Loading label={t('progressLoading')} />
+          <Waiting label={t('progressLoading')} />
         ) : progress.resource.status === 'failed' ? (
-          <Failure result={progress.resource.failure} retry={progress.reload} />
+          <FailureNote result={progress.resource.failure} retry={progress.reload} />
         ) : (
           <Steps progress={progress.resource.data} />
         )}
-        <p className="muted">{t('stepsFromEvents')}</p>
-      </Panel>
-      <Panel title={t('rewardTitle')}>
+        <p className="lt-hint">{t('stepsFromEvents')}</p>
+      </Section>
+      <Section title={t('rewardTitle')}>
         {p?.reward ? (
           <>
             <Reward reward={p.reward} when={when} duration={duration} desk={deskOf(tasks)} />
             {/* A withheld reward is looked at again on a later claim, once the account is active. */}
             {p.reward.state === 'withheld' ? (
-              <Button onClick={() => void claim()} disabled={busy}>
+              <Button tone="primary" onClick={() => void claim()} disabled={busy}>
                 {busy ? t('claiming') : t('claimAgain')}
               </Button>
             ) : null}
@@ -165,27 +166,27 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
             <p data-testid="task-reward-none">{t('rewardNone')}</p>
             {p.claimClosesAt ? <p data-testid="task-claim-by">{t('claimBy', { when: when(p.claimClosesAt) })}</p> : null}
             {p.joined ? (
-              <Button onClick={() => void claim()} disabled={busy}>
+              <Button tone="primary" onClick={() => void claim()} disabled={busy}>
                 {busy ? t('claiming') : t('claim')}
               </Button>
             ) : null}
-            <p className="muted">{t('claimNote')}</p>
+            <p className="lt-hint">{t('claimNote')}</p>
           </>
         ) : null}
         {refusal ? (
           code ? (
-            <p role="status" className="muted" data-testid="task-refusal" data-code={code}>
+            <p role="status" className="lt-hint" data-testid="task-refusal" data-code={code}>
               {code === 'campaigns.kyc_required' ? t(code, { gate: t(`gate_${tasks.kycGate}`) }) : t(code)}
             </p>
           ) : refusal.reason === 'unreachable' || refusal.reason === 'uncertain' || refusal.reason === 'aborted' ? (
-            <p role="status" className="muted" data-testid="task-checking">
+            <p role="status" className="lt-hint" data-testid="task-checking">
               {t('checking')}
             </p>
           ) : (
-            <Failure result={refusal} />
+            <FailureNote result={refusal} />
           )
         ) : null}
-      </Panel>
+      </Section>
     </>
   );
 }
@@ -197,7 +198,7 @@ function Steps({ progress: p }: { progress: TaskProgress }) {
       <p data-testid="task-progress" data-done={p.completed} data-total={p.total}>
         {p.joined ? t('progressValue', { done: String(p.completed), total: String(p.total) }) : t('progressNotJoined')}
       </p>
-      <ol className="depth-list" aria-label={t('stepsLabel')}>
+      <ol aria-label={t('stepsLabel')}>
         {p.steps.map((s) => (
           <li key={s.index} data-testid="task-step" data-complete={s.complete ? 'true' : 'false'}>
             <strong lang="und">{s.title}</strong>:{' '}
@@ -228,7 +229,7 @@ function DepositRead({ deposit }: { deposit: NonNullable<TaskProgress['deposit']
       {deposit.source === 'no_wallet' ? (
         <>
           {' '}
-          <a className="text-link" href="/wallet/venue">
+          <a className="lt-link" href="/wallet/venue">
             {t('connectWallet')}
           </a>
         </>
@@ -303,7 +304,7 @@ function Reward({
           {r.reason === 'campaigns.no_connected_wallet' ? (
             <>
               {' '}
-              <a className="text-link" href="/wallet/venue">
+              <a className="lt-link" href="/wallet/venue">
                 {t('connectWallet')}
               </a>
             </>
@@ -316,7 +317,7 @@ function Reward({
             {t('paidTo', { wallet: r.payout.toWallet, when: when(r.payout.at) })}{' '}
             {/* The chain's own record of the payment, in the app's explorer. */}
             <a
-              className="text-link"
+              className="lt-link"
               data-testid="task-reward-chain-tx"
               data-tx={r.payout.chainTx}
               href={`/chain/tx/${encodeURIComponent(r.payout.chainTx)}`}
@@ -341,13 +342,13 @@ function Reward({
           <span data-testid="task-reward-tx" data-tx={r.ledgerTxId}>
             {t('rewardTx', { tx: r.ledgerTxId })}
           </span>{' '}
-          <a className="text-link" href={desk}>
+          <a className="lt-link" href={desk}>
             {t('rewardLedger')}
           </a>
         </p>
       ) : null}
       <h3>{t('logTitle')}</h3>
-      <DataTable label={t('logLabel')} headers={[t('logWhen'), t('logOutcome'), t('logReason'), t('logChain')]}>
+      <ScrollTable label={t('logLabel')} headers={[t('logWhen'), t('logOutcome'), t('logReason'), t('logChain')]}>
         {r.attempts.map((a, i) => (
           <tr key={`${a.at}-${i}`} data-testid="redemption-attempt" data-outcome={a.outcome}>
             <td>{when(a.at)}</td>
@@ -361,7 +362,7 @@ function Reward({
             </td>
           </tr>
         ))}
-      </DataTable>
+      </ScrollTable>
       <p
         data-testid="task-rollback"
         data-code={r.rollback.blocker}
