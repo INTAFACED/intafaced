@@ -1,5 +1,6 @@
 import { asAssetId } from '@intafaced/contracts/asset-id';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { jsonValueSchema } from '@intafaced/contracts/procedure-strict-schema';
 import { payWithdrawalSchema } from '@intafaced/contracts/pay-money-room';
 import {
   PAY_WITHDRAWAL_CANCEL,
@@ -153,6 +154,9 @@ import { PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-p
 import { PAY_MERCHANT_STARTER_FEE, PAY_MERCHANT_ME } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedures';
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
+
+/** A JSON object column read back from Postgres: the records type it as JSON, so it is checked as JSON at the edge. */
+const jsonRecordSchema = z.record(z.string(), jsonValueSchema);
 
 /** RC-merchant-10: one captured payment whose funds the rail still holds. `availableOn` is the rail's day, or null. */
 
@@ -368,7 +372,15 @@ export function createPayRouter(
       .query(() => ({ ok: true as const, service: 'svc-pay', rails: rails.ids() })),
 
     /** Public payment-link resolve — checkout intent only, no merchant secrets. */
-    resolveLink: mountRecord(PAY_RESOLVE_LINK, ({ input }) => wrap(() => pay.resolvePaymentLink(input.token)), payRefusal),
+    resolveLink: mountRecord(
+      PAY_RESOLVE_LINK,
+      ({ input }) =>
+        wrap(async () => {
+          const link = await pay.resolvePaymentLink(input.token);
+          return { ...link, checkoutConfig: jsonRecordSchema.parse(link.checkoutConfig) };
+        }),
+      payRefusal,
+    ),
 
     /**
      * HOSTED CHECKOUT — the public, unauthenticated payment path (§6.1).
@@ -1145,7 +1157,7 @@ export function createPayRouter(
               return events.map((e) => ({
                 id: e.id,
                 event: e.event,
-                payload: e.payload,
+                payload: jsonRecordSchema.parse(e.payload),
                 railEventId: e.railEventId,
                 ts: e.ts.toISOString(),
               }));

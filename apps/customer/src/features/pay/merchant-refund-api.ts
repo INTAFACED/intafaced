@@ -62,7 +62,7 @@ export function createMerchantRefundApi({
   userId: string | null;
   authority: PayBusinessAuthority | null;
   access: (scope: string) => Extract<ApiResult<never>, { ok: false }> | null;
-  merchant: (signal?: AbortSignal) => Promise<ApiResult<z.infer<typeof s.merchantSchema>>>;
+  merchant: (signal?: AbortSignal) => Promise<ApiResult<s.Merchant>>;
   ports?: JournalPorts;
 }) {
   const identity = authority

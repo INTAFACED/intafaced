@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { payApprovalRequestSchema } from '@intafaced/contracts/pay-money-room';
-import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
+import { authoredRefusal, callAs, type ApiClient, type ApiResult } from '../../shared/api';
 import { approvalCopy } from './withdrawal-approval-copy';
 import {
   PAY_WITHDRAWAL_APPROVAL_LIST,
@@ -46,7 +46,7 @@ export function createApprovalReads(api: ApiClient, userId: string | null, curre
       const denied = admission(signal);
       if (denied) return denied;
       if (!limitSchema.safeParse(limit).success) return refuse('withdrawal_approval.window_invalid', 'invalidWindow');
-      const result = await api.call(PAY_WITHDRAWAL_APPROVAL_LIST, { limit }, { signal });
+      const result = await callAs(api, PAY_WITHDRAWAL_APPROVAL_LIST, { limit }, z.array(payApprovalRequestSchema), { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -60,7 +60,7 @@ export function createApprovalReads(api: ApiClient, userId: string | null, curre
       if (denied) return denied;
       const parsed = requestIdSchema.safeParse(requestId);
       if (!parsed.success) return refuse('withdrawal_approval.input_invalid', 'invalidId');
-      const result = await api.call(PAY_WITHDRAWAL_APPROVAL_GET, { requestId: parsed.data }, { signal });
+      const result = await callAs(api, PAY_WITHDRAWAL_APPROVAL_GET, { requestId: parsed.data }, payApprovalRequestSchema, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -73,7 +73,7 @@ export function createApprovalReads(api: ApiClient, userId: string | null, curre
       if (denied) return denied;
       const parsed = requestIdSchema.safeParse(requestId);
       if (!parsed.success) return refuse('withdrawal_approval.input_invalid', 'invalidId');
-      return api.call(PAY_WITHDRAWAL_APPROVAL_CANCEL, { requestId: parsed.data });
+      return callAs(api, PAY_WITHDRAWAL_APPROVAL_CANCEL, { requestId: parsed.data }, payApprovalRequestSchema);
     },
   };
 }
