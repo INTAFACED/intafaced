@@ -88,3 +88,8 @@ describe('the off-kit rule', () => {
     );
   });
 });
+
+// PLANT (volt layers check, #9562): a failing test main's gates must stop. Never merge.
+it('PLANT: a planted failure', () => {
+  expect(1).toBe(2);
+});
