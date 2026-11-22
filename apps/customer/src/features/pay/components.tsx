@@ -290,36 +290,23 @@ export function MutationResult({
     <PayFailure result={result} />
   );
 }
-export function ReviewedAction<T>({
-  title,
-  description,
-  review,
+/**
+ * What a reviewed action does, without its look: open the review (asking "Confirm it's you" first for money out), send
+ * once while the same review is open, and close on a yes or an unknown answer. `ReviewedAction` draws it with the old
+ * kit; `portal/volt/Review.tsx` draws the same steps with the Volt kit, so both behave exactly alike.
+ */
+export function useReviewedAction<T>({
   perform,
   onConfirmed,
   disabled = false,
-  disabledReason,
-  variant = 'secondary',
   stepUp,
   ready = true,
-  notReadyReason,
 }: {
-  title: string;
-  description: string;
-  review?: ReactNode;
   perform: (currentReview: () => boolean) => Promise<ApiResult<T>>;
   onConfirmed?: (data: T) => void;
   disabled?: boolean;
-  disabledReason?: string;
-  variant?: 'primary' | 'secondary' | 'sell';
-  /**
-   * Money leaving the account. Opening the action first asks "Confirm it's you" (a passkey or an authenticator code);
-   * the review opens once that is done. If the confirmation runs out before the send, the person confirms again and the
-   * same `perform` runs once more, so the same request id goes out. See `portal/access/step-up-store.ts`.
-   */
   stepUp?: MoneyKind;
-  /** The review's own confirm stays off until the person has done what the review asks (a checklist, for example). */
   ready?: boolean;
-  notReadyReason?: string;
 }) {
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -364,61 +351,88 @@ export function ReviewedAction<T>({
       inFlight.current = false;
     }
   }
+  function open() {
+    if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current || asking.current) return;
+    if (!stepUp) {
+      lifetime.current.review += 1;
+      setResult(null);
+      setOpened(true);
+      return;
+    }
+    // Money out: confirm it's them first, then show the review.
+    asking.current = true;
+    void payStepUp.ensure(stepUp).then((confirmed) => {
+      asking.current = false;
+      if (!lifetime.current.mounted || lifetime.current.disabled) return;
+      if (!confirmed) {
+        // Declining is the person's own choice and needs no message; a page with no one to ask says what is needed.
+        setResult(payStepUp.canAsk ? null : stepUpRequired());
+        return;
+      }
+      lifetime.current.review += 1;
+      setResult(null);
+      setOpened(true);
+    });
+  }
+  function close() {
+    if (!inFlight.current) {
+      lifetime.current.opened = false;
+      lifetime.current.review += 1;
+      setOpened(false);
+    }
+  }
+  /** The answer is unknown: nothing may be sent again until the person has checked. */
+  const unknown = Boolean(result && !result.ok && result.reason === 'uncertain');
+  return { opened, busy, result, unknown, open, close, confirm };
+}
+
+export function ReviewedAction<T>({
+  title,
+  description,
+  review,
+  perform,
+  onConfirmed,
+  disabled = false,
+  disabledReason,
+  variant = 'secondary',
+  stepUp,
+  ready = true,
+  notReadyReason,
+}: {
+  title: string;
+  description: string;
+  review?: ReactNode;
+  perform: (currentReview: () => boolean) => Promise<ApiResult<T>>;
+  onConfirmed?: (data: T) => void;
+  disabled?: boolean;
+  disabledReason?: string;
+  variant?: 'primary' | 'secondary' | 'sell';
+  /**
+   * Money leaving the account. Opening the action first asks "Confirm it's you" (a passkey or an authenticator code);
+   * the review opens once that is done. If the confirmation runs out before the send, the person confirms again and the
+   * same `perform` runs once more, so the same request id goes out. See `portal/access/step-up-store.ts`.
+   */
+  stepUp?: MoneyKind;
+  /** The review's own confirm stays off until the person has done what the review asks (a checklist, for example). */
+  ready?: boolean;
+  notReadyReason?: string;
+}) {
+  const { opened, busy, result, unknown, open, close, confirm } = useReviewedAction({ perform, onConfirmed, disabled, stepUp, ready });
   return (
     <div className="pay-action" title={disabled ? disabledReason : undefined}>
-      <Button
-        variant={variant}
-        disabled={disabled || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
-        onClick={() => {
-          if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current || asking.current) return;
-          if (!stepUp) {
-            lifetime.current.review += 1;
-            setResult(null);
-            setOpened(true);
-            return;
-          }
-          // Money out: confirm it's them first, then show the review.
-          asking.current = true;
-          void payStepUp.ensure(stepUp).then((confirmed) => {
-            asking.current = false;
-            if (!lifetime.current.mounted || lifetime.current.disabled) return;
-            if (!confirmed) {
-              // Declining is the person's own choice and needs no message; a page with no one to ask says what is needed.
-              setResult(payStepUp.canAsk ? null : stepUpRequired());
-              return;
-            }
-            lifetime.current.review += 1;
-            setResult(null);
-            setOpened(true);
-          });
-        }}
-      >
+      <Button variant={variant} disabled={disabled || busy || unknown} onClick={open}>
         {title}
       </Button>
       <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
       {opened && (
-        <Dialog
-          closeLabel={uiCopy.t('closeDialog')}
-          title={payCopy.t('review', { title: title })}
-          onClose={() => {
-            if (!inFlight.current) {
-              lifetime.current.opened = false;
-              lifetime.current.review += 1;
-              setOpened(false);
-            }
-          }}
-        >
+        <Dialog closeLabel={uiCopy.t('closeDialog')} title={payCopy.t('review', { title: title })} onClose={close}>
           <div data-testid="form-stack" className="form-stack">
             <p className="muted">{description}</p>
             {review}
             {stepUp && <StepUpNote kind={stepUp} />}
             <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
             {!ready && notReadyReason ? <p className="muted">{notReadyReason}</p> : null}
-            <Button
-              variant={variant}
-              disabled={!ready || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
-              onClick={() => void confirm()}
-            >
+            <Button variant={variant} disabled={!ready || busy || unknown} onClick={() => void confirm()}>
               {busy ? payCopy.t('waitingForConfirmation') : title}
             </Button>
           </div>

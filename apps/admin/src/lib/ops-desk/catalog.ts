@@ -32,6 +32,7 @@ import {
   P2P_OPS_DISPUTE_RATE24H,
 } from '@intafaced/contracts/p2p-ops-procedures';
 import { P2P_DISPUTES_BACKLOG, P2P_DISPUTES_LIST } from '@intafaced/contracts/p2p-disputes-procedures';
+import { TOKEN_NEXT_EMISSION_EPOCH } from '@intafaced/contracts/token-next-emission-epoch-procedures';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
 export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
@@ -2294,9 +2295,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.epoch',
         title: 'Next emission epoch',
         note: 'The epoch number the next emission would use. A read: it mints nothing, and minting stays behind its own switch in svc-token.',
-        module: 'token',
         plainName: 'the next emission epoch',
-        procedure: 'nextEmissionEpoch',
+        ...readOf(TOKEN_NEXT_EMISSION_EPOCH),
         shape: 'record',
         columns: [int('epoch', 'Next epoch')],
         emptyText: '',

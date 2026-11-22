@@ -1,3 +1,4 @@
+// tooling-tests: alone. It runs `git fetch` into the checkout's own .git (FETCH_HEAD, objects/maintenance.lock).
 // The kit-look rules on planted room files, the ceilings' judge on planted counts, and the tree against its committed
 // ceilings and main's copy of them (intafaced issue 9326).
 import { test } from 'node:test';
