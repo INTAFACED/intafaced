@@ -44,7 +44,7 @@ export function AddressRisk({ address }: { address: string }) {
               <strong>{t('reputation', { level: t(`rep_${risk.reputation}`) })}</strong>
             </p>
             {risk.labels.length === 0 ? (
-              <p className="muted">{t('noLabels')}</p>
+              <p className="lt-muted">{t('noLabels')}</p>
             ) : (
               <ul>
                 {risk.labels.map((label) => (
@@ -65,12 +65,12 @@ export function AddressRisk({ address }: { address: string }) {
                 : risk.openReports === 1
                   ? t('reportsOne')
                   : t('reportsMany', { count: String(risk.openReports) })}{' '}
-              <span className="muted">{t('reportsNote')}</span>
+              <span className="lt-muted">{t('reportsNote')}</span>
             </p>
             <p data-code={risk.screening.code ?? undefined}>
               {risk.screening.status === 'not_loaded' ? t('screeningNotLoaded') : t('screeningLoaded')}
             </p>
-            <p className="muted">{t('verdict')}</p>
+            <p className="lt-muted">{t('verdict')}</p>
           </>
         )}
         {userId ? (
@@ -160,11 +160,11 @@ export function ReportDialog({ address, api, onClose, onSent }: { address: strin
           <span>{t('noteLabel')}</span>
           <textarea value={note} maxLength={ADDRESS_REPORT_NOTE_MAX} onChange={(event) => setNote(event.target.value)} />
         </label>
-        <small className="muted">{t('noteHint')}</small>
+        <small className="lt-muted">{t('noteHint')}</small>
         {state === 'duplicate' && <p role="alert">{t('duplicate')}</p>}
         {state === 'evidence' && <p role="alert">{t('evidenceInvalid')}</p>}
         {state === 'failed' && <p role="alert">{t('failed')}</p>}
-        <div className="actions">
+        <div className="lt-actions">
           <Button type="submit" disabled={state === 'sending'}>
             {state === 'sending' ? t('sending') : t('send')}
           </Button>

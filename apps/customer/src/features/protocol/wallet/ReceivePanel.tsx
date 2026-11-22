@@ -31,15 +31,15 @@ export function ReceivePanel() {
   return (
     <Panel title={t('receiveTitle')}>
       <section aria-label={t('receiveTitle')}>
-        <p className="muted">{t('receiveNote')}</p>
+        <p className="lt-muted">{t('receiveNote')}</p>
         {!address ? (
-          <p className="muted">{t('needsWallet')}</p>
+          <p className="lt-muted">{t('needsWallet')}</p>
         ) : (
           <>
             <dl className="protocol-facts">
               <div>
                 <dt>{t('receiveAddress')}</dt>
-                <dd className="numeric" data-receive-address>
+                <dd className="lt-num" data-receive-address>
                   {address}
                 </dd>
               </div>

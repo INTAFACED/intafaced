@@ -68,7 +68,7 @@ export function HomePanelsView({
 }) {
   const { t } = portalCopy.useCopy();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={c.t('hp_accountTitle')}>
         <Facts
           items={[
@@ -99,7 +99,7 @@ export function HomePanelsView({
                 {rows.map((rail) => (
                   <li key={rail.id} style={{ display: 'grid', gap: 2 }}>
                     <strong>{railName(rail.id)}</strong>
-                    <small className="muted">
+                    <small className="lt-muted">
                       {rail.mode === 'live' ? c.t('hp_modeLive') : rail.mode === 'sandbox' ? c.t('hp_modeTest') : c.t('hp_modeOff')}
                       {' · '}
                       {!rail.usable ? c.t('hp_notReady') : rail.healthy ? c.t('hp_ready') : c.t('hp_problems')}
@@ -114,7 +114,7 @@ export function HomePanelsView({
       <PaySection
         title={c.t('hp_checkoutTitle')}
         action={
-          <a className="text-link" href="/pay/checkout" aria-label={c.t('hp_checkoutOpen')}>
+          <a className="lt-link" href="/pay/checkout" aria-label={c.t('hp_checkoutOpen')}>
             <ArrowUpRight size={18} aria-hidden="true" />
           </a>
         }
@@ -132,7 +132,7 @@ export function HomePanelsView({
  * with no rate says exactly that. A price list never stands in for it: it only describes a schedule.
  */
 function FeeText({ merchant }: { merchant: MerchantRecord | null }) {
-  return hasAccountFee(merchant) ? <>{feeStory(merchant)}</> : <span className="muted">{feeStory(merchant)}</span>;
+  return hasAccountFee(merchant) ? <>{feeStory(merchant)}</> : <span className="lt-muted">{feeStory(merchant)}</span>;
 }
 
 /** A short read of the checkout settings, for the Home page. The full page is `/pay/checkout`. */
@@ -141,7 +141,7 @@ function CheckoutSummary({ settings }: { settings: CheckoutSettings }) {
     return (
       <p>
         {c.t('hp_checkoutNone')}{' '}
-        <a className="text-link" href="/pay/checkout">
+        <a className="lt-link" href="/pay/checkout">
           {c.t('hp_checkoutOpen')}
         </a>
       </p>
@@ -149,7 +149,7 @@ function CheckoutSummary({ settings }: { settings: CheckoutSettings }) {
   return (
     <p>
       {settings.domains.length ? c.t('hp_checkoutDomains', { domains: settings.domains.join(', ') }) : c.t('hp_checkoutNoDomains')}{' '}
-      <a className="text-link" href="/pay/checkout">
+      <a className="lt-link" href="/pay/checkout">
         {c.t('hp_checkoutOpen')}
       </a>
     </p>

@@ -43,7 +43,7 @@ export function AcademyHub() {
               </span>
             </span>
             {featured.summary && (
-              <p className="muted" lang="und">
+              <p className="lt-muted" lang="und">
                 {featured.summary}
               </p>
             )}
@@ -70,7 +70,7 @@ export function FeaturedLessonCard({ lesson }: { lesson: AcademyPublicHubLesson 
   return (
     <article className="academy-lms-card" data-featured-lesson="true">
       <h3 lang="und">{lesson.title}</h3>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="hubLessonFrom" params={{ course: lesson.courseTitle }} />
       </p>
       {lesson.courseSlug ? (
@@ -78,7 +78,7 @@ export function FeaturedLessonCard({ lesson }: { lesson: AcademyPublicHubLesson 
           <Copy k="hubLessonOpen" />
         </a>
       ) : (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="hubLessonNotOpen" />
         </p>
       )}
@@ -141,7 +141,7 @@ function AcademyAuthoredCourseCards({ whenEmpty = null }: { whenEmpty?: ReactNod
             <span>{priceText(t, card)}</span>
           </span>
           {card.summary && (
-            <p className="muted" lang="und">
+            <p className="lt-muted" lang="und">
               {card.summary}
             </p>
           )}

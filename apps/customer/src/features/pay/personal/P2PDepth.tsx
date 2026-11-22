@@ -122,7 +122,7 @@ export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | n
       </p>
       {view.actions.length > 0 ? (
         <>
-          <p className="muted">{t('canNow')}</p>
+          <p className="lt-muted">{t('canNow')}</p>
           <ul className="p2p-path-actions">
             {view.actions.map((action) => (
               <li key={action}>{t(ACTION_KEY[action])}</li>
@@ -130,7 +130,7 @@ export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | n
           </ul>
         </>
       ) : (
-        <p className="muted">{t('noActions')}</p>
+        <p className="lt-muted">{t('noActions')}</p>
       )}
       {!closed ? (
         <PayDetails
@@ -146,7 +146,7 @@ export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | n
           ]}
         />
       ) : null}
-      {!closed && left.kind === 'past' ? <p className="muted">{t('deadlinePastHint')}</p> : null}
+      {!closed && left.kind === 'past' ? <p className="lt-muted">{t('deadlinePastHint')}</p> : null}
     </section>
   );
 }
@@ -179,7 +179,7 @@ export function DisputeProgress({
           </li>
         ))}
       </ol>
-      {dispute.overdue && dispute.status === 'open' ? <p className="muted">{t('disputeOverdue')}</p> : null}
+      {dispute.overdue && dispute.status === 'open' ? <p className="lt-muted">{t('disputeOverdue')}</p> : null}
     </div>
   );
 }
@@ -233,7 +233,7 @@ export function OrderFilterTabs({
           </button>
         ))}
       </div>
-      <p className="muted">{note ?? t('ordersCountsNote')}</p>
+      <p className="lt-muted">{note ?? t('ordersCountsNote')}</p>
     </>
   );
 }

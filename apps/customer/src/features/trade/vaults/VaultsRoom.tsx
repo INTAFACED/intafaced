@@ -39,7 +39,7 @@ export function VaultsRoom() {
         <EmptyState
           title={t('signedOutTitle')}
           action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
               {t('signIn')}
             </a>
           }
@@ -65,10 +65,10 @@ export function VaultsRoom() {
     <VenueFrame mode={mode}>
       <Page eyebrow={t('eyebrow')} title={t('title')}>
         <TestMark test={status.test} />
-        <p className="muted">{t('lead')}</p>
+        <p className="lt-muted">{t('lead')}</p>
         <WalletBar />
         <Room status={status} />
-        <p className="muted">{t('ledgerNote')}</p>
+        <p className="lt-muted">{t('ledgerNote')}</p>
       </Page>
     </VenueFrame>
   );
@@ -114,11 +114,11 @@ function Room({ status }: { status: VenueUp }) {
   const byAddress = new Map(vaults.map((v) => [v.address, v]));
   return (
     <>
-      <section className="form-stack" data-testid="vaults-list" aria-label={t('listTitle', { venue })}>
+      <section className="lt-stack" data-testid="vaults-list" aria-label={t('listTitle', { venue })}>
         <h2 className="dk-tab-title">
           {t('listTitle', { venue })} <TestMark test={status.test} />
         </h2>
-        <p className="muted" data-testid="vaults-source">
+        <p className="lt-muted" data-testid="vaults-source">
           {t('source', { venue })} · <AsOf iso={list.data?.asOf} t={t} />
         </p>
         {list.failure && !list.data ? (
@@ -128,7 +128,7 @@ function Room({ status }: { status: VenueUp }) {
         ) : !list.data ? (
           <Loading label={t('listTitle', { venue })} />
         ) : vaults.length === 0 ? (
-          <p className="muted">{t('listEmpty', { venue })}</p>
+          <p className="lt-muted">{t('listEmpty', { venue })}</p>
         ) : (
           <DataTable
             label={t('listTitle', { venue })}
@@ -144,7 +144,7 @@ function Room({ status }: { status: VenueUp }) {
                 <td data-cell="share" data-value={v.profitShareBps ?? ''}>
                   {v.profitShareBps === null ? t('notPublished') : t('share', { percent: bpsPercent(v.profitShareBps) })}
                 </td>
-                <td className="numeric" data-cell="value" data-value={v.vaultValue ?? ''}>
+                <td className="lt-num" data-cell="value" data-value={v.vaultValue ?? ''}>
                   {v.vaultValue === null ? t('notPublished') : t('valueOf', { amount: displayAmount(v.vaultValue, 2), asset: v.asset })}
                 </td>
                 <td data-cell="return" data-value={v.pastReturn ? `${v.pastReturn.bps}/${v.pastReturn.days}` : ''}>
@@ -165,7 +165,7 @@ function Room({ status }: { status: VenueUp }) {
         )}
       </section>
       {!owner ? (
-        <p className="muted">{t('connectFirst')}</p>
+        <p className="lt-muted">{t('connectFirst')}</p>
       ) : (
         <Positions
           holdings={holdings}
@@ -206,9 +206,9 @@ function Positions({
 }) {
   const positions = holdings.data?.value.positions ?? [];
   return (
-    <section className="form-stack" data-testid="vault-positions" aria-label={t('positionsTitle')}>
+    <section className="lt-stack" data-testid="vault-positions" aria-label={t('positionsTitle')}>
       <h2 className="dk-tab-title">{t('positionsTitle')}</h2>
-      <p className="muted">
+      <p className="lt-muted">
         {t('source', { venue })} · <AsOf iso={holdings.data?.asOf} t={t} />
       </p>
       {holdings.failure && !holdings.data ? (
@@ -216,7 +216,7 @@ function Positions({
       ) : !holdings.data ? (
         <Loading label={t('positionsTitle')} />
       ) : positions.length === 0 ? (
-        <p className="muted" data-empty="">
+        <p className="lt-muted" data-empty="">
           {t('positionsEmpty')}
         </p>
       ) : (
@@ -226,7 +226,7 @@ function Positions({
             return (
               <tr key={p.vault} data-position={p.vault}>
                 <td>{p.name}</td>
-                <td className="numeric" data-cell="equity" data-value={p.equity}>
+                <td className="lt-num" data-cell="equity" data-value={p.equity}>
                   {t('valueOf', { amount: displayAmount(p.equity, 2), asset: p.asset })}
                 </td>
                 <td data-cell="ends" data-value={p.lockUpEndsAt}>
@@ -334,9 +334,9 @@ export function MoveForm({
 
   const title = direction === 'deposit' ? t('depositTitle', { vault: vault.name }) : t('withdrawTitle', { vault: vault.name });
   return (
-    <section className="form-stack" data-testid="vault-move" data-direction={direction} data-vault={vault.address} aria-label={title}>
+    <section className="lt-stack" data-testid="vault-move" data-direction={direction} data-vault={vault.address} aria-label={title}>
       <h3 className="dk-tab-title">{title}</h3>
-      <p className="muted" data-testid="vault-free" data-value={free ?? ''}>
+      <p className="lt-muted" data-testid="vault-free" data-value={free ?? ''}>
         {free !== null
           ? t('freeLine', { free, venue })
           : balances.failure
@@ -358,7 +358,7 @@ export function MoveForm({
       </Button>
       <Button onClick={onClose}>{t('cancel')}</Button>
       {problem ? (
-        <p role="alert" className="failure" data-testid="vault-problem">
+        <p role="alert" className="lt-refusal" data-testid="vault-problem">
           {problem}
         </p>
       ) : null}
@@ -387,7 +387,7 @@ function Refused({ stage, venue, t }: { stage: Extract<Stage, { at: 'refused' }>
   // The venue names the lock-up's end as an ISO time in its refusal; it is shown again in the person's own time.
   const ends = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/.exec(stage.message)?.[0] ?? null;
   return (
-    <div role="alert" className="failure" data-testid="vault-refused" data-before-wallet={stage.beforeWallet ? 'true' : 'false'}>
+    <div role="alert" className="lt-refusal" data-testid="vault-refused" data-before-wallet={stage.beforeWallet ? 'true' : 'false'}>
       <p>{t('refused', { venue, detail: stage.message })}</p>
       {ends ? (
         <p data-testid="vault-refused-ends" data-value={ends}>

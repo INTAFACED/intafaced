@@ -69,7 +69,7 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
       <h2>
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="body" />
       </p>
       {noLink ? (
@@ -84,7 +84,7 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
         </div>
       )}
       {href && (
-        <label className="field">
+        <label className="lt-field">
           <span>{t(`link_${surface}`)}</span>
           <input readOnly value={href} lang="zxx" />
         </label>

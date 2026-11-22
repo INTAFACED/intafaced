@@ -115,9 +115,9 @@ export function Section({
       <header>
         <div>
           <h2>{title}</h2>
-          {description && <p className="muted">{description}</p>}
+          {description && <p className="lt-muted">{description}</p>}
         </div>
-        {actions && <div className="actions">{actions}</div>}
+        {actions && <div className="lt-actions">{actions}</div>}
       </header>
       {children}
     </section>
@@ -691,7 +691,7 @@ export function MutationDialog({
     <Dialog title={stage === 'review' ? copyText('components.review.3', { value1: spec.title.toLowerCase() }) : spec.title} onClose={close}>
       <div className="money-dialog-body" ref={body}>
         {spec.notes.map((note) => (
-          <p className="muted" key={note}>
+          <p className="lt-muted" key={note}>
             {note}
           </p>
         ))}
@@ -714,7 +714,7 @@ export function MutationDialog({
             )}
             {spec.fields?.map((field) =>
               field.options ? (
-                <label className="field" key={field.name}>
+                <label className="lt-field" key={field.name}>
                   <span>{field.label}</span>
                   <select
                     name={field.name}
@@ -825,7 +825,7 @@ export function MutationDialog({
             {stage === 'sending' ? (
               <Loading label={copyText('components.waiting.for.the.authoritative.outcome')} />
             ) : (
-              <div className="actions">
+              <div className="lt-actions">
                 {spec.stepUp ? (
                   <StepUpConfirm
                     request={() => spec.stepUp!.request(reviewInput!)}
@@ -889,7 +889,7 @@ export function MutationDialog({
                 </p>
                 {resendable() && (
                   <>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Text k="components.the.bank.answers.this.reference.with.its.first.result" />
                     </p>
                     <Button onClick={() => void resend()}>
@@ -907,7 +907,7 @@ export function MutationDialog({
                 </Button>
               </>
             )}
-            <div className="actions">
+            <div className="lt-actions">
               <Button variant="secondary" onClick={close}>
                 <Text k="components.close" />
               </Button>

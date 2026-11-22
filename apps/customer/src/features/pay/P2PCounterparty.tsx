@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 import { useResource } from '../../shared/resource';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { navigate } from '../../app/location';
 import { PayDetails, PaySection, PayState } from './components';
 import type { PersonalPayApi } from './pay-api';
@@ -24,7 +24,7 @@ export function CounterpartyName({ resource }: { resource: ReturnType<typeof use
         <span lang="zxx">{`@${handle}`}</span>
       ) : resource.status === 'ready' && resource.data.profile?.status === 'absent' ? (
         <>
-          <span aria-hidden="true">—</span> <small className="muted">{p2pDepth.t('traderNoHandle')}</small>
+          <span aria-hidden="true">—</span> <small className="lt-muted">{p2pDepth.t('traderNoHandle')}</small>
         </>
       ) : (
         t('member')
@@ -93,7 +93,7 @@ export function CounterpartyMetrics({ data }: { data: Reputation }) {
             </p>
           ) : (
             <>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="timingBasis" />
               </p>
               {data.avgReleaseSecs === 0 && (
@@ -189,7 +189,7 @@ export function P2PCounterparty({ pay, userId, returnTo }: { pay: PersonalPayApi
                     <Copy k="none" />
                   </p>
                 )}
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="limits" />
                 </p>
               </div>
@@ -197,12 +197,12 @@ export function P2PCounterparty({ pay, userId, returnTo }: { pay: PersonalPayApi
           )}
         </PayState>
         {reputation.resource.status === 'ready' && (
-          <Button variant="secondary" onClick={reputation.reload}>
+          <Button tone="secondary" onClick={reputation.reload}>
             <Copy k="refresh" />
           </Button>
         )}
         <div className="p2p-cp-actions" data-testid="counterparty-actions">
-          <a className="button button--secondary" href={`/p2p?makerId=${encodeURIComponent(userId)}`}>
+          <a className="lt-button lt-button-secondary" href={`/p2p?makerId=${encodeURIComponent(userId)}`}>
             {p2pDepth.t('cpTheirOffers')}
           </a>
         </div>

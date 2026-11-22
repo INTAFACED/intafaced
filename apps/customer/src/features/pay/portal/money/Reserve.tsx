@@ -35,7 +35,7 @@ export function ReserveCard({
       <header>
         <div>
           <h2 id={heading}>{t('balReserveTitle')}</h2>
-          <p className="muted">
+          <p className="lt-muted">
             <strong>{t('balReserveLabel')}</strong> · {t('balReserveBody')}
           </p>
         </div>
@@ -58,7 +58,7 @@ export function ReserveCard({
             </p>
           )}
           {r.data.assets.length === 0 ? (
-            <p className="muted">{t('balReserveNone')}</p>
+            <p className="lt-muted">{t('balReserveNone')}</p>
           ) : (
             <dl className="pp-facts">
               {r.data.assets.map((a) => (
@@ -69,7 +69,7 @@ export function ReserveCard({
                   <dd>
                     <MoneyText value={a.recordedAmount} asset={a.assetCode} test={test} />
                     {a.nextReleaseAt && (
-                      <span className="muted">
+                      <span className="lt-muted">
                         {' · '}
                         {t('balReserveNext')} <DateTime value={a.nextReleaseAt} />
                       </span>

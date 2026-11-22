@@ -101,7 +101,7 @@ export const paymentsRooms: RoomTable = {
           if (a.status === 'failed') return <PortalFailure result={a.failure} />;
           if (a.status === 'none') return <NoMerchant />;
           return (
-            <div className="stack">
+            <div className="lt-stack">
               <Dashboard portal={portal} merchantId={a.merchantId} merchant={record} role={a.role} />
               <HomePanels portal={portal} merchantId={a.merchantId} merchant={record} role={a.role} />
             </div>

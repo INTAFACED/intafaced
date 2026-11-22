@@ -56,9 +56,9 @@ export function LiquidationPanel({
   return (
     <section className="dk-panel form-stack" aria-label={t('liquidationTitle', words)} data-testid="position-liquidation">
       <h3 className="dk-tab-title">{t('liquidationTitle', words)}</h3>
-      <p className="muted">{t('liquidationLead', words)}</p>
+      <p className="lt-muted">{t('liquidationLead', words)}</p>
       {read.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('liquidationNotOffered', { venue: v.name, detail: read.data.failure })}
         </p>
       ) : null}
@@ -135,13 +135,13 @@ function Liquidations({ owner, venues }: { owner: string; venues: readonly Venue
       {(reads.data ?? []).map(({ venue: v, read }) => (
         <div key={v.id} data-venue={v.id}>
           <h3 className="dk-tab-title">{t('liquidationsVenue', { venue: v.name })}</h3>
-          <p className="muted">{t('liquidationsLead', { venue: v.name })}</p>
+          <p className="lt-muted">{t('liquidationsLead', { venue: v.name })}</p>
           {read.failure ? (
-            <p className="failure" role="alert">
+            <p className="lt-refusal" role="alert">
               {t('liquidationsNotOffered', { venue: v.name, detail: read.failure })}
             </p>
           ) : null}
-          {read.data && read.data.value.length === 0 ? <p className="muted">{t('liquidationsNone', { venue: v.name })}</p> : null}
+          {read.data && read.data.value.length === 0 ? <p className="lt-muted">{t('liquidationsNone', { venue: v.name })}</p> : null}
           {read.data && read.data.value.length > 0 ? (
             <DataTable label={t('liquidationsVenue', { venue: v.name })} headers={headers}>
               {read.data.value.flatMap((l) =>
@@ -152,13 +152,13 @@ function Liquidations({ owner, venues }: { owner: string; venues: readonly Venue
                     <td data-cell="side">{t(`side_${l.side}`)}</td>
                     <td data-cell="state">{l.state === 'in_progress' ? t('stateInProgress') : t('stateDone')}</td>
                     <td data-cell="part">{p.partId}</td>
-                    <td className="numeric" data-cell="size">
+                    <td className="lt-num" data-cell="size">
                       {p.size}
                     </td>
-                    <td className="numeric" data-cell="price">
+                    <td className="lt-num" data-cell="price">
                       {p.price}
                     </td>
-                    <td className="numeric" data-cell="fee">
+                    <td className="lt-num" data-cell="fee">
                       {t('feeValue', { fee: p.fee, asset: p.feeAsset })}
                     </td>
                     <td data-cell="time">{time(p.liquidatedAt)}</td>
@@ -190,10 +190,10 @@ function InsuranceFund({ venue: v }: { venue: VenueRef }) {
   return (
     <section className="dk-panel form-stack" aria-label={t('fundTitle')} data-testid="insurance-fund" data-venue={v.id}>
       <h2 className="dk-tab-title">{t('fundTitle')}</h2>
-      <p className="muted">{t('fundLead', { venue: v.name })}</p>
+      <p className="lt-muted">{t('fundLead', { venue: v.name })}</p>
       {read.data === null ? <Loading label={t('fundTitle')} /> : null}
       {read.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('fundFailed', { venue: v.name, detail: read.data.failure })}
         </p>
       ) : null}
@@ -203,7 +203,7 @@ function InsuranceFund({ venue: v }: { venue: VenueRef }) {
           <dt>{t('fundName')}</dt>
           <dd data-line="fund-name">{fund.value.value.name}</dd>
           <dt>{t('fundBalance')}</dt>
-          <dd className="numeric" data-line="fund-balance">
+          <dd className="lt-num" data-line="fund-balance">
             {t('feeValue', { fee: fund.value.value.balance, asset: fund.value.value.asset })}
           </dd>
           <dt>{t('fundWhere')}</dt>
@@ -255,10 +255,10 @@ function Deleveraging({ owner, venue: v }: { owner: string; venue: VenueRef }) {
   return (
     <section className="dk-panel form-stack" aria-label={t('adlTitle')} data-testid="adl" data-venue={v.id}>
       <h2 className="dk-tab-title">{t('adlTitle')}</h2>
-      <p className="muted">{t('adlLead', { venue: v.name })}</p>
+      <p className="lt-muted">{t('adlLead', { venue: v.name })}</p>
       {disclosure.data === null ? <Loading label={t('adlTitle')} /> : null}
       {disclosure.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('adlFailed', { venue: v.name, detail: disclosure.data.failure })}
         </p>
       ) : null}
@@ -283,18 +283,20 @@ function Deleveraging({ owner, venue: v }: { owner: string; venue: VenueRef }) {
         </>
       ) : null}
       {problem ? (
-        <p className="failure" role="alert" data-testid="adl-problem">
+        <p className="lt-refusal" role="alert" data-testid="adl-problem">
           {t('adlAckFailed', { detail: problem })}
         </p>
       ) : null}
       <h3 className="dk-tab-title">{t('adlEventsTitle')}</h3>
-      <p className="muted">{t('adlPaysNothing', { venue: v.name })}</p>
+      <p className="lt-muted">{t('adlPaysNothing', { venue: v.name })}</p>
       {events.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('adlFailed', { venue: v.name, detail: events.data.failure })}
         </p>
       ) : null}
-      {events.data?.data && events.data.data.value.length === 0 ? <p className="muted">{t('adlEventsNone', { venue: v.name })}</p> : null}
+      {events.data?.data && events.data.data.value.length === 0 ? (
+        <p className="lt-muted">{t('adlEventsNone', { venue: v.name })}</p>
+      ) : null}
       {(events.data?.data?.value ?? []).map((e) => (
         <div key={e.adlId} data-adl={e.adlId}>
           <p data-line="adl-close">
@@ -306,7 +308,7 @@ function Deleveraging({ owner, venue: v }: { owner: string; venue: VenueRef }) {
               price: e.price,
               pnl: e.realisedPnl,
             })}{' '}
-            <span className="muted">{time(e.deleveragedAt)}</span>
+            <span className="lt-muted">{time(e.deleveragedAt)}</span>
           </p>
           <p data-line="adl-notice">{e.notice}</p>
         </div>
@@ -332,14 +334,14 @@ function PublicAlerts({ venue: v }: { venue: VenueRef }) {
   return (
     <section className="dk-panel form-stack" aria-label={t('alertsTitle')} data-testid="liquidation-alerts" data-venue={v.id}>
       <h2 className="dk-tab-title">{t('alertsTitle')}</h2>
-      <p className="muted">{t('alertsLead', { venue: v.name })}</p>
+      <p className="lt-muted">{t('alertsLead', { venue: v.name })}</p>
       {read.data === null ? <Loading label={t('alertsTitle')} /> : null}
       {read.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('alertsFailed', { venue: v.name, detail: read.data.failure })}
         </p>
       ) : null}
-      {alerts && alerts.value.length === 0 ? <p className="muted">{t('alertsNone', { venue: v.name })}</p> : null}
+      {alerts && alerts.value.length === 0 ? <p className="lt-muted">{t('alertsNone', { venue: v.name })}</p> : null}
       {alerts && alerts.value.length > 0 ? (
         <DataTable label={t('alertsTitle')} headers={[t('hKind'), t('hMarket'), t('hSide'), t('hSize'), t('hPrice'), t('hTime')]}>
           {alerts.value.map((a, i) => (
@@ -347,10 +349,10 @@ function PublicAlerts({ venue: v }: { venue: VenueRef }) {
               <td data-cell="kind">{a.kind === 'liquidation' ? t('kindLiquidation') : t('kindDeleverage')}</td>
               <td data-cell="symbol">{a.symbol}</td>
               <td data-cell="side">{t(`side_${a.side}`)}</td>
-              <td className="numeric" data-cell="size">
+              <td className="lt-num" data-cell="size">
                 {a.size}
               </td>
-              <td className="numeric" data-cell="price">
+              <td className="lt-num" data-cell="price">
                 {a.price}
               </td>
               <td data-cell="time">{time(a.alertedAt)}</td>

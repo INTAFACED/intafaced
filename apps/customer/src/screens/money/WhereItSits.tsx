@@ -39,9 +39,9 @@ function Sources({ status, chainId }: { status: VenueUp; chainId: number }) {
   const owner = useOwner();
   return (
     <Page title={t('Title')} description={t('Lede')}>
-      <div data-testid="assets-by-source" className="form-stack">
+      <div data-testid="assets-by-source" className="lt-stack">
         <WalletBar />
-        {owner ? <Read owner={owner} status={status} chainId={chainId} t={t} /> : <p className="muted">{t('Connect first')}</p>}
+        {owner ? <Read owner={owner} status={status} chainId={chainId} t={t} /> : <p className="lt-muted">{t('Connect first')}</p>}
       </div>
     </Page>
   );
@@ -77,7 +77,7 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
       <VenueSource status={status} read={venue} valued={part('venue')} t={t} />
       {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} />}
       {standing.prices ? null : (
-        <p className="muted" data-testid="assets-no-price-note">
+        <p className="lt-muted" data-testid="assets-no-price-note">
           {t('No price note')}
         </p>
       )}
@@ -198,7 +198,7 @@ function WalletSource({
           {t('Wallet address')}: <span data-testid="source-wallet-address">{owner}</span>
         </p>
         {!data ? (
-          <p className="muted">{t('Reading')}</p>
+          <p className="lt-muted">{t('Reading')}</p>
         ) : !data.ok ? (
           <p role="alert">{t('Wallet read failed')}</p>
         ) : (
@@ -210,7 +210,7 @@ function WalletSource({
               {t('Wallet network', { network, chainId: String(data.chainId) })}
             </h3>
             {data.rows.length === 0 ? (
-              <p className="muted">{t('Wallet empty')}</p>
+              <p className="lt-muted">{t('Wallet empty')}</p>
             ) : (
               <DataTable
                 label={t('Wallet network totals', { network })}
@@ -226,7 +226,7 @@ function WalletSource({
               </DataTable>
             )}
             {data.unread.length > 0 ? (
-              <p className="muted" data-testid="source-wallet-unread">
+              <p className="lt-muted" data-testid="source-wallet-unread">
                 {t('Wallet unread', { tokens: data.unread.join(', ') })}
               </p>
             ) : null}
@@ -292,9 +292,9 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
         {read.failure && !data ? (
           <p role="alert">{t('Venue read failed', { detail: read.failure.message ?? '' })}</p>
         ) : !data ? (
-          <p className="muted">{t('Reading')}</p>
+          <p className="lt-muted">{t('Reading')}</p>
         ) : data.rows.length === 0 && vaults.length === 0 ? (
-          <p className="muted">{t('Venue empty')}</p>
+          <p className="lt-muted">{t('Venue empty')}</p>
         ) : data.rows.length === 0 ? null : (
           <DataTable
             label={t('Venue title', { venue: status.venue.displayName })}
@@ -307,7 +307,7 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
                 <td data-cell="locked" title={t('Locked note')}>
                   {displayAmount(row.locked)}
                   {row.split ? (
-                    <ul data-testid="source-venue-split" className="muted">
+                    <ul data-testid="source-venue-split" className="lt-muted">
                       <li data-part="in-orders" data-amount={row.split.inOrders}>
                         {t('In orders', { amount: displayAmount(row.split.inOrders) })}
                       </li>
@@ -329,7 +329,7 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
                       ) : null}
                     </ul>
                   ) : /[1-9]/.test(row.locked) ? (
-                    <p data-testid="source-venue-split-unknown" className="muted">
+                    <p data-testid="source-venue-split-unknown" className="lt-muted">
                       {t('Split not reported')}
                     </p>
                   ) : null}
@@ -387,7 +387,7 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
         ) : null}
         {data ? <StakingLines data={data} venue={venueName} t={t} /> : null}
         {data && !data.vaults.read ? (
-          <p className="muted" data-testid="source-venue-vaults-unread">
+          <p className="lt-muted" data-testid="source-venue-vaults-unread">
             {t('Vaults unread', { venue: venueName, detail: data.vaults.detail })}
           </p>
         ) : null}
@@ -420,7 +420,7 @@ function PartnerSource({ read, valued, t }: { read: Exclude<PartnerRead, { state
           {t('Partner source')} {read.state === 'read' ? <AsOf iso={read.asOf} /> : null}
         </p>
         {read.state === 'reading' ? (
-          <p className="muted">{t('Reading')}</p>
+          <p className="lt-muted">{t('Reading')}</p>
         ) : read.state === 'unread' ? (
           <p role="alert">{t('Partner read failed')}</p>
         ) : (

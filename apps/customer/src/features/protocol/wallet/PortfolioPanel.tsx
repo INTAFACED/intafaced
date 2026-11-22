@@ -51,7 +51,7 @@ function ReadState({
     );
   return (
     <>
-      <p className="muted">{t('readFailed')}</p>
+      <p className="lt-muted">{t('readFailed')}</p>
       <Failure result={failure} retry={retry} />
     </>
   );
@@ -70,7 +70,7 @@ export function PortfolioPanel({ positions }: { positions?: ReactNode }) {
   return (
     <>
       <Panel title={t('portfolioTitle')} aria-label={t('portfolioTitle')} data-portfolio>
-        <p className="muted">{t('portfolioNote')}</p>
+        <p className="lt-muted">{t('portfolioNote')}</p>
         {!connected ? (
           <EmptyState title={t('needsWallet')} />
         ) : !data ? (
@@ -117,7 +117,7 @@ function Totals({ data, t }: { data: ProtocolPortfolio; t: PortfolioTranslate })
       <dl className="protocol-facts">
         <div>
           <dt>{t('totalLabel')}</dt>
-          <dd className="numeric" data-testid="portfolio-total">
+          <dd className="lt-num" data-testid="portfolio-total">
             {usdDisplay(data.totalUsd)}
           </dd>
         </div>
@@ -151,11 +151,11 @@ function Holdings({ data, t }: { data: ProtocolPortfolio; t: PortfolioTranslate 
         data.holdings.map((row) => (
           <tr key={row.token} data-token={row.token}>
             <td>
-              <a href={holdingPath(row.token)}>{row.name}</a> <span className="muted">{row.symbol}</span>
+              <a href={holdingPath(row.token)}>{row.name}</a> <span className="lt-muted">{row.symbol}</span>
             </td>
-            <td className="numeric">{tokenAmount(row.balance, row.decimals)}</td>
-            <td className="numeric">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</td>
-            <td className="numeric">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</td>
+            <td className="lt-num">{tokenAmount(row.balance, row.decimals)}</td>
+            <td className="lt-num">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</td>
+            <td className="lt-num">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</td>
           </tr>
         ))
       )}
@@ -173,13 +173,13 @@ function ProfitAndLoss({ data, t }: { data: ProtocolPortfolio; t: PortfolioTrans
         <dl className="protocol-facts">
           <div>
             <dt>{t('pnlLabel')}</dt>
-            <dd className="numeric" data-testid="pnl">
+            <dd className="lt-num" data-testid="pnl">
               {usdDisplay(data.pnl.usd)}
             </dd>
           </div>
           <div>
             <dt>{t('drawdownLabel')}</dt>
-            <dd className="numeric" data-testid="max-drawdown">
+            <dd className="lt-num" data-testid="max-drawdown">
               {data.drawdown === null
                 ? t('drawdownNone')
                 : t('drawdownText', {
@@ -194,7 +194,7 @@ function ProfitAndLoss({ data, t }: { data: ProtocolPortfolio; t: PortfolioTrans
         </dl>
       )}
       {data.pnl && (
-        <p className="muted" data-testid="pnl-excludes">
+        <p className="lt-muted" data-testid="pnl-excludes">
           {t('pnlExcludes', {
             deposits: usdDisplay(data.pnl.depositsUsd),
             withdrawals: usdDisplay(data.pnl.withdrawalsUsd),
@@ -238,7 +238,7 @@ export function HoldingPage({ token }: { token: string }) {
           <dl className="protocol-facts">
             <div>
               <dt>{t('entryLabel')}</dt>
-              <dd className="numeric" data-testid="entry-price">
+              <dd className="lt-num" data-testid="entry-price">
                 {row.entry === null
                   ? t('entryNone')
                   : row.entry.arrivals === 1
@@ -254,20 +254,20 @@ export function HoldingPage({ token }: { token: string }) {
             </div>
             <div>
               <dt>{t('tokenBalance')}</dt>
-              <dd className="numeric">
+              <dd className="lt-num">
                 {tokenAmount(row.balance, row.decimals)} {row.symbol}
               </dd>
             </div>
             <div>
               <dt>{t('tokenPrice')}</dt>
-              <dd className="numeric">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</dd>
+              <dd className="lt-num">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</dd>
             </div>
             <div>
               <dt>{t('tokenValue')}</dt>
-              <dd className="numeric">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</dd>
+              <dd className="lt-num">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</dd>
             </div>
           </dl>
-          <p className="muted">
+          <p className="lt-muted">
             <a href={conventionPath('entry')}>{t('conv_entry')}</a>
           </p>
         </Panel>

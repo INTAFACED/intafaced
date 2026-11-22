@@ -107,7 +107,7 @@ export function WriteNotice({ writer, onCheck }: { writer: Writer; onCheck: () =
     return (
       <div role="alert" className="flex flex-col gap-2 rounded-sm border border-line p-3">
         <p className="font-medium text-warn">{t('Unknown outcome title')}</p>
-        <p className="text-fg-2">{t('Unknown outcome body', { id })}</p>
+        <p className="lt-muted">{t('Unknown outcome body', { id })}</p>
         <Button variant="secondary" size={28} loading={writer.busy} disabled={note.state !== 'pending'} onClick={onCheck}>
           {writer.busy ? t('Checking') : t('Check status')}
         </Button>
@@ -118,7 +118,7 @@ export function WriteNotice({ writer, onCheck }: { writer: Writer; onCheck: () =
     return (
       <div role="alert" className="flex flex-col gap-1">
         <p className="font-medium text-error-text">{outcome.refusal.title}</p>
-        <p className="text-fg-2">{outcome.refusal.body}</p>
+        <p className="lt-muted">{outcome.refusal.body}</p>
         {outcome.refusal.code ? <p className="text-2xs text-fg-3">{t('Refusal code', { code: outcome.refusal.code })}</p> : null}
       </div>
     );
@@ -130,7 +130,7 @@ export function WriteNotice({ writer, onCheck }: { writer: Writer; onCheck: () =
     );
   if (outcome?.kind === 'done')
     return (
-      <p role="status" className="text-fg-2">
+      <p role="status" className="lt-muted">
         {t('Earlier request done')}
       </p>
     );
@@ -245,7 +245,7 @@ export function MarginDialog({
       >
         <Input kind="decimal" value={amount} onValueChange={setAmount} precision={8} trailing={asset} />
       </Field>
-      <p className="text-fg-2">{t('Margin recompute')}</p>
+      <p className="lt-muted">{t('Margin recompute')}</p>
       <WriteNotice writer={writer} onCheck={() => void check()} />
     </Frame>
   );
@@ -313,7 +313,7 @@ export function LeverageDialog({ position, cap, onClose, onDone, onRefusal }: Di
         ))}
       </div>
       <p className="text-warn">{t('Leverage warning')}</p>
-      <p className="text-fg-2">{t('Margin recompute')}</p>
+      <p className="lt-muted">{t('Margin recompute')}</p>
       <WriteNotice writer={writer} onCheck={() => void check()} />
     </Frame>
   );
@@ -396,7 +396,7 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
         ))}
       </div>
       <p>{t('Close mark word')}</p>
-      {closing ? <p className="text-fg-2">{t('Close retry word')}</p> : null}
+      {closing ? <p className="lt-muted">{t('Close retry word')}</p> : null}
       <WriteNotice writer={writer} onCheck={() => void check()} />
     </Frame>
   );
@@ -413,11 +413,11 @@ function LegLine({ leg, order, position, t }: { leg: Leg; order: ConditionalOrde
   return (
     <li data-leg={leg} data-status={order.status} className="flex flex-col gap-0.5">
       <span className="font-medium">{t('Protect leg', { leg: name, status: words(`Status ${order.status}`) })}</span>
-      {trigger ? <span className="text-fg-2">{trigger}</span> : null}
+      {trigger ? <span className="lt-muted">{trigger}</span> : null}
       {covers === null ? null : covers.whole ? (
-        <span className="text-fg-2">{t('Protect covers whole')}</span>
+        <span className="lt-muted">{t('Protect covers whole')}</span>
       ) : (
-        <span className="text-fg-2">
+        <span className="lt-muted">
           {t('Protect covers part', {
             part: fmtAmount(covers.part, { places: 8 }),
             size: fmtAmount(contracts, { places: 8 }),
@@ -597,7 +597,7 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
     >
       <section aria-label={t('Protect current')} className="flex flex-col gap-1 rounded-sm border border-line p-3">
         <h3 className="text-sm font-medium">{t('Protect current')}</h3>
-        {orders === null && !unreadable ? <p className="text-fg-2">{t('Protect loading')}</p> : null}
+        {orders === null && !unreadable ? <p className="lt-muted">{t('Protect loading')}</p> : null}
         {unreadable ? <p className="text-warn">{t('Protect unreadable')}</p> : null}
         {orders !== null ? (
           <ul className="m-0 flex list-none flex-col gap-2 p-0">
@@ -607,12 +607,12 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
         ) : null}
         {closingNow ? <p className="text-warn">{t('Protect closing now')}</p> : null}
       </section>
-      <p className="text-fg-2">{t('Protect how')}</p>
+      <p className="lt-muted">{t('Protect how')}</p>
       {field('take_profit', takeProfit, setTakeProfit, takeProfitPart, setTakeProfitPart)}
       {field('stop_loss', stopLoss, setStopLoss, stopLossPart, setStopLossPart)}
-      <p className="text-fg-2">{t('Protect replace note')}</p>
+      <p className="lt-muted">{t('Protect replace note')}</p>
       {saved ? (
-        <p role="status" className="text-fg-2">
+        <p role="status" className="lt-muted">
           {t(`Protect done ${saved}`)}
         </p>
       ) : null}
@@ -628,16 +628,16 @@ function ResultLine({ position, result, t }: { position: Position; result: Close
     <li className="flex flex-col gap-0.5 border-b border-line py-1.5 last:border-b-0">
       <div className="flex items-center justify-between gap-3">
         <span>
-          {position.symbol} <span className="text-fg-2">{sideWord(t, position.side)}</span>
+          {position.symbol} <span className="lt-muted">{sideWord(t, position.side)}</span>
         </span>
         <span className="font-medium">{word}</span>
       </div>
       {result.kind === 'refused' ? (
-        <span className="text-fg-2">
+        <span className="lt-muted">
           {result.title}. {result.body}
         </span>
       ) : null}
-      {result.kind === 'blocked' ? <span className="text-fg-2">{t(`Blocked ${result.reason}`)}</span> : null}
+      {result.kind === 'blocked' ? <span className="lt-muted">{t(`Blocked ${result.reason}`)}</span> : null}
     </li>
   );
 }
@@ -727,7 +727,7 @@ export function CloseAllDialog({ positions, onClose, onDone }: { positions: Posi
           <ResultLine key={p.id} position={p} result={state.results[p.id ?? ''] ?? { kind: 'waiting' }} t={t} />
         ))}
       </ul>
-      <p className="text-fg-2">{t('Close all stops')}</p>
+      <p className="lt-muted">{t('Close all stops')}</p>
       {started ? (
         <p role="status">
           {t('Close all summary', {
@@ -918,7 +918,7 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
       <section aria-label={t('Reverse review', { to: sideWord(t, to) })} className="flex flex-col gap-2">
         <h3 className="text-sm font-medium">{t('Reverse review', { to: sideWord(t, to) })}</h3>
         {review.status === 'loading' && position.leverage !== null ? (
-          <p className="text-fg-2">{t('Reverse review loading', { to: sideWord(t, to) })}</p>
+          <p className="lt-muted">{t('Reverse review loading', { to: sideWord(t, to) })}</p>
         ) : null}
         {review.status === 'error' ? <p className="text-warn">{t('Reverse review error', { to: sideWord(t, to) })}</p> : null}
         {preview ? (
@@ -1063,7 +1063,7 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
       }
     >
       <div className="flex flex-col gap-1">
-        <span className="text-fg-2">{t('Stop kind')}</span>
+        <span className="lt-muted">{t('Stop kind')}</span>
         <SegmentedControl
           aria-label={t('Stop kind')}
           size={32}
@@ -1077,7 +1077,7 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
         <p className="text-2xs text-fg-2">{t(`Stop kind how ${kind}`)}</p>
       </div>
       <div className="flex flex-col gap-1">
-        <span className="text-fg-2">{t('Stop source')}</span>
+        <span className="lt-muted">{t('Stop source')}</span>
         <SegmentedControl
           aria-label={t('Stop source')}
           size={32}
@@ -1111,18 +1111,18 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
         ? price(t('Stop distance', { quote: asset }), t('Stop distance hint'), distance, setDistance, problems.distance)
         : null}
       {armed ? (
-        <p role="status" className="text-fg-2">
+        <p role="status" className="lt-muted">
           {t('Stop done')}
         </p>
       ) : null}
       {writer.outcome?.kind === 'done' ? null : <WriteNotice writer={writer} onCheck={() => void check()} />}
       <section aria-label={t('Stop armed')} className="flex flex-col gap-1 rounded-sm border border-line p-3">
         <h3 className="text-sm font-medium">{t('Stop armed')}</h3>
-        {read.status === 'loading' ? <p className="text-fg-2">{t('Protect loading')}</p> : null}
+        {read.status === 'loading' ? <p className="lt-muted">{t('Protect loading')}</p> : null}
         {read.status === 'error' || read.status === 'refused' ? <p className="text-warn">{t('Stop unreadable')}</p> : null}
         {read.status === 'ready' || read.status === 'empty' ? (
           stops.length === 0 ? (
-            <p className="text-fg-2">{t('Stop armed none')}</p>
+            <p className="lt-muted">{t('Stop armed none')}</p>
           ) : (
             <ul className="m-0 flex list-none flex-col gap-2 p-0">
               {stops.map((o) => {
@@ -1136,7 +1136,7 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
                         status: words(`Status ${o.status}`),
                       })}
                     </span>
-                    {line ? <span className="text-fg-2">{line}</span> : null}
+                    {line ? <span className="lt-muted">{line}</span> : null}
                   </li>
                 );
               })}
@@ -1223,7 +1223,7 @@ export function RiskStopDialog({ position, onClose, onDone, onRefusal }: DialogB
         </>
       }
     >
-      {read.status === 'loading' ? <p className="text-fg-2">{t('Risk stop loading')}</p> : null}
+      {read.status === 'loading' ? <p className="lt-muted">{t('Risk stop loading')}</p> : null}
       {read.status === 'error' ? <p className="text-warn">{t('Risk stop unknown')}</p> : null}
       {stop ? (
         <KeyValue

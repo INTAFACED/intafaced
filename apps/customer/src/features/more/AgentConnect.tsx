@@ -138,8 +138,8 @@ function AgentConnectRoom() {
   const data = resource.status === 'ready' ? resource.data : resource.status === 'loading' ? last.current : null;
 
   return (
-    <div className="form-stack" data-testid="agent-connect">
-      <a className="text-link" href="/agents">
+    <div className="lt-stack" data-testid="agent-connect">
+      <a className="lt-link" href="/agents">
         {t('back')}
       </a>
       <CanCannot terms={data && !data.off ? data.terms : null} />
@@ -147,7 +147,7 @@ function AgentConnectRoom() {
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
       {data?.off && (
         <Panel title={t('accountsTitle')} data-testid="agent-connect__accounts">
-          <p className="muted" role="status">
+          <p className="lt-muted" role="status">
             {t('doorOff')}
           </p>
           <Button disabled>{t('create')}</Button>
@@ -176,9 +176,9 @@ function CanCannot({ terms }: { terms: AgentTerms | null }) {
           <li>{t('cannot5')}</li>
         </ul>
       </section>
-      <p className="muted">{t('mostLoss')}</p>
+      <p className="lt-muted">{t('mostLoss')}</p>
       {terms && (
-        <p className="muted" data-testid="agent-connect__ceiling">
+        <p className="lt-muted" data-testid="agent-connect__ceiling">
           {terms.ceiling !== null && terms.asset !== null
             ? t('ceiling', { ceiling: terms.ceiling, asset: terms.asset })
             : t('ceilingUnset')}
@@ -218,7 +218,7 @@ function Room({ data, reload }: { data: Extract<Ready, { off: false }>; reload: 
       <ConnectAssistant open={open} keys={data.keys} reload={reload} />
       <Panel title={t('connectionsTitle')} data-testid="agent-connect__connections">
         {data.connections.length === 0 ? (
-          <p className="muted">{t('connectionsEmpty')}</p>
+          <p className="lt-muted">{t('connectionsEmpty')}</p>
         ) : (
           <DataTable label={t('connectionsTitle')} headers={[t('colKey'), t('colAccount')]}>
             {data.connections.map((c) => {
@@ -352,7 +352,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
   }
 
   return (
-    <section className="form-stack" data-testid="agent-connect__create" aria-labelledby="agent-connect-create">
+    <section className="lt-stack" data-testid="agent-connect__create" aria-labelledby="agent-connect-create">
       <h3 id="agent-connect-create">{t('createTitle')}</h3>
       <WalletBar />
       {!formOpen && !ask && (
@@ -361,20 +361,20 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
         </Button>
       )}
       {formOpen && !ask && (
-        <form className="form-stack" noValidate onSubmit={start}>
-          <p className="muted">{t('createIntro')}</p>
+        <form className="lt-stack" noValidate onSubmit={start}>
+          <p className="lt-muted">{t('createIntro')}</p>
           <PermissionReach permission={terms.agentPermission ?? null} />
           <Field label={t('cap', { asset })} hint={t('capHint')} name="cap" inputMode="decimal" autoComplete="off" />
           <Field label={t('fund', { asset })} hint={t('fundHint')} name="fund" inputMode="decimal" autoComplete="off" />
           {!owner && (
-            <p className="muted">
+            <p className="lt-muted">
               {t('walletNeeded')}{' '}
-              <a className="text-link" href="/wallet/venue">
+              <a className="lt-link" href="/wallet/venue">
                 {t('openWallet')}
               </a>
             </p>
           )}
-          <div className="actions">
+          <div className="lt-actions">
             <Button type="submit">{t('create')}</Button>
             <Button variant="secondary" onClick={() => setFormOpen(false)}>
               {t('cancel')}
@@ -397,7 +397,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
         </>
       )}
       {busy && (
-        <p className="muted" role="status">
+        <p className="lt-muted" role="status">
           {busy}
         </p>
       )}
@@ -508,9 +508,9 @@ function ConnectAssistant({ open, keys, reload }: { open: AgentAccount[]; keys: 
     );
   return (
     <Panel title={t('connectTitle')} data-testid="agent-connect__connect">
-      <p className="muted">{t('connectIntro')}</p>
+      <p className="lt-muted">{t('connectIntro')}</p>
       {open.length === 0 ? (
-        <p className="muted">{t('connectNeedsAccount')}</p>
+        <p className="lt-muted">{t('connectNeedsAccount')}</p>
       ) : pending ? (
         <StepUpConfirm
           request={() => connectStepUp(pending.made.record.id, pending.account.accountId)}
@@ -520,14 +520,14 @@ function ConnectAssistant({ open, keys, reload }: { open: AgentAccount[]; keys: 
         />
       ) : (
         <form
-          className="form-stack"
+          className="lt-stack"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
             void makeKey(event.currentTarget);
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span id="agent-connect-account-label">{t('connectAccount')}</span>
             <select name="accountId" aria-labelledby="agent-connect-account-label" defaultValue={open[0]!.accountId}>
               {open.map((a) => (
@@ -598,7 +598,7 @@ function ShownOnce({ shown, onDone }: { shown: Made; onDone: () => void }) {
         </>
       )}
       <h3 id="agent-connect-mcp">{t('mcpTitle')}</h3>
-      <p className="muted">{t('mcpIntro')}</p>
+      <p className="lt-muted">{t('mcpIntro')}</p>
       <pre data-testid="agent-connect__mcp" aria-labelledby="agent-connect-mcp" lang="und">
         {setup}
       </pre>

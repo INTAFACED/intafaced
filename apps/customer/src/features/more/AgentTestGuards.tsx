@@ -62,7 +62,7 @@ export function GuardOutcome({ agentId, run, onDecided }: { agentId: string; run
           <h4>
             {t('contentTitle')} · <strong data-testid="content-trust">{t(`trust_${guard.content.trust}`)}</strong>
           </h4>
-          <p className="muted">{t('contentNote')}</p>
+          <p className="lt-muted">{t('contentNote')}</p>
           <blockquote data-testid="content-text" lang="und">
             {run.content}
           </blockquote>

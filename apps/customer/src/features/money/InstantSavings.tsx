@@ -59,7 +59,7 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
     if (pools.resource.status === 'loading') return <Loading />;
     if (pools.resource.status === 'failed') {
       return pools.resource.failure.code === 'bank.earn_rate_unset' ? (
-        <p className="money-caption" data-testid="instant-savings-rate" data-state="unset">
+        <p className="lt-muted" data-testid="instant-savings-rate" data-state="unset">
           {t('rateUnset')}
         </p>
       ) : (
@@ -79,14 +79,14 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
                 <h3 lang="und" dir="auto">
                   {pool.name}
                 </h3>
-                <p className="money-caption">{t('minimum', { amount: amount(pool.minDeposit, pool.assetId) })}</p>
+                <p className="lt-muted">{t('minimum', { amount: amount(pool.minDeposit, pool.assetId) })}</p>
               </div>
               <strong data-testid="instant-savings-rate" data-state="set" data-bps={pool.aprBps}>
                 {t('rate', { rate: bps(pool.aprBps) })}
               </strong>
             </header>
-            <p className="money-caption">{t('rateNote')}</p>
-            <div className="actions">
+            <p className="lt-muted">{t('rateNote')}</p>
+            <div className="lt-actions">
               <Button variant="secondary" onClick={() => openSavings(pool)}>
                 {t('open')}
               </Button>
@@ -174,7 +174,7 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
           {positions.map((position) => (
             <li key={position.id} data-testid="instant-savings-position" data-position={position.id}>
               <span>
-                {t('saved')}: <span className="numeric">{funds(position.principal, position.assetId)}</span>
+                {t('saved')}: <span className="lt-num">{funds(position.principal, position.assetId)}</span>
               </span>{' '}
               <Button variant="ghost" onClick={() => withdraw(position)}>
                 {t('withdraw')}
@@ -183,7 +183,7 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
           ))}
         </ul>
       ) : (
-        <p className="money-caption">{t('nothingSaved')}</p>
+        <p className="lt-muted">{t('nothingSaved')}</p>
       )}
       {history.resource.status === 'loading' && <Loading />}
       {history.resource.status === 'failed' && <Failure result={history.resource.failure} retry={history.reload} />}
@@ -192,19 +192,19 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
           <dl className="money-selected-details">
             <div>
               <dt>{t('earned')}</dt>
-              <dd className="numeric" data-testid="instant-savings-earned" data-amount={earned.total}>
+              <dd className="lt-num" data-testid="instant-savings-earned" data-amount={earned.total}>
                 {funds(earned.total, pool.assetId)}
               </dd>
-              <dd className="money-caption">{t('earnedNote')}</dd>
+              <dd className="lt-muted">{t('earnedNote')}</dd>
               {earned.unitemisedDays > 0 && (
-                <dd className="money-caption" data-testid="instant-savings-unitemised">
+                <dd className="lt-muted" data-testid="instant-savings-unitemised">
                   {t('unitemised', { count: earned.unitemisedDays })}
                 </dd>
               )}
             </div>
           </dl>
           <h4>{t('days')}</h4>
-          {earned.days.length ? <Days pool={pool} days={earned.days} /> : <p className="money-caption">{t('noDays')}</p>}
+          {earned.days.length ? <Days pool={pool} days={earned.days} /> : <p className="lt-muted">{t('noDays')}</p>}
         </>
       )}
     </section>
@@ -247,6 +247,6 @@ function EarlierDays({ pool, before }: { pool: Pool; before: string }) {
   return page.resource.data.days.length ? (
     <Days pool={pool} days={page.resource.data.days} />
   ) : (
-    <p className="money-caption">{t('noEarlier')}</p>
+    <p className="lt-muted">{t('noEarlier')}</p>
   );
 }

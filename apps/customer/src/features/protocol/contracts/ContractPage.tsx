@@ -38,14 +38,14 @@ function SourcePanel({ data, t }: { data: ProtocolContractInspect; t: ContractTr
       <p data-testid="contract-source-status" data-status={source.status}>
         {sourceLine(source, t)}
       </p>
-      <p className="muted" data-testid="contract-source-reason">
+      <p className="lt-muted" data-testid="contract-source-reason">
         {sourceReason(source, t)}
       </p>
       {source.status !== 'unverified' && (
         <dl className="protocol-facts">
           <div>
             <dt>{t('sourceHash')}</dt>
-            <dd className="numeric">{source.sourceHash}</dd>
+            <dd className="lt-num">{source.sourceHash}</dd>
           </div>
         </dl>
       )}
@@ -62,7 +62,7 @@ function SourcePanel({ data, t }: { data: ProtocolContractInspect; t: ContractTr
           </p>
         </section>
       )}
-      <p className="muted" data-testid="contract-read-at">
+      <p className="lt-muted" data-testid="contract-read-at">
         {t('readAt', { block: data.blockNumber })}
       </p>
     </Panel>
@@ -115,7 +115,7 @@ function ReadFunction({ address, fn, api, t }: { address: string; fn: ContractFu
   };
   return (
     <form aria-label={fn.signature} className="contract-function" onSubmit={(event) => void submit(event)}>
-      <h4 className="numeric">{fn.signature}</h4>
+      <h4 className="lt-num">{fn.signature}</h4>
       <ArgumentFields fn={fn} values={values} onChange={setValues} t={t} />
       <Button type="submit" variant="secondary" disabled={busy}>
         {t('query')}
@@ -125,13 +125,13 @@ function ReadFunction({ address, fn, api, t }: { address: string; fn: ContractFu
         <output data-testid="contract-read-result" data-block={answer.block}>
           <ul>
             {answer.outputs.map((out, i) => (
-              <li key={i} data-type={out.type} className="numeric">
+              <li key={i} data-type={out.type} className="lt-num">
                 {out.name ? `${out.name} ` : ''}
                 {out.type}: <span data-testid="contract-read-value">{out.value}</span>
               </li>
             ))}
           </ul>
-          <span className="muted">{t('resultAt', { block: answer.block })}</span>
+          <span className="lt-muted">{t('resultAt', { block: answer.block })}</span>
         </output>
       )}
     </form>
@@ -214,7 +214,7 @@ function WriteFunction({ address, fn, api, t }: { address: string; fn: ContractF
         />
       )}
       <form aria-label={fn.signature} className="contract-function" onSubmit={(event) => void submit(event)}>
-        <h4 className="numeric">{fn.signature}</h4>
+        <h4 className="lt-num">{fn.signature}</h4>
         <ArgumentFields fn={fn} values={values} onChange={setValues} t={t} />
         {fn.stateMutability === 'payable' && (
           <Field
@@ -253,7 +253,7 @@ function Tabs({ data, api, t }: { data: ProtocolContractInspect; api: ProtocolAp
     </p>
   ) : null;
   const intro = face ? (
-    <p className="muted" data-testid="contract-interface" data-from={face.from}>
+    <p className="lt-muted" data-testid="contract-interface" data-from={face.from}>
       {t(face.from === 'implementation' ? 'interface_implementation' : 'interface_contract', { name: face.name })}
     </p>
   ) : null;
@@ -279,7 +279,7 @@ function Tabs({ data, api, t }: { data: ProtocolContractInspect; api: ProtocolAp
             ) : wallet.guard?.ok !== true ? (
               <p role="status">{t('writeWrongChain')}</p>
             ) : (
-              <p className="muted">{t('writeNote')}</p>
+              <p className="lt-muted">{t('writeNote')}</p>
             )}
             {face!.write.length === 0 ? (
               <EmptyState title={t('noWrites')} />

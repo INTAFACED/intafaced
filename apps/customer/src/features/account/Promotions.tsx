@@ -378,7 +378,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
         <EmptyState
           title={t('signIn')}
           action={
-            <a className="text-link" href="/login?redirect=%2Fuc%2Fpromotion">
+            <a className="lt-link" href="/login?redirect=%2Fuc%2Fpromotion">
               <Copy k="signIn" />
             </a>
           }
@@ -412,13 +412,13 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                         <Copy k={local.kind === 'create' ? 'unknownCreate' : 'unknownRevoke'} />
                       </p>
                     )}
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="originalOwner" />
                     </p>
                     <p className="promotions__ref" lang="zxx">
                       {local.owner}
                     </p>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="reference" />
                     </p>
                     <p className="promotions__ref" lang="zxx">
@@ -430,7 +430,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                     <p>
                       <Copy k="paused" />
                     </p>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="privateOriginal" />
                     </p>
                     <a className="button button--secondary" href="/support">
@@ -477,7 +477,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                             <Copy k="revocationTime" /> · {time(receipt.returned.revokedAt)}
                           </p>
                         )}
-                        <p className="muted">
+                        <p className="lt-muted">
                           <Copy k="revokeBoundary" />
                         </p>
                       </>
@@ -491,7 +491,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                       <p>
                         <Copy k="retainedBody" />
                       </p>
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="reference" />
                       </p>
                       <p className="promotions__ref" lang="zxx">
@@ -500,7 +500,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                       <Button variant="secondary" disabled={busy} onClick={() => void finalize(receipt)}>
                         <Copy k="finish" />
                       </Button>
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="finishBody" />
                       </p>
                     </div>
@@ -530,7 +530,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
               </h2>
               {visibleLink ? (
                 <>
-                  <p className="muted" role="status">
+                  <p className="lt-muted" role="status">
                     <Copy k="snapshot" />
                   </p>
                   {privateField(visibleLink, t('link'))}
@@ -559,7 +559,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                   <h3>
                     <Copy k="noLink" />
                   </h3>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="noLinkBody" />
                   </p>
                   <Button disabled={blocked} onClick={() => open('create')}>
@@ -595,7 +595,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
         {privateVisible && review && same(review) && (
           <Dialog title={t(review.kind === 'create' ? 'createTitle' : 'revokeTitle')} onClose={close}>
             <div className="promotions__review">
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="owner" />
               </p>
               <p className="promotions__ref" lang="zxx">
@@ -606,10 +606,10 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                   <p>
                     <Copy k="createBody" />
                   </p>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="createBoundary" />
                   </p>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="createPrivacy" />
                   </p>
                 </>
@@ -620,11 +620,11 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                     <p>
                       <Copy k="revokeScope" />
                     </p>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="replacementRisk" />
                     </p>
                   </div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="revokeEffect" />
                   </p>
                 </>

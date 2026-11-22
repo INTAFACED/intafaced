@@ -56,7 +56,7 @@ export function NetworkChildView({
         const name = nodeName(named, t('subWord'));
         const id = encodeURIComponent(base.id);
         return (
-          <div className="stack">
+          <div className="lt-stack">
             <DetailHeader
               back={{ href: '/pay/network', label: t('netBack') }}
               title={name}
@@ -108,7 +108,7 @@ function Summary({ data }: { data: SubSummary }) {
     <>
       <PaySection title={t('netVolumeTitle')} description={t('netVolumeBody')}>
         {data.volume === null ? (
-          <p className="muted">{t('netNoPaymentAccess')}</p>
+          <p className="lt-muted">{t('netNoPaymentAccess')}</p>
         ) : data.volume.items.length === 0 ? (
           <EmptyState title={t('netNoVolume')}>{t('netNoVolumeBody')}</EmptyState>
         ) : (
@@ -116,7 +116,7 @@ function Summary({ data }: { data: SubSummary }) {
             {data.volume.items.map((v) => (
               <li key={v.assetCode}>
                 <MoneyText value={v.volume} asset={v.assetCode} />{' '}
-                <span className="muted">· {v.count === 1 ? t('netPaymentsCountOne') : t('netPaymentsCount', { n: v.count })}</span>
+                <span className="lt-muted">· {v.count === 1 ? t('netPaymentsCountOne') : t('netPaymentsCount', { n: v.count })}</span>
               </li>
             ))}
           </ul>
@@ -131,7 +131,7 @@ function Summary({ data }: { data: SubSummary }) {
         }
       >
         {data.recentPayments === null ? (
-          <p className="muted">{t('netNoPaymentAccess')}</p>
+          <p className="lt-muted">{t('netNoPaymentAccess')}</p>
         ) : data.recentPayments.items.length === 0 ? (
           <EmptyState title={t('netNoRecent')}>{t('netNoRecentBody')}</EmptyState>
         ) : (
@@ -154,7 +154,7 @@ function Summary({ data }: { data: SubSummary }) {
       </PaySection>
       <PaySection title={t('netGrantsTitle')} description={t('netGrantsBody')}>
         {data.grants === null ? (
-          <p className="muted">{t('netNoGrantAccess')}</p>
+          <p className="lt-muted">{t('netNoGrantAccess')}</p>
         ) : data.grants.items.length === 0 ? (
           <EmptyState title={t('netNoGrants')}>{t('netNoGrantsBody')}</EmptyState>
         ) : (

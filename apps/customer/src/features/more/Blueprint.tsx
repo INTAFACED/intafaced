@@ -86,7 +86,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                       [copyText('blueprint.engine.build'), record.engineVersion],
                     ]}
                   />
-                  <a className="text-link" href={`/academy?path=${encodeURIComponent(record.profile.curriculumPath)}`}>
+                  <a className="lt-link" href={`/academy?path=${encodeURIComponent(record.profile.curriculumPath)}`}>
                     <Text k="blueprint.open.your" />
                     {record.profile.curriculumPath}
                     <Text k="blueprint.learning.path" />
@@ -149,12 +149,12 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                   </p>
                 )}
                 {c.raster.status === 'unavailable' ? (
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Text k="blueprint.png.unavailable" />
                     {c.raster.reason}
                   </p>
                 ) : c.raster.url.startsWith('https:') ? (
-                  <a className="text-link" href={c.raster.url} target="_blank" rel="noreferrer">
+                  <a className="lt-link" href={c.raster.url} target="_blank" rel="noreferrer">
                     <Text k="blueprint.open.rendered.png" />
                   </a>
                 ) : (
@@ -162,7 +162,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                     <Text k="blueprint.png.url.cannot.be.verified.as.a" />
                   </p>
                 )}
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k="blueprint.share.mode" />
                   {c.shareMode}
                   <Text k="blueprint.card.reads.require.a.signed.viewer.and" />
@@ -196,7 +196,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
               </ul>
             )}
           </Read>
-          <p className="muted">{label('mentorLimit')}</p>
+          <p className="lt-muted">{label('mentorLimit')}</p>
         </Panel>
         <Panel title={copyText('blueprint.your.data')}>
           <Button
@@ -251,7 +251,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
         </Panel>
       </div>
       <Panel title={copyText('blueprint.guided.blueprint.session')}>
-        <p className="muted" id="blueprint-session-reason">
+        <p className="lt-muted" id="blueprint-session-reason">
           {label('unavailable')}
         </p>
         <form onSubmit={(e) => e.preventDefault()} aria-describedby="blueprint-session-reason">

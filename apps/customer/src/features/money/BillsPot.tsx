@@ -17,7 +17,7 @@ export function BillsPotState({ space }: { space: Space }) {
     <div className="money-selected-bills" data-testid="bills-pot" data-state={pot ? (pot.fallback ? 'fallback' : 'bills') : 'none'}>
       <dt>{t('title')}</dt>
       <dd>{pot ? t('isBills') : t('notBills')}</dd>
-      {pot && <dd className="money-caption">{t(pot.fallback ? 'fallbackOn' : 'fallbackOff')}</dd>}
+      {pot && <dd className="lt-muted">{t(pot.fallback ? 'fallbackOn' : 'fallbackOff')}</dd>}
     </div>
   );
 }

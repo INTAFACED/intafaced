@@ -24,7 +24,7 @@ export function OnboardingBanner() {
           reviews: String(now.openReviews),
         })}
       </p>
-      <a className="button button--primary" href="/bank/account">
+      <a className="lt-button lt-button-primary" href="/bank/account">
         {t('bannerOpen')}
       </a>
     </section>

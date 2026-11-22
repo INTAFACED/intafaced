@@ -88,7 +88,7 @@ export function BridgeRoutes({ api, t }: { api: ApiClient; t: Translate }) {
         <Button disabled={blocked !== undefined || starting} title={blocked} onClick={() => setStarting(true)}>
           {t('startTransfer')}
         </Button>
-        {blocked !== undefined && <p className="muted">{blocked}</p>}
+        {blocked !== undefined && <p className="lt-muted">{blocked}</p>}
         {starting && account && list.length > 0 && <TransferForm api={api} t={t} routes={list} account={account} />}
       </Panel>
       <Panel title={t('bridgeTransfers')}>
@@ -150,7 +150,7 @@ function TransferForm({ api, t, routes, account }: { api: ApiClient; t: Translat
     options: Array<{ value: string | number; label: string }>,
     set: (v: string) => void,
   ) => (
-    <label className="field">
+    <label className="lt-field">
       <span id={`${ids}-${label}`}>{label}</span>
       <select aria-labelledby={`${ids}-${label}`} value={String(value)} onChange={(event) => set(event.target.value)}>
         {options.map((o) => (
@@ -199,7 +199,7 @@ function TransferForm({ api, t, routes, account }: { api: ApiClient; t: Translat
         autoComplete="off"
         onChange={(event) => setAmount(event.target.value)}
       />
-      <p className="muted">{t('bridgeLead')}</p>
+      <p className="lt-muted">{t('bridgeLead')}</p>
       <Button type="submit" disabled={busy || amount.trim() === '' || token === ''}>
         {t('bridgeReview')}
       </Button>
@@ -320,13 +320,13 @@ function TransfersTable({
           <tr key={row.id} data-state={row.state}>
             <td>{row.from.name}</td>
             <td>{row.to.name}</td>
-            <td className="numeric">
+            <td className="lt-num">
               {row.amount} {row.token}
             </td>
             <td>
               <p>{t(STATE_KEY[row.state])}</p>
               {row.burnTx && (
-                <p className="muted numeric">
+                <p className="lt-muted lt-num">
                   {t('bridgeBurnTx')} <code>{row.burnTx}</code>
                 </p>
               )}

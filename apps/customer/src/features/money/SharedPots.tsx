@@ -77,7 +77,7 @@ export function SharedPots({ spaces, open }: { spaces: Space[]; open: (spec: Act
         }
       >
         {pots.length === 0 && (
-          <p id="shared-pots-why" className="money-caption">
+          <p id="shared-pots-why" className="lt-muted">
             {t('noPots')}
           </p>
         )}
@@ -127,17 +127,11 @@ const freezeSpec = (
 function Terms({ terms }: { terms: SharedPots['terms'] }) {
   const { t } = sharedPotsCopy.useCopy();
   return terms.inviteMinutes === null || terms.peopleCap === null ? (
-    <p className="money-caption" data-testid="shared-pots-terms" data-state="unset">
+    <p className="lt-muted" data-testid="shared-pots-terms" data-state="unset">
       {t('termsUnset')}
     </p>
   ) : (
-    <p
-      className="money-caption"
-      data-testid="shared-pots-terms"
-      data-state="set"
-      data-minutes={terms.inviteMinutes}
-      data-cap={terms.peopleCap}
-    >
+    <p className="lt-muted" data-testid="shared-pots-terms" data-state="set" data-minutes={terms.inviteMinutes} data-cap={terms.peopleCap}>
       {t('terms', { minutes: terms.inviteMinutes, cap: terms.peopleCap })}
     </p>
   );
@@ -156,7 +150,7 @@ function Invites({ invites, open, name, roleName }: { invites: SharedPots['invit
               {t('invite', { owner: name(invite.owner), pot: invite.pot.name, asset: invite.pot.assetId, role: roleName(invite.role) })}{' '}
               {invite.expired ? t('endedAt', { time: date(invite.expiresAt) }) : t('openUntil', { time: date(invite.expiresAt) })}
             </p>
-            <div className="actions">
+            <div className="lt-actions">
               <Button
                 variant="secondary"
                 onClick={() =>
@@ -240,11 +234,11 @@ function SharedWithMe({
                 <h4 lang="und" dir="auto">
                   {row.pot.name}
                 </h4>
-                <p className="money-caption">
+                <p className="lt-muted">
                   {t('owner')}: {name(row.owner)} · {t('yourRole')}: {roleName(row.role)}
                 </p>
               </div>
-              <strong className="numeric" data-testid="shared-pot-balance" data-amount={row.pot.balance}>
+              <strong className="lt-num" data-testid="shared-pot-balance" data-amount={row.pot.balance}>
                 {funds(row.pot.balance, row.pot.assetId)}
               </strong>
             </header>
@@ -254,7 +248,7 @@ function SharedWithMe({
                 <>
                   <CardLine card={row.card} />
                   {row.card.status === 'frozen' ? (
-                    <p className="money-caption">
+                    <p className="lt-muted">
                       {row.card.frozenBy === 'operator' ? t('frozenByBank') : t('frozenNote', { owner: name(row.owner) })}
                     </p>
                   ) : (
@@ -269,11 +263,11 @@ function SharedWithMe({
                   )}
                 </>
               ) : (
-                <p className="money-caption">{t('noCardShared')}</p>
+                <p className="lt-muted">{t('noCardShared')}</p>
               )}
             </div>
-            {!account && <p className="money-caption">{t('noAccount', { asset: row.pot.assetId })}</p>}
-            <div className="actions">
+            {!account && <p className="lt-muted">{t('noAccount', { asset: row.pot.assetId })}</p>}
+            <div className="lt-actions">
               <Button variant="secondary" onClick={add} disabled={!account}>
                 {t('addMoney')}
               </Button>
@@ -364,13 +358,13 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
             {row.card ? (
               <>
                 <CardLine card={row.card} />
-                <div className="actions">
+                <div className="lt-actions">
                   {row.card.status === 'active' && (
                     <Button variant="secondary" onClick={() => open(freezeSpec(t, row.pot, row.card!, t('freezeOwnNote')))}>
                       {t('freezeCard')}
                     </Button>
                   )}
-                  {row.card.status === 'frozen' && row.card.frozenBy === 'operator' && <p className="money-caption">{t('frozenByBank')}</p>}
+                  {row.card.status === 'frozen' && row.card.frozenBy === 'operator' && <p className="lt-muted">{t('frozenByBank')}</p>}
                   {row.card.status === 'frozen' && row.card.frozenBy !== 'operator' && (
                     <Button
                       variant="secondary"
@@ -407,8 +401,8 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
               </>
             ) : (
               <>
-                <p className="money-caption">{t('noCard')}</p>
-                {cards.resource.status === 'ready' && linkable.length === 0 && <p className="money-caption">{t('noCards')}</p>}
+                <p className="lt-muted">{t('noCard')}</p>
+                {cards.resource.status === 'ready' && linkable.length === 0 && <p className="lt-muted">{t('noCards')}</p>}
                 <Button
                   variant="secondary"
                   disabled={linkable.length === 0}
@@ -445,7 +439,7 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
 function People({ members, name, roleName }: { members: SharedPots['shared'][number]['members'] } & Named) {
   const { t } = sharedPotsCopy.useCopy();
   return (
-    <p className="money-caption">
+    <p className="lt-muted">
       {t('people')}: {members.map((member) => t('member', { person: name(member), role: roleName(member.role) })).join('; ')}
     </p>
   );

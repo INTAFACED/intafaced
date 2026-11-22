@@ -45,7 +45,7 @@ function Counts({ programme }: { programme: AcademyProgramme }) {
   const { Copy } = copy.useCopy();
   if (programme.courses.length === 0)
     return (
-      <p className="muted" data-testid="programme-empty">
+      <p className="lt-muted" data-testid="programme-empty">
         <Copy k="programmeEmpty" />
       </p>
     );
@@ -62,8 +62,8 @@ export function AcademyCourseProgrammes() {
   const list = useProgrammes(PROGRAMMES_PAGE);
   return (
     <Panel title={t('programmeListTitle')}>
-      <div className="academy-lms-stack" data-programmes="list">
-        <p className="muted">
+      <div className="lt-stack" data-programmes="list">
+        <p className="lt-muted">
           <Copy k="programmeListIntro" />
         </p>
         {list.resource.status === 'loading' && <Loading />}
@@ -79,7 +79,7 @@ export function AcademyCourseProgrammes() {
                 <article key={programme.slug} className="academy-lms-card" data-programme={programme.slug}>
                   <h3 lang="und">{programme.title}</h3>
                   {programme.summary && (
-                    <p className="muted" lang="und">
+                    <p className="lt-muted" lang="und">
                       {programme.summary}
                     </p>
                   )}
@@ -103,18 +103,18 @@ export function AcademyProgrammePage({ slug }: { slug: string }) {
   const { t, Copy } = copy.useCopy();
   const answer = useResource((signal) => api.call(ACADEMY_PROGRAMME, { slug }, { signal }), `programme:${userId}:${slug}`);
   return (
-    <div className="academy-lms-stack">
-      <a className="text-link" href="/academy/programmes">
+    <div className="lt-stack">
+      <a className="lt-link" href="/academy/programmes">
         <Copy k="programmeAll" />
       </a>
       {answer.resource.status === 'loading' && <Loading />}
       {answer.resource.status === 'failed' && <AcademyRefusal failure={answer.resource.failure} retry={answer.reload} />}
       {answer.resource.status === 'ready' && (
-        <div className="academy-lms-stack" data-programme-page={answer.resource.data.slug}>
+        <div className="lt-stack" data-programme-page={answer.resource.data.slug}>
           <Panel title={<span lang="und">{answer.resource.data.title}</span>}>
-            <div className="academy-lms-stack">
+            <div className="lt-stack">
               {answer.resource.data.summary && (
-                <p className="muted" lang="und">
+                <p className="lt-muted" lang="und">
                   {answer.resource.data.summary}
                 </p>
               )}
@@ -161,7 +161,7 @@ function ProgrammeCertificate({ programme }: { programme: AcademyProgramme }) {
   const cert = programme.certificate;
   return (
     <Panel title={t('programmeCertTitle')}>
-      <div className="academy-lms-stack" data-testid="programme-certificate" data-state={cert.state}>
+      <div className="lt-stack" data-testid="programme-certificate" data-state={cert.state}>
         {cert.state === 'earned' ? (
           <>
             <p role="status">
@@ -202,14 +202,14 @@ export function ProgrammeCertificates() {
   if (any.resource.status !== 'ready' || mine.resource.status !== 'ready') return null;
   if (any.resource.data.length === 0)
     return (
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="programmesNone" />
       </p>
     );
   const started = mine.resource.data;
   if (started.length === 0)
     return (
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="programmesStartedNone" />
       </p>
     );

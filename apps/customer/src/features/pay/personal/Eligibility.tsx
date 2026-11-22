@@ -40,7 +40,7 @@ export function StaySafe() {
   return (
     <section className="p2p-stay-safe" aria-label={t('safeTitle')} data-testid="p2p-stay-safe">
       <h4>{t('safeTitle')}</h4>
-      <p className="muted">{t('safeIntro')}</p>
+      <p className="lt-muted">{t('safeIntro')}</p>
       <ul className="p2p-risk-points">
         <li>{t('safeRole')}</li>
         <li>{t('safeOutside')}</li>
@@ -82,9 +82,9 @@ export function P2PEligibilityPanel({ pay, userId, compact = false }: { pay: Per
                         status={check.state === 'met' ? 'filled' : check.state === 'not_met' ? 'failed' : 'pending'}
                         label={t(`state_${check.state}` as const)}
                       />
-                      <p className="muted">{eligibilityReason(t, check)}</p>
+                      <p className="lt-muted">{eligibilityReason(t, check)}</p>
                       {check.state === 'not_met' && check.fix ? (
-                        <a className="text-link" href={check.fix}>
+                        <a className="lt-link" href={check.fix}>
                           {check.id === 'verification' ? t('fix_verification') : t('fix_contact')}
                         </a>
                       ) : null}

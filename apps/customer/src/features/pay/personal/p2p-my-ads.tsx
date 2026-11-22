@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { CLOSED_OFFERS_SHOWN, type PersonalPayApi } from '../pay-api';
@@ -41,16 +41,16 @@ function EditQuota({ pay, userId, revision }: { pay: PersonalPayApi; userId: str
   const quota = useResource((signal) => pay.offerEditQuota(signal), `pay:offer-edit-quota:${userId}:${revision}`);
   const resource = quota.resource;
   return (
-    <section className="stack" aria-label={t('editsTitle')} data-testid="edit-quota">
+    <section className="lt-stack" aria-label={t('editsTitle')} data-testid="edit-quota">
       <h3>
         <Copy k="editsTitle" />
       </h3>
       {resource.status === 'ready' ? (
-        <p className="muted" data-remaining={resource.data.remaining}>
+        <p className="lt-muted" data-remaining={resource.data.remaining}>
           <EditsLine quota={resource.data} />
         </p>
       ) : resource.status === 'failed' && resource.failure.code === 'p2p.config_unset' ? (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="editsUnset" />
         </p>
       ) : (
@@ -93,7 +93,7 @@ function ClosedOffers({
   const { Copy, t } = myAdsCopy.useCopy();
   const closed = useResource((signal) => pay.closedOffers(signal), `pay:closed-offers:${userId}:${revision}`);
   return (
-    <section className="stack" aria-label={t('closedTitle')} data-testid="closed-offers">
+    <section className="lt-stack" aria-label={t('closedTitle')} data-testid="closed-offers">
       <h3>
         <Copy k="closedTitle" />
       </h3>
@@ -101,7 +101,7 @@ function ClosedOffers({
         {(offers) => (
           <>
             {offers.length >= CLOSED_OFFERS_SHOWN ? (
-              <p className="muted">{t('closedMore', { count: String(CLOSED_OFFERS_SHOWN) })}</p>
+              <p className="lt-muted">{t('closedMore', { count: String(CLOSED_OFFERS_SHOWN) })}</p>
             ) : null}
             <ul className="p2p-offer-list">
               {offers.map((offer) => (
@@ -150,23 +150,23 @@ function ClosedOffer({
         <strong>{side(offer)}</strong>
         <Status value={offer.status} />
       </div>
-      <p className="muted" data-testid="close-reason">
+      <p className="lt-muted" data-testid="close-reason">
         <Copy k={offer.closeReason === 'by_you' ? 'closedByYou' : offer.closeReason === 'sold_out' ? 'closedSoldOut' : 'closedPlain'} />
       </p>
       <StateSince offer={offer} />
       {relistedAs ? (
         <p role="status" data-testid="relisted" data-new-offer-id={relistedAs}>
           <Copy k="relisted" />{' '}
-          <Button variant="secondary" onClick={(event) => choose(relistedAs, event.currentTarget)}>
+          <Button tone="secondary" onClick={(event) => choose(relistedAs, event.currentTarget)}>
             <Copy k="openRelisted" />
           </Button>
         </p>
       ) : (
-        <div className="actions">
-          <p className="muted">
+        <div className="lt-actions">
+          <p className="lt-muted">
             <Copy k="relistBody" />
           </p>
-          <Button variant="secondary" disabled={busy} onClick={() => void relist()}>
+          <Button tone="secondary" disabled={busy} onClick={() => void relist()}>
             <Copy k={busy ? 'relisting' : 'relist'} />
           </Button>
         </div>
@@ -181,7 +181,7 @@ export function StateSince({ offer }: { offer: Offer }) {
   const { Copy } = myAdsCopy.useCopy();
   if (!offer.statusSince) return null;
   return (
-    <p className="muted" data-testid="state-since">
+    <p className="lt-muted" data-testid="state-since">
       <Copy k={offer.status === 'active' ? 'listedSince' : offer.status === 'paused' ? 'pausedSince' : 'closedSince'} />{' '}
       <PayTime value={offer.statusSince} />
     </p>

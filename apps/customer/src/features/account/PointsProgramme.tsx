@@ -51,7 +51,7 @@ export function PromotionPoints() {
           <EmptyState
             title={t('signIn')}
             action={
-              <a className="text-link" href="/login?redirect=%2Fuc%2Fpromotion%2Fpoints">
+              <a className="lt-link" href="/login?redirect=%2Fuc%2Fpromotion%2Fpoints">
                 <Copy k="signIn" />
               </a>
             }
@@ -81,7 +81,7 @@ export function PointsProgramme() {
     <Refusals.Provider value={{ of: refusals, set }}>
       <section className="points-programme" aria-label={t('title')} data-testid="points-programme" data-state={r.status}>
         <Panel title={t('title')}>
-          <p className="muted">{t('intro')}</p>
+          <p className="lt-muted">{t('intro')}</p>
           {r.status === 'loading' ? (
             <Loading label={t('loading')} />
           ) : r.status === 'failed' ? (
@@ -130,7 +130,7 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
             </div>
           ))}
         </dl>
-        {data.wallet.available === null && <p className="muted">{t('notKeptNote')}</p>}
+        {data.wallet.available === null && <p className="lt-muted">{t('notKeptNote')}</p>}
       </section>
 
       <section aria-label={t('membersTitle')} data-testid="points-members">
@@ -141,7 +141,7 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
             <dd data-testid="points-members-count">{shown(data.members.count, t('notKept'))}</dd>
           </div>
         </dl>
-        {data.members.count === null && <p className="muted">{t('membersNote')}</p>}
+        {data.members.count === null && <p className="lt-muted">{t('membersNote')}</p>}
       </section>
 
       <section aria-label={t('lifecycleTitle')} data-testid="points-lifecycle">
@@ -153,14 +153,14 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
             </li>
           ))}
         </ol>
-        <p className="muted" data-testid="points-lifecycle-current">
+        <p className="lt-muted" data-testid="points-lifecycle-current">
           {data.lifecycle.current ? `${t('stageCurrent')}: ${t(`stage_${data.lifecycle.current}`)}` : t('lifecycleNone')}
         </p>
       </section>
 
       <section aria-label={t('expiryTitle')} data-testid="points-expiry">
         <h3>{t('expiryTitle')}</h3>
-        <p className="muted">{t('expiryIntro')}</p>
+        <p className="lt-muted">{t('expiryIntro')}</p>
         <dl>
           <div>
             <dt>{t('expiryCurrent')}</dt>
@@ -199,7 +199,7 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
 
       <section aria-label={t('catalogueTitle')} data-testid="points-catalogue">
         <h3>{t('catalogueTitle')}</h3>
-        <p className="muted">{t('catalogueIntro')}</p>
+        <p className="lt-muted">{t('catalogueIntro')}</p>
         <DataTable label={t('catalogueLabel')} headers={[t('colBenefit'), t('colPrice'), t('colStock'), t('colLimit'), t('colAction')]}>
           {data.catalogue.map((item) => (
             <CatalogueRow key={item.id} item={item} question={question} reread={reread} t={t} />
@@ -209,7 +209,7 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
 
       <section aria-label={t('convertTitle')} data-testid="points-convert">
         <h3>{t('convertTitle')}</h3>
-        <p className="muted">{t('convertIntro')}</p>
+        <p className="lt-muted">{t('convertIntro')}</p>
         <dl>
           <div>
             <dt>{t('convertRate')}</dt>
@@ -301,7 +301,7 @@ function Press({
       </Button>
       {refused ? (
         refused.code === 'owner.decision' ? (
-          <div role="status" className="muted" data-testid={testId} data-code={refused.code}>
+          <div role="status" className="lt-muted" data-testid={testId} data-code={refused.code}>
             <strong>{t('refusedTitle')}</strong> <span>{question ?? POINTS_OWNER_QUESTION}</span> <span>{t('refusedNothing')}</span>{' '}
             <span lang="zxx">{t('refusedCode', { code: refused.code })}</span>
           </div>

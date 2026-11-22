@@ -120,7 +120,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                         <Text k="academyrooms.starts" />
                         {s.startsAt}
                       </p>
-                      <div className="actions">
+                      <div className="lt-actions">
                         <Button
                           disabled={action.disabled || s.status !== 'live'}
                           onClick={() =>
@@ -222,7 +222,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                           </>
                         )}
                       </div>
-                      <p className="muted">
+                      <p className="lt-muted">
                         {s.streamProvider === 'livekit'
                           ? copyText('academyrooms.audio.video.uses.the.service.granted.livekit')
                           : s.streamProvider
@@ -348,7 +348,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
         {sceneId && <Scene id={sceneId} action={action} />}
       </div>
       <Panel title={copyText('academyrooms.host.a.room')}>
-        <p className="muted">
+        <p className="lt-muted">
           <Text k="academyrooms.hosting.rights.come.from.your.identity.rank" />
         </p>
         <form
@@ -467,7 +467,7 @@ function Scene({ id, action }: { id: string; action: ActionControls }) {
             </svg>
             {d.session.hostId === userId && (
               <>
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k="academyrooms.choose.a.location.or.use.the.coordinates" />
                 </p>
                 <Field
@@ -522,7 +522,7 @@ function Scene({ id, action }: { id: string; action: ActionControls }) {
                 </Button>
               </>
             )}
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="academyrooms.this.is.the.published.2d.scene.a" />
             </p>
           </>

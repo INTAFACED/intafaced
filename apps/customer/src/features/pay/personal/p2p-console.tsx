@@ -31,7 +31,7 @@ export function MerchantPresence({ pay, userId, onChanged }: { pay: PersonalPayA
   const [revision, setRevision] = useState(0);
   const presence = useResource((signal) => pay.presence(signal), `pay:presence:${userId}:${revision}`);
   return (
-    <section className="stack" aria-label={t('presenceTitle')} data-testid="merchant-presence">
+    <section className="lt-stack" aria-label={t('presenceTitle')} data-testid="merchant-presence">
       <h3>
         <Copy k="presenceTitle" />
       </h3>
@@ -73,7 +73,7 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
   const change = (index: number, patch: Partial<PresenceWindow>) =>
     setWindows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   return (
-    <div className="form-stack">
+    <div className="lt-stack">
       <p data-testid="presence-state" data-on-board={current.onBoard ? 'true' : 'false'}>
         <Copy k={current.onBoard ? 'presenceOnBoard' : 'presenceOffBoard'} />
         {current.nextChangeAt ? (
@@ -85,8 +85,8 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
           </>
         ) : null}
       </p>
-      <fieldset className="form-stack">
-        <legend className="muted">
+      <fieldset className="lt-stack">
+        <legend className="lt-muted">
           <Copy k="presenceHint" />
         </legend>
         {(['online', 'offline', 'scheduled'] as const).map((value) => (
@@ -97,12 +97,12 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
         ))}
       </fieldset>
       {mode === 'scheduled' ? (
-        <div className="form-stack" data-testid="presence-schedule">
+        <div className="lt-stack" data-testid="presence-schedule">
           <label>
             <Copy k="presenceZone" /> <input value={timezone} onChange={(event) => setTimezone(event.target.value)} />
           </label>
           {windows.map((row, index) => (
-            <div className="actions" key={index} data-testid="presence-window">
+            <div className="lt-actions" key={index} data-testid="presence-window">
               <label>
                 <Copy k="presenceDay" />{' '}
                 <select value={row.day} onChange={(event) => change(index, { day: Number(event.target.value) })}>
@@ -137,14 +137,14 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
       ) : null}
       {failure ? (
         failure.code === 'p2p.schedule_invalid' ? (
-          <p className="failure" role="alert" data-testid="failure">
+          <p className="lt-refusal" role="alert" data-testid="failure">
             <Copy k="presenceInvalid" />
           </p>
         ) : (
           <PayFailure result={failure} />
         )
       ) : null}
-      <div className="actions">
+      <div className="lt-actions">
         <Button variant="primary" disabled={busy} onClick={() => void save()}>
           <Copy k={busy ? 'presenceSaving' : 'presenceSave'} />
         </Button>
@@ -164,18 +164,18 @@ export function MerchantTodos({ pay, userId }: { pay: PersonalPayApi; userId: st
   const { Copy, t } = consoleCopy.useCopy();
   const todos = useResource((signal) => pay.todos(signal), `pay:todos:${userId}`);
   return (
-    <section className="stack" aria-label={t('todoTitle')} data-testid="merchant-todos">
+    <section className="lt-stack" aria-label={t('todoTitle')} data-testid="merchant-todos">
       <h3>
         <Copy k="todoTitle" />
       </h3>
       <PayState resource={todos.resource} retry={todos.reload}>
         {(items) =>
           items.length === 0 ? (
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="todoNone" />
             </p>
           ) : (
-            <ol className="stack">
+            <ol className="lt-stack">
               {items.map((item) => (
                 <TodoRow key={item.tradeId} item={item} />
               ))}
@@ -202,7 +202,7 @@ function TodoRow({ item }: { item: TodoItem }) {
       ) : (
         <Copy k="todoNoDeadline" />
       )}{' '}
-      <a className="text-link" href={item.link}>
+      <a className="lt-link" href={item.link}>
         <Copy k="todoOpen" />
       </a>
     </li>
@@ -258,19 +258,19 @@ export function BulkAds({
     onChanged();
   };
   return (
-    <section className="stack" aria-label={t('bulkTitle')} data-testid="bulk-ads">
+    <section className="lt-stack" aria-label={t('bulkTitle')} data-testid="bulk-ads">
       <h3>
         <Copy k="bulkTitle" />
       </h3>
       <PayState resource={active.resource} retry={active.reload}>
         {() =>
           ads.length === 0 ? (
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="bulkNone" />
             </p>
           ) : (
-            <fieldset className="form-stack">
-              <legend className="muted">
+            <fieldset className="lt-stack">
+              <legend className="lt-muted">
                 <Copy k="bulkPick" />
               </legend>
               {ads.map((ad) => (
@@ -288,11 +288,11 @@ export function BulkAds({
         }
       </PayState>
       {picked.length > MAX_BULK ? (
-        <p className="muted" data-testid="bulk-too-many">
+        <p className="lt-muted" data-testid="bulk-too-many">
           {t('bulkTooMany', { max: String(MAX_BULK) })}
         </p>
       ) : null}
-      <div className="actions">
+      <div className="lt-actions">
         {(['pause', 'resume', 'remove'] as const).map((action) => (
           <Button
             key={action}
@@ -310,7 +310,7 @@ export function BulkAds({
       </div>
       {asking ? (
         <Dialog closeLabel={uiCopy.t('closeDialog')} title={t('bulkConfirmTitle')} onClose={() => (busy ? undefined : setAsking(null))}>
-          <div className="form-stack" data-testid="bulk-confirm">
+          <div className="lt-stack" data-testid="bulk-confirm">
             <p>
               <Copy k={asking === 'pause' ? 'bulkConfirmPause' : asking === 'resume' ? 'bulkConfirmResume' : 'bulkConfirmRemove'} />
             </p>
@@ -322,7 +322,7 @@ export function BulkAds({
               ))}
             </ul>
             {failure ? <PayFailure result={failure} /> : null}
-            <div className="actions">
+            <div className="lt-actions">
               <Button variant="ghost" disabled={busy} onClick={() => setAsking(null)}>
                 <Copy k="bulkCancel" />
               </Button>
@@ -334,7 +334,7 @@ export function BulkAds({
         </Dialog>
       ) : null}
       {outcome ? (
-        <div className="stack" role="status" data-testid="bulk-result">
+        <div className="lt-stack" role="status" data-testid="bulk-result">
           <p>
             <Copy k="bulkDone" />
           </p>

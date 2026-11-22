@@ -72,7 +72,7 @@ function MoreRooms({ path }: { path: string }) {
         <EmptyState title={copyText('moreroutes.this.destination.has.no.customer.route')}>
           <Text k="moreroutes.use.a.published.more.room.to.continue" />
         </EmptyState>
-        <a className="text-link" href="/more">
+        <a className="lt-link" href="/more">
           <Text k="moreroutes.open.more" />
         </a>
       </Panel>
@@ -219,7 +219,7 @@ function MoreRooms({ path }: { path: string }) {
             <EmptyState title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
               {moreRoomRoutesCopy.t(hit.invalid ? 'badIdBody' : 'detailBody')}
             </EmptyState>
-            <a className="text-link" href={preservePaperHref(page.href, paper)}>
+            <a className="lt-link" href={preservePaperHref(page.href, paper)}>
               {moreRoomRoutesCopy.t('open')}
             </a>
           </Panel>

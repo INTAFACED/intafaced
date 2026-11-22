@@ -63,14 +63,14 @@ function Refusal({ result }: { result: Failed }) {
   const code = codeOf(result.code);
   if (code) {
     return (
-      <p role="status" className="muted" data-testid="voucher-refusal" data-code={code}>
+      <p role="status" className="lt-muted" data-testid="voucher-refusal" data-code={code}>
         {t(code)}
       </p>
     );
   }
   if (result.reason === 'unreachable' || result.reason === 'uncertain' || result.reason === 'aborted') {
     return (
-      <p role="status" className="muted" data-testid="voucher-lost">
+      <p role="status" className="lt-muted" data-testid="voucher-lost">
         {t('lost')}
       </p>
     );
@@ -125,7 +125,7 @@ export function MyVouchers() {
             {busy === 'claim' ? t('claiming') : t('claim')}
           </Button>
         </div>
-        <p className="muted">{t('formNote')}</p>
+        <p className="lt-muted">{t('formNote')}</p>
       </form>
       {checked ? (
         <p role="status" data-testid="voucher-validation">
@@ -187,7 +187,7 @@ export function MyVouchers() {
           </DataTable>
         )}
       </div>
-      <p className="muted">{t('redeemNote')}</p>
+      <p className="lt-muted">{t('redeemNote')}</p>
     </Panel>
   );
 }
@@ -319,7 +319,7 @@ function VoucherRow({
                       {t('paidTo', { wallet: r.reward.payout.toWallet })}
                     </span>{' '}
                     <a
-                      className="text-link"
+                      className="lt-link"
                       data-testid="voucher-chain-tx"
                       data-tx={r.reward.payout.chainTx}
                       href={`/chain/tx/${encodeURIComponent(r.reward.payout.chainTx)}`}

@@ -182,7 +182,7 @@ export function GridSettings({ bot, api }: { bot: GridBot; api: ReturnType<typeo
         <Input value={minCount} onValueChange={setMinCount} disabled={busy} />
       </Field>
       <p className="cb-note-body">{t('This grid has {count} grids.', { count: String(bot.gridCount) })}</p>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button disabled={busy} onClick={() => void save()}>
           {t('Save')}
         </Button>
@@ -243,7 +243,7 @@ export function GridExits({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
         <Input value={t('Not set')} onValueChange={() => {}} disabled />
       </Field>
       <InfoNote>{t('No RSI source is connected, so an RSI exit can’t be saved.')}</InfoNote>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button disabled={busy} onClick={() => void save()}>
           {t('Save exits')}
         </Button>

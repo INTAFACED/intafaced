@@ -104,7 +104,7 @@ function Status({ item }: { item: CalendarItem }) {
       {item.reasonCode && (
         <>
           {' '}
-          <small className="muted">
+          <small className="lt-muted">
             {reasonOf(t, item.reasonCode)} {t('reference', { code: item.reasonCode })}
           </small>
         </>
@@ -116,7 +116,7 @@ function Status({ item }: { item: CalendarItem }) {
 function ItemLink({ item, children }: { item: CalendarItem; children: ReactNode }) {
   const room = roomOf(item);
   return room ? (
-    <a className="text-link" href={room} data-testid={`cal-open-${item.key}`}>
+    <a className="lt-link" href={room} data-testid={`cal-open-${item.key}`}>
       {children}
     </a>
   ) : (
@@ -157,7 +157,7 @@ export function MonthGrid({ month, items, zone }: { month: string; items: readon
               {(byDay.get(day) ?? []).map((item) => (
                 <div key={item.key} className="bd-cal__item" data-status={item.status} data-source={item.source}>
                   <ItemLink item={item}>{what(t, item)}</ItemLink>
-                  <span className="money-caption">
+                  <span className="lt-muted">
                     {item.amount ? amount(item.amount, item.assetId) : null} · {t(`status_${item.status}`)}
                   </span>
                 </div>
@@ -210,7 +210,7 @@ export function ItemList({ items }: { items: readonly CalendarItem[] }) {
 export function Sources({ view, items = view.items }: { view: CalendarView; items?: readonly CalendarItem[] }) {
   const { t } = calendarCopy.useCopy();
   return (
-    <ul className="bd-stack" data-testid="cal-sources">
+    <ul className="lt-stack" data-testid="cal-sources">
       {view.sources.map((s) => {
         const name = t(`source_${s.source}`);
         const count = items.filter((i) => i.source === s.source).length;
@@ -224,7 +224,7 @@ export function Sources({ view, items = view.items }: { view: CalendarView; item
           words = `${words} ${t('sourcePartial', { limit: String(PAGE) })}`;
         return (
           <li key={s.source} data-testid={`cal-source-${s.source}`} data-state={s.state} role={s.state === 'ok' ? undefined : 'note'}>
-            {words} {s.code && <small className="muted">{t('reference', { code: s.code })}</small>}
+            {words} {s.code && <small className="lt-muted">{t('reference', { code: s.code })}</small>}
           </li>
         );
       })}
@@ -247,9 +247,9 @@ export function MoneyCalendar({ now = new Date() }: { now?: Date }) {
       return next;
     });
   return (
-    <div className="bd-stack">
+    <div className="lt-stack">
       <p role="note">{t('readOnly')}</p>
-      <div className="actions" role="group" aria-label={monthName(month)}>
+      <div className="lt-actions" role="group" aria-label={monthName(month)}>
         <button type="button" className="bd-chip" onClick={() => setMonth((m) => shift(m, -1))}>
           {t('prev')}
         </button>
@@ -266,8 +266,8 @@ export function MoneyCalendar({ now = new Date() }: { now?: Date }) {
           {t('listView')}
         </button>
       </div>
-      <div className="actions" role="group" aria-label={t('filterLabel')}>
-        <span className="money-caption">{t('filterLabel')}</span>
+      <div className="lt-actions" role="group" aria-label={t('filterLabel')}>
+        <span className="lt-muted">{t('filterLabel')}</span>
         {calendarSources
           .filter((s) => s !== 'loans')
           .map((source) => (
@@ -305,7 +305,7 @@ export function MoneyCalendar({ now = new Date() }: { now?: Date }) {
         </>
       )}
       <p>
-        <a className="text-link" href="/bank/transfers">
+        <a className="lt-link" href="/bank/transfers">
           {t('back')}
         </a>
       </p>

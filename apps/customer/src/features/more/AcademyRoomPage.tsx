@@ -48,10 +48,10 @@ export function RoomPinnedLessons({
             <li key={lesson.slug} className="more-room-link" data-room-pinned-lesson={lesson.slug}>
               <strong>{lesson.title}</strong>
               <p>{lesson.summary}</p>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="pinnedMinutes" params={{ minutes: lesson.estimatedMinutes }} />
               </p>
-              <div className="actions">
+              <div className="lt-actions">
                 <a href={lessonHref(lesson.slug, '')} aria-label={`${t('openLesson')}: ${lesson.title}`}>
                   <Copy k="openLesson" />
                 </a>

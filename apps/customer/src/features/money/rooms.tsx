@@ -134,7 +134,7 @@ function BankPage({
       description={description}
       actions={
         room !== 'Ramps' ? (
-          <a className="button button--secondary" href="/bank">
+          <a className="lt-button lt-button-secondary" href="/bank">
             <Text k="rooms.bank.overview" />
           </a>
         ) : undefined
@@ -157,8 +157,8 @@ function spaceName(space: Space) {
 }
 function SpaceActions({ space, open }: { space: Space; open: (spec: ActionSpec) => void }) {
   return (
-    <div className="actions">
-      <a className="button button--secondary" href={`/bank/transfers?from=${encodeURIComponent(space.id)}`}>
+    <div className="lt-actions">
+      <a className="lt-button lt-button-secondary" href={`/bank/transfers?from=${encodeURIComponent(space.id)}`}>
         <Text k="rooms.transfer" />
       </a>
       <SpaceLockActions space={space} open={open} />
@@ -254,7 +254,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
         }
       >
         {heldAssets.length === 0 && held.resource.status === 'ready' && (
-          <p id="spaces-create-why" className="money-caption">
+          <p id="spaces-create-why" className="lt-muted">
             {depthCopy.t('noAssets')}
           </p>
         )}
@@ -277,7 +277,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
                                 : copyText('rooms.named.ledger.subaccount')}
                             </p>
                           </div>
-                          <strong className="numeric">{funds(space.balance, space.assetId)}</strong>
+                          <strong className="lt-num">{funds(space.balance, space.assetId)}</strong>
                         </header>
                         <dl className="detail-list">
                           <div>
@@ -314,7 +314,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
                       <Text k="rooms.create.a.named.space.its.balance.will" />
                     </NoRows>
                   ) : (
-                    <p className="money-caption">
+                    <p className="lt-muted">
                       <spaceCopy.Copy k="noOther" />
                     </p>
                   )}
@@ -338,7 +338,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
               rows.map((row) => (
                 <div data-testid="money-space-row" className="money-space-row" key={row.assetId}>
                   <strong>{row.assetId}</strong>
-                  <span className="numeric">{funds(row.balance, row.assetId)}</span>
+                  <span className="lt-num">{funds(row.balance, row.assetId)}</span>
                 </div>
               ))
             ) : (
@@ -372,7 +372,7 @@ function ScheduleActions({
     if (!disabled && current()) open(spec);
   };
   return (
-    <div className="actions">
+    <div className="lt-actions">
       {' '}
       {row.status !== 'cancelled' && (
         <>
@@ -566,11 +566,11 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                           </span>
                         </p>
                       </div>
-                      <strong className="numeric" lang="zxx" dir="ltr">
+                      <strong className="lt-num" lang="zxx" dir="ltr">
                         {funds(row.amount, row.assetId)}
                       </strong>
                     </header>
-                    <div className="actions">
+                    <div className="lt-actions">
                       <Button
                         variant="secondary"
                         aria-label={t('inspect', { reference: row.id })}
@@ -606,7 +606,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                   if (current()) setLimit(Math.min(200, limit + 50));
                 }}
               />
-              <p className="money-caption">
+              <p className="lt-muted">
                 <Copy k="listWindow" />
               </p>
             </>
@@ -654,12 +654,12 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
             return spaces.length ? (
               <>
                 {context.status === 'invalid' && !fromId && (
-                  <p className="money-caption">
+                  <p className="lt-muted">
                     <spaceCopy.Copy k="fromInvalid" />
                   </p>
                 )}
                 <div className="money-transfer-setup">
-                  <label className="field">
+                  <label className="lt-field">
                     <span id="bank-transfer-source-label">
                       <Text k="rooms.from.your.space" />
                     </span>
@@ -680,7 +680,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         ))}
                     </select>
                   </label>
-                  <label className="field">
+                  <label className="lt-field">
                     <span>
                       <Text k="rooms.destination" />
                     </span>
@@ -692,15 +692,15 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                   {destination === 'user' && (
                     <>
                       <RecipientPicker value={recipient} onChange={setRecipient} />
-                      <p className="money-caption">{depth.t('personNote')}</p>
+                      <p className="lt-muted">{depth.t('personNote')}</p>
                     </>
                   )}
                   {destination === 'space' && (
-                    <p className="money-caption">
+                    <p className="lt-muted">
                       {from && ownSpaces(spaces, from, userId ?? '').length === 0 ? depth.t('noOtherSpace') : depth.t('spaceNote')}
                     </p>
                   )}
-                  <label className="field">
+                  <label className="lt-field">
                     <span>{depth.t('noteField')}</span>
                     <input
                       name="note"
@@ -715,7 +715,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                       {scheduled ? depth.t('messageScheduledReason') : (noteWords ?? depth.t('noteHint'))}
                     </small>
                   </label>
-                  <label className="field">
+                  <label className="lt-field">
                     <span>{depth.t('referenceField')}</span>
                     <input
                       name="reference"
@@ -872,8 +872,8 @@ function AddMoneyRoom() {
 function DirectDebitsLink() {
   const { t } = directDebitsCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/direct-debits">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/direct-debits">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -906,8 +906,8 @@ function RecoveryClaimLink() {
 function CalendarLink() {
   const { t } = calendarCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/calendar">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/calendar">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -918,8 +918,8 @@ function CalendarLink() {
 function RulesLink() {
   const { t } = rulesCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/rules">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/rules">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -974,8 +974,8 @@ function StatementsRoom() {
 function StatementsLink() {
   const { t } = statementCentreCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/statements">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/statements">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -1025,7 +1025,7 @@ function Analytics() {
       )}
       <Section title={copyText('rooms.movement.window')}>
         <div className="money-analytics-form">
-          <label className="field">
+          <label className="lt-field">
             <span>{depth.t('assetPicker')}</span>
             <select value={assetId} onChange={(event) => setChosen(event.target.value)} disabled={assets.length === 0}>
               {assets.length === 0 && <option value="">—</option>}
@@ -1092,23 +1092,23 @@ function Analytics() {
                     <span>
                       <Text k="rooms.inflow" />
                     </span>
-                    <strong className="numeric">{funds(summary.totalInflow, summary.assetId)}</strong>
+                    <strong className="lt-num">{funds(summary.totalInflow, summary.assetId)}</strong>
                   </div>
                   <div>
                     <span>
                       <Text k="rooms.outflow" />
                     </span>
-                    <strong className="numeric">{funds(summary.totalOutflow, summary.assetId)}</strong>
+                    <strong className="lt-num">{funds(summary.totalOutflow, summary.assetId)}</strong>
                   </div>
                   <div>
                     <span>
                       <Text k="rooms.net.movement" />
                     </span>
-                    <strong className="numeric">{funds(summary.net, summary.assetId)}</strong>
+                    <strong className="lt-num">{funds(summary.net, summary.assetId)}</strong>
                   </div>
                 </div>
                 <MovementBars inflow={summary.totalInflow} outflow={summary.totalOutflow} net={summary.net} assetId={summary.assetId} />
-                <p className="money-caption">
+                <p className="lt-muted">
                   {summary.movements}
                   <Text k="rooms.ledger.movements.transfers.between.your.spaces.may" />
                 </p>
@@ -1122,7 +1122,7 @@ function Analytics() {
                         split.outflow.map((row) => (
                           <div data-testid="money-space-row" className="money-space-row" key={row.category}>
                             <span>{row.category === 'deposits' ? copyText('rooms.deposit.outflow') : categoryLabel(row.category)}</span>
-                            <strong className="numeric">{funds(row.amount, summary.assetId)}</strong>
+                            <strong className="lt-num">{funds(row.amount, summary.assetId)}</strong>
                           </div>
                         ))
                       ) : (
@@ -1135,9 +1135,9 @@ function Analytics() {
                       <Section title={copyText('rooms.money.in.deposits')}>
                         <div data-testid="money-space-row" className="money-space-row">
                           <span>{categoryLabel('deposits')}</span>
-                          <strong className="numeric">{funds(split.moneyInDeposits, summary.assetId)}</strong>
+                          <strong className="lt-num">{funds(split.moneyInDeposits, summary.assetId)}</strong>
                         </div>
-                        <p className="money-caption">{copyText(split.exact ? 'rooms.money.in.note' : 'rooms.money.in.inexact')}</p>
+                        <p className="lt-muted">{copyText(split.exact ? 'rooms.money.in.note' : 'rooms.money.in.inexact')}</p>
                       </Section>
                     )}
                   </>
@@ -1192,13 +1192,13 @@ function BankOverview() {
       description={copyText('overview.description')}
       actions={
         <>
-          <a className="button button--primary" href="/bank/spaces">
+          <a className="lt-button lt-button-primary" href="/bank/spaces">
             <Text k="index.create.space" />
           </a>
-          <a className="button button--secondary" href="/bank/transfers">
+          <a className="lt-button lt-button-secondary" href="/bank/transfers">
             <Text k="index.transfer" />
           </a>
-          <a className="button button--secondary" href="/uc/withdraw">
+          <a className="lt-button lt-button-secondary" href="/uc/withdraw">
             <Text k="custody.withdraw" />
           </a>
         </>
@@ -1264,7 +1264,7 @@ function BankOverview() {
                         </small>
                       </span>
                       <span className="money-holding-values">
-                        <strong className="numeric" dir="ltr">
+                        <strong className="lt-num" dir="ltr">
                           <span className="money-quantity-value">
                             {hideBalances ? '••••' : displayAmount(holding.quantity ?? holding.available)}
                           </span>
@@ -1280,7 +1280,7 @@ function BankOverview() {
                             <dt>
                               <Text k="index.available" />
                             </dt>
-                            <dd className="numeric" dir="ltr">
+                            <dd className="lt-num" dir="ltr">
                               {hideBalances ? '••••' : amount(holding.available, holding.assetId)}
                             </dd>
                           </div>
@@ -1288,7 +1288,7 @@ function BankOverview() {
                             <dt>
                               <Text k="index.held.restricted" />
                             </dt>
-                            <dd className="numeric" dir="ltr">
+                            <dd className="lt-num" dir="ltr">
                               {hideBalances ? '••••' : amount(holding.held, holding.assetId)}
                             </dd>
                           </div>
@@ -1321,7 +1321,7 @@ function BankOverview() {
                       <section className="money-spaces-total" aria-label={copyText('index.spaces.heading')}>
                         {totals.map((row) => (
                           <p key={row.assetId}>
-                            <span className="numeric" dir="ltr">
+                            <span className="lt-num" dir="ltr">
                               {hideBalances
                                 ? `•••• ${row.assetId}`
                                 : copyText(row.total === null ? 'index.spaces.plus' : 'index.spaces.total', {
@@ -1348,7 +1348,7 @@ function BankOverview() {
         <Section
           title={copyText('index.your.spaces')}
           actions={
-            <a className="text-link" href="/bank/spaces">
+            <a className="lt-link" href="/bank/spaces">
               <Text k="index.manage.spaces" />
             </a>
           }
@@ -1375,7 +1375,7 @@ function BankOverview() {
                             )}
                           </small>
                         </div>
-                        <div className="numeric" dir="ltr">
+                        <div className="lt-num" dir="ltr">
                           {funds(space.balance, space.assetId)}
                         </div>
                       </a>
@@ -1514,7 +1514,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
           <EmptyState
             title={copyText('rooms.this.bank.address.is.not.registered')}
             action={
-              <a className="button button--secondary" href="/bank">
+              <a className="lt-button lt-button-secondary" href="/bank">
                 <Text k="rooms.bank.overview" />
               </a>
             }

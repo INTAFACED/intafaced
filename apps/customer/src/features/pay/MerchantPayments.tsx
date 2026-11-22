@@ -50,7 +50,7 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
     `pay:payments:${merchantId}:${room}:${status}:${limit}`,
   );
   return (
-    <div className="stack">
+    <div className="lt-stack">
       {room === 'payments' && (
         <CreatePayment
           pay={pay}
@@ -130,20 +130,20 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
                   <tr key={payment.id}>
                     <td>
                       {paymentLabel(payment)}
-                      <small className="pay-cell-note">{payment.createdAt}</small>
+                      <small className="lt-hint">{payment.createdAt}</small>
                     </td>
-                    <td className="numeric">
+                    <td className="lt-num">
                       {portalAmount(payment.amount, payment.assetId)} {payment.assetId}
                     </td>
-                    <td className="numeric">
+                    <td className="lt-num">
                       {portalAmount(payment.capturedAmount, payment.assetId)} {payment.assetId}
                     </td>
-                    <td className="numeric">
+                    <td className="lt-num">
                       {portalAmount(payment.refundedAmount, payment.assetId)} {payment.assetId}
                     </td>
                     <td>
                       <Status value={payment.status} />
-                      <small className="pay-cell-note">{payment.railAdapter}</small>
+                      <small className="lt-hint">{payment.railAdapter}</small>
                     </td>
                     <td>
                       <Button variant="ghost" onClick={() => setOpenedId(payment.id)}>
@@ -239,7 +239,7 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
             hint={payCopy.t('useTheMethodSuppliedByYourConnected')}
             required
           />
-          <label className="field">
+          <label className="lt-field">
             <PayCopy k="livePaymentRail" />
             <select value={railAdapter} onChange={(event) => setRailAdapter(event.target.value)}>
               <option value="">{payCopy.t('chooseAConnectedLiveRail')}</option>
@@ -356,7 +356,7 @@ function PaymentDetail({
     >
       <PayState resource={current.resource} retry={current.reload}>
         {(payment) => (
-          <div className="form-stack">
+          <div className="lt-stack">
             <PayDetails
               values={[
                 [payCopy.t('payment'), payment.id],
@@ -375,7 +375,7 @@ function PaymentDetail({
                 <PayCopy k="refreshPaymentStatusAndInspectTheHistory" />
               </PayNotice>
             )}
-            <div className="actions">
+            <div className="lt-actions">
               {payment.status === 'created' && (
                 <ReviewedAction
                   title={payCopy.t('authorizePayment')}
@@ -405,7 +405,7 @@ function PaymentDetail({
                       {events.map((event) => (
                         <div key={event.id}>
                           <span>{event.event}</span>
-                          <small className="muted">{event.ts}</small>
+                          <small className="lt-muted">{event.ts}</small>
                         </div>
                       ))}
                     </div>

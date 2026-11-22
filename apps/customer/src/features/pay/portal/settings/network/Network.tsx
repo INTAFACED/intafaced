@@ -43,7 +43,7 @@ export function NetworkView({
   const { t } = accountCopy.useCopy();
   const { t: p } = portalCopy.useCopy();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={t('netListTitle')} description={t('netListBody')}>
         <ReadGate
           resource={subs}

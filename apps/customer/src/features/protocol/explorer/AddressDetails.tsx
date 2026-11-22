@@ -66,7 +66,7 @@ export function AddressSummary({ address, labels }: { address: string; labels: {
     } else {
       kind = data.kind === 'contract' ? t('kindContract') : t('kindAccount');
       balance = t('balanceNative', { amount: nativeAmount(data.balance) });
-      note = <p className="muted">{t('summaryAsOf', { height: String(data.asOfHeight) })}</p>;
+      note = <p className="lt-muted">{t('summaryAsOf', { height: String(data.asOfHeight) })}</p>;
     }
   }
   return (
@@ -157,12 +157,12 @@ export function AddressHoldings({ address }: { address: string }) {
         {body}
       </DataTable>
       {page && page.unpriced > 0 && (
-        <p className="muted" data-testid="address-unpriced">
+        <p className="lt-muted" data-testid="address-unpriced">
           {page.unpriced === 1 ? t('holdingsUnpricedOne') : t('holdingsUnpricedMany', { count: page.unpriced })}
         </p>
       )}
-      {page?.more && <p className="muted">{t('holdingsMore')}</p>}
-      {page && page.asOfHeight !== null && <p className="muted">{t('summaryAsOf', { height: String(page.asOfHeight) })}</p>}
+      {page?.more && <p className="lt-muted">{t('holdingsMore')}</p>}
+      {page && page.asOfHeight !== null && <p className="lt-muted">{t('summaryAsOf', { height: String(page.asOfHeight) })}</p>}
     </>
   );
 }
@@ -272,7 +272,7 @@ export function AddressInternal({ address }: { address: string }) {
       <DataTable label={t('tabInternal')} headers={headers}>
         {body}
       </DataTable>
-      {page && page.asOfHeight !== null && <p className="muted">{t('addressTxsAsOf', { height: String(page.asOfHeight) })}</p>}
+      {page && page.asOfHeight !== null && <p className="lt-muted">{t('addressTxsAsOf', { height: String(page.asOfHeight) })}</p>}
       {page?.nextCursor && (
         <Button variant="secondary" onClick={() => setCursor(page.nextCursor)}>
           {t('moreTxs')}
@@ -372,7 +372,7 @@ export function PastBalance({ address }: { address: string }) {
         <span>{t('pastBalanceInput')}</span>
         <input type="text" inputMode="text" value={text} onChange={(event) => setText(event.target.value)} />
       </label>
-      <div className="actions">
+      <div className="lt-actions">
         <Button type="submit">{t('pastBalanceShow')}</Button>
       </div>
       {invalid && <p role="alert">{t('pastBalanceInvalid')}</p>}

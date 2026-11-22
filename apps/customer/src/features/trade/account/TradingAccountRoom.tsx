@@ -65,7 +65,7 @@ export function TradingAccountRoom() {
         <EmptyState
           title={t('signedOutTitle')}
           action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
               {t('signIn')}
             </a>
           }
@@ -91,11 +91,11 @@ export function TradingAccountRoom() {
     <VenueFrame mode={mode}>
       <Page eyebrow={t('eyebrow')} title={t('title')}>
         <TestMark test={status.test} />
-        <p className="muted">{t('lead')}</p>
+        <p className="lt-muted">{t('lead')}</p>
         <p data-testid="liquidation-line">{t('liquidationLine')}</p>
         <WalletBar />
         <Owned>{(owner) => <Room owner={owner} status={status} />}</Owned>
-        <p className="muted">{t('ledgerNote')}</p>
+        <p className="lt-muted">{t('ledgerNote')}</p>
       </Page>
     </VenueFrame>
   );
@@ -104,7 +104,7 @@ export function TradingAccountRoom() {
 function Owned({ children }: { children: (owner: string) => ReactNode }) {
   const { t } = tradingAccountCopy.useCopy();
   const owner = useOwner();
-  if (!owner) return <p className="muted">{t('connectFirst')}</p>;
+  if (!owner) return <p className="lt-muted">{t('connectFirst')}</p>;
   return <>{children(owner)}</>;
 }
 
@@ -185,11 +185,11 @@ function VenueAccount({
       <h2 className="dk-tab-title">
         {t('tradingTitle')} <TestMark test={test} />
       </h2>
-      <p className="muted" data-testid="trading-source">
+      <p className="lt-muted" data-testid="trading-source">
         {t('tradingSource', { venue: venue.name })} · <AsOf iso={balances.data?.asOf} t={t} />
       </p>
       {balances.failure && !balances.data ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('readFailed', { detail: balances.failure.message })}
         </p>
       ) : rows === null ? (
@@ -201,13 +201,13 @@ function VenueAccount({
           {rows.map((b) => (
             <tr key={b.asset} data-asset={b.asset}>
               <td>{b.asset}</td>
-              <td className="numeric" data-cell="free">
+              <td className="lt-num" data-cell="free">
                 {displayAmount(b.free, 2)}
               </td>
-              <td className="numeric" data-cell="locked">
+              <td className="lt-num" data-cell="locked">
                 {displayAmount(b.locked, 2)}
               </td>
-              <td className="numeric" data-cell="total">
+              <td className="lt-num" data-cell="total">
                 {displayAmount(b.total, 2)}
               </td>
             </tr>
@@ -239,15 +239,15 @@ function CrossMargin({ owner, venue, revision, onMoveIn }: { owner: string; venu
   const cross = s?.cross ?? null;
   if (!s || !cross) return null;
   return (
-    <div className="form-stack" data-testid="cross-margin" data-state={cross.state}>
+    <div className="lt-stack" data-testid="cross-margin" data-state={cross.state}>
       {cross.state === 'margin_call' ? (
-        <div role="alert" className="failure" data-testid="margin-call">
+        <div role="alert" className="lt-refusal" data-testid="margin-call">
           <p>{t('marginCall', { venue: venue.name })}</p>
           <Button onClick={onMoveIn}>{t('marginCallAction')}</Button>
         </div>
       ) : null}
       <h3 className="dk-tab-title">{t('crossTitle')}</h3>
-      <p className="muted">
+      <p className="lt-muted">
         {t('tradingSource', { venue: venue.name })} · <AsOf iso={summary.data?.asOf} t={t} />
       </p>
       <dl className="protocol-facts">
@@ -261,7 +261,7 @@ function CrossMargin({ owner, venue, revision, onMoveIn }: { owner: string; venu
         />
         <CrossLine name="liquidation" label={t('crossLiquidation')} value={`${cross.liquidationEquity} ${s.asset}`} />
       </dl>
-      <p className="muted" data-line="cross-rule">
+      <p className="lt-muted" data-line="cross-rule">
         {cross.rule}
       </p>
     </div>
@@ -272,7 +272,7 @@ function CrossLine({ name, label, value, raw }: { name: string; label: string; v
   return (
     <div data-line={name} data-value={raw ?? value.split(' ')[0]}>
       <dt>{label}</dt>
-      <dd className="numeric">{value}</dd>
+      <dd className="lt-num">{value}</dd>
     </div>
   );
 }
@@ -291,7 +291,7 @@ function Liquidations({ owner, venue, revision }: { owner: string; venue: Venue;
   return (
     <div data-testid="trading-liquidations">
       <h3 className="dk-tab-title">{t('liquidationsTitle')}</h3>
-      <p className="muted">
+      <p className="lt-muted">
         {t('liquidationsSource', { venue: venue.name })} · <AsOf iso={read.data?.asOf} t={t} />
       </p>
       <DataTable label={t('liquidationsTitle')} headers={[t('hMarket'), t('hSize'), t('hPrice'), t('hFee'), t('hVenueId')]}>
@@ -300,13 +300,13 @@ function Liquidations({ owner, venue, revision }: { owner: string; venue: Venue;
             <td>
               {l.symbol} · {t(l.side === 'long' ? 'sideLong' : 'sideShort')}
             </td>
-            <td className="numeric" data-cell="size">
+            <td className="lt-num" data-cell="size">
               {part.size}
             </td>
-            <td className="numeric" data-cell="price">
+            <td className="lt-num" data-cell="price">
               {part.price}
             </td>
-            <td className="numeric" data-cell="fee">
+            <td className="lt-num" data-cell="fee">
               {part.fee} {part.feeAsset}
             </td>
             <td data-cell="id">{part.partId}</td>
@@ -348,23 +348,23 @@ function SpendingGroup({ revision, spaces }: { revision: number; spaces: ReturnT
     <section className="dk-panel" aria-label="Spending" data-testid="group-spending">
       <h2 className="dk-tab-title">{t('spendingTitle')}</h2>
       {spaces.failure && !spaces.data ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('spendingUnread')}
         </p>
       ) : !spaces.data ? (
         <Loading label={t('spendingTitle')} />
       ) : held.length === 0 ? (
-        <p className="muted">{t('spendingNone')}</p>
+        <p className="lt-muted">{t('spendingNone')}</p>
       ) : (
         <>
-          <p className="muted" data-testid="spending-source">
+          <p className="lt-muted" data-testid="spending-source">
             {t('spendingSource', { partner: partner ?? '' })} · <AsOf iso={held[0]?.heldAt?.asOf} t={t} />
           </p>
           <DataTable label={t('spendingTitle')} headers={[t('hAccount'), t('hBalance')]}>
             {held.map((space) => (
               <tr key={space.id} data-space={space.kind === 'primary' ? `main:${space.assetId}` : space.id}>
                 <td>{space.kind === 'primary' ? t('mainAccount', { asset: space.assetId }) : space.name}</td>
-                <td className="numeric" data-cell="balance">
+                <td className="lt-num" data-cell="balance">
                   {displayAmount(space.balance, 2)} {space.assetId}
                 </td>
               </tr>
@@ -551,7 +551,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
   return (
     <section className="dk-panel form-stack" aria-label={t('moveTitle')} data-testid="move-in">
       <h2 className="dk-tab-title">{t('moveTitle')}</h2>
-      <p className="muted">{t('moveLead')}</p>
+      <p className="lt-muted">{t('moveLead')}</p>
       {stage.at === 'idle' || stage.at === 'done' ? (
         <div className="form-row">
           <Field
@@ -567,7 +567,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
         </div>
       ) : null}
       {stage.at === 'review' ? (
-        <div data-testid="move-review" className="form-stack">
+        <div data-testid="move-review" className="lt-stack">
           <ol>
             <li data-leg="partner">
               {t('moveLegPartner', {
@@ -600,7 +600,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
       {stage.at === 'depositing' ? <p role="status">{t('moveDepositing')}</p> : null}
       {stage.at === 'crediting' ? <p role="status">{t('moveCrediting', { venue: venue.name })}</p> : null}
       {stage.at === 'done' ? (
-        <div data-testid="move-result" data-move={stage.move.id} className="form-stack">
+        <div data-testid="move-result" data-move={stage.move.id} className="lt-stack">
           <p role="status">
             {t('moveDone', { venue: venue.name, amount: displayAmount(stage.move.amount, 2), asset: stage.move.assetId })}
           </p>
@@ -612,7 +612,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
         </div>
       ) : null}
       {refusal ? (
-        <div role="alert" className="failure" data-testid="move-refusal">
+        <div role="alert" className="lt-refusal" data-testid="move-refusal">
           <strong>{t('moveRefusedTitle')}</strong> <span data-refusal-body>{refusal.body}</span>{' '}
           {refusal.code ? <code>{refusal.code}</code> : null}
         </div>
@@ -626,12 +626,12 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
         : null}
       <h3>{t('movesTitle')}</h3>
       {(moves.data ?? []).length === 0 ? (
-        <p className="muted">{t('movesNone')}</p>
+        <p className="lt-muted">{t('movesNone')}</p>
       ) : (
         <DataTable label={t('movesTitle')} headers={[t('hMove'), t('hPartnerLeg'), t('hDepositLeg')]}>
           {(moves.data ?? []).map((m) => (
             <tr key={m.id} data-move={m.id}>
-              <td className="numeric">
+              <td className="lt-num">
                 {displayAmount(m.amount, 2)} {m.assetId}
               </td>
               <td data-cell="partner-leg">{m.deliveryTx ? <Tx hash={m.deliveryTx} sent={t('legSent')} /> : t('legNotYet')}</td>

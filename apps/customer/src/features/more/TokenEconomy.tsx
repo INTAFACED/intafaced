@@ -83,7 +83,7 @@ export function SupplyView({
   const absent = (reason: string | null) => (reason === 'token.params_invalid' ? t('unreadable') : t('notReported'));
   return (
     <Panel title={t('supplyTitle')} aria-label={t('supplyTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="supplyBody" />
       </p>
       <div data-testid="supply-figures">
@@ -114,7 +114,7 @@ export function EmissionScheduleView({ schedule, minted }: { schedule: Loaded<Em
   const shown = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));
   return (
     <Panel title={t('emissionTitle')} aria-label={t('emissionTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="emissionBody" />
       </p>
       <Read resource={schedule.resource} retry={schedule.reload}>
@@ -144,7 +144,7 @@ export function EmissionScheduleView({ schedule, minted }: { schedule: Loaded<Em
                   return (
                     <tr key={row.epoch}>
                       <td>{row.epoch}</td>
-                      <td className="numeric">{shown(row.reward)}</td>
+                      <td className="lt-num">{shown(row.reward)}</td>
                       <td>{halving ? t('halvedHere') : ''}</td>
                     </tr>
                   );
@@ -218,7 +218,7 @@ export function YieldHistoryView({
   const { Copy, t } = tokenEconomyCopy.useCopy();
   return (
     <Panel title={t('yieldTitle')} aria-label={t('yieldTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="yieldBody" />
       </p>
       <Read resource={read.resource} retry={read.reload}>
@@ -228,7 +228,7 @@ export function YieldHistoryView({
               {data.items.map((row) => (
                 <tr key={row.windowId}>
                   <td>{row.windowId}</td>
-                  <td className="numeric">
+                  <td className="lt-num">
                     {row.amount === null ? t('amountUnread') : hideBalances ? t('hidden') : displayAmount(row.amount)}
                   </td>
                   <td>{row.assetId ?? t('postingUnread')}</td>

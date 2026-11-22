@@ -22,7 +22,7 @@ export function GoalProgress({ balance, target, assetId }: { balance: string; ta
       >
         <span className="money-bar__fill" style={{ width: `${share.basisPoints / 100}%`, minWidth: share.basisPoints > 0 ? 2 : 0 }} />
       </div>
-      <p className="money-caption numeric">
+      <p className="lt-muted lt-num">
         {text}
         {share.reached ? ` · ${t('goalReached')}` : ''}
       </p>
@@ -55,7 +55,7 @@ export function MovementBars({ inflow, outflow, net, assetId }: { inflow: string
                 style={{ width: `${row.width / 100}%`, minWidth: row.width > 0 ? 2 : 0 }}
               />
             </div>
-            <strong className="numeric">
+            <strong className="lt-num">
               {displayAmount(row.value)} {assetId}
             </strong>
           </div>
@@ -80,7 +80,7 @@ export function MovementBars({ inflow, outflow, net, assetId }: { inflow: string
           ))}
         </tbody>
       </table>
-      <p className="money-caption">{t('chartCaption')}</p>
+      <p className="lt-muted">{t('chartCaption')}</p>
     </figure>
   );
 }

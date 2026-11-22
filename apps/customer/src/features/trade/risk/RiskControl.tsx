@@ -145,7 +145,7 @@ function Reduce({ positions, t, onChanged }: { positions: Loadable<Position[]>; 
     return (
       <p role="alert">
         {t('retry')}:{' '}
-        <button type="button" className="text-link" onClick={positions.retry}>
+        <button type="button" className="lt-link" onClick={positions.retry}>
           {t('refresh')}
         </button>
       </p>
@@ -157,7 +157,7 @@ function Reduce({ positions, t, onChanged }: { positions: Loadable<Position[]>; 
       <div role="alert">
         <strong>{words.title}</strong>
         <p>{words.body}</p>
-        {words.code ? <small className="muted">{words.code}</small> : null}
+        {words.code ? <small className="lt-muted">{words.code}</small> : null}
       </div>
     );
   }
@@ -191,7 +191,7 @@ function Reduce({ positions, t, onChanged }: { positions: Loadable<Position[]>; 
         <Button variant="secondary" size={40} disabled={picked.size === 0} onClick={() => setPicked(new Set())}>
           {t('reduceSelectNone')}
         </Button>
-        <span className="muted" role="status">
+        <span className="lt-muted" role="status">
           {t('reduceSelected', { count: String(chosen.length) })}
         </span>
       </div>
@@ -199,7 +199,7 @@ function Reduce({ positions, t, onChanged }: { positions: Loadable<Position[]>; 
         <Button variant="sell" disabled={chosen.length === 0} onClick={() => setClosing(true)}>
           {t('reduceButton')}
         </Button>
-        {chosen.length === 0 ? <span className="muted">{t('reduceNeedsSelection')}</span> : null}
+        {chosen.length === 0 ? <span className="lt-muted">{t('reduceNeedsSelection')}</span> : null}
       </div>
       {closing ? (
         <CloseAllDialog
@@ -223,7 +223,7 @@ function Incidents({ t }: { t: T }) {
     return (
       <div role="alert">
         <p>{t('incidentsFailed')}</p>
-        <p className="muted">
+        <p className="lt-muted">
           {t('codeLabel')}: <code>{t('incidentsFailedCode')}</code>
         </p>
         <Button variant="secondary" size={40} onClick={reload}>
@@ -240,11 +240,11 @@ function Incidents({ t }: { t: T }) {
         {incidents.map((incident) => (
           <li key={incident.id}>
             <strong>{incident.title}</strong>
-            <span className="muted"> · {t('incidentsOpen', { since: incident.openedAt })}</span>
+            <span className="lt-muted"> · {t('incidentsOpen', { since: incident.openedAt })}</span>
           </li>
         ))}
       </ul>
-      <a className="text-link" href="/developers/status">
+      <a className="lt-link" href="/developers/status">
         {t('incidentsOpenPage')}
       </a>
     </>
@@ -273,7 +273,7 @@ export function RiskControl() {
         <EmptyState
           title={t('signedOutTitle')}
           action={
-            <a className="button button--primary" href="/login?redirect=%2Ftrade%2Frisk">
+            <a className="lt-button lt-button-primary" href="/login?redirect=%2Ftrade%2Frisk">
               {t('signIn')}
             </a>
           }
@@ -338,17 +338,17 @@ export function RiskControl() {
         <Section title={t('alertsHeading')}>
           <p>{t('alertsLead')}</p>
           <div className="risk-actions">
-            <a className="text-link" href="/notifications">
+            <a className="lt-link" href="/notifications">
               {t('alertsOpenNotifications')}
             </a>
-            <a className="text-link" href={`/trade/spot/${defaultDeskPair}`}>
+            <a className="lt-link" href={`/trade/spot/${defaultDeskPair}`}>
               {t('alertsOpenChart')}
             </a>
           </div>
         </Section>
         <Section title={t('approvalsHeading')}>
           <p>{t('approvalsBlocker')}</p>
-          <p className="muted">
+          <p className="lt-muted">
             {t('codeLabel')}: <code>{t('approvalsCode')}</code>
           </p>
           <Button variant="secondary" size={40} disabled>

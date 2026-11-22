@@ -230,7 +230,7 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
         {phase}
       </p>
       {phase === 'connected' ? (
-        <div className="actions">
+        <div className="lt-actions">
           <Button variant="secondary" onClick={leave}>
             <Text k="sessionmedia.disconnect.media" />
           </Button>
@@ -256,7 +256,7 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
               </Button>
             </>
           ) : (
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="sessionmedia.your.service.grant.permits.receiving.media.publishing" />
             </p>
           )}
@@ -266,7 +266,7 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
           <Text k="sessionmedia.connect.audio.video" />
         </Button>
       )}
-      <p className="muted">
+      <p className="lt-muted">
         <Text k="sessionmedia.join.the.session.seat.first.camera.and" />
       </p>
       {failure && <Failure result={failure} />}

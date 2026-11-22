@@ -67,7 +67,7 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
         <h2>
           <Copy k="title" />
         </h2>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="subtitle" />
         </p>
       </header>
@@ -81,14 +81,14 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
             <Copy k="unknownBody" />
           </p>
           {action.noMatch && (
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="noMatch" />
             </p>
           )}
           <Button onClick={() => void action.check()} disabled={action.busy}>
             <Copy k="check" />
           </Button>
-          <a className="text-link" href="/support">
+          <a className="lt-link" href="/support">
             <Copy k="support" />
           </a>
         </section>
@@ -112,7 +112,7 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
           <p>
             <Copy k="confirmedBody" />
           </p>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="xpUnknown" />
           </p>
           {snapshot.known && (
@@ -123,7 +123,7 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
               <Button onClick={() => void action.cleanup(snapshot.known!)} disabled={action.busy}>
                 <Copy k="cleanupAction" />
               </Button>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="cleanupOnly" />
               </p>
             </>
@@ -155,7 +155,7 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
                 <code lang="zxx">{row.idempotencyKey}</code>
               </article>
             ))}
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="window" params={{ count: shown.rows.length, limit: shown.limit }} />
             </p>
             {shown.rows.length >= shown.limit && shown.limit < 200 ? (
@@ -170,14 +170,14 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
               </Button>
             ) : (
               shown.limit === 200 && (
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="cap" />
                 </p>
               )
             )}
           </>
         )}
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="boundary" />
         </p>
       </section>

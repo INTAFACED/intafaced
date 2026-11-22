@@ -103,9 +103,9 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
 
   return (
     <DepthPanel title={t('budgetsTitle')} lead={t('budgetsLead')}>
-      <div className="form-stack" data-testid="analytics-budgets">
-        <form className="form-stack" onSubmit={save} noValidate>
-          <label className="field">
+      <div className="lt-stack" data-testid="analytics-budgets">
+        <form className="lt-stack" onSubmit={save} noValidate>
+          <label className="lt-field">
             <span>{t('category')}</span>
             <select value={category} onChange={(event) => setCategory(event.target.value as Category)}>
               {CATEGORIES.map((c) => (
@@ -132,9 +132,9 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
           )}
         </form>
         {rows.length === 0 ? (
-          <p className="money-caption">{t('none')}</p>
+          <p className="lt-muted">{t('none')}</p>
         ) : (
-          <ul className="form-stack">
+          <ul className="lt-stack">
             {rows.map((b) => {
               const percent = percentOf(b.progressBps);
               return (
@@ -146,7 +146,7 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
                       {t('alert', { percent, category: name(b.category) })}
                     </p>
                   ) : b.alert === 'seen' && b.alertShownAt ? (
-                    <p className="money-caption" data-testid="budget-alert-seen">
+                    <p className="lt-muted" data-testid="budget-alert-seen">
                       {t('alertSeen', { date: dateOf(b.alertShownAt) })}
                     </p>
                   ) : null}
@@ -156,7 +156,7 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
           </ul>
         )}
         {spend.resource.status === 'ready' && (
-          <p className="money-caption" data-testid="analytics-money-in" data-inflow={spend.resource.data.totalInflow}>
+          <p className="lt-muted" data-testid="analytics-money-in" data-inflow={spend.resource.data.totalInflow}>
             {t('moneyIn', { amount: spend.resource.data.totalInflow, asset: assetId })}
           </p>
         )}
@@ -165,7 +165,7 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
             {t('left', { left: left.resource.data.left, target: left.resource.data.target, asset: assetId })}
           </p>
         ) : left.resource.status === 'failed' ? (
-          <p className="money-caption" data-testid="left-to-spend" data-code={left.resource.failure.code ?? ''}>
+          <p className="lt-muted" data-testid="left-to-spend" data-code={left.resource.failure.code ?? ''}>
             {left.resource.failure.code === 'bank.budget_unset' ? t('leftUnset') : t('failed', { message: left.resource.failure.message })}
           </p>
         ) : null}
@@ -184,7 +184,7 @@ export function AnalyticsCompare({ assetId }: { assetId: string }) {
   const compare = useBankRead('analytics.compare', { assetId, months: [first, second] }, Boolean(assetId) && valid);
   return (
     <DepthPanel title={t('compareTitle')} lead={t('compareLead')}>
-      <div className="form-stack" data-testid="analytics-compare">
+      <div className="lt-stack" data-testid="analytics-compare">
         <Field label={t('firstMonth')} type="month" value={first} onChange={(event) => setFirst(event.target.value)} />
         <Field label={t('secondMonth')} type="month" value={second} onChange={(event) => setSecond(event.target.value)} />
         {compare.resource.status === 'failed' && valid && (

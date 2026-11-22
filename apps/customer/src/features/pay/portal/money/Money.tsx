@@ -61,7 +61,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
       <HaltBanner resource={halts.resource} scopes={['settlement', 'payout']} />
       <TestBanner />
       {/* Outside the balance read, so Top up is reachable before the first payment and while balances cannot be read. */}
-      <div className="pp-actions">
+      <div className="lt-actions">
         <LinkButton href="/pay/money/top-up">{t('actTopUp')}</LinkButton>
       </div>
       <OutsideFunds funds={outside.resource} retry={outside.reload} test={test} />
@@ -107,11 +107,11 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   <span className="mn-hero-label">{t('balAvailable')}</span>
                   <HeroNumber value={roundedDecimal(balance.available, places)} decimals={places} unit={asset} />
                   {hasHiddenDigits(balance.available, places) && (
-                    <span className="muted">
+                    <span className="lt-muted">
                       {t('balExact')} <MoneyText value={balance.available} asset={asset} test={test} />
                     </span>
                   )}
-                  <span className="muted">
+                  <span className="lt-muted">
                     {t('balClearing')} <MoneyText value={balance.clearing} asset={asset} test={test} />
                   </span>
                 </div>
@@ -171,7 +171,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
               <OnTheWay resource={picture.resource} approvals={approvalMap} retry={picture.reload} test={test} />
               <RecentMovements portal={portal} merchantId={merchantId} asset={asset} test={test} />
               <p className="muted pp-note">
-                <a className="text-link" href="/pay/conversion">
+                <a className="lt-link" href="/pay/conversion">
                   {t('balConversionLink')}
                 </a>
               </p>
@@ -201,7 +201,7 @@ function StillClearing({ portal, merchantId, test }: { portal: PortalApi; mercha
       ) : r.status === 'failed' ? (
         <MoneyFailure result={r.failure} retry={list.reload} />
       ) : r.data.held.length === 0 ? (
-        <p className="muted" data-testid="mn-held-none">
+        <p className="lt-muted" data-testid="mn-held-none">
           {t('balHeldNone')}
         </p>
       ) : (
@@ -219,7 +219,7 @@ function StillClearing({ portal, merchantId, test }: { portal: PortalApi; mercha
             title: h.paymentId.slice(0, 8),
             amount: <MoneyText value={h.amount} asset={h.assetId} test={test} />,
             status: (
-              <span className="muted">
+              <span className="lt-muted">
                 {t('balHeldOn')} {on(h)}
               </span>
             ),
@@ -250,7 +250,7 @@ function OnTheWay({
       title={t('balOnTheWayTitle')}
       description={t('balOnTheWayBody')}
       action={
-        <a className="text-link" href="/pay/payouts">
+        <a className="lt-link" href="/pay/payouts">
           {t('balAllPayouts')}
         </a>
       }
@@ -260,7 +260,7 @@ function OnTheWay({
       ) : r.status === 'failed' ? (
         <PortalFailure result={r.failure} retry={retry} />
       ) : items.length === 0 ? (
-        <p className="muted">{t('balOnTheWayNone')}</p>
+        <p className="lt-muted">{t('balOnTheWayNone')}</p>
       ) : (
         <EntityList
           label={t('balOnTheWayTitle')}
@@ -298,7 +298,7 @@ function RecentMovements({ portal, merchantId, asset, test }: { portal: PortalAp
     <PaySection
       title={t('balMovementsTitle')}
       action={
-        <a className="text-link" href={`/pay/money/activity?asset=${encodeURIComponent(asset)}`}>
+        <a className="lt-link" href={`/pay/money/activity?asset=${encodeURIComponent(asset)}`}>
           {t('balStatementLink')}
         </a>
       }
@@ -308,7 +308,7 @@ function RecentMovements({ portal, merchantId, asset, test }: { portal: PortalAp
       ) : r.status === 'failed' ? (
         <MoneyFailure result={r.failure} retry={list.reload} />
       ) : r.data.items.length === 0 ? (
-        <p className="muted">{t('balMovementsNone')}</p>
+        <p className="lt-muted">{t('balMovementsNone')}</p>
       ) : (
         <EntityList
           label={t('balMovementsTitle')}

@@ -240,7 +240,7 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
           void review();
         }}
       >
-        <p className="muted" id={ids.note}>
+        <p className="lt-muted" id={ids.note}>
           {t('quickNote')}
         </p>
         <div className="protocol-actions" role="group" aria-label={t('quickSide')}>
@@ -261,7 +261,7 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
           ))}
         </div>
         {data.pairs.length > 1 && (
-          <label className="field" htmlFor={ids.pool}>
+          <label className="lt-field" htmlFor={ids.pool}>
             <span>{t('quickPool')}</span>
             <select
               id={ids.pool}
@@ -284,7 +284,7 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
         {!connected && !regionBlocked && pair && (
           <div className="protocol-actions">
             {wallet.wallets.length === 0 ? (
-              <p className="muted">{t('quickNoWallet')}</p>
+              <p className="lt-muted">{t('quickNoWallet')}</p>
             ) : (
               wallet.wallets.map((entry) => (
                 <Button
@@ -352,7 +352,7 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
         {setting && shown && !('refused' in shown) && shown.priceImpactBps > setting.slippageCeilingBps && (
           <p role="note">{swap('priceImpact', { impact: bpsToPercent(shown.priceImpactBps) })}</p>
         )}
-        {reason !== null && <p className="muted">{reason}</p>}
+        {reason !== null && <p className="lt-muted">{reason}</p>}
         <Button type="submit" disabled={reason !== null || locked}>
           {t('quickReview')}
         </Button>

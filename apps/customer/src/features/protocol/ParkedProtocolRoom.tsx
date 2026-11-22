@@ -51,7 +51,7 @@ function QuoteDesk({ api, t }: { api: ReturnType<typeof createProtocolApi>; t: T
   }
   return (
     <Panel title={t('quoteTitle')}>
-      <p className="muted">{t('quoteNote')}</p>
+      <p className="lt-muted">{t('quoteNote')}</p>
       <form className="protocol-quote" onSubmit={(event) => void submit(event)}>
         <Field
           label={t('symbol')}
@@ -105,17 +105,17 @@ function QuoteResult({ quote, t }: { quote: DexQuote; t: Translate }) {
           [t('nonExecutable'), orNone(t, quote.nonExecutableReason)],
         ]}
       />
-      {quote.degraded && <p className="muted">{t('degraded')}</p>}
-      {quote.singleVenue && <p className="muted">{t('singleVenue')}</p>}
+      {quote.degraded && <p className="lt-muted">{t('degraded')}</p>}
+      {quote.singleVenue && <p className="lt-muted">{t('singleVenue')}</p>}
       {quote.route.legs.length > 0 && (
         <DataTable label={t('route')} headers={[t('hdr_venue'), t('hdr_kind'), t('hdr_qty'), t('hdr_amount'), t('hdr_price')]}>
           {quote.route.legs.map((leg, index) => (
             <tr key={`${leg.venue}-${index}`}>
               <td>{leg.venue}</td>
               <td>{leg.kind}</td>
-              <td className="numeric">{leg.qty}</td>
-              <td className="numeric">{leg.quoteAmount}</td>
-              <td className="numeric">{leg.effectivePrice}</td>
+              <td className="lt-num">{leg.qty}</td>
+              <td className="lt-num">{leg.quoteAmount}</td>
+              <td className="lt-num">{leg.effectivePrice}</td>
             </tr>
           ))}
         </DataTable>
@@ -213,7 +213,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
                 [t('clobLive'), flag(t, i.clob.live)],
               ]}
             />
-            <p className="muted">{t('venueNote')}</p>
+            <p className="lt-muted">{t('venueNote')}</p>
           </>
         )}
       </Answer>
@@ -280,7 +280,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   else if (slug === 'protocol' && tab === 'rails')
     body = (
       <Panel title={t('railsTitle')}>
-        <p className="muted">{t('railsNote')}</p>
+        <p className="lt-muted">{t('railsNote')}</p>
         <div className="protocol-rails">
           <Stat label={t('railBase')} value={t('railBaseState')} />
           <Stat label={t('railIntachain')} value={t('railIntachainState')} />

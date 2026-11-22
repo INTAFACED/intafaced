@@ -134,7 +134,7 @@ export function AlgoList({
       cell: (r) => (
         <>
           {r.ok ? r.parent.symbol : r.id}
-          {r.ok ? <span className="sr-only">{t('Schedule {id}', { id: r.id })}</span> : null}
+          {r.ok ? <span className="lt-sr">{t('Schedule {id}', { id: r.id })}</span> : null}
         </>
       ),
     },

@@ -28,7 +28,7 @@ export function MoneyFailure({ result, retry }: { result: Extract<ApiResult<unkn
   const { t } = mc.useCopy();
   if (!isStatementBusy(result)) return <PortalFailure result={result} retry={retry} />;
   return (
-    <div data-testid="failure" className="failure" role="status">
+    <div data-testid="failure" className="lt-refusal" role="status">
       <h3>{t('stmBusyTitle')}</h3>
       <p>{t('rStatementBusy')}</p>
       {retry && (
@@ -201,7 +201,7 @@ export function ExportButton({
   const requestId = useMemo(newRequestId, [kind, JSON.stringify(query)]);
   const allowed = can('exports.create');
   return (
-    <div className="pp-actions">
+    <div className="lt-actions">
       <Button
         variant="secondary"
         disabled={!allowed || state === 'busy'}
@@ -228,7 +228,7 @@ export function ExportButton({
         {state === 'started' && (
           <>
             {t('mnExportStarted')}{' '}
-            <a className="text-link" href="/pay/reports/exports">
+            <a className="lt-link" href="/pay/reports/exports">
               {t('mnExportReports')}
             </a>
           </>
@@ -239,7 +239,7 @@ export function ExportButton({
           {state.message}
         </span>
       )}
-      {!allowed && <small className="muted">{t('mnExportNotAllowed')}</small>}
+      {!allowed && <small className="lt-muted">{t('mnExportNotAllowed')}</small>}
     </div>
   );
 }

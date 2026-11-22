@@ -52,7 +52,7 @@ export function AllBalances({
             title: b.assetCode,
             amount: <MoneyText value={b.available} asset={b.assetCode} test={test} />,
             status: (
-              <span className="muted">
+              <span className="lt-muted">
                 {t('balClearing')} <MoneyText value={b.clearing} asset={b.assetCode} test={test} />
               </span>
             ),

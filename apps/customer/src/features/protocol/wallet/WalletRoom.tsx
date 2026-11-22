@@ -61,7 +61,7 @@ export function WalletRoom({ section: initial }: { section: Section }) {
           </div>
           <div>
             <dt>{t('connectedAs')}</dt>
-            <dd className="numeric" data-wallet-address>
+            <dd className="lt-num" data-wallet-address>
               {wallet.address}
             </dd>
           </div>
@@ -105,7 +105,7 @@ export function WalletRoom({ section: initial }: { section: Section }) {
         )}
         <div data-code="owner.decision" role="note">
           <strong>{t('remoteTitle')}</strong>
-          <p className="muted">{relayProjectId ? t('remoteNotBuilt') : t('remoteBlocked')}</p>
+          <p className="lt-muted">{relayProjectId ? t('remoteNotBuilt') : t('remoteBlocked')}</p>
         </div>
         {wallet.problem && (
           <p role="status" data-wallet-problem>
@@ -120,7 +120,7 @@ export function WalletRoom({ section: initial }: { section: Section }) {
       {connectPanel}
       <PortfolioPanel positions={<WalletPositions />} />
       <Panel title={t('enableTitle')}>
-        <p className="muted">{t('enableNote')}</p>
+        <p className="lt-muted">{t('enableNote')}</p>
         <Button variant="secondary" disabled aria-disabled="true" title={t('enableBlocked')}>
           {t('enableTitle')}
         </Button>
@@ -130,8 +130,8 @@ export function WalletRoom({ section: initial }: { section: Section }) {
       </Panel>
       <Actions actions={['smartAccount']} snapshot={snapshot} t={tp} />
       <Panel title={t('keysTitle')}>
-        <p className="muted">{t('keysNote')}</p>
-        <p className="muted">
+        <p className="lt-muted">{t('keysNote')}</p>
+        <p className="lt-muted">
           <strong>{t('linkTitle')}.</strong> {t('linkNote')}
         </p>
       </Panel>

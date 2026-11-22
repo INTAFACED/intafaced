@@ -96,7 +96,7 @@ export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQ
             </p>
           </>
         )}
-        <p className="pay-hint">{t('receiveLinkHint')}</p>
+        <p className="lt-hint">{t('receiveLinkHint')}</p>
         {failed === 'link' ? (
           <p className="pay-problem" role="alert">
             {t('copyLinkFailed')}

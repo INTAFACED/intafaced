@@ -71,12 +71,12 @@ function WatchDialog({
           <span>{t('watchNote')}</span>
           <textarea value={note} maxLength={WATCH_NOTE_MAX} onChange={(event) => setNote(event.target.value)} />
         </label>
-        <small className="muted">{t('watchNoteHint')}</small>
+        <small className="lt-muted">{t('watchNoteHint')}</small>
         {state === 'tag' && <p role="alert">{t('watchTagRequired')}</p>}
         {state === 'not-saved' && <p role="alert">{t('watchFailed')}</p>}
         {state === 'full' && <p role="alert">{t('watchFull')}</p>}
         {state === 'unknown' && <p role="alert">{t('watchUnknown')}</p>}
-        <div className="actions">
+        <div className="lt-actions">
           <Button type="submit" disabled={state === 'saving'}>
             {t('watchSave')}
           </Button>
@@ -104,7 +104,7 @@ function WatchPanel({ address, t }: { address: string; t: WatchTranslate }) {
   return (
     <div className="tokens-watch">
       {list.status === 'failed' && (
-        <p className="muted">
+        <p className="lt-muted">
           {t('watchReadFailed')}{' '}
           <Button variant="secondary" onClick={list.reload}>
             {t('tryAgain')}

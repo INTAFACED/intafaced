@@ -59,7 +59,7 @@ export function AcademyLearning({
           ...(pending.certId ? [[t('certificateReference'), <code lang="zxx">{pending.certId}</code>] as [string, ReactNode]] : []),
         ]}
       />
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="lookupDependency" />
       </p>
       <div className="academy-learning-actions">
@@ -76,7 +76,7 @@ export function AcademyLearning({
     <div className="academy-learning-stack">
       <Read resource={definitions.resource} retry={definitions.reload} empty={t('noCertificate')}>
         {(rows) => (
-          <label className="field" htmlFor={certificateControl}>
+          <label className="lt-field" htmlFor={certificateControl}>
             <span>
               <Copy k="publishedCertificate" />
             </span>
@@ -94,7 +94,7 @@ export function AcademyLearning({
         )}
       </Read>
       {!certId && (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="certificateHint" />
         </p>
       )}
@@ -107,7 +107,7 @@ export function AcademyLearning({
               <p role="status">
                 <Copy k="completedCount" params={{ completed: p.completedCount, required: p.requiredCount }} />
               </p>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="progressBoundary" />
               </p>
               <div className="academy-learning-actions">

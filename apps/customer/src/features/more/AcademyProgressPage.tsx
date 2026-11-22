@@ -34,7 +34,7 @@ export function CourseGradesView({ courses }: { courses: AcademyProgressPage['co
   const { language } = usePreferences();
   if (courses.length === 0) return <EmptyState title={t('cgEmpty')} />;
   return (
-    <div className="academy-lms-stack">
+    <div className="lt-stack">
       {courses.map((course) => (
         <div key={course.slug} className="academy-lms-card" data-course-grades={course.slug}>
           <table>
@@ -66,7 +66,7 @@ export function CourseGradesView({ courses }: { courses: AcademyProgressPage['co
             </tbody>
           </table>
           {course.averages.length === 0 ? (
-            <p className="muted">{t('cgNoAverage')}</p>
+            <p className="lt-muted">{t('cgNoAverage')}</p>
           ) : (
             course.averages.map((average) => (
               <p key={average.type} data-testid={`type-average-${average.type}`}>
@@ -126,7 +126,7 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
         {page.courses.length === 0 ? (
           <EmptyState title={t('progressNoCourses')} />
         ) : (
-          <ul className="academy-lms-stack" data-course-progress-list="true">
+          <ul className="lt-stack" data-course-progress-list="true">
             {page.courses.map((course) => (
               <li key={course.slug} className="academy-lms-card" data-course-progress={course.slug} data-percent={course.percent}>
                 <strong>{pathLabel(t, course.slug)}</strong>
@@ -143,7 +143,7 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
                     <li key={item.slug} data-progress-item={item.slug} data-completed={item.completedAt !== null}>
                       <span aria-hidden="true">{item.completedAt ? '✓' : '○'}</span>
                       <span lang="und">{item.title}</span>
-                      <span className="muted">
+                      <span className="lt-muted">
                         {item.completedAt ? (
                           <>
                             {t('progressItemDone')} <time dateTime={item.completedAt}>{formatDay(item.completedAt, language)}</time>
@@ -167,7 +167,7 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
         {page.grades.rows.length === 0 ? (
           <EmptyState title={t('gradesEmpty')} />
         ) : (
-          <div className="academy-lms-stack">
+          <div className="lt-stack">
             {pending.length > 0 && (
               <p className="academy-lms-result" role="status" data-grades-pending={pending.length}>
                 {pending.length === 1 ? t('gradesPendingOne') : t('gradesPending', { count: pending.length })}
@@ -185,7 +185,7 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
                 <li key={row.slug} data-grade-row={row.slug} data-grade-state={row.pending ? 'pending' : row.passed ? 'passed' : 'failed'}>
                   <span lang="und">{row.title}</span>
                   {row.pending ? (
-                    <span className="muted">
+                    <span className="lt-muted">
                       {t('gradesRowPending')} <time dateTime={row.hiddenUntil}>{formatDay(row.hiddenUntil, language)}</time>
                     </span>
                   ) : (
@@ -199,7 +199,9 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
                       </span>
                     </>
                   )}
-                  <span className="muted">{row.attempts === 1 ? t('attemptsCountOne') : t('attemptsCount', { count: row.attempts })}</span>
+                  <span className="lt-muted">
+                    {row.attempts === 1 ? t('attemptsCountOne') : t('attemptsCount', { count: row.attempts })}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -247,11 +249,11 @@ export function PlannerView(props: PlannerViewProps) {
     !Number.isInteger(goalNumber) || goalNumber < 1 || goalNumber > 100 ? t('goalRange') : props.busy ? t('plannerBusy') : null;
   const reminderReason = !planner.goal?.reminder ? t('goalReminderOff') : props.busy ? t('plannerBusy') : null;
   return (
-    <div className="academy-lms-stack" data-planner="true">
-      <section className="academy-lms-stack" aria-label={t('plannerTodoTitle')}>
+    <div className="lt-stack" data-planner="true">
+      <section className="lt-stack" aria-label={t('plannerTodoTitle')}>
         <h4>{t('plannerTodoTitle')}</h4>
         {planner.todos.length === 0 ? (
-          <p className="muted">{t('plannerTodoEmpty')}</p>
+          <p className="lt-muted">{t('plannerTodoEmpty')}</p>
         ) : (
           <ul className="academy-lms-rows" data-todo-list="true">
             {planner.todos.map((todo) => (
@@ -286,7 +288,7 @@ export function PlannerView(props: PlannerViewProps) {
           </GuardedButton>
         </form>
       </section>
-      <section className="academy-lms-stack" aria-label={t('goalTitle')}>
+      <section className="lt-stack" aria-label={t('goalTitle')}>
         <h4>{t('goalTitle')}</h4>
         {planner.goal ? (
           <p data-goal={planner.goal.itemsPerWeek}>
@@ -294,7 +296,7 @@ export function PlannerView(props: PlannerViewProps) {
             {planner.goal.reminder ? t('goalReminderOn') : t('goalReminderNone')}
           </p>
         ) : (
-          <p className="muted">{t('goalNone')}</p>
+          <p className="lt-muted">{t('goalNone')}</p>
         )}
         <form
           className="academy-lms-form"

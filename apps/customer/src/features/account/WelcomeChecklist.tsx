@@ -73,7 +73,7 @@ export function WelcomeChecklist() {
   return (
     <section className="rewards-hub" aria-label={t('title')} data-testid="welcome-checklist" data-state={r.status}>
       <Panel title={t('title')}>
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
         {r.status === 'loading' ? (
           <Loading label={t('loading')} />
         ) : r.status === 'failed' ? (
@@ -85,7 +85,7 @@ export function WelcomeChecklist() {
             <EmptyState
               title={t('emptyTitle')}
               action={
-                <a className="text-link" href="/campaigns">
+                <a className="lt-link" href="/campaigns">
                   {t('campaigns')}
                 </a>
               }
@@ -181,7 +181,7 @@ function Tasks({
                   <>
                     {' '}
                     <a
-                      className="text-link"
+                      className="lt-link"
                       data-testid="welcome-chain-tx"
                       data-tx={task.record.payout.chainTx}
                       href={`/chain/tx/${encodeURIComponent(task.record.payout.chainTx)}`}
@@ -196,7 +196,7 @@ function Tasks({
                   <>
                     {' '}
                     <a
-                      className="text-link"
+                      className="lt-link"
                       data-testid="welcome-tx"
                       data-tx={task.record.ledgerTxId}
                       href={`/money/activity/${encodeURIComponent(task.record.ledgerTxId)}`}
@@ -215,7 +215,7 @@ function Tasks({
                 ) : null}
                 {failed ? (
                   code ? (
-                    <p role="status" className="muted" data-testid="welcome-refusal" data-code={code}>
+                    <p role="status" className="lt-muted" data-testid="welcome-refusal" data-code={code}>
                       {t(`refusal_${key(code)}` as 'refusal_campaigns_reward_unset')}
                     </p>
                   ) : (

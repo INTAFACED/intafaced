@@ -72,9 +72,9 @@ function BasisForm({
         void save();
       }}
     >
-      <p className="money-detail__note">{t('Basis our record')}</p>
+      <p className="lt-hint">{t('Basis our record')}</p>
       {lot.valuedAt !== null ? (
-        <p className="money-detail__note">{t('Basis arrival hint', { value: `$${lot.valuedAt.usd}`, market: lot.valuedAt.market })}</p>
+        <p className="lt-hint">{t('Basis arrival hint', { value: `$${lot.valuedAt.usd}`, market: lot.valuedAt.market })}</p>
       ) : null}
       <label className="money-note-form__label" htmlFor={`${id}-price`}>
         {t('Price per coin', { asset: lot.assetId })}
@@ -125,7 +125,7 @@ function BasisForm({
           {t('Save price')}
         </Button>
       </div>
-      <p className="money-detail__note" role="status">
+      <p className="lt-hint" role="status">
         {message ?? ''}
       </p>
     </form>

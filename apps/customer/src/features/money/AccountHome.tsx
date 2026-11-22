@@ -22,10 +22,10 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 function Refused({ title, body, code }: { title: string; body: string; code?: string | undefined }) {
   const { t } = accountHomeCopy.useCopy();
   return (
-    <div data-testid="failure" className="failure" role="status">
+    <div data-testid="failure" className="lt-refusal" role="status">
       <h3>{title}</h3>
       <p>{body}</p>
-      {code && <small className="muted">{t('reference', { code })}</small>}
+      {code && <small className="lt-muted">{t('reference', { code })}</small>}
     </div>
   );
 }
@@ -85,7 +85,7 @@ function ProfilePanel() {
             <p>
               <strong lang="und">{t('profileBusiness', { name: resource.data.business.name })}</strong>
             </p>
-            <p className="money-caption">{t('profileRole', { role: roleLabel(resource.data.business.role) })}</p>
+            <p className="lt-muted">{t('profileRole', { role: roleLabel(resource.data.business.role) })}</p>
           </>
         )}
       </div>
@@ -109,7 +109,7 @@ function TermsFacts({ terms }: { terms: AccountTerms }) {
           // A published overdraft the bank cannot book yet (J-bank-02 #8): the fee, then the blocker by name.
           <>
             {funds(terms.overdraftFee, terms.currency)} · {t('overdraftOff')}{' '}
-            <small className="muted">{t('reference', { code: terms.overdraftBlocker ?? 'bank.overdraft_switched_off' })}</small>
+            <small className="lt-muted">{t('reference', { code: terms.overdraftBlocker ?? 'bank.overdraft_switched_off' })}</small>
           </>
         )}
       </Fact>
@@ -153,7 +153,7 @@ function CurrencyRow({ row, onRemove, busy }: { row: AccountCurrency; onRemove: 
   return (
     <div className="money-space-row" data-testid={`currency-${row.assetId}`}>
       <strong lang="und">{row.assetId}</strong>
-      <span className="numeric" dir="ltr">
+      <span className="lt-num" dir="ltr">
         {funds(row.balance, row.assetId)}
       </span>
       <Button variant="ghost" onClick={onRemove} disabled={busy}>
@@ -215,23 +215,23 @@ function CurrenciesPanel() {
   const choice = picked || addable?.[0] || '';
   return (
     <DepthPanel title={t('currenciesTitle')} lead={t('currenciesLead')}>
-      <div className="bd-stack">
+      <div className="lt-stack">
         {currencies.length === 0 ? (
-          <p className="money-caption">{t('noCurrencies')}</p>
+          <p className="lt-muted">{t('noCurrencies')}</p>
         ) : (
           currencies.map((row) => (
             <CurrencyRow key={row.assetId} row={row} busy={busy} onRemove={() => void write('remove', row.assetId, row.spaceId)} />
           ))
         )}
         {addable === null ? (
-          <p className="money-caption">
-            {t('addUnset')} {addableBlocker && <small className="muted">{t('reference', { code: addableBlocker })}</small>}
+          <p className="lt-muted">
+            {t('addUnset')} {addableBlocker && <small className="lt-muted">{t('reference', { code: addableBlocker })}</small>}
           </p>
         ) : addable.length === 0 ? (
-          <p className="money-caption">{t('addNone')}</p>
+          <p className="lt-muted">{t('addNone')}</p>
         ) : (
-          <div className="actions">
-            <label className="field">
+          <div className="lt-actions">
+            <label className="lt-field">
               <span>{t('addLabel')}</span>
               <select value={choice} onChange={(event) => setPicked(event.target.value)}>
                 {addable.map((id) => (
@@ -251,14 +251,14 @@ function CurrenciesPanel() {
         {outcome?.kind === 'inUse' && (
           <div data-testid="currency-in-use">
             <Refused title={t('inUseTitle', { asset: outcome.asset })} body={t('inUseBody')} code={outcome.code} />
-            <div className="actions">
+            <div className="lt-actions">
               <a
-                className="button button--secondary"
+                className="lt-button lt-button-secondary"
                 href={outcome.spaceId ? `/bank/transfers?from=${encodeURIComponent(outcome.spaceId)}` : '/bank/transfers'}
               >
                 {t('send')}
               </a>
-              <a className="button button--secondary" href="/trade/convert">
+              <a className="lt-button lt-button-secondary" href="/trade/convert">
                 {t('convert')}
               </a>
             </div>
@@ -272,7 +272,7 @@ function CurrenciesPanel() {
 
 export function AccountHome() {
   return (
-    <div className="bd-stack" data-testid="account-home">
+    <div className="lt-stack" data-testid="account-home">
       <ProfilePanel />
       <TermsPanel />
       <CurrenciesPanel />

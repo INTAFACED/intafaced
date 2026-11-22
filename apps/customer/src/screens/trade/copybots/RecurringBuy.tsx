@@ -452,7 +452,7 @@ function RecurringList() {
                 <td>
                   <Badge tone={STATUS_TONE[rule.status]}>{t(STATUS_WORD[rule.status] as 'Active')}</Badge>
                 </td>
-                <td className="numeric">
+                <td className="lt-num">
                   {displayAmount(rule.amount)} {rule.quoteAsset}
                 </td>
                 <td>
@@ -616,7 +616,7 @@ function Confirm(props: { title: string; body: string; action: string; onCancel:
       <div>
         <p className="cb-note-title">{props.title}</p>
         <p className="cb-note-body">{props.body}</p>
-        <div className="cb-action-row">
+        <div className="lt-actions">
           <Button variant="secondary" onClick={props.onCancel}>
             {t('Keep it')}
           </Button>
@@ -643,11 +643,11 @@ function Slots({ rule }: { rule: RecurringRule }) {
       <tbody>
         {rule.slots.map((s) => (
           <tr key={s.slot}>
-            <td className="numeric">{s.slot + 1}</td>
-            <td className="numeric">
+            <td className="lt-num">{s.slot + 1}</td>
+            <td className="lt-num">
               {displayAmount(s.amount)} {rule.quoteAsset}
             </td>
-            <td className="numeric">
+            <td className="lt-num">
               {displayAmount(s.spent)} {rule.quoteAsset}
             </td>
             <td>{t(OUTCOME_WORD[s.outcome] as 'Bought')}</td>

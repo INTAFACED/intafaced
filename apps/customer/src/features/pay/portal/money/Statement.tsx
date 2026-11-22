@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Field } from '../../ui-kit';
 import { SelectField } from '../components';
 import type { PortalApi } from '../api';
@@ -52,15 +52,15 @@ export function statementColumns(t: Words, test: boolean, showRunning: boolean) 
         <>
           {kindWords(t, l.kind)}
           {l.paymentId && (
-            <small className="pay-cell-note">
-              <a className="text-link" href={`/pay/payments/${encodeURIComponent(l.paymentId)}`}>
+            <small className="lt-hint">
+              <a className="lt-link" href={`/pay/payments/${encodeURIComponent(l.paymentId)}`}>
                 {t('stmOpenPayment')}
               </a>
             </small>
           )}
           {l.settlementId && (
-            <small className="pay-cell-note">
-              <a className="text-link" href={`/pay/settlements/${encodeURIComponent(l.settlementId)}`}>
+            <small className="lt-hint">
+              <a className="lt-link" href={`/pay/settlements/${encodeURIComponent(l.settlementId)}`}>
                 {t('stmOpenSettlement')}
               </a>
             </small>
@@ -87,7 +87,7 @@ export const statementCard = (t: Words, test: boolean) => (l: StatementLine) => 
   title: kindWords(t, l.kind),
   time: <DateTime value={l.at} />,
   amount: <SignedAmount line={l} test={test} />,
-  status: <span className="muted">{accountWords(t, l.account)}</span>,
+  status: <span className="lt-muted">{accountWords(t, l.account)}</span>,
 });
 
 /** `/pay/money/activity`: every credit and debit on your balance, newest first, with whether it matches your balance. */
@@ -131,7 +131,7 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
   const here = `/pay/money/activity${filters.asset ? `?asset=${encodeURIComponent(filters.asset)}` : ''}`;
   const rangeLabel = t(preset === 'today' ? 'stmToday' : preset === '7d' ? 'stmLast7' : preset === 'custom' ? 'stmCustom' : 'stmLast30');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <TestBanner />
       <Freshness asOf={list.state.status === 'ready' ? (meta?.at ?? null) : null} />
       <KpiStrip
@@ -220,9 +220,9 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
           card={statementCard(t, test)}
         />
       )}
-      <div className="pp-actions">
+      <div className="lt-actions">
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={items.length === 0}
           onClick={() =>
             downloadText(
@@ -237,7 +237,7 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
         >
           {t('stmDownloadShown')}
         </Button>
-        <small className="muted">{t('stmDownloadShownNote')}</small>
+        <small className="lt-muted">{t('stmDownloadShownNote')}</small>
       </div>
       {meta && (
         <p className="muted pp-note">

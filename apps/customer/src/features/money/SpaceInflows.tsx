@@ -106,10 +106,10 @@ export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Sp
           </>
         }
       >
-        {!main && <p className="money-caption">{t('noMain')}</p>}
-        {policy.resource.status === 'ready' && !automatic && <p className="money-caption">{t('roundupOff')}</p>}
+        {!main && <p className="lt-muted">{t('noMain')}</p>}
+        {policy.resource.status === 'ready' && !automatic && <p className="lt-muted">{t('roundupOff')}</p>}
         {policy.resource.status === 'failed' && (
-          <p className="money-caption">
+          <p className="lt-muted">
             {t('roundupUnread')}{' '}
             <Button variant="ghost" onClick={policy.reload}>
               {t('retry')}
@@ -228,7 +228,7 @@ function SpaceStatement({ space }: { space: Space }) {
       }}
     >
       <h2 className="money-statement__h">{t('statement')}</h2>
-      <p className="money-detail__note">{t('statementHint')}</p>
+      <p className="lt-hint">{t('statementHint')}</p>
       <div className="money-statement__row">
         <label className="money-bar__field">
           <span>{t('month')}</span>
@@ -246,7 +246,7 @@ function SpaceStatement({ space }: { space: Space }) {
           {t('download')}
         </Button>
       </div>
-      <p className="money-detail__note" role="status" aria-live="polite">
+      <p className="lt-hint" role="status" aria-live="polite">
         {problem ??
           (busy
             ? t('preparing')

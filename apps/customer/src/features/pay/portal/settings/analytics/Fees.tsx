@@ -91,10 +91,10 @@ export function FeesView({
   const { t } = c.useCopy();
   const loaded = resource?.status === 'ready' ? resource.data : null;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <AnalyticsControls state={state} assets={loaded ? assetsOf(loaded.points) : []} />
       {!resource ? (
-        <p className="muted" role="status">
+        <p className="lt-muted" role="status">
           {t('pickDates')}
         </p>
       ) : resource.status === 'loading' ? (

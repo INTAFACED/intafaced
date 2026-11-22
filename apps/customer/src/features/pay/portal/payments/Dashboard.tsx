@@ -197,7 +197,7 @@ function Glance({ data, labels }: { data: DashboardData; labels: Record<MetricPr
 function StatusMix({ snap }: { snap: Snapshot }) {
   const { t } = portalCopy.useCopy();
   const rows = mixShares(snap.statusMix);
-  if (rows.length === 0) return <p className="muted">{t('mixEmpty')}</p>;
+  if (rows.length === 0) return <p className="lt-muted">{t('mixEmpty')}</p>;
   return (
     <>
       <AsOf freshness={snap.freshness} />
@@ -206,7 +206,7 @@ function StatusMix({ snap }: { snap: Snapshot }) {
           <li key={row.status}>
             <div className="pp-mix-head">
               <Chip kind="payment" value={row.status} />
-              <span className="numeric">
+              <span className="lt-num">
                 {row.count} · {row.pct}%
               </span>
             </div>
@@ -222,7 +222,7 @@ function StatusMix({ snap }: { snap: Snapshot }) {
 
 function Balances({ snap }: { snap: Snapshot }) {
   const { t } = portalCopy.useCopy();
-  if (snap.balances.length === 0) return <p className="muted">{t('balancesEmpty')}</p>;
+  if (snap.balances.length === 0) return <p className="lt-muted">{t('balancesEmpty')}</p>;
   return (
     <>
       <AsOf freshness={snap.freshness} />
@@ -230,10 +230,10 @@ function Balances({ snap }: { snap: Snapshot }) {
         {snap.balances.map((b) => (
           <tr key={b.assetCode}>
             <th scope="row">{b.assetCode}</th>
-            <td className="numeric">
+            <td className="lt-num">
               <Money value={b.available} asset={b.assetCode} />
             </td>
-            <td className="numeric">
+            <td className="lt-num">
               <Money value={b.clearing} asset={b.assetCode} />
             </td>
           </tr>

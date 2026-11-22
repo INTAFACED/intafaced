@@ -47,12 +47,12 @@ export function SetAside({ asset, hidden }: { asset: string; hidden: boolean }) 
   if (splits.status === 'loading') {
     body = null;
   } else if (splits.status !== 'ready' && splits.status !== 'empty') {
-    body = <p className="money-detail__note">{t('Set aside unavailable')}</p>;
+    body = <p className="lt-hint">{t('Set aside unavailable')}</p>;
   } else {
     const split = splits.status === 'ready' ? splits.data[asset] : undefined;
     const lines = setAsideLines(split);
     if (lines.length === 0) {
-      body = <p className="money-detail__note">{t('Set aside none', { asset })}</p>;
+      body = <p className="lt-hint">{t('Set aside none', { asset })}</p>;
     } else {
       const sum = split?.total === undefined ? null : setAsideSum(split, split.total);
       const figure = (value: string) => (hidden ? '••••' : fmtAmount(value));
@@ -79,7 +79,7 @@ export function SetAside({ asset, hidden }: { asset: string; hidden: boolean }) 
             </tbody>
           </table>
           {sum && split?.total !== undefined && (
-            <p className="money-detail__note" data-testid="set-aside-sum">
+            <p className="lt-hint" data-testid="set-aside-sum">
               {t(sum.adds ? 'Set aside adds up' : 'Set aside does not add up', {
                 available: figure(split.available),
                 setAside: figure(sum.setAside),
@@ -95,7 +95,7 @@ export function SetAside({ asset, hidden }: { asset: string; hidden: boolean }) 
   return (
     <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Set aside title')}>
       <h2 className="money-detail__h">{t('Set aside title')}</h2>
-      <p className="money-detail__note">{t('Set aside intro')}</p>
+      <p className="lt-hint">{t('Set aside intro')}</p>
       {body}
     </section>
   );

@@ -103,7 +103,7 @@ export function WalletPositions() {
 
   return (
     <>
-      <p className="muted">{t('positionsNote')}</p>
+      <p className="lt-muted">{t('positionsNote')}</p>
       {items.length === 0 && unread.length === 0 ? (
         <EmptyState title={t('positionsEmpty')} />
       ) : (

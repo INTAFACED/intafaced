@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { PayFailure, PaySection, PayState } from '../components';
@@ -19,7 +19,7 @@ export function CompletionRatesByPeriod({ data }: { data: Reputation }) {
   const definition = data.completionDefinition;
   const none = !data.completionRate30d && !data.completionRateTotal;
   return (
-    <section aria-label={t('byPeriod')} className="stack" data-testid="completion-rates">
+    <section aria-label={t('byPeriod')} className="lt-stack" data-testid="completion-rates">
       <h3>{t('byPeriod')}</h3>
       <dl className="pay-details">
         <div>
@@ -65,7 +65,7 @@ function OwnCompletionOf({ pay, userId }: { pay: PersonalPayApi; userId: string 
   const appeal = useResource((signal) => pay.myAppeal(signal), `pay:my-appeal:${userId}`);
   return (
     <PaySection title={t('own')}>
-      <section aria-label={t('own')} className="stack">
+      <section aria-label={t('own')} className="lt-stack">
         <PayState resource={record.resource} retry={record.reload}>
           {(data) => <CompletionRatesByPeriod data={data} />}
         </PayState>
@@ -102,7 +102,7 @@ function AppealStatus({ appeal }: { appeal: CompletionAppeal }) {
   return (
     <div role="status" data-testid="appeal-status" data-appeal-status={appeal.status}>
       <p>{text}</p>
-      <p className="muted">{t('appealUsed')}</p>
+      <p className="lt-muted">{t('appealUsed')}</p>
     </div>
   );
 }
@@ -143,10 +143,10 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
     <PayState resource={orders.resource} retry={orders.reload}>
       {(list) =>
         list.length === 0 ? (
-          <p className="muted">{t('appealNoOrders')}</p>
+          <p className="lt-muted">{t('appealNoOrders')}</p>
         ) : (
           <form
-            className="form-stack"
+            className="lt-stack"
             aria-labelledby={formId}
             onSubmit={(event) => {
               event.preventDefault();
@@ -154,8 +154,8 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
             }}
           >
             <h3 id={formId}>{t('appealForm')}</h3>
-            <p className="muted">{t('appealOnce')}</p>
-            <label className="field">
+            <p className="lt-muted">{t('appealOnce')}</p>
+            <label className="lt-field">
               <span id={orderLabelId}>{t('appealOrder')}</span>
               {/* Named by its own word only: a wrapping label's text also holds every option's text. */}
               <select aria-labelledby={orderLabelId} value={tradeId} onChange={(event) => setTradeId(event.target.value)} required>
@@ -171,11 +171,11 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
                 ))}
               </select>
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('appealReason')}</span>
               <textarea value={reason} maxLength={2000} required onChange={(event) => setReason(event.target.value)} />
             </label>
-            <Button type="submit" disabled={!ready}>
+            <Button tone="primary" type="submit" disabled={!ready}>
               {busy ? t('appealSending') : t('appealSend')}
             </Button>
             {failure ? <PayFailure result={failure} retry={send} /> : null}

@@ -93,7 +93,7 @@ export function PartnerCurrencyNotes({ terms, assets }: { terms: Terms; assets: 
   const missing = assets.filter((a) => !offered.has(a));
   if (missing.length === 0) return null;
   return (
-    <ul className="muted" aria-label={t('partnerCurrenciesLabel')}>
+    <ul className="lt-muted" aria-label={t('partnerCurrenciesLabel')}>
       {missing.map((a) => (
         <li key={a} data-testid="partner-currency-not-offered">
           {a}: {t('partnerNotOffered')}

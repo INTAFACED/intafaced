@@ -16,11 +16,11 @@ export function EffectiveFeeRates({ gross, fees }: { gross: readonly PerAsset[];
           const rate = effectiveFeeRate(fees.find((f) => f.assetCode === g.assetCode)?.total ?? '0', g.total);
           return (
             <li key={g.assetCode} className="pp-line">
-              <strong className="numeric">{rate ?? '—'}</strong>{' '}
+              <strong className="lt-num">{rate ?? '—'}</strong>{' '}
               <span className="pp-unit" lang="zxx">
                 {g.assetCode}
               </span>
-              {rate === null && <span className="muted"> · {t('rateNone')}</span>}
+              {rate === null && <span className="lt-muted"> · {t('rateNone')}</span>}
             </li>
           );
         })}

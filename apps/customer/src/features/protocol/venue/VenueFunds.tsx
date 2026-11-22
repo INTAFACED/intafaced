@@ -28,9 +28,9 @@ export function VenueFunds({ api, t }: { api: Api; t: Translate }) {
   const account = wallet.status === 'connected' ? wallet.address : null;
   return (
     <Panel title={t('fundsTitle')}>
-      <p className="muted">{t('fundsLead')}</p>
-      <p className="muted">{t('fundsReserved')}</p>
-      {account ? <Connected api={api} t={t} account={account} /> : <p className="muted">{t('fundsConnect')}</p>}
+      <p className="lt-muted">{t('fundsLead')}</p>
+      <p className="lt-muted">{t('fundsReserved')}</p>
+      {account ? <Connected api={api} t={t} account={account} /> : <p className="lt-muted">{t('fundsConnect')}</p>}
     </Panel>
   );
 }
@@ -106,13 +106,13 @@ function Connected({ api, t, account }: { api: Api; t: Translate; account: strin
         {read.assets.map((a) => (
           <tr key={a.side}>
             <td>{symbolOf(a)}</td>
-            <td className="numeric">{a.total}</td>
-            <td className="numeric">{a.reserved}</td>
-            <td className="numeric">{a.free}</td>
+            <td className="lt-num">{a.total}</td>
+            <td className="lt-num">{a.reserved}</td>
+            <td className="lt-num">{a.free}</td>
           </tr>
         ))}
       </DataTable>
-      <p className="muted">{t('fundsAt', { block: read.blockNumber })}</p>
+      <p className="lt-muted">{t('fundsAt', { block: read.blockNumber })}</p>
       <form className="protocol-quote protocol-venue-funds" aria-label={t('fundsForm')} onSubmit={(event) => void build(event)}>
         <fieldset>
           <legend>{t('fundsDirection')}</legend>
@@ -148,7 +148,7 @@ function Connected({ api, t, account }: { api: Api; t: Translate; account: strin
           </p>
         )}
       </form>
-      <p className="muted">{t('fundsRecovery')}</p>
+      <p className="lt-muted">{t('fundsRecovery')}</p>
       {built.status === 'ready' && (
         <section aria-label={t('fundsCall')} className="protocol-quote__result">
           <h3>{t('fundsCall')}</h3>
@@ -168,11 +168,11 @@ function Connected({ api, t, account }: { api: Api; t: Translate; account: strin
                 <dl className="protocol-facts">
                   <div>
                     <dt>{t('fundsCallTo')}</dt>
-                    <dd className="numeric">{c.to}</dd>
+                    <dd className="lt-num">{c.to}</dd>
                   </div>
                   <div>
                     <dt>{t('fundsCallData')}</dt>
-                    <dd className="numeric">
+                    <dd className="lt-num">
                       <code>{c.data}</code>
                     </dd>
                   </div>

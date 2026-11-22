@@ -96,7 +96,7 @@ export function ContactButtons({
           </Button>
         ) : null}
       </div>
-      <p className="muted" id={reasonId}>
+      <p className="lt-muted" id={reasonId}>
         {reason ?? t('followNote')}
       </p>
       {view.status === 'failed' ? (
@@ -141,7 +141,7 @@ export function BlockConfirmBody({
 }) {
   const { t } = p2pChatCopy.useCopy();
   return (
-    <div className="form-stack" data-testid="block-confirm">
+    <div className="lt-stack" data-testid="block-confirm">
       <p>{t('blockBody')}</p>
       {failure ? (
         <p role="alert" className="p2p-contact-problem">
@@ -149,7 +149,7 @@ export function BlockConfirmBody({
           <FailureText kind={failure} />
         </p>
       ) : null}
-      <div className="actions">
+      <div className="lt-actions">
         <Button variant="sell" disabled={busy} onClick={onConfirm}>
           {busy ? t('saving') : t('blockConfirm')}
         </Button>

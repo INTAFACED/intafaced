@@ -23,15 +23,15 @@ function MarginCallPanel({ call, t }: { call: MarginCall | null | undefined; t: 
     <section aria-label={t('Detail margin call')} className="rounded-sm border border-line p-3 text-sm">
       <h3 className="mb-1 text-sm font-medium">{t('Detail margin call')}</h3>
       {call === undefined ? (
-        <p className="text-fg-2">{t('Detail margin call unchecked')}</p>
+        <p className="lt-muted">{t('Detail margin call unchecked')}</p>
       ) : call === null ? (
-        <p className="text-fg-2">{t('Detail margin call none')}</p>
+        <p className="lt-muted">{t('Detail margin call none')}</p>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
           <li>{t('Detail margin call sequence', { sequence: String(call.sequence) })}</li>
           <li>{t('Detail margin call health', { pct: bpsToPct(call.healthBps) })}</li>
-          <li className="text-fg-2">{t('Detail margin call called', { time: at(call.calledAt) })}</li>
-          <li className="text-fg-2">{t('Detail margin call delivered', { time: at(call.deliveredAt) })}</li>
+          <li className="lt-muted">{t('Detail margin call called', { time: at(call.calledAt) })}</li>
+          <li className="lt-muted">{t('Detail margin call delivered', { time: at(call.deliveredAt) })}</li>
         </ul>
       )}
     </section>

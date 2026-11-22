@@ -68,7 +68,7 @@ function WatchToggle({
 function BrowserWatch({ address, t }: { address: string; t: TokensTranslate }) {
   const [list, setList] = useState<string[] | null>(() => readWatchlist());
   const [problem, setProblem] = useState<'not_saved' | 'full' | null>(null);
-  if (list === null) return <p className="muted">{t('watchUnavailable')}</p>;
+  if (list === null) return <p className="lt-muted">{t('watchUnavailable')}</p>;
   const change = (write: WatchlistWrite) => {
     if (write.ok) setList(write.list);
     else if (write.reason === 'blocked') setList(null);
@@ -80,7 +80,7 @@ function BrowserWatch({ address, t }: { address: string; t: TokensTranslate }) {
       onAdd={() => change(addToWatchlist(address))}
       onRemove={() => change(removeFromWatchlist(address))}
       note={
-        <span className="muted" role={problem ? 'alert' : undefined}>
+        <span className="lt-muted" role={problem ? 'alert' : undefined}>
           {problem === 'full' ? t('watchFull') : problem ? t('watchNotSaved') : t('watchNote')}
         </span>
       }
@@ -106,13 +106,13 @@ function AccountWatch({ address, t }: { address: string; t: TokensTranslate }) {
         <Button variant="secondary" disabled>
           {t('watchAdd')}
         </Button>
-        <span className="muted">{t('watchAccountChecking')}</span>
+        <span className="lt-muted">{t('watchAccountChecking')}</span>
       </div>
     );
   if (list.status === 'failed')
     return (
       <div className="tokens-watch">
-        <span className="muted">{t('watchAccountFailed')}</span>
+        <span className="lt-muted">{t('watchAccountFailed')}</span>
         <Button variant="secondary" onClick={list.reload}>
           {t('tryAgain')}
         </Button>
@@ -131,7 +131,7 @@ function AccountWatch({ address, t }: { address: string; t: TokensTranslate }) {
       onAdd={() => void write((items) => (items.includes(key) ? items : [...items, key]))}
       onRemove={() => void write((items) => items.filter((entry) => entry !== key))}
       note={
-        <span className="muted" role={problem ? 'alert' : undefined}>
+        <span className="lt-muted" role={problem ? 'alert' : undefined}>
           {problem ? t(problem) : t('watchNoteAccount')}
         </span>
       }
@@ -189,7 +189,7 @@ function CandleChart({ pair, data, t }: { pair: PageData['pairs'][number]; data:
           );
         })}
       </svg>
-      <figcaption className="muted">
+      <figcaption className="lt-muted">
         {t('chartCaption', { other: pair.other.symbol || t('noSymbol'), count: pair.candles.length })}
       </figcaption>
     </figure>
@@ -344,7 +344,7 @@ type ProtocolApi = ReturnType<typeof createProtocolApi>;
  */
 function UsdPrice({ address, api, t }: { address: string; api: ProtocolApi; t: TokensTranslate }) {
   const { resource, reload } = useResource((signal) => api.tokenPrices(signal), 'tokens:usd');
-  if (resource.status === 'loading') return <span className="muted">{t('usdReading')}</span>;
+  if (resource.status === 'loading') return <span className="lt-muted">{t('usdReading')}</span>;
   if (resource.status === 'failed')
     return resource.failure.code === PRICE_SETTINGS_UNSET ? (
       <span data-blocker="price_feed" data-code={PRICE_SETTINGS_UNSET}>
@@ -367,7 +367,7 @@ function UsdPrice({ address, api, t }: { address: string; api: ProtocolApi; t: T
         {t('usdAsOf', { time: clockTime(Date.parse(asOf), currentPreferences().timeZone), block: blockNumber })}
       </time>
       <br />
-      <span className="muted">{t(`usdBasis_${found.basis!}`)}</span>
+      <span className="lt-muted">{t(`usdBasis_${found.basis!}`)}</span>
     </>
   );
 }
@@ -377,7 +377,7 @@ function TokenFacts({ data, api, t }: { data: PageData; api: ProtocolApi; t: Tok
   return (
     <section aria-label={t('factsTitle')}>
       <Panel title={t('factsTitle')}>
-        <p className="muted">
+        <p className="lt-muted">
           <time data-testid="token-as-of" dateTime={isoTime(data.asOf)}>
             {t('asOfTime', {
               time: clockTime(data.asOf * 1000, currentPreferences().timeZone),
@@ -452,10 +452,10 @@ function TokenTrust({ data, t }: { data: PageData; t: TokensTranslate }) {
             testId="token-organic-score"
           />
         </dl>
-        <p className="muted" data-testid="token-trust-note">
+        <p className="lt-muted" data-testid="token-trust-note">
           {trust.tier === 'unknown' ? t('tierNote') : t('tierRefusedNote', { code: trust.tierRefusal ?? '' })}
         </p>
-        <p className="muted">{t('organicNote', { code: trust.organicRefusal })}</p>
+        <p className="lt-muted">{t('organicNote', { code: trust.organicRefusal })}</p>
         <h3 id="token-flags">{t('flags')}</h3>
         <ul aria-labelledby="token-flags">
           {trust.flags.map((flag) => (
@@ -474,12 +474,12 @@ function TokenBody({ address, t }: { address: string; t: TokensTranslate }) {
   const protocol = useMemo(() => createProtocolApi(transport), [transport]);
   const { resource, reload } = useResource((signal) => protocol.tokenPage(address, signal), `tokens:page:${address.toLowerCase()}`);
   const [section, setSection] = useState<Section>('pairs');
-  if (resource.status === 'loading') return <p className="muted">{t('reading')}</p>;
+  if (resource.status === 'loading') return <p className="lt-muted">{t('reading')}</p>;
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
   const data = resource.data;
   return (
     <>
-      <p className="muted">
+      <p className="lt-muted">
         {data.token.name || t('noName')} · {data.token.symbol || t('noSymbol')} · {data.token.address}
       </p>
       <TokenFacts data={data} api={protocol} t={t} />
@@ -532,7 +532,7 @@ function ScamReports({ address, t }: { address: string; t: TokensTranslate }) {
             <p data-testid="scam-reports">
               {resource.data.openReports === 1 ? t('scamOne') : t('scamMany', { count: String(resource.data.openReports) })}
             </p>
-            <p className="muted">{t('scamNote')}</p>
+            <p className="lt-muted">{t('scamNote')}</p>
           </>
         )}
       </Panel>

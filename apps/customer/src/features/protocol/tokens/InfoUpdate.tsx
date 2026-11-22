@@ -129,7 +129,7 @@ export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) 
           {state.step === 'proven' && (
             <div role="status">
               <p>{t('updateProven', { signer: state.proof.signer, block: state.proof.blockNumber })}</p>
-              <p className="muted" data-blocker="owner.decision">
+              <p className="lt-muted" data-blocker="owner.decision">
                 {t('updateFormBlocked')}
               </p>
             </div>

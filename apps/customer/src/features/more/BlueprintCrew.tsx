@@ -105,7 +105,7 @@ export function BlueprintCrew() {
   return (
     <section id="blueprint-crew" className="blueprint-crew" aria-label={t('title')} lang={languageFor('title')}>
       <Panel title={t('title')}>
-        {rendered.status === 'idle' ? <p className="muted">{t('intro')}</p> : null}
+        {rendered.status === 'idle' ? <p className="lt-muted">{t('intro')}</p> : null}
         {rendered.status === 'loading' ? <p role="status">{t('loading')}</p> : null}
         {rendered.status === 'failed' ? (
           <div className="blueprint-crew-failure" role="status">
@@ -116,12 +116,12 @@ export function BlueprintCrew() {
         {data?.status === 'unplaced' ? (
           <div role="status">
             <h3>{t('unplaced')}</h3>
-            <p className="muted">{t('unplacedDetail')}</p>
+            <p className="lt-muted">{t('unplacedDetail')}</p>
           </div>
         ) : null}
         {data?.status === 'placed' ? (
           <>
-            <p className="muted">{t('placed')}</p>
+            <p className="lt-muted">{t('placed')}</p>
             <dl className="blueprint-crew-identity">
               <div>
                 <dt>{t('crew')}</dt>
@@ -168,7 +168,7 @@ export function BlueprintCrew() {
                       {t(member.role)}
                     </strong>
                     <span lang="zxx">{member.userId}</span>
-                    <span className="muted">{t('joined', { time: date(member.joinedAt) })}</span>
+                    <span className="lt-muted">{t('joined', { time: date(member.joinedAt) })}</span>
                   </li>
                 ))}
               </ul>

@@ -49,7 +49,7 @@ function HowItWorks() {
   return (
     <Panel title={t('journeyTitle')}>
       <Journey steps={steps} label={t('journeyLabel')} />
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="channelsNote" />
       </p>
     </Panel>
@@ -62,7 +62,7 @@ function Mine() {
     <>
       <MyCampaigns />
       <MyVouchers />
-      <a className="text-link" href="/campaigns/drops">
+      <a className="lt-link" href="/campaigns/drops">
         <Copy k="dropRoomLink" />
       </a>
     </>
@@ -88,7 +88,7 @@ function Propose() {
   }
   return (
     <Panel title={t('proposeTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="proposeIntro" />
       </p>
       <Field
@@ -131,7 +131,7 @@ function Propose() {
             <Copy k="resultProposalBody" />
           </p>
           <p lang="und">{outcome.data.headline}</p>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="published" />: <Copy k="notPublished" />
           </p>
         </div>

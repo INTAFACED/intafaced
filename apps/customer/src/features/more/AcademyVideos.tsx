@@ -20,8 +20,8 @@ export function AcademyVideos() {
   return (
     <div className="more-columns">
       <Panel title={copyText('academy.video.library')}>
-        <div className="academy-lms-stack">
-          <p className="muted">
+        <div className="lt-stack">
+          <p className="lt-muted">
             <Copy k="videoIntro" />
           </p>
           {list.resource.status === 'failed' ? (
@@ -35,7 +35,7 @@ export function AcademyVideos() {
                     const inGroup = rows.filter((v) => (isAcademyPath(v.path) ? v.path : 'other') === group);
                     if (inGroup.length === 0) return null;
                     return (
-                      <section key={group} className="academy-lms-stack">
+                      <section key={group} className="lt-stack">
                         <h3>{group === 'other' ? t('videoOther') : pathLabel(t, group)}</h3>
                         <ul className="academy-lms-rows">
                           {inGroup.map((v, index) => (
@@ -58,11 +58,11 @@ export function AcademyVideos() {
         </div>
       </Panel>
       <Panel title={copyText('academy.playback')}>
-        <div className="academy-lms-stack">
+        <div className="lt-stack">
           {selected ? (
             <AcademyVideoPlayer key={selected} videoSlug={selected} />
           ) : (
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="academy.choose.a.video" />
             </p>
           )}
@@ -71,7 +71,7 @@ export function AcademyVideos() {
               <Copy k="readMatchingLesson" />
             </a>
           )}
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="videoGate" />
           </p>
         </div>

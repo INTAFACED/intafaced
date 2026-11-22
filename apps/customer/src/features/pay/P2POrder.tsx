@@ -3,7 +3,7 @@ import { SellerReminder } from './p2p-remind';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { displayAmount } from '../../shared/money';
 import { type PersonalPayApi } from './pay-api';
 import { id, type Trade } from './schemas';
@@ -38,7 +38,7 @@ export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }
     <section className="p2p-order-result" aria-label={t('resultTitle')} data-testid="order-result">
       <h3>{t('resultTitle')}</h3>
       {trade.settledAt === null ? (
-        <p className="muted" data-testid="order-result-unsettled">
+        <p className="lt-muted" data-testid="order-result-unsettled">
           {t('releasePending')}
         </p>
       ) : (
@@ -175,10 +175,10 @@ export function P2POrder({
           <p className="p2p-order-reference" lang="zxx" dir="ltr">
             {reference}
           </p>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="originalBody" />
           </p>
-          <Button variant="primary" disabled={busy} onClick={() => void checkOriginal()}>
+          <Button tone="primary" disabled={busy} onClick={() => void checkOriginal()}>
             <PayCopy k={busy ? 'waitingForConfirmation' : 'checkOriginalOrderAction'} />
           </Button>
           {actionResult && !actionResult.ok && (
@@ -224,35 +224,35 @@ export function P2POrder({
                     <strong>
                       <Copy k={seller ? 'seller' : 'buyer'} />
                     </strong>
-                    <Button variant="ghost" onClick={query.reload}>
+                    <Button tone="quiet" onClick={query.reload}>
                       <PayCopy k="refreshStatus" />
                     </Button>
                   </div>
                   <p className="p2p-order-reference" lang="zxx" dir="ltr">
                     {trade.id}
                   </p>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="reported" /> · <TradeStatus status={trade.status} display={trade.displayStatus} />
                   </p>
                   {trade.sharedFrom ? (
-                    <p className="muted" data-testid="order-shared">
+                    <p className="lt-muted" data-testid="order-shared">
                       {shareCopy.t('sharedOrder')}
                     </p>
                   ) : null}
                 </header>
                 <div data-testid="p2p-order-quantities" className="p2p-order-quantities">
                   <div>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k={held ? 'escrow' : 'quantity'} />
                     </p>
                     <PayAmount value={trade.amount} unit={trade.asset} label={t(held ? 'escrow' : 'quantity')} />
                   </div>
                   <div>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="payment" />
                     </p>
                     <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={t('payment')} />
-                    <p className="muted" lang="zxx">
+                    <p className="lt-muted" lang="zxx">
                       {trade.method}
                     </p>
                     <OrderSettlement trade={trade} />
@@ -262,7 +262,7 @@ export function P2POrder({
                 {trade.status === 'cancelled' ? <OrderRefund trade={trade} /> : null}
                 {seller && trade.status === 'fiat_sent' ? <SellerReminder reminders={trade.reminders} /> : null}
                 {!held && typeof trade.escrowHeld === 'string' ? (
-                  <p className="muted" data-testid="order-escrow-held">
+                  <p className="lt-muted" data-testid="order-escrow-held">
                     <Copy k="escrowHeld" /> <PayAmount value={trade.escrowHeld} unit={trade.asset} label={t('escrowHeld')} />
                   </p>
                 ) : null}

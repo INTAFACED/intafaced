@@ -74,7 +74,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
             const sorted = new Set(sorters.map((sorter) => sorter.assetId));
             return (
               <>
-                <p className="money-caption" data-testid="income-sorter-terms" data-state={terms.state}>
+                <p className="lt-muted" data-testid="income-sorter-terms" data-state={terms.state}>
                   {terms.state === 'not_set'
                     ? t('termsUnset')
                     : /^0(\.0+)?$/.test(terms.minCredit)
@@ -86,7 +86,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
                 ) : (
                   <NoRows title={t('none')} />
                 )}
-                <div className="actions">
+                <div className="lt-actions">
                   {assets
                     .filter((assetId) => !sorted.has(assetId))
                     .map((assetId) => (
@@ -100,7 +100,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
                       </Button>
                     ))}
                 </div>
-                {terms.state === 'set' && !named.length && <p className="money-caption">{t('noSpaces')}</p>}
+                {terms.state === 'set' && !named.length && <p className="lt-muted">{t('noSpaces')}</p>}
               </>
             );
           }}
@@ -130,7 +130,7 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
         {sorter.legs.map((leg) => (
           <li key={leg.spaceId} data-archived={leg.archived || undefined}>
             {t('leg', { share: bpToPercent(leg.shareBp), space: spaceName(leg.spaceId) })}
-            {leg.archived && <span className="money-caption"> {t('archived', { space: spaceName(leg.spaceId) })}</span>}
+            {leg.archived && <span className="lt-muted"> {t('archived', { space: spaceName(leg.spaceId) })}</span>}
           </li>
         ))}
         {total < 10_000 && <li>{t('rest', { share: bpToPercent(10_000 - total) })}</li>}
@@ -143,7 +143,7 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
               <div key={run.id} className="money-record" data-testid="income-sorter-run" data-credit={run.creditTxId}>
                 <p>{t('run', { amount: amount(run.creditAmount, sorter.assetId), date: date(run.creditPostedAt) })}</p>
                 {run.skippedReason && (
-                  <p className="money-caption" data-skipped={run.skippedReason}>
+                  <p className="lt-muted" data-skipped={run.skippedReason}>
                     {t(run.skippedReason === 'below_minimum' ? 'skippedSmall' : 'skippedTerms')}
                   </p>
                 )}
@@ -161,7 +161,7 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
               </div>
             ))
           ) : (
-            <p className="money-caption">{t('noRuns')}</p>
+            <p className="lt-muted">{t('noRuns')}</p>
           )
         }
       </ResourceView>

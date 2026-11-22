@@ -67,9 +67,9 @@ export function StatementPanel() {
       }}
     >
       <h2 className="money-statement__h">{t('Statement')}</h2>
-      <p className="money-detail__note">{t('Statement hint')}</p>
-      <p className="money-detail__note">
-        <a className="text-link" href="/bank/statements">
+      <p className="lt-hint">{t('Statement hint')}</p>
+      <p className="lt-hint">
+        <a className="lt-link" href="/bank/statements">
           {centre.t('activityLink')}
         </a>{' '}
         {centre.t('activityLinkHint')}
@@ -91,7 +91,7 @@ export function StatementPanel() {
           {t('Download statement')}
         </Button>
       </div>
-      <p className="money-detail__note" role="status" aria-live="polite">
+      <p className="lt-hint" role="status" aria-live="polite">
         {problem ??
           (busy
             ? t('Statement preparing')

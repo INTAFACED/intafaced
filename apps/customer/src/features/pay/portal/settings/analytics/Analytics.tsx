@@ -57,7 +57,7 @@ export function Analytics({
     return { ok: true, data: { points, complete: true, freshness: daily.data.freshness, source: 'daily' } };
   }, key);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <AnalyticsView state={state} resource={w ? data.resource : null} reload={data.reload} test={test} />
       <Declines api={api} merchantId={merchantId} state={state} test={test} />
     </div>
@@ -79,10 +79,10 @@ export function AnalyticsView({
   const loaded = resource?.status === 'ready' ? resource.data : null;
   const assets = loaded ? assetsOf(loaded.points) : [];
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <AnalyticsControls state={state} assets={assets} />
       {!resource ? (
-        <p className="muted" role="status">
+        <p className="lt-muted" role="status">
           {t('pickDates')}
         </p>
       ) : resource.status === 'loading' ? (
@@ -181,7 +181,7 @@ function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState
             amount: <MoneyText value={p.volume} asset={p.assetCode} test={test} />,
           })}
         />
-        {data.source === 'daily' && <p className="muted">{t('dailyOnly')}</p>}
+        {data.source === 'daily' && <p className="lt-muted">{t('dailyOnly')}</p>}
       </PaySection>
     </>
   );
@@ -225,7 +225,7 @@ export function Bars({ points, asset }: { points: readonly Point[]; asset: strin
           </rect>
         ))}
       </svg>
-      <figcaption className="muted">
+      <figcaption className="lt-muted">
         {hover !== null && bars[hover]
           ? `${dayText(bars[hover]!.period)} · ${bars[hover]!.volume} ${asset}`
           : first && last

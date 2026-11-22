@@ -160,13 +160,13 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
               )}
             </Read>
           )}
-          <p className="muted">
+          <p className="lt-muted">
             <Text k="academyprogrammes.scores.are.published.records.season.control.and" />
           </p>
         </Panel>
       </div>
       <Panel title={copyText('academyprogrammes.apply.for.a.residency')}>
-        <p className="muted">
+        <p className="lt-muted">
           <Text k="academyprogrammes.use.a.cohort.slug.supplied.by.the" />
         </p>
         <form

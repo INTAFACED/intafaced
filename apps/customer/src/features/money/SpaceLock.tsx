@@ -121,7 +121,7 @@ export function EarlyUnlock({ space }: { space: Space }) {
     <div className="money-selected-unlock" data-testid="space-early-unlock" data-opens={space.unlocksAt}>
       <dt>{t('opensAt')}</dt>
       <dd>{date(space.unlocksAt)}</dd>
-      <dd className="money-caption">{t('opensNote')}</dd>
+      <dd className="lt-muted">{t('opensNote')}</dd>
     </div>
   );
 }

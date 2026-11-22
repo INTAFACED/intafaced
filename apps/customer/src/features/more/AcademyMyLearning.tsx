@@ -42,14 +42,14 @@ export function MyLearningView({ courses }: { courses: readonly AcademyMyCourse[
   const { language } = usePreferences();
   if (courses.length === 0) return <EmptyState title={t('myNoCourses')} />;
   return (
-    <div className="academy-lms-stack" data-academy-my-learning="true">
+    <div className="lt-stack" data-academy-my-learning="true">
       {SECTIONS.map(([status, title, empty]) => {
         const rows = courses.filter((row) => row.status === status);
         return (
           <section key={status} aria-label={t(title)} data-my-learning-section={status}>
             <h3>{t(title)}</h3>
             {rows.length === 0 ? (
-              <p className="muted">{t(empty)}</p>
+              <p className="lt-muted">{t(empty)}</p>
             ) : (
               <ul className="academy-public-cards">
                 {rows.map((row) => (
@@ -74,7 +74,7 @@ export function MyLearningView({ courses }: { courses: readonly AcademyMyCourse[
                       label={t('myProgress', { completed: row.completed, items: row.items })}
                     />
                     {row.status !== 'future_start' && (
-                      <a className="button button--secondary" href={itemHref(row.resumeItemSlug ?? row.firstItemSlug)}>
+                      <a className="lt-button lt-button-secondary" href={itemHref(row.resumeItemSlug ?? row.firstItemSlug)}>
                         {row.resumeItemSlug ? t('myContinue') : t('myStartCourse')}
                       </a>
                     )}

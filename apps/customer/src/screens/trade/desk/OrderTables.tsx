@@ -272,7 +272,7 @@ export function OrdersTable({
           <tr>
             {withAction && onSelect ? (
               <th>
-                <span className="sr-only">{t('Select order')}</span>
+                <span className="lt-sr">{t('Select order')}</span>
               </th>
             ) : null}
             <th>{t('Time')}</th>

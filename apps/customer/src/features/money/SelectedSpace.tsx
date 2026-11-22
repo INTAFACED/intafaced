@@ -59,7 +59,7 @@ export function SelectedSpace({
             <h2 lang="und" dir="auto">
               {space.name}
             </h2>
-            <p className="money-caption">
+            <p className="lt-muted">
               <Copy k={space.kind === 'primary' ? 'primary' : 'named'} />
             </p>
           </>
@@ -69,7 +69,7 @@ export function SelectedSpace({
             <h2>
               <Copy k={refused} />
             </h2>
-            <p className="money-caption">
+            <p className="lt-muted">
               <Copy k={`${refused}Note`} />
             </p>
           </>
@@ -81,7 +81,7 @@ export function SelectedSpace({
             <p>
               <Copy k="quantity" />
             </p>
-            <strong className="numeric" lang="zxx" dir="ltr">
+            <strong className="lt-num" lang="zxx" dir="ltr">
               {quantity.slice(0, -(space.assetId.length + 1))} <span lang="und">{space.assetId}</span>
             </strong>
           </div>
@@ -117,7 +117,7 @@ export function SelectedSpace({
                 )}
               </dd>
               {space.lockedUntil && Date.parse(space.lockedUntil) > Date.now() && (
-                <dd className="money-caption">
+                <dd className="lt-muted">
                   <Copy k="lockedNote" />
                 </dd>
               )}
@@ -127,7 +127,7 @@ export function SelectedSpace({
           </dl>
           <div className="money-selected-actions">
             {actions(space)}
-            <p className="money-caption">
+            <p className="lt-muted">
               <Copy k="transferNote" />
             </p>
           </div>
@@ -145,7 +145,7 @@ export function SelectedSpace({
                   </span>
                 )}
               </dd>
-              <dd className="money-caption">
+              <dd className="lt-muted">
                 <Copy k="goalNote" />
               </dd>
             </div>

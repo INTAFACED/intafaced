@@ -29,7 +29,7 @@ function SignIn() {
   const { Copy } = copy.useCopy();
   const here = safeReturnTo(location.pathname + location.search);
   return (
-    <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(here)}`}>
+    <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(here)}`}>
       <Copy k="publicSignIn" />
     </a>
   );
@@ -110,8 +110,8 @@ function PublicCatalogue() {
   };
   return (
     <Panel title={t('publicCatalogueTitle')}>
-      <div className="academy-lms-stack">
-        <p className="muted">
+      <div className="lt-stack">
+        <p className="lt-muted">
           <Copy k="publicSignInPrompt" />
         </p>
         <div className="academy-public-controls">
@@ -153,7 +153,7 @@ function PublicCatalogue() {
                     </span>
                   </span>
                   {row.summary && (
-                    <p className="muted" lang="und">
+                    <p className="lt-muted" lang="und">
                       {row.summary}
                     </p>
                   )}
@@ -185,8 +185,8 @@ function PublicVideos() {
   return (
     <div className="more-columns">
       <Panel title={copyText('academy.video.library')}>
-        <div className="academy-lms-stack">
-          <p className="muted">
+        <div className="lt-stack">
+          <p className="lt-muted">
             <Copy k="videoIntro" />
           </p>
           {list.resource.status === 'loading' ? (

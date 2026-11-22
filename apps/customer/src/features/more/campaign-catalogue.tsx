@@ -124,14 +124,14 @@ export function CampaignCatalogue() {
             {catalogue.resource.data.types.map((row) => (
               <li key={row.type} data-testid="campaign-type" data-type={row.type} data-code={row.blocker ?? undefined}>
                 <strong>{t(`type_${row.type}`)}</strong>: {row.blocker ? t('typeParked') : t('typeOpen')}
-                {row.blocker ? <p className="muted">{t(`owner.decision.${row.type as 'gift_card' | 'points'}`)}</p> : null}
+                {row.blocker ? <p className="lt-muted">{t(`owner.decision.${row.type as 'gift_card' | 'points'}`)}</p> : null}
               </li>
             ))}
           </ul>
         ) : (
           <Loading label={t('catalogueLoading')} />
         )}
-        <a className="text-link" href="/campaigns/mine">
+        <a className="lt-link" href="/campaigns/mine">
           <Copy k="myCampaigns" />
         </a>
       </Panel>
@@ -142,7 +142,7 @@ export function CampaignCatalogue() {
 function CampaignTable({ campaigns, when }: { campaigns: readonly CampaignView[]; when: (iso: string) => string }) {
   const { t } = campaignCatalogueCopy.useCopy();
   const who = useWho();
-  if (campaigns.length === 0) return <p className="muted">{t('filterNone')}</p>;
+  if (campaigns.length === 0) return <p className="lt-muted">{t('filterNone')}</p>;
   return (
     <DataTable
       label={t('campaignsLabel')}
@@ -151,7 +151,7 @@ function CampaignTable({ campaigns, when }: { campaigns: readonly CampaignView[]
       {campaigns.map((c) => (
         <tr key={c.id} data-testid="campaign-card" data-campaign-id={c.id}>
           <th scope="row">
-            <a className="text-link" href={campaignHref(c.id)}>
+            <a className="lt-link" href={campaignHref(c.id)}>
               {c.name}
             </a>
           </th>
@@ -189,7 +189,7 @@ export function MyCampaigns() {
             {mine.resource.data.campaigns.map(({ campaign: c, participation }) => (
               <tr key={c.id} data-testid="my-campaign" data-campaign-id={c.id}>
                 <th scope="row">
-                  <a className="text-link" href={campaignHref(c.id)}>
+                  <a className="lt-link" href={campaignHref(c.id)}>
                     {c.name}
                   </a>
                 </th>
@@ -202,7 +202,7 @@ export function MyCampaigns() {
           </DataTable>
         )}
       </div>
-      <a className="text-link" href="/campaigns">
+      <a className="lt-link" href="/campaigns">
         <Copy k="backToCatalogue" />
       </a>
     </Panel>

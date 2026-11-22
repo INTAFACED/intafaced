@@ -20,7 +20,7 @@ export const DETAIL_FIELDS: readonly FieldKey[] = ['accountNumber', 'sortCode', 
 function SetView({ set }: { set: AccountDetailSet }) {
   const { t } = accountDetailsCopy.useCopy();
   return (
-    <div className="bd-stack" data-testid="account-details-set">
+    <div className="lt-stack" data-testid="account-details-set">
       <dl className="bd-facts">
         {DETAIL_FIELDS.map((key) => {
           const value = set[key];
@@ -54,7 +54,7 @@ function SetView({ set }: { set: AccountDetailSet }) {
 
 export function AccountDetailsList({ rows, heading: Heading = 'h3' }: { rows: readonly AccountDetailsRow[]; heading?: 'h3' | 'h4' }) {
   const { t } = accountDetailsCopy.useCopy();
-  if (rows.length === 0) return <p className="money-caption">{t('detailsEmpty')}</p>;
+  if (rows.length === 0) return <p className="lt-muted">{t('detailsEmpty')}</p>;
   const stateKey = {
     unavailable: 'stateUnavailable',
     pending_user: 'statePending',
@@ -62,12 +62,12 @@ export function AccountDetailsList({ rows, heading: Heading = 'h3' }: { rows: re
     done: 'stateDone',
   } as const;
   return (
-    <div className="bd-stack">
+    <div className="lt-stack">
       {rows.map((row) => (
         <section key={row.currency} aria-label={row.currency} data-testid={`account-details-${row.currency}`}>
           <Heading>{row.currency}</Heading>
           <p role="status">
-            {t(stateKey[row.state])} {row.blocker && <small className="muted">{t('blocker', { code: row.blocker })}</small>}
+            {t(stateKey[row.state])} {row.blocker && <small className="lt-muted">{t('blocker', { code: row.blocker })}</small>}
           </p>
           {row.sets.map((set) => (
             <SetView key={set.id} set={set} />
@@ -85,7 +85,7 @@ export function AccountDetailsBody({ resource, reload }: { resource: Resource<{ 
   if (resource.status === 'failed' && resource.failure.code === 'bank.company_account_unwired') {
     return (
       <p role="status" data-testid="account-details-company">
-        {t('companyUnwired')} <small className="muted">{t('blocker', { code: resource.failure.code })}</small>
+        {t('companyUnwired')} <small className="lt-muted">{t('blocker', { code: resource.failure.code })}</small>
       </p>
     );
   }
@@ -122,7 +122,7 @@ export function AccountDetailsByCurrency() {
   const rows = read.resource.data.currencies;
   const chosen = rows.find((row) => row.currency === currency);
   return (
-    <div className="bd-stack" data-testid="receive-details">
+    <div className="lt-stack" data-testid="receive-details">
       <label>
         {t('receiveCurrency')}{' '}
         <select value={currency} onChange={(event) => setCurrency(event.target.value)}>

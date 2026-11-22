@@ -237,7 +237,7 @@ function ScanRoom({ slice }: { slice: string }) {
       {camera && (
         <>
           <video ref={video} className="pay-scan-video" muted playsInline aria-label={t('scanCameraLabel')} />
-          <p className="pay-hint" role="status">
+          <p className="lt-hint" role="status">
             {t('scanLooking')}
           </p>
         </>
@@ -257,7 +257,7 @@ function ScanRoom({ slice }: { slice: string }) {
         />
       </div>
       {reading && (
-        <p className="pay-hint" role="status">
+        <p className="lt-hint" role="status">
           {t('scanReading')}
         </p>
       )}

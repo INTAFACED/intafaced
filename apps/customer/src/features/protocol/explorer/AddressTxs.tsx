@@ -106,7 +106,7 @@ export function AddressTxs({ address }: { address: string }) {
       <DataTable label={t('addressTxs')} headers={headers}>
         {body}
       </DataTable>
-      {page && page.asOfHeight !== null && <p className="muted">{t('addressTxsAsOf', { height: page.asOfHeight })}</p>}
+      {page && page.asOfHeight !== null && <p className="lt-muted">{t('addressTxsAsOf', { height: page.asOfHeight })}</p>}
       {page?.nextCursor && (
         <Button variant="secondary" onClick={() => setCursor(page.nextCursor)}>
           {t('moreTxs')}

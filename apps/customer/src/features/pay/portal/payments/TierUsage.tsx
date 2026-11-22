@@ -24,14 +24,14 @@ export function TierUsage({ portal, merchantId }: { portal: PortalApi; merchantI
   const own = tier.resource.status === 'ready' ? tier.resource.data : null;
   const name = own && own.status === 'configured' ? (own.tiers.find((x) => x.id === own.ownTierId)?.name ?? null) : null;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <p>
         <strong>{t('tierLabel')}</strong>{' '}
         {tier.resource.status === 'loading' ? '…' : name ? name : <NotConfigured>{t('tierNotSet')}</NotConfigured>}
       </p>
       {usage.resource.status === 'loading' && <PortalLoading rows={1} />}
       {/* Whatever the reason the usage read gave no rows, the card says so once; the tier above comes from the tier ladder read. */}
-      {usage.resource.status === 'failed' && <p className="muted">{t('usageUnavailable')}</p>}
+      {usage.resource.status === 'failed' && <p className="lt-muted">{t('usageUnavailable')}</p>}
       {usage.resource.status === 'ready' && <UsageRows rows={usage.resource.data.rows.slice(0, 3)} />}
       <a className="text-link" href="/pay/limits">
         {t('allLimits')} →
@@ -42,7 +42,7 @@ export function TierUsage({ portal, merchantId }: { portal: PortalApi; merchantI
 
 export function UsageRows({ rows }: { rows: readonly UsageRow[] }) {
   const { t } = c.useCopy();
-  if (rows.length === 0) return <p className="muted">{t('noLimits')}</p>;
+  if (rows.length === 0) return <p className="lt-muted">{t('noLimits')}</p>;
   return (
     <ul className="pp-links">
       {rows.map((row) => {
@@ -51,7 +51,7 @@ export function UsageRows({ rows }: { rows: readonly UsageRow[] }) {
         return (
           <li key={`${row.kind}:${row.assetCode ?? ''}`}>
             <span>{label}</span> {pct !== null && <UsageBar pct={pct} label={label} />}
-            <small className="muted">
+            <small className="lt-muted">
               {row.used === null ? (
                 t('usageUnknown')
               ) : row.assetCode ? (

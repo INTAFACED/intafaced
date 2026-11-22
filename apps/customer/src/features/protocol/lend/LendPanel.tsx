@@ -19,8 +19,8 @@ export function LendPanel({ api, t }: { api: Api; t: Translate }) {
   const account = wallet.status === 'connected' && wallet.address ? wallet.address : null;
   return (
     <Panel title={t('lendTitle')} aria-label={t('lendTitle')}>
-      <p className="muted">{t('lendLead')}</p>
-      {account ? <Position api={api} t={t} account={account} /> : <p className="muted">{t('lendConnect')}</p>}
+      <p className="lt-muted">{t('lendLead')}</p>
+      {account ? <Position api={api} t={t} account={account} /> : <p className="lt-muted">{t('lendConnect')}</p>}
       <div className="protocol-actions">
         <Button variant="secondary" disabled aria-disabled="true" title={t('lendSupplyBlocked')}>
           {t('lendSupply')}
@@ -66,23 +66,23 @@ function Position({ api, t, account }: { api: Api; t: Translate; account: string
       </div>
       <div>
         <dt>{t('lendMaxLtv')}</dt>
-        <dd className="numeric">{bpsPercent(p.maxLtvBps)}%</dd>
+        <dd className="lt-num">{bpsPercent(p.maxLtvBps)}%</dd>
       </div>
       <div>
         <dt>{t('lendYourCollateral')}</dt>
-        <dd className="numeric">
+        <dd className="lt-num">
           {p.collateral} {symbol(p.collateralToken)}
         </dd>
       </div>
       <div>
         <dt>{t('lendYourDebt')}</dt>
-        <dd className="numeric">
+        <dd className="lt-num">
           {p.debt} {symbol(p.borrowToken)}
         </dd>
       </div>
       <div>
         <dt>{t('lendAtBlock')}</dt>
-        <dd className="numeric">{p.blockNumber}</dd>
+        <dd className="lt-num">{p.blockNumber}</dd>
       </div>
     </dl>
   );

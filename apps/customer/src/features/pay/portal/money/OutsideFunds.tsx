@@ -24,7 +24,7 @@ export function OutsideFunds({ funds, retry, test }: { funds: Resource<Funds>; r
       <div data-testid="outside-funds">
         {funds.status === 'loading' && <PortalLoading rows={2} />}
         {funds.status === 'failed' && <MoneyFailure result={funds.failure} retry={retry} />}
-        {funds.status === 'ready' && funds.data.rows.length === 0 && <p className="muted">{c.t('outsideEmpty')}</p>}
+        {funds.status === 'ready' && funds.data.rows.length === 0 && <p className="lt-muted">{c.t('outsideEmpty')}</p>}
         {funds.status === 'ready' && funds.data.rows.length > 0 && (
           <EntityList
             label={c.t('outsideTitle')}
@@ -43,7 +43,7 @@ export function OutsideFunds({ funds, retry, test }: { funds: Resource<Funds>; r
               title: `${r.assetId} · ${where(r)}`,
               amount: <MoneyText value={r.available} asset={r.assetId} test={test} />,
               status: (
-                <span className="muted">
+                <span className="lt-muted">
                   {c.t('outsideClearing')} <MoneyText value={r.clearing} asset={r.assetId} test={test} /> · {source(r)} ·{' '}
                   <DateTime value={r.asOf} />
                 </span>

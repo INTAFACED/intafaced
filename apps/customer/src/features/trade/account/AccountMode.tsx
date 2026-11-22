@@ -60,7 +60,7 @@ function Balances({ rows, title, name, t }: { rows: readonly VenueBalance[]; tit
     <div data-testid={`mode-${name}`}>
       <h4 className="dk-tab-title">{title}</h4>
       {rows.length === 0 ? (
-        <p className="muted" data-empty="">
+        <p className="lt-muted" data-empty="">
           {t('empty')}
         </p>
       ) : (
@@ -68,13 +68,13 @@ function Balances({ rows, title, name, t }: { rows: readonly VenueBalance[]; tit
           {rows.map((b) => (
             <tr key={b.asset} data-asset={b.asset}>
               <td>{b.asset}</td>
-              <td className="numeric" data-cell="free" data-value={b.free}>
+              <td className="lt-num" data-cell="free" data-value={b.free}>
                 {displayAmount(b.free, 2)}
               </td>
-              <td className="numeric" data-cell="locked" data-value={b.locked}>
+              <td className="lt-num" data-cell="locked" data-value={b.locked}>
                 {displayAmount(b.locked, 2)}
               </td>
-              <td className="numeric" data-cell="total" data-value={b.total}>
+              <td className="lt-num" data-cell="total" data-value={b.total}>
                 {displayAmount(b.total, 2)}
               </td>
             </tr>
@@ -124,9 +124,9 @@ export function AccountModePanel({
   };
   const known = mode.state === 'known' ? mode.read : null;
   return (
-    <div className="form-stack" data-testid="account-mode" data-mode={known?.mode ?? (mode.state === 'unknown' ? 'unknown' : '')}>
+    <div className="lt-stack" data-testid="account-mode" data-mode={known?.mode ?? (mode.state === 'unknown' ? 'unknown' : '')}>
       <h3 className="dk-tab-title">{t('title')}</h3>
-      <p className="muted">
+      <p className="lt-muted">
         {t('source', { venue: venue.name })} · <AsOfLine iso={mode.state === 'loading' ? null : mode.asOf} t={t} />
       </p>
       {mode.state === 'loading' ? null : known ? (
@@ -134,7 +134,7 @@ export function AccountModePanel({
           <p data-testid="account-mode-line" data-value={known.mode}>
             {t('modeLine', { mode: modeWord(t, known.mode) })}
           </p>
-          <p className="muted" data-testid="account-mode-meaning">
+          <p className="lt-muted" data-testid="account-mode-meaning">
             {meaningOf(t, known.mode)}
           </p>
           {known.mode === 'standard' ? (
@@ -152,7 +152,7 @@ export function AccountModePanel({
           <p data-testid="account-mode-line" data-value="unknown">
             {t('modeUnknown')}
           </p>
-          <p className="muted" data-testid="account-mode-meaning">
+          <p className="lt-muted" data-testid="account-mode-meaning">
             {t('unknownLine', { venue: venue.name })}
           </p>
         </>
@@ -176,12 +176,12 @@ function Actions({ read, venue, t }: { read: VenueAccountModeRead & { mode: Venu
   const a = read.actions;
   if (!a)
     return (
-      <p className="muted" data-testid="mode-actions">
+      <p className="lt-muted" data-testid="mode-actions">
         {t('actionsUnknown', { venue })}
       </p>
     );
   return (
-    <p className="muted" data-testid="mode-actions" data-used={a.usedToday} data-limit={a.dailyLimit ?? ''}>
+    <p className="lt-muted" data-testid="mode-actions" data-used={a.usedToday} data-limit={a.dailyLimit ?? ''}>
       {a.dailyLimit === null
         ? t('actionsFree', { used: a.usedToday.toLocaleString('en-US'), venue })
         : t('actionsLimited', {
@@ -282,9 +282,9 @@ function MoveForm({
 
   const accepted = stage.at === 'done' && stage.result.kind === 'outcome' && stage.result.outcome.accepted;
   return (
-    <section className="form-stack" data-testid="mode-move" aria-label={t('moveTitle')}>
+    <section className="lt-stack" data-testid="mode-move" aria-label={t('moveTitle')}>
       <h4 className="dk-tab-title">{t('moveTitle')}</h4>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('moveDirection')}</span>
         <select
           data-testid="mode-move-direction"
@@ -312,7 +312,7 @@ function MoveForm({
         {t('moveReview')}
       </Button>
       {problem ? (
-        <p role="alert" className="failure" data-testid="mode-move-refused">
+        <p role="alert" className="lt-refusal" data-testid="mode-move-refused">
           {problem}
         </p>
       ) : null}
@@ -413,9 +413,9 @@ function SwitchForm({
         ? stage.result.message
         : null;
   return (
-    <section className="form-stack" data-testid="mode-switch" aria-label={t('switchTitle')}>
+    <section className="lt-stack" data-testid="mode-switch" aria-label={t('switchTitle')}>
       <h4 className="dk-tab-title">{t('switchTitle')}</h4>
-      <p className="muted">{t('switchLine')}</p>
+      <p className="lt-muted">{t('switchLine')}</p>
       <div className="button-row">
         {(current ? targets : MODES).map((m) => (
           <Button key={m} data-testid={`mode-switch-${m}`} onClick={() => ask(m)}>
@@ -424,7 +424,7 @@ function SwitchForm({
         ))}
       </div>
       {problem ? (
-        <p role="alert" className="failure" data-testid="mode-switch-refused">
+        <p role="alert" className="lt-refusal" data-testid="mode-switch-refused">
           {problem}
         </p>
       ) : null}
@@ -473,7 +473,7 @@ export function ActionLimitWarning({ venueName, venueId }: { venueName: string; 
   const a = mode.read.actions;
   if (!a || a.dailyLimit === null || a.usedToday < a.dailyLimit * NEAR_LIMIT_SHARE) return null;
   return (
-    <p role="alert" className="failure" data-testid="action-limit-warning" data-used={a.usedToday} data-limit={a.dailyLimit}>
+    <p role="alert" className="lt-refusal" data-testid="action-limit-warning" data-used={a.usedToday} data-limit={a.dailyLimit}>
       {t('limitNear', {
         venue: venueName,
         limit: a.dailyLimit.toLocaleString('en-US'),
@@ -560,7 +560,7 @@ export function SpotShortOffer({
   if (lock === null) return null;
   if (mode.state === 'unknown')
     return (
-      <p role="alert" className="failure" data-testid="spot-short" data-state="mode-unknown">
+      <p role="alert" className="lt-refusal" data-testid="spot-short" data-state="mode-unknown">
         {t('spotShortUnknown', { venue: venueName })}
       </p>
     );
@@ -572,7 +572,7 @@ export function SpotShortOffer({
   const needed = formatAmount(neededUnits);
   if (neededUnits > units(perpsFree))
     return (
-      <p role="alert" className="failure" data-testid="spot-short" data-state="perps-short">
+      <p role="alert" className="lt-refusal" data-testid="spot-short" data-state="perps-short">
         {t('spotShortNoPerps', { free: spotFree, lock, perps: perpsFree })}
       </p>
     );
@@ -586,7 +586,7 @@ export function SpotShortOffer({
     onLanded();
   };
   return (
-    <div role="alert" className="failure" data-testid="spot-short" data-state="offer" data-needed={needed}>
+    <div role="alert" className="lt-refusal" data-testid="spot-short" data-state="offer" data-needed={needed}>
       <p>{t('spotShort', { free: spotFree, lock, needed })}</p>
       <Button data-testid="spot-short-move" disabled={busy} onClick={() => void move()}>
         {t('spotShortSign', { needed })}

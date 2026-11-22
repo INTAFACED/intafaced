@@ -18,7 +18,7 @@ export function RoomNotes({
   const summary = roomSummary(sessions);
   const isHost = Boolean(userId) && room.hostId === userId;
   return (
-    <section className="academy-lms-stack" aria-label={copy.t('roomNotesLabel')}>
+    <section className="lt-stack" aria-label={copy.t('roomNotesLabel')}>
       <p role="status">
         <Copy k="roomSessions" params={{ live: summary.live, scheduled: summary.scheduled }} />
       </p>
@@ -28,11 +28,11 @@ export function RoomNotes({
         {room.access === 'invite' && <Copy k="roomInvite" params={{ capacity: room.capacity }} />}
       </p>
       {summary.live === 0 && (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="roomNoLive" />
         </p>
       )}
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k={isHost ? 'roomYouHost' : 'roomHostOnly'} />
       </p>
     </section>

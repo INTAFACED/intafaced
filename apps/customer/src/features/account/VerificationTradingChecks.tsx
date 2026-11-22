@@ -85,11 +85,11 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
   const words = refused?.code ? REFUSED[refused.code] : undefined;
   return (
     <section className="verification__trading" data-testid="verification__trading" data-state="not_run">
-      <form className="form-stack" aria-label={t('form')} onSubmit={(event) => void submit(event)}>
+      <form className="lt-stack" aria-label={t('form')} onSubmit={(event) => void submit(event)}>
         <h2>
           <Copy k="form" />
         </h2>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="intro" />
         </p>
         <Field
@@ -104,7 +104,7 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
           onChange={(event) => setLegalName(event.target.value)}
           hint={t('legalNameHint')}
         />
-        <label className="field">
+        <label className="lt-field">
           <span>
             <Copy k="country" />
           </span>
@@ -143,7 +143,7 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
         </Button>
         {refused ? (
           words ? (
-            <p className="failure" role="alert" data-code={refused.code ?? undefined}>
+            <p className="lt-refusal" role="alert" data-code={refused.code ?? undefined}>
               {words === 'regionBlocked' ? t('regionBlocked', { country: chosenName }) : <Copy k={words} />}
             </p>
           ) : (

@@ -54,7 +54,7 @@ export function GridWithdraw({ bot, api, onDone }: { bot: GridBot; api: ReturnTy
 
   return (
     <>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button variant="secondary" onClick={() => setOpen(true)}>
           {t('Withdraw profit')}
         </Button>

@@ -97,7 +97,7 @@ function Programme() {
       <h2>
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="intro" />
       </p>
       {resource.status === 'loading' && !filed ? (
@@ -163,7 +163,7 @@ function Status({ application }: { application: Application }) {
         </strong>
       </div>
       {application.state === 'submitted' && (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="submittedBody" />
         </p>
       )}
@@ -234,7 +234,7 @@ function Portal({ application }: { application: Application }) {
           <h4>
             <Copy k="tree" />
           </h4>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="treeDepth" />{' '}
             <strong lang="zxx" data-testid="partner-tree-depth">
               {tree.depth}
@@ -242,7 +242,7 @@ function Portal({ application }: { application: Application }) {
             <Copy k="treeLevels" />
           </p>
           {tree.members.length === 0 ? (
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="treeEmpty" />
             </p>
           ) : (

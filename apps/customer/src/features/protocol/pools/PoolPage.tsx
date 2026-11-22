@@ -123,7 +123,7 @@ export function PoolPage({ address }: { address: string }) {
               ? t('volumeRaw', { amount: shown.volume1, symbol: quote, swaps: shown.swaps })
               : t('volumeDay', { amount: tokenAmount(shown.volume1, pool.token1, t), symbol: quote, swaps: shown.swaps })}
           </p>
-          <p className="muted">{t('asOf', { time: when(new Date(shown.asOf)) })}</p>
+          <p className="lt-muted">{t('asOf', { time: when(new Date(shown.asOf)) })}</p>
         </Panel>
         <Panel title={t('tradesTitle')}>
           <Trades chain={chain} pool={pool} t={t} />
@@ -242,14 +242,14 @@ function FeesPanel({ pool, indexedFeeBps, t }: { pool: string; indexedFeeBps: nu
           ))}
         </ul>
         {!data.thirdShare && <p data-testid="pool-fee-third">{t('feesNoThird')}</p>}
-        <p className="muted">{t('feesReadAt', { height: data.blockNumber })}</p>
+        <p className="lt-muted">{t('feesReadAt', { height: data.blockNumber })}</p>
       </>
     );
   }
   return (
     <Panel title={t('feesTitle')} aria-label={t('feesTitle')}>
       {read}
-      <p className="muted">{t('feesRequestNote')}</p>
+      <p className="lt-muted">{t('feesRequestNote')}</p>
       <Button variant="secondary" disabled={request.state === 'sending'} onClick={() => void ask()}>
         {t('feesRequest')}
       </Button>

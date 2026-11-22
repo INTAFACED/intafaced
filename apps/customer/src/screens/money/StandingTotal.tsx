@@ -57,7 +57,7 @@ export function StandingTotal({
   const test = Boolean(prices?.test) || standing.parts.some((part) => part.test);
   const size = pro ? 'hero-pro' : undefined;
   return (
-    <section data-testid={testId} data-standing="" className="form-stack" aria-label={t('Title')}>
+    <section data-testid={testId} data-standing="" className="lt-stack" aria-label={t('Title')}>
       <div data-testid="standing-figure" data-unit={btcTotal !== null ? 'BTC' : 'USD'} data-total-usd={totalUsd ?? ''}>
         {totalUsd === null ? (
           <span data-testid="standing-no-total">{t('No total')}</span>
@@ -73,7 +73,7 @@ export function StandingTotal({
         ) : null}
       </div>
       {totalUsd === null ? null : <TotalAsOf standing={standing} t={t} asOfText={asOfText} />}
-      <p data-testid="standing-prices" className="muted" data-state={pricesFailed ? 'failed' : prices ? 'published' : 'unpublished'}>
+      <p data-testid="standing-prices" className="lt-muted" data-state={pricesFailed ? 'failed' : prices ? 'published' : 'unpublished'}>
         {pricesFailed ? (
           t('Prices failed')
         ) : !prices ? (
@@ -89,7 +89,7 @@ export function StandingTotal({
         )}
       </p>
       <UnitNote standing={standing} displayCurrency={displayCurrency} hidden={hidden} t={t} />
-      <ul data-testid="standing-parts" className="form-stack">
+      <ul data-testid="standing-parts" className="lt-stack">
         {standing.parts.map((part) => (
           <Part key={part.id} part={part} hidden={hidden} t={t} asOfText={asOfText} />
         ))}
@@ -128,7 +128,7 @@ function TotalAsOf({ standing, t, asOfText }: { standing: Standing; t: T; asOfTe
     read.map((part) => ({ state: heldStateOf({ asOf: part.asOf, now, staleAfterMs: STANDING_STALE_AFTER_MS }), asOf: part.asOf })),
   );
   return (
-    <p data-testid="standing-as-of" data-held={total.state} className="muted">
+    <p data-testid="standing-as-of" data-held={total.state} className="lt-muted">
       {t('Total as of')}{' '}
       <HeldMark
         state={total.state}
@@ -214,15 +214,15 @@ function Part({ part, hidden, t, asOfText }: { part: ValuedPart; hidden: boolean
       ) : null}
       {': '}
       {part.state === 'reading' ? (
-        <span className="muted">{t('Part reading')}</span>
+        <span className="lt-muted">{t('Part reading')}</span>
       ) : part.state === 'unread' ? (
         <>
           <HeldMark state="unknown" labels={heldLabels(t)} /> <span data-testid="standing-part-unread">{t('Part unread')}</span>
         </>
       ) : part.rows.length === 0 ? (
-        <span className="muted">{t('Part empty')}</span>
+        <span className="lt-muted">{t('Part empty')}</span>
       ) : part.valueUsd === null ? (
-        <span className="muted">{t('Part not valued')}</span>
+        <span className="lt-muted">{t('Part not valued')}</span>
       ) : (
         <Money data-testid="standing-part-value" value={dollars(part.valueUsd)} hidden={hidden} />
       )}

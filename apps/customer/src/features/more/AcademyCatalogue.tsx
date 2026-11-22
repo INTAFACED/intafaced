@@ -34,7 +34,7 @@ export function AcademyCatalogue({ lessons, tracking, certId, selectedPath }: Pr
   const selected = selectedPath ? paths.find((p) => p.path === selectedPath) : undefined;
   if (paths.length === 0) return null;
   return (
-    <div className="academy-lms-stack">
+    <div className="lt-stack">
       {resume && (
         <section className="academy-lms-card academy-lms-card--resume" aria-label={t('resumeTitle')}>
           <h2>
@@ -59,8 +59,8 @@ export function AcademyCatalogue({ lessons, tracking, certId, selectedPath }: Pr
         </section>
       )}
       <Panel title={t('catalogueTitle')}>
-        <div className="academy-lms-stack">
-          <p className="muted">
+        <div className="lt-stack">
+          <p className="lt-muted">
             <Copy k="catalogueIntro" />
           </p>
           <div className="academy-lms-grid">
@@ -68,7 +68,7 @@ export function AcademyCatalogue({ lessons, tracking, certId, selectedPath }: Pr
               <PathCard key={path.path} path={path} tracking={tracking} active={path.path === selectedPath} />
             ))}
           </div>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="trackingSource" />
           </p>
         </div>
@@ -125,9 +125,9 @@ function PathDetail({ path, tracking, certId }: { path: PathSummary; tracking: T
   const next = nextUp(path.lessons, tracking);
   return (
     <Panel title={pathLabel(t, path.path)}>
-      <div className="academy-lms-stack">
+      <div className="lt-stack">
         <div className="academy-lms-crumbs">
-          <a className="text-link" href="/academy">
+          <a className="lt-link" href="/academy">
             <Copy k="allPaths" />
           </a>
         </div>

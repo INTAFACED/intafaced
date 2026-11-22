@@ -33,7 +33,7 @@ export function PromotionPerks() {
           <EmptyState
             title={t('signIn')}
             action={
-              <a className="text-link" href="/login?redirect=%2Fuc%2Fpromotion%2Fperks">
+              <a className="lt-link" href="/login?redirect=%2Fuc%2Fpromotion%2Fperks">
                 <Copy k="signIn" />
               </a>
             }
@@ -60,12 +60,12 @@ export function PerksView({ load }: { load: Loadable<FeeTier | null> }) {
   return (
     <section className="perks" aria-label={t('title')} data-testid="perks" data-state={load.status}>
       <Panel title={t('title')}>
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
         {load.status === 'loading' ? <p role="status">{t('loading')}</p> : null}
         {load.status === 'error' ? (
           <p role="alert" data-testid="perks-failed">
             {t('failed')}{' '}
-            <button type="button" className="text-link" onClick={load.retry}>
+            <button type="button" className="lt-link" onClick={load.retry}>
               {t('retry')}
             </button>
           </p>
@@ -94,7 +94,7 @@ function Perks({ tier }: { tier: FeeTier }) {
         <p>
           {t('tierLead')} <strong lang="zxx">{tier.tier}</strong>
         </p>
-        <p className="muted">{t('tierBasis')}</p>
+        <p className="lt-muted">{t('tierBasis')}</p>
         <p data-testid="perks-multiplier" data-multiplier={rate?.takerMultiplier ?? ''}>
           {t('multiplier')}:{' '}
           {rate && rate.takerMultiplier !== null ? (
@@ -130,11 +130,11 @@ function Perks({ tier }: { tier: FeeTier }) {
             <time dateTime={pass.endsAt}>{utc(pass.endsAt)}</time>
           </p>
         ) : (
-          <p className="muted" data-testid="perks-pass-none">
+          <p className="lt-muted" data-testid="perks-pass-none">
             {t('passNone')}
           </p>
         )}
-        {pass ? <p className="muted">{t('passApplied')}</p> : null}
+        {pass ? <p className="lt-muted">{t('passApplied')}</p> : null}
         {tier.passes && tier.passes.length > 0 ? <Passes passes={tier.passes} /> : null}
       </section>
     </>

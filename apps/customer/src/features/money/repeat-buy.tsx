@@ -147,7 +147,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
         }
         return (
           <div className="money-repeat-setup">
-            <label className="field">
+            <label className="lt-field">
               <span>{t('spendSource')}</span>
               <select value={spendAsset} onChange={(event) => setSelected(event.target.value)} aria-label={t('spendSource')}>
                 <option value="">{t('choose')}</option>
@@ -158,12 +158,12 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
                 ))}
               </select>
             </label>
-            {source && <p className="muted numeric">{t('available', { amount: funds(source[1].free, spendAsset) })}</p>}
-            <p className="muted">{t('unreserved')}</p>
+            {source && <p className="lt-muted lt-num">{t('available', { amount: funds(source[1].free, spendAsset) })}</p>}
+            <p className="lt-muted">{t('unreserved')}</p>
             <Button disabled={!source} onClick={() => open(setup())}>
               {t('setup')}
             </Button>
-            {source && <p className="muted">{t('setupHint', { asset: spendAsset })}</p>}
+            {source && <p className="lt-muted">{t('setupHint', { asset: spendAsset })}</p>}
           </div>
         );
       }}
@@ -179,7 +179,7 @@ function PersonalRepeatBuy({ asset, open }: { asset: string; open: (spec: Action
       title={t('title', { asset })}
       description={t('description')}
       actions={
-        <a className="button button--secondary" href={`/portfolio/${encodeURIComponent(asset)}`}>
+        <a className="lt-button lt-button-secondary" href={`/portfolio/${encodeURIComponent(asset)}`}>
           {t('back', { asset })}
         </a>
       }

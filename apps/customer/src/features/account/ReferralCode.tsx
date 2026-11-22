@@ -55,7 +55,7 @@ function OwnerCode() {
         <Failure result={resource.failure} retry={reload} />
       ) : shown ? (
         <>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="label" />
           </p>
           <p className="promotions__ref" lang="zxx" data-testid="referral-code">
@@ -80,7 +80,7 @@ function OwnerCode() {
           <h3>
             <Copy k="none" />
           </h3>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="noneBody" />
           </p>
           <Button disabled={busy} onClick={() => void create()}>

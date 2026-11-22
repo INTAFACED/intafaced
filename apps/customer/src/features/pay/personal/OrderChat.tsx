@@ -55,7 +55,7 @@ export function FailureText({ kind }: { kind: ServiceFailure }) {
       {kind === 'verify' ? (
         <>
           {' '}
-          <a className="text-link" href="/verification">
+          <a className="lt-link" href="/verification">
             {t('failVerifyLink')}
           </a>
         </>
@@ -86,7 +86,9 @@ function PendingItem({
       <div className="p2p-chat-msg" data-own="true" data-status={item.status} data-testid="chat-pending">
         <div className="p2p-chat-meta">
           <strong>{t('roleYou')}</strong>
-          <span className="muted">{item.status === 'sending' ? t('sending') : unconfirmed ? t('unconfirmedTitle') : t('failedTitle')}</span>
+          <span className="lt-muted">
+            {item.status === 'sending' ? t('sending') : unconfirmed ? t('unconfirmedTitle') : t('failedTitle')}
+          </span>
         </div>
         <p className="p2p-chat-text" lang="und">
           {item.text}
@@ -100,7 +102,7 @@ function PendingItem({
                 <FailureText kind={item.failure} />
               ) : null}
             </p>
-            <div className="actions">
+            <div className="lt-actions">
               {retriable ? (
                 <Button variant="secondary" size={32} onClick={() => onResend(item.clientId)}>
                   {unconfirmed ? t('checkAndSend') : t('sendAgain')}
@@ -191,10 +193,10 @@ export function ChatView({
     <div className="p2p-chat" data-testid="order-chat" lang={languageFor('title')} dir={directionFor('title')}>
       <div className="p2p-chat-head" data-testid="chat-head">
         <strong>{me ? counterparty : t('buyerAndSeller')}</strong>
-        {me ? <span className="muted">{me === 'buyer' ? t('roleSeller') : t('roleBuyer')}</span> : null}
+        {me ? <span className="lt-muted">{me === 'buyer' ? t('roleSeller') : t('roleBuyer')}</span> : null}
         <TradeStatus status={trade.status} />
       </div>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       {me === 'seller' && (trade.status === 'escrowed' || trade.status === 'fiat_sent') ? (
         <p className="p2p-chat-warning" role="note" data-testid="chat-seller-warning">
           {t('sellerWarning')}
@@ -233,7 +235,7 @@ export function ChatView({
             }}
           >
             {count === 0 ? (
-              <p className="muted" data-testid="chat-empty">
+              <p className="lt-muted" data-testid="chat-empty">
                 {depth.t('chatEmpty')} {t('emptyHint')}
               </p>
             ) : (
@@ -258,7 +260,7 @@ export function ChatView({
                                   ? t('roleSeller')
                                   : t('roleModerator')}
                           </strong>
-                          <time className="muted" dateTime={message.createdAt} title={message.createdAt} lang={requestedLocale}>
+                          <time className="lt-muted" dateTime={message.createdAt} title={message.createdAt} lang={requestedLocale}>
                             {chatTime(message.createdAt, requestedLocale, now)}
                           </time>
                         </div>
@@ -286,12 +288,12 @@ export function ChatView({
         </p>
       ) : null}
       {state.lastNotified === false ? (
-        <p className="muted" role="status" data-testid="chat-not-notified">
+        <p className="lt-muted" role="status" data-testid="chat-not-notified">
           {t('notifiedOff')}
         </p>
       ) : null}
       {closed ? (
-        <p className="muted" data-testid="chat-closed">
+        <p className="lt-muted" data-testid="chat-closed">
           {trade.status === 'cancelled' ? t('closedCancelledNote') : t('closedReleasedNote')}
         </p>
       ) : null}
@@ -345,11 +347,11 @@ export function ChatView({
         {hint} <span>{t('charCount', { used: draft.length, max: MAX_CHAT_TEXT })}</span>
       </p>
       <div className="p2p-chat-notes">
-        <p className="muted">{t('liveNote')}</p>
-        <p className="muted">{t('attachmentsOff')}</p>
-        <p className="muted">{t('systemOff', { path: depth.t('escrowTitle') })}</p>
+        <p className="lt-muted">{t('liveNote')}</p>
+        <p className="lt-muted">{t('attachmentsOff')}</p>
+        <p className="lt-muted">{t('systemOff', { path: depth.t('escrowTitle') })}</p>
       </div>
-      <div className="actions">
+      <div className="lt-actions">
         <Button variant="ghost" onClick={onRefresh}>
           {t('refresh')}
         </Button>

@@ -53,7 +53,7 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
     <LayoutFrame here={current ?? '/pay/merchant'} title={<PayCopy k={room} />} purpose={authority?.companyName}>
       <PayState resource={merchant.resource} retry={merchant.reload}>
         {(record) => (
-          <div className="stack">
+          <div className="lt-stack">
             <div className="pay-business-content">
               {current === '/pay/money' ? (
                 <MerchantBalance pay={pay} />
@@ -87,10 +87,10 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
       </PayState>
       {merchant.resource.status === 'failed' && (
         <div className="pay-return-links">
-          <a className="text-link" href="/pay">
+          <a className="lt-link" href="/pay">
             <PayCopy k="returnToPersonalPay" />
           </a>
-          <a className="text-link" href="/identbusiness">
+          <a className="lt-link" href="/identbusiness">
             <PayCopy k="openBusinessVerification" />
           </a>
         </div>
@@ -123,7 +123,7 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
     `pay:balance:${pay.authority!.merchantId}:${asset}`,
   );
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={payCopy.t('merchantLedgerBalance')} description={payCopy.t('clearingAndAvailableAreReadProjectionsOf')}>
         <form
           data-testid="pay-filters"
@@ -149,13 +149,13 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
             {(data) => (
               <div className="pay-balance-grid">
                 <div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <PayCopy k="available" /> {asset}
                   </p>
                   <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : portalAmount(data.available, asset)}</strong>
                 </div>
                 <div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <PayCopy k="clearing" /> {asset}
                   </p>
                   <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : portalAmount(data.clearing, asset)}</strong>
@@ -202,7 +202,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
     ...(expires ? { expiresAt: new Date(expires).toISOString() } : {}),
   };
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={payCopy.t('createAPaymentLink')} description={payCopy.t('blankAmountAllowsThePayerToChoose')}>
         <div className="form-stack pay-form">
           <Field label={payCopy.t('linkLabel')} value={label} onChange={(event) => setLabel(event.target.value)} required maxLength={120} />
@@ -272,7 +272,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
               <a className="text-link pay-secret" href={addressOf(created) ?? undefined}>
                 {addressOf(created)}
               </a>
-              <span className="pay-cell-note">
+              <span className="lt-hint">
                 <PayCopy k="expires" /> <PayTime value={created.expiresAt} />
                 <PayCopy k="copyTheLinkBeforeLeavingThisPage" />
               </span>
@@ -299,9 +299,9 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                   <tr key={link.id}>
                     <td>
                       {link.label}
-                      <small className="pay-cell-note">{link.prefix}</small>
+                      <small className="lt-hint">{link.prefix}</small>
                     </td>
-                    <td className="numeric">
+                    <td className="lt-num">
                       {link.amount === null
                         ? payCopy.t('payerChooses')
                         : `${portalAmount(link.amount, link.currency ?? '')} ${link.currency ?? payCopy.t('assetChosenByPayer')}`}
@@ -311,7 +311,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                     </td>
                     <td>
                       {link.expiresAt ? <PayTime value={link.expiresAt} /> : payCopy.t('notSupplied')}
-                      <small className="pay-cell-note">{link.active ? payCopy.t('active') : payCopy.t('deactivated')}</small>
+                      <small className="lt-hint">{link.active ? payCopy.t('active') : payCopy.t('deactivated')}</small>
                     </td>
                     <td>
                       {link.active && (
@@ -362,7 +362,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
     details.reload();
   }
   return (
-    <div className="stack">
+    <div className="lt-stack">
       {!payouts && (
         <PaySection title={payCopy.t('createASettlementWindow')} description={payCopy.t('theServiceFreezesEligiblePaymentsAndComputes')}>
           <div className="form-stack pay-form">
@@ -434,11 +434,11 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                   <tr key={record.id}>
                     <td>
                       {record.window}
-                      <small className="pay-cell-note">{record.assetId}</small>
+                      <small className="lt-hint">{record.assetId}</small>
                     </td>
-                    <td className="numeric">{portalAmount(record.gross, record.assetId)}</td>
-                    <td className="numeric">{portalAmount(record.fees, record.assetId)}</td>
-                    <td className="numeric">{portalAmount(record.net, record.assetId)}</td>
+                    <td className="lt-num">{portalAmount(record.gross, record.assetId)}</td>
+                    <td className="lt-num">{portalAmount(record.fees, record.assetId)}</td>
+                    <td className="lt-num">{portalAmount(record.net, record.assetId)}</td>
                     <td>
                       <Status value={record.status} />
                     </td>
@@ -459,7 +459,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
         <PaySection title={payCopy.t('settlementDetails')}>
           <PayState resource={details.resource} retry={details.reload}>
             {(record) => (
-              <div className="form-stack">
+              <div className="lt-stack">
                 <PayDetails
                   values={[
                     [payCopy.t('settlement'), record.id],
@@ -494,7 +494,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                 )}
                 {record.status === 'posted' && (
                   <>
-                    <label className="field">
+                    <label className="lt-field">
                       <PayCopy k="livePayoutRail" />
                       <select value={rail} onChange={(event) => setRail(event.target.value)}>
                         <option value="">{payCopy.t('chooseAConnectedLivePayoutRail')}</option>
@@ -517,7 +517,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                         </PayNotice>
                       )}
                     {pay.access('pay:payout') && (
-                      <p className="muted" role="note">
+                      <p className="lt-muted" role="note">
                         {moneyReason('payout', pay.authority?.scopes)}
                       </p>
                     )}

@@ -218,7 +218,7 @@ export function PathProgrammesView({
   return (
     <>
       <Panel title={t('enrolmentsTitle')}>
-        <div className="academy-lms-stack">
+        <div className="lt-stack">
           {enrolments.status === 'loading' && <Loading />}
           {enrolments.status === 'failed' && <AcademyRefusal failure={enrolments.failure} retry={reload} />}
           {enrolments.status === 'ready' &&
@@ -253,8 +253,8 @@ export function PathProgrammesView({
         </div>
       </Panel>
       <Panel title={t('programmesTitle')}>
-        <div className="academy-lms-stack">
-          <p className="muted">
+        <div className="lt-stack">
+          <p className="lt-muted">
             <Copy k="programmesIntro" />
           </p>
           <div className="academy-lms-grid">
@@ -284,7 +284,7 @@ export function PathProgrammesView({
                       </span>
                     )}
                   </div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="prerequisitesChecked" />
                   </p>
                   <div className="academy-learning-actions">
@@ -326,7 +326,7 @@ function Grants({ tracking }: { tracking: Tracking }) {
   const { language } = usePreferences();
   return (
     <Panel title={t('grantsTitle')}>
-      <div className="academy-lms-stack">
+      <div className="lt-stack">
         {tracking.grants.length === 0 ? (
           <p>
             <Copy k="grantsEmpty" />
@@ -342,7 +342,7 @@ function Grants({ tracking }: { tracking: Tracking }) {
             ))}
           </ul>
         )}
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="grantsBoundary" />
         </p>
       </div>
@@ -370,7 +370,7 @@ function AmbassadorStatus() {
   const pay = useResource((signal) => api.call(ACADEMY_RESIDENCY_PAY_QUOTE, undefined, { signal }), `residency-pay:${userId}`);
   return (
     <Panel title={t('ambassadorTitle')}>
-      <div className="academy-lms-stack">
+      <div className="lt-stack">
         <Read resource={status.resource} retry={status.reload}>
           {(b) =>
             b && (
@@ -395,7 +395,7 @@ function AmbassadorStatus() {
             />
           )}
         </Read>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="ambassadorBoundary" />
         </p>
       </div>

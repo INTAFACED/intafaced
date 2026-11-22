@@ -58,7 +58,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
     const reading = resource.status === 'loading';
     if (!requested)
       return (
-        <p className="muted" data-testid="verification__poa-state" data-state="not-requested">
+        <p className="lt-muted" data-testid="verification__poa-state" data-state="not-requested">
           <Copy k="notRequested" />
         </p>
       );
@@ -129,13 +129,13 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
       }
     };
     return (
-      <div className="stack">
+      <div className="lt-stack">
         {rereadFailed && <Failure result={rereadFailed} retry={reload} />}
         <p data-testid="verification__poa-rule" data-max-age-days={maxAgeDays ?? ''}>
           {maxAgeDays ? <Copy k="rule" params={{ days: String(maxAgeDays) }} /> : <Copy k="ruleUnset" />}
         </p>
         {residence && (
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="residence" params={{ country: residence }} />
           </p>
         )}
@@ -153,12 +153,12 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
           </p>
         )}
         {latest?.status === 'submitted' && (
-          <p className="muted" data-testid="verification__poa-one-at-a-time">
+          <p className="lt-muted" data-testid="verification__poa-one-at-a-time">
             <Copy k="oneAtATime" />
           </p>
         )}
         <form
-          className="form-stack"
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             void send();
@@ -210,7 +210,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
             )}
           </div>
           {documents.published && (
-            <label className="field">
+            <label className="lt-field">
               <span>
                 <Copy k="typeField" />
               </span>
@@ -288,7 +288,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
       <h2 id="verification-poa-title">
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="intro" />
       </p>
       {body()}

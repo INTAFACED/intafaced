@@ -60,7 +60,7 @@ export function PositionsRoom({ path }: { path: string }) {
   const mode = useVenueMode();
   const { userId } = useSession();
   const actions = (
-    <a className="text-link" href="/trade/futures">
+    <a className="lt-link" href="/trade/futures">
       {t('deskLink')}
     </a>
   );
@@ -70,7 +70,7 @@ export function PositionsRoom({ path }: { path: string }) {
         <EmptyState
           title={t('signedOutTitle')}
           action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
               {t('signIn')}
             </a>
           }
@@ -96,7 +96,7 @@ export function PositionsRoom({ path }: { path: string }) {
     <VenueFrame mode={mode}>
       <Page eyebrow={t('eyebrow')} title={t('title')} actions={actions}>
         <TestMark test={status.test} />
-        <p className="muted">{t('lead')}</p>
+        <p className="lt-muted">{t('lead')}</p>
         <WalletBar />
         <Owned>{(owner) => <Room owner={owner} status={status} path={path} />}</Owned>
       </Page>
@@ -107,7 +107,7 @@ export function PositionsRoom({ path }: { path: string }) {
 function Owned({ children }: { children: (owner: string) => ReactNode }) {
   const { t } = positionsCopy.useCopy();
   const owner = useOwner();
-  if (!owner) return <p className="muted">{t('connectFirst')}</p>;
+  if (!owner) return <p className="lt-muted">{t('connectFirst')}</p>;
   return <>{children(owner)}</>;
 }
 
@@ -250,25 +250,25 @@ function PositionCells({ row, market }: { row: Row; market: Listed }) {
       <td data-cell="product">{t(`product_${market === null ? 'reading' : market === 'unread' ? 'unread' : productOf(market)}`)}</td>
       <td data-cell="market">{p.symbol}</td>
       <td data-cell="side">{t(`side_${p.side}`)}</td>
-      <td className="numeric" data-cell="size">
+      <td className="lt-num" data-cell="size">
         {p.size}
       </td>
-      <td className="numeric" data-cell="entry">
+      <td className="lt-num" data-cell="entry">
         {p.entryPrice}
       </td>
-      <td className="numeric" data-cell="mark">
+      <td className="lt-num" data-cell="mark">
         {p.markPrice}
       </td>
-      <td className="numeric" data-cell="notional">
+      <td className="lt-num" data-cell="notional">
         {notional(p)}
       </td>
-      <td className="numeric" data-cell="margin">
+      <td className="lt-num" data-cell="margin">
         {p.margin}
       </td>
-      <td className="numeric" data-cell="unrealised">
+      <td className="lt-num" data-cell="unrealised">
         {p.unrealisedPnl}
       </td>
-      <td className="numeric" data-cell="leverage">
+      <td className="lt-num" data-cell="leverage">
         {t('leverageCell', { times: String(leverageTimes(p.leverageBps)), mode: t(`mode_${p.marginMode}`) })}
       </td>
     </>
@@ -301,13 +301,13 @@ function TotalRow({ rows, extra = 0 }: { rows: readonly VenuePosition[]; extra?:
       <th scope="row" colSpan={7}>
         {t('totalRow', { count: String(total.count) })}
       </th>
-      <td className="numeric" data-cell="notional">
+      <td className="lt-num" data-cell="notional">
         {total.notional}
       </td>
-      <td className="numeric" data-cell="margin">
+      <td className="lt-num" data-cell="margin">
         {total.margin}
       </td>
-      <td className="numeric" data-cell="unrealised">
+      <td className="lt-num" data-cell="unrealised">
         {total.unrealisedPnl}
       </td>
       <td colSpan={1 + extra} />
@@ -351,17 +351,17 @@ function AllPositions({
       </h2>
       {(reads ?? []).map((r) =>
         r.venue.down !== null ? (
-          <p key={r.venue.id} className="failure" role="alert" data-venue-down={r.venue.id}>
+          <p key={r.venue.id} className="lt-refusal" role="alert" data-venue-down={r.venue.id}>
             {t('venueDown', { venue: r.venue.name, reason: r.venue.down })}
           </p>
         ) : r.failure ? (
-          <p key={r.venue.id} className="failure" role="alert">
+          <p key={r.venue.id} className="lt-refusal" role="alert">
             {t('readFailed', { venue: r.venue.name, detail: r.failure })}
           </p>
         ) : null,
       )}
       {reads === null ? <Loading label={t('allTitle')} /> : null}
-      {reads !== null && rows.length === 0 ? <p className="muted">{t('none')}</p> : null}
+      {reads !== null && rows.length === 0 ? <p className="lt-muted">{t('none')}</p> : null}
       {rows.length > 0 ? (
         <DataTable label={t('allTitle')} headers={[...headers, '']}>
           {rows.map((row) => (
@@ -434,22 +434,22 @@ function Detail({ row, fills, onClose }: { row: Row; fills: VenueFill[]; onClose
       <h3 className="dk-tab-title">{t('detailTitle', { symbol: p.symbol, venue: row.venue.name })}</h3>
       <dl>
         <dt>{t('detailEntry')}</dt>
-        <dd className="numeric" data-line="entry">
+        <dd className="lt-num" data-line="entry">
           {p.entryPrice}
         </dd>
         <dt>{t('detailBreakEven')}</dt>
-        <dd className="numeric" data-line="break-even">
+        <dd className="lt-num" data-line="break-even">
           <span data-value="break-even">{breakEven(p, fills)}</span>{' '}
-          <span className="muted" data-line="break-even-rule">
+          <span className="lt-muted" data-line="break-even-rule">
             {t('detailBreakEvenRule', { sign: p.side === 'long' ? '+' : '−', fees, size: p.size })}
           </span>
         </dd>
         <dt>{t('detailMark')}</dt>
-        <dd className="numeric" data-line="mark">
+        <dd className="lt-num" data-line="mark">
           {p.markPrice}
         </dd>
         <dt>{t('detailMarginRatio')}</dt>
-        <dd className="numeric" data-line="margin-ratio">
+        <dd className="lt-num" data-line="margin-ratio">
           {ratio === null ? (
             t('detailMarginRatioNone')
           ) : ratio === 'liquidation' ? (
@@ -457,7 +457,7 @@ function Detail({ row, fills, onClose }: { row: Row; fills: VenueFill[]; onClose
           ) : (
             <>
               <span data-value="margin-ratio">{t('detailMarginRatioValue', { ratio })}</span>{' '}
-              <span className="muted" data-line="margin-ratio-rule">
+              <span className="lt-muted" data-line="margin-ratio-rule">
                 {t('detailMarginRatioRule', {
                   maintenance: p.maintenanceMargin?.known ? p.maintenanceMargin.value : '',
                   margin: p.margin,
@@ -468,14 +468,14 @@ function Detail({ row, fills, onClose }: { row: Row; fills: VenueFill[]; onClose
           )}
         </dd>
         <dt>{t('detailPnl')}</dt>
-        <dd className="numeric" data-line="pnl">
+        <dd className="lt-num" data-line="pnl">
           <span data-value="pnl">{p.unrealisedPnl}</span>{' '}
-          <span className="muted" data-line="pnl-formula">
+          <span className="lt-muted" data-line="pnl-formula">
             {t(pnl.words === 'long' ? 'detailPnlLong' : 'detailPnlShort', pnl)}
           </span>
         </dd>
         <dt>{t('detailLiquidation')}</dt>
-        <dd className="numeric" data-line="liquidation">
+        <dd className="lt-num" data-line="liquidation">
           <Known value={p.liquidationPrice} render={(x) => x} />
         </dd>
       </dl>
@@ -549,7 +549,7 @@ function Leverage({
     <section className="dk-panel form-stack" aria-label={t('levTitle', words)} data-testid="position-leverage">
       <h3 className="dk-tab-title">{t('levTitle', words)}</h3>
       <p data-line="cap">{cap === null ? t('levCapNone', words) : t('levCap', { ...words, times: String(leverageTimes(cap)) })}</p>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('levInput')}</span>
         <input
           inputMode="numeric"
@@ -565,7 +565,7 @@ function Leverage({
         {t('levReview')}
       </Button>
       {problem ? (
-        <p className="failure" role="alert" data-testid="position-leverage-problem">
+        <p className="lt-refusal" role="alert" data-testid="position-leverage-problem">
           {problem}
         </p>
       ) : null}
@@ -573,11 +573,11 @@ function Leverage({
         <div data-testid="position-leverage-review">
           <dl>
             <dt>{t('levNow')}</dt>
-            <dd className="numeric" data-line="margin-now">
+            <dd className="lt-num" data-line="margin-now">
               {review.marginNow}
             </dd>
             <dt>{t('levAfter', { times: String(leverageTimes(review.leverageBps)) })}</dt>
-            <dd className="numeric" data-line="margin-after">
+            <dd className="lt-num" data-line="margin-after">
               {review.marginAfter}
             </dd>
           </dl>
@@ -588,7 +588,7 @@ function Leverage({
                 ? t('levReleased', { amount: diff.slice(1) })
                 : t('levPosted', { amount: diff })}
           </p>
-          <p className="muted">{t('levNothingYet')}</p>
+          <p className="lt-muted">{t('levNothingYet')}</p>
           <Button onClick={() => void confirm()}>{t('levConfirm', { times: String(leverageTimes(review.leverageBps)) })}</Button>
         </div>
       ) : null}
@@ -629,32 +629,32 @@ function AccountMetrics({ owner, venues }: { owner: string; venues: readonly Ven
         <div key={v.id} data-venue={v.id}>
           <h3 className="dk-tab-title">{t('metricsVenue', { venue: v.name })}</h3>
           {failure ? (
-            <p className="failure" role="alert">
+            <p className="lt-refusal" role="alert">
               {t('metricsNotOffered', { venue: v.name, detail: failure })}
             </p>
           ) : null}
           {summary ? (
             <>
-              <p className="muted">{t('metricsLead', { venue: v.name, asset: summary.value.asset })}</p>
+              <p className="lt-muted">{t('metricsLead', { venue: v.name, asset: summary.value.asset })}</p>
               <dl>
                 <dt>{t('metricsEquity')}</dt>
-                <dd className="numeric" data-metric="equity">
+                <dd className="lt-num" data-metric="equity">
                   {summary.value.equity}
                 </dd>
                 <dt>{t('metricsFree')}</dt>
-                <dd className="numeric" data-metric="free">
+                <dd className="lt-num" data-metric="free">
                   {summary.value.free}
                 </dd>
                 <dt>{t('metricsUsed')}</dt>
-                <dd className="numeric" data-metric="used">
+                <dd className="lt-num" data-metric="used">
                   {summary.value.usedMargin}
                 </dd>
                 <dt>{t('metricsMaintenance')}</dt>
-                <dd className="numeric" data-metric="maintenance">
+                <dd className="lt-num" data-metric="maintenance">
                   {summary.value.maintenanceMargin}
                 </dd>
                 <dt>{t('metricsRatio')}</dt>
-                <dd className="numeric" data-metric="ratio">
+                <dd className="lt-num" data-metric="ratio">
                   {summary.value.marginRatio.known
                     ? t('metricsRatioValue', { ratio: percentOf(summary.value.marginRatio.value) })
                     : t('metricsRatioNone')}
@@ -743,9 +743,9 @@ function IsolatedMargin({
   return (
     <section className="dk-panel form-stack" aria-label={t('marginTitle', words)} data-testid="position-margin">
       <h3 className="dk-tab-title">{t('marginTitle', words)}</h3>
-      <p className="muted">{t('marginLead', words)}</p>
+      <p className="lt-muted">{t('marginLead', words)}</p>
       {read.data && 'failure' in read.data ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('marginNotOffered', { venue: row.venue.name, detail: read.data.failure })}
         </p>
       ) : null}
@@ -753,31 +753,31 @@ function IsolatedMargin({
         <>
           <dl>
             <dt>{t('marginNow')}</dt>
-            <dd className="numeric" data-line="margin">
+            <dd className="lt-num" data-line="margin">
               {now.value.margin}
             </dd>
             <dt>{t('marginMinimum')}</dt>
-            <dd className="numeric" data-line="minimum">
+            <dd className="lt-num" data-line="minimum">
               {now.value.minimumMargin}
             </dd>
             <dt>{t('marginRemovable')}</dt>
-            <dd className="numeric" data-line="removable">
+            <dd className="lt-num" data-line="removable">
               {now.value.removable}
             </dd>
             <dt>{t('marginFree')}</dt>
-            <dd className="numeric" data-line="free">
+            <dd className="lt-num" data-line="free">
               {now.value.free}
             </dd>
             <dt>{t('marginLiquidation')}</dt>
-            <dd className="numeric" data-line="liquidation">
+            <dd className="lt-num" data-line="liquidation">
               <Known value={now.value.liquidationPrice} render={(x) => x} />
             </dd>
           </dl>
-          <p className="muted" data-line="rule">
+          <p className="lt-muted" data-line="rule">
             {t('marginRule', { venue: row.venue.name, rule: now.value.rule })}
           </p>
           <AsOfLine asOf={now.asOf} />
-          <label className="field">
+          <label className="lt-field">
             <span>{t('marginAmount', { asset: now.value.asset })}</span>
             <input
               inputMode="decimal"
@@ -795,7 +795,7 @@ function IsolatedMargin({
         <Loading label={t('marginTitle', words)} />
       ) : null}
       {problem ? (
-        <p className="failure" role="alert" data-testid="position-margin-problem">
+        <p className="lt-refusal" role="alert" data-testid="position-margin-problem">
           {problem}
         </p>
       ) : null}
@@ -904,7 +904,7 @@ function CloseAll({
   }
 
   return (
-    <div className="form-stack" data-testid="positions-close-all">
+    <div className="lt-stack" data-testid="positions-close-all">
       <Button variant="secondary" onClick={() => void open()}>
         {t('closeAll')}
       </Button>
@@ -912,10 +912,10 @@ function CloseAll({
         <section className="dk-panel form-stack" aria-label={t('closeAllTitle')} data-testid="positions-close-all-review">
           <h3 className="dk-tab-title">{t('closeAllTitle')}</h3>
           {review.rows.length === 0 ? (
-            <p className="muted">{t('closeAllNone')}</p>
+            <p className="lt-muted">{t('closeAllNone')}</p>
           ) : (
             <>
-              <p className="muted">{t('closeAllLead')}</p>
+              <p className="lt-muted">{t('closeAllLead')}</p>
               {builder
                 ? review.approve.map((v) => (
                     <p key={v.id} data-approve-venue={v.id}>
@@ -1048,23 +1048,23 @@ function SubAccounts({
   return (
     <section className="dk-panel form-stack" aria-label={t('subsTitle', words)} data-testid="positions-subs" data-venue={v.id}>
       <h2 className="dk-tab-title">{t('subsTitle', words)}</h2>
-      <p className="muted">{t('subsLead')}</p>
+      <p className="lt-muted">{t('subsLead')}</p>
       {subs.failure ? (
-        <p className="failure" role="alert" data-refusal={subs.failure.code}>
+        <p className="lt-refusal" role="alert" data-refusal={subs.failure.code}>
           {t('subsNotOffered', { ...words, detail: subs.failure.message })}
         </p>
       ) : null}
       <p data-line="main-free">
         {t('mainFree')}:{' '}
-        <span className="numeric" data-value="main-free">
+        <span className="lt-num" data-value="main-free">
           {mainUsdc ? mainUsdc.free : '0'}
         </span>
       </p>
-      {subs.data && list.length === 0 ? <p className="muted">{t('subsNone', words)}</p> : null}
+      {subs.data && list.length === 0 ? <p className="lt-muted">{t('subsNone', words)}</p> : null}
       {list.map((s) => (
         <SubAccountCard key={s.subAccount} owner={owner} venue={v} id={s.subAccount} name={s.name} marketOf={marketOf} />
       ))}
-      <label className="field">
+      <label className="lt-field">
         <span>{t('subName')}</span>
         <input value={name} onChange={(e) => setName(e.target.value)} aria-label={t('subName')} />
       </label>
@@ -1072,9 +1072,9 @@ function SubAccounts({
         {t('subOpen')}
       </Button>
       {list.length > 0 ? (
-        <fieldset className="form-stack" data-testid="positions-move-margin">
+        <fieldset className="lt-stack" data-testid="positions-move-margin">
           <legend>{t('moveTitle')}</legend>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('moveSub')}</span>
             <select value={sub} onChange={(e) => setChosen(e.target.value)} aria-label={t('moveSub')}>
               {list.map((s) => (
@@ -1084,14 +1084,14 @@ function SubAccounts({
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('moveDirection')}</span>
             <select value={direction} onChange={(e) => setDirection(e.target.value as typeof direction)} aria-label={t('moveDirection')}>
               <option value="into_sub_account">{t('intoSub')}</option>
               <option value="out_of_sub_account">{t('outOfSub')}</option>
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('moveAmount')}</span>
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label={t('moveAmount')} />
           </label>
@@ -1099,9 +1099,9 @@ function SubAccounts({
         </fieldset>
       ) : null}
       {list.length > 0 && mainRows.length > 0 ? (
-        <fieldset className="form-stack" data-testid="positions-move-position">
+        <fieldset className="lt-stack" data-testid="positions-move-position">
           <legend>{t('positionMoveTitle')}</legend>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('positionMovePick')}</span>
             <select
               value={moveSymbol || mainRows[0]!.position.symbol}
@@ -1119,14 +1119,14 @@ function SubAccounts({
             {t('positionMoveButton')}
           </Button>
           {positionRefusal ? (
-            <p className="failure" role="alert" data-testid="positions-move-position-refused">
+            <p className="lt-refusal" role="alert" data-testid="positions-move-position-refused">
               {positionRefusal}
             </p>
           ) : null}
         </fieldset>
       ) : null}
       {problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {problem}
         </p>
       ) : null}
@@ -1161,20 +1161,20 @@ function SubAccountCard({
   const rows = positions.data?.value ?? [];
   const usdc = balances.data?.value.find((b) => b.asset === 'USDC');
   return (
-    <article className="form-stack" data-testid="positions-sub" data-sub-account={id}>
+    <article className="lt-stack" data-testid="positions-sub" data-sub-account={id}>
       <h3 className="dk-tab-title">{t('subTitle', { name })}</h3>
       <p data-line="sub-free">
         {t('subFree')}:{' '}
-        <span className="numeric" data-value="sub-free">
+        <span className="lt-num" data-value="sub-free">
           {usdc ? usdc.free : '0'}
         </span>
       </p>
       {positions.failure ? (
-        <p className="failure" role="alert" data-refusal={positions.failure.code}>
+        <p className="lt-refusal" role="alert" data-refusal={positions.failure.code}>
           {t('addressedRefused', { detail: positions.failure.message })}
         </p>
       ) : null}
-      {positions.data && rows.length === 0 ? <p className="muted">{t('subNoPositions')}</p> : null}
+      {positions.data && rows.length === 0 ? <p className="lt-muted">{t('subNoPositions')}</p> : null}
       {rows.length > 0 ? (
         <DataTable label={t('subTitle', { name })} headers={headers}>
           {rows.map((p) => (
@@ -1204,13 +1204,13 @@ function AddressedSubAccount({ owner, id, venue: v }: { owner: string; id: strin
     <section className="dk-panel form-stack" aria-label={t('addressedTitle', { id })} data-testid="positions-addressed">
       <h2 className="dk-tab-title">{t('addressedTitle', { id })}</h2>
       {positions.failure ? (
-        <p className="failure" role="alert" data-refusal={positions.failure.code}>
+        <p className="lt-refusal" role="alert" data-refusal={positions.failure.code}>
           {t('addressedRefused', { detail: positions.failure.message })}
         </p>
       ) : null}
       {positions.data ? (
         rows.length === 0 ? (
-          <p className="muted">{t('subNoPositions')}</p>
+          <p className="lt-muted">{t('subNoPositions')}</p>
         ) : (
           <ul>
             {rows.map((p) => (

@@ -176,7 +176,7 @@ export function GridRoom({ path }: { path: string }) {
         }
       />
       <PendingBanner guard={guard} check={() => void check()} checking={checking} verdict={verdict} onDismiss={() => setVerdict(null)} />
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button variant="ghost" size={28} onClick={() => navigate('/trade/bots')}>
           {t('Back to Bots')}
         </Button>
@@ -323,7 +323,7 @@ function GridWizard({
               <InfoNote>{t('Enter both prices and a grid count in the allowed range to see the levels.')}</InfoNote>
             )}
             {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button type="submit" disabled={guard.busy || guard.locked}>
                 {guard.busy ? t('Starting') : t('Create bot')}
               </Button>
@@ -440,7 +440,7 @@ function GridDetail({
       {data.venue && venue ? <VenueGridFacts bot={data} api={api} onDone={bot.reload} /> : null}
       {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
       {data.status === 'signing' || data.status === 'initializing' || data.status === 'running' || data.status === 'paused_range' ? (
-        <div className="cb-action-row">
+        <div className="lt-actions">
           <Button variant="secondary" onClick={stop} disabled={guard.busy || guard.locked}>
             {t('Stop bot')}
           </Button>

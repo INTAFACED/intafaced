@@ -98,21 +98,21 @@ function LatestBlocks({ api, chain, locale, t }: { api: ExplorerApi; chain: Chai
           {row.orphaned ? (
             <>
               {row.height} <span className="badge">{t('blockOrphaned', { reason: row.orphaned.reason })}</span>{' '}
-              <span className="muted">{short(row.hash)}</span>
+              <span className="lt-muted">{short(row.hash)}</span>
             </>
           ) : (
             <a href={`/chain/blocks/${row.height}`}>{row.height}</a>
           )}
         </th>
         <td>{when(new Date(row.timestamp * 1000))}</td>
-        <td className="numeric">{row.txCount}</td>
-        <td className="numeric">{row.gasUsed}</td>
+        <td className="lt-num">{row.txCount}</td>
+        <td className="lt-num">{row.gasUsed}</td>
       </tr>
     ));
   }
   return (
     <Panel title={t('latestBlocks')}>
-      {asOf && <p className="muted">{t('blocksAsOf', { time: when(new Date(asOf)) })}</p>}
+      {asOf && <p className="lt-muted">{t('blocksAsOf', { time: when(new Date(asOf)) })}</p>}
       <DataTable label={t('latestBlocks')} headers={headers}>
         {body}
       </DataTable>
@@ -315,14 +315,14 @@ function TokenResults({
       chainId === null || !fits ? Promise.resolve({ ok: true as const, data: null }) : api.tokensBySymbol(chainId, settled, signal),
     `explorer:tokens:${chainId ?? 'none'}:${settled}`,
   );
-  if (chain.status === 'failed') return <p className="muted">{t('tokensChainUnknown')}</p>;
+  if (chain.status === 'failed') return <p className="lt-muted">{t('tokensChainUnknown')}</p>;
   const network = chainId === null ? '' : networkLabel(chainId).name;
   const { resource } = tokens;
   if (chain.status === 'loading' || settled !== symbol || resource.status === 'loading')
-    return <p className="muted">{t('tokensSearching', { network: network || '…' })}</p>;
-  if (resource.status === 'failed') return <p className="muted">{t('tokensRefused', { reason: refusalWords(resource.failure, t) })}</p>;
+    return <p className="lt-muted">{t('tokensSearching', { network: network || '…' })}</p>;
+  if (resource.status === 'failed') return <p className="lt-muted">{t('tokensRefused', { reason: refusalWords(resource.failure, t) })}</p>;
   const rows: readonly ExplorerToken[] = resource.data?.rows ?? [];
-  if (rows.length === 0) return <p className="muted">{t('tokensNone', { network, symbol })}</p>;
+  if (rows.length === 0) return <p className="lt-muted">{t('tokensNone', { network, symbol })}</p>;
   return (
     <>
       <ul id={id} role="listbox" aria-label={t('resultsLabel')} className="explorer-results">
@@ -343,12 +343,13 @@ function TokenResults({
               }}
             >
               <span className="badge">{t('resultToken')}</span> <span>{token.symbol ?? t('tokenNoSymbol')}</span>
-              {token.name && <span className="muted"> {token.name}</span>} <span className="explorer-results__value">{token.address}</span>
+              {token.name && <span className="lt-muted"> {token.name}</span>}{' '}
+              <span className="explorer-results__value">{token.address}</span>
             </li>
           );
         })}
       </ul>
-      {resource.data?.more && <p className="muted">{t('tokensMore')}</p>}
+      {resource.data?.more && <p className="lt-muted">{t('tokensMore')}</p>}
     </>
   );
 }

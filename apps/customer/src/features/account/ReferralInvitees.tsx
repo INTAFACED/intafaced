@@ -38,13 +38,13 @@ export function ReferralInvitees() {
   return (
     <section className="referral-block referral-section" aria-label={t('title')} data-testid="referral-invitees" data-state={r.status}>
       <Panel title={t('title')}>
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
         {r.status === 'loading' ? (
           <Loading label={t('loading')} />
         ) : r.status === 'failed' ? (
           <div data-testid="referral-invitees-failed">
             {r.failure.code === 'campaigns.store_unwired' ? (
-              <p role="status" className="muted">
+              <p role="status" className="lt-muted">
                 {t('refusal_campaigns_store_unwired')}
               </p>
             ) : (
@@ -63,7 +63,7 @@ export function ReferralInvitees() {
               ))}
             </DataTable>
             {r.data.total > r.data.invitees.length ? (
-              <p className="muted" data-testid="referral-invitees-more">
+              <p className="lt-muted" data-testid="referral-invitees-more">
                 {t('more', { shown: String(r.data.invitees.length), total: String(r.data.total) })}
               </p>
             ) : null}
@@ -99,13 +99,13 @@ function Row({ row }: { row: MyInvitee }) {
       <td>
         <strong data-testid="invitee-state">{t(`state_${row.state}`)}</strong>
         {why ? (
-          <span className="muted" data-testid="invitee-why">
+          <span className="lt-muted" data-testid="invitee-why">
             {' '}
             {why}
           </span>
         ) : null}
         {row.programme ? (
-          <span className="muted" lang="und">
+          <span className="lt-muted" lang="und">
             {' '}
             {t('programme', { name: row.programme.name })}
           </span>
