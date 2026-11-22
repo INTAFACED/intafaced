@@ -676,15 +676,15 @@
     padding-bottom: var(--if-space-2);
     overflow-x: auto;
   }
-  .money-trade-tab .dk-table th:first-child,
-  .money-trade-tab .dk-table td:first-child {
+  .money-trade-tab .lt-table th:first-child,
+  .money-trade-tab .lt-table td:first-child {
     padding-left: var(--if-space-6);
   }
-  .money-trade-tab .dk-table th:last-child,
-  .money-trade-tab .dk-table td:last-child {
+  .money-trade-tab .lt-table th:last-child,
+  .money-trade-tab .lt-table td:last-child {
     padding-right: var(--if-space-6);
   }
-  .money-trade-tab .dk-bt-skeleton {
+  .money-trade-tab [data-kind='loading'] {
     padding: var(--if-space-3) var(--if-space-6);
   }
   .money-trade-tab__head {
@@ -696,14 +696,14 @@
     padding: var(--if-space-4) var(--if-space-6);
   }
   /* Pro: activity rows 40 (Simple 48) */
-  .if-money--activity .dk-table td {
+  .if-money--activity .lt-table td {
     height: 48px;
   }
   .if-money--activity[data-density='pro'] .money-table--activity td {
     height: 40px;
   }
-  .if-money--activity[data-density='pro'] .dk-table td,
-  .if-money--activity[data-density='pro'] .dk-table[data-layout='activity'] td {
+  .if-money--activity[data-density='pro'] .lt-table td,
+  .if-money--activity[data-density='pro'] .lt-table[data-layout='activity'] td {
     height: 40px;
   }
   .if-money--activity[data-density='pro'] .money-act__icon {
