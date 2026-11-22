@@ -1,4 +1,4 @@
-//! The `own-controls` slice (`PORT.md`): what a person sets around their own agent (`own/routes.ts`, limits, usage,
+//! The `own-controls` slice (`README.md`): what a person sets around their own agent (`own/routes.ts`, limits, usage,
 //! analytics, the payment method, policy, privacy, memory and consents; `own/usage-limits-routes.ts`), answered as the
 //! TypeScript answers them.
 //!

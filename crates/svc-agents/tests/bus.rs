@@ -1,6 +1,6 @@
 //! The bus events the binary takes are the catalog's (`packages/events/src/catalog.ts`): each one's subject, its
-//! stream and its version are read from its `defineEvent(service, entity, verb, version, …)`, and its durable from the
-//! TypeScript service's `subscribe` call, so a wrong subject, stream or durable fails here.
+//! stream and its version are read from its `defineEvent(service, entity, verb, version, …)`, and its durable is the one
+//! the TypeScript service took it under, so a wrong subject, stream or durable fails here.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -78,25 +78,26 @@ fn a_wrong_subject_or_version_is_caught() {
     assert!(mismatch(&catalog, &wrong_version).is_some());
 }
 
+/// The durables the TypeScript service took them under (its `subscribe` calls in `own/self-freeze.ts` and `index.ts`,
+/// deleted in the switch): the streams already hold these consumers, so a renamed one would start a new consumer and
+/// replay or skip what the old one had acked.
 #[test]
-fn each_durable_is_the_typescript_services() {
-    let ts = [
-        read("services/svc-agents/src/own/self-freeze.ts"),
-        read("services/svc-agents/src/index.ts"),
-    ]
-    .concat();
+fn each_durable_is_the_one_the_stream_already_holds() {
+    let held = [
+        ("selfFreezeApplied", "agents-identity-self-freeze-frozen"),
+        ("fillSettled", "agents-own-trigger-fill-settled"),
+    ];
+    assert_eq!(
+        TAKEN.len(),
+        held.len(),
+        "each event taken has its held durable"
+    );
     for taken in TAKEN {
-        let call = format!("'{}'", taken.event);
-        let at = ts
-            .find(&call)
-            .unwrap_or_else(|| panic!("no subscribe to {} in the TypeScript", taken.event));
-        let durable = format!("durable: '{}'", taken.durable);
-        let next = ts[at..].find("durable: '").unwrap();
-        assert!(
-            ts[at + next..].starts_with(&durable),
-            "{}: the TypeScript's durable is not {}",
-            taken.event,
-            taken.durable
-        );
+        let want = held
+            .iter()
+            .find(|(event, _)| *event == taken.event)
+            .unwrap_or_else(|| panic!("{} has no held durable", taken.event))
+            .1;
+        assert_eq!(taken.durable, want, "{}", taken.event);
     }
 }
