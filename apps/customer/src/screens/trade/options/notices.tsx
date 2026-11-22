@@ -10,15 +10,17 @@ import { RefusalBox, Tabs } from '@intafaced/ui/lit/templates';
 import type { Words } from '../rooms/refusals';
 import { STALE_AFTER_MS } from '../rooms/read';
 import { BLOCK_WORDS, type RoomWriter } from '../rooms/write';
+import { optionsCopy } from './copy';
 
 /** A refusal in plain words, its code small underneath, and Try again when the read can be asked again. */
 export function Refusal({ words, onRetry, variant = 'refused' }: { words: Words; onRetry?: () => void; variant?: 'refused' | 'parked' }) {
+  const { t } = optionsCopy.useCopy();
   return (
     <div className="lt-stack">
       <RefusalBox refusal={{ variant, title: words.title, body: words.body, reference: words.code ?? undefined }} />
       {onRetry ? (
         <div className="lt-actions">
-          <Button onClick={onRetry}>Try again</Button>
+          <Button onClick={onRetry}>{t('Try again')}</Button>
         </div>
       ) : null}
     </div>
@@ -45,6 +47,7 @@ export function WriteNotice({
   /** Plain-words line shown after a successful write. */
   done?: ReactNode;
 }) {
+  const { t } = optionsCopy.useCopy();
   const { outcome, note } = writer;
   const pendingId = note.state === 'pending' ? note.pending.id : outcome.kind === 'uncertain' ? outcome.id : null;
   return (
@@ -69,9 +72,9 @@ export function WriteNotice({
       {pendingId ? (
         <div className="lt-toolbar">
           <span className="lt-hint">
-            Unconfirmed request <span className="lt-mono">{pendingId}</span>. New requests stay locked until it is checked.
+            {t('Unconfirmed request')} <span className="lt-mono">{pendingId}</span>. {t('Requests locked')}
           </span>
-          {onCheck ? <Button onClick={() => onCheck(pendingId)}>Check status</Button> : null}
+          {onCheck ? <Button onClick={() => onCheck(pendingId)}>{t('Check status')}</Button> : null}
         </div>
       ) : null}
     </div>
@@ -99,10 +102,15 @@ export function TradeRoomsNav({ active }: { active: (typeof TRADE_ROOMS)[number]
 
 /** A value that is not known: the dash, read aloud as "unknown", never 0. */
 export function unknownValue() {
+  return <UnknownValue />;
+}
+
+function UnknownValue() {
+  const { t } = optionsCopy.useCopy();
   return (
     <>
       <span aria-hidden="true">—</span>
-      <span className="lt-sr">unknown</span>
+      <span className="lt-sr">{t('Unknown value')}</span>
     </>
   );
 }
