@@ -3,7 +3,7 @@
  * needs that is not listed is exported here first. The routes are not here: `app/LegacyRoom.tsx` lazy-loads
  * `MoreRoutes` itself, so importing a piece from this entry does not pull every More room into the importer's chunk.
  */
-export { Read, Select, TextArea } from './common';
+export { Read, Select } from './common';
 export { downloadCsv, toCsv } from './depth-csv';
 export { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from './guest-rooms';
 export { utcInput } from './quant-analysis';
