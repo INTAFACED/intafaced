@@ -32,7 +32,7 @@ import { VoltStack } from '../../screens/home/VoltStack';
 import type { HomePortfolio } from '../../screens/home/deps';
 import { MobileTabs } from '../TopBar';
 import { useResolvedColours } from '../../shared/resolved-colours';
-import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, StepsAndSpark, TypeRoles } from './KitParts';
+import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, MoneyParts, Overlays, StepsAndSpark, TypeRoles } from './KitParts';
 import './kit.css';
 
 /**
@@ -317,6 +317,14 @@ export default function VoltKit() {
             <VoltStack portfolio={{ status: 'loading' }} hidden={false} />
           </figure>
         </div>
+      </Block>
+
+      <Block
+        id="money-parts"
+        title="Money parts"
+        note="An asset's mark (a lettered disc when the kit has no art), the info tip, the hero figure shown, hidden and missing, the small-balances fold and the card stack."
+      >
+        <MoneyParts />
       </Block>
 
       <Block id="buttons" title="Buttons" note="One primary per view. Every variant at rest, disabled and busy.">
