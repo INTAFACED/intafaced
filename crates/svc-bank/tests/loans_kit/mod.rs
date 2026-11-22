@@ -499,6 +499,11 @@ impl Book {
         .unwrap();
     }
 
+    /// `shift` with a scaled amount.
+    pub fn transfer(&self, from: &LedgerAccount, to: &LedgerAccount, value: Amount) {
+        self.shift(from, to, &format_amount(value));
+    }
+
     /// A raw move of the test's own: `value` out of `from` into `to` (`ledger.post({ entries: [credit(from), debit(to)] })`).
     pub fn shift(&self, from: &LedgerAccount, to: &LedgerAccount, value: &str) {
         let x = amt(value);

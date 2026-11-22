@@ -20,6 +20,8 @@ mod loans_collateral_db;
 mod loans_db;
 #[path = "loans_ops_db.rs"]
 mod loans_ops_db;
+#[path = "loans_repay_db.rs"]
+mod loans_repay_db;
 #[path = "loans_sweep_db.rs"]
 mod loans_sweep_db;
 #[path = "partner_db.rs"]
