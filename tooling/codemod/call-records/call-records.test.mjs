@@ -427,7 +427,7 @@ test('the report sorts each hand reason into the kind one script change or one d
   assert.equal(reasonOf('something new'), 'other');
 });
 
-test('the report names what the export refused, construct by construct, as the run left it (project-state#3725)', async () => {
+test('the report names what the export refused, construct by construct, as the run left it', async () => {
   const { reasonOf } = await import('./report.mjs');
   // The run's own words for svc-pay's and svc-ops' refusals, as run.mjs left them.
   const refine =
@@ -443,7 +443,7 @@ test('the report names what the export refused, construct by construct, as the r
 
 test('the deep report counts what each service run moved, never what its plan would rewrite, and puts the checkout back after each', async () => {
   const { deep } = await import('./report.mjs');
-  // svc-ops at 3049441c: the plan rewrote 20 calls, and the run moved none (each record refused by the export).
+  // svc-ops: the plan rewrote 20 calls, and the run moved none (each record refused by the export).
   const why =
     "its record can't be exported as the router writes it: ops.a.output cannot be exported without losing meaning: ops.a.output (.refine/.superRefine (a TypeScript predicate the export drops))";
   const rows = [

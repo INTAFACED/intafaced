@@ -133,7 +133,7 @@ describe('the written records of calls', () => {
       expect(JSON.stringify(json.output)).toContain('"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"}');
     });
     it('a `z.lazy`, forward or recursive, written exactly (a cycle as `$ref`), and what it points to still checked', () => {
-      // svc-campaigns' shapes (project-state#3725): a rule tree whose parts are trees, and a field named before its schema.
+      // svc-campaigns' shapes: a rule tree whose parts are trees, and a field named before its schema.
       type Tree = { op: 'all' | 'any'; parts: Tree[] } | { fact: string };
       const tree: z.ZodType<Tree> = z.lazy(() =>
         z.union([z.object({ op: z.enum(['all', 'any']), parts: z.array(tree).max(8) }).strict(), z.object({ fact: z.string() }).strict()]),
