@@ -17,7 +17,8 @@ const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
 /** A route's pattern as a person opens it: a `:pair` is a real market. */
-const opened = (route: string) => route.replace(':pair', 'BTC-USDT');
+// A route's own parameters, filled with a sample its pattern accepts (a live run is addressed by its UUID).
+const opened = (route: string) => route.replace(':pair', 'BTC-USDT').replace(':runId', '00000000-0000-4000-8000-000000000001');
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 
 describe('room templates registry', () => {
@@ -50,7 +51,8 @@ describe('room templates registry', () => {
   });
 
   it('a migrated room really renders through its template', { timeout: 300_000 }, async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
+    // The clock and repeating timers stand still, so a room that animates on its own (the tester's sample replay) settles.
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
     try {
       for (const [room, entry] of Object.entries(ROUTE_TEMPLATES)) {
         if (!isRoom(entry) || !entry.migrated) continue;

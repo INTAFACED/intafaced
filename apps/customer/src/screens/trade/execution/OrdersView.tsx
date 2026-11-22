@@ -4,24 +4,26 @@
  */
 import { useState } from 'react';
 import { isTerminalOrder, type Order } from '../../../features/trade/trade-api';
-import { Badge, Button, EmptyState, Table, fmtAmount, fmtPrice, type TableColumn } from '../rooms/ui';
-import { WriteNotice } from '../rooms/RoomNotices';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { Skeleton, StatusChip, Table, type Column } from '@intafaced/ui/lit/templates';
+import { UNKNOWN, fmtAmount, fmtPrice } from '../rooms/ui';
 import { useRoomWriter } from '../rooms/write';
 import { execCopy } from './copy';
 import { useTradeApi } from './data';
 import type { BlotterRow, RowState } from './blotter';
 import { ownsNote } from './model';
-import { ConfirmDialog, useWhen } from './parts';
+import { ConfirmDialog, Empty, WriteNotice, useWhen } from './parts';
 
-const TONE: Record<RowState, 'neutral' | 'lime' | 'warn' | 'error' | 'up'> = {
-  open: 'lime',
-  partial: 'lime',
-  recovery: 'warn',
-  filled: 'up',
-  fill: 'up',
-  cancelled: 'neutral',
-  expired: 'neutral',
-  rejected: 'error',
+/** Each row state as the kit's status mark: working is in progress, filled is done, refused failed, ended or unsure open. */
+const MARK: Record<RowState, 'pending' | 'done' | 'failed' | 'unknown'> = {
+  open: 'pending',
+  partial: 'pending',
+  recovery: 'unknown',
+  filled: 'done',
+  fill: 'done',
+  cancelled: 'unknown',
+  expired: 'unknown',
+  rejected: 'failed',
 };
 
 /** The order a row is or belongs to: the order's own id, or a fill's order id. */
@@ -51,64 +53,50 @@ export function BlotterTable({
   const when = useWhen();
   const typeWord = (type: string): string =>
     type === 'limit' || type === 'market' || type === 'fill' ? t(`Type ${type}`) : type.charAt(0).toUpperCase() + type.slice(1);
-  const columns: TableColumn<BlotterRow>[] = [
-    { id: 'time', header: t('Time'), pin: 'start', value: (r) => when(r.time), sortable: false },
+  const columns: Column<BlotterRow>[] = [
+    { key: 'time', label: t('Time'), cell: (r) => when(r.time) ?? UNKNOWN },
     ...(showOrderId
       ? [
           {
-            id: 'order',
-            header: t('Order'),
-            value: (r: BlotterRow) => orderIdOf(r),
-            cell: (r: BlotterRow) => <span className="font-mono text-xs">{orderIdOf(r)}</span>,
-          } satisfies TableColumn<BlotterRow>,
+            key: 'order',
+            label: t('Order'),
+            ltr: true,
+            cell: (r: BlotterRow) => <span data-testid="order-id">{orderIdOf(r)}</span>,
+          } satisfies Column<BlotterRow>,
         ]
       : []),
-    { id: 'market', header: t('Market'), value: (r) => r.symbol },
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
-    { id: 'type', header: t('Type'), value: (r) => typeWord(r.type) },
-    {
-      id: 'price',
-      header: t('Price'),
-      numeric: true,
-      value: (r) => r.price,
-      cell: (r) => (r.price === null ? t('Market') : fmtPrice(r.price, null)),
-    },
-    { id: 'size', header: t('Size'), numeric: true, value: (r) => r.size, cell: (r) => fmtAmount(r.size) },
-    { id: 'filled', header: t('Filled'), numeric: true, value: (r) => r.filled, cell: (r) => fmtAmount(r.filled) },
-    { id: 'avg', header: t('Average'), numeric: true, value: (r) => r.avg, cell: (r) => (r.avg === null ? null : fmtPrice(r.avg, null)) },
-    { id: 'state', header: t('State'), cell: (r) => <Badge tone={TONE[r.state]}>{t(`Row ${r.state}`)}</Badge> },
-    { id: 'source', header: t('Source'), cell: (r) => <Badge variant="outline">{t(`Source ${r.source}`)}</Badge> },
+    { key: 'market', label: t('Market'), cell: (r) => r.symbol },
+    { key: 'side', label: t('Side'), cell: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
+    { key: 'type', label: t('Type'), cell: (r) => typeWord(r.type) },
+    { key: 'price', label: t('Price'), align: 'end', cell: (r) => (r.price === null ? t('Market') : fmtPrice(r.price, null)) },
+    { key: 'size', label: t('Size'), align: 'end', cell: (r) => fmtAmount(r.size) },
+    { key: 'filled', label: t('Filled'), align: 'end', cell: (r) => fmtAmount(r.filled) },
+    { key: 'avg', label: t('Average'), align: 'end', cell: (r) => (r.avg === null ? UNKNOWN : fmtPrice(r.avg, null)) },
+    { key: 'state', label: t('State'), cell: (r) => <StatusChip status={MARK[r.state]} label={t(`Row ${r.state}`)} /> },
+    { key: 'source', label: t('Source'), cell: (r) => <Tag tone="neutral">{t(`Source ${r.source}`)}</Tag> },
     ...(onCancel
       ? [
           {
-            id: 'actions',
-            header: t('Actions'),
+            key: 'actions',
+            label: t('Actions'),
             cell: (r: BlotterRow) =>
               r.order ? (
-                <Button
-                  variant="secondary"
-                  size={28}
-                  disabled={cancelLocked}
-                  aria-label={t('Cancel order {id}', { id: r.order.id })}
-                  onClick={() => onCancel(r.order!)}
-                >
+                <Button disabled={cancelLocked} aria-label={t('Cancel order {id}', { id: r.order.id })} onClick={() => onCancel(r.order!)}>
                   {t('Cancel')}
                 </Button>
               ) : null,
-          } satisfies TableColumn<BlotterRow>,
+          } satisfies Column<BlotterRow>,
         ]
       : []),
   ];
   return (
     <Table
-      label={label}
-      density="dense"
-      status={status}
+      caption={label}
+      mode="pro"
       columns={columns}
-      rows={rows}
-      minWidth={(onCancel ? 1000 : 900) + (showOrderId ? 160 : 0)}
-      getRowId={(r) => r.id}
-      emptyState={<EmptyState variant="empty" size="inline" title={emptyText} />}
+      rows={status === 'loading' ? [] : rows}
+      rowKey={(r) => r.id}
+      empty={status === 'loading' ? <Skeleton shape="rows" /> : <Empty title={emptyText} />}
     />
   );
 }
@@ -149,11 +137,7 @@ export function useCancelFlow(onDone: () => void) {
     notice: (
       <>
         <WriteNotice writer={writer} onCheck={(id) => void check(id)} done={t('Order cancelled')} />
-        {note ? (
-          <p role="status" className="m-0 text-sm text-fg">
-            {note}
-          </p>
-        ) : null}
+        {note ? <p role="status">{note}</p> : null}
       </>
     ),
     dialog: (

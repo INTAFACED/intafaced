@@ -8,15 +8,11 @@ import {
   actionApprovalApproveInputSchema,
   actionApprovalConsumeInputSchema,
   actionApprovalIdInputSchema,
-  actionApprovalPoliciesReadSchema,
   actionApprovalProposeInputSchema,
   actionApprovalSchema,
-  protectedProcedure,
-  router,
-  scopedProcedure,
-  serviceProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/action-approval';
+import { actionApprovalPoliciesReadSchema } from '@intafaced/contracts/action-approval-policy';
+import { protectedProcedure, router, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError as GuardError, hasScope, requireMfa } from '@intafaced/auth';
 import { IDENTITY_ACTION_APPROVAL_LIST } from '@intafaced/contracts/identity-action-approval-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';

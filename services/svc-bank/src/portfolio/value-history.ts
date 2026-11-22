@@ -1,15 +1,15 @@
 import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
-import {
-  VALUE_SERIES_INTERVALS,
-  type BankValueBridge,
-  type BankHoldingsChange,
-  type BankValueOverTime,
-  type LedgerHoldingsHistory,
-  type LedgerHoldingsHistoryBucket,
-  type ValueSeriesInterval,
-  asAssetId,
-  type AssetId,
+import type {
+  BankValueBridge,
+  BankHoldingsChange,
+  BankValueOverTime,
+  LedgerHoldingsHistory,
+  LedgerHoldingsHistoryBucket,
+  ValueSeriesInterval,
+  AssetId,
 } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
+import { VALUE_SERIES_INTERVALS } from '@intafaced/contracts/bank-value-history';
 import { classify, type ActivityKind } from '../activity/activity-kind.js';
 import { SERIES_TIMEFRAME_MS, closeAt, type CloseSeries } from './candles.js';
 import { PAR_ASSETS } from './valuation.js';

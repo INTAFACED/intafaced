@@ -2,15 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { pendingIdentityIntentCount } from './payment-admission.js';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
-import {
-  accountControlInputSchema,
-  accountControlResultSchema,
-  accountControlStateSchema,
-  type AccountControlInput,
-  type AccountControlResult,
-  type AccountControlState,
-  type Context,
-} from '@intafaced/contracts';
+import type { AccountControlInput, AccountControlResult, AccountControlState, Context } from '@intafaced/contracts';
+import { accountControlInputSchema, accountControlResultSchema, accountControlStateSchema } from '@intafaced/contracts/account-controls';
 
 export type FounderAuthority = (ctx: Context) => Promise<string>;
 export type PendingIdentityIntentDrain = (tx: Queryable, merchantId: string) => Promise<void>;

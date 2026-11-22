@@ -6,13 +6,11 @@
  * only for the audit row.
  */
 import {
-  router,
-  serviceProcedureFor,
   supportTradeSummaryInputSchema,
   supportTradeSummarySchema,
   SUPPORT_TRADE_SUMMARY_CALLERS,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-trade-summary';
+import { router, serviceProcedureFor, TRPCError } from '@intafaced/contracts/trpc';
 import { SupportTradeSummaryError, type SupportTradeSummaryReader } from './trade-summary.js';
 
 function toTrpcError(err: unknown): TRPCError {

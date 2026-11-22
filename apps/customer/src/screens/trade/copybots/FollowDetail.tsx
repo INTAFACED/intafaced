@@ -38,6 +38,7 @@ import { SizingChoices, sizingWord, type SizingChoice } from './FollowWizard';
 import { roomCopy } from './copy';
 import type { WriteGuard } from './guard';
 import { InfoNote, RefusalNote } from './parts';
+import './copybots.css';
 
 export type Follow = z.infer<typeof copyFollowSchema>;
 export type FollowAction = 'pause' | 'resume' | 'stop' | 'detach' | 'flatten';

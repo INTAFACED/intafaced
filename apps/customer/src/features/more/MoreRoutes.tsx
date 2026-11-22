@@ -200,6 +200,8 @@ function MoreRooms({ path }: { path: string }) {
         );
     }
   }
+  // A quant room on its own Volt template draws its title and description itself.
+  if (quant?.framed) return <>{content}</>;
   if (room) {
     const live = new URL(url);
     live.searchParams.delete('simulated');

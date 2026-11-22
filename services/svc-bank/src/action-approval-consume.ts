@@ -4,15 +4,9 @@
  * Bank maker-checker (business.approve/reject/cancel) is not this door.
  */
 import { createHash } from 'node:crypto';
-import {
-  actionApprovalConsumeInputSchema,
-  actionApprovalSchema,
-  founderAttestationVerdict,
-  createIdentityApprovalClient as createSharedIdentityApprovalClient,
-  type ActionApproval,
-  type ActionApprovalConsumeInput,
-  type FounderApprovalSubject,
-} from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput, FounderApprovalSubject } from '@intafaced/contracts';
+import { actionApprovalConsumeInputSchema, actionApprovalSchema, founderAttestationVerdict } from '@intafaced/contracts/action-approval';
+import { createIdentityApprovalClient as createSharedIdentityApprovalClient } from '@intafaced/contracts/action-approval-client';
 
 /** How long bank waits for identity to answer a consume before refusing closed. */
 export const IDENTITY_CONSUME_TIMEOUT_MS = 5000;

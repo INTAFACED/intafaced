@@ -1,4 +1,5 @@
 import { getAddress, type Address, type Hash, type PublicClient } from 'viem';
+import type { ProtocolReplacement, ProtocolReplacementInput } from '@intafaced/contracts';
 import {
   FEE_ABOVE_CEILING,
   FEE_BUMP_UNSET,
@@ -7,9 +8,7 @@ import {
   TX_NOT_FOUND,
   TX_NOT_YOURS,
   TX_SPEEDUP_CREATE,
-  type ProtocolReplacement,
-  type ProtocolReplacementInput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-wallet-tx';
 import { WalletTxRefusal } from './claim-link.js';
 
 /**

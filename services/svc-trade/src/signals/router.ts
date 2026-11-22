@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import { AuthError } from '@intafaced/auth';
-import { JurisdictionError, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { JurisdictionError, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { TradeError } from '../spot/types.js';
 import { answerKeys } from '../answer-keys.js';
 import { SignalError, type SignalDesk, type SignalWebhookView } from './signal-desk.js';

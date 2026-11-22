@@ -3,15 +3,19 @@
 //! units, with backtracking (so a lookahead such as `(?=\d*[1-9])` works, which the `regex` crate refuses).
 //!
 //! Served: `^`, `$`, `.`, literals and escapes (`\d \D \w \W \s \S`, `\.` and other escaped punctuation, `\n \r \t
-//! \f \v \0`), the word boundaries `\b` and `\B` (over `\w`'s ASCII word characters, as JavaScript reads them), character classes with ranges and negation, groups (capturing, `(?:...)`, `(?=...)`, `(?!...)`),
-//! alternation, and the quantifiers `* + ? {n} {n,} {n,m}` (greedy, or lazy with `?`). No flags. A pattern using
-//! anything else is refused when it is read, never matched differently.
+//! \f \v \0 \xHH`), the word boundaries `\b` and `\B` (over `\w`'s ASCII word characters, as JavaScript reads them), character classes with ranges and negation, groups (capturing, `(?:...)`, `(?=...)`, `(?!...)`),
+//! alternation, and the quantifiers `* + ? {n} {n,} {n,m}` (greedy, or lazy with `?`). One flag, `u`: the pattern and
+//! the text are read as code points, `\p{Cc}` and `\P{Cc}` (the control characters) are served, and an escape or a brace
+//! the `u` flag makes a syntax error is refused. A pattern using anything else is refused when it is read, never
+//! matched differently.
 
 /// A compiled pattern, with its source as JavaScript prints it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Regex {
     source: String,
     root: Alt,
+    /// The `u` flag: the text is matched as code points, not UTF-16 units.
+    unicode: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,7 +31,7 @@ struct Term {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Node {
-    Unit(u16),
+    Unit(u32),
     Any,
     Class(Class),
     Group(Alt),
@@ -44,7 +48,7 @@ enum Node {
 #[derive(Debug, Clone, PartialEq)]
 struct Class {
     negated: bool,
-    ranges: Vec<(u16, u16)>,
+    ranges: Vec<(u32, u32)>,
     sets: Vec<Set>,
 }
 
@@ -53,6 +57,8 @@ enum Set {
     Digit(bool),
     Word(bool),
     Space(bool),
+    /// `\p{Cc}`, or `\P{Cc}` when negated (`u` flag only): U+0000 to U+001F and U+007F to U+009F.
+    Control(bool),
 }
 
 /// JavaScript's `\s`: WhiteSpace and LineTerminator.
@@ -73,26 +79,27 @@ pub fn is_js_space(u: u16) -> bool {
     )
 }
 
-fn is_line_terminator(u: u16) -> bool {
+fn is_line_terminator(u: u32) -> bool {
     matches!(u, 0x0a | 0x0d | 0x2028 | 0x2029)
 }
 
 impl Set {
-    fn has(self, u: u16) -> bool {
+    fn has(self, u: u32) -> bool {
         let (hit, negated) = match self {
             Set::Digit(n) => ((0x30..=0x39).contains(&u), n),
             Set::Word(n) => (
                 u8::try_from(u).is_ok_and(|b| b.is_ascii_alphanumeric() || b == b'_'),
                 n,
             ),
-            Set::Space(n) => (is_js_space(u), n),
+            Set::Space(n) => (u16::try_from(u).is_ok_and(is_js_space), n),
+            Set::Control(n) => (matches!(u, 0x00..=0x1f | 0x7f..=0x9f), n),
         };
         hit != negated
     }
 }
 
 impl Class {
-    fn has(&self, u: u16) -> bool {
+    fn has(&self, u: u32) -> bool {
         let hit = self.ranges.iter().any(|(lo, hi)| (*lo..=*hi).contains(&u))
             || self.sets.iter().any(|s| s.has(u));
         hit != self.negated
@@ -100,16 +107,21 @@ impl Class {
 }
 
 struct Reader<'a> {
-    units: &'a [u16],
+    units: &'a [u32],
     at: usize,
+    /// The `u` flag.
+    unicode: bool,
 }
 
-fn unit(c: char) -> u16 {
-    u16::try_from(u32::from(c)).unwrap_or(0)
+fn unit(c: char) -> u32 {
+    u32::from(c)
 }
+
+/// What the `u` flag lets be escaped as itself: the syntax characters and `/` (and `-`, in a class).
+const UNICODE_IDENTITY: &str = "^$\\.*+?()[]{}|/";
 
 impl Reader<'_> {
-    fn peek(&self) -> Option<u16> {
+    fn peek(&self) -> Option<u32> {
         self.units.get(self.at).copied()
     }
 
@@ -122,7 +134,7 @@ impl Reader<'_> {
         }
     }
 
-    fn next(&mut self) -> Result<u16, String> {
+    fn next(&mut self) -> Result<u32, String> {
         let u = self.peek().ok_or("the pattern ends too soon")?;
         self.at += 1;
         Ok(u)
@@ -166,7 +178,7 @@ impl Reader<'_> {
         let start = self.at;
         let mut n: u32 = 0;
         while let Some(d) = self.peek().filter(|u| (0x30..=0x39).contains(u)) {
-            n = n.saturating_mul(10).saturating_add(u32::from(d - 0x30));
+            n = n.saturating_mul(10).saturating_add(d - 0x30);
             self.at += 1;
         }
         (self.at > start).then_some(n)
@@ -198,15 +210,39 @@ impl Reader<'_> {
                     return Ok((min, max));
                 }
             }
-            // Not a quantifier: JavaScript (without the `u` flag) reads the brace as a literal.
+            // Not a quantifier: JavaScript without the `u` flag reads the brace as a literal; with it, a syntax error.
+            if self.unicode {
+                return Err("a lone brace under the u flag".to_owned());
+            }
             self.at = back;
         }
         Ok((1, Some(1)))
     }
 
-    fn escape(&mut self) -> Result<Result<u16, Set>, String> {
+    fn escape(&mut self, in_class: bool) -> Result<Result<u32, Set>, String> {
         let u = self.next()?;
-        let c = char::from_u32(u32::from(u)).unwrap_or('\0');
+        let c = char::from_u32(u).unwrap_or('\0');
+        if self.unicode && (c == 'p' || c == 'P') {
+            let mut name = String::new();
+            if !self.eat('{') {
+                return Err("\\p with no {".to_owned());
+            }
+            while let Some(n) = self.peek().filter(|n| *n != unit('}')) {
+                name.push(char::from_u32(n).unwrap_or('\0'));
+                self.at += 1;
+            }
+            if !self.eat('}') || name != "Cc" {
+                return Err(format!("the property \\{c}{{{name}}}: only Cc is served"));
+            }
+            return Ok(Err(Set::Control(c == 'P')));
+        }
+        if self.unicode
+            && c.is_ascii_punctuation()
+            && !UNICODE_IDENTITY.contains(c)
+            && !(in_class && c == '-')
+        {
+            return Err(format!("the escape \\{c} under the u flag"));
+        }
         Ok(match c {
             'd' => Err(Set::Digit(false)),
             'D' => Err(Set::Digit(true)),
@@ -220,6 +256,19 @@ impl Reader<'_> {
             'f' => Ok(0x0c),
             'v' => Ok(0x0b),
             '0' => Ok(0),
+            // `\xHH`: two hex digits name the unit (JavaScript without `u` reads a short one as `x`; refused here).
+            'x' => {
+                let hex = |r: &mut Self| {
+                    r.next()
+                        .ok()
+                        .and_then(char::from_u32)
+                        .and_then(|h| h.to_digit(16))
+                };
+                match (hex(self), hex(self)) {
+                    (Some(a), Some(b)) => Ok(a * 16 + b),
+                    _ => return Err("an \\x escape without two hex digits".to_owned()),
+                }
+            }
             c if c.is_ascii_punctuation() => Ok(u),
             other => return Err(format!("the escape \\{other}")),
         })
@@ -227,7 +276,7 @@ impl Reader<'_> {
 
     fn atom(&mut self) -> Result<Node, String> {
         let u = self.next()?;
-        let c = char::from_u32(u32::from(u)).unwrap_or('\0');
+        let c = char::from_u32(u).unwrap_or('\0');
         Ok(match c {
             '^' => Node::Start,
             '$' => Node::End,
@@ -260,7 +309,7 @@ impl Reader<'_> {
             '[' => Node::Class(self.class()?),
             '\\' if self.eat('b') => Node::Boundary(false),
             '\\' if self.eat('B') => Node::Boundary(true),
-            '\\' => match self.escape()? {
+            '\\' => match self.escape(false)? {
                 Ok(u) => Node::Unit(u),
                 Err(set) => Node::Class(Class {
                     negated: false,
@@ -289,7 +338,7 @@ impl Reader<'_> {
             }
             first = false;
             let lo = if u == unit('\\') {
-                match self.escape()? {
+                match self.escape(true)? {
                     Ok(v) => v,
                     Err(set) => {
                         sets.push(set);
@@ -306,7 +355,7 @@ impl Reader<'_> {
                 self.at += 1;
                 let h = self.next()?;
                 let hi = if h == unit('\\') {
-                    match self.escape()? {
+                    match self.escape(true)? {
                         Ok(v) => v,
                         Err(_) => return Err("a range ending in a set".to_owned()),
                     }
@@ -340,16 +389,19 @@ enum Next<'a> {
 }
 
 impl Regex {
-    /// Reads `/<pattern>/` as JavaScript prints a regular expression with no flags.
+    /// Reads `/<pattern>/` or `/<pattern>/u` as JavaScript prints a regular expression.
     pub fn new(literal: &str) -> Result<Regex, String> {
-        let body = literal
-            .strip_prefix('/')
-            .and_then(|r| r.strip_suffix('/'))
-            .ok_or_else(|| format!("{literal}: not a /pattern/ with no flags"))?;
-        let units: Vec<u16> = body.encode_utf16().collect();
+        let (body, unicode) = match literal.strip_prefix('/') {
+            Some(r) if r.ends_with("/u") && r.len() >= 2 => (r.get(..r.len() - 2), true),
+            Some(r) => (r.strip_suffix('/'), false),
+            None => (None, false),
+        };
+        let body = body.ok_or_else(|| format!("{literal}: not a /pattern/ with no flag but u"))?;
+        let units = Self::units(body, unicode);
         let mut r = Reader {
             units: &units,
             at: 0,
+            unicode,
         };
         let root = r.alt().map_err(|e| format!("{literal}: {e}"))?;
         if r.at != units.len() {
@@ -358,7 +410,17 @@ impl Regex {
         Ok(Regex {
             source: literal.to_owned(),
             root,
+            unicode,
         })
+    }
+
+    /// A text as the matcher reads it: code points under the `u` flag, else UTF-16 units.
+    fn units(text: &str, unicode: bool) -> Vec<u32> {
+        if unicode {
+            text.chars().map(u32::from).collect()
+        } else {
+            text.encode_utf16().map(u32::from).collect()
+        }
     }
 
     /// The pattern as JavaScript prints it (`RegExp.prototype.toString`).
@@ -368,14 +430,14 @@ impl Regex {
 
     /// `RegExp.prototype.test(text)`.
     pub fn test(&self, text: &str) -> bool {
-        let units: Vec<u16> = text.encode_utf16().collect();
+        let units = Self::units(text, self.unicode);
         let m = Matcher { text: &units };
         (0..=units.len()).any(|start| m.alt(&self.root, start, &Next::Done))
     }
 }
 
 struct Matcher<'t> {
-    text: &'t [u16],
+    text: &'t [u32],
 }
 
 impl Matcher<'_> {
@@ -480,6 +542,37 @@ mod tests {
 
     fn re(s: &str) -> Regex {
         Regex::new(s).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    #[test]
+    fn a_hex_escape_names_its_unit() {
+        let printable = re(r"/^[\x20-\x7E]+$/");
+        assert!(printable.test("Plain text ~"));
+        assert!(!printable.test("tab\there"));
+        assert!(!printable.test("é"));
+        assert!(Regex::new(r"/\x2/").is_err());
+    }
+
+    #[test]
+    fn the_u_flag_reads_code_points_and_the_control_class() {
+        let label = re(r"/^TEST \P{Cc}{1,120}$/u");
+        assert!(label.test("TEST card"));
+        assert!(!label.test("TEST "));
+        assert!(!label.test("TEST a\u{7}b"));
+        assert!(!label.test("TEST a\u{85}b"));
+        // One emoji is one code point under `u`, and two UTF-16 units without it.
+        assert!(label.test(&format!("TEST {}", "😀".repeat(120))));
+        assert!(!label.test(&format!("TEST {}", "😀".repeat(121))));
+        assert!(re("/^.$/u").test("😀"));
+        assert!(!re("/^.$/").test("😀"));
+        assert!(re(r"/^\p{Cc}$/u").test("\u{1f}"));
+        // What the `u` flag makes a syntax error, and a property it does not serve, are refused.
+        assert!(Regex::new(r"/\p{L}/u").is_err());
+        assert!(Regex::new(r"/a\-b/u").is_err());
+        assert!(Regex::new(r"/[a\-b]/u").is_ok());
+        assert!(Regex::new("/a{/u").is_err());
+        assert!(Regex::new("/a/g").is_err());
+        assert!(Regex::new(r"/\p{Cc}/").is_err());
     }
 
     #[test]

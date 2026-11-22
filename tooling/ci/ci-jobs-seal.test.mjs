@@ -446,3 +446,15 @@ test('project-state#3326: ruleChanges lists main after the moment, per rule path
   );
   assert.deepEqual(out, [{ path: 'tooling/lint/', sha: 'b'.repeat(40), date: '2026-11-18T15:31:21Z', title: 'a rule (#8916)' }]);
 });
+
+test('a test shard that ran red fails the seal even when this head asks for no tests (the run judged main merged in)', () => {
+  const jobs = [...green([]), job(10, 'Tests (changed)', 'failure')];
+  assert.equal(judgeCiJobs({ run: run(1), jobs, files: ['docs/a.md'] }).ok, false);
+  assert.equal(judgeCiJobs({ run: run(1), jobs: [...green([]), job(10, 'Tests (changed)', 'skipped')], files: ['docs/a.md'] }).ok, true);
+});
+
+test('jobResults: a failed shard beside skipped ones reads as failure', () => {
+  const jobs = [job(10, 'Tests (1/16)', 'skipped'), job(11, 'Tests (2/16)', 'failure'), job(12, 'Tests (3/16)')];
+  assert.equal(jobResults(jobs)['tests-full'], 'failure');
+  assert.equal(jobResults([job(10, 'Tests (1/16)', 'skipped'), job(12, 'Tests (3/16)')])['tests-full'], 'skipped');
+});

@@ -33,7 +33,9 @@ import { GridWithdraw } from './GridWithdraw';
 import { GridWallet, VenueGridFacts, VenueGridWithdraw, WALLET_CODES, useVenueGrid, venueFeeItems } from './GridVenue';
 import { parseGridCount, previewGridPrices } from './grid-plan';
 import { useLive } from './live';
-import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote, SelectField } from './parts';
+import { AccountBadge, Freshness, InfoNote, PendingBanner, RefusalNote, SelectField } from './parts';
+import { ModeNav } from './ModeNav';
+import './copybots.css';
 
 /** A grid bot's state in words, the same in the room and in My bots. */
 export const GRID_WORD: Record<GridBot['status'], string> = {

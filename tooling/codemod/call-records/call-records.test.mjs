@@ -5,7 +5,19 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { answerChecks, Changes, portInFlight, pruneImports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
+import {
+  answerChecks,
+  Changes,
+  checkedCall,
+  importedFrom,
+  importsFile,
+  portInFlight,
+  pruneImports,
+  pruneReExports,
+  pruneSchemas,
+  recordName,
+  rewriteSite,
+} from './index.mjs';
 import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
@@ -57,6 +69,53 @@ test('an import read only as a JSX tag or a re-export stays; one nothing reads g
   assert.match(out, /import \{ kept \} from '\.\/kept';/);
   assert.match(out, /import '\.\/side-effect';/);
   assert.doesNotMatch(out, /Unused/);
+});
+
+test('a re-export no other file imports once the run is written is dropped; one still imported stays', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'service.ts');
+  writeFileSync(
+    file,
+    ["import { CAP, LIMIT } from '@intafaced/contracts/x';", 'export const use = () => CAP + LIMIT;', 'export { CAP, LIMIT };', ''].join(
+      '\n',
+    ),
+  );
+  pruneReExports(file, new Set(['CAP', 'LIMIT']), (name) => (name === 'LIMIT' ? ['other.ts'] : []));
+  const out = readFileSync(file, 'utf8');
+  assert.match(out, /export \{ LIMIT \};/);
+  assert.doesNotMatch(out, /export \{[^}]*CAP/);
+  pruneReExports(file, new Set(['LIMIT']), () => []);
+  assert.doesNotMatch(readFileSync(file, 'utf8'), /export \{/);
+});
+
+test("an importer counts only when its import resolves to the file: another folder's schemas.ts is not it", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  mkdirSync(join(dir, 'portal'));
+  writeFileSync(join(dir, 'schemas.ts'), 'export const a = 1;\n');
+  writeFileSync(join(dir, 'portal/schemas.ts'), 'export const a = 1;\n');
+  writeFileSync(join(dir, 'service.ts'), 'export const a = 1;\n');
+  writeFileSync(join(dir, 'portal/api.ts'), "import * as p from './schemas';\nexport const x = p.a;\n");
+  writeFileSync(join(dir, 'router.ts'), "import { a } from './service.js';\nexport const y = a;\n");
+  // Its own `a`, beside another name it imports from the file: not an importer of `a`.
+  writeFileSync(join(dir, 'portal/own.ts'), "import { b } from '../schemas';\nexport const a = b;\n");
+  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'schemas.ts'), 'schemas', 'a'), false);
+  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'portal/schemas.ts'), 'schemas', 'a'), true);
+  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'portal/schemas.ts'), 'schemas', 'z'), false);
+  assert.equal(importsFile(join(dir, 'router.ts'), join(dir, 'service.ts'), 'service', 'a'), true);
+  assert.equal(importsFile(join(dir, 'portal/own.ts'), join(dir, 'schemas.ts'), 'schemas', 'a'), false);
+  assert.equal(importsFile(join(dir, 'portal/own.ts'), join(dir, 'schemas.ts'), 'schemas', 'b'), true);
+});
+
+test('a namespace import names each member it reads, so a schema whose last `s.x` reader moved is seen', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  writeFileSync(join(dir, 'schemas.ts'), 'export const a = 1;\nexport const b = 2;\n');
+  const file = join(dir, 'api.ts');
+  writeFileSync(file, "import * as s from './schemas';\nexport const f = () => s.a + s.b;\n");
+  const before = importedFrom(file);
+  writeFileSync(file, "import * as s from './schemas';\nexport const f = () => s.a;\n");
+  const after = importedFrom(file);
+  assert.equal(before.get('s.b'), join(dir, 'schemas.ts'));
+  assert.ok(after.has('s') && after.has('s.a') && !after.has('s.b'));
 });
 
 test("a schema's free names leave out property keys, member names and its own parameters", () => {
@@ -389,7 +448,7 @@ test('a call naming one of two paths by `? :` is a site per branch, its input wr
   ]);
 });
 
-test("a guard behind the service's own function or const options is copied whole onto its record; one that checks more keeps its call, named", async () => {
+test("a guard behind the service's own function or const options is copied whole onto its record; one that checks more names its check, or keeps its call, named", async () => {
   const { procedures, chainOf } = await import('./router.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'call-records-guards-'));
   const { mkdirSync } = await import('node:fs');
@@ -399,6 +458,8 @@ test("a guard behind the service's own function or const options is copied whole
     [
       "import { scopedProcedure } from '@intafaced/contracts';",
       "export function executeProcedure() { return scopedProcedure('agents:execute', { module: 'agents', person: true, ownSession: 'agents.execute_person_only' }); }",
+      'export function requireOpsMfa(ctx) {}',
+      "export const opsProcedure = scopedProcedure('campaigns:ops', { module: 'campaigns' }).use(({ ctx, next }) => {\n  requireOpsMfa(ctx);\n  return next();\n});",
       '',
     ].join('\n'),
   );
@@ -406,7 +467,7 @@ test("a guard behind the service's own function or const options is copied whole
     join(dir, 'src/router.ts'),
     [
       "import { scopedProcedure, TRPCError } from '@intafaced/contracts';",
-      "import { executeProcedure } from './procedures.js';",
+      "import { executeProcedure, opsProcedure as sharedOps } from './procedures.js';",
       "const guards = { module: 'core-ops' as const, plane: 'fiat' as const };",
       "const opsScope = 'admin:compliance' as const;",
       'export function createSvcRouter(deps) {',
@@ -414,7 +475,10 @@ test("a guard behind the service's own function or const options is copied whole
       "  const readProcedure = () => scopedProcedure('agents:read', { module: 'agents' });",
       '  const reader = scopedProcedure(opsScope, guards);',
       "  const either = (flag) => { if (flag) return scopedProcedure('admin:write'); return scopedProcedure('admin:read'); };",
-      "  const opsProcedure = scopedProcedure('campaigns:ops', guards).use(({ next }) => next());",
+      '  const requireMfa = (ctx) => {};',
+      "  const opsProcedure = scopedProcedure('campaigns:ops', guards).use(({ ctx, next }) => { requireMfa(ctx); return next(); });",
+      "  const auditedOps = scopedProcedure('campaigns:ops', guards).use(({ ctx, next }) => { requireMfa(ctx); requireMfa(ctx); return next(); });",
+      '  const jobProcedure = publicProcedure.use(({ ctx, next }) => { requireMfa(ctx); return next(); });',
       '  const merchantApi = async () => {};',
       "  const merchantApiProcedure = (scope: 'p2p:read' | 'p2p:write') => scopedProcedure(scope, { module: 'p2p', check: merchantApi });",
       '  return router({',
@@ -425,6 +489,9 @@ test("a guard behind the service's own function or const options is copied whole
       "    status: scopedProcedure('admin:read', guards).output(o).query(h),",
       '    pick: either(true).output(o).query(h),',
       '    ops: opsProcedure.output(o).query(h),',
+      '    shared: sharedOps.output(o).query(h),',
+      '    audited: auditedOps.output(o).query(h),',
+      '    job: jobProcedure.output(o).mutation(h),',
       "    dispute: merchantApiProcedure('p2p:write').output(o).mutation(h),",
       '  });',
       '}',
@@ -443,12 +510,52 @@ test("a guard behind the service's own function or const options is copied whole
     status: "{ caller: 'scope', scope: 'admin:read', module: 'core-ops', plane: 'fiat' }",
     // Two returns may be two guards: neither is copied.
     pick: 'guard either() is a function with more than its returned guard: not one a record names',
-    ops: "guard opsProcedure kept by hand: it adds svc-campaigns' ops second-factor check (requireOpsMfa); no record field says that",
+    // A scope guard and one check of the service's own: the record names the check, in this file or shared from another.
+    ops: "{ caller: 'scope', scope: 'campaigns:ops', module: 'core-ops', plane: 'fiat', check: 'requireMfa' }",
+    shared: "{ caller: 'scope', scope: 'campaigns:ops', module: 'campaigns', check: 'requireOpsMfa' }",
+    // One statement more is not one check: it stays.
+    audited: 'guard use() chained: not one a record names',
+    job: "guard jobProcedure kept by hand: it is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
     // The service's own check is named on the record, which mounts it from the service's parts.
     dispute: "{ caller: 'scope', scope: 'p2p:write', module: 'p2p', check: 'merchantApi' }",
   });
   const { reasonOf } = await import('./report.mjs');
-  assert.equal(reasonOf(access.ops), 'guard kept by hand (named, with its reason)');
+  assert.equal(reasonOf(access.job), 'guard kept by hand (named, with its reason)');
+  assert.equal(reasonOf(access.audited), 'guard chained with .use()');
+});
+
+test("a record naming its service's own check mounts with the router file's parts, else with its refusal reader and the check's export", async () => {
+  const { partsFor } = await import('./guard-check.mjs');
+  const guard = {
+    text: "{ caller: 'scope', scope: 'campaigns:ops', check: 'requireOpsMfa' }",
+    check: { name: 'requireOpsMfa', file: '/s/kit.ts', exported: true },
+  };
+  const reader = { name: 'refusalOf', file: '/s/kit.ts', exported: true };
+  const declared = { name: 'p2pParts', file: '/s/router.ts', parts: true };
+  assert.equal(
+    partsFor([declared], '/s/router.ts', guard, () => reader),
+    declared,
+  );
+  assert.deepEqual(
+    partsFor([], '/s/tasks.ts', guard, () => reader),
+    {
+      name: '{ refusalOf: refusalOf, checks: { requireOpsMfa } }',
+      file: '/s/tasks.ts',
+      imports: [
+        { file: '/s/kit.ts', name: 'refusalOf' },
+        { file: '/s/kit.ts', name: 'requireOpsMfa' },
+      ],
+    },
+  );
+  // A check another file can't import, or no refusal reader: the call stays.
+  assert.equal(
+    partsFor([], '/s/tasks.ts', { ...guard, check: { ...guard.check, exported: false } }, () => reader),
+    undefined,
+  );
+  assert.equal(
+    partsFor([], '/s/tasks.ts', guard, () => undefined),
+    undefined,
+  );
 });
 
 test('portable: a refused z.unknown() is followed from the record to its source and becomes jsonValueSchema', async () => {
@@ -751,4 +858,38 @@ test("portable: a door answer's Date becomes its ISO string; a mounted service's
     mounted.left.map((l) => l.at),
     ['x.grant.output.grantedAt', 'x.grant.output.revokedAt'],
   );
+});
+
+test('a customer call whose own schema only refuses an answer moves through callAs, keeping that schema; one that transforms it stays', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-checked-'));
+  const file = join(repo, 'apps/customer/src/features/more/Agents.tsx');
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    [
+      "import { useApi } from '../session';",
+      'const mine = z.object({ id: z.string() }).refine((r) => r.id === me);',
+      "export const a = (api) => api.query('agents', 'agent.get', { id }, mine, { signal });",
+      "export const b = (api) => api.mutate('agents', 'session.close', { id }, z.object({ ok: z.literal(true) }));",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const [a, b] = findSites(repo).sort((x, y) => x.node.start - y.node.start);
+  assert.equal(checkedCall(a, a.node.arguments[3], ['.refine() (Agents.tsx:2)']), true);
+  assert.equal(checkedCall(a, a.node.arguments[3], ['.refine() (x:1)', '.transform() (x:2)']), false, 'a transform changes the answer');
+  assert.equal(checkedCall({ ...a, file: join(repo, 'apps/admin/src/x.ts') }, a.node.arguments[3], ['.refine() (x:1)']), false);
+  const changes = new Changes();
+  rewriteSite(changes, { ...a, checked: 'mine' }, 'AGENTS_AGENT_GET', '@intafaced/contracts/agents-agent-procedures', false);
+  rewriteSite(changes, b, 'AGENTS_SESSION_CLOSE', '@intafaced/contracts/agents-session-procedures', false);
+  const f = changes.of(file);
+  const out = applyEdits(load(file).src, f.edits);
+  assert.match(
+    out,
+    /api => callAs\(api, AGENTS_AGENT_GET, \{ id \}, mine, \{ signal \}\)|\(api\) => callAs\(api, AGENTS_AGENT_GET, \{ id \}, mine, \{ signal \}\)/,
+  );
+  assert.match(out, /api\.call\(AGENTS_SESSION_CLOSE, \{ id \}\)/);
+  assert.deepEqual([...(f.imports.get('../../shared/api') ?? [])], ['callAs']);
+  assert.ok(!(f.schemas ?? new Map()).has('mine'), 'the checked schema is kept as written, not retyped');
 });

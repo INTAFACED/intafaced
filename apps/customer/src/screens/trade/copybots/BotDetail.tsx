@@ -27,6 +27,7 @@ import { roomCopy } from './copy';
 import type { Failure, WriteGuard } from './guard';
 import { InfoNote, RefusalNote } from './parts';
 import { roomRefusal } from './refusals';
+import './copybots.css';
 
 export type Algo = z.infer<typeof algoSchema>;
 export type Progress = z.infer<typeof algoProgressSchema>;
