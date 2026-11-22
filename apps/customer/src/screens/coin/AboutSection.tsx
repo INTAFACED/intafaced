@@ -7,11 +7,11 @@ export function AboutSection({ asset, name }: { asset: string; name: string }) {
   const paragraphs = aboutFor(asset);
   if (!paragraphs) return null;
   return (
-    <section id="coin-about" className="coin-about" aria-labelledby="coin-about-title" data-testid="about">
-      <h2 id="coin-about-title" data-testid="coin-h2" className="coin-h2 coin-h2--xl">
+    <section id="coin-about" className="lt-stack" aria-labelledby="coin-about-title" data-testid="about">
+      <h2 id="coin-about-title" data-testid="coin-h2">
         {t('About {name}', { name })}
       </h2>
-      <div className="coin-card coin-about__card">
+      <div className="lt-prose">
         {paragraphs.map((text) => (
           <p key={text}>{text}</p>
         ))}
