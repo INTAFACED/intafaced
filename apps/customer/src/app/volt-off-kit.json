@@ -317,6 +317,7 @@
   "/dex",
   "/dex/pools",
   "/dex/pools/:poolId",
+  "/dex/pools/:poolId/add",
   "/dex/positions",
   "/dex/positions/:positionId",
   "/dex/tokens",
