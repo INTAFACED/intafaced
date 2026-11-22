@@ -6,7 +6,7 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { uiCopy } from '../../../shared/ui-copy';
 import { useSession } from '../../session';
-import { StepUpConfirm } from '../../money';
+import { KitStepUpConfirm } from '../../money';
 import { useWallet } from '../../protocol';
 import { WalletBar } from '../../trade';
 import { endOfDayUtc } from '../../account';
@@ -421,7 +421,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
       {ask && (
         <>
           <PermissionReach permission={terms.agentPermission ?? null} />
-          <StepUpConfirm
+          <KitStepUpConfirm
             request={() => createStepUp(ask)}
             words={stepUpWords(t, 'stepUpWhy')}
             disabled={busy !== null}
@@ -549,7 +549,7 @@ function ConnectAssistant({ open, keys, reload }: { open: AgentAccount[]; keys: 
       {open.length === 0 ? (
         <p className="lt-hint">{t('connectNeedsAccount')}</p>
       ) : pending ? (
-        <StepUpConfirm
+        <KitStepUpConfirm
           request={() => connectStepUp(pending.made.record.id, pending.account.accountId)}
           words={stepUpWords(t, 'connectStepUpWhy')}
           disabled={busy}

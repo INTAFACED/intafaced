@@ -124,54 +124,7 @@ export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title
   );
 }
 
-/** Connect, the connected address and network, and the switch when the wallet is on another network. */
-export function WalletBar() {
-  const { t } = venueCopy.useCopy();
-  const wallet = useWallet();
-  return (
-    <section className="dk-panel form-stack" aria-label={t('Your wallet')} data-testid="venue-wallet">
-      <h2 className="dk-tab-title">{t('Your wallet')}</h2>
-      {wallet.status === 'connected' && wallet.address ? (
-        <>
-          <dl className="protocol-facts">
-            <div>
-              <dt>{t('Connected address')}</dt>
-              <dd className="numeric" data-testid="venue-wallet-address">
-                {wallet.address.toLowerCase()}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Network')}</dt>
-              <dd className="numeric">{wallet.chainId ?? ''}</dd>
-            </div>
-          </dl>
-          {wallet.guard && !wallet.guard.ok ? (
-            <p role="alert">
-              {t('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <Button onClick={() => void wallet.switchNetwork()}>{t('Switch network')}</Button>
-            </p>
-          ) : null}
-          <Button variant="secondary" onClick={wallet.disconnect}>
-            {t('Disconnect')}
-          </Button>
-        </>
-      ) : wallet.wallets.length === 0 ? (
-        <p className="muted">{t('No wallet')}</p>
-      ) : (
-        wallet.wallets.map((entry) => (
-          <Button key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
-            {t('Connect wallet', { name: entry.info.name })}
-          </Button>
-        ))
-      )}
-      {wallet.problem ? (
-        <p className="failure" role="alert">
-          {wallet.problem}
-        </p>
-      ) : null}
-    </section>
-  );
-}
+export { WalletBar } from './WalletBar';
 
 /** The connected wallet's address, lowercase, which is the venue account's owner; null until connected on the right network. */
 export function useOwner(): string | null {

@@ -18,7 +18,7 @@ import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
-import { BooksStepUp } from './BooksStepUp';
+import { KitStepUpConfirm } from '../step-up-kit/KitStepUpConfirm';
 import { useHeldId } from '../business-team/held-id';
 
 /**
@@ -598,7 +598,7 @@ function Statements({
     <>
       {needsSca ? <p data-testid="books-needs-sca">{t('needsSca', { sca: String(sca) })}</p> : null}
       {needsSca && approval === undefined ? (
-        <BooksStepUp
+        <KitStepUpConfirm
           request={() => ({
             scope: 'bank.step_up.businessBooks.exportStatement',
             purpose: 'businessBooks.exportStatement',

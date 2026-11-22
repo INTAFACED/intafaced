@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, Dialog } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
 import { walletCopy } from './copy';
 import {
@@ -159,7 +160,7 @@ export function WalletGate({ children }: { children: ReactNode }) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   return status === 'restoring' ? (
-    <p className="muted" role="status" aria-busy="true" data-wallet="restoring">
+    <p className="lt-hint" role="status" aria-busy="true" data-wallet="restoring">
       {t('restoring')}
     </p>
   ) : (
@@ -681,13 +682,13 @@ export function SignSheet({
   const { t } = walletCopy.forLocale(language);
   const facts = describeRequest(request);
   return (
-    <Dialog title={t('sheetTitle')} onClose={onCancel}>
+    <Sheet open title={t('sheetTitle')} onClose={onCancel}>
       <div data-sheet="sign">
         <p>{t(request.kind === 'transaction' ? 'sheetSends' : request.kind === 'message' ? 'sheetSignsMessage' : 'sheetSignsData')}</p>
-        <dl className="protocol-facts">
+        <dl>
           <div>
             <dt>{t('fact_account')}</dt>
-            <dd className="numeric">{account}</dd>
+            <dd className="lt-mono">{account}</dd>
           </div>
           <div>
             <dt>{t('fact_network')}</dt>
@@ -696,25 +697,27 @@ export function SignSheet({
           {facts.map((fact, index) => (
             <div key={`${fact.label}:${index}`}>
               <dt>{t(`fact_${fact.label}`)}</dt>
-              <dd className="numeric">{fact.value}</dd>
+              <dd className="lt-mono">{fact.value}</dd>
             </div>
           ))}
         </dl>
         <details open>
           <summary>{t('sheetExact')}</summary>
-          <pre className="numeric" data-sheet-payload>
+          <pre className="lt-mono" data-sheet-payload>
             {payloadText(request, account, chainId)}
           </pre>
         </details>
-        <p className="muted">
+        <p className="lt-hint">
           {t(request.kind === 'transaction' ? 'sheetMovesFunds' : request.kind === 'message' ? 'sheetMovesNothing' : 'sheetMayAuthorise')}
         </p>
-        <Button onClick={onContinue}>{t('sheetContinue')}</Button>{' '}
-        <Button variant="secondary" onClick={onCancel}>
+        <Button tone="primary" onClick={onContinue}>
+          {t('sheetContinue')}
+        </Button>{' '}
+        <Button tone="secondary" onClick={onCancel}>
           {t('sheetCancel')}
         </Button>
       </div>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -735,7 +738,7 @@ export function SequenceSheet({
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   return (
-    <Dialog title={t('sheetTitle')} onClose={onCancel}>
+    <Sheet open title={t('sheetTitle')} onClose={onCancel}>
       <div data-sheet="sequence">
         <p>
           {sequence.steps.some((step) => 'sign' in step)
@@ -745,10 +748,10 @@ export function SequenceSheet({
               })
             : t('seqSends', { count: String(sequence.steps.length) })}
         </p>
-        <dl className="protocol-facts">
+        <dl>
           <div>
             <dt>{t('fact_account')}</dt>
-            <dd className="numeric">{account}</dd>
+            <dd className="lt-mono">{account}</dd>
           </div>
           <div>
             <dt>{t('fact_network')}</dt>
@@ -757,7 +760,7 @@ export function SequenceSheet({
           {(sequence.facts ?? []).map((fact) => (
             <div key={fact.label}>
               <dt>{fact.label}</dt>
-              <dd className="numeric">{fact.value}</dd>
+              <dd className="lt-mono">{fact.value}</dd>
             </div>
           ))}
         </dl>
@@ -769,7 +772,7 @@ export function SequenceSheet({
         <details>
           <summary>{t('sheetExact')}</summary>
           {sequence.steps.map((step, index) => (
-            <pre key={index} className="numeric" data-sheet-payload>
+            <pre key={index} className="lt-mono" data-sheet-payload>
               {'request' in step
                 ? payloadText(step.request, account, chainId)
                 : 'sign' in step
@@ -778,12 +781,14 @@ export function SequenceSheet({
             </pre>
           ))}
         </details>
-        <p className="muted">{t('sheetMovesFunds')}</p>
-        <Button onClick={onContinue}>{t('sheetContinue')}</Button>{' '}
-        <Button variant="secondary" onClick={onCancel}>
+        <p className="lt-hint">{t('sheetMovesFunds')}</p>
+        <Button tone="primary" onClick={onContinue}>
+          {t('sheetContinue')}
+        </Button>{' '}
+        <Button tone="secondary" onClick={onCancel}>
           {t('sheetCancel')}
         </Button>
       </div>
-    </Dialog>
+    </Sheet>
   );
 }
