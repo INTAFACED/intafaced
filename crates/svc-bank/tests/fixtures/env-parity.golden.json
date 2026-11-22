@@ -66,6 +66,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -195,6 +219,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -287,6 +335,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": false,
+        "interestAccrual": false,
+        "loanAccrual": false,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -356,6 +428,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": true,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -424,6 +520,30 @@
           "BANK_RECOVERY_JOBS_BATCH_LIMIT": 50,
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
+        }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
         }
       }
     },
@@ -506,6 +626,30 @@
           "BANK_RECOVERY_JOBS_BATCH_LIMIT": 50,
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
+        }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": true,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "card-sim",
+          "simulated": true,
+          "displayName": "Simulated card (no card programme)"
+        },
+        "rampProgramme": {
+          "id": "crypto-ledger",
+          "simulated": true,
+          "displayName": "Crypto ledger half (no chain broadcast; fiat via pay adapters / socket)",
+          "cryptoRail": "bank-crypto-ledger",
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
         }
       }
     },
@@ -604,6 +748,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -672,6 +840,30 @@
           "BANK_RECOVERY_JOBS_BATCH_LIMIT": 50,
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
+        }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
         }
       }
     },
@@ -759,6 +951,30 @@
           "BANK_RECOVERY_JOBS_BATCH_LIMIT": 50,
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
+        }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
         }
       }
     },
@@ -863,6 +1079,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -932,6 +1172,30 @@
           "BANK_RECOVERY_JOBS_BATCH_LIMIT": 50,
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
+        }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
         }
       }
     },
@@ -1005,6 +1269,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -1076,6 +1364,30 @@
           "BANK_RECOVERY_JOBS_BATCH_LIMIT": 1000,
           "BANK_STATEMENT_JOBS_INTERVAL_MS": 500,
           "BANK_STATEMENT_JOBS_LEASE_MS": 3600000
+        }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
         }
       }
     },
@@ -1185,6 +1497,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": 500,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -1278,6 +1614,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -1366,6 +1726,30 @@
           "BANK_RECOVERY_JOBS_BATCH_LIMIT": 50,
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
+        }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
         }
       }
     },
@@ -1483,6 +1867,30 @@
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
         }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
+        }
       }
     },
     {
@@ -1596,6 +2004,30 @@
           "BANK_RECOVERY_JOBS_BATCH_LIMIT": 50,
           "BANK_STATEMENT_JOBS_INTERVAL_MS": null,
           "BANK_STATEMENT_JOBS_LEASE_MS": null
+        }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
         }
       }
     },
@@ -1716,6 +2148,30 @@
           "BANK_STATEMENT_JOBS_LEASE_MS": null,
           "BANK_STATEMENT_JOBS_TEST_RENDER_HOLD_MS": "y",
           "BANK_ACTIVITY_TEST_FAULT": "z"
+        }
+      },
+      "ready": {
+        "ready": true,
+        "scheduledTransfers": true,
+        "interestAccrual": true,
+        "loanAccrual": true,
+        "loanRiskSweep": false,
+        "autoInvest": true,
+        "loans": true,
+        "cards": true,
+        "autoInvestConvertWired": true,
+        "cardProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No card programme"
+        },
+        "rampProgramme": {
+          "id": "none",
+          "simulated": true,
+          "displayName": "No bank ramp programme",
+          "cryptoRail": null,
+          "fiatLeg": "socket.psp-partners",
+          "fiatVia": "svc-pay.RailAdapter"
         }
       }
     },
