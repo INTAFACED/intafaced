@@ -205,7 +205,7 @@
     "apps/customer/src/features/trade/account/AccountMode.tsx": 1,
     "apps/customer/src/features/trade/Chart.tsx": 26,
     "apps/customer/src/features/trade/market-analytics/MarketAnalyticsRoom.tsx": 1,
-    "apps/customer/src/features/trade/news/NewsRooms.tsx": 4,
+    "apps/customer/src/features/trade/news/NewsRooms.tsx": 3,
     "apps/customer/src/features/trade/news/NewsWidget.tsx": 1,
     "apps/customer/src/features/trade/orders/FuturesOrdersRoom.tsx": 4,
     "apps/customer/src/features/trade/orders/OrderHistoryRoom.tsx": 4,
@@ -319,7 +319,6 @@
   },
   "garden/no-raw-type-class": {
     "apps/customer/src/features/account/Verification.tsx": 2,
-    "apps/customer/src/features/pay/portal/settings/developers/Docs.tsx": 2,
     "apps/customer/src/features/pay/ui-kit.tsx": 6,
     "apps/customer/src/screens/coin/PriceCard.tsx": 2,
     "apps/customer/src/screens/trade/buy/BuyCard.tsx": 1,

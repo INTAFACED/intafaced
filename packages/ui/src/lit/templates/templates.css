@@ -676,6 +676,11 @@
   color: var(--lit-up-text);
 }
 
+/* A long unbroken value (a hash, a signature, a body) breaks anywhere rather than run off a phone's edge. */
+.lt-wrap {
+  overflow-wrap: anywhere;
+}
+
 .lt-receipt,
 .lt-review {
   display: flex;

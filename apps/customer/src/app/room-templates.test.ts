@@ -2,7 +2,7 @@
 // The route-to-template registry stays in step with the app's route table (the Volt kit).
 import { describe, expect, it, vi } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
-import { PORTAL_ROOMS } from '../features/pay/portal/routes';
+import { parsePortalRoute, PORTAL_ROOMS } from '../features/pay/portal/routes';
 import { rooms } from './navigation';
 import { renderPart } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
@@ -67,8 +67,13 @@ describe('room templates registry', () => {
     } finally {
       vi.useRealTimers();
     }
-    // A portal page has no route of its own in the room table to open; one marked migrated is drawn here first.
-    const portal = Object.entries(PORTAL_TEMPLATES).filter(([, entry]) => entry.migrated);
+    // A portal page has no route of its own in the room table to open: one marked migrated is drawn through its /pay
+    // address above, which must be migrated to the same screen file (so the loop has checked it draws its template).
+    const drawnAbove = (page: string, file: string) =>
+      Object.entries(ROUTE_TEMPLATES).some(
+        ([path, entry]) => isRoom(entry) && entry.migrated?.file === file && parsePortalRoute(path)?.room === page,
+      );
+    const portal = Object.entries(PORTAL_TEMPLATES).filter(([page, entry]) => entry.migrated && !drawnAbove(page, entry.migrated.file));
     expect(
       portal.map(([room]) => room),
       'a migrated merchant portal page: open its /pay address above and check it draws its template',

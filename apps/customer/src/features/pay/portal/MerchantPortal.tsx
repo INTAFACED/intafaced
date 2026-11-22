@@ -79,6 +79,7 @@ export function PortalPage({ route, ctx, pay = null }: { route: PortalRoute; ctx
   return (
     <PortalFrame
       route={route}
+      ownTitle={Boolean(room.ownTitle) && !noBusiness}
       actionOff={noBusiness}
       actionReason={noBusiness ? undefined : headerActionReason(route.room, ctx.access, pay)}
     >
@@ -89,11 +90,14 @@ export function PortalPage({ route, ctx, pay = null }: { route: PortalRoute; ctx
 
 export function PortalFrame({
   route,
+  ownTitle = false,
   actionOff = false,
   actionReason,
   children,
 }: {
   route: PortalRoute;
+  /** The page draws its own title (`ownTitle` on its room): the frame draws no heading. */
+  ownTitle?: boolean;
   actionOff?: boolean;
   /** Why the header action is switched off for this person (their role lacks the scope). Null or left out: it works. */
   actionReason?: string | null;
@@ -107,6 +111,7 @@ export function PortalFrame({
   return (
     <LayoutFrame
       here={here}
+      heading={!ownTitle}
       title={copy.title}
       purpose={copy.purpose}
       action={

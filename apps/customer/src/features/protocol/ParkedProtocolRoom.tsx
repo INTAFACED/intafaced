@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { SwapForm } from './swap/SwapForm';
 import { navigate } from '../../app/location';
 import { useApi } from '../session';
@@ -30,11 +30,12 @@ import { BlocksList } from './explorer/pages';
 import { TokensNav } from './tokens/TokensRoom';
 import { PoolsList } from './pools/PoolsList';
 import { BridgeRoutes } from './rails/BridgeRoutes';
-import { AuditProducts } from './AuditProducts';
 import { VenueFunds } from './venue/VenueFunds';
 import { LendPanel } from './lend/LendPanel';
 import './explorer/explorer.css';
 import './protocol.css';
+import { NO_ANSWER_CODE, useNoAnswerWindow } from './no-answer';
+import { AuditRoom } from './audit/AuditRoom';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
 type Resource<T> = ReturnType<typeof useResource<T>>;
@@ -53,15 +54,6 @@ export function toSource<T>(value: Resource<T>): Source<T> {
       : { status: 'down', reason: resource.failure.reason, message: resource.failure.message, code: resource.failure.code };
 }
 
-/** The gateway's answer when the service did not reply: a crash, a restart or a service that is not running. */
-const NO_ANSWER_CODE = 'edge.upstream_unavailable';
-/**
- * The retry window: the room asks again on its own, and a person may ask again too. After this many no-answer replies in a
- * row, a second attempt is no longer worth offering, so the room says the service is not running here and hides Try again.
- */
-export const NO_ANSWER_ATTEMPTS = 3;
-export const NO_ANSWER_RETRY_MS = 4000;
-
 /** The service did not reply. Inside the retry window it offers Try again; once the window has closed it says the service is not running here. */
 export function NoAnswerNote({ service, closed, reload, t }: { service: string; closed: boolean; reload: () => void; t: Translate }) {
   return closed ? (
@@ -78,26 +70,6 @@ export function NoAnswerNote({ service, closed, reload, t }: { service: string; 
       </Button>
     </div>
   );
-}
-
-/** True once the retry window has run out of attempts. Any other answer starts the count again. */
-function useNoAnswerWindow<T>({ resource, reload }: Resource<T>): boolean {
-  const [failures, setFailures] = useState(0);
-  const latest = useRef(reload);
-  latest.current = reload;
-  const noAnswer = resource.status === 'failed' && resource.failure.code === NO_ANSWER_CODE;
-  const counted = useRef<unknown>(null);
-  useEffect(() => {
-    if (resource.status === 'loading' || counted.current === resource) return;
-    counted.current = resource;
-    setFailures((count) => (noAnswer ? count + 1 : 0));
-  }, [resource, noAnswer]);
-  useEffect(() => {
-    if (!noAnswer || failures === 0 || failures >= NO_ANSWER_ATTEMPTS) return;
-    const timer = setTimeout(() => latest.current(), NO_ANSWER_RETRY_MS);
-    return () => clearTimeout(timer);
-  }, [noAnswer, failures]);
-  return failures >= NO_ANSWER_ATTEMPTS;
 }
 
 /**
@@ -401,25 +373,6 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </Answer>
     </Panel>
   );
-  const auditPanel = (
-    <Panel title={t('auditTitle')}>
-      <Answer value={audit} source={t('src_audit')} t={t} shell={{ label: t('auditTitle'), headers: [t('hdr_field'), t('hdr_value')] }}>
-        {(a) => (
-          <Rows
-            t={t}
-            rows={[
-              [t('auditedFlag'), t('auditedFalse')],
-              [t('auditKind'), t('internalOnly')],
-              [t('auditPackage'), a.id],
-              [t('auditPath'), a.packagePath],
-              [t('auditHash'), a.artifactHash],
-              [t('auditSigned'), a.signedBy ?? t('unsigned')],
-            ]}
-          />
-        )}
-      </Answer>
-    </Panel>
-  );
   const venuePanel = (
     <Panel title={t('venueTitle')}>
       <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
@@ -501,13 +454,6 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         </DataTable>
       </Panel>
     );
-  else if (tab === 'audit')
-    body = (
-      <>
-        <AuditProducts api={api} />
-        {auditPanel}
-      </>
-    );
   else if (slug === 'dex' && tab === 'swap') body = <SwapForm />;
   else if (slug === 'dex' && tab === 'pools')
     body = (
@@ -582,6 +528,8 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </>
     );
 
+  // The audit tab is drawn on its own reading template, its sections as links (features/protocol/audit/AuditRoom.tsx).
+  if (tab === 'audit' && slug !== 'dex') return <AuditRoom slug={slug} api={api} audit={audit} />;
   return (
     <div className="legacy-room protocol-room" lang={copy.forLocale(language).renderedLocale}>
       <Page

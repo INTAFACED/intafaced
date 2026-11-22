@@ -172,8 +172,6 @@ export function WalletRoom({
       <TrackerPanel />
     ) : section === 'accounts' ? (
       <AccountsPanel />
-    ) : section === 'safety' ? (
-      <SafetyPanel />
     ) : section === 'sessionKeys' ? (
       <SessionKeysPanel />
     ) : section === 'addressBook' ? (
@@ -193,6 +191,8 @@ export function WalletRoom({
       </>
     );
 
+  // Safety is drawn on its own reading template, with the sections as links (features/protocol/wallet/SafetyPanel.tsx).
+  if (section === 'safety') return <SafetyPanel />;
   return (
     <div className="legacy-room protocol-room" lang={walletCopy.forLocale(language).renderedLocale} data-route="wallet">
       <Page
