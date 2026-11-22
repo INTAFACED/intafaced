@@ -1,7 +1,8 @@
 #!/bin/sh
 #
 # Refuse direct push to main + require the Doctrine gates and the typecheck of what the push reaches before any push.
-# Every check below runs on every push, and every refusal is named in one run: a check that fails is recorded, the rest
+# Every check below runs on every push that brings content of its own (a push of main's commits alone, or of a clean
+# merge of them, skips them: adds_nothing below), and every refusal is named in one run: a check that fails is recorded, the rest
 # still run, and the push is refused at the end with the whole list. On 18-20 Nov the hook stopped at its first refusal,
 # so four builders spent a second push on a refusal the first run never reached (project-state#3035): lint-ratchet,
 # then the secret scan, then the CI review's size count (09d41f0f86, fix/ps-3343-curriculum); lint-ratchet then the
@@ -56,6 +57,47 @@ MESSAGE
     exit 1
   fi
 done < "$PUSHED"
+
+# A push that brings nothing of its own skips every check below: main's commits were judged by main's CI, and a clean
+# merge adds only them. On 22 Nov moving seven volt/* layer branches to main took over 30 minutes, every push a full run
+# of the checks (3 min 16 s for one fast-forward). Judged from git alone, commit by commit down from the pushed tip:
+# nothing new is the tip the remote already holds, or a commit on origin/main, or a two-parent merge of a commit on
+# origin/main into a commit with nothing new whose tree is exactly what git's own merge of the two gives (so no conflict
+# resolution or edit rode in on it). Anything else, on any pushed ref, runs every check.
+adds_nothing() {
+  _c=$1
+  _n=0
+  while [ "$_n" -lt 100 ]; do
+    _n=$((_n + 1))
+    [ "$_c" = "$2" ] && return 0
+    git merge-base --is-ancestor "$_c" refs/remotes/origin/main 2>/dev/null && return 0
+    # shellcheck disable=SC2046 # the commit and its parents, one word each
+    set -- $(git rev-list --parents -n 1 "$_c" 2>/dev/null) "$2"
+    [ $# -eq 4 ] || return 1
+    if git merge-base --is-ancestor "$3" refs/remotes/origin/main 2>/dev/null; then
+      _side=$2 _main=$3
+    elif git merge-base --is-ancestor "$2" refs/remotes/origin/main 2>/dev/null; then
+      _side=$3 _main=$2
+    else
+      return 1
+    fi
+    _merged=$(git merge-tree --write-tree "$_side" "$_main" 2>/dev/null) || return 1
+    [ "$(printf '%s\n' "$_merged" | head -n 1)" = "$(git rev-parse "$1^{tree}")" ] || return 1
+    _c=$_side
+    set -- "$_c" "$4"
+  done
+  return 1
+}
+NOTHING_NEW=yes
+while read -r _lref lsha _rref rsha; do
+  [ "$lsha" = "0000000000000000000000000000000000000000" ] && continue
+  adds_nothing "$lsha" "$rsha" || NOTHING_NEW=no
+done < "$PUSHED"
+if [ "$NOTHING_NEW" = yes ]; then
+  echo "pre-push: this push adds nothing beyond origin/main and what the remote already holds; the checks are skipped."
+  rm -f "$PUSHED"
+  exit 0
+fi
 
 # The tooling tests that read every journey file, when this push changes one. They take under a second together, and a
 # journey file that breaks one is otherwise first seen as a red Doctrine gates job minutes after the push (J-merchant-01

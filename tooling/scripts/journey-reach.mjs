@@ -23,9 +23,9 @@
  *   - table: the first time this worker sees a chunk, the repository source paths its map lists;
  *   - nomap: the first time this worker sees one, a built script that ran and has no position map (the boot script, the
  *     bundler's runtime, vendor code). Its sources are in no table, so the map reads them as unmapped: full;
- *   - afterAll: true on the record that carries a file's afterAll hooks' reach (attached by the next file's first test);
- *     afterAllDue: true on the other records of a file that declares afterAll hooks, so the map can tell when that
- *     record never came (a worker's last file has no next test): it reads such a file as incomplete;
+ *   - afterAll: true on the record that carries a file's afterAll hooks' reach (attached from the hook, on the file's
+ *     last test); afterAllDue: true on the other records of a file that declares afterAll hooks, so the map can tell
+ *     when that record never came (the hook was cut off): it reads such a file as incomplete;
  *   - incomplete: reason codes (INCOMPLETE) for what this record can't see whole. The map treats an incomplete journey
  *     as reaching every source;
  *   - codeServices, code, codeGap: the stack services whose own code is recorded (tooling/scripts/service-reach.mjs, a
@@ -365,10 +365,10 @@ export function makeLogReader(logsDir) {
 
 /**
  * The new whole lines of each `<service><suffix>` file in a folder, as [service, line] pairs, from the files' ends at the
- * start (or from their starts with `whole`). A file that shrank is read again from its start; a partial last line waits
- * for the next read; a file whose name is not a service's shape is passed over.
+ * start (or, with `startAt`, from the offset it gives for each file). A file that shrank is read again from its start; a
+ * partial last line waits for the next read; a file whose name is not a service's shape is passed over.
  */
-function makeTail(dir, suffix, { whole = false } = {}) {
+function makeTail(dir, suffix, { startAt = (file) => statSync(file).size } = {}) {
   const at = new Map();
   const rest = new Map();
   const list = () => {
@@ -378,14 +378,13 @@ function makeTail(dir, suffix, { whole = false } = {}) {
       return [];
     }
   };
-  if (!whole)
-    for (const f of list()) {
-      try {
-        at.set(f, statSync(path.join(dir, f)).size);
-      } catch {
-        /* gone */
-      }
+  for (const f of list()) {
+    try {
+      at.set(f, startAt(path.join(dir, f)));
+    } catch {
+      /* gone */
     }
+  }
   return {
     names: () => list().map((f) => f.slice(0, -suffix.length)),
     read() {
@@ -436,17 +435,52 @@ function makeTail(dir, suffix, { whole = false } = {}) {
 const SERVICE_SOURCE = /^services\/svc-[a-z0-9-]+\/src\/[A-Za-z0-9._@/-]{1,300}\.ts$/;
 
 /**
+ * Where a code-reach file's last process began: the offset of its last `{"pid":<n>,"start":` line, else 0. Only that
+ * process's lines say what a reader needs (its pid, how far it wrote, whether it ended); the file keeps every process
+ * the stack ever started under the name and is never cleared, so a whole read grew with every run (422 MB of history
+ * cost 1 GiB in each Playwright process that imports the journey harness, runner and worker). Read backwards in 1 MiB
+ * steps, so a long history costs only the last process's lines.
+ */
+export function lastStart(file) {
+  const START = /\{"pid":\d+,"start":/g;
+  const step = 2 ** 20;
+  const size = statSync(file).size;
+  const fd = openSync(file, 'r');
+  try {
+    // Each step reads 64 bytes past its own end, so a line start split across two steps is still seen whole.
+    for (let end = size; end > 0; end -= step) {
+      const from = Math.max(0, end - step);
+      const buf = Buffer.alloc(Math.min(size, end + 64) - from);
+      const text = buf.subarray(0, readSync(fd, buf, 0, buf.length, from)).toString('latin1');
+      let last = -1;
+      for (const m of text.matchAll(START))
+        if (m.index === 0 ? from === 0 || isLineStart(fd, from) : text[m.index - 1] === '\n') last = m.index;
+      if (last >= 0) return from + last;
+    }
+    return 0;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Whether the byte before `at` is a newline. */
+function isLineStart(fd, at) {
+  const b = Buffer.alloc(1);
+  return readSync(fd, b, 0, 1, at - 1) === 1 && b[0] === 10;
+}
+
+/**
  * A reader of the stack services' code-reach files (`<state>/logs/code/<service>.jsonl`, written by service-reach.mjs).
  * Each read returns, since the last one: { service, from, to, files } for each window a process recorded, and
  * { service, gap: true, from, to } for a stretch it can't have seen whole: a process that started while the one before
- * it under the same name never wrote its end (killed, so its last unread counts are lost). It reads the files whole at
- * the start only to learn each name's process, so the stack's own start is nobody's.
+ * it under the same name never wrote its end (killed, so its last unread counts are lost). At the start it reads each file
+ * from its last process's `start` line (lastStart) only to learn that process, so the stack's own start is nobody's.
  *   - lag(t): the names whose process is alive and has not yet written a window reaching t;
  *   - lost(t): a gap from each such name's last window to t, after which the name counts as read up to t;
  *   - services(): the names that record at all.
  */
 export function makeCodeReader(dir) {
-  const tail = makeTail(dir, '.jsonl', { whole: true });
+  const tail = makeTail(dir, '.jsonl', { startAt: lastStart });
   const state = new Map(); // name -> { pid, ended, upTo }
   const num = (x) => (Number.isFinite(x) ? x : null);
   const take = (lines, out) => {
@@ -683,12 +717,12 @@ export function makeRecorder({
         }
       }
     },
-    /** The file's afterAll hooks have run: their reach is in this file's next record, attached by a later test. */
+    /** The file's afterAll hooks have run: their reach is in this file's next record, attached from the hook. */
     afterAll(file) {
       slot(file).after = true;
     },
     /** The file declares afterAll hooks: each of its records says so (`afterAllDue`), and the map reads a file whose
-     *  `afterAll: true` record never came (the worker's last file: no later test attaches it) as incomplete. */
+     *  `afterAll: true` record never came (the hook was cut off before it attached it) as incomplete. */
     declaresAfterAll(file) {
       withAfterAll.add(file);
     },
