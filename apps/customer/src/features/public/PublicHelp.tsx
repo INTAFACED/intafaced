@@ -8,7 +8,7 @@ import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
-import { ContactSupport } from './ContactSupport';
+import { ContactSupport } from './help/ContactSupport';
 import { HelpFeedback } from './HelpFeedback';
 import { HostDispatch } from './HostDispatch';
 import { ActionRequired, RequestEntry } from './HelpFrontDoor';

@@ -1,14 +1,25 @@
 import { useMemo } from 'react';
-import { useDataEnv, useSource } from '../../data/hooks';
-import { refusalCopy } from '../../data';
-import { statusPageFetcher, statusPostmortemsFetcher, type PublishedPostmortem, type StatusPage } from './status';
-import { statusCopy } from './status-copy';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { useDataEnv, useSource } from '../../../data/hooks';
+import { refusalCopy } from '../../../data';
+import { statusPageFetcher, statusPostmortemsFetcher, type PublishedPostmortem, type StatusPage } from '../status';
+import { statusCopy } from '../status-copy';
 import { StatusBadgeShare } from './StatusBadgeShare';
 import { StatusSubscribe } from './StatusSubscribe';
 
 type CopyKey = Parameters<ReturnType<typeof statusCopy.useCopy>['t']>[0];
 type Component = StatusPage['components'][number];
 type Incident = StatusPage['incidents'][number];
+
+/** A component's state as a tag's tone: operational reads up, an outage down, the rest neutral; the words say which. */
+const STATE_TONE: Record<Component['state'], 'up' | 'down' | 'neutral'> = {
+  operational: 'up',
+  degraded: 'neutral',
+  maintenance: 'neutral',
+  partial_outage: 'down',
+  major_outage: 'down',
+  no_data: 'neutral',
+};
 
 const whenUtc = (instant: string) => `${instant.slice(0, 16).replace('T', ' ')} UTC`;
 
@@ -45,9 +56,9 @@ export function StatusComponents() {
         {load.status === 'error' ? (
           <>
             {' '}
-            <button type="button" className="text-link" onClick={load.retry}>
+            <Button tone="quiet" onClick={load.retry}>
               {copy.t('retry')}
-            </button>
+            </Button>
           </>
         ) : null}
       </p>
@@ -57,7 +68,7 @@ export function StatusComponents() {
   return (
     <>
       {page.overall === 'none_defined' ? (
-        <section className="pub-card" aria-labelledby="status-components" data-testid="status-components">
+        <section className="lt-stack" aria-labelledby="status-components" data-testid="status-components">
           <h2 id="status-components">{copy.t('componentsTitle')}</h2>
           <p role="status" data-testid="status-components-none">
             {copy.t('componentsNone')}
@@ -65,24 +76,19 @@ export function StatusComponents() {
         </section>
       ) : (
         <>
-          <section
-            className={`pub-notice status-overall status-overall--${page.overall}`}
-            role="status"
-            data-testid="status-overall"
-            data-state={page.overall}
-          >
+          <section className="lt-stack" role="status" data-testid="status-overall" data-state={page.overall}>
             <h2>{copy.t(`overall_${page.overall}` as CopyKey)}</h2>
             {page.overall === 'no_data' ? <p>{copy.t('overall_no_data_body')}</p> : null}
           </section>
-          <section className="pub-card" aria-labelledby="status-components" data-testid="status-components">
+          <section className="lt-stack" aria-labelledby="status-components" data-testid="status-components">
             <h2 id="status-components">{copy.t('componentsTitle')}</h2>
-            <p className="muted" data-testid="status-asof">
+            <p className="lt-hint" data-testid="status-asof">
               {copy.t('pageAsOf')} <time dateTime={page.asOf}>{whenUtc(page.asOf)}</time>
             </p>
             {grouped.map(([group, rows]) => (
-              <div key={group ?? ''} className="status-group">
+              <div key={group ?? ''} className="lt-stack">
                 {group !== null || grouped.length > 1 ? <h3>{group ?? copy.t('ungrouped')}</h3> : null}
-                <ul className="status-components">
+                <ul className="lt-stack">
                   {rows.map((row) => (
                     <ComponentRow key={row.id} row={row} uptimeDays={page.settings.uptimeDays} />
                   ))}
@@ -90,20 +96,20 @@ export function StatusComponents() {
               </div>
             ))}
             {page.settings.uptimeDays === null ? (
-              <p className="muted" data-testid="status-uptime-unset">
+              <p className="lt-hint" data-testid="status-uptime-unset">
                 {copy.t('uptimeUnset')}
               </p>
             ) : (
-              <p className="muted">{copy.t('uptimeNote')}</p>
+              <p className="lt-hint">{copy.t('uptimeNote')}</p>
             )}
           </section>
         </>
       )}
-      <section className="pub-card" aria-labelledby="status-incidents" data-testid="status-incidents">
+      <section className="lt-stack" aria-labelledby="status-incidents" data-testid="status-incidents">
         <h2 id="status-incidents">{copy.t('incidentsTitle')}</h2>
         {page.incidents.length === 0 ? <p>{copy.t('incidentsNone')}</p> : null}
         {page.incidents.some((i) => i.resolvedAt !== null) && (postmortems.status === 'error' || postmortems.status === 'refused') ? (
-          <p className="muted" role="status" data-testid="status-postmortems-failed">
+          <p className="lt-hint" role="status" data-testid="status-postmortems-failed">
             {postmortems.status === 'refused'
               ? refusalCopy(postmortems.code).title || copy.t('postmortemsFailed')
               : copy.t('postmortemsFailed')}
@@ -128,12 +134,12 @@ function groups(rows: readonly Component[]): [string | null, Component[]][] {
 function ComponentRow({ row, uptimeDays }: { row: Component; uptimeDays: number | null }) {
   const copy = statusCopy.useCopy();
   return (
-    <li className="status-component" data-testid={`status-component-${row.id}`} data-state={row.state}>
-      <div className="status-component__head">
+    <li className="lt-stack" data-testid={`status-component-${row.id}`} data-state={row.state}>
+      <div className="lt-actions">
         <strong>{row.name}</strong>
-        <span className={`status-chip status-chip--${row.state}`}>{copy.t(`state_${row.state}` as CopyKey)}</span>
+        <Tag tone={STATE_TONE[row.state]}>{copy.t(`state_${row.state}` as CopyKey)}</Tag>
       </div>
-      <p className="muted status-component__basis">
+      <p className="lt-hint">
         {row.basis === 'reading' && row.reading ? (
           <>
             {copy.t('basis_reading')} {row.reading.source} {copy.t('readingAt')} {whenUtc(row.reading.observedAt)}
@@ -149,11 +155,10 @@ function ComponentRow({ row, uptimeDays }: { row: Component; uptimeDays: number 
         ) : null}
       </p>
       {uptimeDays !== null ? (
-        <ol className="status-uptime" aria-label={`${copy.t('uptimeLabel')}: ${row.name}`} data-testid={`status-uptime-${row.id}`}>
+        <ol className="lt-uptime" aria-label={`${copy.t('uptimeLabel')}: ${row.name}`} data-testid={`status-uptime-${row.id}`}>
           {row.uptime.map((day) => (
             <li
               key={day.date}
-              className={`status-uptime__day status-uptime__day--${day.state ?? 'empty'}`}
               data-state={day.state ?? 'empty'}
               title={`${day.date}: ${day.state ? copy.t(`state_${day.state}` as CopyKey) : copy.t('uptimeEmptyDay')}`}
             />
@@ -176,27 +181,27 @@ function IncidentCard({
   const copy = statusCopy.useCopy();
   const affected = incident.components.map((id) => names.find((c) => c.id === id)?.name ?? id);
   return (
-    <article className="status-incident" id={`incident-${incident.id}`} data-testid={`status-incident-${incident.id}`}>
+    <article className="lt-stack" id={`incident-${incident.id}`} data-testid={`status-incident-${incident.id}`}>
       <h3>{incident.title}</h3>
-      <p className="muted">
+      <p className="lt-hint">
         {incident.resolvedAt ? `${copy.t('incidentResolved')} ${whenUtc(incident.resolvedAt)}` : copy.t('incidentOpen')}
         {incident.impact ? ` · ${copy.t(`impact_${incident.impact}` as CopyKey)}` : null} · {copy.t('incidentAffects')}:{' '}
         {affected.length ? affected.join(', ') : copy.t('incidentNoComponent')}
       </p>
-      <ol data-testid="status-timeline" className="status-timeline">
+      <ol data-testid="status-timeline">
         {[...incident.updates].reverse().map((update) => (
           <li key={update.id}>
-            <span className="muted">{whenUtc(update.publishedAt)}</span> <span>{update.body}</span>
+            <span className="lt-hint">{whenUtc(update.publishedAt)}</span> <span>{update.body}</span>
           </li>
         ))}
       </ol>
       {postmortem ? (
-        <section className="status-postmortem" data-testid={`status-postmortem-${incident.id}`}>
+        <section className="lt-stack" data-testid={`status-postmortem-${incident.id}`}>
           <h4>{copy.t('postmortemTitle')}</h4>
-          <p className="muted">
+          <p className="lt-hint">
             {copy.t('postmortemPublished')} {whenUtc(postmortem.publishedAt)}
           </p>
-          <p className="status-postmortem__body">{postmortem.body}</p>
+          <p className="lt-pre">{postmortem.body}</p>
         </section>
       ) : null}
     </article>

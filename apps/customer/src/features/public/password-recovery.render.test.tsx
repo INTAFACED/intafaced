@@ -28,7 +28,7 @@ vi.mock('./partner-settings', async (original) => {
 
 import { SessionProvider } from '../session';
 import { PasswordRecovery } from './PasswordRecovery';
-import { NoticePage } from './PublicPages';
+import { NoticeRoom as NoticePage } from './notices/NoticeRoom';
 import { AppPage } from './AppPage';
 import { PartnerPage } from './PartnerPage';
 

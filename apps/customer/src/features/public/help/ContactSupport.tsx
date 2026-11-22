@@ -1,12 +1,12 @@
-import { useSession } from '../session';
-import { chatCopy, supportMailto, useSupportContact } from '../more';
-import { contactCopy } from './contact-copy';
-import '../../shared/public-pages.css';
+import { useSession } from '../../session';
+import { chatCopy, supportMailto, useSupportContact } from '../../more';
+import { contactCopy } from '../contact-copy';
 
 /**
  * How to reach a person without signing in. The support service only takes requests from a signed-in account and has no public
  * intake, so a signed-out visitor gets the honest path: a plain email address and a prepared draft. Signed in, the same card
  * points at the real desk. It never sits behind a sign-in wall itself.
+ * Drawn from the kit: it sits in a reading room's contact slot, or on its own in an older room.
  */
 export function ContactSupport({ context = 'general' }: { context?: 'general' | 'recovery' }) {
   const copy = contactCopy.useCopy();
@@ -14,10 +14,10 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
   const contact = useSupportContact();
   if (session)
     return (
-      <aside data-testid="contact-card" className="contact-card" aria-labelledby="contact-title">
+      <aside data-testid="contact-card" className="lt-stack" aria-labelledby="contact-title">
         <h2 id="contact-title">{copy.t('titleSignedIn')}</h2>
-        <p className="muted">{copy.t('bodySignedIn')}</p>
-        <a className="button button--primary" href="/support">
+        <p className="lt-hint">{copy.t('bodySignedIn')}</p>
+        <a className="lt-button lt-button-primary" href="/support">
           {copy.t('openDesk')}
         </a>
       </aside>
@@ -25,11 +25,11 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
   const to = contact.email;
   const subject = copy.t(context === 'recovery' ? 'mailSubject' : 'mailSubjectGeneral');
   return (
-    <aside data-testid="contact-card" className="contact-card" aria-labelledby="contact-title">
+    <aside data-testid="contact-card" className="lt-stack" aria-labelledby="contact-title">
       <h2 id="contact-title">{copy.t(context === 'recovery' ? 'titleRecovery' : 'titleSignedOut')}</h2>
-      <p className="muted">{copy.t(context === 'recovery' ? 'bodyRecovery' : 'bodySignedOut')}</p>
+      <p className="lt-hint">{copy.t(context === 'recovery' ? 'bodyRecovery' : 'bodySignedOut')}</p>
       <p data-testid="support-chat-link">
-        <a className="text-link" href="/support/chat">
+        <a className="lt-link" href="/support/chat">
           <chatCopy.Copy k="openChat" />
         </a>
       </p>
@@ -39,23 +39,21 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
         <li>{copy.t('includeWhat')}</li>
         <li>{copy.t('includeWhen')}</li>
       </ul>
-      <p className="contact-card__warning" role="note">
-        {copy.t('neverShare')}
-      </p>
+      <p role="note">{copy.t('neverShare')}</p>
       {to ? (
         <>
-          <a className="button button--primary" href={supportMailto(to, subject, copy.t('mailBody'))}>
+          <a className="lt-button lt-button-primary" href={supportMailto(to, subject, copy.t('mailBody'))}>
             {copy.t('write')}
           </a>
-          <p className="muted contact-card__small">
+          <p className="lt-hint">
             {copy.t('addressLabel')} <span lang="zxx">{to}</span>
           </p>
-          <p className="muted contact-card__small">
+          <p className="lt-hint">
             {copy.t('noForm')} {copy.t('noPromise')}
           </p>
         </>
       ) : contact.status === 'loading' ? (
-        <p className="muted" role="status">
+        <p className="lt-hint" role="status">
           {copy.t('loadingContact')}
         </p>
       ) : contact.status === 'unread' ? (
@@ -68,23 +66,23 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
         </p>
       )}
       {contact.phone ? (
-        <p className="contact-card__small" data-testid="support-phone">
+        <p className="lt-hint" data-testid="support-phone">
           {copy.t('phoneLabel')} <span lang="zxx">{contact.phone}</span>
         </p>
       ) : (
         contact.status === 'ready' && (
-          <p className="contact-card__small" data-testid="support-phone-unset">
+          <p className="lt-hint" data-testid="support-phone-unset">
             {copy.t('phoneNotSet')}
           </p>
         )
       )}
       {contact.chatHours && (
-        <p className="contact-card__small" data-testid="support-hours">
+        <p className="lt-hint" data-testid="support-hours">
           {copy.t('hoursLabel')} <span lang="und">{contact.chatHours}</span>
         </p>
       )}
       {contact.status === 'unread' && to && (
-        <p className="muted contact-card__small" role="status">
+        <p className="lt-hint" role="status">
           {copy.t('contactUnread')}
         </p>
       )}
