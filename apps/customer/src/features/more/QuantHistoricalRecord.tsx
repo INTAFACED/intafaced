@@ -1,5 +1,4 @@
 import { displayAmount } from '../../shared/money';
-import { Panel } from '../../shared/ui';
 import { t as copyText } from './copy';
 import { analysisCopy } from './quant-analysis-copy';
 import { HYPOTHESIS_COPY, MODEL_COPY, type HistoricalSnapshot } from './quant-analysis';
@@ -23,11 +22,12 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
     </time>
   );
   return (
-    <Panel className="quant-history" title={copyText('quant.historical.result')}>
-      <div className="quant-history-body" lang={languageFor('completed')} dir={directionFor('completed')}>
+    <section className="lt-panel">
+      <h2 className="lt-panel-title">{copyText('quant.historical.result')}</h2>
+      <div className="lt-stack" lang={languageFor('completed')} dir={directionFor('completed')}>
         {record ? (
           <>
-            <header className="quant-history-header">
+            <header className="lt-stack-tight">
               <h3>
                 <Copy k="completed" />
               </h3>
@@ -41,18 +41,18 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
                 <Copy k="variants" />: <span lang={requestedLocale}>{count.format(record.request.strategyVariantCount)}</span>
               </p>
             </header>
-            <div className="quant-history-identity">
-              <span className="muted">
+            <div className="lt-stack-tight">
+              <span className="lt-hint">
                 <Copy k="original" />
               </span>
-              <span className="quant-history-reference" lang="zxx">
+              <span className="lt-mono" lang="zxx">
                 {record.data.strategyId}
               </span>
               <p>
                 <Copy k="requestedSymbol" /> · <span lang="zxx">{record.request.symbol}</span>
               </p>
             </div>
-            <div className="quant-history-windows">
+            <div className="lt-cols-2">
               {(['in', 'out'] as const).map((part) => (
                 <section key={part}>
                   <h4>{t(part === 'in' ? 'inWindow' : 'outWindow')}</h4>
@@ -64,29 +64,25 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
                 </section>
               ))}
             </div>
-            <div className="quant-history-activity">
+            <div className="lt-cols-2">
               {(['inSample', 'outOfSample'] as const).map((part) => (
                 <section key={part}>
                   <h4>
                     {t(part === 'inSample' ? 'inFills' : 'outFills')} ·{' '}
                     <span lang={requestedLocale}>{count.format(record.data[part].fillCount)}</span>
                   </h4>
-                  <div
-                    className="quant-history-amount"
-                    tabIndex={0}
-                    aria-label={t(part === 'inSample' ? 'inFills' : 'outFills') + ' · ' + t('quote')}
-                  >
+                  <div className="lt-figure" tabIndex={0} aria-label={t(part === 'inSample' ? 'inFills' : 'outFills') + ' · ' + t('quote')}>
                     <strong lang="zxx" data-exact-amount={record.data[part].notional}>
                       {displayAmount(record.data[part].notional)}
                     </strong>
                   </div>
-                  <p className="muted">
+                  <p className="lt-hint">
                     <Copy k="quote" />
                   </p>
                 </section>
               ))}
             </div>
-            <div className="quant-history-limits">
+            <div className="lt-stack-tight">
               <p>
                 <Copy k="notional" />
               </p>
@@ -94,7 +90,7 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
                 <Copy k="limits" />
               </p>
             </div>
-            <details className="quant-history-evidence">
+            <details className="lt-stack-tight">
               <summary>
                 <Copy k="inspect" />
               </summary>
@@ -113,10 +109,10 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
                 <h4>
                   <Copy k="runLabel" />
                 </h4>
-                <p className="quant-history-reference" lang="zxx">
+                <p className="lt-mono" lang="zxx">
                   {record.data.runId}
                 </p>
-                <p className="muted">
+                <p className="lt-hint">
                   <Copy k="repeating" />
                 </p>
               </section>
@@ -127,12 +123,12 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
             <h3>
               <Copy k="empty" />
             </h3>
-            <p className="muted">
+            <p className="lt-hint">
               <Copy k="emptyBody" />
             </p>
           </>
         )}
       </div>
-    </Panel>
+    </section>
   );
 }

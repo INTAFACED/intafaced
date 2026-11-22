@@ -2,11 +2,12 @@ import { QUANT_BAR_SIZES, type QuantSignalRules } from '@intafaced/contracts/qua
 import { useState } from 'react';
 import { QUANT_STUDIO_COMPILE } from '@intafaced/contracts/quant-studio-procedures';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { Select } from '../more';
 import { useApi } from '../session';
 import { builderCopy } from './builder-copy';
 import { ruleRefusal, trimSignalRules, type RuleInputName, type RuleRefusal } from './signal-rules';
+import { KitFailure, KitLoading } from './kit-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -65,9 +66,9 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
   }
 
   return (
-    <fieldset className="quant-builder" data-testid="quant-signal-builder">
+    <fieldset className="lt-group lt-stack" data-testid="quant-signal-builder">
       <legend>{t('title')}</legend>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-hint">{t('intro')}</p>
       <Field
         label={label.symbol}
         value={value.symbol}
@@ -149,24 +150,24 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
         hint={t('pyramidingHint')}
         error={errorFor('pyramiding')}
       />
-      <Button type="button" variant="secondary" onClick={() => void build()} disabled={busy} data-testid="quant-build-source">
+      <Button type="button" tone="secondary" onClick={() => void build()} disabled={busy} data-testid="quant-build-source">
         {t('build')}
       </Button>
-      {busy && <Loading label={t('building')} />}
+      {busy && <KitLoading label={t('building')} />}
       {refusal && (
-        <p role="alert" className="error-text" data-testid="quant-rule-refusal">
+        <p role="alert" className="lt-field-error" data-testid="quant-rule-refusal">
           {errorFor(refusal.input)}
         </p>
       )}
-      {failure && <Failure result={failure} retry={() => void build()} />}
+      {failure && <KitFailure result={failure} retry={() => void build()} />}
       {built && (
         <section aria-label={t('sourceTitle')} data-testid="quant-generated-source">
           <h4>{t('sourceTitle')}</h4>
-          {built.rules !== current && <p className="muted">{t('staleSource')}</p>}
+          {built.rules !== current && <p className="lt-hint">{t('staleSource')}</p>}
           <pre lang="zxx" tabIndex={0}>
             <code>{built.source}</code>
           </pre>
-          <p className="muted">{t('sourceNote')}</p>
+          <p className="lt-hint">{t('sourceNote')}</p>
         </section>
       )}
     </fieldset>

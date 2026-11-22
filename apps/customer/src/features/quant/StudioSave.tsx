@@ -4,13 +4,14 @@ import { z } from 'zod';
 import { QUANT_STUDIO_SAVE, QUANT_STUDIO_UPDATE } from '@intafaced/contracts/quant-studio-procedures';
 import { parsesAs, type ApiResult } from '../../shared/api';
 import { signedDecimalSchema } from '../../shared/money';
-import { Button, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { QuotaAwareFailure } from './quota-refusal';
 import { useApi } from '../session';
 import { studioCopy } from './studio-copy';
 import { useRuleWords } from './SignalBuilder';
 import { ruleRefusal, signalRulesFilled, trimSignalRules } from './signal-rules';
 import { fingerprint, saveKey, type StudioLink, type StudioRules } from './studio-save';
+import { KitLoading } from './kit-parts';
 
 /** Whether the form holds everything a save needs; the service still checks each rule and refuses by name. */
 export function savable(rules: StudioRules): boolean {
@@ -112,7 +113,7 @@ export function StudioSave({
   }
 
   return (
-    <div className="quant-save" data-testid="quant-save">
+    <div className="lt-stack" data-testid="quant-save">
       <Field
         label={t('releaseNote')}
         hint={t('releaseNoteHint')}
@@ -120,10 +121,10 @@ export function StudioSave({
         onChange={(event) => setReleaseNote(event.currentTarget.value)}
         disabled={busy}
       />
-      <Button type="button" onClick={() => void save()} disabled={busy || unchanged} data-testid="quant-save-library">
+      <Button tone="primary" type="button" onClick={() => void save()} disabled={busy || unchanged} data-testid="quant-save-library">
         {t('save')}
       </Button>
-      <p className="muted" role="status" data-testid="quant-save-state">
+      <p className="lt-hint" role="status" data-testid="quant-save-state">
         {unchanged && link.version
           ? t('savedAs', { version: link.version })
           : !ready
@@ -139,9 +140,9 @@ export function StudioSave({
           {keptNote ? t('noteReplayed', { note: keptNote }) : t('noteReplayedBlank')}
         </p>
       )}
-      {busy && <Loading label={t('saving')} />}
+      {busy && <KitLoading label={t('saving')} />}
       {failure && refusal ? (
-        <p role="alert" className="error-text" data-testid="quant-save-refusal">
+        <p role="alert" className="lt-field-error" data-testid="quant-save-refusal">
           {refusalText(refusal)}
         </p>
       ) : (

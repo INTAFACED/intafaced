@@ -7,7 +7,10 @@ import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { usePaperMode } from './paper-mode';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
-import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button, Select as KitSelect, TextArea as KitTextArea } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { EmptyNote, FailureNote, Waiting } from './volt-parts';
+import { uiCopy } from '../../shared/ui-copy';
 import { useSession } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { renderAuthoredCopy, type UiLocale } from '../../shared/i18n';
@@ -24,15 +27,14 @@ export function Read<T>({
   empty?: string;
   children: (data: T) => ReactNode;
 }) {
-  if (resource.status === 'loading') return <Loading />;
+  if (resource.status === 'loading') return <Waiting />;
   if (resource.status === 'failed')
     return (
-      <div lang="und" style={{ display: 'contents' }}>
-        <Failure result={resource.failure} retry={retry} />
+      <div lang="und">
+        <FailureNote result={resource.failure} retry={retry} />
       </div>
     );
-  if (empty && (resource.data === null || (Array.isArray(resource.data) && resource.data.length === 0)))
-    return <EmptyState title={empty} />;
+  if (empty && (resource.data === null || (Array.isArray(resource.data) && resource.data.length === 0))) return <EmptyNote title={empty} />;
   return <>{children(resource.data)}</>;
 }
 export function Select({
@@ -46,18 +48,7 @@ export function Select({
   onChange: (value: string) => void;
   options: readonly (string | { value: string; label: string })[];
 }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={typeof o === 'string' ? o : o.value} value={typeof o === 'string' ? o : o.value}>
-            {typeof o === 'string' ? o : o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+  return <KitSelect label={label} value={value} onChange={onChange} options={options} />;
 }
 export function TextArea({
   label,
@@ -70,16 +61,11 @@ export function TextArea({
   onChange: (value: string) => void;
   maxLength?: number;
 }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} maxLength={maxLength} rows={5} />
-    </label>
-  );
+  return <KitTextArea label={label} value={value} onChange={onChange} maxLength={maxLength} rows={5} />;
 }
 export function Limit({ count, limit, cap, onChange }: { count: number; limit: number; cap: number; onChange: (limit: number) => void }) {
   return (
-    <div className="more-continuation">
+    <div className="lt-stack-tight">
       <small>
         <Text k="common.showing" />
         {count}
@@ -88,7 +74,7 @@ export function Limit({ count, limit, cap, onChange }: { count: number; limit: n
         <Text k="common.this.service.publishes.no.continuation.cursor" />
       </small>
       {count >= limit && limit < cap ? (
-        <Button variant="secondary" onClick={() => onChange(Math.min(cap, limit + 50))}>
+        <Button tone="secondary" onClick={() => onChange(Math.min(cap, limit + 50))}>
           <Text k="common.load.a.larger.window" />
         </Button>
       ) : count >= cap ? (
@@ -103,11 +89,11 @@ export function Limit({ count, limit, cap, onChange }: { count: number; limit: n
 }
 export function Details({ items }: { items: readonly [string, ReactNode][] }) {
   return (
-    <dl className="more-details">
+    <dl className="lt-kv">
       {items.map(([label, value], index) => (
         <div key={index}>
           <dt>{label}</dt>
-          <dd style={{ minWidth: 0 }}>{value}</dd>
+          <dd>{value}</dd>
         </div>
       ))}
     </dl>
@@ -121,7 +107,7 @@ function present<T>(value: Presented<T>): T {
 export function PresentedCopy({ value }: { value: Presented<ReactNode> }) {
   const shown = typeof value === 'function' ? renderAuthoredCopy(value) : { value, language: 'und' };
   return (
-    <span lang={shown.language} dir={shown.language === 'und' ? undefined : uiDirection(shown.language)} style={{ display: 'contents' }}>
+    <span lang={shown.language} dir={shown.language === 'und' ? undefined : uiDirection(shown.language)}>
       {shown.value}
     </span>
   );
@@ -351,13 +337,10 @@ export function useAction(room: string, recovery?: { recover: (reference: string
   const feedback = (
     <>
       {operation.current ? (
-        <Loading label={copyText('common.waiting.for.the.service')} />
+        <Waiting label={copyText('common.waiting.for.the.service')} />
       ) : failure ? (
-        <div
-          lang={problem ? legacyCopy.forLocale(language).languageFor(problemKey) : (presentation?.language ?? 'und')}
-          style={{ display: 'contents' }}
-        >
-          <Failure
+        <div lang={problem ? legacyCopy.forLocale(language).languageFor(problemKey) : (presentation?.language ?? 'und')}>
+          <FailureNote
             result={
               problem
                 ? { ...failure, message: legacyCopy.forLocale(language).t(problemKey) }
@@ -368,51 +351,57 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           />
         </div>
       ) : shown.success ? (
-        <p className="more-success" role="status">
+        <p className="lt-note lt-note-good" role="status">
           <PresentedCopy value={shown.success} />
         </p>
       ) : null}
       {snapshot.known && !operation.current ? (
-        <div data-testid="failure" className="failure" role="alert">
-          <p lang={copy.languageFor('cleanup')}>{copy.t('cleanup')}</p>
-          <code lang="zxx" style={{ overflowWrap: 'anywhere' }}>
+        <div data-testid="failure" className="lt-refusal" role="alert">
+          <p className="lt-refusal-body" lang={copy.languageFor('cleanup')}>
+            {copy.t('cleanup')}
+          </p>
+          <code className="lt-ref" lang="zxx">
             {JSON.parse(snapshot.known.raw).reference ?? JSON.parse(snapshot.known.raw).id}
           </code>
-          <Button variant="secondary" lang={copy.languageFor('retryCleanup')} onClick={() => void cleanup(snapshot.known!)}>
+          <Button tone="secondary" lang={copy.languageFor('retryCleanup')} onClick={() => void cleanup(snapshot.known!)}>
             {copy.t('retryCleanup')}
           </Button>
         </div>
       ) : saved.status === 'unreadable' && !operation.current ? (
-        <div data-testid="failure" className="failure" role="alert">
-          <h3 lang={copy.languageFor('storageTitle')}>{copy.t('storageTitle')}</h3>
-          <p lang={copy.languageFor('storageBody')}>{copy.t('storageBody')}</p>
-          <Button variant="secondary" lang={copy.languageFor('retryStorage')} onClick={redraw}>
+        <div data-testid="failure" className="lt-refusal" role="alert">
+          <h3 className="lt-refusal-title" lang={copy.languageFor('storageTitle')}>
+            {copy.t('storageTitle')}
+          </h3>
+          <p className="lt-refusal-body" lang={copy.languageFor('storageBody')}>
+            {copy.t('storageBody')}
+          </p>
+          <Button tone="secondary" lang={copy.languageFor('retryStorage')} onClick={redraw}>
             {copy.t('retryStorage')}
           </Button>
         </div>
       ) : saved.status === 'present' && !operation.current ? (
-        <div data-testid="failure" className="failure" role="alert">
+        <div data-testid="failure" className="lt-refusal" role="alert">
           {!shown.result && (
-            <h3>
+            <h3 className="lt-refusal-title">
               <Text k="common.outcome.not.confirmed" />
             </h3>
           )}
-          <p>
+          <p className="lt-refusal-body">
             <Text k="common.earlier.request" />
             <span lang="und">{saved.value.title}</span>.{' '}
             {saved.value.reference && (
-              <code lang="zxx" style={{ overflowWrap: 'anywhere' }}>
+              <code className="lt-ref" lang="zxx">
                 {saved.value.reference}
               </code>
             )}
             <Text k="common.read.its.original.records.before.continuing" />
           </p>
           {saved.value.reference && recovery ? (
-            <Button variant="secondary" onClick={() => void recoverOriginal()}>
+            <Button tone="secondary" onClick={() => void recoverOriginal()}>
               <Text k="common.check.original.outcome" />
             </Button>
           ) : (
-            <p>
+            <p className="lt-refusal-body">
               <Text k="common.this.action.has.no.universal.recovery.lookup" />
             </p>
           )}
@@ -421,24 +410,33 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     </>
   );
   const request = admitted.current;
+  const closeCopy = uiCopy.forLocale(language);
   const dialog =
     live() && request && request.epoch === interaction.current && !operation.current ? (
-      <Dialog title={<PresentedCopy value={request.title} />} onClose={() => dismiss(request)}>
+      <Sheet
+        open
+        title={renderAuthoredCopy(() => present(request.title)).value}
+        closeLabel={closeCopy.t('closeDialog')}
+        closeLang={closeCopy.languageFor('closeDialog')}
+        onClose={() => dismiss(request)}
+        footer={
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => dismiss(request)}>
+              <Text k="common.back" />
+            </Button>
+            <Button tone="primary" onClick={() => void send(request)}>
+              <PresentedCopy value={request.confirm} />
+            </Button>
+          </div>
+        }
+      >
         <PresentedCopy value={request.content} />
-        <p className="muted">
+        <p className="lt-hint">
           <Text k="common.acting.as.account" />
           <code lang="zxx">{userId}</code>
           <Text k="common.the.service.enforces.your.scope.and.jurisdiction" />
         </p>
-        <div className="actions">
-          <Button variant="secondary" onClick={() => dismiss(request)}>
-            <Text k="common.back" />
-          </Button>
-          <Button onClick={() => void send(request)}>
-            <PresentedCopy value={request.confirm} />
-          </Button>
-        </div>
-      </Dialog>
+      </Sheet>
     ) : null;
   void revision;
   return {
