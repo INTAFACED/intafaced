@@ -3,7 +3,8 @@
  * Matching never-saw (404) or ack without sequence is unknown — never killed
  * from silence. Does not invent a canceled order or a sequence. Does not ledger.
  */
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { readMatchingUrl } from './oms-matching-venue-halt.js';
 import type { OmsDrainChild } from './oms-drain.js';
 

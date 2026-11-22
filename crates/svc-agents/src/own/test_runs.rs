@@ -33,27 +33,15 @@ use crate::runtime::ms;
 /// `AGENT_DISABLED`.
 pub const AGENT_DISABLED: &str = "agents.agent.disabled";
 
-/// `ownAgentSwitch`: `active`, or the operator's switch that stops the agent.
+/// `ownAgentSwitch`: `active`, or the operator's switch that stops the agent (the fleet's, `ops::fleet`).
 pub fn own_agent_switch(pool: &Pool, agent_id: &str) -> Result<&'static str, OwnError> {
-    let row = db::with_client(pool, |c| {
-        Ok(c.query_one(
-            "SELECT EXISTS (SELECT 1 FROM agents.agent_switches WHERE agent_ref = $1::text),
-                    EXISTS (SELECT 1 FROM agents.agent_kind_switches WHERE kind = 'customer_built')",
-            &[&format!("own:{agent_id}")],
-        )?)
-    })?;
-    let (quarantined, kind_off): (bool, bool) = (row.try_get(0)?, row.try_get(1)?);
-    Ok(if quarantined {
-        "quarantined"
-    } else if kind_off {
-        "disabled_by_kind"
-    } else {
-        "active"
-    })
+    Ok(db::with_client(pool, |c| {
+        crate::ops::fleet::own_agent_switch(c, agent_id)
+    })?)
 }
 
 /// `readOwnCaps(...) !== null`: the agent's own cap and every one of the person's caps for it are set.
-fn caps_set(pool: &Pool, owner_id: &str, agent_id: &str) -> Result<bool, OwnError> {
+pub(crate) fn caps_set(pool: &Pool, owner_id: &str, agent_id: &str) -> Result<bool, OwnError> {
     if !is_uuid(agent_id) {
         return Ok(false);
     }

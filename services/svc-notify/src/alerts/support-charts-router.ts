@@ -1,14 +1,12 @@
+import type { SupportChartsAlertsRead } from '@intafaced/contracts';
 import {
-  router,
-  serviceProcedureFor,
-  TRPCError,
   SUPPORT_CHARTS_ALERTS_MAX,
   SUPPORT_CHARTS_HISTORY_MAX,
   SUPPORT_CHARTS_READERS,
   supportChartsAlertsInputSchema,
   supportChartsAlertsReadSchema,
-  type SupportChartsAlertsRead,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-charts-lookup';
+import { router, serviceProcedureFor, TRPCError } from '@intafaced/contracts/trpc';
 import { AlertLimitError, type AlertService } from './service.js';
 import { NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from './trigger-log.js';
 

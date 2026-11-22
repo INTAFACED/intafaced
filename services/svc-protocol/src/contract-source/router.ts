@@ -1,5 +1,5 @@
 import { decodeErrorResult, getAddress, type Abi, type Address, type Hex } from 'viem';
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   PROTOCOL_CONTRACT_BUILD_WRITE,

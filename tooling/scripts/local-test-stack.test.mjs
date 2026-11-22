@@ -933,11 +933,27 @@ try {
       if (statSync(full).isDirectory()) return f === 'vendor' || f === 'node_modules' ? [] : walk(full);
       return /\.(ts|tsx)$/.test(f) && !/\.(test|pw|spec)\./.test(f) ? [full] : [];
     });
+  // A call by its record (`api.call(P2P_DISPUTES_OPEN, …)`, `callAs(api, RECORD, …)`) names no module in its text: the
+  // record carries it. Each published record is known by the name the call-records codemod gives it, with its module.
+  const { recordName } = await import('../codemod/call-records/index.mjs');
+  const recordModule = new Map();
+  const published = join(repo, 'packages', 'contracts', 'procedures');
+  for (const f of readdirSync(published).filter((x) => x.endsWith('.schema.json'))) {
+    const { procedures } = JSON.parse(readFileSync(join(published, f), 'utf8'));
+    for (const r of Object.values(procedures)) if (r.module && r.path) recordModule.set(recordName(r.module, r.path), r.module);
+  }
+  assert.ok(recordModule.size >= 100, `could not read contracts' published records (${recordModule.size})`);
   const used = new Set();
   for (const f of walk(join(repo, 'apps', 'customer', 'src'))) {
     const src = readFileSync(f, 'utf8');
     for (const m of src.matchAll(/\b(?:query|mutate|plain)\(\s*'([a-z0-9]+)'/g)) used.add(m[1]);
     for (const m of src.matchAll(/'\/api\/([a-z0-9]+)/g)) used.add(m[1]);
+    // A record passed as an argument, imports and `typeof` reads left out: those call nothing.
+    const code = src.replace(/^import [^;]*?;/gm, '');
+    for (const m of code.matchAll(/(?<!typeof\s*)[(,]\s*([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g)) {
+      const module = recordModule.get(m[1]);
+      if (module) used.add(module);
+    }
   }
   used.delete('v1'); // public exchange REST, served by svc-trade
   used.add('trade');
@@ -1457,7 +1473,7 @@ console.log('local-test-stack: customer folder override checks passed');
 // 21. A new TEST chain empties what services stored from the old one, so the indexer reads it from block 0 instead
 // of halting on blocks the new node never made (lead, 30 Oct: indexer.halted after a restart).
 {
-  const { CHAIN_DERIVED, emptySchemaSql } = await import('./local-test-stack.mjs');
+  const { CHAIN_DERIVED, afterSeed, emptySchemaSql } = await import('./local-test-stack.mjs');
   assert.deepEqual(
     CHAIN_DERIVED.map((c) => c.service),
     ['indexer'],
@@ -1475,8 +1491,22 @@ console.log('local-test-stack: customer folder override checks passed');
     source,
     /if \(!ownedAlive\(procs\.chain\)\) \{[\s\S]{0,600}?fs\.rmSync\(chainRecordPath\(STATE\), \{ force: true \}\);\s*renewed = true;/,
   );
-  assert.match(source, /if \(seeded\.status !== 0\) fail\([^\n]*\n[\s\S]{0,200}?return renewed \? forgetOldChain\(secrets\) : \[\];/);
-  assert.equal(source.split('forgetOldChain(secrets) : []').length - 1, 1, 'one place forgets the old chain');
+  // A failed seed stops the start before anything is forgotten; a seeded new chain forgets; a running chain never does.
+  const stopped = (msg) => {
+    throw new Error(msg);
+  };
+  const forgot = [];
+  const forget = () => (forgot.push('forgot'), ['indexer']);
+  assert.throws(
+    () => afterSeed({ seeded: { status: 1, output: 'no rpc' }, renewed: true, forget, stop: stopped }),
+    /seeding the TEST chain failed:\nno rpc/,
+  );
+  assert.deepEqual(forgot, [], 'a failed seed forgets nothing');
+  assert.deepEqual(afterSeed({ seeded: { status: 0, output: '' }, renewed: false, forget, stop: stopped }), []);
+  assert.deepEqual(forgot, [], 'a running chain keeps its rows');
+  assert.deepEqual(afterSeed({ seeded: { status: 0, output: '' }, renewed: true, forget, stop: stopped }), ['indexer']);
+  assert.deepEqual(forgot, ['forgot'], 'a seeded new chain forgets once');
+  assert.equal(source.split('forgetOldChain(').length - 1, 2, 'one place forgets the old chain (its definition and one call)');
   // The stack keeps every service in its one database; svc_indexer is a role, not a database.
   assert.match(source, /psql\(secrets, emptySchemaSql\(schema\), \{ db: DB_NAME \}\)/);
   // What it stopped comes back even under --only.

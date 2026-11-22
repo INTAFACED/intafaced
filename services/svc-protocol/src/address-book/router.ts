@@ -1,4 +1,4 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PROTOCOL_ADDRESS_BOOK_ADD_CONTACT,
   PROTOCOL_ADDRESS_BOOK_CREATE_GROUP,

@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { protectedProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts';
-import { supportRecoveryCaseSchema, supportRecoveryRedeemSchema } from '@intafaced/contracts/identity';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
+import { supportRecoveryCaseSchema } from '@intafaced/contracts/identity';
 import {
   SupportRecoveryError,
   cancelSupportRecoveryCase,
@@ -12,6 +12,9 @@ import {
 } from './auth/support-recovery.js';
 import { toTrpcError } from './router.js';
 import { userCopy } from './user-copy.js';
+import { IDENTITY_SUPPORT_RECOVERY_REDEEM } from '@intafaced/contracts/identity-support-recovery-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 /** Who is not an operator is 403, a missing second factor 401, an unknown case 404, a dead link 401, the rest 412. */
 function mapError(err: unknown): never {
@@ -86,16 +89,17 @@ export function createSupportRecoveryRouter(deps: () => SupportRecoveryDeps) {
             return mapError(err);
           }
         }),
-      redeem: publicProcedure
-        .input(z.object({ token: z.string().min(1).max(128) }).strict())
-        .output(supportRecoveryRedeemSchema)
-        .mutation(async ({ input }) => {
+      redeem: mountRecord(
+        IDENTITY_SUPPORT_RECOVERY_REDEEM,
+        async ({ input }) => {
           try {
             return await redeemSupportRecoveryLink(deps(), input);
           } catch (err) {
             return mapError(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

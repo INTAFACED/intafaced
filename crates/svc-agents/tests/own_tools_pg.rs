@@ -4,12 +4,11 @@
 //!
 //! Ported case for case:
 //! - `services/svc-agents/src/own/guardrails.test.ts`, the database cases that reach `own.tool.try`, the reviewer, the
-//!   review list and check, or the unpublished sweep, through the `AgentsDoor` with signed principals. Each case's
-//!   setup that is a later slice's call is done here as that call does it: `own.session.open` binds `ownGuardrail` with
-//!   `runtime::open_own_session`, `own.consents.grant` and `revoke` are their SQL, and the person's decisions
-//!   (`own.approval.approve`, `reject`, `edit`) are the route's few lines over `decide_and_run` and the request store.
-//!   What only those calls' answers show (`own.inbox`, `own.runs`, `own.consents.list`, the route's own person check)
-//!   is named in each case as owed to its slice.
+//!   review list and check, the unpublished sweep, or the person's decisions and reads of held calls (`own.approval.*`,
+//!   `own.approvals`, `own.inbox`, `own.runs`, `own.session.*`), through the `AgentsDoor` with signed principals. Each
+//!   case's setup that is a later slice's call is done here as that call does it: `own.limits.set`,
+//!   `own.consents.grant` and `revoke` are their SQL. What only those calls' answers show (`own.consents.list`) is
+//!   named in each case as owed to its slice.
 //! - `services/svc-agents/src/runtime.test.ts`, the cases that run a tool (`runtime.act`): the tool, place,
 //!   research-only, capacity-mode and withdraw-scope cases, the binding at open, the failed tool, and the tool half of
 //!   the action-log and events cases, on `svc_agents::runtime` directly.
@@ -31,11 +30,10 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
-use service_kit::edge::{self, Principal};
+use service_kit::edge;
 use service_kit::json::{self, Json};
 use service_kit::pg::Pool;
 use service_kit::server::Request;
-use service_kit::trpc::TrpcError;
 use support::TestDb;
 use svc_agents::audit::{self, Action};
 use svc_agents::boot::{BootAgent, register_agents};
@@ -49,16 +47,14 @@ use svc_agents::gateway::routing::parse_routing_table;
 use svc_agents::metering::Metering;
 use svc_agents::metering::ports::{Bus, Ledger, LedgerError, Recipe};
 use svc_agents::metering::settle;
-use svc_agents::own::approvals::{self, Request as Held};
+use svc_agents::own::Own;
+use svc_agents::own::approvals;
 use svc_agents::own::desk::{CommentInput, DeskAccount, DeskComment, DeskSearch, SupportDesk};
 use svc_agents::own::gates::parse_policy_baseline;
 use svc_agents::own::notices::{self, APPROVAL_REQUESTED, Scope};
-use svc_agents::own::tool_try::{Call, approval_refused, decide_and_run, own_guardrail};
-use svc_agents::own::{Own, OwnError, guard, store};
 use svc_agents::runtime::act::{ActError, ActInput, ActResult, act};
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::guardrails::{parse_guardrail, serialise_guardrail};
-use svc_agents::runtime::open_own_session;
 use svc_agents::runtime::{
     self, ACTION_COMPLETED, ACTION_REJECTED, Rt, Runtime, SessionRecord, ThinkInput,
 };
@@ -346,13 +342,10 @@ impl World {
             background: svc_agents::background::Settings::default(),
             own: self.own(baseline, ttl, reviewer),
             team: svc_agents::team::Team::unwired(),
+            ops: svc_agents::ops::Ops::unwired(),
         })
         .unwrap();
-        People {
-            w: self,
-            door,
-            own: self.own(baseline, ttl, reviewer),
-        }
+        People { w: self, door }
     }
 
     fn people_default(&self) -> People<'_> {
@@ -508,19 +501,10 @@ fn answer_of(status: u16, body: &str) -> Answer {
     }
 }
 
-fn from_trpc(e: &TrpcError) -> Answer {
-    Answer::Refused {
-        code: e.code.to_owned(),
-        message: e.message.clone(),
-    }
-}
-
 /// The person, another person, and the person without `identity:write` (`notSession`), over one router.
 struct People<'w> {
     w: &'w World,
     door: AgentsDoor,
-    /// The same tooling, for the later slices' calls this suite makes as their routes do.
-    own: Own,
 }
 
 #[derive(Clone, Copy)]
@@ -545,16 +529,6 @@ impl Who {
     }
     fn headers(self) -> Vec<(String, String)> {
         principal_headers(self.user(), self.scopes())
-    }
-    fn principal(self) -> Principal {
-        Principal {
-            user_id: self.user().to_owned(),
-            scopes: self.scopes().iter().map(|s| (*s).to_owned()).collect(),
-            tier: "basic".to_owned(),
-            mfa: false,
-            kid: None,
-            sub_account: None,
-        }
     }
 }
 
@@ -659,10 +633,24 @@ impl People<'_> {
             ]),
         )
         .data();
-        // `own.limits.set` (own-controls) only gates `own.session.open`; `own.session.open` (own-runs) binds this.
-        let agent = store::get(self.w.pool(), USER, &id).unwrap();
-        let session = open_own_session(&self.w.x(), USER, &own_guardrail(&agent).unwrap()).unwrap();
-        (id, session.id)
+        // `own.limits.set` (own-controls), as its store writes it; `own.session.open` binds the agent's guardrail.
+        self.w
+            .db
+            .client()
+            .execute(
+                "INSERT INTO agents.own_agent_limits (agent_id, owner_id, per_call, per_session, per_period, period)
+                 VALUES ($1::text::uuid, $2::text, 0.1, 0.5, 5, 'month')",
+                &[&id, &USER],
+            )
+            .unwrap();
+        let opened = self
+            .mutate(
+                Who::Person,
+                "own.session.open",
+                &Json::obj([("id", Json::str(id.clone()))]),
+            )
+            .data();
+        (id, text(&opened, "sessionId"))
     }
 
     fn rule(&self, id: &str, tool: &str, choice: &str) -> Json {
@@ -726,78 +714,116 @@ impl People<'_> {
         }
     }
 
-    fn call(&self, who: Who) -> (Principal, Vec<(String, String)>) {
-        (who.principal(), who.headers())
-    }
-
-    /// `own.approval.approve` (own-runs), as its route does it: the person's request, its first result when it ran, its
-    /// state's refusal when closed, else `decideAndRun(ctx, stored, 'person')`.
-    fn approve(&self, who: Who, request_id: &str) -> Result<(Held, bool), Answer> {
-        let (principal, forwarded) = self.call(who);
-        let c = Call {
-            x: self.w.x(),
-            own: &self.own,
-            principal: &principal,
-            forwarded: &forwarded,
-        };
-        let stored = approvals::get(self.w.pool(), who.user(), request_id)
-            .map_err(|e| from_trpc(&guard(e, approval_refused)))?;
-        if stored.status == "approved" && stored.ran_at.is_some() {
-            return Ok((stored, true));
+    /// `own.approval.approve`.
+    fn approve(&self, who: Who, request_id: &str) -> Result<(Req, bool), Answer> {
+        match self.mutate(
+            who,
+            "own.approval.approve",
+            &Json::obj([("requestId", s(request_id))]),
+        ) {
+            Answer::Data(d) => Ok((
+                Req::of(get(&d, &["request"])),
+                *get(&d, &["repeated"]) == Json::Bool(true),
+            )),
+            refused => Err(refused),
         }
-        if let Some(code) = stored.refusal_code() {
-            return Err(Answer::Refused {
-                code: "FORBIDDEN".to_owned(),
-                message: code.to_owned(),
-            });
+    }
+
+    /// `own.approval.reject`.
+    fn reject(&self, who: Who, request_id: &str) -> Result<Req, Answer> {
+        match self.mutate(
+            who,
+            "own.approval.reject",
+            &Json::obj([("requestId", s(request_id))]),
+        ) {
+            Answer::Data(d) => Ok(Req::of(&d)),
+            refused => Err(refused),
         }
-        decide_and_run(&c, &stored, "person").map_err(|e| match e {
-            OwnError::Trpc(t) => from_trpc(&t),
-            other => panic!("{other:?}"),
-        })
     }
 
-    /// `own.approval.reject` (own-runs).
-    fn reject(&self, who: Who, request_id: &str) -> Result<Held, Answer> {
-        approvals::reject(self.w.pool(), who.user(), request_id)
-            .map_err(|e| from_trpc(&guard(e, approval_refused)))
+    /// `own.approval.edit`.
+    fn edit(&self, who: Who, request_id: &str, input: &Json) -> Result<(Req, Req), Answer> {
+        match self.mutate(
+            who,
+            "own.approval.edit",
+            &Json::obj([("requestId", s(request_id)), ("input", input.clone())]),
+        ) {
+            Answer::Data(d) => Ok((
+                Req::of(get(&d, &["replaced"])),
+                Req::of(get(&d, &["request"])),
+            )),
+            refused => Err(refused),
+        }
     }
 
-    /// `own.approval.edit` (own-runs), as its route does it (its input check is `checkEditedInput`, own-runs'): the
-    /// edit, then the new request announced, a bus fault never failing it.
-    fn edit(&self, who: Who, request_id: &str, input: &Json) -> Result<(Held, Held), Answer> {
-        let pool = self.w.pool();
-        let edited = approvals::get(pool, who.user(), request_id)
-            .and_then(|stored| {
-                approvals::edit(
-                    pool,
-                    who.user(),
-                    &stored.id,
-                    &pairs(input),
-                    self.own.approval_ttl_seconds.unwrap(),
-                )
-            })
-            .map_err(|e| from_trpc(&guard(e, approval_refused)))?;
-        let _ = notices::publish_pending_approval_requests(
-            pool,
-            &self.w.m,
-            system_now(),
-            &Scope {
-                owner_id: Some(who.user()),
-                request_id: Some(&edited.1.id),
-                on_error: None,
-            },
-        );
-        Ok(edited)
+    fn list(&self, who: Who, path: &str, input: &Json) -> Vec<Json> {
+        match self.query(who, path, input).data() {
+            Json::Array(rows) => rows,
+            other => panic!("not a list: {}", other.compact()),
+        }
     }
 
-    /// `own.approvals` (own-runs): this agent's requests, newest first, as the store lists them.
+    /// `own.approvals({ id, limit: 10 })`.
     fn approvals(&self, id: &str) -> Vec<Json> {
-        approvals::list(self.w.pool(), USER, id, 10)
-            .unwrap()
-            .iter()
-            .map(Held::to_json)
-            .collect()
+        self.list(
+            Who::Person,
+            "own.approvals",
+            &Json::obj([("id", s(id)), ("limit", Json::int(10))]),
+        )
+    }
+
+    /// `own.inbox({ limit: 10 })`.
+    fn inbox(&self, who: Who) -> Vec<Json> {
+        self.list(who, "own.inbox", &Json::obj([("limit", Json::int(10))]))
+    }
+
+    /// `own.runs({ id, limit: 10 })`.
+    fn runs(&self, id: &str) -> Vec<Json> {
+        self.list(
+            Who::Person,
+            "own.runs",
+            &Json::obj([("id", s(id)), ("limit", Json::int(10))]),
+        )
+    }
+}
+
+/// An approval request as the decision calls answer it (`ownAgentApprovalRequestSchema`).
+#[derive(Debug, Clone, PartialEq)]
+struct Req {
+    id: String,
+    session_id: String,
+    status: String,
+    refusal_code: Option<String>,
+    rule_id: Option<String>,
+    decided_at: Option<String>,
+    replaced_by: Option<String>,
+    input: Vec<(String, String)>,
+    result: Json,
+    json: Json,
+}
+
+impl Req {
+    fn of(v: &Json) -> Req {
+        let opt = |k: &str| match get(v, &[k]) {
+            Json::String(t) => Some(t.clone()),
+            Json::Null => None,
+            other => panic!("{k}: {other:?}"),
+        };
+        Req {
+            id: text(v, "id"),
+            session_id: text(v, "sessionId"),
+            status: text(v, "status"),
+            refusal_code: opt("refusalCode"),
+            rule_id: opt("ruleId"),
+            decided_at: opt("decidedAt"),
+            replaced_by: opt("replacedBy"),
+            input: pairs(get(v, &["input"])),
+            result: get(v, &["result"]).clone(),
+            json: v.clone(),
+        }
+    }
+    fn refusal_code(&self) -> Option<&str> {
+        self.refusal_code.as_deref()
     }
 }
 
@@ -949,8 +975,7 @@ fn a_baseline_that_asks_asks_without_a_rule_hand_off_refuses_and_blank_refuses()
 // ── a held call on Live runs and in the Approvals inbox (J-agents-05 #3) ────
 
 /// guardrails.test.ts: "lists the held comment as a waiting run with no action and no cost, and as the person’s inbox
-/// row; the tool never ran". The held request, its waiting state and that nothing ran are this slice's; the rows of
-/// `own.runs` and `own.inbox` are owed to own-runs, so the request is read here as the store lists it.
+/// row; the tool never ran".
 #[test]
 fn a_held_comment_is_one_waiting_request_with_no_action_and_the_tool_never_ran() {
     let w = world_or_skip!();
@@ -958,6 +983,7 @@ fn a_held_comment_is_one_waiting_request_with_no_action_and_the_tool_never_ran()
     let (id, session) = p.agent_with_session();
     w.grant(&id, "live_write");
     p.rule(&id, COMMENT, "ask_before");
+    assert!(p.inbox(Who::Person).is_empty());
     let held = p
         .tool_try(&id, &session, "try:comment:1", COMMENT, &comment_args())
         .data();
@@ -971,13 +997,32 @@ fn a_held_comment_is_one_waiting_request_with_no_action_and_the_tool_never_ran()
             .collect::<Vec<_>>(),
         ["session_open"]
     );
-    assert_eq!(p.approvals(&id), vec![get(&held, &["request"]).clone()]);
-    // Another person's requests never hold it.
-    assert!(
-        approvals::list(w.pool(), OTHER, &id, 10)
-            .unwrap()
-            .is_empty()
+    let request = get(&held, &["request"]);
+    assert_eq!(
+        p.runs(&id),
+        vec![Json::obj([
+            ("sessionId", s(&session)),
+            ("task", Json::Null),
+            ("refusalCode", Json::Null),
+            ("cost", s("0")),
+            ("assetId", s(FEE)),
+            ("occurredAt", get(request, &["createdAt"]).clone()),
+            ("messageParams", Json::Object(Vec::new())),
+            ("sequence", Json::Null),
+            ("status", s("waiting")),
+            ("tool", s(COMMENT)),
+            ("requestId", get(request, &["id"]).clone()),
+        ])]
     );
+    assert_eq!(p.approvals(&id), vec![request.clone()]);
+    let Json::Object(mut row) = request.clone() else {
+        panic!("not an object")
+    };
+    row.push(("agentId".to_owned(), s(&id)));
+    row.push(("agentName".to_owned(), s("TEST helper")));
+    assert_eq!(p.inbox(Who::Person), vec![Json::Object(row)]);
+    // Another person's inbox never shows it.
+    assert!(p.inbox(Who::Other).is_empty());
 }
 
 // ── the owner is told of a held call (J-agents-05 #4) ───────────────────────
@@ -1144,8 +1189,7 @@ fn a_blank_wait_refuses_holding_the_call() {
 }
 
 /// guardrails.test.ts: "edit replaces the request with a new one; the old one can never be approved; approve runs once
-/// and a repeat returns the first result". The edited input's own check (`checkEditedInput`) is the edit route's, owed
-/// to own-runs.
+/// and a repeat returns the first result".
 #[test]
 fn edit_replaces_the_request_approve_runs_once_and_a_repeat_returns_the_first_result() {
     let w = world_or_skip!();
@@ -1237,10 +1281,35 @@ fn edit_replaces_the_request_approve_runs_once_and_a_repeat_returns_the_first_re
         p.reject(Who::Person, &fresh.id).unwrap_err().message(),
         "agents.approval.decided"
     );
+    // An edit names only the tool's declared fields, none blank.
+    let call = p
+        .tool_try(&id, &session, "try:comment:2", COMMENT, &ticket_args())
+        .data();
+    assert_eq!(get(&call, &["outcome"]), &s("waiting"));
+    let other_id = text(get(&call, &["request"]), "id");
+    let long = "x".repeat(121);
+    for bad in [
+        args(&[
+            ("ticketId", TICKET),
+            ("body", "TEST comment"),
+            ("amount", "1"),
+        ]),
+        args(&[("ticketId", TICKET), ("body", "  ")]),
+        args(&[]),
+        args(&[("ticketId", TICKET)]),
+        args(&[("ticketId", &long), ("body", "TEST comment")]),
+    ] {
+        assert_eq!(
+            p.edit(Who::Person, &other_id, &bad).unwrap_err().message(),
+            "agents.approval.input_invalid",
+            "{}",
+            bad.compact()
+        );
+    }
 }
 
 /// guardrails.test.ts: "reject ends the step with a typed refusal the call reads; an expired request refuses and never
-/// runs". The expired row as `own.inbox` and `own.runs` list it is owed to own-runs; it is read here from the store.
+/// runs".
 #[test]
 fn reject_ends_the_step_with_a_typed_refusal_and_an_expired_request_never_runs() {
     let w = world_or_skip!();
@@ -1276,9 +1345,18 @@ fn reject_ends_the_step_with_a_typed_refusal_and_an_expired_request_never_runs()
             &[&late_id],
         )
         .unwrap();
-    let row = approvals::get(w.pool(), USER, &late_id).unwrap();
-    assert_eq!(row.status, "expired");
-    assert_eq!(row.refusal_code(), Some("agents.approval.expired"));
+    let rows = p.inbox(Who::Person);
+    let row = rows
+        .iter()
+        .find(|r| text(r, "id") == late_id)
+        .expect("the expired request is in the inbox");
+    assert_eq!(get(row, &["status"]), &s("expired"));
+    assert_eq!(get(row, &["refusalCode"]), &s("agents.approval.expired"));
+    assert!(
+        p.runs(&id)
+            .iter()
+            .all(|r| get(r, &["requestId"]) != &s(&late_id))
+    );
     let refused = p.approve(Who::Person, &late_id).unwrap_err();
     assert_eq!(
         (refused.code(), refused.message()),
@@ -1297,6 +1375,27 @@ fn reject_ends_the_step_with_a_typed_refusal_and_an_expired_request_never_runs()
     );
     assert!(w.desk.comments().is_empty());
     assert_eq!(w.executed(COMMENT), 0);
+}
+
+/// guardrails.test.ts: "only the person’s own signed-in session approves: a principal without identity:write is
+/// refused and nothing runs".
+#[test]
+fn only_the_persons_own_signed_in_session_approves() {
+    let w = world_or_skip!();
+    let p = w.people_default();
+    w.desk.set_account(Account::Active);
+    let (_, _, request) = held(&p, "try:comment:1", &ticket_args());
+    let rid = text(&request, "id");
+    assert_eq!(
+        p.approve(Who::NotSession, &rid).unwrap_err().code(),
+        "FORBIDDEN"
+    );
+    let first = &p.inbox(Who::Person)[0];
+    assert_eq!(
+        (text(first, "id"), text(first, "status")),
+        (rid, "waiting".to_owned())
+    );
+    assert!(w.desk.comments().is_empty());
 }
 
 /// guardrails.test.ts: "runs the gates again at approve: a withdrawn consent or a hand-off rule refuses, still waiting,
@@ -1319,9 +1418,10 @@ fn runs_the_gates_again_at_approve() {
         p.approve(Who::Person, &rid).unwrap_err().message(),
         "agents.rule_hand_off"
     );
+    let first = &p.inbox(Who::Person)[0];
     assert_eq!(
-        approvals::get(w.pool(), USER, &rid).unwrap().status,
-        "waiting"
+        (text(first, "id"), text(first, "status")),
+        (rid, "waiting".to_owned())
     );
     assert!(w.desk.comments().is_empty());
     assert_eq!(w.executed(COMMENT), 0);
@@ -1380,12 +1480,12 @@ fn a_door_that_refuses_for_good_ends_the_request_failed() {
         p.approve(Who::Person, &rid).unwrap_err().message(),
         "agents.tool_refused.ticket_missing"
     );
-    let row = approvals::get(w.pool(), USER, &rid).unwrap();
-    assert_eq!(row.status, "failed");
-    assert_eq!(row.refusal_code(), Some("agents.approval.failed"));
+    let row = &p.inbox(Who::Person)[0];
+    assert_eq!(get(row, &["status"]), &s("failed"));
+    assert_eq!(get(row, &["refusalCode"]), &s("agents.approval.failed"));
     assert_eq!(
-        row.failure_code.as_deref(),
-        Some("agents.tool_refused.ticket_missing")
+        get(row, &["failureCode"]),
+        &s("agents.tool_refused.ticket_missing")
     );
     assert_eq!(
         p.approve(Who::Person, &rid).unwrap_err().message(),
@@ -1455,9 +1555,10 @@ fn fails_closed_when_identity_is_unread_or_the_owner_frozen_and_another_person_c
         p.approve(Who::Person, &rid).unwrap_err().message(),
         "agents.identity.owner_frozen"
     );
+    let first = &p.inbox(Who::Person)[0];
     assert_eq!(
-        approvals::get(w.pool(), USER, &rid).unwrap().status,
-        "waiting"
+        (text(first, "id"), text(first, "status")),
+        (rid.clone(), "waiting".to_owned())
     );
     assert!(w.desk.comments().is_empty());
     assert_eq!(w.executed(COMMENT), 0);
@@ -1482,7 +1583,7 @@ fn fails_closed_when_identity_is_unread_or_the_owner_frozen_and_another_person_c
 // ── a held call is the session’s and its key’s ──────────────────────────────
 
 /// guardrails.test.ts: "a closed session holds nothing; a reused request id is that request even after the rule
-/// changes, never another call". The session is closed as `own.session.close` (own-runs) closes it.
+/// changes, never another call".
 #[test]
 fn a_closed_session_holds_nothing_and_a_reused_request_id_is_that_request() {
     let w = world_or_skip!();
@@ -1512,7 +1613,12 @@ fn a_closed_session_holds_nothing_and_a_reused_request_id_is_that_request() {
         "agents.request_id_replay"
     );
     p.rule(&id, COMMENT, "ask_before");
-    runtime::close_settled(&w.x(), &session).unwrap();
+    p.mutate(
+        Who::Person,
+        "own.session.close",
+        &Json::obj([("id", s(&id)), ("sessionId", s(&session))]),
+    )
+    .data();
     assert_eq!(
         p.tool_try(&id, &session, "try:comment:2", COMMENT, &a)
             .message(),
@@ -1643,7 +1749,7 @@ fn a_consent_is_per_class() {
 }
 
 /// guardrails.test.ts: "another person can neither read, grant nor use this agent’s consents, rules or session". The
-/// consents' and `own.approvals`' halves are owed to own-controls and own-runs.
+/// consents' halves are owed to own-controls.
 #[test]
 fn another_person_can_neither_set_rules_on_nor_use_this_agent() {
     let w = world_or_skip!();
@@ -1658,6 +1764,15 @@ fn another_person_can_neither_set_rules_on_nor_use_this_agent() {
                 ("tool", s(SEARCH)),
                 ("choice", s("ask_before"))
             ]),
+        )
+        .message(),
+        "agents.own.not_found"
+    );
+    assert_eq!(
+        p.query(
+            Who::Other,
+            "own.approvals",
+            &Json::obj([("id", s(&id)), ("limit", Json::int(10))]),
         )
         .message(),
         "agents.own.not_found"

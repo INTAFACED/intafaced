@@ -6,8 +6,8 @@ import {
   receivingWalletSavedSchema,
   receivingWalletSaveInputSchema,
   receivingWalletSchema,
-  router,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-receiving-wallet';
+import { router } from '@intafaced/contracts/trpc';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
 import { ownMerchantRead } from '../own-merchant-read.js';

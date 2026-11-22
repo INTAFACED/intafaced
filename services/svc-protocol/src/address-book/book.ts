@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ADDRESS_BOOK_LABEL_MAX, WALLET_GROUP_NAME_MAX } from '@intafaced/contracts';
+import { ADDRESS_BOOK_LABEL_MAX, WALLET_GROUP_NAME_MAX } from '@intafaced/contracts/protocol-address-book';
 import { getAddress as toChecksum, isAddress, type Address } from 'viem';
 
 /**

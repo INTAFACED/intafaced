@@ -11,14 +11,12 @@
  * default. A key that is not a governed type is ignored: an ungoverned type keeps the fixed rule.
  */
 import { createHash } from 'node:crypto';
+import type { ActionApprovalPolicy, ActionApprovalPolicyEntry, PolicyGovernedActionType } from '@intafaced/contracts';
 import {
   POLICY_GOVERNED_ACTION_TYPES,
   approvalPolicyAudienceSchema,
   governedActionTypeOf,
-  type ActionApprovalPolicy,
-  type ActionApprovalPolicyEntry,
-  type PolicyGovernedActionType,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/action-approval-policy';
 import { isRecord } from '@intafaced/contracts/guards';
 
 /** Upper bounds are shape guards, not owner values: no request lives a year, no rule needs more than 32 people. */

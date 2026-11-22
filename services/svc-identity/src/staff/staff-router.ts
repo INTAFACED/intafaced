@@ -3,11 +3,8 @@ import {
   approvalPolicyRowsReadSchema,
   approvalPolicySetInputSchema,
   approvalPolicySetResultSchema,
-  protectedProcedure,
-  publicProcedure,
-  router,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/action-approval-policy';
+import { protectedProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   staffAcceptInputSchema,
   staffAcceptResultSchema,

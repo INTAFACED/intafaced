@@ -381,7 +381,24 @@
   flex-direction: column;
   gap: var(--lit-gap-section);
 }
+/* A settings room's section index: each link a full-height target (WCAG 2.5.8), a plain list, never bullets. */
+.lt-grid-settings > [data-region='index'] :is(ul, ol) {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lt-grid-settings > [data-region='index'] a {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.25rem;
+}
 @container room (min-width: 1024px) {
+  /* On a computer the index is a column beside the sections, so a row of tabs stands as a column, never cut off. */
+  .lt-grid-settings > [data-region='index'] .lt-tabs {
+    flex-direction: column;
+    overflow-x: visible;
+    animation: none;
+  }
   .lt-grid-settings > .lt-gate-area {
     grid-column: 2 / -1;
   }
@@ -1177,7 +1194,9 @@
   gap: 0.25rem;
 }
 
-.lt-field input {
+.lt-field input:not([type='checkbox'], [type='radio']),
+.lt-field select,
+.lt-field textarea {
   min-block-size: var(--lit-control-h);
   padding-inline: var(--lit-gap-item);
   border: 1px solid var(--lit-line-strong);
@@ -1185,6 +1204,43 @@
   background: var(--lit-solid-bg-raised);
   color: var(--lit-text-1);
   font: inherit;
+}
+
+.lt-field textarea {
+  padding-block: 0.5rem;
+}
+
+.lt-field :is(input, select, textarea):focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-field [aria-invalid='true'] {
+  border-color: var(--lit-down);
+}
+
+.lt-field small {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+/* A field whose control is a checkbox or radio reads as one row: the box, then its words. */
+.lt-field:has(> input:is([type='checkbox'], [type='radio'])) {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* The app's base reset (packages/ui/src/theme/base.css) leaves every input with appearance: none and no size, which
+   draws a tick as nothing: keep the browser's own control, sized, in the kit's accent. */
+.lt-field input:is([type='checkbox'], [type='radio']) {
+  appearance: auto;
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin: 0;
+  accent-color: var(--lit-accent);
+  cursor: pointer;
 }
 
 .lt-button:disabled {

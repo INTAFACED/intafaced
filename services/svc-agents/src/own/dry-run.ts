@@ -17,7 +17,7 @@ import { effectiveRequirement, OwnConsentStore, OwnRuleStore, stricter, type Pol
 import { readOwnCaps } from './limits.js';
 import { decideApproval, guardedEngineRun } from './content-guard.js';
 import { decideMemory, runMemoryOf, OwnMemoryStore, withheldAsk, type MemoryDecision } from './memory.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /**
  * DRY RUNS OF A PERSON'S OWN AGENT (AG-spend-04; J-agents-04 #3).

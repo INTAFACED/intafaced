@@ -100,6 +100,11 @@ import {
   type JournalStorage,
   type JournalLocks,
 } from '../../shared/minimal-original-journal';
+import { P2P_DISPUTES_GET, P2P_DISPUTES_OPEN, P2P_DISPUTES_APPEND_EVIDENCE } from '@intafaced/contracts/p2p-disputes-procedures';
+import { PAY_MERCHANT_ME } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedures';
+import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
+import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
 
 /** Future session integration seam, not a claim inferred from a JWT mode or merchant KYB.
  * Only supply this from an authoritative verified company membership/merchant association.
@@ -800,7 +805,7 @@ export function createPersonalPayApi(
       guard.run(`${userId}:p2p-programme`, () => api.call(P2P_MERCHANTS_SUBMIT_APPLICATION, undefined), undefined, p2pCurrent),
     withdrawProgramme: (reason: string) =>
       guard.run(`${userId}:p2p-programme`, () => api.call(P2P_MERCHANTS_WITHDRAW, { reason }), undefined, p2pCurrent),
-    dispute: (tradeId: string, signal?: AbortSignal) => api.query('p2p', 'disputes.get', { tradeId }, s.disputeSchema, { signal }),
+    dispute: (tradeId: string, signal?: AbortSignal) => api.call(P2P_DISPUTES_GET, { tradeId }, { signal }),
     async manageOffer(
       offerId: string,
       action: 'pause' | 'resume' | 'close',
@@ -1163,12 +1168,7 @@ export function createPersonalPayApi(
       );
     },
     openDispute: (tradeId: string, reason: string) =>
-      guard.run(
-        `${userId}:dispute:${tradeId}`,
-        () => api.mutate('p2p', 'disputes.open', { tradeId, reason }, s.disputeOpenedSchema),
-        undefined,
-        p2pCurrent,
-      ),
+      guard.run(`${userId}:dispute:${tradeId}`, () => api.call(P2P_DISPUTES_OPEN, { tradeId, reason }), undefined, p2pCurrent),
     /** P-trade-orders-15: the buyer of a paid order reminds the seller to release. Moves nothing; svc-p2p decides when. */
     remindSeller: (tradeId: string) =>
       guard.run(`${userId}:remind:${tradeId}`, () => api.call(P2P_TRADES_REMIND, { tradeId }), undefined, p2pCurrent),
@@ -1210,13 +1210,7 @@ export function createPersonalPayApi(
     appendEvidence: (tradeId: string, evidence: string) =>
       guard.run(
         `${userId}:evidence:${tradeId}`,
-        () =>
-          api.mutate(
-            'p2p',
-            'disputes.appendEvidence',
-            { tradeId, evidence: [evidence] },
-            z.object({ disputeId: s.id, tradeId: s.id, evidence: s.disputeSchema.shape.evidence }),
-          ),
+        () => api.call(P2P_DISPUTES_APPEND_EVIDENCE, { tradeId, evidence: [evidence] }),
         undefined,
         p2pCurrent,
       ),
@@ -1425,7 +1419,7 @@ export function createBusinessPayApi(
   async function merchant(signal?: AbortSignal) {
     const denied = access('pay:read');
     if (denied) return denied;
-    const result = await api.query('pay', 'merchant.me', undefined, s.merchantSchema.nullable(), { signal });
+    const result = await api.call(PAY_MERCHANT_ME, undefined, { signal });
     if (!result.ok) return result;
     if (!result.data || result.data.id !== authority!.merchantId || result.data.userId !== userId)
       return payRefusal('theMerchantRecordDoesNotMatchThe', { code: 'pay.business_merchant_mismatch' });
@@ -1561,21 +1555,12 @@ export function createBusinessPayApi(
         return payRefusal('chooseOnlyPayPermissionsHeldByThis', { code: 'pay.key_permission_invalid' });
       const checked = await merchant();
       if (!checked.ok) return checked;
-      return guard.run(`${userId}:sandbox-key-create`, () =>
-        api.mutate(
-          'identity',
-          'apiKeys.create',
-          { name, scopes, mode: 'sandbox' },
-          z.object({ id: z.string(), key: z.string(), prefix: z.string(), mode: z.literal('sandbox') }),
-        ),
-      );
+      return guard.run(`${userId}:sandbox-key-create`, () => api.call(IDENTITY_API_KEYS_CREATE, { name, scopes, mode: 'sandbox' }));
     },
     async revokeKey(keyId: string) {
       const checked = await merchant();
       if (!checked.ok) return checked;
-      return guard.run(`${userId}:key:${keyId}`, () =>
-        api.mutate('identity', 'apiKeys.revoke', { keyId }, z.object({ revoked: z.boolean() })),
-      );
+      return guard.run(`${userId}:key:${keyId}`, () => api.call(IDENTITY_API_KEYS_REVOKE, { keyId }));
     },
     async webhookEndpoints(signal?: AbortSignal) {
       const checked = await merchant(signal);
@@ -1642,9 +1627,8 @@ export type BusinessPayApi = ReturnType<typeof createBusinessPayApi>;
 
 export function createCheckoutApi(api: ApiClient, guard = payMutationGuard()) {
   return {
-    resolve: (token: string, signal?: AbortSignal) => api.query('pay', 'resolveLink', { token }, s.resolvedLinkSchema, { signal }),
-    status: (sessionToken: string, signal?: AbortSignal) =>
-      api.query('pay', 'checkout.status', { sessionToken }, s.checkoutSchema, { signal }),
+    resolve: (token: string, signal?: AbortSignal) => api.call(PAY_RESOLVE_LINK, { token }, { signal }),
+    status: (sessionToken: string, signal?: AbortSignal) => api.call(PAY_CHECKOUT_STATUS, { sessionToken }, { signal }),
     async open(
       link: z.infer<typeof s.resolvedLinkSchema>,
       token: string,
@@ -1667,9 +1651,7 @@ export function createCheckoutApi(api: ApiClient, guard = payMutationGuard()) {
         });
       if (!parsed.success || (link.amount === null && !parsed.data?.amount) || (link.currency === null && !parsed.data?.assetId))
         return payRefusal('enterTheRequiredCountryPaymentMethodAmount', { code: 'pay.checkout_input_invalid', reason: 'error' });
-      return guard.run('checkout:open', () =>
-        api.mutate('pay', 'checkout.open', parsed.data, z.object({ sessionToken: z.string().min(8).max(200), session: s.checkoutSchema })),
-      );
+      return guard.run('checkout:open', () => api.call(PAY_CHECKOUT_OPEN, parsed.data));
     },
     guard,
   };

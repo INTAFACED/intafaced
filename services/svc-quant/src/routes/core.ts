@@ -16,10 +16,11 @@ import {
   readStoredBacktest,
 } from '../engine/run.js';
 import { type BacktestLake, missingLake } from '../backtest/lake.js';
-import { type Context, type QuantBacktestResult, type QuantLifecycle, type QuantLiveCheck, TRPCError } from '@intafaced/contracts';
+import type { Context, QuantBacktestResult, QuantLifecycle, QuantLiveCheck } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { DEFAULT_FLOOR_POLICY } from '../risk/rules.js';
 import { type DisclosureRepository } from '../disclosure/repository.js';
-import { type FeePort, type HistoryPort, missingFees, missingHistory } from '../engine/ports.js';
+import { type FeePort, type HistoryPort, type VenuePricePort, missingFees, missingHistory, missingVenuePrices } from '../engine/ports.js';
 import { type KeyIdempotencyRepository, createMemoryKeyIdempotencyRepository } from '../key-api/key-api.js';
 import { type LakeSettings, type LakeStore } from '../lake/lake.js';
 import { type LibraryRepository } from '../library/repository.js';
@@ -325,6 +326,8 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly history?: HistoryPort;
   /** The published fee schedule read. Omitted refuses `quant.cost_unset` naming fees. */
   readonly fees?: FeePort;
+  /** The venue's candle read a paper run prices from (J-algo-dev-04 #2). Omitted: every paper run is unpriced, saying why. */
+  readonly venuePrices?: VenuePricePort;
   /** Decides only whether a backtest window has closed, and where a rolling holdout begins. */
   readonly now?: () => number;
   /** The owner's out-of-sample criteria and holdout. Omitted, every one is blank: verdicts read inconclusive by name. */
@@ -418,6 +421,7 @@ export function createQuantCore(deps: QuantRouterDeps) {
   const lake = deps.lake ?? missingLake();
   const history = deps.history ?? missingHistory();
   const fees = deps.fees ?? missingFees();
+  const venuePrices = deps.venuePrices ?? missingVenuePrices();
   const now = deps.now ?? (() => Date.now());
   const judgement = deps.judgement ?? NO_JUDGEMENT;
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
@@ -562,13 +566,19 @@ export function createQuantCore(deps: QuantRouterDeps) {
   }
   /**
    * The deploy wizard's compile check of one version (AL-live-02; J-algo-dev-06 #6), with the platform's live switch as
-   * the owner set it now (`live.enabled`; blank, unreadable or anything but `on` is off). Writes nothing.
+   * the owner set it now (`live.enabled`; blank, unreadable or anything but `on` is off) and the account's
+   * second-approver rule for the version (RC-algo-dev-01; J-algo-dev-06 #3). Writes nothing.
    */
   async function liveCheckOf(accountId: string, strategyId: string, strategyVersion: number): Promise<QuantLiveCheck> {
     const found = await strategies.get({ accountId, id: strategyId });
     const version = found && !found.deletedAt ? found.versions.find((row) => row.version === strategyVersion) : undefined;
     if (!found || !version) missingStrategy();
     const reading = liveCheck(version);
+    // The account's second-approver rule, read as the approval panel reads it: a different member's approval counts only
+    // while its hash is the version's hash now, so any change to the version or its risk settings asks again.
+    const [policy, rows] = await Promise.all([approvals.policy(found.accountId), approvals.approvals(found.id)]);
+    const required = policy?.required === true;
+    const allowed = !required || (await approvedVersionsOf(found, rows)).includes(strategyVersion);
     return {
       strategyId: found.id,
       strategyVersion,
@@ -577,6 +587,7 @@ export function createQuantCore(deps: QuantRouterDeps) {
       orderTypes: reading.orderTypes,
       compiles: reading.compiles,
       liveEnabled: await liveSwitchOn(),
+      approval: { required, allowed },
       asOf: new Date(now()).toISOString(),
     };
   }
@@ -598,7 +609,7 @@ export function createQuantCore(deps: QuantRouterDeps) {
     return paperView(
       paper,
       { id: found.id, version: version.version, modules: version.modules, risk: version.risk },
-      { fees, history },
+      { fees, prices: venuePrices },
       now(),
     );
   }
@@ -832,6 +843,7 @@ export function createQuantCore(deps: QuantRouterDeps) {
     lake,
     history,
     fees,
+    venuePrices,
     now,
     judgement,
     disclosure,

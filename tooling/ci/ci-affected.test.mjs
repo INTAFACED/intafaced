@@ -52,8 +52,10 @@ test('classify: each path lands in full, affected or neither', () => {
     { files: [], expected: none },
     { files: ['docs/x.md', 'services/svc-trade/src/a.ts'], expected: { full: false, affected: true } },
   ];
+  // Today's rules, which every change keeps beside a product, stack or journey path, and every change keeps when
+  // its tree can't be scanned (reach: null). What a change that reaches no journey runs: tooling-reach.test.mjs.
   for (const c of cases) {
-    const { full, affected } = classify(c.files);
+    const { full, affected } = classify(c.files, { reach: null });
     const got = { full, affected };
     assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
   }
@@ -81,7 +83,7 @@ test('classify: a lint rule or a baseline file runs only the product tests that 
     { files: ['tooling/brand-new/x.mjs'], edges: {}, expected: { full: true, affected: false } },
   ];
   for (const c of cases) {
-    const { full, affected } = classify(c.files, { edges: c.edges });
+    const { full, affected } = classify(c.files, { edges: c.edges, reach: null });
     assert(
       same({ full, affected }, c.expected),
       `classify(${JSON.stringify(c.files)}) => ${JSON.stringify({ full, affected })} expected ${JSON.stringify(c.expected)}`,
@@ -117,7 +119,8 @@ test('classify: a change that reaches Rust runs the Rust job, and Rust files alo
     { files: ['services/svc-tax/src/a.ts'], expected: { full: false, affected: true, rust: true } },
     { files: ['services/svc-tax/src/wire-replay.golden.json'], expected: { full: false, affected: true, rust: true } },
     { files: ['services/svc-taxes/src/a.ts'], expected: { full: false, affected: true, rust: false } },
-    { files: ['services/svc-bank/src/a.ts'], expected: { full: false, affected: true, rust: false } },
+    { files: ['services/svc-pay/src/a.ts'], expected: { full: false, affected: true, rust: false } },
+    { files: ['services/svc-bank/src/a.ts'], expected: { full: false, affected: true, rust: true } },
     // A crate's tests read its own service's records, and only those (project-state#3522).
     { files: ['packages/contracts/procedures/svc-tax.schema.json'], expected: { full: false, affected: true, rust: true } },
     { files: ['packages/contracts/procedures/svc-academy.schema.json'], expected: { full: false, affected: true, rust: true } },
@@ -132,7 +135,7 @@ test('classify: a change that reaches Rust runs the Rust job, and Rust files alo
     { files: ['vendor/x/y.ts'], expected: { full: true, affected: false, rust: false } },
   ];
   for (const c of cases) {
-    const got = classify(c.files);
+    const got = classify(c.files, { reach: null });
     assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
   }
   assert(classify(['docs/x.md'], { forceFull: true }).rust === true, 'a run-everything run runs the Rust job');
@@ -219,6 +222,12 @@ test('seal: the required jobs a classification needs', () => {
     'a skipped look gate is a failure when the change draws a room',
   );
   assert(sealNeeded(none, { ...ok, look: 'skipped' }).length === 0, 'a change that draws no room needs no look gate');
+  // Planted: the run's changes job judged the merge with main and ran tests this classification doesn't ask for.
+  assert(sealNeeded(none, { ...ok, 'tests-full': 'failure' }).length === 1, 'a test job that ran red is red when no tests were asked');
+  assert(sealNeeded(none, { ...ok, 'tests-full': 'cancelled' }).length === 1, 'a cancelled test job is red when no tests were asked');
+  assert(sealNeeded(none, { ...ok, rust: 'failure' }).length === 1, 'a Rust job that ran red is red when no Rust was asked');
+  assert(sealNeeded(none, { ...ok, look: 'failure' }).length === 1, 'a look gate that ran red is red when no look was asked');
+  assert(sealNeeded(none, { ...ok, 'tests-full': 'success', rust: 'success' }).length === 0, 'extra green jobs are fine');
 });
 
 test('reachesLook: a change a Customer room or the kit draws, or the gate itself (#9325)', () => {

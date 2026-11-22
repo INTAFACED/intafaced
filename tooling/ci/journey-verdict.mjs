@@ -73,6 +73,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { BUDGET_TITLE, ghResetWait, waitLine } from './api-budget.mjs';
 
 export const BASELINE_PATH = 'docs/runbooks/journey-baseline.json';
 export const JOURNEYS_FILE = 'real-app-journeys.yml';
@@ -361,8 +362,18 @@ export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {},
  * `target` is the set of journey file names a targeted run ran, or null for a full run; `setAside` is setAsideSteps();
  * `guard` is setAsideGuard() (the money rule when not given): a guarded step is never set aside.
  * `onMain` is runIsOnMain(): only there are the steps that passed only on their retry listed for Main trust's `flaky`
- * issue. Returns { failing, red, setAside, flaky } (setAside: the steps a set-aside kept out of the red, with their state
+ * issue. Returns { failing, red, setAside, flaky, moneyByHead } (setAside: the steps a set-aside kept out of the red, with their state
  * this run; flaky: on main, the steps that failed, then passed on their retry, that no set-aside tracks).
+ * `headMoney` is the money rule at a pull request's own head, which only the merge seal gives (journey-seal.mjs): a step
+ * whose baseline money flag `money` (main's rule) disagrees with is red, marked `mismatch`, unless the head's own rule
+ * agrees with the baseline; then the entry is checked under the baseline's flag and any red the step still gives counts as
+ * money (the stricter of the two), so it is never passed over as inherited. `moneyByHead` lists those steps. (Failure it
+ * prevents: #9539 made apps/admin money on main, so 8 regression steps read "the baseline says money false, the money rule
+ * at this commit says true" on every pull request's seal, #9601's fix and #9603's revert included, and none could merge.)
+ * `headBaseline`, given with `headMoney`, is the baseline the merge would hold (the head's when the pull request changes it,
+ * else main's): a step whose flag there the head's own rule disagrees with is red too, as money, so a change that makes a
+ * baselined step money without moving its entry is stopped before main's verdict is. (Failure it prevents: #9539's own
+ * verdict was red on those 8 steps, and the seal, reading main's consistent rule, passed it.)
  */
 export function judge({
   newest,
@@ -375,6 +386,8 @@ export function judge({
   target = null,
   setAside = {},
   onMain = false,
+  headMoney = null,
+  headBaseline = null,
 }) {
   const inScope = (step, files) => !target || target.has(files[step]);
   const asideNow = (step) => setAside[step]?.active && !(guard[step] ?? true);
@@ -402,10 +415,22 @@ export function judge({
   const runNo = baseline?.run?.number;
   const red = [];
   const kept = [];
+  const moneyByHead = [];
+  const headEntries = new Map();
+  if (headMoney) for (const e of headBaseline?.steps ?? []) if (!headEntries.has(e?.step)) headEntries.set(e?.step, e);
   for (const step of [...failing].sort(byStep)) {
-    const isMoney = money[step] ?? true; // a step missing from journeys.json counts as money
+    const ruled = money[step] ?? true; // a step missing from journeys.json counts as money
     const e = entries.get(step);
-    const no = (why) => red.push({ step, why, money: isMoney });
+    // The head's own rule agrees with the baseline where this rule does not (headMoney above): the stricter flag marks
+    // the step's reds, and the entry is read under the baseline's flag, which the head holds too.
+    const byHead = Boolean(e && headMoney && e.money !== ruled && (headMoney[step] ?? true) === e.money);
+    const isMoney = byHead ? ruled || e.money : ruled;
+    const entryMoney = byHead ? e.money : ruled;
+    if (byHead) moneyByHead.push(step);
+    const he = headEntries.get(step);
+    const headRuled = headMoney?.[step] ?? true;
+    const headOff = Boolean(he && he.money !== headRuled);
+    const no = (why, mark = {}) => red.push({ step, why, money: isMoney, ...mark });
     // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, the run just before this one
     // showed it passing (two failures in a row is broken; an unknown previous result excuses nothing), and its baseline
     // entry (if any) is well formed. Skipped or missing never.
@@ -414,6 +439,7 @@ export function judge({
       newest.states[step] === 'failed' &&
       PASSED_BEFORE.has(setAside[step].before) &&
       !dupes.has(step) &&
+      !headOff &&
       (!e || e.money === isMoney)
     ) {
       kept.push(step);
@@ -428,12 +454,15 @@ export function judge({
             : `passed in run ${runNo}, ${newest.states[step] ?? 'missing'} now`,
         );
     } else if (dupes.has(step)) no('listed more than once in the baseline');
-    else if (e.money !== isMoney) no(`the baseline says money ${e.money}, the money rule at this commit says ${isMoney}`);
+    else if (e.money !== entryMoney)
+      no(`the baseline says money ${e.money}, the money rule at this commit says ${ruled}`, { mismatch: true });
+    else if (headOff)
+      no(`with this pull request, the baseline says money ${he.money}, the money rule at its head says ${headRuled}`, { money: true });
     else if (e.state === 'unbuilt') {
       if (passedSince[step] !== undefined)
         no(`called unbuilt, but passed on main in run ${passedSince[step]}, after the baseline's run ${runNo}`);
     } else if (e.state === 'regression') {
-      if (isMoney) no('a money step may be in the baseline only as unbuilt');
+      if (entryMoney) no('a money step may be in the baseline only as unbuilt');
       else {
         const why = issueProblem(e.issue, issues[e.issue]);
         if (why) no(`regression: ${why}`);
@@ -455,7 +484,7 @@ export function judge({
     testsFailing++;
     red.push({ step: k, why: `a test with no step title: passed on main in run ${when}, ${s} now`, money: journeyMoney(k.split('#')[0]) });
   }
-  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps };
+  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps, moneyByHead };
 }
 
 /** A git command's exit: 0 or 1 (a plain no). Any other failure (a missing object, a shallow clone, no git) throws, so a
@@ -698,9 +727,29 @@ const arg = (name) => {
   return i > 0 ? process.argv[i + 1] : undefined;
 };
 const json = (f) => JSON.parse(readFileSync(f, 'utf8'));
-/** GET only. A refusal (403, 429) is thrown, never retried: the verdict is then red. */
+/** GET only. A refusal (403, 429) is thrown, never retried: the verdict is then red. A spent hourly budget is waited
+ *  out once where the step allows it (budgetRetry), and its answer then stands. */
 const ghApi = (path) =>
-  JSON.parse(execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', path], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }));
+  budgetRetry(() =>
+    JSON.parse(
+      execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', path], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }),
+    ),
+  );
+/**
+ * `call()`, and when it throws because the hourly budget is spent and the step allows a wait (api-budget.mjs
+ * ghResetWait, API_BUDGET_WAIT_MIN): wait for the reset, then `call()` once more, whose answer or error stands.
+ */
+export function budgetRetry(call, { wait = pause, waitFor = ghResetWait, log = console.log } = {}) {
+  try {
+    return call();
+  } catch (e) {
+    const w = waitFor(`${e?.stderr ?? ''}\n${e?.message ?? ''}`);
+    if (!w) throw e;
+    log(`::notice title=${BUDGET_TITLE}::${waitLine(w.ms, w.reset)}`);
+    wait(w.ms);
+    return call();
+  }
+}
 const ghPages = (path, key) => {
   const out = [];
   for (let page = 1; page <= 20; page++) {
@@ -736,10 +785,11 @@ const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 
 /** `gh run download` with up to `tries` attempts. A missing artifact or a refusal fails at once; any other failure (a
  *  dropped connection to the artifact store, a 5xx) is tried again after a pause, and the last one throws with gh's own
  *  last line in its first line. */
-export function ghDownload(args, { run = execFileSync, wait = pause, tries = 3, pauses = [5_000, 15_000] } = {}) {
+export function ghDownload(args, { run = execFileSync, wait = pause, tries = 3, pauses = [5_000, 15_000], waitFor = ghResetWait } = {}) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return run('gh', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      // A spent hourly budget is waited out once where the step allows it (budgetRetry); then it is a refusal as before.
+      return budgetRetry(() => run('gh', args, { stdio: ['ignore', 'ignore', 'pipe'] }), { wait, waitFor });
     } catch (e) {
       if (missingArtifact(e.stderr) || refusedDownload(e.stderr) || attempt >= tries) {
         const said = lastLine(e.stderr);
@@ -835,7 +885,26 @@ export function fetchInputs({
   log = console.log,
   readStored = (r) => downloadReport(repo, r.id, HISTORY_FILE, true, { artifact: HISTORY_ARTIFACT }),
   compare = (head, base) => ghApi(`/repos/${repo}/compare/${head}...${base}`),
+  get = ghApi,
+  pages = ghPages,
+  memo = null,
 }) {
+  // `memo` (a Map the caller keeps for one process): each GET this reads is read once, however many runs it judges. The
+  // merge seal judges up to MAIN_LOOKBACK of main's runs and every run on the head with the same baseline, and each read
+  // main's whole run history since the named run (13 pages on 22 Nov 2026), the named run and every regression issue
+  // again: 218 calls for one seal step on #9630, the largest spender of the workflow token's hourly budget. A failed read
+  // is not kept, so it is read again and fails again, never stands as an answer.
+  const once = (key, read) => {
+    if (!memo) return read();
+    if (!memo.has(key)) memo.set(key, read());
+    return memo.get(key);
+  };
+  if (memo) {
+    const fresh = readStored;
+    readStored = (r) => once(`stored ${r.id}`, () => fresh(r));
+    const direct = compare;
+    compare = (head, base) => once(`compare ${head}...${base}`, () => direct(head, base));
+  }
   const problems = [];
   const reportOf = (id, raw) => {
     if (!reports.has(id)) reports.set(id, readReport(raw ?? downloadReport(repo, id)));
@@ -854,11 +923,13 @@ export function fetchInputs({
     problems.push(`the baseline's named run ${baseline?.run?.number} (${baseline?.run?.id}) report couldn't be read: ${e.message}`);
   }
   try {
-    const namedRun = ghApi(`/repos/${repo}/actions/runs/${baseline.run.id}`);
-    const run = thisRun ?? ghApi(`/repos/${repo}/actions/runs/${thisRunId}`);
-    const all = ghPages(
-      `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&created=${encodeURIComponent(`>=${namedRun.created_at}`)}`,
-      'workflow_runs',
+    const namedRun = once(`run ${baseline.run.id}`, () => get(`/repos/${repo}/actions/runs/${baseline.run.id}`));
+    const run = thisRun ?? get(`/repos/${repo}/actions/runs/${thisRunId}`);
+    const all = once(`main since ${namedRun.created_at}`, () =>
+      pages(
+        `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&created=${encodeURIComponent(`>=${namedRun.created_at}`)}`,
+        'workflow_runs',
+      ),
     );
     shas[namedRun.run_number] = namedRun.head_sha;
     const runs = historyRuns(all, { repo, namedCreated: namedRun.created_at, thisCreated: run.created_at, thisId: run.id });
@@ -901,7 +972,10 @@ export function fetchInputs({
   }
   for (const n of [...new Set((baseline.steps ?? []).filter((e) => e.state === 'regression').map((e) => e.issue))]) {
     try {
-      issues[n] = { issue: ghApi(`/repos/${repo}/issues/${n}`), comments: ghPages(`/repos/${repo}/issues/${n}/comments`) };
+      issues[n] = once(`issue ${n}`, () => ({
+        issue: get(`/repos/${repo}/issues/${n}`),
+        comments: pages(`/repos/${repo}/issues/${n}/comments`),
+      }));
     } catch (e) {
       issues[n] = { problem: e.message.split('\n')[0] };
     }

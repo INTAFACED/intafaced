@@ -4,7 +4,7 @@
  * Session/API-key id survives onto order/fill/ledger or named refuse.
  * Do not invent approval thresholds. Hitch wraps AuthService without recutting router.ts.
  */
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { AuthService } from './auth-service.js';
 
 export const DUAL_CONTROL_MISSING = 'dual_control_missing' as const;

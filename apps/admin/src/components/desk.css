@@ -150,3 +150,10 @@
   height: auto;
   border: 1px solid var(--if-border);
 }
+/* A group of controls disabled until the page has hydrated (academy-learner-desk.tsx): no frame of its own. */
+.dk-fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

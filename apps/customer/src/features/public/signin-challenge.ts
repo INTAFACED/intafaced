@@ -1,9 +1,10 @@
-import { signInChallengeSchema, type SignInChallenge, type SignInChallengeProof } from '@intafaced/contracts/identity-signin-challenge';
+import { type SignInChallenge, type SignInChallengeProof } from '@intafaced/contracts/identity-signin-challenge';
 import type { ApiClient, ApiResult } from '../../shared/api';
+import { IDENTITY_AUTH_CHALLENGE } from '@intafaced/contracts/identity-auth-procedures';
 
 /** The challenge `auth.login` asks for once this address had too many failed sign-ins (I-signin-sessions-30). */
 export function fetchSignInChallenge(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<SignInChallenge>> {
-  return api.mutate('identity', 'auth.challenge', undefined, signInChallengeSchema, signal ? { signal } : {});
+  return api.call(IDENTITY_AUTH_CHALLENGE, undefined, signal ? { signal } : {});
 }
 
 /**

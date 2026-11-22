@@ -1,4 +1,4 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PAY_ALLOWLIST_APPROVE,
   PAY_ALLOWLIST_CANCEL,

@@ -1,4 +1,5 @@
-import { isScheduleOpen, TRADING_SCHEDULES, venueClock, type TradingSchedule } from '@intafaced/contracts';
+import type { TradingSchedule } from '@intafaced/contracts';
+import { isScheduleOpen, TRADING_SCHEDULES, venueClock } from '@intafaced/contracts/instruments';
 import { FOREX_SETTLEMENT_SOCKET } from './forex-settlement.js';
 import { TradeError, type Market } from './types.js';
 

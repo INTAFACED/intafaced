@@ -35,9 +35,11 @@ use service_kit::trpc::{self, TrpcError};
 
 use crate::advisors::Advisors;
 use crate::db::Store;
+use crate::factories::Factories;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
+use crate::ops::Ops;
 use crate::own::Own;
 use crate::runtime::Runtime;
 use crate::team::Team;
@@ -278,6 +280,8 @@ pub struct DoorConfig {
     pub metering: Metering,
     /// The runtime's own settings: the spend gate, the funds, the transcript and the grace (`runtime`).
     pub runtime: Runtime,
+    /// The operator desks' owner values: the log's reasons, limit and retention, the registry's page, the baseline.
+    pub ops: Ops,
     /// The owner's values for a session's background runs (`background`).
     pub background: crate::background::Settings,
     /// The advisors' curriculum, holdings, prices and switches (`advisors`).
@@ -301,6 +305,8 @@ pub struct AgentsDoor {
     ready: ReadyInput,
     metering: Metering,
     runtime: Runtime,
+    factories: Factories,
+    ops: Ops,
     background: crate::background::Settings,
     advisors: Advisors,
     own: Own,
@@ -348,6 +354,8 @@ impl AgentsDoor {
             ready: config.ready,
             metering: config.metering,
             runtime: config.runtime,
+            factories: Factories::unwired(),
+            ops: config.ops,
             background: config.background,
             advisors: config.advisors,
             own: config.own,
@@ -358,6 +366,12 @@ impl AgentsDoor {
     /// Also believes principals the edge signed with its key (`EDGE_PRINCIPAL_PUBLIC_KEY`).
     pub fn with_edge_key(mut self, key: EdgeKey) -> AgentsDoor {
         self.edge_key = Some(key);
+        self
+    }
+
+    /// The door with the factories' live ports (\`factories\`); without them every live run refuses.
+    pub fn with_factories(mut self, factories: Factories) -> AgentsDoor {
+        self.factories = factories;
         self
     }
 
@@ -376,6 +390,11 @@ impl AgentsDoor {
         &self.gateway
     }
 
+    /// The operator desks' owner values.
+    pub fn ops(&self) -> &Ops {
+        &self.ops
+    }
+
     /// The runtime's own settings.
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
@@ -386,7 +405,12 @@ impl AgentsDoor {
         self.background
     }
 
-    /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
+    /// The own agents' templates and owner values.
+    pub fn own(&self) -> &Own {
+        &self.own
+    }
+
+    /// The slices' answers: the door's own call and every ported slice (each is, so none answers "not ported" here).
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
             Slice::Door => Ok(Some(Json::obj([
@@ -402,6 +426,15 @@ impl AgentsDoor {
                 &self.metering,
                 &self.runtime,
             ),
+            Slice::Factories => crate::factories::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+                &self.factories,
+            ),
+            Slice::Ops => crate::ops::handle(ctx, &self.store, &self.metering, &self.ops),
             Slice::Navigator => crate::navigator::slice::handle(
                 ctx,
                 &self.store,
@@ -438,6 +471,34 @@ impl AgentsDoor {
                     own: &self.own,
                 },
             ),
+            Slice::OwnRuns => crate::own::runs::handle(
+                ctx,
+                &crate::own::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
+            Slice::OwnControls => crate::own::controls::slice::handle(
+                ctx,
+                &crate::own::controls::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
+            Slice::OwnSharing => crate::own::sharing_slice::handle(
+                ctx,
+                &crate::own::sharing_slice::Deps {
+                    store: &self.store,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
             Slice::Team => crate::team::slice::handle(
                 ctx,
                 &crate::team::slice::Deps {
@@ -448,7 +509,6 @@ impl AgentsDoor {
                     team: &self.team,
                 },
             ),
-            other => Err(not_ported(other)),
         }
     }
 

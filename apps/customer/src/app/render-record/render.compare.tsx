@@ -15,6 +15,8 @@ import { fileOf, STATES } from './parts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.useFakeTimers({ toFake: ['Date'] });
+// 203 parts in one worker peak at 1.8 GB without the harness's collection (harness.tsx collectAbove).
+if (!(globalThis as { gc?: unknown }).gc) throw new Error('the render recording needs --expose-gc: run it with vitest.render.config.ts');
 
 // Paths from the package root, where vitest runs (happy-dom's URL can't make a file path from import.meta.url).
 const DIR = 'render-record';

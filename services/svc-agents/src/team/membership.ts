@@ -5,14 +5,9 @@
  * `agents.membership_unavailable`; it is never an empty team.
  */
 
-import {
-  AGENTS_TEAM_MEMBERSHIP_PATH,
-  agentsTeamMembershipResponseSchema,
-  serviceCallSigner,
-  type AgentsTeamMembershipResponse,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { AgentsTeamMembershipResponse, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { AGENTS_TEAM_MEMBERSHIP_PATH, agentsTeamMembershipResponseSchema } from '@intafaced/contracts/agents-team-membership';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { TeamError } from './errors.js';
 
 export interface TeamMembershipPort {

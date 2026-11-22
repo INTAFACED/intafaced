@@ -5,13 +5,8 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  MARKET_COMPONENT_PATTERN,
-  type ActionApproval,
-  type ActionApprovalConsumeInput,
-  type MarketMaintenanceRead,
-  type NoticeCategory,
-} from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput, MarketMaintenanceRead, NoticeCategory } from '@intafaced/contracts';
+import { MARKET_COMPONENT_PATTERN } from '@intafaced/contracts/market-maintenance';
 import type { CommandLog } from '../preferences/account.js';
 import {
   ChangelogError,

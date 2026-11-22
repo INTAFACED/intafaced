@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
 
 /** A machine code sent as the message of a TRPCError thrown with no cause (`agents.capability_unavailable`). */
