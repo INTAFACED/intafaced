@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
+import { IDENTITY_AFFILIATES_SHARE_TAG_HIT } from '@intafaced/contracts/identity-affiliates-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 // The visit of a signed share tag (RC-campaigns-06, J-campaigns-05 #2). `/invite?tag=<tag>` counts one visit per browser
 // session per surface, then the invitation page works on the tag's link as it does on `?token=`. An edited tag is refused
@@ -9,11 +10,10 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 /** The surfaces svc-identity signs tags for (its SHARE_SURFACES); one list for the browser, shared with the share sheet. */
 export const SHARE_SURFACES = ['promotion', 'card', 'token', 'strategy', 'receipt'] as const;
 export type ShareSurface = (typeof SHARE_SURFACES)[number];
-const visitSchema = z.object({ token: z.string().guid(), surface: z.enum(SHARE_SURFACES), counted: z.boolean() });
 export type ShareVisit =
   | { status: 'none' }
   | { status: 'loading' }
-  | { status: 'ready'; data: z.infer<typeof visitSchema> }
+  | { status: 'ready'; data: ProcedureOutput<typeof IDENTITY_AFFILIATES_SHARE_TAG_HIT> }
   | { status: 'failed'; failure: Extract<ApiResult<unknown>, { ok: false }> };
 
 const SESSION_STORE = 'intafaced.share-session';
@@ -51,7 +51,7 @@ export function useShareVisit(api: ApiClient, tag: string | null): ShareVisit {
     let pending = asked.get(key);
     if (!pending) {
       pending = client.current
-        .mutate('identity', 'affiliates.shareTagHit', { tag, sessionKey }, visitSchema)
+        .call(IDENTITY_AFFILIATES_SHARE_TAG_HIT, { tag, sessionKey })
         .then((answer): ShareVisit => (answer.ok ? { status: 'ready', data: answer.data } : { status: 'failed', failure: answer }));
       asked.set(key, pending);
     }
