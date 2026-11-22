@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Button, Checkbox, ChoiceGroup, EmptyState, Field, NativeSelect, TextArea } from '@intafaced/ui/lit';
 import { useResource } from '../../../shared/resource';
 import type { ApiResult } from '../../../shared/api';
 import type { PersonalPayApi } from '../pay-api';
@@ -364,18 +364,17 @@ function Fields({
     label: string,
     extra?: { upper?: boolean; mode?: 'decimal' },
   ) => (
-    <label className="lt-field" key={field}>
-      <span>{label}</span>
-      <input
-        value={values[field]}
-        inputMode={extra?.mode}
-        autoComplete="off"
-        maxLength={field === 'asset' ? 16 : 40}
-        aria-invalid={Boolean(shown(field))}
-        onChange={(event) => set(field, extra?.upper ? event.target.value.toUpperCase() : event.target.value)}
-      />
-      {shown(field) ? <small>{shown(field)}</small> : null}
-    </label>
+    <Field
+      key={field}
+      label={label}
+      error={shown(field)}
+      value={values[field]}
+      inputMode={extra?.mode}
+      autoComplete="off"
+      maxLength={field === 'asset' ? 16 : 40}
+      aria-invalid={Boolean(shown(field))}
+      onChange={(event) => set(field, extra?.upper ? event.target.value.toUpperCase() : event.target.value)}
+    />
   );
   return (
     <form
@@ -386,25 +385,22 @@ function Fields({
       }}
     >
       <fieldset>
-        <div>
-          <span>{t('sideLabel')}</span>
-          <div role="radiogroup" aria-label={t('sideLabel')}>
-            <label className="lt-field">
-              <input type="radio" name="offer-side" checked={values.side === 'sell'} onChange={() => set('side', 'sell')} />
-              {t('sideSell')}
-            </label>
-            <label className="lt-field">
-              <input type="radio" name="offer-side" checked={values.side === 'buy'} onChange={() => set('side', 'buy')} />
-              {t('sideBuy')}
-            </label>
-          </div>
-        </div>
+        <ChoiceGroup
+          legend={t('sideLabel')}
+          name="offer-side"
+          value={values.side}
+          onChange={(side) => set('side', side)}
+          options={[
+            { value: 'sell', label: t('sideSell') },
+            { value: 'buy', label: t('sideBuy') },
+          ]}
+        />
         <div className="lt-toolbar">
           {text('asset', t('fieldAsset'), { upper: true })}
-          <label className="lt-field">
-            <span>{t('fieldFiat')}</span>
-            {fiat.resource.status === 'ready' ? (
-              <select
+          {fiat.resource.status === 'ready' ? (
+            <label className="lt-field">
+              <span>{t('fieldFiat')}</span>
+              <NativeSelect
                 value={values.fiatCurrency}
                 onChange={(event) => set('fiatCurrency', event.target.value)}
                 aria-invalid={Boolean(shown('fiatCurrency'))}
@@ -415,43 +411,32 @@ function Fields({
                     {currency.code} · {currency.name}
                   </option>
                 ))}
-              </select>
-            ) : (
-              <input
-                value={values.fiatCurrency}
-                maxLength={3}
-                autoComplete="off"
-                onChange={(event) => set('fiatCurrency', event.target.value.toUpperCase())}
-                aria-invalid={Boolean(shown('fiatCurrency'))}
-              />
-            )}
-            {shown('fiatCurrency') ? <small>{shown('fiatCurrency')}</small> : null}
-          </label>
+              </NativeSelect>
+              {shown('fiatCurrency') ? <small>{shown('fiatCurrency')}</small> : null}
+            </label>
+          ) : (
+            <Field
+              label={t('fieldFiat')}
+              error={shown('fiatCurrency')}
+              value={values.fiatCurrency}
+              maxLength={3}
+              autoComplete="off"
+              onChange={(event) => set('fiatCurrency', event.target.value.toUpperCase())}
+              aria-invalid={Boolean(shown('fiatCurrency'))}
+            />
+          )}
         </div>
         {mode === 'create' ? <PostingChecklist pay={pay} fiatCurrency={problems.fiatCurrency ? '' : values.fiatCurrency.trim()} /> : null}
-        <div>
-          <span>{t('fieldPriceType')}</span>
-          <div role="radiogroup" aria-label={t('fieldPriceType')}>
-            <label className="lt-field">
-              <input
-                type="radio"
-                name="offer-price-type"
-                checked={values.priceType === 'fixed'}
-                onChange={() => set('priceType', 'fixed')}
-              />
-              {t('priceFixed')}
-            </label>
-            <label className="lt-field">
-              <input
-                type="radio"
-                name="offer-price-type"
-                checked={values.priceType === 'float'}
-                onChange={() => set('priceType', 'float')}
-              />
-              {t('priceFloat')}
-            </label>
-          </div>
-        </div>
+        <ChoiceGroup
+          legend={t('fieldPriceType')}
+          name="offer-price-type"
+          value={values.priceType}
+          onChange={(priceType) => set('priceType', priceType)}
+          options={[
+            { value: 'fixed', label: t('priceFixed') },
+            { value: 'float', label: t('priceFloat') },
+          ]}
+        />
         {text('price', values.priceType === 'float' ? t('fieldMultiplier') : t('fieldPrice'), { mode: 'decimal' })}
         <div className="lt-toolbar">
           {text('minAmount', t('fieldMin'), { mode: 'decimal' })}
@@ -474,41 +459,37 @@ function Fields({
               {methods.resource.data
                 .filter((method) => method.enabled || values.methods.includes(method.methodId))
                 .map((method) => (
-                  <label className="lt-field" key={`${method.methodId}:${method.country}`}>
-                    <input
-                      type="checkbox"
-                      checked={values.methods.includes(method.methodId)}
-                      onChange={(event) =>
-                        set(
-                          'methods',
-                          event.target.checked
-                            ? [...values.methods, method.methodId]
-                            : values.methods.filter((item) => item !== method.methodId),
-                        )
-                      }
-                    />
-                    <span lang="und">{method.label}</span>
-                  </label>
+                  <Checkbox
+                    key={`${method.methodId}:${method.country}`}
+                    label={<span lang="und">{method.label}</span>}
+                    checked={values.methods.includes(method.methodId)}
+                    onChange={(event) =>
+                      set(
+                        'methods',
+                        event.target.checked
+                          ? [...values.methods, method.methodId]
+                          : values.methods.filter((item) => item !== method.methodId),
+                      )
+                    }
+                  />
                 ))}
             </div>
           ) : null}
           {choseNonInstant ? (
-            <label className="lt-field" data-testid="offer-non-instant-consent">
-              <input
-                type="checkbox"
-                checked={values.acceptsNonInstant}
-                // The consent is given at post; an edit keeps what the ad was posted with.
-                disabled={mode === 'edit'}
-                onChange={(event) => set('acceptsNonInstant', event.target.checked)}
-              />
-              <span>{settlementCopy.t('consentLabel')}</span>
-            </label>
+            <Checkbox
+              labelProps={{ 'data-testid': 'offer-non-instant-consent' }}
+              label={<span>{settlementCopy.t('consentLabel')}</span>}
+              checked={values.acceptsNonInstant}
+              // The consent is given at post; an edit keeps what the ad was posted with.
+              disabled={mode === 'edit'}
+              onChange={(event) => set('acceptsNonInstant', event.target.checked)}
+            />
           ) : null}
           {shown('methods') ? <small>{shown('methods')}</small> : null}
         </div>
         <label className="lt-field">
           <span>{t('fieldTerms')}</span>
-          <textarea
+          <TextArea
             value={values.terms}
             maxLength={4100}
             onChange={(event) => set('terms', event.target.value)}

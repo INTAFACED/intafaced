@@ -1,4 +1,4 @@
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Field, NativeSelect } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { PersonalPayApi } from '../pay-api';
 import { payCopy } from '../copy';
@@ -123,7 +123,7 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                   />
                   <label className="lt-field">
                     {payCopy.t('fiatCurrency')}
-                    <select value={fiat} onChange={(event) => setFiat(event.target.value)}>
+                    <NativeSelect value={fiat} onChange={(event) => setFiat(event.target.value)}>
                       <option value="">{payCopy.t('allReturnedCurrencies')}</option>
                       {currencies.resource.status === 'ready' &&
                         currencies.resource.data.map((currency) => (
@@ -131,19 +131,19 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                             {currency.code} · {currency.name}
                           </option>
                         ))}
-                    </select>
+                    </NativeSelect>
                   </label>
                   <label className="lt-field">
                     {payCopy.t('makerSide')}
-                    <select value={side} onChange={(event) => setSide(event.target.value)}>
+                    <NativeSelect value={side} onChange={(event) => setSide(event.target.value)}>
                       <option value="">{payCopy.t('buyAndSell')}</option>
                       <option value="sell">{payCopy.t('sellingAsset')}</option>
                       <option value="buy">{payCopy.t('buyingAsset')}</option>
-                    </select>
+                    </NativeSelect>
                   </label>
                   <label className="lt-field">
                     {p2pDepth.t('filterMethod')}
-                    <select value={method} onChange={(event) => setMethod(event.target.value)}>
+                    <NativeSelect value={method} onChange={(event) => setMethod(event.target.value)}>
                       <option value="">{p2pDepth.t('anyMethod')}</option>
                       {registeredMethods.resource.status === 'ready' &&
                         [...new Map(registeredMethods.resource.data.map((entry) => [entry.methodId, entry.label])).entries()].map(
@@ -153,7 +153,7 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                             </option>
                           ),
                         )}
-                    </select>
+                    </NativeSelect>
                   </label>
                   <Field
                     label={t('fiatAmount')}
@@ -164,10 +164,13 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                   />
                   <label className="lt-field">
                     {t('sort')}
-                    <select value={sort} onChange={(event) => setSort(event.target.value === 'price_desc' ? 'price_desc' : 'price_asc')}>
+                    <NativeSelect
+                      value={sort}
+                      onChange={(event) => setSort(event.target.value === 'price_desc' ? 'price_desc' : 'price_asc')}
+                    >
                       <option value="price_asc">{t('sortPriceAsc')}</option>
                       <option value="price_desc">{t('sortPriceDesc')}</option>
-                    </select>
+                    </NativeSelect>
                   </label>
                   <Button type="submit">{payCopy.t('applyFilters')}</Button>
                 </form>

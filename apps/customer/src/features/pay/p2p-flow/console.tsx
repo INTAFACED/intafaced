@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Checkbox, ChoiceGroup, Field, NativeSelect } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
@@ -85,17 +85,16 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
           </>
         ) : null}
       </p>
-      <fieldset>
-        <legend className="lt-hint">
-          <Copy k="presenceHint" />
-        </legend>
-        {(['online', 'offline', 'scheduled'] as const).map((value) => (
-          <label key={value}>
-            <input type="radio" name="presence-mode" value={value} checked={mode === value} onChange={() => setMode(value)} />{' '}
-            <Copy k={value === 'online' ? 'presenceOnline' : value === 'offline' ? 'presenceOffline' : 'presenceScheduled'} />
-          </label>
-        ))}
-      </fieldset>
+      <ChoiceGroup
+        legend={<Copy k="presenceHint" />}
+        name="presence-mode"
+        value={mode}
+        onChange={setMode}
+        options={(['online', 'offline', 'scheduled'] as const).map((value) => ({
+          value,
+          label: <Copy k={value === 'online' ? 'presenceOnline' : value === 'offline' ? 'presenceOffline' : 'presenceScheduled'} />,
+        }))}
+      />
       {mode === 'scheduled' ? (
         <div data-testid="presence-schedule">
           <Field label={t('presenceZone')} value={timezone} onChange={(event) => setTimezone(event.target.value)} />
@@ -103,13 +102,13 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
             <div className="lt-actions" key={index} data-testid="presence-window">
               <label className="lt-field">
                 <Copy k="presenceDay" />{' '}
-                <select value={row.day} onChange={(event) => change(index, { day: Number(event.target.value) })}>
+                <NativeSelect value={row.day} onChange={(event) => change(index, { day: Number(event.target.value) })}>
                   {DAYS.map((day) => (
                     <option key={day} value={day}>
                       {t(dayKey(day))}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </label>
               <Field
                 label={t('presenceFrom')}
@@ -216,14 +215,17 @@ export function BulkAds({
                 <Copy k="bulkPick" />
               </legend>
               {ads.map((ad) => (
-                <label key={ad.id} data-testid="bulk-ad" data-offer-id={ad.id}>
-                  <input
-                    type="checkbox"
-                    checked={picked.includes(ad.id)}
-                    onChange={(event) => setPicked((ids) => (event.target.checked ? [...ids, ad.id] : ids.filter((id) => id !== ad.id)))}
-                  />{' '}
-                  {side(ad)} · {ad.status}
-                </label>
+                <Checkbox
+                  key={ad.id}
+                  labelProps={{ 'data-testid': 'bulk-ad', 'data-offer-id': ad.id }}
+                  label={
+                    <span>
+                      {side(ad)} · {ad.status}
+                    </span>
+                  }
+                  checked={picked.includes(ad.id)}
+                  onChange={(event) => setPicked((ids) => (event.target.checked ? [...ids, ad.id] : ids.filter((id) => id !== ad.id)))}
+                />
               ))}
             </fieldset>
           )

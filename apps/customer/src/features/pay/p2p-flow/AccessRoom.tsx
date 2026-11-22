@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Field, NativeSelect, TextArea } from '@intafaced/ui/lit';
 import { FlowTemplate, StatusChip } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
@@ -211,7 +211,7 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
             <label className="lt-field">
               <span id={orderLabelId}>{t('appealOrder')}</span>
               {/* Named by its own word only: a wrapping label's text also holds every option's text. */}
-              <select aria-labelledby={orderLabelId} value={tradeId} onChange={(event) => setTradeId(event.target.value)} required>
+              <NativeSelect aria-labelledby={orderLabelId} value={tradeId} onChange={(event) => setTradeId(event.target.value)} required>
                 <option value="">{t('appealPick')}</option>
                 {list.map((trade) => (
                   <option key={trade.id} value={trade.id}>
@@ -222,11 +222,11 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
                     })}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
             <label className="lt-field">
               <span>{t('appealReason')}</span>
-              <textarea value={reason} maxLength={2000} required onChange={(event) => setReason(event.target.value)} />
+              <TextArea value={reason} maxLength={2000} required onChange={(event) => setReason(event.target.value)} />
             </label>
             <Button type="submit" tone="primary" disabled={!ready}>
               {busy ? t('appealSending') : t('appealSend')}
