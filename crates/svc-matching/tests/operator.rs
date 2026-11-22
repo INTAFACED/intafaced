@@ -10,9 +10,8 @@
 //!
 //! - `operator-desk.router.test.ts` issues a real bearer JWT to show the door no longer believes one. The door reads
 //!   no `authorization` header at all and holds no JWT secret, so any bearer stands for it here.
-//! - Its compose test pins the TypeScript service's block in `docker-compose.apps.yml` (no `JWT_ACCESS_SECRET`, the
-//!   `*edge-secret` anchor merged). That block runs `services/svc-matching/dist/index.js`, not this crate, and the
-//!   TypeScript test still holds it; serving the Rust binary there is the switch's item.
+//! - Its compose test pins the service's block in `docker-compose.apps.yml` (no `JWT_ACCESS_SECRET`, the
+//!   `*edge-secret` anchor merged): `boot.rs` holds it.
 //! - `operator-desk.edge-public-key.test.ts`'s boot refusal (a public key with no limits) is `EdgeKey::from_env`'s,
 //!   which `main.rs` calls on `EDGE_PRINCIPAL_PUBLIC_KEY`; it is asserted on that call.
 //!
