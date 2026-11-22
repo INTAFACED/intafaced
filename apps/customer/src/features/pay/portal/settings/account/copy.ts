@@ -215,6 +215,9 @@ const en = {
   invitedBy: 'Invited by',
 
   // ---- security
+  secSectionsLabel: 'Security sections',
+  secExplain:
+    'Your own passkeys and two-step codes are managed on your Account page, and API keys under Developers. Changing money settings and team access needs two-step verification.',
   secProtectionTitle: 'Sign-in protection',
   secProtectionBody: 'How this session was signed in, and where to manage your own sign-in.',
   secThisSession: 'This session',

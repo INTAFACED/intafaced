@@ -35,6 +35,11 @@ export function RefusalOnceProvider({ children }: { children: ReactNode }) {
   return <RefusalOnce.Provider value={store.current}>{children}</RefusalOnce.Provider>;
 }
 
+/** The page's "say each refusal once" store, for a refusal drawn outside this file (`volt/parts.tsx`). Null outside the frame. */
+export function useRefusalOnce(): Once | null {
+  return useContext(RefusalOnce);
+}
+
 /** Loading skeleton (B11): the shape of the page that is coming, announced once to assistive tech. */
 export function PortalLoading({ rows = 3, label }: { rows?: number; label?: string }) {
   const { t } = portalCopy.useCopy();

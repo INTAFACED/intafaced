@@ -71,7 +71,8 @@ export const accountRooms: RoomTable = {
   'settings-security': {
     header: () => ({ title: settingsCopy.t('securityTitle'), purpose: settingsCopy.t('securityPurpose') }),
     here: '/pay/settings/security',
-    render: () => <WithAccount>{() => <Security />}</WithAccount>,
+    ownTitle: true,
+    render: () => <Security />,
   },
   onboarding: {
     withoutBusiness: 'render',
