@@ -14,6 +14,7 @@ import {
   portInFlight,
   pruneImports,
   pruneReExports,
+  pruneBuilders,
   pruneSchemas,
   recordName,
   rewriteSite,
@@ -770,6 +771,32 @@ test('a schema const the moved call left unread goes, and the one it read after 
   assert.match(out, /const read = z\.string\(\);/);
   assert.match(out, /^const shared = z\.number\(\);$/m);
   assert.match(out, /const impure = makeSchema\(\);/);
+});
+
+test('a builder or guard object only the moved calls read goes; one still read, exported or not plain stays', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'call-records-builders-')), 'router.ts');
+  writeFileSync(
+    file,
+    [
+      "const guards = { module: 'core-ops' as const, plane: 'fiat' as const };",
+      "const kept = { module: 'core-ops' as const };",
+      'const built = { at: Date.now() };',
+      "export const shown = { module: 'x' };",
+      'export function make() {',
+      "  const reader = scopedProcedure('admin:read', guards);",
+      "  const writer = scopedProcedure('admin:write', kept);",
+      '  return router({ a: writer.query(() => built) });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  pruneBuilders(file);
+  const out = readFileSync(file, 'utf8');
+  assert.doesNotMatch(out, /const (reader|guards) =/);
+  assert.match(out, /const writer = scopedProcedure/);
+  assert.match(out, /const kept = /);
+  assert.match(out, /const built = /);
+  assert.match(out, /export const shown = /);
 });
 
 test('a name a service file re-exports is followed to where it is declared, renamed or not, and a renamed declaration is named', () => {

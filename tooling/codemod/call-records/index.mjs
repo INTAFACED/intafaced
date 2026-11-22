@@ -813,6 +813,7 @@ function write(result) {
   }
   for (const [file, ch] of result.changes.files) if (ch.schemas) retype(file, ch.schemas);
   for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneSchemas(file);
+  for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneBuilders(file);
   // A schema a moved caller imported from another file of its app may now have no importer: that file is pruned too.
   const sources = new Set();
   for (const file of touched) {
@@ -1056,6 +1057,38 @@ export function pruneSchemas(file) {
       if (read && exported) edits.push({ start: top.start, end: stmt.start, text: '' });
       else if (!read) edits.push({ start: statementStart(p, top), end: statementEnd(p, top), text: '' });
     }
+    if (!edits.length) return;
+    writeFileSync(file, applyEdits(p.src, edits));
+  }
+}
+
+/** A literal, or one read `as const`. */
+const plain = (n) => n?.type === 'Literal' || (n?.type === 'TSAsExpression' && n.expression.type === 'Literal');
+
+/**
+ * A router's own builder consts that only the moved calls read: a procedure builder (`scopedProcedure('admin:read',
+ * guards)`) or the literal guard object it took. A name read anywhere else in the file, or exported, stays.
+ */
+export function pruneBuilders(file) {
+  for (;;) {
+    forget(file);
+    const p = load(file);
+    const edits = [];
+    walk(p.program, (n, parent) => {
+      if (n.type !== 'VariableDeclaration' || n.kind !== 'const' || n.declarations.length !== 1) return;
+      if (parent?.type === 'ExportNamedDeclaration' || /For(In|Of)?Statement$/.test(parent?.type ?? '')) return false;
+      const d = n.declarations[0];
+      const init = d.init;
+      const builder = init?.type === 'CallExpression' && init.callee.type === 'Identifier' && /Procedure(For)?$/.test(init.callee.name);
+      const guard =
+        init?.type === 'ObjectExpression' &&
+        init.properties.length > 0 &&
+        init.properties.every((q) => q.type === 'Property' && !q.computed && plain(q.value));
+      if (d.id.type !== 'Identifier' || !(builder || guard)) return false;
+      if (!usedOutside(p, d.id.name, [{ start: n.start, end: n.end }]))
+        edits.push({ start: statementStart(p, n), end: statementEnd(p, n), text: '' });
+      return false;
+    });
     if (!edits.length) return;
     writeFileSync(file, applyEdits(p.src, edits));
   }
