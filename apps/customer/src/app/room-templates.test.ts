@@ -29,6 +29,7 @@ const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
   ':campaignId': 'cmp_TEST',
   ':listingId': 'TEST-listing',
   ':projectId': 'TEST-launch',
+  ':poolId': `0x${'9'.repeat(40)}`,
 };
 const opened = (route: string) => route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_PARAMS[param] ?? param);
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';

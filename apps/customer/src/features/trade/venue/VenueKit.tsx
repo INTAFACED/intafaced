@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useRef, type ReactNode } from 'react';
 import { Badge, Button } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
-import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
 import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
 import { WalletProvider, usePolled, useWallet } from '../../protocol';
