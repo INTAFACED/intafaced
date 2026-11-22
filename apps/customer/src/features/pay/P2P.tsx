@@ -7,7 +7,7 @@ import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { EmptyState, Field, Page } from './ui-kit';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
-import { PayAmount, PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
+import { PayAmount, PayDetails, PayNotice, PaySection, PayState, ReviewedAction } from './components';
 import { id, type Trade, type TradeDestination } from './schemas';
 import { CancelOrder, RequestCancel } from './p2p-cancel';
 import { displayAmount } from '../../shared/money';
@@ -24,14 +24,13 @@ import { P2PCounterparty } from './P2PCounterparty';
 import { p2pReturn } from './p2p-return';
 import { DisputeProgress, EscrowPath } from './personal/P2PDepth';
 import { OrderChat } from './personal/OrderChat';
-import { OfferForm } from './personal/OfferForm';
 import { OrderHistory } from './personal/OrderHistory';
 import { OrderReceipt } from './personal/OrderReceipt';
 import { OrderReview } from './personal/OrderReview';
-import { OwnCompletion } from './personal/CompletionRates';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
 import { PaymentMethods } from './personal/PaymentMethods';
+import { P2PFlowRoom, type P2PFlowRoomId } from './p2p-flow/P2PFlowRoom';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -56,6 +55,21 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   const counterparty = params.get('userId') ?? params.get('userid') ?? (current === '/checkuser' ? params.get('id') : null);
   const inspectionReturn = p2pReturn(params.get('returnTo'));
   const inspectionMine = current === '/checkuser' && inspectionReturn.href.split(/[?#]/)[0] === '/uc/ad';
+  // My offers, Create and Edit offer and Trading access are flow rooms of their own (`p2p-flow/`), in the same order of
+  // precedence as below: an order or a counterparty first, then the form, access, payment methods, your offers.
+  const flow: P2PFlowRoomId | null =
+    current === '/chat' || tradeId || current === '/checkuser' || showOrders
+      ? null
+      : publish
+        ? 'offer'
+        : showAccess
+          ? 'access'
+          : showMethods
+            ? null
+            : showMine
+              ? 'mine'
+              : null;
+  if (flow) return <P2PFlowRoom room={flow} pay={pay} userId={userId} current={current} params={params} />;
   return (
     <Page
       eyebrow={payCopy.t('personalPay')}
@@ -159,23 +173,8 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         )
       ) : showOrders ? (
         <OrderHistory pay={pay} userId={userId} />
-      ) : current === '/uc/ad/update' && !id.safeParse(params.get('offerId')).success ? (
-        <OfferForm pay={pay} userId={userId} mode="edit" offerId={null} />
-      ) : publish ? (
-        <div className="stack">
-          <OfferForm pay={pay} userId={userId} mode={current === '/uc/ad/update' ? 'edit' : 'create'} offerId={params.get('offerId')} />
-          <PublishAvailability pay={pay} />
-        </div>
-      ) : showAccess ? (
-        <div className="stack">
-          <P2PEligibilityPanel pay={pay} userId={userId} />
-          <OwnCompletion pay={pay} userId={userId} />
-          <TradingProgramme pay={pay} userId={userId} />
-        </div>
       ) : showMethods ? (
         <PaymentMethods pay={pay} userId={userId} />
-      ) : showMine ? (
-        <P2POffers pay={pay} userId={userId} mine />
       ) : (
         <div className="stack">
           {/* An open ad has the same checks beside its take form; the hub lists them all. */}
@@ -184,59 +183,6 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         </div>
       )}
     </Page>
-  );
-}
-function PublishAvailability({ pay }: { pay: PersonalPayApi }) {
-  const health = useResource((signal) => pay.health(signal), 'pay:p2p-health');
-  const methods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
-  return (
-    <div className="stack">
-      <PaySection title={payCopy.t('serviceReadiness')}>
-        <PayState resource={health.resource} retry={health.reload}>
-          {(data) => (
-            <PayDetails
-              values={[
-                [payCopy.t('instrumentEncryption'), data.instrumentKmsConfigured ? payCopy.t('configured') : payCopy.t('notConnected')],
-                [
-                  payCopy.t('offerLimits'),
-                  payCopy.t(
-                    data.offerLimitsPosture === 'unset'
-                      ? 'offerLimitsUnset'
-                      : data.offerLimitsPosture === 'unlimited'
-                        ? 'offerLimitsUnlimited'
-                        : 'offerLimitsConfigured',
-                  ),
-                ],
-                [
-                  payCopy.t('moderation'),
-                  data.moderation.status === 'configured'
-                    ? payCopy.t('configuredLiveReachabilityIsUnprobed')
-                    : payCopy.t('noModeratorsConfigured'),
-                ],
-              ]}
-            />
-          )}
-        </PayState>
-      </PaySection>
-      <PaySection title={payCopy.t('registeredPaymentMethods')}>
-        <PayState resource={methods.resource} retry={methods.reload} empty={payCopy.t('noPaymentMethodsRegistered')}>
-          {(rows) => (
-            <div>
-              {rows.map((method) => (
-                <div className="pay-destination" key={`${method.methodId}:${method.country}`}>
-                  <span>
-                    {method.label}
-                    <small>{method.country === '*' ? payCopy.t('allCountries') : method.country}</small>
-                  </span>
-                  <Status value={method.enabled ? 'enabled' : 'disabled'} />
-                </div>
-              ))}
-              <PayPagination count={rows.length} limit={200} setLimit={() => {}} />
-            </div>
-          )}
-        </PayState>
-      </PaySection>
-    </div>
   );
 }
 function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: string; userId: string | null }) {
@@ -543,95 +489,5 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
         </p>
       )}
     </PaySection>
-  );
-}
-function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
-  const [reason, setReason] = useState('');
-  const standing = useResource((signal) => pay.standing(signal), `pay:p2p-standing:${userId}`);
-  const access = useResource((signal) => pay.apiAccess(signal), `pay:p2p-api-access:${userId}`);
-  function refresh() {
-    standing.reload();
-    access.reload();
-  }
-  return (
-    <div className="stack">
-      <PayNotice title={payCopy.t('p2pTradingStanding')}>
-        <PayCopy k="thisProgrammeIsYourPersonalP2pTrading" />
-      </PayNotice>
-      <PaySection
-        title={payCopy.t('yourProgrammeStatus')}
-        action={
-          <Button variant="secondary" onClick={refresh}>
-            <PayCopy k="refreshStanding" />
-          </Button>
-        }
-      >
-        <PayState resource={standing.resource} retry={standing.reload}>
-          {(data) =>
-            data ? (
-              <div className="form-stack">
-                <PayDetails
-                  values={[
-                    [payCopy.t('standing'), data.status],
-                    [payCopy.t('applicationSubmitted'), data.appliedAt],
-                    [payCopy.t('decision'), data.decidedAt ?? payCopy.t('notRecorded')],
-                    [payCopy.t('tradesAtApplication'), String(data.appliedTradesTotal)],
-                  ]}
-                />
-                {['applied', 'approved', 'suspended'].includes(data.status) && (
-                  <>
-                    <Field label={payCopy.t('reasonForLeaving')} value={reason} onChange={(event) => setReason(event.target.value)} />
-                    <ReviewedAction
-                      title={payCopy.t('leaveP2pProgramme')}
-                      description={payCopy.t('withdrawYourPersonalP2pProgrammeMembershipYour')}
-                      review={<p>{reason}</p>}
-                      perform={() => pay.withdrawProgramme(reason.trim())}
-                      onConfirmed={refresh}
-                      disabled={!reason.trim()}
-                    />
-                  </>
-                )}
-                {['rejected', 'withdrawn'].includes(data.status) && (
-                  <ReviewedAction
-                    title={payCopy.t('reapplyToP2pProgramme')}
-                    description={payCopy.t('submitANewApplicationBasedOnCurrent')}
-                    perform={() => pay.applyProgramme()}
-                    onConfirmed={refresh}
-                  />
-                )}
-              </div>
-            ) : (
-              <div className="stack">
-                <p className="muted">
-                  <PayCopy k="noP2pProgrammeApplicationExistsForThis" />
-                </p>
-                <ReviewedAction
-                  title={payCopy.t('applyToP2pProgramme')}
-                  description={payCopy.t('submitAnApplicationOnYourOwnBehalf')}
-                  perform={() => pay.applyProgramme()}
-                  onConfirmed={refresh}
-                />
-              </div>
-            )
-          }
-        </PayState>
-      </PaySection>
-      <PaySection title={payCopy.t('p2pApiEligibility')}>
-        <PayState resource={access.resource} retry={access.reload}>
-          {(data) => (
-            <PayDetails
-              values={[
-                [
-                  payCopy.t('apiStanding'),
-                  data.eligible ? payCopy.t('eligibleByCurrentProgrammeStanding') : payCopy.t('notEligibleByCurrentProgrammeStanding'),
-                ],
-                [payCopy.t('currentCredential'), data.credential],
-                [payCopy.t('disputeDecisions'), payCopy.t('interactiveHumanOnly')],
-              ]}
-            />
-          )}
-        </PayState>
-      </PaySection>
-    </div>
   );
 }

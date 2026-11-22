@@ -1,4 +1,6 @@
 import { useEffect, useId, useState } from 'react';
+import { Button } from '@intafaced/ui/lit';
+import { Segmented } from '@intafaced/ui/lit/templates';
 import { fetchReceiveRule, setReceiveRule, useSession, type ReceiveRule, type StrangerRule as Rule } from './deps';
 import { payCopy } from './copy';
 
@@ -15,7 +17,6 @@ export function StrangerRule() {
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const name = useId();
   const titleId = useId();
 
   useEffect(() => {
@@ -47,38 +48,35 @@ export function StrangerRule() {
 
   const rule = loaded.status === 'ready' ? loaded.rule : null;
   return (
-    <fieldset className="pay-block pay-stranger" data-testid="stranger-rule" aria-labelledby={titleId} disabled={busy || !rule}>
-      <legend id={titleId} className="pay-section-title">
+    <fieldset className="lt-body" data-testid="stranger-rule" aria-labelledby={titleId} disabled={busy || !rule}>
+      <legend id={titleId} className="lt-title">
         {payCopy.t('Payments from people not in your contacts')}
       </legend>
-      <p className="pay-hint">{payCopy.t('Stranger rule hint')}</p>
+      <p className="lt-hint">{payCopy.t('Stranger rule hint')}</p>
       {loaded.status === 'failed' ? (
-        <p className="pay-problem" role="alert">
+        <p role="alert">
           {payCopy.t('Stranger rule load failed')}{' '}
-          <button type="button" className="pay-recent__link" onClick={() => setRevision((n) => n + 1)}>
+          <Button tone="quiet" onClick={() => setRevision((n) => n + 1)}>
             {payCopy.t('Retry')}
-          </button>
+          </Button>
         </p>
       ) : null}
-      <label className="pay-stranger__option">
-        <input type="radio" name={name} checked={rule?.strangers === 'pay_in'} onChange={() => void choose('pay_in')} />
-        {payCopy.t('Pay them into my balance')}
-      </label>
-      <label className="pay-stranger__option">
-        <input type="radio" name={name} checked={rule?.strangers === 'hold'} onChange={() => void choose('hold')} />
-        {payCopy.t('Hold for me to accept')}
-      </label>
+      <Segmented
+        label={payCopy.t('Payments from people not in your contacts')}
+        options={[
+          { value: 'pay_in', label: payCopy.t('Pay them into my balance') },
+          { value: 'hold', label: payCopy.t('Hold for me to accept') },
+        ]}
+        value={rule?.strangers ?? ''}
+        onChange={(next) => void choose(next as Rule)}
+      />
       {rule?.strangers === 'hold' && rule.holdDays !== null ? (
-        <p className="pay-hint" data-testid="stranger-hold-days">
+        <p className="lt-hint" data-testid="stranger-hold-days">
           {payCopy.t('Stranger hold days {n}', { n: String(rule.holdDays) })}
         </p>
       ) : null}
-      {rule && rule.holdDays === null ? <p className="pay-hint">{payCopy.t('Stranger hold unset')}</p> : null}
-      {problem ? (
-        <p className="pay-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
+      {rule && rule.holdDays === null ? <p className="lt-hint">{payCopy.t('Stranger hold unset')}</p> : null}
+      {problem ? <p role="alert">{problem}</p> : null}
     </fieldset>
   );
 }

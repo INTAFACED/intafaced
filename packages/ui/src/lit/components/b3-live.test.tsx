@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { components } from '../contracts.js';
+import { pastedDecimalValue, typedDecimalValue } from '../../components/input-logic.js';
+import { Sheet } from './b2-basics.js';
 import { ChoiceGroup, DecimalField, Freshness } from './index.js';
 
 const words = { live: 'Live', stale: 'Stale', unknown: 'Unknown', asOf: 'as of' };
@@ -19,6 +21,37 @@ describe('DecimalField and Freshness', () => {
     expect(out).toContain('inputMode="decimal"');
     expect(out).toContain('value="12.5"');
     expect(out).toContain('aria-describedby="p-hint"');
+  });
+
+  it('DecimalField cleans a pasted grouped amount to its canonical value, and refuses one it cannot read', () => {
+    expect(pastedDecimalValue('', '1,234.56', { precision: 18 })).toBe('1234.56');
+    expect(pastedDecimalValue('', '$ 1,234.56 USDT', { precision: 2 })).toBe('1234.56');
+    expect(pastedDecimalValue('', '1.234,56', { precision: 2 })).toBe('1234.56');
+    expect(pastedDecimalValue('', '1,234.567', { precision: 2 })).toBe('1234.56');
+    expect(pastedDecimalValue('7', '1e5', { precision: 2 })).toBe('7');
+  });
+
+  it("DecimalField's typedMark 'either' reads a typed comma as the decimal point; the default refuses it", () => {
+    expect(typedDecimalValue('12', '12,5', { precision: 18, typedMark: 'either' })).toBe('12.5');
+    expect(typedDecimalValue('12', '12,5', { precision: 18 })).toBe('12');
+    expect(typedDecimalValue('1.2', '1.2,', { precision: 18, typedMark: 'either' })).toBe('1.2');
+    expect(typedDecimalValue('1.25', '1.255', { precision: 2, typedMark: 'either' })).toBe('1.25');
+    expect(typedDecimalValue('', '007', { precision: 2, typedMark: 'either' })).toBe('7');
+  });
+
+  it('Sheet held open while a save runs: Close is disabled; by default it is not', () => {
+    const held = renderToStaticMarkup(
+      <Sheet open title="Change your handle" onClose={() => {}} dismissible={false}>
+        <p>Body</p>
+      </Sheet>,
+    );
+    expect(held).toMatch(/<button type="button" class="lt-button lt-button-secondary" disabled="">Close<\/button>/);
+    const free = renderToStaticMarkup(
+      <Sheet open title="Change your handle" onClose={() => {}}>
+        <p>Body</p>
+      </Sheet>,
+    );
+    expect(free).toMatch(/<button type="button" class="lt-button lt-button-secondary">Close<\/button>/);
   });
 
   it('Freshness says Live with the as-of time inside the limit, Stale past it, Unknown without a time', () => {

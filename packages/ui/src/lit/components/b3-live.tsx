@@ -7,7 +7,7 @@ import * as React from 'react';
 import { clsx } from 'clsx';
 import { asOfIso, formatAsOf, freshnessOf, type AsOf, type Freshness as FreshnessWord } from '../../components/freshness.js';
 import { useFreshnessClock } from '../../components/use-freshness-clock.js';
-import { blurDecimalValue, displayDecimal, nextDecimalValue, pastedDecimalValue } from '../../components/input-logic.js';
+import { blurDecimalValue, displayDecimal, pastedDecimalValue, typedDecimalValue } from '../../components/input-logic.js';
 
 export type DecimalFieldProps = Omit<
   React.InputHTMLAttributes<HTMLInputElement>,
@@ -21,6 +21,11 @@ export type DecimalFieldProps = Omit<
   onValueChange: (value: string) => void;
   /** Max decimals. Typing more is refused; pasting more is cut off (down). 0 takes whole numbers only. */
   precision: number;
+  /**
+   * `either`: a typed "," also reads as the decimal point ("12,5" is 12.5), as the old kit's AmountInput did; a box
+   * with both marks is still refused. Default `dot`: a typed "," is refused, so "1,000" never becomes 1.000.
+   */
+  typedMark?: 'dot' | 'either';
 };
 
 /**
@@ -36,6 +41,7 @@ export function DecimalField({
   value,
   onValueChange,
   precision,
+  typedMark = 'dot',
   onPaste,
   onBlur,
   ...rest
@@ -61,7 +67,7 @@ export function DecimalField({
         aria-invalid={error ? true : rest['aria-invalid']}
         aria-describedby={describedBy}
         onChange={(e) => {
-          const next = nextDecimalValue(value, e.currentTarget.value, opts);
+          const next = typedDecimalValue(value, e.currentTarget.value, { ...opts, typedMark });
           if (next !== value) onValueChange(next);
         }}
         onPaste={(e) => {
@@ -129,11 +135,11 @@ export function Freshness({ asOf, staleAfterMs, words, reason, now, timeZone, lo
 }
 
 export type ChoiceGroupProps<T extends string> = {
-  /** The question, as the group's legend. */
-  legend: string;
+  /** The question, as the group's legend (text, or the room's copy element). */
+  legend: React.ReactNode;
   /** The radio group's form name. */
   name: string;
-  options: readonly { value: T; label: string; hint?: string }[];
+  options: readonly { value: T; label: React.ReactNode; hint?: React.ReactNode }[];
   /** The chosen value; `null` while nothing is chosen yet (a question with no default answer). */
   value: T | null;
   onChange: (value: T) => void;

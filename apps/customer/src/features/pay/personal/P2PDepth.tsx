@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { PayDetails } from '../components';
 import { StatusTag } from '@intafaced/ui';
 import type { Trade } from '../schemas';
@@ -6,16 +6,6 @@ import { p2pDepth } from './p2p-depth-copy';
 import { orderHistoryCopy } from './order-history-copy';
 import { disputeStages, escrowView, timeLeft, type OrderAction, type OrderFilter, type StepId, type StepState } from './p2p-model';
 import './p2p-depth.css';
-
-/** A plain, always-visible reason. Used where a control exists but the service behind it does not. */
-export function P2PReason({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="p2p-reason" role="note" aria-label={title}>
-      <h3>{title}</h3>
-      <p>{children}</p>
-    </section>
-  );
-}
 
 const ACTION_KEY = {
   markPaid: 'actionMarkPaid',

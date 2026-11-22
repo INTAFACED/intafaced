@@ -95,161 +95,110 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-testid="if-pay" class="if-pay">
-<div class="pay-grid">
-<header data-testid="pay-hero" class="pay-hero">
-<h1>Pay</h1>
-<p>Send money to a bank account abroad.</p>
+<div data-testid="if-pay">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Pay</h1>
+<p class="lt-description">Send money to a bank account abroad.</p>
+</div>
 </header>
-<div class="pay-side">
-<section class="pay-recent pay-waiting" aria-labelledby="_r_3_" data-testid="pay-waiting">
-<h2 id="_r_3_" class="pay-recent__title">Waiting for you</h2>
-<p class="pay-problem" role="alert">We couldn’t load the payments waiting for you. <button type="button" class="pay-recent__link">Try again</button>
-</p>
-</section>
-<div class="pay-recent" data-testid="pay-recent">
-<section class="pay-recent__section" aria-labelledby="pay-recent-payments" data-testid="recent-payments">
-<header class="pay-recent__head">
-<h2 id="pay-recent-payments">Recent payments</h2>
-<button type="button" class="pay-recent__link">Refresh</button>
-</header>
-<ul class="pay-recent__list" aria-label="Your recent payments">
-<li class="pay-recent__row" data-testid="recent-payment">
-<span class="pay-recent__main">
-<span class="pay-recent__who" data-testid="recent-payment-who">Received from @maya</span>
-<span class="pay-recent__meta">
-<span lang="zxx">14 Oct, 09:15</span> · <span class="pay-recent__status" data-testid="recent-payment-status">Completed</span>
-</span>
-</span>
-<span class="pay-recent__side">
-<span class="pay-recent__amount pay-recent__amount--in" lang="zxx" data-testid="recent-payment-amount">+50 USDT</span>
-<a class="pay-recent__link" href="/money/activity/a1" aria-label="Receipt for Received from @maya">Receipt</a>
-</span>
-</li>
-<li class="pay-recent__row" data-testid="recent-payment">
-<span class="pay-recent__main">
-<span class="pay-recent__who" data-testid="recent-payment-who">Sent to @ola</span>
-<span class="pay-recent__meta">
-<span lang="zxx">13 Oct, 17:40</span> · <span class="pay-recent__status" data-testid="recent-payment-status">Completed</span>
-</span>
-</span>
-<span class="pay-recent__side">
-<span class="pay-recent__amount" lang="zxx" data-testid="recent-payment-amount">−20 USDT</span>
-<a class="pay-recent__link" href="/money/activity/a5" aria-label="Receipt for Sent to @ola">Receipt</a>
-</span>
-</li>
-<li class="pay-recent__row" data-testid="recent-payment">
-<span class="pay-recent__main">
-<span class="pay-recent__who" data-testid="recent-payment-who">Received from another account</span>
-<span class="pay-recent__meta">
-<span lang="zxx">13 Oct, 12:00</span> · <span class="pay-recent__status" data-testid="recent-payment-status">Completed</span>
-</span>
-</span>
-<span class="pay-recent__side">
-<span class="pay-recent__amount pay-recent__amount--in" lang="zxx" data-testid="recent-payment-amount">+15 USDT</span>
-<a class="pay-recent__link" href="/money/activity/a6" aria-label="Receipt for Received from another account">Receipt</a>
-</span>
-</li>
-</ul>
-<button type="button" class="pay-recent__link">Look further back</button>
-<a class="pay-recent__link" href="/money/activity?tab=transfers">See all activity</a>
-</section>
-<section class="pay-recent__section" aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
-<header class="pay-recent__head">
-<h2 id="pay-recent-recipients">Recent recipients</h2>
-</header>
-<ul class="pay-recent__chips" aria-label="People you paid recently">
-<li>
-<a class="pay-chip" href="/pay/send?to=ola" aria-label="Pay @ola" data-testid="recent-recipient">@ola</a>
-</li>
-</ul>
-<p class="pay-recent__note">Taken from your payments and from payments sent on this device.</p>
-</section>
-</div>
-</div>
-<section data-testid="pay-card" class="pay-card" aria-label="Pay">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="flex flex-col">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" aria-label="Send or receive" class="relative flex items-stretch gap-6 border-b border-line pay-tabs">
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_4_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Send</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_5_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Receive</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_6_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Request</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_7_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Bills</button>
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_8_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Global</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
-</div>
-</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<section data-testid="pay-card" aria-label="Pay">
+<nav class="lt-tabs" aria-label="Send or receive">
+<a href="/pay/send" class="lt-tab">Send</a>
+<a href="/pay/receive" class="lt-tab">Receive</a>
+<a href="/pay/request" class="lt-tab">Request</a>
+<a href="/pay/bills" class="lt-tab">Bills</a>
+<a href="/pay/global" class="lt-tab" aria-current="page">Global</a>
+</nav>
 <div hidden="" data-testid="send-panel">
-<div data-slot="state-block" data-kind="error" role="alert" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Couldn’t load your balances.</p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
+<div role="alert">
+<div class="lit-empty">
+<div data-part="title">Couldn’t load your balances.</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </div>
 <div hidden="" data-testid="receive-panel">
-<div class="pay-body" data-testid="receive-card">
-<div class="pay-receive">
-<h2 class="pay-receive__label">Your handle</h2>
-<p class="pay-receive__value" data-testid="receive-value">@test_friend</p>
-<p class="pay-receive__hint">Share this with someone on INTAFACED so they can send you money.</p>
+<div class="lt-body" data-testid="receive-card">
+<div class="lt-field">
+<h2 class="lt-hint">Your handle</h2>
+<p class="lt-title" data-testid="receive-value">@test_friend</p>
+<p class="lt-hint">Share this with someone on INTAFACED so they can send you money.</p>
 </div>
-<button type="button" tabindex="0" data-slot="button" data-variant="primary" data-testid="receive-copy" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-14 px-8 text-md rounded-pill w-full">
+<button data-testid="receive-copy" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="lg" data-block="true">
 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true">
 <rect width="14" height="14" x="8" y="8" rx="2" ry="2">
 </rect>
 <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2">
 </path>
 </svg>Copy</button>
-<div class="pay-block" data-testid="handle-settings">
-<p class="pay-problem" role="alert">We couldn’t load your handle settings.<button type="button" class="pay-chip">Try again</button>
+<div class="lt-body" data-testid="handle-settings">
+<p role="alert">We couldn’t load your handle settings.<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Try again</button>
 </p>
-<div class="pay-handle-row">
-<div class="pay-handle-row__text">
-<span class="pay-section-title" id="_r_9_">Let people find me by my handle</span>
-<span class="pay-hint" id="_r_10_">Checking…</span>
+<div class="lt-title-row">
+<div class="lt-field">
+<span id="_r_3_">Let people find me by my handle</span>
+<span class="lt-hint" id="_r_4_">Checking…</span>
 </div>
-<span data-disabled="" data-unchecked="" role="switch" tabindex="-1" aria-disabled="true" id="base-ui-_r_11_" aria-checked="false" aria-labelledby="_r_9_" data-slot="switch" aria-describedby="_r_10_" data-testid="handle-discoverable" class="inline-flex h-6 w-10 shrink-0 items-center rounded-pill bg-raised p-0.5 transition-colors duration-(--if-t-fast) ease-if data-checked:bg-lime data-disabled:cursor-not-allowed data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<span data-disabled="" data-unchecked="" data-slot="switch-thumb" class="block size-5 rounded-pill bg-fg shadow-none transition-transform duration-(--if-t-fast) ease-if data-checked:translate-x-4 data-checked:bg-on-lime">
+<button aria-labelledby="_r_3_" aria-describedby="_r_4_" disabled="" data-testid="handle-discoverable" type="button" role="switch" aria-checked="false" aria-label="Let people find me by my handle" class="lit-switch">
+</button>
+</div>
+<div class="lt-title-row">
+<span class="lt-hint" data-testid="handle-changes-left">
 </span>
-</span>
-<input disabled="" id="base-ui-_r_12_" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" type="checkbox">
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Change handle</button>
 </div>
-<div class="pay-handle-row">
-<span class="pay-hint" data-testid="handle-changes-left">
-</span>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Change handle</button>
+<dialog class="lt-sheet" aria-label="Change your handle">
+<header class="lt-sheet-head">
+<h2 class="lt-sheet-title">Change your handle</h2>
+<button type="button" class="lt-button lt-button-secondary">Close</button>
+</header>
+<div class="lt-sheet-body">
 </div>
+</dialog>
 </div>
-<div class="pay-block" data-testid="receive-contacts">
-<h3 class="pay-section-title" id="_r_13_">Ways to receive</h3>
-<p class="pay-hint">People can also pay you by an email or phone you add here, once you confirm it with the code we send to it.</p>
-<p class="pay-problem" role="alert">We couldn’t load your ways to receive.<button type="button" class="pay-chip">Try again</button>
+<div class="lt-body" data-testid="receive-contacts">
+<h3 class="lt-title" id="_r_5_">Ways to receive</h3>
+<p class="lt-hint">People can also pay you by an email or phone you add here, once you confirm it with the code we send to it.</p>
+<p role="alert">We couldn’t load your ways to receive.<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Try again</button>
 </p>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Add an email or phone to receive by</button>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Add an email or phone to receive by</button>
+<dialog class="lt-sheet" aria-label="Add a way to receive">
+<header class="lt-sheet-head">
+<h2 class="lt-sheet-title">Add a way to receive</h2>
+<button type="button" class="lt-button lt-button-secondary">Close</button>
+</header>
+<div class="lt-sheet-body">
 </div>
-<fieldset class="pay-block pay-stranger" data-testid="stranger-rule" aria-labelledby="_r_14_" disabled="">
-<legend id="_r_14_" class="pay-section-title">Payments from people not in your contacts</legend>
-<p class="pay-hint">Someone not in your contacts is anyone you haven’t paid before. Choose what happens when they pay you.</p>
-<p class="pay-problem" role="alert">We couldn’t load this setting. <button type="button" class="pay-recent__link">Try again</button>
+</dialog>
+</div>
+<fieldset class="lt-body" data-testid="stranger-rule" aria-labelledby="_r_6_" disabled="">
+<legend id="_r_6_" class="lt-title">Payments from people not in your contacts</legend>
+<p class="lt-hint">Someone not in your contacts is anyone you haven’t paid before. Choose what happens when they pay you.</p>
+<p role="alert">We couldn’t load this setting. <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Try again</button>
 </p>
-<label class="pay-stranger__option">
-<input type="radio" name="_r_15_">Pay them into my balance</label>
-<label class="pay-stranger__option">
-<input type="radio" name="_r_15_">Hold for me to accept</label>
+<div class="lt-segmented" role="radiogroup" aria-label="Payments from people not in your contacts">
+<button type="button" role="radio" aria-checked="false" class="lt-segment">Pay them into my balance</button>
+<button type="button" role="radio" aria-checked="false" class="lt-segment">Hold for me to accept</button>
+</div>
 </fieldset>
-<div class="pay-block" data-testid="receive-link">
-<h3 class="pay-section-title">Scan to pay you</h3>
-<div data-slot="state-block" data-kind="error" role="alert" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Couldn’t load your QR code</p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
+<div class="lt-body" data-testid="receive-link">
+<h3 class="lt-title">Scan to pay you</h3>
+<div role="alert">
+<div class="lit-empty">
+<div data-part="title">Couldn’t load your QR code</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
-<p class="pay-link" data-testid="receive-link-value" aria-label="Your payment link">http://localhost:3000/pay/send?to=test_friend</p>
-<p class="pay-hint">Anyone with an INTAFACED account can open it and pay you. They check every detail before they send.</p>
-<div class="pay-row-actions">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">
+<p class="lt-mono" data-testid="receive-link-value" aria-label="Your payment link">http://localhost:3000/pay/send?to=test_friend</p>
+<p class="lt-hint">Anyone with an INTAFACED account can open it and pay you. They check every detail before they send.</p>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-link-2" aria-hidden="true">
 <path d="M9 17H7A5 5 0 0 1 7 7h2">
 </path>
@@ -258,19 +207,19 @@
 <line x1="8" x2="16" y1="12" y2="12">
 </line>
 </svg>Copy link</button>
-<a href="/pay/request" role="link" tabindex="0" data-slot="button" data-variant="ghost" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-10 px-5 text-base rounded-pill">Request an amount</a>
+<a class="lt-link" href="/pay/request">Request an amount</a>
 </div>
 </div>
 </div>
 </div>
 <div data-testid="global-panel">
-<div class="pay-body" data-testid="global-card">
-<div class="pay-reason" role="note" data-testid="pay-reason">
-<p class="pay-reason__title">No services run in the look gate.</p>
-<p class="pay-reason__body">
+<div class="lt-review" data-testid="global-card">
+<div class="lt-refusal" role="note" data-testid="pay-reason">
+<p class="lt-refusal-title">No services run in the look gate.</p>
+<p class="lt-refusal-body">
 </p>
 </div>
-<ol class="pay-steps" data-testid="pay-steps">
+<ol class="lt-steps" data-testid="pay-steps">
 <li>Choose where it goes</li>
 <li>Add the recipient’s bank details</li>
 <li>Enter what you send</li>
@@ -278,63 +227,61 @@
 <li>Review and send</li>
 <li>Track it</li>
 </ol>
-<form class="pay-body" novalidate="">
-<fieldset class="pay-fieldset" disabled="">
-<div class="pay-field">
-<label class="pay-field__label" for="global-currency">Where it goes</label>
-<select id="global-currency" class="pay-text">
+<form class="lt-review" novalidate="">
+<fieldset class="lt-region lt-review" disabled="">
+<div class="lt-field">
+<label for="global-currency">Where it goes</label>
+<select id="global-currency">
 <option value="">Choose a country and currency</option>
 </select>
 </div>
-<div class="pay-field">
-<label class="pay-field__label" for="global-country-check">Not in the list? Enter a country code</label>
-<input id="global-country-check" class="pay-text" autocomplete="off" maxlength="2" type="text" value="">
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" data-testid="global-country-check" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Check</button>
+<div class="lt-field">
+<label for="global-country-check">Not in the list? Enter a country code</label>
+<input id="global-country-check" autocomplete="off" maxlength="2" type="text" value="">
+<button data-testid="global-country-check" disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Check</button>
 </div>
-<div class="pay-field">
-<label class="pay-field__label" for="global-recipient">Recipient</label>
-<select id="global-recipient" class="pay-text">
+<div class="lt-field">
+<label for="global-recipient">Recipient</label>
+<select id="global-recipient">
 <option value="">Choose a saved recipient</option>
 </select>
-<p class="pay-problem">No services run in the look gate.</p>
+<p>No services run in the look gate.</p>
 </div>
 </fieldset>
-<fieldset class="pay-fieldset" disabled="">
-<h3 class="pay-section-title">Add a new recipient</h3>
-<div class="pay-field">
-<label class="pay-field__label" for="global-name">Recipient’s full name</label>
-<input id="global-name" class="pay-text" autocomplete="off" type="text" value="">
+<fieldset class="lt-region lt-review" disabled="">
+<h3>Add a new recipient</h3>
+<div class="lt-field">
+<label for="global-name">Recipient’s full name</label>
+<input id="global-name" autocomplete="off" type="text" value="">
 </div>
-<div class="pay-field">
-<label class="pay-field__label" for="global-account">Account number or IBAN</label>
-<input id="global-account" class="pay-text" autocomplete="off" type="text" value="">
+<div class="lt-field">
+<label for="global-account">Account number or IBAN</label>
+<input id="global-account" autocomplete="off" type="text" value="">
 </div>
-<div class="pay-field">
-<label class="pay-field__label" for="global-bank">Bank code (SWIFT/BIC)</label>
-<input id="global-bank" class="pay-text" autocomplete="off" type="text" value="">
+<div class="lt-field">
+<label for="global-bank">Bank code (SWIFT/BIC)</label>
+<input id="global-bank" autocomplete="off" type="text" value="">
 </div>
-<div class="pay-field">
-<label class="pay-field__label" for="global-label">Name for this recipient (optional)</label>
-<input id="global-label" class="pay-text" autocomplete="off" type="text" value="">
+<div class="lt-field">
+<label for="global-label">Name for this recipient (optional)</label>
+<input id="global-label" autocomplete="off" type="text" value="">
 </div>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" data-testid="global-recipient-save" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Save recipient</button>
+<button data-testid="global-recipient-save" disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Save recipient</button>
 </fieldset>
-<fieldset class="pay-fieldset" disabled="">
-<div class="pay-field">
-<span class="pay-field__label">You send</span>
-<div data-slot="amount-input" data-size="desk" class="flex min-w-0 flex-col gap-1">
-<div class="flex items-center gap-2 h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_16_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="You send" placeholder="0" class="if-num min-w-0 bg-transparent tabular-nums text-fg outline-none placeholder:text-fg-3 flex-1 text-right text-md" type="text" value="">
+<fieldset class="lt-region lt-review" disabled="">
+<div class="lt-field">
+<div class="lit-field-control">
+<label for="_r_7_">You send</label>
+<input enterkeyhint="done" aria-label="You send" placeholder="0" data-testid="global-amount" id="_r_7_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" data-kind="decimal" type="text" value="">
 </div>
-</div>
-<select class="pay-text" aria-label="Asset to send">
+<select aria-label="Asset to send">
 <option value="">No balance to send from</option>
 </select>
 </div>
 </fieldset>
 <div>
-<h3 class="pay-section-title">Quote</h3>
-<dl class="pay-quote" data-testid="global-quote">
+<h3>Quote</h3>
+<dl class="lt-kv" data-testid="global-quote">
 <div>
 <dt>Exchange rate</dt>
 <dd>—</dd>
@@ -352,49 +299,139 @@
 <dd>—</dd>
 </div>
 </dl>
-<p class="pay-hint">No rate. A rate appears here only when a live source is connected.</p>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" data-testid="global-get-quote" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Get a quote</button>
+<p class="lt-hint">No rate. A rate appears here only when a live source is connected.</p>
+<button data-testid="global-get-quote" disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Get a quote</button>
 </div>
-<button type="submit" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="primary" data-testid="global-review" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-14 px-8 text-md rounded-pill w-full">Review and send</button>
+<button disabled="" data-testid="global-review" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="lg" data-block="true">Review and send</button>
 </form>
-<div class="pay-block" data-testid="global-receive">
-<h3 class="pay-section-title">Receive money from abroad</h3>
-<p class="pay-hint">Someone abroad pays you by bank transfer to your account details for that currency.</p>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<div class="lt-region" data-testid="global-receive">
+<h3>Receive money from abroad</h3>
+<p class="lt-hint">Someone abroad pays you by bank transfer to your account details for that currency.</p>
+<div data-testid="failure" class="lt-review">
+<div role="status" class="lit-refusal" data-variant="unreachable">
+<div>
+<div data-part="title">Can’t connect right now</div>
+<div data-part="body">No services run in the look gate.</div>
 </div>
 </div>
-<div class="pay-block">
-<h3 class="pay-section-title">Track it</h3>
-<ol class="pay-steps" data-testid="pay-steps">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</div>
+</div>
+<div class="lt-region">
+<h3>Track it</h3>
+<ol class="lt-steps" data-testid="pay-steps">
 <li>Sent</li>
 <li>On its way</li>
 <li>Arrived</li>
 </ol>
 </div>
-<div class="pay-block" data-testid="global-history">
-<h3 class="pay-section-title">Transfers abroad</h3>
-<p class="pay-empty">No services run in the look gate.</p>
+<div class="lt-region" data-testid="global-history">
+<h3>Transfers abroad</h3>
+<p class="lt-hint">No services run in the look gate.</p>
 </div>
 </div>
 </div>
-<nav class="pay-rooms" aria-label="More in Pay" data-testid="pay-rooms">
-<p class="pay-rooms__title">More in Pay</p>
-<a class="pay-chip" href="/pay/scheduled">Scheduled</a>
-<a class="pay-chip" href="/pay/contacts">Contacts</a>
-<a class="pay-chip" href="/pay/send/limits">Send limits</a>
-<a class="pay-chip" href="/pay/fees">Pay fees</a>
-<a class="pay-chip" href="/pay/preferences">Pay preferences</a>
-<a class="pay-chip" href="/pay/scan">Scan to pay</a>
-<a class="pay-chip" href="/pay/cases">Cases</a>
+<nav aria-label="More in Pay" data-testid="pay-rooms">
+<p class="lt-hint">More in Pay</p>
+<div class="lt-actions">
+<a class="lt-link" href="/pay/scheduled">Scheduled</a>
+<a class="lt-link" href="/pay/contacts">Contacts</a>
+<a class="lt-link" href="/pay/send/limits">Send limits</a>
+<a class="lt-link" href="/pay/fees">Pay fees</a>
+<a class="lt-link" href="/pay/preferences">Pay preferences</a>
+<a class="lt-link" href="/pay/scan">Scan to pay</a>
+<a class="lt-link" href="/pay/cases">Cases</a>
+</div>
 </nav>
 </section>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<div>
+<section aria-labelledby="_r_8_" data-testid="pay-waiting">
+<h2 id="_r_8_">Waiting for you</h2>
+<p class="lt-hint" role="alert">We couldn’t load the payments waiting for you. <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Try again</button>
+</p>
+</section>
+<div data-testid="pay-recent">
+<section aria-labelledby="pay-recent-payments" data-testid="recent-payments">
+<header class="lt-actions">
+<h2 id="pay-recent-payments">Recent payments</h2>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Refresh</button>
+</header>
+<ul aria-label="Your recent payments">
+<li class="lt-actions" data-testid="recent-payment">
+<span>
+<span data-testid="recent-payment-who">Received from @maya</span>
+<span class="lt-hint">
+<span lang="zxx">14 Oct, 09:15</span> · <span data-testid="recent-payment-status">
+<span class="lt-chip" data-status="done">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>Completed</span>
+</span>
+</span>
+</span>
+<span class="lt-actions">
+<span class="lt-mono" lang="zxx" data-direction="in" data-testid="recent-payment-amount">+50 USDT</span>
+<a class="lt-link" href="/money/activity/a1" aria-label="Receipt for Received from @maya">Receipt</a>
+</span>
+</li>
+<li class="lt-actions" data-testid="recent-payment">
+<span>
+<span data-testid="recent-payment-who">Sent to @ola</span>
+<span class="lt-hint">
+<span lang="zxx">13 Oct, 17:40</span> · <span data-testid="recent-payment-status">
+<span class="lt-chip" data-status="done">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>Completed</span>
+</span>
+</span>
+</span>
+<span class="lt-actions">
+<span class="lt-mono" lang="zxx" data-direction="out" data-testid="recent-payment-amount">−20 USDT</span>
+<a class="lt-link" href="/money/activity/a5" aria-label="Receipt for Sent to @ola">Receipt</a>
+</span>
+</li>
+<li class="lt-actions" data-testid="recent-payment">
+<span>
+<span data-testid="recent-payment-who">Received from another account</span>
+<span class="lt-hint">
+<span lang="zxx">13 Oct, 12:00</span> · <span data-testid="recent-payment-status">
+<span class="lt-chip" data-status="done">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>Completed</span>
+</span>
+</span>
+</span>
+<span class="lt-actions">
+<span class="lt-mono" lang="zxx" data-direction="in" data-testid="recent-payment-amount">+15 USDT</span>
+<a class="lt-link" href="/money/activity/a6" aria-label="Receipt for Received from another account">Receipt</a>
+</span>
+</li>
+</ul>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Look further back</button>
+<div class="lt-actions">
+<a class="lt-link" href="/money/activity?tab=transfers">See all activity</a>
+</div>
+</section>
+<section aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
+<header>
+<h2 id="pay-recent-recipients">Recent recipients</h2>
+</header>
+<ul class="lt-actions" aria-label="People you paid recently">
+<li>
+<a class="lt-button lt-button-secondary" href="/pay/send?to=ola" aria-label="Pay @ola" data-testid="recent-recipient">@ola</a>
+</li>
+</ul>
+<p class="lt-hint">Taken from your payments and from payments sent on this device.</p>
+</section>
+</div>
+</div>
+</section>
+</div>
+</div>
+</div>
 </div>
 </div>
 </main>

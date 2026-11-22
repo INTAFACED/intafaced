@@ -3,19 +3,9 @@ import { useEventListener, useMounted } from '../../shared/outside';
 import { useResource, type Resource } from '../../shared/resource';
 import { Check, ClipboardPaste } from 'lucide-react';
 import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
   applyPrefill,
   bankPendingKey,
-  Button,
   cleanNote,
-  CoinIcon,
   contactLabel,
   contactsFrom,
   createPersonalPayApi,
@@ -39,19 +29,9 @@ import {
   cleanHandle,
   confirmWithStepUp,
   personSendStepUp,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   sendInput,
-  Skeleton,
-  StateBlock,
   str,
-  useHideBalances,
-  HIDDEN_MASK,
   useSession,
-  useToast,
   type ApiClient,
   type ApiResult,
   type Contact,
@@ -61,6 +41,28 @@ import {
   type SentEntry,
   type StepUpMethod,
 } from './deps';
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  DecimalField,
+  EmptyState,
+  HIDDEN_MASK,
+  Picker,
+  PickerList,
+  PickerItem,
+  PickerTrigger,
+  PickerValue,
+  Tag,
+  useHideBalances,
+  useToast,
+} from '@intafaced/ui/lit';
+import { KeyValue, Skeleton } from '@intafaced/ui/lit/templates';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { copyText } from './share';
@@ -174,19 +176,35 @@ export function SendCard({
 
   if (identity.status === 'loading' || loaded === 'loading')
     return (
-      <div className="pay-body pay-body--skeleton" aria-busy="true" data-testid="send-loading">
-        <Skeleton height={104} />
-        <Skeleton height={132} />
-        <Skeleton height={56} circle />
+      <div className="lt-body" aria-busy="true" data-testid="send-loading">
+        <Skeleton shape="form" count={3} />
       </div>
     );
   if (identity.status === 'error')
     return (
-      <StateBlock kind="error" title={payCopy.t('Couldn’t load your details')} onRetry={identity.retry} retryLabel={payCopy.t('Retry')} />
+      <div role="alert">
+        <EmptyState
+          title={payCopy.t('Couldn’t load your details')}
+          action={
+            <Button tone="secondary" onClick={identity.retry}>
+              {payCopy.t('Retry')}
+            </Button>
+          }
+        />
+      </div>
     );
   if (loaded === 'error')
     return (
-      <StateBlock kind="error" title={payCopy.t('Couldn’t load your balances')} onRetry={retrySources} retryLabel={payCopy.t('Retry')} />
+      <div role="alert">
+        <EmptyState
+          title={payCopy.t('Couldn’t load your balances')}
+          action={
+            <Button tone="secondary" onClick={retrySources}>
+              {payCopy.t('Retry')}
+            </Button>
+          }
+        />
+      </div>
     );
   return (
     <SendForm
@@ -715,60 +733,44 @@ function SendForm({
       pickContact({ userId: entry.toUserId, handle: entry.handle, lastAt: entry.at, times: 1 });
     };
     return (
-      <div className="pay-body" data-testid="pay-receipt">
-        <div className="buy-receipt" role="status">
-          <span className="buy-receipt__badge" aria-hidden="true" data-tone="ok">
+      <div className="lt-body" data-testid="pay-receipt">
+        <div className="lt-receipt" role="status">
+          <span className="lt-receipt-status" aria-hidden="true" data-tone="ok">
             ✓
           </span>
-          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
+          <h2 data-testid="buy-receipt__title">
             {entry.handle
               ? payCopy.t('Sent {amount} {asset} to @{handle}', { amount: shownAmount, asset: entry.asset, handle: entry.handle })
               : payCopy.t('Sent {amount} {asset}', { amount: shownAmount, asset: entry.asset })}
           </h2>
-          <dl className="buy-receipt__rows">
-            <div>
-              <dt>{personal.t('receiptTo')}</dt>
-              <dd className={entry.handle ? undefined : 'pay-mono'}>{entry.handle ? `@${entry.handle}` : entry.toUserId}</dd>
-            </div>
-            <div>
-              <dt>{personal.t('receiptFrom')}</dt>
-              <dd>{receipt.from}</dd>
-            </div>
-            <div>
-              <dt>{payCopy.t('Amount')}</dt>
-              <dd data-testid="pay-receipt-amount">{shown}</dd>
-            </div>
-            <div>
-              <dt>{personal.t('receiptWhen')}</dt>
-              <dd>{new Date(entry.at).toLocaleString(personal.requestedLocale)}</dd>
-            </div>
-            <div>
-              <dt>{personal.t('receiptReference')}</dt>
-              <dd className="pay-mono" data-testid="pay-receipt-reference">
-                {entry.ledgerTxId}
-              </dd>
-            </div>
-            {entry.note ? (
-              <div>
-                <dt>{personal.t('noteRow')}</dt>
-                <dd>{entry.note}</dd>
-              </div>
-            ) : null}
-          </dl>
-          <div className="buy-receipt__actions">
-            <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={ACTIVITY_HREF} role="link" />}>
+          <KeyValue
+            rows={[
+              { label: personal.t('receiptTo'), value: entry.handle ? `@${entry.handle}` : entry.toUserId, ltr: !entry.handle },
+              { label: personal.t('receiptFrom'), value: receipt.from },
+              { label: payCopy.t('Amount'), value: <span data-testid="pay-receipt-amount">{shown}</span> },
+              { label: personal.t('receiptWhen'), value: new Date(entry.at).toLocaleString(personal.requestedLocale) },
+              {
+                label: personal.t('receiptReference'),
+                value: <span data-testid="pay-receipt-reference">{entry.ledgerTxId}</span>,
+                ltr: true,
+              },
+              ...(entry.note ? [{ label: personal.t('noteRow'), value: entry.note }] : []),
+            ]}
+          />
+          <div className="lt-actions">
+            <a className="lt-button lt-button-primary" href={ACTIVITY_HREF} role="link">
               {payCopy.t('View activity')}
-            </Button>
-            <Button variant="secondary" size={56} fullWidth onClick={() => void copyReceipt()}>
+            </a>
+            <Button tone="secondary" size="lg" block onClick={() => void copyReceipt()}>
               {personal.t('receiptCopy')}
             </Button>
-            <Button variant="secondary" size={56} fullWidth onClick={sendAgain} data-testid="pay-send-again">
+            <Button tone="secondary" size="lg" block onClick={sendAgain} data-testid="pay-send-again">
               {personal.t('sendAgain')}
             </Button>
             <Button
-              variant="ghost"
-              size={56}
-              fullWidth
+              tone="quiet"
+              size="lg"
+              block
               onClick={() => {
                 lastReceipt.delete(key);
                 setReceipt(null);
@@ -786,11 +788,16 @@ function SendForm({
 
   if (sources.length === 0 && !waiting)
     return (
-      <StateBlock
-        kind="empty"
+      <EmptyState
         title={payCopy.t('Nothing to send title')}
         body={payCopy.t('Nothing to send body')}
-        action={isHiddenPath('/uc/recharge') ? undefined : { label: payCopy.t('Add money'), href: '/uc/recharge' }}
+        action={
+          isHiddenPath('/uc/recharge') ? undefined : (
+            <a className="lt-button lt-button-primary" href="/uc/recharge" role="link">
+              {payCopy.t('Add money')}
+            </a>
+          )
+        }
       />
     );
 
@@ -803,7 +810,7 @@ function SendForm({
 
   return (
     <form
-      className="pay-body"
+      className="lt-body"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
@@ -824,7 +831,7 @@ function SendForm({
       ) : null}
 
       {heldId ? (
-        <p className="pay-banner" role="status" data-testid="pay-held">
+        <p className="lt-held" role="status" data-testid="pay-held">
           {payCopy.t('Held for review')}{' '}
           <a href={heldSendHref(heldId)} data-testid="pay-held-link">
             {payCopy.t('See its status')}
@@ -833,24 +840,21 @@ function SendForm({
       ) : null}
 
       {linkNotice ? (
-        <p className="pay-banner" role="status" data-testid="pay-link-notice">
+        <p className="lt-held" role="status" data-testid="pay-link-notice">
           {linkNotice}
         </p>
       ) : null}
 
-      <div className="pay-field" data-testid="to-field">
-        <label className="pay-field__label" htmlFor="pay-to">
-          {byHandle ? payCopy.t('To') : payCopy.t('Account ID')}
-        </label>
-        <div className="pay-to">
+      <div className="lt-field" data-testid="to-field">
+        <label htmlFor="pay-to">{byHandle ? payCopy.t('To') : payCopy.t('Account ID')}</label>
+        <div className="lt-actions">
           {byHandle && contactKind(to) === null ? (
-            <span data-testid="pay-to__at" className="pay-to__at" aria-hidden="true">
+            <span data-testid="pay-to__at" aria-hidden="true">
               @
             </span>
           ) : null}
           <input
             id="pay-to"
-            className="pay-to__input"
             type="text"
             value={to}
             autoComplete="off"
@@ -877,69 +881,56 @@ function SendForm({
             data-mono={byHandle ? undefined : ''}
           />
           {byHandle ? null : (
-            <button type="button" className="pay-chip" onClick={() => void paste()}>
+            <Button tone="quiet" onClick={() => void paste()}>
               <ClipboardPaste size={14} aria-hidden="true" />
               {payCopy.t('Paste')}
-            </button>
+            </Button>
           )}
         </div>
-        <div id="pay-to-status" className="pay-to__status" aria-live="polite" data-testid="to-status">
+        <div id="pay-to-status" className="lt-hint" aria-live="polite" data-testid="to-status">
           {recipient.kind === 'checking' ? (
-            <span className="pay-muted">{payCopy.t('Checking handle')}</span>
+            <span>{payCopy.t('Checking handle')}</span>
           ) : recipient.kind === 'found' ? (
             <>
               <PayeeLine who={recipient} locale={personal.requestedLocale} />
               {lookalike ? (
-                <span className="pay-problem" role="alert" data-testid="pay-lookalike">
+                <span role="alert" data-testid="pay-lookalike">
                   {payCopy.t('Looks like saved', { handle: recipient.handle ?? '', saved: lookalike })}
                 </span>
               ) : savedUnchecked ? (
-                <span className="pay-muted" data-testid="pay-saved-unchecked">
-                  {payCopy.t('Saved not checked')}
-                </span>
+                <span data-testid="pay-saved-unchecked">{payCopy.t('Saved not checked')}</span>
               ) : null}
             </>
           ) : recipient.kind === 'problem' ? (
-            <span className="pay-problem" role="alert">
+            <span role="alert">
               {recipient.text}
               {recipient.retry ? (
-                <button
-                  type="button"
-                  className="pay-chip"
-                  onClick={() => void (scanned.current !== null && to === '' ? scan(scanned.current) : check())}
-                >
+                <Button tone="quiet" onClick={() => void (scanned.current !== null && to === '' ? scan(scanned.current) : check())}>
                   {payCopy.t('Try again')}
-                </button>
+                </Button>
               ) : null}
             </span>
           ) : note ? (
-            <span className="pay-muted">{note}</span>
+            <span>{note}</span>
           ) : (
-            <span className="pay-muted">{byHandle ? payCopy.t('Ask for their handle') : payCopy.t('Ask for their account ID')}</span>
+            <span>{byHandle ? payCopy.t('Ask for their handle') : payCopy.t('Ask for their account ID')}</span>
           )}
         </div>
         {contacts.length > 0 && recipient.kind !== 'found' ? (
-          <div className="pay-contacts" data-testid="pay-contacts">
-            <span className="pay-contacts__label">{personal.t('recent')}</span>
+          <div className="lt-actions" data-testid="pay-contacts">
+            <span className="lt-hint">{personal.t('recent')}</span>
             {contacts.map((contact) => (
-              <button
-                key={contact.userId}
-                type="button"
-                className="pay-chip"
-                onClick={() => pickContact(contact)}
-                data-testid="pay-contact"
-              >
+              <Button key={contact.userId} tone="quiet" onClick={() => pickContact(contact)} data-testid="pay-contact">
                 {contactLabel(contact)}
-              </button>
+              </Button>
             ))}
           </div>
         ) : null}
       </div>
 
-      <div className="pay-field" data-testid="amount-field">
-        <span className="pay-field__label">{payCopy.t('Amount')}</span>
-        <div className="pay-field__main">
-          <Select
+      <div className="lt-field" data-testid="amount-field">
+        <div className="lt-actions">
+          <Picker
             items={sourceItems}
             value={source?.id ?? ''}
             onValueChange={(value) => {
@@ -949,54 +940,48 @@ function SendForm({
               }
             }}
           >
-            <SelectTrigger className="pay-asset" aria-label={payCopy.t('Asset to send')}>
-              {source ? <CoinIcon asset={source.asset} size={28} /> : null}
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
+            <PickerTrigger aria-label={payCopy.t('Asset to send')}>
+              <PickerValue />
+            </PickerTrigger>
+            <PickerList>
               {sources.map((row) => (
-                <SelectItem key={row.id} value={row.id}>
+                <PickerItem key={row.id} value={row.id}>
                   {labelOf(row)}
-                </SelectItem>
+                </PickerItem>
               ))}
-            </SelectContent>
-          </Select>
-          <AmountInput
-            size="hero"
+            </PickerList>
+          </Picker>
+          <DecimalField
+            label={payCopy.t('Amount')}
             aria-label={payCopy.t('Amount to send')}
             value={amount}
             onValueChange={setAmount}
             precision={places}
             placeholder="0"
             error={amountError}
-            className="pay-amount"
           />
         </div>
-        <div className="pay-field__foot">
+        <div className="lt-actions">
           <span data-testid="pay-available">{source ? payCopy.t('Available {value}', { value: availableText }) : ''}</span>
           {source && !waiting ? (
-            <button
-              type="button"
-              className="pay-chip"
+            <Button
+              tone="quiet"
               onClick={() => {
                 const whole = dec(source.balance);
                 if (whole !== null) setAmount(str(whole));
               }}
             >
               {payCopy.t('Max')}
-            </button>
+            </Button>
           ) : null}
         </div>
         <TermsLine verdict={verdict} asset={source?.asset ?? ''} onRetry={recheckTerms} />
       </div>
 
-      <div className="pay-field" data-testid="note-field">
-        <label className="pay-field__label" htmlFor="pay-note">
-          {personal.t('note')}
-        </label>
+      <div className="lt-field" data-testid="note-field">
+        <label htmlFor="pay-note">{personal.t('note')}</label>
         <input
           id="pay-note"
-          className="pay-text"
           type="text"
           value={memo}
           maxLength={NOTE_MAX}
@@ -1004,36 +989,36 @@ function SendForm({
           placeholder={personal.t('notePlaceholder')}
           onChange={(event) => setMemo(event.target.value)}
         />
-        <span className="pay-hint">{personal.t('noteHint')}</span>
+        <span className="lt-hint">{personal.t('noteHint')}</span>
       </div>
 
       {source && amountCheck.kind === 'ok' && typedAmount !== null ? (
-        <dl className="pay-dialog__rows" data-testid="pay-summary">
-          <div>
-            <dt>{payCopy.t('You send')}</dt>
-            <dd data-testid="pay-summary-amount">
-              {fmtAmount(str(typedAmount), { places: 18 })} {source.asset}
-            </dd>
-          </div>
-          <div>
-            <dt>{payCopy.t('From')}</dt>
-            <dd data-testid="pay-summary-source">{labelFrom(source)}</dd>
-          </div>
-          {cleanNote(memo) ? (
-            <div>
-              <dt>{personal.t('noteRow')}</dt>
-              <dd data-testid="pay-summary-note">{cleanNote(memo)}</dd>
-            </div>
-          ) : null}
-        </dl>
+        <div data-testid="pay-summary">
+          <KeyValue
+            rows={[
+              {
+                label: payCopy.t('You send'),
+                value: (
+                  <span data-testid="pay-summary-amount">
+                    {fmtAmount(str(typedAmount), { places: 18 })} {source.asset}
+                  </span>
+                ),
+              },
+              { label: payCopy.t('From'), value: <span data-testid="pay-summary-source">{labelFrom(source)}</span> },
+              ...(cleanNote(memo)
+                ? [{ label: personal.t('noteRow'), value: <span data-testid="pay-summary-note">{cleanNote(memo)}</span> }]
+                : []),
+            ]}
+          />
+        </div>
       ) : null}
 
-      <Button type="submit" variant="primary" size={56} fullWidth disabled={reason !== null} data-testid="pay-review">
+      <Button type="submit" tone="primary" size="lg" block disabled={reason !== null} data-testid="pay-review">
         {reason !== null && !waiting ? reason : payCopy.t('Review')}
       </Button>
 
       <AlertDialog open={review !== null} onOpenChange={(open) => !open && closeReview()}>
-        <AlertDialogContent className="pay-dialog" data-testid="pay-dialog">
+        <AlertDialogContent data-testid="pay-dialog">
           {review ? (
             <>
               <AlertDialogHeader>
@@ -1048,87 +1033,90 @@ function SendForm({
                 </AlertDialogTitle>
                 <AlertDialogDescription>{payCopy.t('Arrives instantly')}</AlertDialogDescription>
               </AlertDialogHeader>
-              <dl className="pay-dialog__rows">
-                <div data-testid="pay-review-to">
-                  <dt>{payCopy.t('To')}</dt>
-                  <dd className={review.recipient.handle ? undefined : 'pay-mono'}>
-                    {review.recipient.handle ? (
-                      <PayeeLine who={review.recipient} locale={personal.requestedLocale} testId="pay-review-payee" />
-                    ) : (
-                      review.recipient.userId
-                    )}
-                  </dd>
-                </div>
-                <div data-testid="pay-review-from">
-                  <dt>{payCopy.t('From')}</dt>
-                  <dd>{labelFrom(review.source)}</dd>
-                </div>
-                {review.note ? (
-                  <div data-testid="pay-review-note">
-                    <dt>{personal.t('noteRow')}</dt>
-                    <dd>{review.note}</dd>
-                  </div>
-                ) : null}
-                <div data-testid="pay-review-fee">
-                  <dt>{personal.t('termsFeeRow')}</dt>
-                  <dd>
-                    {parseAmount(review.terms.fee) === 0n
-                      ? personal.t('termsNoFee')
-                      : `${fmtAmount(review.terms.fee, { places: 18 })} ${review.source.asset}`}
-                    {review.terms.networkFeeUnknown ? `. ${personal.t('termsNetworkFeeUnknown')}` : null}
-                  </dd>
-                </div>
-                <div data-testid="pay-review-allowance">
-                  <dt>{payCopy.t('Today’s allowance')}</dt>
-                  <dd>
-                    {payCopy.t('{left} of {daily} {asset} left', {
-                      left: fmtAmount(review.terms.left, { places: 18 }),
-                      daily: fmtAmount(review.terms.daily, { places: 18 }),
-                      asset: review.source.asset,
-                    })}
-                  </dd>
-                </div>
-                <div data-testid="pay-review-left">
-                  <dt>{personal.t('termsLeftRow')}</dt>
-                  <dd>
-                    {fmtAmount(review.terms.leftAfter, { places: 18 })} {review.source.asset}
-                  </dd>
-                </div>
-                <div data-strong="" data-testid="pay-review-amount">
-                  <dt>{payCopy.t('Amount')}</dt>
-                  <dd>
-                    {reviewAmount} {review.source.asset}
-                  </dd>
-                </div>
-              </dl>
+              <KeyValue
+                rows={[
+                  {
+                    label: payCopy.t('To'),
+                    value: (
+                      <span data-testid="pay-review-to">
+                        {review.recipient.handle ? (
+                          <PayeeLine who={review.recipient} locale={personal.requestedLocale} testId="pay-review-payee" />
+                        ) : (
+                          review.recipient.userId
+                        )}
+                      </span>
+                    ),
+                    ltr: !review.recipient.handle,
+                  },
+                  { label: payCopy.t('From'), value: <span data-testid="pay-review-from">{labelFrom(review.source)}</span> },
+                  ...(review.note
+                    ? [{ label: personal.t('noteRow'), value: <span data-testid="pay-review-note">{review.note}</span> }]
+                    : []),
+                  {
+                    label: personal.t('termsFeeRow'),
+                    value: (
+                      <span data-testid="pay-review-fee">
+                        {parseAmount(review.terms.fee) === 0n
+                          ? personal.t('termsNoFee')
+                          : `${fmtAmount(review.terms.fee, { places: 18 })} ${review.source.asset}`}
+                        {review.terms.networkFeeUnknown ? `. ${personal.t('termsNetworkFeeUnknown')}` : null}
+                      </span>
+                    ),
+                  },
+                  {
+                    label: payCopy.t('Today’s allowance'),
+                    value: (
+                      <span data-testid="pay-review-allowance">
+                        {payCopy.t('{left} of {daily} {asset} left', {
+                          left: fmtAmount(review.terms.left, { places: 18 }),
+                          daily: fmtAmount(review.terms.daily, { places: 18 }),
+                          asset: review.source.asset,
+                        })}
+                      </span>
+                    ),
+                  },
+                  {
+                    label: personal.t('termsLeftRow'),
+                    value: (
+                      <span data-testid="pay-review-left">
+                        {fmtAmount(review.terms.leftAfter, { places: 18 })} {review.source.asset}
+                      </span>
+                    ),
+                  },
+                  {
+                    label: payCopy.t('Amount'),
+                    value: (
+                      <span data-testid="pay-review-amount">
+                        {reviewAmount} {review.source.asset}
+                      </span>
+                    ),
+                    total: true,
+                  },
+                ]}
+              />
               {review.lookalike && review.recipient.handle ? (
-                <p className="pay-dialog__first" role="alert" data-testid="pay-review-lookalike">
+                <p className="lt-hint" role="alert" data-testid="pay-review-lookalike">
                   {payCopy.t('Looks like saved', { handle: review.recipient.handle, saved: review.lookalike })}
                 </p>
               ) : null}
               {firstTimeText ? (
-                <p className="pay-dialog__first" data-testid="pay-first-time">
+                <p className="lt-hint" data-testid="pay-first-time">
                   {firstTimeText} {payCopy.t('No test payment')}
                 </p>
               ) : null}
               {failure ? (
-                <p className="pay-dialog__error" role="alert" data-testid="pay-failure">
+                <p className="lt-hint" role="alert" data-testid="pay-failure">
                   {failure}
                 </p>
               ) : null}
               {stepUp ? (
-                <section className="pay-step-up" data-testid="pay-step-up" aria-labelledby="pay-step-up-title">
-                  <h3 id="pay-step-up-title" className="pay-step-up__title">
-                    {payCopy.t('Confirm it’s you')}
-                  </h3>
-                  <p className="pay-hint">{payCopy.t('Step-up why')}</p>
-                  <div className="pay-field">
-                    <label className="pay-field__label" htmlFor="pay-step-up-code">
-                      {payCopy.t('Authenticator code')}
-                    </label>
+                <section className="lt-review" data-testid="pay-step-up" aria-labelledby="pay-step-up-title">
+                  <h3 id="pay-step-up-title">{payCopy.t('Confirm it’s you')}</h3>
+                  <p className="lt-hint">{payCopy.t('Step-up why')}</p>
+                  <div className="lt-field">
+                    <label htmlFor="pay-step-up-code">{payCopy.t('Authenticator code')}</label>
                     <input
                       id="pay-step-up-code"
-                      className="pay-text"
                       type="text"
                       inputMode="numeric"
                       autoComplete="one-time-code"
@@ -1140,34 +1128,27 @@ function SendForm({
                         setStepUp((now) => (now ? { ...now, code } : now));
                       }}
                     />
-                    <p className="pay-hint">{payCopy.t('Code hint')}</p>
+                    <p className="lt-hint">{payCopy.t('Code hint')}</p>
                   </div>
                   {stepUp.problem ? (
-                    <p className="pay-dialog__error" role="alert" data-testid="pay-step-up-problem">
+                    <p className="lt-hint" role="alert" data-testid="pay-step-up-problem">
                       {stepUp.problem}
                     </p>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size={40}
-                    disabled={stepUp.checking !== null || busy || waiting}
-                    onClick={() => void confirmStepUp('passkey')}
-                  >
+                  <Button tone="quiet" disabled={stepUp.checking !== null || busy || waiting} onClick={() => void confirmStepUp('passkey')}>
                     {stepUp.checking === 'passkey' ? payCopy.t('Checking') : payCopy.t('Confirm with a passkey')}
                   </Button>
                 </section>
               ) : null}
               <AlertDialogFooter>
-                <AlertDialogClose render={<Button variant="secondary" size={48} disabled={busy || stepUp?.checking != null} />}>
+                <AlertDialogClose render={<Button tone="secondary" disabled={busy || stepUp?.checking != null} />}>
                   {payCopy.t('Cancel')}
                 </AlertDialogClose>
                 {stepUp ? (
                   <Button
-                    variant="primary"
-                    size={48}
+                    tone="primary"
                     onClick={() => void confirmStepUp('code')}
-                    loading={busy || stepUp.checking === 'code'}
+                    aria-busy={busy || stepUp.checking === 'code' || undefined}
                     disabled={busy || waiting || stepUp.checking !== null || stepUp.code.length < 6}
                     data-testid="pay-step-up-confirm"
                   >
@@ -1175,10 +1156,9 @@ function SendForm({
                   </Button>
                 ) : (
                   <Button
-                    variant="primary"
-                    size={48}
+                    tone="primary"
                     onClick={() => void confirm()}
-                    loading={busy}
+                    aria-busy={busy || undefined}
                     disabled={busy || waiting}
                     data-testid="pay-send"
                   >
@@ -1222,11 +1202,11 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
   if (verdict.kind === 'none') return null;
   if (verdict.kind === 'unavailable')
     return (
-      <p className="pay-hint" role="alert" data-testid="pay-terms" data-terms="unavailable">
+      <p className="lt-hint" role="alert" data-testid="pay-terms" data-terms="unavailable">
         {personal.t('termsUnavailable')}{' '}
-        <button type="button" className="pay-chip" onClick={onRetry}>
+        <Button tone="quiet" onClick={onRetry}>
           {personal.t('termsRetry')}
-        </button>
+        </Button>
       </p>
     );
   const text =
@@ -1243,7 +1223,7 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
               : `${parseAmount(verdict.fee) === 0n ? personal.t('termsNoFee') : personal.t('termsFee', { fee: amountOf(verdict.fee), asset })}.${verdict.networkFeeUnknown ? ` ${personal.t('termsNetworkFeeUnknown')}` : ''} ${personal.t('termsAllowance', { perTransfer: amountOf(verdict.perTransfer), left: amountOf(verdict.left), asset })}`;
   const blocked = verdict.kind !== 'ok' && verdict.kind !== 'checking';
   return (
-    <p className="pay-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
+    <p className="lt-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
       {text}
     </p>
   );
@@ -1272,28 +1252,22 @@ function memberMonth(month: string | null, locale: string): string | null {
 function PayeeLine({ who, locale, testId = 'recipient-found' }: { who: Payee; locale: string; testId?: string }) {
   const since = memberMonth(who.memberSince, locale);
   return (
-    <span className="pay-found" data-testid={testId}>
-      <span className="pay-avatar" aria-hidden="true">
-        {(who.name ?? who.handle ?? '#').slice(0, 1).toUpperCase()}
-      </span>
+    <span className="lt-actions" data-testid={testId}>
+      <span aria-hidden="true">{(who.name ?? who.handle ?? '#').slice(0, 1).toUpperCase()}</span>
       {who.handle ? (
-        <span className="pay-found__who">
-          {who.name !== undefined ? (
-            <span className="pay-found__name" data-testid="recipient-name">
-              {who.name ?? payCopy.t('No name shared')}
-            </span>
-          ) : null}
-          <span className="pay-found__handle" data-testid="recipient-handle">{`@${who.handle}`}</span>
+        <span>
+          {who.name !== undefined ? <span data-testid="recipient-name">{who.name ?? payCopy.t('No name shared')}</span> : null}
+          <span data-testid="recipient-handle">{`@${who.handle}`}</span>
         </span>
       ) : (
-        <span className="pay-found__name">{payCopy.t('Account ID ready')}</span>
+        <span>{payCopy.t('Account ID ready')}</span>
       )}
       {who.member ? (
-        <span className="pay-found__badge" data-testid="recipient-member">
+        <Tag tone="neutral" data-testid="recipient-member">
           {since ? payCopy.t('Member since {month}', { month: since }) : payCopy.t('Member')}
-        </span>
+        </Tag>
       ) : null}
-      <Check size={16} className="pay-found__check" aria-hidden="true" />
+      <Check size={16} aria-hidden="true" />
     </span>
   );
 }
@@ -1354,24 +1328,24 @@ function WaitingNotice({
       ? payCopy.t('Check storage body')
       : payCopy.t('Still confirming body');
   return (
-    <div className="pay-waiting" role="status" data-testid="pay-waiting">
-      <p className="pay-waiting__title">{title}</p>
-      <p className="pay-waiting__body">{body}</p>
-      <div className="pay-waiting__actions">
+    <div className="lt-inflight" role="status" data-testid="pay-waiting">
+      <p className="lt-inflight-title">{title}</p>
+      <p className="lt-hint">{body}</p>
+      <div className="lt-actions">
         {knownCleanup || recoveryProblem ? (
-          <Button variant="secondary" size={40} disabled={busy} onClick={onRetry}>
+          <Button tone="secondary" disabled={busy} onClick={onRetry}>
             {busy ? payCopy.t('Working') : knownCleanup ? payCopy.t('Finish up') : payCopy.t('Try again')}
           </Button>
         ) : null}
         {showActivity ? (
-          <Button variant="secondary" size={40} nativeButton={false} render={<a href={ACTIVITY_HREF} role="link" />}>
+          <a className="lt-button lt-button-secondary" href={ACTIVITY_HREF} role="link">
             {payCopy.t('View activity')}
-          </Button>
+          </a>
         ) : null}
         {isHiddenPath(SUPPORT_HREF) ? null : (
-          <Button variant="ghost" size={40} nativeButton={false} render={<a href={SUPPORT_HREF} role="link" />}>
+          <a className="lt-link" href={SUPPORT_HREF} role="link">
             {payCopy.t('Contact support')}
-          </Button>
+          </a>
         )}
       </div>
     </div>

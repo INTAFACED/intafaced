@@ -36,6 +36,15 @@ export function nextDecimalValue(prevValue: string, raw: string, opts: DecimalOp
   return next === null ? prevValue : next;
 }
 
+/**
+ * Like `nextDecimalValue`, with a choice for the other mark: `typedMark: 'either'` reads a typed "," as the decimal
+ * point ("12,5" is 12.5), as AmountInput does (parseTyped); a box holding both marks is still refused. Default `dot`.
+ */
+export function typedDecimalValue(prevValue: string, raw: string, opts: DecimalOptions & { typedMark?: 'dot' | 'either' }): string {
+  if (opts.typedMark !== 'either') return nextDecimalValue(prevValue, raw, opts);
+  return parseTyped(raw, opts) ?? prevValue;
+}
+
 /** Called with pasted text. Returns the cleaned value, or `prevValue` when it cannot be read as an amount. */
 export function pastedDecimalValue(prevValue: string, text: string, opts: DecimalOptions): string {
   const next = parsePasted(text, opts);

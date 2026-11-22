@@ -227,17 +227,21 @@ export function Checkbox({ label, children, onCheckedChange, onChange, ...input 
 
 /**
  * A bottom sheet on a phone, a side sheet on a computer: one of the two layers allowed glass. It is a modal
- * dialog (focus stays inside, Escape closes), built on the native <dialog> element.
+ * dialog (focus stays inside, Escape closes), built on the native <dialog> element. `dismissible={false}` holds it
+ * open while the room's save is in flight: Escape and Close do nothing, and the room's own buttons decide.
  */
 export function Sheet({
   open,
   title,
   onClose,
+  dismissible = true,
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
+  /** False while a save is in flight: Escape is refused and Close is disabled. Default true. */
+  dismissible?: boolean;
   children: React.ReactNode;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
@@ -248,10 +252,25 @@ export function Sheet({
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog ref={ref} className="lt-sheet" aria-label={title} onClose={onClose} onCancel={onClose}>
+    <dialog
+      ref={ref}
+      className="lt-sheet"
+      aria-label={title}
+      onClose={onClose}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && !dismissible) event.preventDefault();
+      }}
+      onCancel={(event) => {
+        if (!dismissible) {
+          event.preventDefault();
+          return;
+        }
+        onClose();
+      }}
+    >
       <header className="lt-sheet-head">
         <h2 className="lt-sheet-title">{title}</h2>
-        <button type="button" className="lt-button lt-button-secondary" onClick={onClose}>
+        <button type="button" className="lt-button lt-button-secondary" disabled={!dismissible} onClick={onClose}>
           Close
         </button>
       </header>

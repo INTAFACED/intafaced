@@ -290,6 +290,8 @@ export const components = {
   Select: 'One choice from a list, with label, hint and typed error',
   DecimalField: 'Field for a decimal string (money, quantities): refuses an invalid keystroke, cleans a paste to its precision',
   ChoiceGroup: 'One choice of several, as radios each with its label and hint',
+  AlertDialog: 'Confirm dialog (role alertdialog) on the glass sheet layer; no Close of its own, the room brings its choices',
+  Picker: 'One value from a list: a combobox drawn like Field, opening a listbox of options',
   Freshness: 'Data freshness: Live, Stale or Unknown as a shape and a word, with its as-of time; turns Stale by itself',
   Figure: 'A money figure from a decimal string (never a number), with TEST and stale marks',
   Change: 'Up or down change as text, with sign and arrow, never colour alone',

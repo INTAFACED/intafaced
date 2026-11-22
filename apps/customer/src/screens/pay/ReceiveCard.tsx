@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Copy, Link2, Share2 } from 'lucide-react';
-import { Button, PAY_QR_KEY_UNSET, requestPath, Skeleton, StateBlock, useSession, useToast } from './deps';
+import { Button, EmptyState, RefusalBox, useToast } from '@intafaced/ui/lit';
+import { QrCode, Skeleton } from '@intafaced/ui/lit/templates';
+import { encodeQr, PAY_QR_KEY_UNSET, qrPath, requestPath, useSession } from './deps';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { absoluteLink, canShare, copyText, shareLink } from './share';
-import { QrCode } from './QrCode';
 import { HandleSettings } from './HandleSettings';
 import { ReceiveContacts } from './ReceiveContacts';
 import { StrangerRule } from './StrangerRule';
@@ -23,15 +24,22 @@ export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQ
 
   if (identity.status === 'loading')
     return (
-      <div className="pay-body pay-body--skeleton" aria-busy="true" data-testid="receive-loading">
-        <Skeleton height={28} width={140} />
-        <Skeleton height={48} />
-        <Skeleton height={40} width={120} />
+      <div className="lt-body" aria-busy="true" data-testid="receive-loading">
+        <Skeleton shape="text" count={3} />
       </div>
     );
   if (identity.status === 'error')
     return (
-      <StateBlock kind="error" title={payCopy.t('Couldn’t load your details')} onRetry={identity.retry} retryLabel={payCopy.t('Retry')} />
+      <div role="alert">
+        <EmptyState
+          title={payCopy.t('Couldn’t load your details')}
+          action={
+            <Button tone="secondary" onClick={identity.retry}>
+              {payCopy.t('Retry')}
+            </Button>
+          }
+        />
+      </div>
     );
 
   const byHandle = identity.status === 'handles';
@@ -53,20 +61,16 @@ export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQ
   }
 
   return (
-    <div className="pay-body" data-testid="receive-card">
-      <div className="pay-receive">
-        <h2 className="pay-receive__label">{byHandle ? payCopy.t('Your handle') : payCopy.t('Your account ID')}</h2>
-        <p className="pay-receive__value" data-mono={byHandle ? undefined : ''} data-testid="receive-value">
-          {shown}
+    <div className="lt-body" data-testid="receive-card">
+      <div className="lt-field">
+        <h2 className="lt-hint">{byHandle ? payCopy.t('Your handle') : payCopy.t('Your account ID')}</h2>
+        <p className="lt-title" data-mono={byHandle ? undefined : ''} data-testid="receive-value">
+          {byHandle ? shown : <span className="lt-mono">{shown}</span>}
         </p>
-        <p className="pay-receive__hint">{byHandle ? payCopy.t('Receive tagline') : payCopy.t('Receive tagline account')}</p>
-        {failed === 'value' ? (
-          <p className="pay-problem" role="alert">
-            {payCopy.t('Copy failed')}
-          </p>
-        ) : null}
+        <p className="lt-hint">{byHandle ? payCopy.t('Receive tagline') : payCopy.t('Receive tagline account')}</p>
+        {failed === 'value' ? <p role="alert">{payCopy.t('Copy failed')}</p> : null}
       </div>
-      <Button variant="primary" size={56} fullWidth onClick={() => void copy('value')} data-testid="receive-copy">
+      <Button tone="primary" size="lg" block onClick={() => void copy('value')} data-testid="receive-copy">
         <Copy size={18} aria-hidden="true" />
         {payCopy.t('Copy')}
       </Button>
@@ -75,49 +79,68 @@ export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQ
       {identity.status === 'handles' ? <ReceiveContacts /> : null}
       <StrangerRule />
 
-      <div className="pay-block" data-testid="receive-link">
-        <h3 className="pay-section-title">{t('scanToPay')}</h3>
+      <div className="lt-body" data-testid="receive-link">
+        <h3 className="lt-title">{t('scanToPay')}</h3>
         {qr.kind === 'loading' ? (
           <div aria-busy="true" data-testid="receive-qr-loading">
-            <Skeleton height="10rem" width="10rem" />
-            <Skeleton height="1.25rem" />
+            <Skeleton shape="figure" />
+            <Skeleton shape="text" count={1} />
           </div>
         ) : (
           <>
             {qr.kind === 'ok' ? (
-              <QrCode value={link} />
+              <PayQr value={link} />
             ) : qr.kind === 'unset' ? (
-              <StateBlock kind="refused" title={t('qrUnsetTitle')} body={t('qrUnsetBody')} code={PAY_QR_KEY_UNSET} />
+              <RefusalBox refusal={{ variant: 'refused', title: t('qrUnsetTitle'), body: t('qrUnsetBody'), reference: PAY_QR_KEY_UNSET }} />
             ) : (
-              <StateBlock kind="error" title={t('qrLoadFailed')} onRetry={qr.retry} retryLabel={payCopy.t('Retry')} />
+              <div role="alert">
+                <EmptyState
+                  title={t('qrLoadFailed')}
+                  action={
+                    <Button tone="secondary" onClick={qr.retry}>
+                      {payCopy.t('Retry')}
+                    </Button>
+                  }
+                />
+              </div>
             )}
-            <p className="pay-link" data-testid="receive-link-value" aria-label={t('yourLink')}>
+            <p className="lt-mono" data-testid="receive-link-value" aria-label={t('yourLink')}>
               {link}
             </p>
           </>
         )}
-        <p className="pay-hint">{t('receiveLinkHint')}</p>
-        {failed === 'link' ? (
-          <p className="pay-problem" role="alert">
-            {t('copyLinkFailed')}
-          </p>
-        ) : null}
-        <div className="pay-row-actions">
-          <Button variant="secondary" size={40} disabled={qr.kind === 'loading'} onClick={() => void copy('link')}>
+        <p className="lt-hint">{t('receiveLinkHint')}</p>
+        {failed === 'link' ? <p role="alert">{t('copyLinkFailed')}</p> : null}
+        <div className="lt-actions">
+          <Button tone="secondary" disabled={qr.kind === 'loading'} onClick={() => void copy('link')}>
             <Link2 size={16} aria-hidden="true" />
             {t('copyLink')}
           </Button>
           {canShare() ? (
-            <Button variant="secondary" size={40} disabled={qr.kind === 'loading'} onClick={() => void share()}>
+            <Button tone="secondary" disabled={qr.kind === 'loading'} onClick={() => void share()}>
               <Share2 size={16} aria-hidden="true" />
               {t('share')}
             </Button>
           ) : null}
-          <Button variant="ghost" size={40} nativeButton={false} render={<a href="/pay/request" role="link" />}>
+          <a className="lt-link" href="/pay/request">
             {t('requestAnAmount')}
-          </Button>
+          </a>
         </div>
       </div>
     </div>
   );
+}
+
+/** A QR code for a payment link, drawn by the kit: encoded as QrCode.tsx encodes it (error correction M, scale 2). */
+function PayQr({ value }: { value: string }) {
+  const { t } = personalCopy.useCopy();
+  const drawn = useMemo(() => {
+    try {
+      return qrPath(encodeQr(value, 'M'), 2);
+    } catch {
+      return null;
+    }
+  }, [value]);
+  if (!drawn) return <p role="alert">{t('qrFailed')}</p>;
+  return <QrCode d={drawn.d} size={drawn.size} label={t('qrLabel')} failed={t('qrFailed')} data-testid="pay-qr" />;
 }

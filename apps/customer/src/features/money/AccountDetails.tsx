@@ -1,19 +1,10 @@
-import { useEffect, useState } from 'react';
-
 import { Failure, Loading } from '../../shared/ui';
-
 import type { Resource } from '../../shared/resource';
-
 import { CopyButton } from '../../screens/account/CopyButton';
-
 import { useSession } from '../session';
-
 import { useBankRead } from './components';
-
 import type { AccountDetailSet, AccountDetailsRow } from './contracts';
-
 import { accountDetailsCopy } from './account-details-copy';
-
 import { DepthPanel, DisabledAction } from './DepthParts';
 
 /**
@@ -101,10 +92,12 @@ export function AccountDetailsBody({ resource, reload }: { resource: Resource<{ 
   return <AccountDetailsList rows={resource.data.currencies} />;
 }
 
-/** The account details of the profile in view. Shared with the deposit room. */
+/**
+ * The account-details read for the profile in view. The profile goes with the read: the bank proves it is held, and a
+ * business has no details of its own. Shared with Pay's global receive (screens/pay/GlobalAccountDetails.tsx).
+ */
 export function useAccountDetailsRead() {
   const { profiles } = useSession();
-  // The profile in view goes with the read: the bank proves it is held, and a business has no details of its own.
   return useBankRead('accountDetails.list', { profile: profiles.active });
 }
 
@@ -115,39 +108,5 @@ export function AccountDetailsPanel() {
     <DepthPanel title={t('detailsTitle')} lead={t('detailsLead')}>
       <AccountDetailsBody resource={read.resource} reload={read.reload} />
     </DepthPanel>
-  );
-}
-
-/**
- * Receiving from abroad (J-bank-05 #5): pick one currency the account holds and see its details, or the bank's own reason
- * there are none. The rows are the bank's answer for the profile in view; nothing is listed that it did not send.
- */
-export function AccountDetailsByCurrency() {
-  const { t } = accountDetailsCopy.useCopy();
-  const { profiles } = useSession();
-  const read = useAccountDetailsRead();
-  const [currency, setCurrency] = useState('');
-  // Another profile has its own rows: the choice starts again.
-  useEffect(() => setCurrency(''), [profiles.active]);
-  if (read.resource.status !== 'ready' || read.resource.data.currencies.length === 0) {
-    return <AccountDetailsBody resource={read.resource} reload={read.reload} />;
-  }
-  const rows = read.resource.data.currencies;
-  const chosen = rows.find((row) => row.currency === currency);
-  return (
-    <div className="bd-stack" data-testid="receive-details">
-      <label>
-        {t('receiveCurrency')}{' '}
-        <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
-          <option value="">{t('receiveChoose')}</option>
-          {rows.map((row) => (
-            <option key={row.currency} value={row.currency}>
-              {row.currency}
-            </option>
-          ))}
-        </select>
-      </label>
-      {chosen && <AccountDetailsList rows={[chosen]} heading="h4" />}
-    </div>
   );
 }

@@ -1,14 +1,6 @@
 import { useEffect, useId, useState } from 'react';
-import {
-  answerWaitingPayment,
-  Button,
-  fetchWaitingPayments,
-  fmtAmount,
-  HIDDEN_MASK,
-  useHideBalances,
-  useSession,
-  type ReceivedHold,
-} from './deps';
+import { Button, HIDDEN_MASK, useHideBalances } from '@intafaced/ui/lit';
+import { answerWaitingPayment, fetchWaitingPayments, fmtAmount, useSession, type ReceivedHold } from './deps';
 import { payCopy } from './copy';
 import { PAY_SENT_EVENT } from './recent-model';
 
@@ -67,19 +59,17 @@ export function WaitingForYou() {
 
   if (loaded.status === 'loading' || (loaded.status === 'ready' && loaded.list.length === 0)) return null;
   return (
-    <section className="pay-recent pay-waiting" aria-labelledby={titleId} data-testid="pay-waiting">
-      <h2 id={titleId} className="pay-recent__title">
-        {payCopy.t('Waiting for you')}
-      </h2>
+    <section aria-labelledby={titleId} data-testid="pay-waiting">
+      <h2 id={titleId}>{payCopy.t('Waiting for you')}</h2>
       {loaded.status === 'failed' ? (
-        <p className="pay-problem" role="alert">
+        <p className="lt-hint" role="alert">
           {payCopy.t('Waiting load failed')}{' '}
-          <button type="button" className="pay-recent__link" onClick={() => setRevision((n) => n + 1)}>
+          <Button tone="quiet" onClick={() => setRevision((n) => n + 1)}>
             {payCopy.t('Retry')}
-          </button>
+          </Button>
         </p>
       ) : (
-        <ul className="pay-waiting__list">
+        <ul>
           {loaded.list.map((hold) => {
             const who = hold.fromHandle ? `@${hold.fromHandle}` : payCopy.t('Someone not in your contacts');
             const amount = hidden ? HIDDEN_MASK : `${fmtAmount(hold.amount)} ${hold.assetId}`;
@@ -96,17 +86,16 @@ export function WaitingForYou() {
                     ? payCopy.t('Waiting going back')
                     : null;
             return (
-              <li key={hold.transferId} className="pay-waiting__item" data-testid="pay-waiting-item" data-state={hold.state}>
-                <p className="pay-waiting__head">
+              <li key={hold.transferId} data-testid="pay-waiting-item" data-state={hold.state}>
+                <p>
                   <span>{payCopy.t('{who} sent you {amount}', { who, amount })}</span>
                 </p>
-                <p className="pay-hint">{payCopy.t('Waiting reason stranger')}</p>
-                {hold.note ? <p className="pay-hint">{hold.note}</p> : null}
-                <p className="pay-hint">{payCopy.t('Waiting goes back {date}', { date })}</p>
-                <div className="pay-row-actions">
+                <p className="lt-hint">{payCopy.t('Waiting reason stranger')}</p>
+                {hold.note ? <p className="lt-hint">{hold.note}</p> : null}
+                <p className="lt-hint">{payCopy.t('Waiting goes back {date}', { date })}</p>
+                <div className="lt-actions">
                   <Button
-                    variant="primary"
-                    size={40}
+                    tone="primary"
                     disabled={busy !== null || !open}
                     onClick={() => void answer(hold, 'accept')}
                     aria-label={payCopy.t('Accept {amount} from {who}', { amount, who })}
@@ -114,8 +103,7 @@ export function WaitingForYou() {
                     {payCopy.t('Accept')}
                   </Button>
                   <Button
-                    variant="secondary"
-                    size={40}
+                    tone="secondary"
                     disabled={busy !== null || !open}
                     onClick={() => void answer(hold, 'deny')}
                     aria-label={payCopy.t('Deny {amount} from {who}', { amount, who })}
@@ -123,9 +111,9 @@ export function WaitingForYou() {
                     {payCopy.t('Deny')}
                   </Button>
                 </div>
-                {where ? <p className="pay-hint">{where}</p> : null}
+                {where ? <p className="lt-hint">{where}</p> : null}
                 {problem?.transferId === hold.transferId ? (
-                  <p className="pay-problem" role="alert">
+                  <p className="lt-hint" role="alert">
                     {problem.text}
                   </p>
                 ) : null}
