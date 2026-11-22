@@ -1,13 +1,13 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useSession } from '../session';
-import { Button, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { currentRoute, subscribeRoute } from '../../shared/route-watch';
 import { BLUEPRINT_EXPORT } from '@intafaced/contracts/blueprint-procedures';
 import { crewExportOwnedBy, crewProjection, type CrewEnvelope, type CrewRead } from './blueprint-crew-codec';
 import { blueprintCrewCopy } from './blueprint-crew-copy';
-import './blueprint-crew.css';
+import { Section } from './volt-parts';
 
 type Lease = Readonly<{ api: ApiClient; owner: string | null; session: object | null; route: ReturnType<typeof currentRoute> }>;
 type Request = Readonly<{ lease: Lease; controller: AbortController }>;
@@ -103,100 +103,96 @@ export function BlueprintCrew() {
   const date = (value: string) =>
     new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value)) + ' UTC';
   return (
-    <section id="blueprint-crew" className="blueprint-crew" aria-label={t('title')} lang={languageFor('title')}>
-      <Panel title={t('title')}>
-        {rendered.status === 'idle' ? <p className="lt-muted">{t('intro')}</p> : null}
-        {rendered.status === 'loading' ? <p role="status">{t('loading')}</p> : null}
-        {rendered.status === 'failed' ? (
-          <div className="blueprint-crew-failure" role="status">
-            <h3>{t(rendered.failure)}</h3>
-            <p>{t(`${rendered.failure}Detail`)}</p>
-          </div>
-        ) : null}
-        {data?.status === 'unplaced' ? (
-          <div role="status">
-            <h3>{t('unplaced')}</h3>
-            <p className="lt-muted">{t('unplacedDetail')}</p>
-          </div>
-        ) : null}
-        {data?.status === 'placed' ? (
-          <>
-            <p className="lt-muted">{t('placed')}</p>
-            <dl className="blueprint-crew-identity">
-              <div>
-                <dt>{t('crew')}</dt>
-                <dd className="blueprint-crew-name" lang={data.crew.name.trim() ? 'und' : languageFor('unnamed')}>
-                  {data.crew.name.trim() ? data.crew.name : t('unnamed')}
-                </dd>
-              </div>
-              <div>
-                <dt>{t('reference')}</dt>
-                <dd lang="zxx">{data.crew.id}</dd>
-              </div>
-              <div>
-                <dt>{t('yourRole')}</dt>
-                <dd>{t(data.members[0]!.role)}</dd>
-              </div>
-            </dl>
-            <dl className="blueprint-crew-facts">
-              <div>
-                <dt>{t('members')}</dt>
-                <dd>{t('occupancy', { count: data.members.length, capacity: data.crew.capacity })}</dd>
-              </div>
-              <div>
-                <dt>{t('season')}</dt>
-                <dd lang="zxx">{data.crew.season}</dd>
-              </div>
-              <div className="blueprint-crew-xp">
-                <dt>{t('xp')}</dt>
-                <dd lang="zxx">{data.crew.xp}</dd>
-              </div>
-            </dl>
-            {!data.profileAvailable ? (
-              <aside className="blueprint-crew-note">
-                <strong>{t('profileUnavailable')}</strong>
-                <p>{t('profileDetail')}</p>
-              </aside>
-            ) : null}
-            <div className="blueprint-crew-roster">
-              <h3>{t('roster')}</h3>
-              <ul>
-                {data.members.map((member) => (
-                  <li key={member.userId}>
-                    <strong>
-                      {member.own ? `${t('you')} · ` : ''}
-                      {t(member.role)}
-                    </strong>
-                    <span lang="zxx">{member.userId}</span>
-                    <span className="lt-muted">{t('joined', { time: date(member.joinedAt) })}</span>
-                  </li>
-                ))}
-              </ul>
+    <Section id="blueprint-crew" aria-label={t('title')} lang={languageFor('title')} title={t('title')}>
+      {rendered.status === 'idle' ? <p className="lt-hint">{t('intro')}</p> : null}
+      {rendered.status === 'loading' ? <p role="status">{t('loading')}</p> : null}
+      {rendered.status === 'failed' ? (
+        <div className="lt-refusal" role="status">
+          <h3 className="lt-refusal-title">{t(rendered.failure)}</h3>
+          <p className="lt-refusal-body">{t(`${rendered.failure}Detail`)}</p>
+        </div>
+      ) : null}
+      {data?.status === 'unplaced' ? (
+        <div role="status">
+          <h3>{t('unplaced')}</h3>
+          <p className="lt-hint">{t('unplacedDetail')}</p>
+        </div>
+      ) : null}
+      {data?.status === 'placed' ? (
+        <>
+          <p className="lt-hint">{t('placed')}</p>
+          <dl className="lt-kv">
+            <div>
+              <dt>{t('crew')}</dt>
+              <dd lang={data.crew.name.trim() ? 'und' : languageFor('unnamed')}>{data.crew.name.trim() ? data.crew.name : t('unnamed')}</dd>
             </div>
-          </>
-        ) : null}
-        <Button
-          variant={rendered.status === 'idle' ? 'primary' : 'secondary'}
-          disabled={!lease.owner || rendered.status === 'loading'}
-          onClick={() => void read()}
-        >
-          {t(
-            rendered.status === 'idle'
-              ? 'read'
-              : rendered.status === 'failed'
-                ? 'retry'
-                : rendered.status === 'loading'
-                  ? 'loading'
-                  : 'again',
-          )}
-        </Button>
-        {data ? (
-          <p className="blueprint-crew-export-time muted">
-            <span>{t('exported', { time: date(data.exportedAt) })}</span>
-            <span>{t('timeLimit')}</span>
-          </p>
-        ) : null}
-      </Panel>
-    </section>
+            <div>
+              <dt>{t('reference')}</dt>
+              <dd lang="zxx">{data.crew.id}</dd>
+            </div>
+            <div>
+              <dt>{t('yourRole')}</dt>
+              <dd>{t(data.members[0]!.role)}</dd>
+            </div>
+          </dl>
+          <dl className="lt-kv">
+            <div>
+              <dt>{t('members')}</dt>
+              <dd>{t('occupancy', { count: data.members.length, capacity: data.crew.capacity })}</dd>
+            </div>
+            <div>
+              <dt>{t('season')}</dt>
+              <dd lang="zxx">{data.crew.season}</dd>
+            </div>
+            <div>
+              <dt>{t('xp')}</dt>
+              <dd lang="zxx">{data.crew.xp}</dd>
+            </div>
+          </dl>
+          {!data.profileAvailable ? (
+            <aside className="lt-refusal">
+              <strong className="lt-refusal-title">{t('profileUnavailable')}</strong>
+              <p className="lt-refusal-body">{t('profileDetail')}</p>
+            </aside>
+          ) : null}
+          <div className="lt-stack">
+            <h3>{t('roster')}</h3>
+            <ul>
+              {data.members.map((member) => (
+                <li key={member.userId}>
+                  <strong>
+                    {member.own ? `${t('you')} · ` : ''}
+                    {t(member.role)}
+                  </strong>
+                  <span lang="zxx">{member.userId}</span>
+                  <span className="lt-hint">{t('joined', { time: date(member.joinedAt) })}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      ) : null}
+      <Button
+        tone={rendered.status === 'idle' ? 'primary' : 'secondary'}
+        disabled={!lease.owner || rendered.status === 'loading'}
+        onClick={() => void read()}
+      >
+        {t(
+          rendered.status === 'idle'
+            ? 'read'
+            : rendered.status === 'failed'
+              ? 'retry'
+              : rendered.status === 'loading'
+                ? 'loading'
+                : 'again',
+        )}
+      </Button>
+      {data ? (
+        <p className="lt-hint">
+          <span>{t('exported', { time: date(data.exportedAt) })}</span>
+          <span>{t('timeLimit')}</span>
+        </p>
+      ) : null}
+    </Section>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react';
 import type { TokenBasics, TokenPageData } from '@intafaced/contracts/protocol-tokens';
-import { Button, Failure, Field, Panel } from '../../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import type { ProtocolApi, RepresentationStatus } from '../api';
@@ -240,15 +241,15 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
           void review();
         }}
       >
-        <p className="lt-muted" id={ids.note}>
+        <p className="lt-hint" id={ids.note}>
           {t('quickNote')}
         </p>
-        <div className="protocol-actions" role="group" aria-label={t('quickSide')}>
+        <div className="lt-actions" role="group" aria-label={t('quickSide')}>
           {(['buy', 'sell'] as const).map((id) => (
             <Button
               key={id}
               type="button"
-              variant={side === id ? 'primary' : 'secondary'}
+              tone={side === id ? 'primary' : 'secondary'}
               aria-pressed={side === id}
               disabled={locked}
               onClick={() => {
@@ -282,12 +283,13 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
           </label>
         )}
         {!connected && !regionBlocked && pair && (
-          <div className="protocol-actions">
+          <div className="lt-actions">
             {wallet.wallets.length === 0 ? (
-              <p className="lt-muted">{t('quickNoWallet')}</p>
+              <p className="lt-hint">{t('quickNoWallet')}</p>
             ) : (
               wallet.wallets.map((entry) => (
                 <Button
+                  tone="primary"
                   key={entry.info.uuid}
                   type="button"
                   disabled={wallet.status === 'connecting'}
@@ -300,7 +302,7 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
           </div>
         )}
         {wrongNetwork && (
-          <Button type="button" onClick={() => void wallet.switchNetwork()}>
+          <Button type="button" tone="primary" onClick={() => void wallet.switchNetwork()}>
             {t('quickSwitch')}
           </Button>
         )}
@@ -315,7 +317,7 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
           </p>
         )}
         {balance === 'unread' && (
-          <Button type="button" variant="secondary" onClick={() => setReads((n) => n + 1)}>
+          <Button type="button" tone="secondary" onClick={() => setReads((n) => n + 1)}>
             {t('quickReadAgain')}
           </Button>
         )}
@@ -327,12 +329,12 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
           disabled={locked}
           onChange={(event) => setAmount(event.target.value.trim())}
         />
-        <div className="protocol-actions" role="group" aria-label={t('quickShares')}>
+        <div className="lt-actions" role="group" aria-label={t('quickShares')}>
           {[25n, 50n, 100n].map((percent) => (
             <Button
               key={String(percent)}
               type="button"
-              variant="secondary"
+              tone="secondary"
               disabled={locked || typeof balance !== 'bigint'}
               onClick={() => share(percent)}
             >
@@ -352,8 +354,8 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
         {setting && shown && !('refused' in shown) && shown.priceImpactBps > setting.slippageCeilingBps && (
           <p role="note">{swap('priceImpact', { impact: bpsToPercent(shown.priceImpactBps) })}</p>
         )}
-        {reason !== null && <p className="lt-muted">{reason}</p>}
-        <Button type="submit" disabled={reason !== null || locked}>
+        {reason !== null && <p className="lt-hint">{reason}</p>}
+        <Button type="submit" tone="primary" disabled={reason !== null || locked}>
           {t('quickReview')}
         </Button>
         {problem && <p role="alert">{problem}</p>}

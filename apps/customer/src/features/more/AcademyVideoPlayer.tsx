@@ -10,8 +10,7 @@ import {
 import { useResource } from '../../shared/resource';
 import { useApi, useSession } from '../session';
 import { useKeepInView } from '../../shared/media-element';
-import { Button, Loading } from '../../shared/ui';
-import { AcademyRefusal } from './AcademyLmsParts';
+import { Button } from '../../shared/ui';
 import { clock, cuePlainText, useVideoPlayer, VIDEO_SPEEDS, type VideoPlayerProps } from './academy-video-state';
 import { academyLmsCopy } from './academy-lms-copy';
 import { callAs } from '../../shared/api';
@@ -213,33 +212,6 @@ function TranscriptList({
         </li>
       ))}
     </ol>
-  );
-}
-
-/**
- * One video, read from Academy: player settings and tracks, a signed link, and the stored position. Each save is named
- * by this viewing and its count (`video:<slug>:<opened>:<n>`), so a save sent again after a lost reply is the same save.
- */
-export function AcademyVideoPlayer({ videoSlug, onCompleted }: { videoSlug: string; onCompleted?: (items: string[]) => void }) {
-  const { player, playback, position, save } = useVideoReads(videoSlug);
-  for (const read of [player, playback, position]) {
-    if (read.resource.status === 'failed') return <AcademyRefusal failure={read.resource.failure} retry={read.reload} />;
-  }
-  if (player.resource.status !== 'ready' || playback.resource.status !== 'ready' || position.resource.status !== 'ready')
-    return <Loading />;
-  return (
-    <VideoPlayerView
-      key={playback.resource.data.playbackUrl}
-      player={player.resource.data}
-      playback={playback.resource.data}
-      resumeAt={position.resource.data.positionSeconds}
-      save={save}
-      renewLink={() => {
-        position.reload();
-        playback.reload();
-      }}
-      onCompleted={onCompleted}
-    />
   );
 }
 

@@ -16,8 +16,11 @@ import {
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
-import { Button, Field, Panel } from '../../shared/ui';
-import { Details, Limit, Read, Select, type ActionControls } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { SelectField, TextField } from '@intafaced/ui/lit/templates';
+import type { ActionControls } from './common';
+import { KitDetails } from './volt-action';
+import { KitLimit, KitRead, Section } from './volt-parts';
 import { SessionMedia } from './SessionMedia';
 import { RoomNotes } from './AcademyRoomNotes';
 import { ROOM_KINDS, RoomCalendar, RoomKindFilter, RoomPinnedLessons } from './AcademyRoomPage';
@@ -52,16 +55,16 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
       `room:${userId}:${selected}:${limit}`,
     );
   return (
-    <div className="more-columns">
-      <div>
-        <Panel title={copyText('academyrooms.learning.rooms')}>
+    <div className="lt-stack">
+      <div className="lt-stack">
+        <Section title={copyText('academyrooms.learning.rooms')} className="lt-stack">
           <RoomKindFilter value={kindFilter} onChange={setKindFilter} />
-          <Read resource={rooms.resource} retry={rooms.reload} empty={copyText('academyrooms.no.learning.rooms.are.open')}>
+          <KitRead resource={rooms.resource} retry={rooms.reload} empty={copyText('academyrooms.no.learning.rooms.are.open')}>
             {(rows) => (
               <>
-                <div className="more-rooms">
+                <div className="lt-stack">
                   {rows.map((r) => (
-                    <article className="more-room-link" key={r.id}>
+                    <article className="lt-stack" data-testid="academy-room-card" key={r.id}>
                       <strong>{r.name}</strong>
                       <p>
                         {r.kind} · {r.access}
@@ -69,7 +72,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                         {r.capacity}
                       </p>
                       <Button
-                        variant="secondary"
+                        tone="secondary"
                         onClick={() => {
                           setSelected(r.id);
                           setSceneId('');
@@ -81,18 +84,18 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                     </article>
                   ))}
                 </div>
-                <Limit count={rows.length} limit={limit} cap={200} onChange={setLimit} />
+                <KitLimit count={rows.length} limit={limit} cap={200} onChange={setLimit} />
               </>
             )}
-          </Read>
-        </Panel>
-        <Panel title={copyText('academyrooms.room.and.sessions')}>
-          <Read resource={detail.resource} retry={detail.reload} empty={copyText('academyrooms.choose.a.room')}>
+          </KitRead>
+        </Section>
+        <Section title={copyText('academyrooms.room.and.sessions')} className="lt-stack">
+          <KitRead resource={detail.resource} retry={detail.reload} empty={copyText('academyrooms.choose.a.room')}>
             {(data) =>
               data ? (
                 <>
                   <h2>{data.room.name}</h2>
-                  <Details
+                  <KitDetails
                     items={[
                       [copyText('academyrooms.access'), data.room.access],
                       [
@@ -113,7 +116,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                   />
                   <RoomCalendar sessions={data.sessions} />
                   {data.sessions.map((s) => (
-                    <article key={s.id} className="more-session">
+                    <article key={s.id} className="lt-stack">
                       <h3>{s.title}</h3>
                       <p>
                         {s.status}
@@ -122,6 +125,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                       </p>
                       <div className="lt-actions">
                         <Button
+                          tone="primary"
                           disabled={action.disabled || s.status !== 'live'}
                           onClick={() =>
                             action.stage({
@@ -147,7 +151,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                           <Text k="academyrooms.join.2" />
                         </Button>
                         <Button
-                          variant="secondary"
+                          tone="secondary"
                           disabled={action.disabled}
                           onClick={() =>
                             action.stage({
@@ -170,13 +174,13 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                         >
                           <Text k="academyrooms.leave.2" />
                         </Button>
-                        <Button variant="secondary" onClick={() => setSceneId(s.id)}>
+                        <Button tone="secondary" onClick={() => setSceneId(s.id)}>
                           <Text k="academyrooms.open.scene" />
                         </Button>
                         {s.hostId === userId && (
                           <>
                             <Button
-                              variant="secondary"
+                              tone="secondary"
                               disabled={action.disabled || s.status !== 'scheduled'}
                               onClick={() =>
                                 action.stage({
@@ -198,7 +202,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                               <Text k="academyrooms.start.2" />
                             </Button>
                             <Button
-                              variant="secondary"
+                              tone="secondary"
                               disabled={action.disabled || s.status !== 'live'}
                               onClick={() =>
                                 action.stage({
@@ -222,7 +226,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                           </>
                         )}
                       </div>
-                      <p className="lt-muted">
+                      <p className="lt-hint">
                         {s.streamProvider === 'livekit'
                           ? copyText('academyrooms.audio.video.uses.the.service.granted.livekit')
                           : s.streamProvider
@@ -249,6 +253,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                         <Text k="academyrooms.host.tools" />
                       </h3>
                       <form
+                        className="lt-stack"
                         onSubmit={(e) => {
                           e.preventDefault();
                           action.stage({
@@ -256,7 +261,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                             confirm: copyText('academyrooms.schedule.session'),
                             success: copyText('academyrooms.session.scheduled'),
                             content: (
-                              <Details
+                              <KitDetails
                                 items={[
                                   [copyText('academyrooms.title'), title],
                                   [copyText('academyrooms.starts.2'), starts],
@@ -278,23 +283,19 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                           });
                         }}
                       >
-                        <Field
-                          label={copyText('academyrooms.session.title')}
-                          value={title}
-                          onChange={(e) => setTitle(e.target.value)}
-                          maxLength={160}
-                        />
-                        <Field
+                        <TextField label={copyText('academyrooms.session.title')} value={title} onChange={setTitle} maxLength={160} />
+                        <TextField
                           label={copyText('academyrooms.session.starts.at')}
                           type="datetime-local"
                           value={starts}
-                          onChange={(e) => setStarts(e.target.value)}
+                          onChange={setStarts}
                         />
-                        <Button type="submit" disabled={action.disabled || !title.trim() || !starts}>
+                        <Button tone="primary" type="submit" disabled={action.disabled || !title.trim() || !starts}>
                           <Text k="academyrooms.review.schedule" />
                         </Button>
                       </form>
                       <form
+                        className="lt-stack"
                         onSubmit={(e) => {
                           e.preventDefault();
                           action.stage({
@@ -302,7 +303,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                             confirm: copyText('academyrooms.send.invitation'),
                             success: copyText('academyrooms.invitation.recorded'),
                             content: (
-                              <Details
+                              <KitDetails
                                 items={[
                                   [copyText('academyrooms.account'), invite],
                                   [copyText('academyrooms.expires'), expires || copyText('academyrooms.no.expiry.supplied')],
@@ -323,18 +324,14 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                           });
                         }}
                       >
-                        <Field
-                          label={copyText('academyrooms.invite.account.id')}
-                          value={invite}
-                          onChange={(e) => setInvite(e.target.value)}
-                        />
-                        <Field
+                        <TextField label={copyText('academyrooms.invite.account.id')} value={invite} onChange={setInvite} />
+                        <TextField
                           label={copyText('academyrooms.invitation.expires.optional')}
                           type="datetime-local"
                           value={expires}
-                          onChange={(e) => setExpires(e.target.value)}
+                          onChange={setExpires}
                         />
-                        <Button type="submit" disabled={action.disabled || !z.guid().safeParse(invite).success}>
+                        <Button tone="primary" type="submit" disabled={action.disabled || !z.guid().safeParse(invite).success}>
                           <Text k="academyrooms.review.invitation" />
                         </Button>
                       </form>
@@ -343,15 +340,16 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                 </>
               ) : null
             }
-          </Read>
-        </Panel>
+          </KitRead>
+        </Section>
         {sceneId && <Scene id={sceneId} action={action} />}
       </div>
-      <Panel title={copyText('academyrooms.host.a.room')}>
-        <p className="lt-muted">
+      <Section title={copyText('academyrooms.host.a.room')} className="lt-stack">
+        <p className="lt-hint">
           <Text k="academyrooms.hosting.rights.come.from.your.identity.rank" />
         </p>
         <form
+          className="lt-stack"
           onSubmit={(e) => {
             e.preventDefault();
             action.stage({
@@ -359,7 +357,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
               confirm: copyText('academyrooms.create.room'),
               success: copyText('academyrooms.room.created'),
               content: (
-                <Details
+                <KitDetails
                   items={[
                     [copyText('academyrooms.name'), name],
                     [copyText('academyrooms.slug'), slug],
@@ -383,26 +381,27 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
             });
           }}
         >
-          <Field label={copyText('academyrooms.room.name')} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
-          <Field label={copyText('academyrooms.room.slug')} value={slug} onChange={(e) => setSlug(e.target.value)} maxLength={64} />
-          <Select label={copyText('academyrooms.room.kind')} value={kind} onChange={setKind} options={ROOM_KINDS} />
-          <Select label={copyText('academyrooms.room.access')} value={access} onChange={setAccess} options={['free', 'staked', 'invite']} />
-          <Field
-            label={copyText('academyrooms.room.capacity')}
-            value={capacity}
-            onChange={(e) => setCapacity(e.target.value)}
-            inputMode="numeric"
+          <TextField label={copyText('academyrooms.room.name')} value={name} onChange={setName} maxLength={120} />
+          <TextField label={copyText('academyrooms.room.slug')} value={slug} onChange={setSlug} maxLength={64} />
+          <SelectField label={copyText('academyrooms.room.kind')} value={kind} onChange={setKind} options={ROOM_KINDS} />
+          <SelectField
+            label={copyText('academyrooms.room.access')}
+            value={access}
+            onChange={setAccess}
+            options={['free', 'staked', 'invite']}
           />
+          <TextField label={copyText('academyrooms.room.capacity')} value={capacity} onChange={setCapacity} inputMode="numeric" />
           {access === 'staked' && (
-            <Field
+            <TextField
               label={copyText('academyrooms.minimum.stake.configured.token.units')}
               value={stake}
-              onChange={(e) => setStake(e.target.value)}
+              onChange={setStake}
               inputMode="decimal"
               hint={copyText('academyrooms.access.threshold.only.creating.a.room.does')}
             />
           )}
           <Button
+            tone="primary"
             type="submit"
             disabled={
               action.disabled ||
@@ -416,7 +415,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
             <Text k="academyrooms.review.room" />
           </Button>
         </form>
-      </Panel>
+      </Section>
     </div>
   );
 }
@@ -426,8 +425,8 @@ function Scene({ id, action }: { id: string; action: ActionControls }) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const data = useResource((signal) => api.call(ACADEMY_SESSION, { sessionId: id }, { signal }), `scene:${userId}:${id}`);
   return (
-    <Panel title={copyText('academyrooms.session.scene')}>
-      <Read resource={data.resource} retry={data.reload}>
+    <Section title={copyText('academyrooms.session.scene')} className="lt-stack">
+      <KitRead resource={data.resource} retry={data.reload}>
         {(d) => (
           <>
             <p>
@@ -436,7 +435,8 @@ function Scene({ id, action }: { id: string; action: ActionControls }) {
             </p>
             <svg
               viewBox={`0 0 ${d.session.scene.stage?.width ?? 640} ${d.session.scene.stage?.height ?? 360}`}
-              style={{ width: '100%', height: 300, border: '1px solid var(--color-border)' }}
+              width="100%"
+              height={300}
               role="img"
               aria-label={copyText('academyrooms.session.scene.with.participant.positions')}
               onClick={(event) => {
@@ -450,16 +450,16 @@ function Scene({ id, action }: { id: string; action: ActionControls }) {
             >
               {d.session.scene.avatars?.map((a) => (
                 <g key={a.id}>
-                  <circle cx={a.position.x} cy={a.position.y} r={10} fill="var(--color-accent)" />
-                  <text x={a.position.x + 14} y={a.position.y} fill="var(--color-text)">
+                  <circle cx={a.position.x} cy={a.position.y} r={10} fill="var(--lit-accent)" />
+                  <text x={a.position.x + 14} y={a.position.y} fill="currentColor">
                     {a.labelKey ?? a.id}
                   </text>
                 </g>
               ))}
               {d.session.scene.props?.map((p) => (
                 <g key={p.id}>
-                  <rect x={p.position.x} y={p.position.y} width={20} height={20} fill="var(--color-muted)" />
-                  <text x={p.position.x + 24} y={p.position.y} fill="var(--color-text)">
+                  <rect x={p.position.x} y={p.position.y} width={20} height={20} fill="var(--lit-line-strong)" />
+                  <text x={p.position.x + 24} y={p.position.y} fill="currentColor">
                     {p.kind}
                   </text>
                 </g>
@@ -467,22 +467,23 @@ function Scene({ id, action }: { id: string; action: ActionControls }) {
             </svg>
             {d.session.hostId === userId && (
               <>
-                <p className="lt-muted">
+                <p className="lt-hint">
                   <Text k="academyrooms.choose.a.location.or.use.the.coordinates" />
                 </p>
-                <Field
+                <TextField
                   label={copyText('academyrooms.host.x.coordinate')}
                   type="number"
-                  value={point?.x ?? ''}
-                  onChange={(e) => setPoint({ x: Number(e.target.value), y: point?.y ?? 0 })}
+                  value={String(point?.x ?? '')}
+                  onChange={(value) => setPoint({ x: Number(value), y: point?.y ?? 0 })}
                 />
-                <Field
+                <TextField
                   label={copyText('academyrooms.host.y.coordinate')}
                   type="number"
-                  value={point?.y ?? ''}
-                  onChange={(e) => setPoint({ x: point?.x ?? 0, y: Number(e.target.value) })}
+                  value={String(point?.y ?? '')}
+                  onChange={(value) => setPoint({ x: point?.x ?? 0, y: Number(value) })}
                 />
                 <Button
+                  tone="primary"
                   disabled={action.disabled || !point}
                   onClick={() => {
                     if (!point) return;
@@ -522,12 +523,12 @@ function Scene({ id, action }: { id: string; action: ActionControls }) {
                 </Button>
               </>
             )}
-            <p className="lt-muted">
+            <p className="lt-hint">
               <Text k="academyrooms.this.is.the.published.2d.scene.a" />
             </p>
           </>
         )}
-      </Read>
-    </Panel>
+      </KitRead>
+    </Section>
   );
 }

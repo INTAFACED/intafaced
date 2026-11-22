@@ -1,7 +1,8 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import { useApi, useSession } from '../session';
-import { Button, Failure } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { FailureNote } from './volt-parts';
 import type { ApiResult } from '../../shared/api';
 import { ACADEMY_STREAM_CREDENTIAL } from '@intafaced/contracts/academy-stream-credential-procedures';
 type MediaTrack = { kind: string; attach: () => HTMLMediaElement; detach: () => HTMLMediaElement[] };
@@ -224,53 +225,53 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
   const room = current.current,
     publish = room?.localParticipant.permissions?.canPublish === true;
   return (
-    <section className="more-media" aria-label={copyText('sessionmedia.session.audio.and.video')} data-revision={revision}>
+    <section className="lt-stack" aria-label={copyText('sessionmedia.session.audio.and.video')} data-revision={revision}>
       <p role="status">
         <Text k="sessionmedia.audio.video" />
         {phase}
       </p>
       {phase === 'connected' ? (
         <div className="lt-actions">
-          <Button variant="secondary" onClick={leave}>
+          <Button tone="secondary" onClick={leave}>
             <Text k="sessionmedia.disconnect.media" />
           </Button>
           {!room?.canPlaybackAudio && (
-            <Button variant="secondary" onClick={() => void enableAudio()}>
+            <Button tone="secondary" onClick={() => void enableAudio()}>
               <Text k="sessionmedia.enable.session.audio" />
             </Button>
           )}
           {publish ? (
             <>
-              <Button variant="secondary" onClick={() => void toggle('microphone')}>
+              <Button tone="secondary" onClick={() => void toggle('microphone')}>
                 {room?.localParticipant.isMicrophoneEnabled
                   ? copyText('sessionmedia.mute.microphone')
                   : copyText('sessionmedia.enable.microphone')}
               </Button>
-              <Button variant="secondary" onClick={() => void toggle('camera')}>
+              <Button tone="secondary" onClick={() => void toggle('camera')}>
                 {room?.localParticipant.isCameraEnabled ? copyText('sessionmedia.disable.camera') : copyText('sessionmedia.enable.camera')}
               </Button>
-              <Button variant="secondary" onClick={() => void toggle('screen')}>
+              <Button tone="secondary" onClick={() => void toggle('screen')}>
                 {room?.localParticipant.isScreenShareEnabled
                   ? copyText('sessionmedia.stop.screen.share')
                   : copyText('sessionmedia.share.screen')}
               </Button>
             </>
           ) : (
-            <p className="lt-muted">
+            <p className="lt-hint">
               <Text k="sessionmedia.your.service.grant.permits.receiving.media.publishing" />
             </p>
           )}
         </div>
       ) : (
-        <Button variant="secondary" disabled={!userId || connecting || sessionStatus !== 'live'} onClick={() => void connect()}>
+        <Button tone="secondary" disabled={!userId || connecting || sessionStatus !== 'live'} onClick={() => void connect()}>
           <Text k="sessionmedia.connect.audio.video" />
         </Button>
       )}
-      <p className="lt-muted">
+      <p className="lt-hint">
         <Text k="sessionmedia.join.the.session.seat.first.camera.and" />
       </p>
-      {failure && <Failure result={failure} />}
-      <div className="more-media-tracks" ref={media} />
+      {failure && <FailureNote result={failure} />}
+      <div className="lt-stack" ref={media} />
     </section>
   );
 }

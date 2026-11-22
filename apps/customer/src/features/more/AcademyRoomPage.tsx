@@ -4,11 +4,12 @@ import { academyCurriculumSummarySchema } from '@intafaced/contracts/academy-cat
 import { ACADEMY_CURRICULUM, ACADEMY_ROOM_KINDS } from '@intafaced/contracts/academy-learner-procedures';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { Button } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { SelectField } from '@intafaced/ui/lit/templates';
 import { useApi } from '../session';
 import { academyRoomPageCopy as copy } from './academy-room-page-copy';
 import { lessonHref } from './academy-learning-state';
-import { Select, type ActionControls } from './common';
+import type { ActionControls } from './common';
 import { ACADEMY_UNPIN_LESSON } from '@intafaced/contracts/academy-unpin-lesson-procedures';
 import { ACADEMY_PIN_LESSON } from '@intafaced/contracts/academy-pin-lesson-procedures';
 
@@ -34,7 +35,7 @@ export function RoomPinnedLessons({
   const { t, Copy } = copy.useCopy();
   const api = useApi();
   return (
-    <section data-room-pinned-lessons aria-labelledby={`room-pins-${roomId}`}>
+    <section className="lt-stack" data-room-pinned-lessons aria-labelledby={`room-pins-${roomId}`}>
       <h3 id={`room-pins-${roomId}`}>
         <Copy k="pinnedTitle" />
       </h3>
@@ -43,21 +44,21 @@ export function RoomPinnedLessons({
           <Copy k="pinnedEmpty" />
         </p>
       ) : (
-        <ol className="more-rooms">
+        <ol className="lt-stack">
           {lessons.map((lesson) => (
-            <li key={lesson.slug} className="more-room-link" data-room-pinned-lesson={lesson.slug}>
+            <li key={lesson.slug} className="lt-stack" data-room-pinned-lesson={lesson.slug}>
               <strong>{lesson.title}</strong>
               <p>{lesson.summary}</p>
-              <p className="lt-muted">
+              <p className="lt-hint">
                 <Copy k="pinnedMinutes" params={{ minutes: lesson.estimatedMinutes }} />
               </p>
               <div className="lt-actions">
-                <a href={lessonHref(lesson.slug, '')} aria-label={`${t('openLesson')}: ${lesson.title}`}>
+                <a className="lt-link" href={lessonHref(lesson.slug, '')} aria-label={`${t('openLesson')}: ${lesson.title}`}>
                   <Copy k="openLesson" />
                 </a>
                 {isHost && (
                   <Button
-                    variant="secondary"
+                    tone="secondary"
                     disabled={action.disabled}
                     onClick={() =>
                       action.stage({
@@ -103,6 +104,7 @@ function PinLessonForm({
   const chosen = open.find((item) => item.slug === slug);
   return (
     <form
+      className="lt-stack"
       onSubmit={(e) => {
         e.preventDefault();
         if (!chosen) return;
@@ -119,13 +121,13 @@ function PinLessonForm({
         });
       }}
     >
-      <Select
+      <SelectField
         label={t('pinLabel')}
         value={slug}
         onChange={setSlug}
         options={[{ value: '', label: t('pinChoose') }, ...open.map((item) => ({ value: item.slug, label: item.title }))]}
       />
-      <Button type="submit" disabled={action.disabled || !chosen}>
+      <Button tone="primary" type="submit" disabled={action.disabled || !chosen}>
         <Copy k="pinReview" />
       </Button>
     </form>
@@ -163,7 +165,7 @@ export function RoomCalendar({ sessions }: { sessions: readonly CalendarSession[
     else days.push({ day, sessions: [s] });
   }
   return (
-    <section data-room-calendar aria-label={copy.t('calendarTitle')}>
+    <section className="lt-stack" data-room-calendar aria-label={copy.t('calendarTitle')}>
       <h3>
         <Copy k="calendarTitle" />
       </h3>
@@ -175,7 +177,7 @@ export function RoomCalendar({ sessions }: { sessions: readonly CalendarSession[
         days.map((d) => (
           <div key={d.day} data-room-calendar-day={d.day}>
             <h4>{d.day}</h4>
-            <ul>
+            <ul className="lt-stack">
               {d.sessions.map((s) => (
                 <li key={s.id} data-room-calendar-session={s.id} data-status={s.status}>
                   <time dateTime={s.startsAt}>{timeOf(s.startsAt, language)}</time> · <span>{s.title}</span> ·{' '}
@@ -195,5 +197,7 @@ export const ROOM_KINDS = ACADEMY_ROOM_KINDS;
 /** Narrow the room list to one specialist kind (futures, merchant clinic, ...); blank shows every kind. */
 export function RoomKindFilter({ value, onChange }: { value: string; onChange: (kind: string) => void }) {
   const { t } = copy.useCopy();
-  return <Select label={t('kindFilter')} value={value} onChange={onChange} options={[{ value: '', label: t('kindAll') }, ...ROOM_KINDS]} />;
+  return (
+    <SelectField label={t('kindFilter')} value={value} onChange={onChange} options={[{ value: '', label: t('kindAll') }, ...ROOM_KINDS]} />
+  );
 }
