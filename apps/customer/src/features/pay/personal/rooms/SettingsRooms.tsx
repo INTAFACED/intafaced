@@ -77,7 +77,8 @@ function Room({
             </section>
           ))}
           <p>
-            <a className="lt-link" href="/pay" data-testid="pay-room-back">
+            {/* On its own line it is a control, not a word in a sentence: the kit's pill gives it a full-height target. */}
+            <a className="lt-tab" href="/pay" data-testid="pay-room-back">
               {t('back')}
             </a>
           </p>
