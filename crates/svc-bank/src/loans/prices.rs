@@ -274,6 +274,14 @@ pub struct FixedPriceSource {
 }
 
 impl FixedPriceSource {
+    /// `fixedPriceSource({})`: no marks for anything.
+    pub fn empty() -> FixedPriceSource {
+        FixedPriceSource {
+            prices: BTreeMap::new(),
+            clock: Box::new(system_clock),
+        }
+    }
+
     /// `prices` is `(asset, decimal price, quality)`, quality `mid` when `None`. A malformed price is `parseAmount`'s
     /// error here, where the TypeScript throws it from `marks`.
     pub fn new(

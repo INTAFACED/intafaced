@@ -473,6 +473,22 @@ pub struct RateChange {
 /// `checkRateChange`: the new rate in range, a reason of 3 to 300 characters, a real change, and the product still
 /// charging the rate the change replaces, before the second person's approval is spent.
 pub fn check_rate_change(c: &mut impl GenericClient, ch: &RateChange) -> Result<(), Refusal> {
+    check_rate_terms(ch)?;
+    let p = product(c, &ch.product_id)?;
+    if p.apr_bps != ch.from_apr_bps {
+        return Err(refuse(
+            "bank.loan_rate_moved",
+            format!(
+                "The product charges {} bps, not the {} bps this change replaces: read it again",
+                p.apr_bps, ch.from_apr_bps
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// The checks of [`check_rate_change`] that read nothing, run before the database is asked.
+pub fn check_rate_terms(ch: &RateChange) -> Result<(), Refusal> {
     if ch.apr_bps < 0 || ch.apr_bps > 10_000 {
         return Err(params_invalid("aprBps must be within 0..10000"));
     }
@@ -488,16 +504,6 @@ pub fn check_rate_change(c: &mut impl GenericClient, ch: &RateChange) -> Result<
         return Err(refuse(
             "bank.loan_params_invalid",
             format!("The change keeps the rate at {} bps", ch.apr_bps),
-        ));
-    }
-    let p = product(c, &ch.product_id)?;
-    if p.apr_bps != ch.from_apr_bps {
-        return Err(refuse(
-            "bank.loan_rate_moved",
-            format!(
-                "The product charges {} bps, not the {} bps this change replaces: read it again",
-                p.apr_bps, ch.from_apr_bps
-            ),
         ));
     }
     Ok(())
