@@ -55,14 +55,14 @@ describe('business category on the Compliance page', () => {
     expect(out).toContain('Not set. A business in this category can’t go live without it.');
     expect(out).toContain('every payment and checkout is refused');
     expect(out).toContain('You haven’t chosen a category yet');
-    expect(out).toMatch(/<select>/);
+    expect(out).toMatch(/<select[ >]/);
   });
 
   it('shows the chosen category, and locks it once the business is verified', () => {
     const chosen = { category: gaming, tableVersion: 4, chosenAt: '2026-10-24T06:00:00.000Z' };
     const open = html(ready({ ...table, chosen }));
     expect(open).toContain('Your category');
-    expect(open).toMatch(/<select>/);
+    expect(open).toMatch(/<select[ >]/);
     const locked = html(ready({ ...table, chosen, locked: true }));
     expect(locked).toContain('Ask INTAFACED support to change it');
     expect(locked).not.toContain('<select');
