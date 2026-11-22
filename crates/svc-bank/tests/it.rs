@@ -14,6 +14,8 @@ mod env_parity;
 mod guard_grid;
 #[path = "input_parity.rs"]
 mod input_parity;
+#[path = "loans_db.rs"]
+mod loans_db;
 #[path = "partner_db.rs"]
 mod partner_db;
 #[path = "partner_probe.rs"]
@@ -38,6 +40,7 @@ mod transfers_withdrawal_db;
 mod wire_replay;
 
 // The helpers the files share: `use crate::<helper>;`, never a `mod` of their own.
+mod loans_kit;
 mod support;
 
 /// A `tests/*.rs` or `tests/*/main.rs` file this root does not list would never run.
