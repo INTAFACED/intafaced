@@ -387,7 +387,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     needs: [changes]
     runs-on: ubuntu-24.04
-    timeout-minutes: 20 # healthy run: 6-9 min (rust:check took 5-8 min on main and PRs, 2026-11-20/21; the planted faults then under 1 min)
+    timeout-minutes: 30 # healthy run on 22 Nov: about 21 min (rust:check's four Postgres suites took 215, 240, 249 and 309 s, one after another; the planted faults about 1 min). 20 cancelled main twice that day with every test green.
     # svc-tax's Postgres stores and its `migrate` command are tested against a real database, each test in a throwaway
     # `*_test` database it makes from this one (crates/svc-tax/tests/stores_pg.rs). REQUIRE_POSTGRES makes a missing URL a
     # failure, never a skip.

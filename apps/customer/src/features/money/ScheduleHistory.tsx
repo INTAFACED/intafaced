@@ -186,7 +186,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                           </dl>
                         )}
                         {row.partnerMoveId !== null && (
-                          <dl className="money-execution-ledger" data-testid="money-execution-partner">
+                          <dl className="money-execution-partner" data-testid="money-execution-partner">
                             <dt>
                               <Copy k="partnerMove" />
                             </dt>
