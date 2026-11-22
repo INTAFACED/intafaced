@@ -15,7 +15,7 @@ import { CopyValue, DisabledAction, Panel } from './parts';
  */
 
 type FieldKey = 'accountNumber' | 'sortCode' | 'routingNumber' | 'bsb' | 'iban' | 'bic';
-export const DETAIL_FIELDS: readonly FieldKey[] = ['accountNumber', 'sortCode', 'routingNumber', 'bsb', 'iban', 'bic'];
+const DETAIL_FIELDS: readonly FieldKey[] = ['accountNumber', 'sortCode', 'routingNumber', 'bsb', 'iban', 'bic'];
 
 function SetView({ set }: { set: AccountDetailSet }) {
   const { t } = accountDetailsCopy.useCopy();

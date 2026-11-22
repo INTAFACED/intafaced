@@ -6,7 +6,7 @@ import { spaceLockStateSchema } from '../contracts';
 import { spaceLockCopy } from '../space-lock-copy';
 
 /** Whether a space is locked now, as the bank last said. An early unlock that took effect already came back as no lock. */
-export const lockedNow = (space: Pick<Space, 'lockedUntil'>, now = Date.now()) =>
+const lockedNow = (space: Pick<Space, 'lockedUntil'>, now = Date.now()) =>
   space.lockedUntil !== null && Date.parse(space.lockedUntil) > now;
 
 /**
