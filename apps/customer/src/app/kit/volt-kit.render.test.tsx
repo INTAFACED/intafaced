@@ -117,6 +117,7 @@ const BLOCKS = [
   'candles',
   'book',
   'people',
+  'qr',
   'states',
   'sheet',
 ];
@@ -167,6 +168,11 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     expect(block('candles').querySelector('.pc-root')?.getAttribute('data-candles'), 'the candle chart, with its 40 TEST candles').toBe(
       '40',
     );
+    const codes = block('qr').querySelectorAll('figure.lt-qr');
+    expect(codes, 'two QR codes, md and sm').toHaveLength(2);
+    expect(codes[0]!.querySelector('svg[role="img"]')?.getAttribute('aria-label')).toBe('Scan to open the TEST payment link');
+    expect(codes[1]!.querySelector('figcaption')?.textContent, 'the small one shows its text').toMatch(/^ethereum:0x/);
+    expect(block('qr').querySelector('[role="alert"]')?.textContent, 'and a text too long draws its failure line').toMatch(/too long/);
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
   });
 

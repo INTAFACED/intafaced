@@ -321,6 +321,8 @@ export const components = {
   AreaChart: '(B2) Value over time with a lit fill',
   Sparkline: '(B2) A small trend line for a card or a row, named for a screen reader; nothing from fewer than two points',
   Bars: '(B2) Bars (volume, monthly totals)',
+  QrCode:
+    '(B2) A scannable code: dark modules on a light ground in every theme, a four-module quiet zone, a bounded size, a name for a screen reader and its text on the figure',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
 } as const;
 export type ComponentName = keyof typeof components;

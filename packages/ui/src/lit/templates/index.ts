@@ -15,3 +15,4 @@ export * from '../components/b2-charts.js';
 export * from '../components/b2-table.js';
 export * from '../components/b2-people.js';
 export * from '../components/b2-fields.js';
+export * from '../components/b2-qr.js';

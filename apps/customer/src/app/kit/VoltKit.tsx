@@ -32,7 +32,7 @@ import { VoltStack } from '../../screens/home/VoltStack';
 import type { HomePortfolio } from '../../screens/home/deps';
 import { MobileTabs } from '../TopBar';
 import { useResolvedColours } from '../../shared/resolved-colours';
-import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, StepsAndSpark, TypeRoles } from './KitParts';
+import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, ScanCodes, StepsAndSpark, TypeRoles } from './KitParts';
 import './kit.css';
 
 /**
@@ -519,6 +519,14 @@ export default function VoltKit() {
 
       <Block id="people" title="Quick send" note="The people you send to most, a tap away. New.">
         <QuickSend label="Quick send" people={TEST_PEOPLE} add={{ label: 'Add new', href: '/pay/send' }} />
+      </Block>
+
+      <Block
+        id="qr"
+        title="A code to scan"
+        note="Dark on a light ground in every theme, so a phone reads it; its words underneath when asked, and its failure line."
+      >
+        <ScanCodes />
       </Block>
 
       <Block id="states" title="Empty, loading and error">
