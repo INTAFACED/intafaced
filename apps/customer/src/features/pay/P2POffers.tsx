@@ -2,14 +2,13 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui/lit';
-import { Field } from './ui-kit';
+import { Field } from './volt/parts';
 import { PAUSED_OFFERS_SHOWN, type PersonalPayApi } from './pay-api';
 import { id, type BoardQuery, type BoardSort, type Offer, type OfferPage } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { offerCopy } from './p2p-offer-copy';
 import { shortReference } from '../../shared/reference';
-import { MutationResult, PayAmount, PayDetails, PayFailure, PayNotice, PaySection, PayState, ReviewedAction, Status } from './components';
-import './p2p-offer.css';
+import { MutationResult, PayAmount, PayDetails, PayFailure, PayNotice, PaySection, PayState, ReviewedAction, Status } from './volt/parts';
 import { OfferTabs, TakeOfferPanel } from './personal/P2PDepth';
 import { TraderName, TraderSummary, useTraders, type TraderRecords } from './personal/Trader';
 import { isOwnOffer } from './personal/p2p-model';
@@ -55,7 +54,7 @@ const settlementRow = (offer: Offer): [string, ReactNode][] =>
   offer.nonInstantMethods?.length ? [[settlementCopy.t('label'), <OfferSettlement offer={offer} label={(methodId) => methodId} />]] : [];
 function OfferLimits({ offer }: { offer: Offer }) {
   return (
-    <span className="p2p-offer-range">
+    <span>
       <PayAmount value={offer.minAmount} unit={offer.asset} label={payCopy.t('assetLimits')} />
       <span>–</span>
       <PayAmount value={offer.maxAmount} unit={offer.asset} label={payCopy.t('assetLimits')} />
@@ -65,24 +64,24 @@ function OfferLimits({ offer }: { offer: Offer }) {
 export function OfferPrice({ offer }: { offer: Offer }) {
   const { Copy, t } = offerCopy.useCopy();
   return (
-    <div className="p2p-offer-price" data-testid="p2p-offer-price">
+    <div data-testid="p2p-offer-price">
       {offer.priceType === 'float' ? (
         <>
-          <span className="lt-muted">
+          <span className="lt-hint">
             <Copy k="referenceFactor" />
           </span>
           <PayAmount value={offer.price} unit={t('multiplier')} label={t('referenceFactor')} />
           {offer.referencePrice ? (
-            <span className="lt-muted">
+            <span className="lt-hint">
               <Copy k="referencePrice" />{' '}
               <PayAmount value={offer.referencePrice} unit={`${offer.fiatCurrency} / ${offer.asset}`} label={t('referencePrice')} />
             </span>
           ) : offer.referencePrice === null ? (
-            <span className="lt-muted" data-testid="p2p-offer-needs-feed">
+            <span className="lt-hint" data-testid="p2p-offer-needs-feed">
               <Copy k="needsFeed" params={{ fiat: offer.fiatCurrency, asset: offer.asset }} />
             </span>
           ) : (
-            <span className="lt-muted">
+            <span className="lt-hint">
               <Copy k="unresolvedPrice" params={{ fiat: offer.fiatCurrency, asset: offer.asset }} />
             </span>
           )}
@@ -90,7 +89,7 @@ export function OfferPrice({ offer }: { offer: Offer }) {
       ) : (
         <>
           <PayAmount value={offer.price} unit={`${offer.fiatCurrency} / ${offer.asset}`} label={payCopy.t('price')} />
-          <span className="lt-muted">{t('fixed')}</span>
+          <span className="lt-hint">{t('fixed')}</span>
         </>
       )}
     </div>
@@ -155,7 +154,7 @@ export function BoardPages({
           {loading ? t('loadingMore') : t('showMore')}
         </Button>
       ) : rows.length > 0 ? (
-        <p className="lt-muted">{t('boardEnd')}</p>
+        <p className="lt-hint">{t('boardEnd')}</p>
       ) : null}
     </>
   );
@@ -248,14 +247,15 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
   const registeredMethods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
   const originals = deviceOriginals(userId);
   return (
-    <div className={`p2p-offer-workspace${selected ? ' has-selection' : ''}`} lang={languageFor('current')} dir={directionFor('current')}>
-      <div className="p2p-offer-market" tabIndex={-1} ref={marketHeading} aria-label={payCopy.t('p2pOffers')}>
+    <div lang={languageFor('current')} dir={directionFor('current')}>
+      <div tabIndex={-1} ref={marketHeading} aria-label={payCopy.t('p2pOffers')}>
         <PaySection
           title={mine ? payCopy.t('yourOffers') : payCopy.t('offerBoard')}
           description={mine ? t('ownerWindow') : undefined}
           action={
-            <a className="lt-link" href="/uc/ad/create">
+            <a className="lt-link lt-link-alone" href="/uc/ad/create">
               <PayCopy k="createOffer" />
+              <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
             </a>
           }
         >
@@ -268,7 +268,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
             </PayNotice>
           )}
           {originals.ids.length > 0 && (
-            <section className="p2p-offer-device" aria-label={t('originals')}>
+            <section aria-label={t('originals')}>
               <h3>
                 <Copy k="originals" />
               </h3>
@@ -292,20 +292,20 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
             />
           ) : null}
           {maker ? (
-            <p className="p2p-notice-row">
+            <p>
               <span lang="zxx">{p2pDepth.t('makerNotice', { maker: shortReference(maker) })}</span>
               <a className="lt-link" href={location.pathname}>
                 {p2pDepth.t('makerClear')}
               </a>
             </p>
           ) : null}
-          <details className="p2p-offer-filters">
+          <details>
             <summary>
               <Copy k="filters" />
             </summary>
             <form
               data-testid="pay-filters"
-              className="pay-filters"
+
               onSubmit={(event) => {
                 event.preventDefault();
                 if (fiat && fiat.length !== 3) {
@@ -394,7 +394,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
             {currencies.resource.status === 'failed' && <PayFailure result={currencies.resource.failure} retry={currencies.reload} />}
           </details>
           {error && (
-            <p role="alert" className="error-text">
+            <p role="alert" className="lt-refusal">
               {error === 'invalidId' || error === 'fiatAmountNeedsCurrency' || error === 'fiatAmountInvalid' ? t(error) : payCopy.t(error)}
             </p>
           )}
@@ -409,7 +409,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                 {(visible, traders) => (
                   <>
                     {visible.length ? (
-                      <ul className="p2p-offer-list" aria-label={payCopy.t('p2pOffers')}>
+                      <ul aria-label={payCopy.t('p2pOffers')}>
                         {visible.map((offer) => {
                           const own = isOwnOffer(offer, userId);
                           const record = traders[offer.makerId.toLowerCase()];
@@ -417,29 +417,29 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                             <li
                               key={offer.id}
                               data-testid="p2p-offer-row"
-                              className="p2p-offer-row"
+
                               data-offer-id={offer.id}
                               data-own={own ? 'true' : undefined}
                             >
-                              <div className="p2p-offer-maker">
+                              <div>
                                 <strong>
                                   <OfferSide offer={offer} own={own} />
                                 </strong>
                                 {own ? (
                                   mine ? null : (
-                                    <span className="p2p-offer-reference">
+                                    <span>
                                       <strong>{p2pDepth.t('yourOffer')}</strong>
                                     </span>
                                   )
                                 ) : (
                                   <>
-                                    <span className="p2p-offer-reference" data-testid="p2p-offer-trader">
+                                    <span data-testid="p2p-offer-trader">
                                       <TraderName record={record} />
                                     </span>
                                     <TraderSummary record={record} />
                                   </>
                                 )}
-                                <span className="lt-muted" lang="zxx" data-testid="p2p-offer-methods">
+                                <span className="lt-hint" lang="zxx" data-testid="p2p-offer-methods">
                                   {offerMethods(offer).join(', ') || payCopy.t('noUsableMethodsDeclared')}
                                 </span>
                                 <OfferSettlement offer={offer} label={(methodId) => methodId} />
@@ -447,24 +447,20 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                               </div>
                               {mine ? <StateSince offer={offer} /> : null}
                               <OfferPrice offer={offer} />
-                              <div className="p2p-offer-quantities">
-                                <span className="lt-muted">
+                              <div>
+                                <span className="lt-hint">
                                   <Copy k="limit" />
                                 </span>
                                 <span data-testid="p2p-offer-limits">
                                   <PayAmount value={offer.minAmount} unit={offer.asset} label={payCopy.t('assetLimits')} /> –{' '}
                                   <PayAmount value={offer.maxAmount} unit={offer.asset} label={payCopy.t('assetLimits')} />
                                 </span>
-                                <span className="lt-muted">
+                                <span className="lt-hint">
                                   <PayCopy k="remainingQuantity" />
                                 </span>
                                 <PayAmount value={offer.remainingAmount} unit={offer.asset} label={payCopy.t('remainingQuantity')} />
                               </div>
-                              <Button
-                                className="p2p-offer-inspect"
-                                tone="secondary"
-                                onClick={(event) => choose(offer.id, event.currentTarget)}
-                              >
+                              <Button tone="secondary" onClick={(event) => choose(offer.id, event.currentTarget)}>
                                 <Copy k="inspect" />
                               </Button>
                             </li>
@@ -478,7 +474,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                     ) : (
                       <PayNotice title={p2pDepth.t('offersNoneBoardTitle')}>{p2pDepth.t('offersNoneBoardBody')}</PayNotice>
                     )}
-                    {filter.fiatAmount ? <p className="lt-muted">{t('fiatAmountFloats')}</p> : null}
+                    {filter.fiatAmount ? <p className="lt-hint">{t('fiatAmountFloats')}</p> : null}
                   </>
                 )}
               </BoardPages>
@@ -511,13 +507,13 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
               }}
             />
           ) : null}
-          <p className="lt-muted">
+          <p className="lt-hint">
             <Copy k="window" />
           </p>
           <Button tone="quiet" onClick={list.reload}>
             <Copy k="refreshMarket" />
           </Button>
-          <details className="p2p-offer-known">
+          <details>
             <summary>
               <Copy k="known" />
             </summary>
@@ -661,21 +657,21 @@ function OfferInspector({
     refresh();
   }
   return (
-    <section className="p2p-offer-inspector" aria-label={t('current')}>
+    <section aria-label={t('current')}>
       <Button tone="quiet" onClick={close}>
         {t(mine ? 'backOwn' : 'back')}
       </Button>
-      <div className="p2p-offer-identity">
+      <div>
         <h2 tabIndex={-1} ref={heading}>
           {t('current')}
         </h2>
-        <span className="p2p-offer-reference" lang="zxx" title={offerId}>
+        <span lang="zxx" title={offerId}>
           {shortReference(offerId)}
         </span>
       </div>
       {!locked && <MutationResult result={actionResult} title={t('current')} />}
       {locked && (
-        <section className="p2p-offer-original" aria-label={knownReply ? t('replyRetained') : payCopy.t('originalOfferActionIsUnresolved')}>
+        <section aria-label={knownReply ? t('replyRetained') : payCopy.t('originalOfferActionIsUnresolved')}>
           <h3 tabIndex={-1} ref={originalHeading}>
             {knownReply ? t('replyRetained') : payCopy.t('originalOfferActionIsUnresolved')}
           </h3>
@@ -701,7 +697,7 @@ function OfferInspector({
         </section>
       )}
       {query.resource.status === 'failed' && (
-        <p className="lt-muted">
+        <p className="lt-hint">
           <Copy k="unavailableBody" />
         </p>
       )}
@@ -751,7 +747,7 @@ function CurrentOffer({
   const traders = useTraders(pay, own ? [] : [offer.makerId]);
   const record = traders[offer.makerId.toLowerCase()];
   const review = (
-    <div className="p2p-offer-review">
+    <div>
       <OfferPrice offer={offer} />
       <PayDetails
         values={[
@@ -785,8 +781,8 @@ function CurrentOffer({
     return result;
   }
   return (
-    <div className="p2p-current-offer">
-      <div className="p2p-offer-role">
+    <div>
+      <div>
         <strong>
           <OfferSide offer={offer} own={own} />
         </strong>
@@ -812,7 +808,7 @@ function CurrentOffer({
             ? [p2pDepth.t('yourOffer'), <OfferSide offer={offer} own />]
             : [
                 p2pDepth.t('traderLabel'),
-                <span className="p2p-offer-maker">
+                <span>
                   <strong>
                     <TraderName record={record} />
                   </strong>
@@ -883,23 +879,23 @@ function PausedOffers({
         {(offers) => (
           <>
             {offers.length >= PAUSED_OFFERS_SHOWN ? (
-              <p className="lt-muted">{t('pausedMore', { count: String(PAUSED_OFFERS_SHOWN) })}</p>
+              <p className="lt-hint">{t('pausedMore', { count: String(PAUSED_OFFERS_SHOWN) })}</p>
             ) : null}
-            <ul className="p2p-offer-list">
+            <ul>
               {offers.map((offer) => (
-                <li key={offer.id} className="p2p-offer-row" data-offer-id={offer.id} data-pause-reason={offer.pauseReason ?? undefined}>
-                  <div className="p2p-offer-maker">
+                <li key={offer.id} data-testid="p2p-offer-row" data-offer-id={offer.id} data-pause-reason={offer.pauseReason ?? undefined}>
+                  <div>
                     <strong>
                       <OfferSide offer={offer} own />
                     </strong>
-                    <span className="lt-muted" lang="zxx">
+                    <span className="lt-hint" lang="zxx">
                       {offerMethods(offer).join(', ') || payCopy.t('noUsableMethodsDeclared')}
                     </span>
                     <Status value={offer.status} />
                   </div>
                   <PauseReason offer={offer} />
                   <StateSince offer={offer} />
-                  <Button className="p2p-offer-inspect" tone="secondary" onClick={(event) => choose(offer.id, event.currentTarget)}>
+                  <Button tone="secondary" onClick={(event) => choose(offer.id, event.currentTarget)}>
                     <Copy k="inspect" />
                   </Button>
                 </li>
@@ -914,9 +910,9 @@ function PausedOffers({
 
 function PauseReason({ offer }: { offer: Offer }) {
   const { t } = offerCopy.useCopy();
-  if (offer.pauseReason !== 'method_removed') return <p className="lt-muted">{t('pausedByYou')}</p>;
+  if (offer.pauseReason !== 'method_removed') return <p className="lt-hint">{t('pausedByYou')}</p>;
   return (
-    <p className="lt-muted" data-testid="pause-reason">
+    <p className="lt-hint" data-testid="pause-reason">
       {t('pausedMethodRemoved', { fiat: offer.fiatCurrency })}{' '}
       <a className="lt-link" href="/p2p/methods">
         {t('pausedAddMethod')}

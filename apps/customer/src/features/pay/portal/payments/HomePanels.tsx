@@ -1,13 +1,10 @@
 import type { ReactNode } from 'react';
 import { ArrowUpRight } from 'lucide-react';
-import { EmptyState } from '../../ui-kit';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
-import { Chip, Facts, Gate } from '../components';
+import { Chip, CopyReference, Empty, Facts, Gate, Section } from '../volt/parts';
 import { portalCopy } from '../copy';
 import type { MemberRole, MerchantRecord } from '../schemas';
-import { CopyReference } from '../ui/CopyReference';
 import { feeStory, hasAccountFee } from '../ui/fee-story';
 import { plainCode } from '../ui/plain-code';
 import { paymentsCopy as c } from './copy';
@@ -68,8 +65,8 @@ export function HomePanelsView({
 }) {
   const { t } = portalCopy.useCopy();
   return (
-    <div className="lt-stack">
-      <PaySection title={c.t('hp_accountTitle')}>
+    <>
+      <Section title={c.t('hp_accountTitle')}>
         <Facts
           items={[
             ...(merchant
@@ -84,22 +81,18 @@ export function HomePanelsView({
             ...(merchant ? ([[c.t('hp_reference'), <CopyReference value={merchant.id} what={c.t('hp_reference')} />]] as const) : []),
           ]}
         />
-      </PaySection>
-      <PaySection title={c.t('hp_railsTitle')} description={c.t('hp_railsBody')}>
+      </Section>
+      <Section title={c.t('hp_railsTitle')} description={c.t('hp_railsBody')}>
         <Gate resource={rails} retry={retryRails} rows={2}>
           {(rows) =>
             rows.length === 0 ? (
-              <EmptyState title={c.t('hp_railsNone')}>{c.t('hp_railsNoneBody')}</EmptyState>
+              <Empty title={c.t('hp_railsNone')}>{c.t('hp_railsNoneBody')}</Empty>
             ) : (
-              <ul
-                className="pp-rails"
-                aria-label={c.t('hp_railsTitle')}
-                style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 12 }}
-              >
+              <ul className="lt-rows" aria-label={c.t('hp_railsTitle')}>
                 {rows.map((rail) => (
-                  <li key={rail.id} style={{ display: 'grid', gap: 2 }}>
+                  <li key={rail.id}>
                     <strong>{railName(rail.id)}</strong>
-                    <small className="lt-muted">
+                    <small className="lt-hint">
                       {rail.mode === 'live' ? c.t('hp_modeLive') : rail.mode === 'sandbox' ? c.t('hp_modeTest') : c.t('hp_modeOff')}
                       {' · '}
                       {!rail.usable ? c.t('hp_notReady') : rail.healthy ? c.t('hp_ready') : c.t('hp_problems')}
@@ -110,8 +103,8 @@ export function HomePanelsView({
             )
           }
         </Gate>
-      </PaySection>
-      <PaySection
+      </Section>
+      <Section
         title={c.t('hp_checkoutTitle')}
         action={
           <a className="lt-link" href="/pay/checkout" aria-label={c.t('hp_checkoutOpen')}>
@@ -122,8 +115,8 @@ export function HomePanelsView({
         <Gate resource={settings} retry={retrySettings} rows={2}>
           {(s) => <CheckoutSummary settings={s} />}
         </Gate>
-      </PaySection>
-    </div>
+      </Section>
+    </>
   );
 }
 
@@ -132,7 +125,7 @@ export function HomePanelsView({
  * with no rate says exactly that. A price list never stands in for it: it only describes a schedule.
  */
 function FeeText({ merchant }: { merchant: MerchantRecord | null }) {
-  return hasAccountFee(merchant) ? <>{feeStory(merchant)}</> : <span className="lt-muted">{feeStory(merchant)}</span>;
+  return hasAccountFee(merchant) ? <>{feeStory(merchant)}</> : <span className="lt-hint">{feeStory(merchant)}</span>;
 }
 
 /** A short read of the checkout settings, for the Home page. The full page is `/pay/checkout`. */
@@ -155,5 +148,3 @@ function CheckoutSummary({ settings }: { settings: CheckoutSettings }) {
     </p>
   );
 }
-
-export { CheckoutSettingsView } from './CheckoutSettings';

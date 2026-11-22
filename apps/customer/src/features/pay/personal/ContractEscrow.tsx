@@ -5,7 +5,7 @@ import type { ProtocolEscrowBuildInput, ProtocolEscrowDeal } from '@intafaced/co
 import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session';
 import { createProtocolApi, shortAddress, useWallet, waitMined, WalletProvider, type SequenceResult } from '../../protocol';
-import { PayDetails, PayTime } from '../components';
+import { PayDetails, PayTime } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { ContractEscrowOffer, Offer, Trade } from '../schemas';
 import { contractEscrowCopy } from './contract-escrow-copy';
@@ -64,10 +64,10 @@ export function ContractEscrowChoice({ state }: { state: ContractEscrowChoiceSta
   return (
     <fieldset className="lt-field" data-testid="take-escrow-type">
       <legend>{t('escrowType')}</legend>
-      <p className="lt-muted">{t('escrowChosenAtOrder')}</p>
+      <p className="lt-hint">{t('escrowChosenAtOrder')}</p>
       <label>
         <input type="radio" name="escrow-type" checked={kind === 'ledger'} onChange={() => setKind('ledger')} />{' '}
-        <span>{t('escrowLedger')}</span> <small className="lt-muted">{t('escrowLedgerHint')}</small>
+        <span>{t('escrowLedger')}</span> <small className="lt-hint">{t('escrowLedgerHint')}</small>
       </label>
       <label>
         <input
@@ -77,10 +77,10 @@ export function ContractEscrowChoice({ state }: { state: ContractEscrowChoiceSta
           disabled={blocked !== null}
           onChange={() => setKind('contract')}
         />{' '}
-        <span>{t('escrowContract')}</span> <small className="lt-muted">{network ? t('escrowContractHint', { network }) : null}</small>
+        <span>{t('escrowContract')}</span> <small className="lt-hint">{network ? t('escrowContractHint', { network }) : null}</small>
       </label>
       {blocked ? (
-        <small className="lt-muted" data-testid="take-escrow-contract-blocker" role="note">
+        <small className="lt-hint" data-testid="take-escrow-contract-blocker" role="note">
           {blocked}
         </small>
       ) : null}
@@ -98,14 +98,14 @@ export function ContractEscrowChoice({ state }: { state: ContractEscrowChoiceSta
       ) : null}
       {kind === 'contract' && !blocked ? (
         address ? (
-          <p className="lt-muted" data-testid="take-escrow-wallet">
+          <p className="lt-hint" data-testid="take-escrow-wallet">
             {t('escrowWallet', { address })}
           </p>
         ) : (
           <div className="lt-stack">
-            <p className="lt-muted">{t('escrowConnect')}</p>
+            <p className="lt-hint">{t('escrowConnect')}</p>
             {wallet.wallets.length === 0 ? (
-              <p className="lt-muted">{t('escrowNoWallet')}</p>
+              <p className="lt-hint">{t('escrowNoWallet')}</p>
             ) : (
               wallet.wallets.map((entry) => (
                 <Button
@@ -341,7 +341,7 @@ function ContractEscrowInner({
         <p role="alert">{t('dealUnread', { reason: deal.resource.failure.message || deal.resource.failure.code || '' })}</p>
       ) : null}
       {seller && trade.status === 'fiat_sent' ? (
-        <p className="lt-muted" data-testid="order-contract-seller-paid">
+        <p className="lt-hint" data-testid="order-contract-seller-paid">
           {t('sellerPaid')}
         </p>
       ) : null}
@@ -367,7 +367,7 @@ function ContractEscrowInner({
                 {t('escrowConnectButton', { name: entry.info.name })}
               </Button>
             ))}
-            {wallet.wallets.length === 0 ? <p className="lt-muted">{t('escrowNoWallet')}</p> : null}
+            {wallet.wallets.length === 0 ? <p className="lt-hint">{t('escrowNoWallet')}</p> : null}
           </div>
         ) : wrongWallet ? (
           <p role="alert">{t('wrongWallet', { address: shortAddress(wrongWallet) })}</p>
@@ -412,7 +412,7 @@ function ContractEscrowInner({
       ) : null}
       {problem ? <p role="alert">{problem}</p> : null}
       {trade.escrowedAt ? (
-        <p className="lt-muted">
+        <p className="lt-hint">
           <PayTime value={trade.escrowedAt} />
         </p>
       ) : null}

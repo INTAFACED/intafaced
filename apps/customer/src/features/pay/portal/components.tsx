@@ -5,7 +5,7 @@ import { Button, StateBlock } from '@intafaced/ui';
 import { EmptyState } from '../ui-kit';
 import { DateTime } from './ui/DateTime';
 import type { ListState } from './hooks';
-import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
+import { activeHalts, spanParts, type PayoutState } from './model';
 import { portalCopy } from './copy';
 import { StatusChip } from './ui/StatusChip';
 import { CopyReference } from './ui/CopyReference';
@@ -13,7 +13,7 @@ import { uiCopy } from './ui/copy';
 import type { ChipKind } from './ui/status-vocabulary';
 import { NotLiveCard } from './chrome/NotLiveCard';
 import { isNotLive, notLiveReason, refusalText, refusalTitle } from './refusal';
-import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
+import type { AssetAmount, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -207,31 +207,6 @@ export function Money({ value, asset }: { value: string; asset: string }) {
     <span className="numeric pp-money">
       <MoneyDisplay value={value} asset={asset} unit={asset} />
     </span>
-  );
-}
-
-/** "As of" and lag on every metric (B12). Unknown freshness is stated, never dressed as live. */
-export function AsOf({ freshness }: { freshness: Freshness }) {
-  const { t } = portalCopy.useCopy();
-  const state = staleness(freshness);
-  if (state.kind === 'unknown')
-    return (
-      <p className="pp-asof pp-asof--warn" role="status">
-        {t('asOfUnknown')}
-      </p>
-    );
-  const lag = lagParts(state.lagSeconds);
-  const lagText =
-    lag.unit === 'seconds'
-      ? t('lagSeconds', { n: lag.n })
-      : lag.unit === 'minutes'
-        ? t('lagMinutes', { n: lag.n })
-        : t('lagHours', { n: lag.n });
-  return (
-    <p className={`pp-asof${state.kind === 'stale' ? ' pp-asof--warn' : ''}`} role="status">
-      {t('asOf')} <DateTime value={freshness.asOf!} /> · {lagText}
-      {state.kind === 'stale' && <> · {t('staleWarning')}</>}
-    </p>
   );
 }
 

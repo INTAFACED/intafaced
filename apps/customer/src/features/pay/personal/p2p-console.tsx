@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Dialog } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { uiCopy } from '../../../shared/ui-copy';
 import type { PersonalPayApi } from '../pay-api';
 import type { BulkOutcome, Offer, Presence, PresenceWindow, TodoItem } from '../schemas';
-import { PayFailure, PayState, PayTime } from '../components';
+import { PayFailure, PayState, PayTime } from '../volt/parts';
 import { consoleCopy } from './p2p-console-copy';
 
 /**
@@ -86,7 +87,7 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
         ) : null}
       </p>
       <fieldset className="lt-stack">
-        <legend className="lt-muted">
+        <legend className="lt-hint">
           <Copy k="presenceHint" />
         </legend>
         {(['online', 'offline', 'scheduled'] as const).map((value) => (
@@ -121,16 +122,12 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
                 <Copy k="presenceTo" />{' '}
                 <input value={row.end} pattern="\d{2}:\d{2}" onChange={(event) => change(index, { end: event.target.value })} />
               </label>
-              <Button
-                variant="ghost"
-                disabled={windows.length === 1}
-                onClick={() => setWindows((rows) => rows.filter((_, i) => i !== index))}
-              >
+              <Button tone="quiet" disabled={windows.length === 1} onClick={() => setWindows((rows) => rows.filter((_, i) => i !== index))}>
                 <Copy k="presenceRemoveWindow" />
               </Button>
             </div>
           ))}
-          <Button variant="secondary" onClick={() => setWindows((rows) => [...rows, { day: 1, start: '09:00', end: '17:00' }])}>
+          <Button tone="secondary" onClick={() => setWindows((rows) => [...rows, { day: 1, start: '09:00', end: '17:00' }])}>
             <Copy k="presenceAddWindow" />
           </Button>
         </div>
@@ -145,7 +142,7 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
         )
       ) : null}
       <div className="lt-actions">
-        <Button variant="primary" disabled={busy} onClick={() => void save()}>
+        <Button tone="primary" disabled={busy} onClick={() => void save()}>
           <Copy k={busy ? 'presenceSaving' : 'presenceSave'} />
         </Button>
       </div>
@@ -171,7 +168,7 @@ export function MerchantTodos({ pay, userId }: { pay: PersonalPayApi; userId: st
       <PayState resource={todos.resource} retry={todos.reload}>
         {(items) =>
           items.length === 0 ? (
-            <p className="lt-muted">
+            <p className="lt-hint">
               <Copy k="todoNone" />
             </p>
           ) : (
@@ -265,12 +262,12 @@ export function BulkAds({
       <PayState resource={active.resource} retry={active.reload}>
         {() =>
           ads.length === 0 ? (
-            <p className="lt-muted">
+            <p className="lt-hint">
               <Copy k="bulkNone" />
             </p>
           ) : (
             <fieldset className="lt-stack">
-              <legend className="lt-muted">
+              <legend className="lt-hint">
                 <Copy k="bulkPick" />
               </legend>
               {ads.map((ad) => (
@@ -288,7 +285,7 @@ export function BulkAds({
         }
       </PayState>
       {picked.length > MAX_BULK ? (
-        <p className="lt-muted" data-testid="bulk-too-many">
+        <p className="lt-hint" data-testid="bulk-too-many">
           {t('bulkTooMany', { max: String(MAX_BULK) })}
         </p>
       ) : null}
@@ -296,7 +293,7 @@ export function BulkAds({
         {(['pause', 'resume', 'remove'] as const).map((action) => (
           <Button
             key={action}
-            variant="secondary"
+            tone="secondary"
             disabled={picked.length === 0 || picked.length > MAX_BULK}
             onClick={() => {
               setFailure(null);
@@ -323,10 +320,10 @@ export function BulkAds({
             </ul>
             {failure ? <PayFailure result={failure} /> : null}
             <div className="lt-actions">
-              <Button variant="ghost" disabled={busy} onClick={() => setAsking(null)}>
+              <Button tone="quiet" disabled={busy} onClick={() => setAsking(null)}>
                 <Copy k="bulkCancel" />
               </Button>
-              <Button variant="primary" disabled={busy} onClick={() => void run()}>
+              <Button tone="primary" disabled={busy} onClick={() => void run()}>
                 <Copy k={busy ? 'bulkWorking' : 'bulkGo'} />
               </Button>
             </div>

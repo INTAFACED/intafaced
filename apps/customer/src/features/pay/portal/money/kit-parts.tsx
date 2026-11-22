@@ -11,6 +11,7 @@ import { Button } from '@intafaced/ui/lit';
 import { Empty, EntityList, Failure, Loading, NotLive, TestTag, type EntityColumn } from '../volt/parts';
 import { mc } from './copy';
 import { useTestMode } from './test-mode';
+import { isStatementBusy } from './money-words';
 
 /** Practice money: one line at the top of the page, while the business is not yet approved. */
 export function TestBanner() {
@@ -79,6 +80,23 @@ function LoadMore({ state, onMore }: { state: ListState<unknown>; onMore: () => 
         {state.more === 'loading' ? t('loadingMore') : failed ? t('tryAgain') : t('loadMore')}
       </Button>
       {failed && <p role="alert">{refusalText(state.more as Extract<ApiResult<unknown>, { ok: false }>)}</p>}
+    </div>
+  );
+}
+
+/** A refusal with its plain words and a retry; a busy statement is a calm wait, not an error (`MoneyFailure` in `./common`). */
+export function MoneyFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
+  const { t } = mc.useCopy();
+  if (!isStatementBusy(result)) return <Failure result={result} retry={retry} />;
+  return (
+    <div data-testid="failure" className="lt-refusal" data-refusal="unreachable" role="status">
+      <h3 className="lt-refusal-title">{t('stmBusyTitle')}</h3>
+      <p className="lt-refusal-body">{t('rStatementBusy')}</p>
+      {retry && (
+        <Button tone="secondary" onClick={retry}>
+          {t('stmBusyRetry')}
+        </Button>
+      )}
     </div>
   );
 }

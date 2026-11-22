@@ -4,7 +4,7 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { CLOSED_OFFERS_SHOWN, type PersonalPayApi } from '../pay-api';
 import type { Offer } from '../schemas';
-import { PayFailure, PayState, PayTime, Status } from '../components';
+import { PayFailure, PayState, PayTime, Status } from '../volt/parts';
 import { myAdsCopy } from './p2p-my-ads-copy';
 
 /**
@@ -46,11 +46,11 @@ function EditQuota({ pay, userId, revision }: { pay: PersonalPayApi; userId: str
         <Copy k="editsTitle" />
       </h3>
       {resource.status === 'ready' ? (
-        <p className="lt-muted" data-remaining={resource.data.remaining}>
+        <p className="lt-hint" data-remaining={resource.data.remaining}>
           <EditsLine quota={resource.data} />
         </p>
       ) : resource.status === 'failed' && resource.failure.code === 'p2p.config_unset' ? (
-        <p className="lt-muted">
+        <p className="lt-hint">
           <Copy k="editsUnset" />
         </p>
       ) : (
@@ -101,9 +101,9 @@ function ClosedOffers({
         {(offers) => (
           <>
             {offers.length >= CLOSED_OFFERS_SHOWN ? (
-              <p className="lt-muted">{t('closedMore', { count: String(CLOSED_OFFERS_SHOWN) })}</p>
+              <p className="lt-hint">{t('closedMore', { count: String(CLOSED_OFFERS_SHOWN) })}</p>
             ) : null}
-            <ul className="p2p-offer-list">
+            <ul>
               {offers.map((offer) => (
                 <ClosedOffer key={offer.id} offer={offer} pay={pay} choose={choose} side={side} onChanged={onChanged} />
               ))}
@@ -145,12 +145,12 @@ function ClosedOffer({
     }
   }
   return (
-    <li className="p2p-offer-row" data-offer-id={offer.id} data-close-reason={offer.closeReason ?? undefined}>
-      <div className="p2p-offer-maker">
+    <li data-testid="p2p-offer-row" data-offer-id={offer.id} data-close-reason={offer.closeReason ?? undefined}>
+      <div>
         <strong>{side(offer)}</strong>
         <Status value={offer.status} />
       </div>
-      <p className="lt-muted" data-testid="close-reason">
+      <p className="lt-hint" data-testid="close-reason">
         <Copy k={offer.closeReason === 'by_you' ? 'closedByYou' : offer.closeReason === 'sold_out' ? 'closedSoldOut' : 'closedPlain'} />
       </p>
       <StateSince offer={offer} />
@@ -163,7 +163,7 @@ function ClosedOffer({
         </p>
       ) : (
         <div className="lt-actions">
-          <p className="lt-muted">
+          <p className="lt-hint">
             <Copy k="relistBody" />
           </p>
           <Button tone="secondary" disabled={busy} onClick={() => void relist()}>
@@ -181,7 +181,7 @@ export function StateSince({ offer }: { offer: Offer }) {
   const { Copy } = myAdsCopy.useCopy();
   if (!offer.statusSince) return null;
   return (
-    <p className="lt-muted" data-testid="state-since">
+    <p className="lt-hint" data-testid="state-since">
       <Copy k={offer.status === 'active' ? 'listedSince' : offer.status === 'paused' ? 'pausedSince' : 'closedSince'} />{' '}
       <PayTime value={offer.statusSince} />
     </p>

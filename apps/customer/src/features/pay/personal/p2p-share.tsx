@@ -4,8 +4,8 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import type { PersonalPayApi } from '../pay-api';
 import type { Offer } from '../schemas';
-import { PayFailure, PayState, PayTime } from '../components';
-import { encodeQr, qrPath } from '@intafaced/ui/lit/templates';
+import { PayFailure, PayState, PayTime } from '../volt/parts';
+import { QrCode, encodeQr } from '@intafaced/ui/lit/templates';
 import { shareCopy } from './p2p-share-copy';
 
 /** The longest life a person can type, in hours: a year, the most svc-p2p takes. The owner's own longest may be less. */
@@ -81,7 +81,7 @@ export function OfferSharing({ pay, offer, onChanged }: { pay: PersonalPayApi; o
       <h3>
         <Copy k="shareTitle" />
       </h3>
-      <p className="lt-muted">
+      <p className="lt-hint">
         <Copy k="shareBody" />
       </p>
       <label className="lt-field">
@@ -90,7 +90,7 @@ export function OfferSharing({ pay, offer, onChanged }: { pay: PersonalPayApi; o
         </span>
         <input inputMode="numeric" value={hours} placeholder={t('linkLifeLongest')} onChange={(event) => setHours(event.target.value)} />
       </label>
-      {hoursProblem ? <p className="error-text">{t('linkLifeInvalid', { max: String(LINK_HOURS_MAX) })}</p> : null}
+      {hoursProblem ? <p className="lt-refusal">{t('linkLifeInvalid', { max: String(LINK_HOURS_MAX) })}</p> : null}
       <Button tone="secondary" disabled={busy} onClick={() => void share()}>
         <Copy k={busy ? 'makingLink' : 'makeLink'} />
       </Button>
@@ -131,11 +131,13 @@ export function OfferSharing({ pay, offer, onChanged }: { pay: PersonalPayApi; o
 function MadeLink({ url, expiresAt }: { url: string; expiresAt: string }) {
   const { Copy, t } = shareCopy.useCopy();
   const [copied, setCopied] = useState(false);
-  const drawn = useMemo(() => {
+  // A link too long for any code draws no code: the link above is the way to share it.
+  const fits = useMemo(() => {
     try {
-      return qrPath(encodeQr(url, 'M'), 2);
+      encodeQr(url, 'M');
+      return true;
     } catch {
-      return null;
+      return false;
     }
   }, [url]);
   return (
@@ -146,7 +148,7 @@ function MadeLink({ url, expiresAt }: { url: string; expiresAt: string }) {
       <code lang="zxx" data-testid="share-link-url">
         {url}
       </code>
-      <p className="lt-muted" data-testid="share-link-ends">
+      <p className="lt-hint" data-testid="share-link-ends">
         <Copy k="linkEnds" /> <PayTime value={expiresAt} />
       </p>
       <Button
@@ -162,17 +164,7 @@ function MadeLink({ url, expiresAt }: { url: string; expiresAt: string }) {
       >
         <Copy k={copied ? 'copied' : 'copyLink'} />
       </Button>
-      {drawn ? (
-        <svg
-          viewBox={`0 0 ${drawn.size} ${drawn.size}`}
-          role="img"
-          aria-label={t('qrLabel')}
-          shapeRendering="crispEdges"
-          className="p2p-share-qr"
-        >
-          <path d={drawn.d} className="p2p-share-qr-dark" />
-        </svg>
-      ) : null}
+      {fits ? <QrCode value={url} label={t('qrLabel')} failed={null} size="sm" /> : null}
     </div>
   );
 }

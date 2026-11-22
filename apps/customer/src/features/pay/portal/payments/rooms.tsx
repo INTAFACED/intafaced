@@ -1,8 +1,7 @@
 import './payments.css';
 import { Button } from '@intafaced/ui';
 import { Requires } from '../access/MerchantAccess';
-import { NoMerchant, WithAccount } from '../access/WithAccount';
-import { Gate, PortalFailure, PortalLoading } from '../components';
+import { WithAccount } from '../access/WithAccount';
 import { paymentsCopy, portalCopy, w3cCopy } from './copy';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { Customers, CustomerDetailPage } from './Customers';
@@ -13,7 +12,6 @@ import { Links } from './Links';
 import { PaymentDetailPage, Payments } from './Payments';
 import { Subscriptions, subscriptionHeader } from './Subscriptions';
 import { CheckoutSettingsRoom } from './CheckoutSettings';
-import { HomePanels } from './HomePanels';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
   <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
@@ -93,22 +91,8 @@ export const paymentsRooms: RoomTable = {
       action: link('/pay/links/new', t('actCreateLink'), 'primary'),
     }),
     here: '/pay/merchant',
-    render: (_route, { portal, access }) => (
-      <Gate resource={access.merchant} retry={access.reloadMerchant} rows={5}>
-        {(record) => {
-          const a = access.access;
-          if (a.status === 'loading') return <PortalLoading rows={5} />;
-          if (a.status === 'failed') return <PortalFailure result={a.failure} />;
-          if (a.status === 'none') return <NoMerchant />;
-          return (
-            <div className="lt-stack">
-              <Dashboard portal={portal} merchantId={a.merchantId} merchant={record} role={a.role} />
-              <HomePanels portal={portal} merchantId={a.merchantId} merchant={record} role={a.role} />
-            </div>
-          );
-        }}
-      </Gate>
-    ),
+    ownTitle: true,
+    render: (_route, { portal }) => <Dashboard portal={portal} />,
   },
   disputes: {
     header: () => ({ title: t('pageDisputes'), purpose: t('purposeDisputes') }),

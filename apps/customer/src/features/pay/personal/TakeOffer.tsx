@@ -5,8 +5,9 @@ import { displayAmount } from '../../../shared/money';
 import { uiCopy } from '../../../shared/ui-copy';
 import { navigate } from '../../../app/location';
 import { useResource } from '../../../shared/resource';
-import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
-import { PayDetails } from '../components';
+import { Button } from '@intafaced/ui/lit';
+import { Dialog } from '@intafaced/ui/lit/templates';
+import { PayDetails } from '../volt/parts';
 import { formatDateTime } from '../portal/ui/format';
 import { wasPlacedUnderHeldReference, type PersonalPayApi } from '../pay-api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
@@ -245,7 +246,7 @@ export function TakeAvailable({ state, asset }: { state: ApiResult<string> | 'lo
   const { t } = p2pDepth.useCopy();
   if (state === null || state === 'loading') return null;
   return (
-    <p className="lt-muted" data-testid="take-available">
+    <p className="lt-hint" data-testid="take-available">
       {state.ok ? t('takeAvailable', { amount: displayAmount(state.data), asset }) : t('takeAvailableOff')}
     </p>
   );
@@ -316,16 +317,16 @@ export function QuoteCountdown({
   const seconds = Math.ceil(left / 1000);
   return (
     <>
-      <div className="p2p-quote-countdown" role="timer" aria-live="off" data-testid="take-quote-countdown" data-ended={ended}>
+      <div role="timer" aria-live="off" data-testid="take-quote-countdown" data-ended={ended}>
         {ended ? (
           <p role="status">
             {t('quoteEnded', { time: clock(end) })}{' '}
-            <Button type="button" variant="secondary" disabled={renewing} onClick={onRenew} data-testid="take-quote-renew">
+            <Button type="button" tone="secondary" disabled={renewing} onClick={onRenew} data-testid="take-quote-renew">
               {renewing ? t('quoteLocking') : t('quoteRenew')}
             </Button>
           </p>
         ) : (
-          <p className="lt-muted">
+          <p className="lt-hint">
             {t('quoteHeld', { left: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`, time: clock(end) })}
           </p>
         )}
@@ -469,15 +470,9 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
 
   if (own)
     return (
-      <section
-        className="p2p-take"
-        aria-label={t('takeOwnTitle')}
-        lang={languageFor('takeOwnTitle')}
-        dir={directionFor('takeOwnTitle')}
-        data-testid="take-own"
-      >
+      <section aria-label={t('takeOwnTitle')} lang={languageFor('takeOwnTitle')} dir={directionFor('takeOwnTitle')} data-testid="take-own">
         <h3>{t('takeOwnTitle')}</h3>
-        <p className="lt-muted">{t('takeOwnBody')}</p>
+        <p className="lt-hint">{t('takeOwnBody')}</p>
       </section>
     );
 
@@ -628,13 +623,7 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
 
   if (placed)
     return (
-      <section
-        className="p2p-take"
-        aria-label={t('takeTitle')}
-        lang={languageFor('takeFound')}
-        dir={directionFor('takeFound')}
-        data-testid="take-placed"
-      >
+      <section aria-label={t('takeTitle')} lang={languageFor('takeFound')} dir={directionFor('takeFound')} data-testid="take-placed">
         <h3>{t('takeTitle')}</h3>
         <div data-testid="failure" className="lt-refusal" role="status" data-why={placed.why}>
           <p>
@@ -650,7 +639,7 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
                     reviewed: displayAmount(placedQuotePrice.current ?? placed.trade.price),
                   })}
           </p>
-          <Button variant="primary" onClick={() => goToOrder(placed.trade)} data-testid="take-open-order">
+          <Button tone="primary" onClick={() => goToOrder(placed.trade)} data-testid="take-open-order">
             {t('takeOpenOrder')}
           </Button>
         </div>
@@ -662,22 +651,16 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
     confirmedUntil !== null && confirmedUntil !== 'loading' && Date.parse(confirmedUntil) - Date.now() > 20_000 ? confirmedUntil : null;
 
   return (
-    <section
-      className="p2p-take"
-      aria-label={t('takeTitle')}
-      lang={languageFor('takeTitle')}
-      dir={directionFor('takeTitle')}
-      data-testid="take-offer"
-    >
+    <section aria-label={t('takeTitle')} lang={languageFor('takeTitle')} dir={directionFor('takeTitle')} data-testid="take-offer">
       <h3>{t('takeTitle')}</h3>
       {locked ? (
-        <section className="p2p-reason" role="alert" aria-label={t('takeUnresolvedTitle')} data-testid="take-unresolved">
+        <section role="alert" aria-label={t('takeUnresolvedTitle')} data-testid="take-unresolved">
           <h3>{t('takeUnresolvedTitle')}</h3>
           <p>{t('takeUnresolvedBody')}</p>
           {heldReference ? <PayDetails values={[[t('takeReference'), <span lang="zxx">{heldReference}</span>]]} /> : null}
           {outcome && !outcome.ok && !review ? <TakeFailureNote failure={outcome} context="take" /> : null}
           {checked && !checked.ok ? <TakeFailureNote failure={checked} context="take" /> : null}
-          <Button variant="primary" disabled={checking} onClick={() => void checkEarlier()} data-testid="take-check">
+          <Button tone="primary" disabled={checking} onClick={() => void checkEarlier()} data-testid="take-check">
             {checking ? t('takeChecking') : t('takeCheck')}
           </Button>
         </section>
@@ -692,7 +675,7 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
         className="lt-stack"
         noValidate
       >
-        <p className="lt-muted">
+        <p className="lt-hint">
           {t('takeLimits', { min: displayAmount(offer.minAmount), max: displayAmount(offer.maxAmount), asset: offer.asset })}
         </p>
         {wantsBalance ? <TakeAvailable state={available} asset={offer.asset} /> : null}
@@ -709,7 +692,7 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
             }}
             aria-invalid={problem !== null && check.kind !== 'empty'}
           />
-          {problem && check.kind !== 'empty' ? <small className="error-text">{problem}</small> : null}
+          {problem && check.kind !== 'empty' ? <small className="lt-refusal">{problem}</small> : null}
         </label>
         <label className="lt-field">
           <span>{t('takeFiatAmount', { fiat: offer.fiatCurrency })}</span>
@@ -725,7 +708,7 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
             }}
             data-testid="take-fiat-amount"
           />
-          <small className="lt-muted">
+          <small className="lt-hint">
             {converted === 'loading' ? t('takeFiatConverting', { asset: offer.asset }) : t('takeFiatHint', { asset: offer.asset })}
           </small>
           {converted && converted !== 'loading' && !converted.ok ? <TakeFailureNote failure={converted} context="quote" /> : null}
@@ -749,28 +732,28 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
         </label>
         <TakeSettlementNotice offer={offer} method={method} />
         <ContractEscrowChoice state={escrow} />
-        <div className="p2p-quote" aria-live="polite" data-testid="take-quote-area">
+        <div aria-live="polite" data-testid="take-quote-area">
           <h4>{t('takeQuoteTitle')}</h4>
           {shown === null ? (
-            <p className="lt-muted">{t('takeQuoteNeed')}</p>
+            <p className="lt-hint">{t('takeQuoteNeed')}</p>
           ) : shown === 'loading' ? (
-            <p className="lt-muted">{t('takeQuoteLoading')}</p>
+            <p className="lt-hint">{t('takeQuoteLoading')}</p>
           ) : shown.ok ? (
             <>
               <TakeQuoteDetails offer={offer} quote={shown.data} />
-              <p className="lt-muted">{t('takeQuoteNote')}</p>
+              <p className="lt-hint">{t('takeQuoteNote')}</p>
             </>
           ) : (
             <>
               <TakeFailureNote failure={shown} context="quote" />
-              <Button type="button" variant="secondary" onClick={() => setQuoteRound((value) => value + 1)}>
+              <Button type="button" tone="secondary" onClick={() => setQuoteRound((value) => value + 1)}>
                 {t('takeQuoteRetry')}
               </Button>
             </>
           )}
         </div>
         {lockFailure && !review ? <TakeFailureNote failure={lockFailure} context="quote" /> : null}
-        <Button type="submit" variant="primary" disabled={ready === null || busy || locking} data-testid="take-review">
+        <Button type="submit" tone="primary" disabled={ready === null || busy || locking} data-testid="take-review">
           {locking ? t('quoteLocking') : t('takeReview')}
         </Button>
       </form>
@@ -783,13 +766,13 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
           }}
         >
           <div className="lt-stack" data-testid="take-review-dialog">
-            <p className="lt-muted">
+            <p className="lt-hint">
               {t(takerRole(offer) === 'buyer' ? 'takeLeadBuy' : 'takeLeadSell', {
                 amount: displayAmount(review.quote.amount),
                 asset: offer.asset,
               })}
             </p>
-            <p className="lt-muted" data-testid="take-review-escrow">
+            <p className="lt-hint" data-testid="take-review-escrow">
               {escrowCopy.t('escrowType')}:{' '}
               {escrowChoice.kind === 'contract'
                 ? `${escrowCopy.t('escrowContract')} · ${escrowCopy.t('escrowWallet', { address: escrowChoice.buyerWallet })}`
@@ -811,12 +794,12 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
                   {outcome && !outcome.ok ? <TakeFailureNote failure={outcome} context="take" /> : null}
                   {lockFailure ? <TakeFailureNote failure={lockFailure} context="quote" /> : null}
                   {coveredUntil ? (
-                    <p className="lt-muted" data-testid="take-step-up-covered">
+                    <p className="lt-hint" data-testid="take-step-up-covered">
                       {t('takeStepUpConfirmed', { time: formatDateTime(coveredUntil, requestedLocale)?.short ?? coveredUntil })}
                     </p>
                   ) : confirmedUntil === null ? (
                     <>
-                      {busy ? <p className="lt-muted">{t('takePlacing')}</p> : null}
+                      {busy ? <p className="lt-hint">{t('takePlacing')}</p> : null}
                       <StepUpConfirm
                         request={() => stepUpRequest(review)}
                         words={{
@@ -833,11 +816,11 @@ function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayA
                     </>
                   ) : null}
                   <div className="lt-actions">
-                    <Button variant="ghost" disabled={busy} onClick={closeReview}>
+                    <Button tone="quiet" disabled={busy} onClick={closeReview}>
                       {t('takeBack')}
                     </Button>
                     {coveredUntil ? (
-                      <Button variant="primary" disabled={busy || ended} onClick={() => void confirm()} data-testid="take-confirm">
+                      <Button tone="primary" disabled={busy || ended} onClick={() => void confirm()} data-testid="take-confirm">
                         {busy ? t('takePlacing') : t('takeConfirm')}
                       </Button>
                     ) : null}

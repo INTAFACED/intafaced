@@ -48,7 +48,7 @@ export function TraderName({ record }: { record: ApiResult<Reputation> | null | 
   if (record?.ok && record.data.profile?.status === 'absent')
     return (
       <span>
-        <span aria-hidden="true">—</span> <small className="lt-muted">{t('traderNoHandle')}</small>
+        <span aria-hidden="true">—</span> <small className="lt-hint">{t('traderNoHandle')}</small>
       </span>
     );
   return <span>{t('traderUnnamed')}</span>;
@@ -58,15 +58,15 @@ export function TraderName({ record }: { record: ApiResult<Reputation> | null | 
 export function TraderSummary({ record }: { record: ApiResult<Reputation> | null | undefined }) {
   const { t, requestedLocale } = p2pDepth.useCopy();
   if (!record) return null;
-  if (!record.ok) return <span className="lt-muted">{t('traderRecordOff')}</span>;
+  if (!record.ok) return <span className="lt-hint">{t('traderRecordOff')}</span>;
   const summary = makerSummary(record.data);
-  if (summary.kind === 'new') return <span className="lt-muted">{t('traderNew')}</span>;
+  if (summary.kind === 'new') return <span className="lt-hint">{t('traderNew')}</span>;
   const n = new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 }).format(summary.orders);
   // "1 order", "3 orders": the plural rule of the shown language, not a bare "s".
   const orders = t(new Intl.PluralRules(requestedLocale).select(summary.orders) === 'one' ? 'traderOrdersOne' : 'traderOrdersMany', { n });
-  if (summary.kind === 'unfinished') return <span className="lt-muted">{t('traderRecordOpen', { orders })}</span>;
+  if (summary.kind === 'unfinished') return <span className="lt-hint">{t('traderRecordOpen', { orders })}</span>;
   const rate = new Intl.NumberFormat(requestedLocale, { style: 'percent', maximumFractionDigits: 1 }).format(summary.completionRate);
-  if (summary.releaseSecs === null) return <span className="lt-muted">{t('traderRecord', { orders, rate })}</span>;
+  if (summary.releaseSecs === null) return <span className="lt-hint">{t('traderRecord', { orders, rate })}</span>;
   const parts = splitDuration(summary.releaseSecs);
   const time =
     parts.unit === 'seconds'
@@ -74,5 +74,5 @@ export function TraderSummary({ record }: { record: ApiResult<Reputation> | null
       : parts.unit === 'minutes'
         ? t('durMinutes', { m: parts.major })
         : t('durHours', { h: parts.major, m: parts.minor ?? 0 });
-  return <span className="lt-muted">{t('traderRecordRelease', { orders, rate, time })}</span>;
+  return <span className="lt-hint">{t('traderRecordRelease', { orders, rate, time })}</span>;
 }

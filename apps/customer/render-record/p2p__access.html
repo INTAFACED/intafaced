@@ -128,25 +128,17 @@
 </a>
 </nav>
 <div class="lt-stack">
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
+<section data-testid="pay-section">
 <h2>Before you trade</h2>
-<p class="lt-muted">Each requirement for taking an ad, as the service checks it right now.</p>
-</div>
-</header>
+<p class="lt-hint">Each requirement for taking an ad, as the service checks it right now.</p>
 <div aria-label="Before you trade" role="region" data-testid="p2p-eligibility">
 <div lang="und">
-<div role="status">
-<div data-slot="state-block" data-kind="refused" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Can’t connect right now</p>
-<p class="text-base text-fg-2">
+<div class="lt-refusal" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">
 <span>No services run in the look gate.</span>
 </p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
-</div>
-</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </div>
