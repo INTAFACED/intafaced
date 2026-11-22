@@ -4,7 +4,8 @@ import { FlowTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useApi } from '../../session';
 import { launchDepthCopy } from '../launch-depth-copy';
-import { assessLaunch, type AssessResult } from '../launch-journey';
+import type { AssessResult } from '../launch-journey';
+import { assessLaunch } from '../LaunchRooms';
 import { moreRoomRoutesCopy } from '../more-room-routes-copy';
 import { LaunchTabs, useLaunchGate, useLaunchScope } from './launch-flow-parts';
 

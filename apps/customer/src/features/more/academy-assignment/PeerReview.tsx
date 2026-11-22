@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import type { AcademyReviewState, AcademyReviewTask } from '@intafaced/contracts/academy-courses';
-import { academyAssignmentCalls } from '../academy-lms';
+import { academyAssignmentCalls } from '../academy-tracking';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session';

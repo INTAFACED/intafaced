@@ -5,7 +5,7 @@ import { Select } from './common';
 import { DisabledAction, Journey, StatRow, StatusPill, type JourneyStep } from './depth-kit';
 import { launchDepthCopy } from './launch-depth-copy';
 import {
-  assessLaunch,
+  assessResult,
   draftIssues,
   EMPTY_DRAFT,
   LAUNCH_STEPS,
@@ -13,7 +13,11 @@ import {
   type AssessResult,
   type LaunchDraft,
 } from './launch-journey';
-import type { ApiResult } from '../../shared/api';
+import type { ApiClient, ApiResult } from '../../shared/api';
+
+/** The pre-listing deployer check (svc-agents `launch.assess`, no record yet); the Launch check room calls it here too. */
+export const assessLaunch = (api: ApiClient, deployer: string) =>
+  api.query('agents', 'launch.assess', { deployer: deployer.trim() || undefined }, assessResult);
 
 export function LaunchJourney({ onTab }: { onTab: (tab: 'Check') => void }) {
   const { Copy, t } = launchDepthCopy.useCopy();
