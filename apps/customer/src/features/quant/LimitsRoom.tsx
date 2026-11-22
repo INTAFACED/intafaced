@@ -1,11 +1,10 @@
-import { DataTable, Panel } from '../../shared/ui';
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../shared/resource';
-import { Read } from '../more';
+import { ReadView } from '../../shared/record/record-parts';
 import { useApi } from '../session';
 import { limitsCopy } from './limits-copy';
 import { QuantRooms } from './QuantRooms';
 import { UsagePanel } from './UsagePanel';
-import './algo.css';
 import { QUANT_LIMITS_GET } from '@intafaced/contracts/quant-limits-procedures';
 
 /**
@@ -13,12 +12,20 @@ import { QUANT_LIMITS_GET } from '@intafaced/contracts/quant-limits-procedures';
  * as the sandbox applies it, or "not set" (and then no run starts). The plan's quotas are the usage view beside it.
  */
 export function LimitsRoom({ paper }: { paper: boolean }) {
+  const { t } = limitsCopy.useCopy();
   return (
-    <>
-      <QuantRooms active="strategies" paper={paper} />
-      <SandboxLimitsPanel />
-      <UsagePanel revision={0} />
-    </>
+    <RecordListTemplate
+      title={t('title')}
+      description={t('description')}
+      state={{ kind: 'ready' }}
+      filters={<QuantRooms active="strategies" paper={paper} />}
+      list={
+        <>
+          <SandboxLimitsPanel />
+          <UsagePanel revision={0} />
+        </>
+      }
+    />
   );
 }
 
@@ -27,10 +34,11 @@ function SandboxLimitsPanel() {
   const { t } = limitsCopy.useCopy();
   const limits = useResource((signal) => api.call(QUANT_LIMITS_GET, undefined, { signal }), 'quant-limits');
   return (
-    <Panel title={t('sandboxTitle')}>
+    <section>
+      <h2>{t('sandboxTitle')}</h2>
       <section data-testid="quant-limits" aria-label={t('sandboxTitle')}>
-        <p className="muted">{t('sandboxIntro')}</p>
-        <Read resource={limits.resource} retry={limits.reload}>
+        <p className="lt-hint">{t('sandboxIntro')}</p>
+        <ReadView resource={limits.resource} retry={limits.reload}>
           {(data) => (
             <>
               {data.profile ? (
@@ -42,27 +50,37 @@ function SandboxLimitsPanel() {
                   {t('planUnset')}
                 </p>
               )}
-              <DataTable label={t('sandboxTitle')} headers={[t('limit'), t('value')]}>
-                {data.sandbox.map((row) => (
-                  <tr key={row.limit} data-limit={row.limit} data-value={row.value ?? ''}>
-                    <th scope="row">{t(row.limit)}</th>
-                    <td>{row.value === null ? t('notSet') : <span lang="zxx">{row.value}</span>}</td>
-                  </tr>
-                ))}
-                <tr data-limit="max_ops" data-value={data.ceilings.maxOps ?? ''}>
-                  <th scope="row">{t('maxOps')}</th>
-                  <td>{data.ceilings.maxOps === null ? t('notSet') : <span lang="zxx">{data.ceilings.maxOps}</span>}</td>
-                </tr>
-                <tr data-limit="max_source" data-value={data.ceilings.maxSource ?? ''}>
-                  <th scope="row">{t('maxSource')}</th>
-                  <td>{data.ceilings.maxSource === null ? t('notSet') : <span lang="zxx">{data.ceilings.maxSource}</span>}</td>
-                </tr>
-              </DataTable>
-              <p className="muted">{t('asOf', { at: data.asOf.slice(0, 16).replace('T', ' ') })}</p>
+              <div tabIndex={0} role="region" aria-label={t('sandboxTitle')}>
+                <table className="lt-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('limit')}</th>
+                      <th scope="col">{t('value')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.sandbox.map((row) => (
+                      <tr key={row.limit} data-limit={row.limit} data-value={row.value ?? ''}>
+                        <th scope="row">{t(row.limit)}</th>
+                        <td>{row.value === null ? t('notSet') : <span lang="zxx">{row.value}</span>}</td>
+                      </tr>
+                    ))}
+                    <tr data-limit="max_ops" data-value={data.ceilings.maxOps ?? ''}>
+                      <th scope="row">{t('maxOps')}</th>
+                      <td>{data.ceilings.maxOps === null ? t('notSet') : <span lang="zxx">{data.ceilings.maxOps}</span>}</td>
+                    </tr>
+                    <tr data-limit="max_source" data-value={data.ceilings.maxSource ?? ''}>
+                      <th scope="row">{t('maxSource')}</th>
+                      <td>{data.ceilings.maxSource === null ? t('notSet') : <span lang="zxx">{data.ceilings.maxSource}</span>}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="lt-hint">{t('asOf', { at: data.asOf.slice(0, 16).replace('T', ' ') })}</p>
             </>
           )}
-        </Read>
+        </ReadView>
       </section>
-    </Panel>
+    </section>
   );
 }
