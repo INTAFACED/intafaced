@@ -244,6 +244,8 @@ import { ACADEMY_VIDEOS } from './academy-videos-procedures.js';
 
 import { ACADEMY_WITHDRAW_RESIDENCY } from './academy-withdraw-residency-procedures.js';
 
+import { AGENTS_WEBHOOK_REGISTER, AGENTS_WEBHOOK_LIST, AGENTS_WEBHOOK_DELIVERIES } from './agents-webhooks-procedures.js';
+
 import { BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ } from './bank-cash-leg-procedures.js';
 
 import {
@@ -1654,6 +1656,12 @@ const part_academy_videos_procedures: readonly ProcedureRecord[] = [ACADEMY_VIDE
 
 const part_academy_withdraw_residency_procedures: readonly ProcedureRecord[] = [ACADEMY_WITHDRAW_RESIDENCY];
 
+const part_agents_webhooks_procedures: readonly ProcedureRecord[] = [
+  AGENTS_WEBHOOK_REGISTER,
+  AGENTS_WEBHOOK_LIST,
+  AGENTS_WEBHOOK_DELIVERIES,
+];
+
 const part_bank_cash_leg_procedures: readonly ProcedureRecord[] = [BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ];
 
 const part_bank_credit_preview_procedures: readonly ProcedureRecord[] = [
@@ -2912,6 +2920,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_upload_assignment_file_procedures,
   ...part_academy_videos_procedures,
   ...part_academy_withdraw_residency_procedures,
+  ...part_agents_webhooks_procedures,
   ...part_bank_cash_leg_procedures,
   ...part_bank_credit_preview_procedures,
   ...part_bank_deposit_procedures,
