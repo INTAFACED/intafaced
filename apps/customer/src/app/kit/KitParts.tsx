@@ -61,6 +61,7 @@ import {
   sortRows,
   Stepper,
   Table,
+  TabList,
   type Candle as KitCandle,
   type Column,
   type SortState,
@@ -627,9 +628,20 @@ export function PayParts() {
 function PayPartsBody() {
   const [amount, setAmount] = useState('');
   const [handle, setHandle] = useState('mika');
+  const [tab, setTab] = useState<'send' | 'receive' | 'request'>('send');
   const toast = useVoltToast();
   return (
     <div className="vk-grid" data-kit="pay-parts">
+      <TabList
+        label="Send or receive"
+        items={[
+          { value: 'send', label: 'Send' },
+          { value: 'receive', label: 'Receive' },
+          { value: 'request', label: 'Request' },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
       <AmountField
         label="Amount to send"
         hideLabel
