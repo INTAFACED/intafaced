@@ -4,6 +4,8 @@
 
 #[path = "cards_core_db.rs"]
 mod cards_core_db;
+#[path = "cards_orders_db.rs"]
+mod cards_orders_db;
 #[path = "closure_body.rs"]
 mod closure_body;
 #[path = "credit_previews.rs"]
