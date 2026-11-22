@@ -226,6 +226,8 @@ describe('focus not obscured', () => {
     expect(barReach('top', { top: 0, height: 56 }, 844)).toBe(56);
     // A bar not drawn (the dock on a computer) covers nothing.
     expect(barReach('bottom', { top: 0, height: 0 }, 844)).toBe(0);
+    // no layout (a bar whose position is unknown) covers its own height, never NaN
+    expect(barReach('bottom', { height: 61 } as { top: number; height: number }, 844)).toBe(61);
   });
 });
 

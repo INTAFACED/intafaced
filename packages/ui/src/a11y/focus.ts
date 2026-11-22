@@ -36,7 +36,9 @@ export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: numb
  */
 export function barReach(edge: string | null, rect: { top: number; height: number }, viewportHeight: number): number {
   if (!(rect.height > 0)) return 0;
-  if (edge === 'bottom') return Math.max(rect.height, viewportHeight - rect.top);
+  // Where the bar's position is unknown (no layout), it covers its own height.
+  if (edge === 'bottom' && Number.isFinite(rect.top) && Number.isFinite(viewportHeight))
+    return Math.max(rect.height, viewportHeight - rect.top);
   return rect.height;
 }
 
