@@ -192,7 +192,7 @@ test('a planted failing tooling test refuses, timeout or not; so does any other 
   const failed = gatesRun([
     RED('tooling-tests'),
     'not ok 3 - planted',
-    'TOOLING TESTS FAILED — exit 1, 1 failed, 0 cancelled, 2 passed across 1 files.',
+    'TOOLING TESTS FAILED — 1 of 1 files: 1 failed, 0 cancelled, 2 passed, in 3 s.',
   ]);
   assert.equal(failed.v.ok, false);
   const failedThenTimedOut = gatesRun([RED('tooling-tests'), 'ok 1 - a', 'not ok 2 - planted', TIMEOUT_LINE]);

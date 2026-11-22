@@ -30,11 +30,11 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo']);
 // The whole run's limit, and each file's: a file that leaves a server running is stopped and named, not left to hold the
 // gates job until its 10-minute limit. The run took about 4 of its 5 minutes one file at a time by 22 Nov (#9648 and
 // #9650 ran past it); four at a time it takes about a third of that.
-export const TIMEOUT_MS = 5 * 60_000;
+const TIMEOUT_MS = 5 * 60_000;
 // TOOLING_TESTS_FILE_TIMEOUT_MS can only lower it (tooling-tests.test.mjs plants a hang and waits 3 s, not 3 minutes).
-export const FILE_TIMEOUT_MS = Math.min(3 * 60_000, Number(process.env.TOOLING_TESTS_FILE_TIMEOUT_MS) || Infinity);
+const FILE_TIMEOUT_MS = Math.min(3 * 60_000, Number(process.env.TOOLING_TESTS_FILE_TIMEOUT_MS) || Infinity);
 /** How many files run at once: the runner's cores, at most 4 (GitHub's ubuntu-24.04 runner has 4). */
-export const AT_ONCE = Math.max(1, Math.min(4, availableParallelism()));
+const AT_ONCE = Math.max(1, Math.min(4, availableParallelism()));
 /**
  * A test file whose first lines hold `// tooling-tests: alone. <why>` runs alone, after the others, with nothing beside
  * it: it writes outside its own temporary folders (the checkout's tree or .git, a fixed path) or listens on a fixed
@@ -172,7 +172,7 @@ function stopAllOnSignal() {
  * One test file in its own `node --test` process and process group, so a timeout stops the servers and child processes
  * it started too. Resolves `{ file, output, status, signal, ms, timedOut }`; never rejects.
  */
-export function runFile(file, { cwd = ROOT, timeoutMs = FILE_TIMEOUT_MS, env = process.env } = {}) {
+function runFile(file, { cwd = ROOT, timeoutMs = FILE_TIMEOUT_MS, env = process.env } = {}) {
   const started = Date.now();
   return new Promise((done) => {
     const chunks = [];
@@ -283,13 +283,14 @@ async function main() {
   }
   const slowest = [...results]
     .sort((a, b) => b.ms - a.ms)
-    .slice(0, 5)
-    .map((r) => `${r.file} ${Math.round(r.ms / 1000)} s`);
-  // Skips are printed, never hidden: a test that skips itself (no browser on this runner) is not a test that ran.
-  console.log(`slowest: ${slowest.join(', ')}`);
+    .slice(0, 4)
+    .map((r) => `${r.file.split('/').pop()} ${Math.round(r.ms / 1000)} s`);
+  const aloneSeconds = Math.round(results.filter((r) => alone.includes(r.file)).reduce((n, r) => n + r.ms, 0) / 1000);
+  // One line, the last: gates.mjs shows only a passing gate's last line. Skips are printed, never hidden: a test that
+  // skips itself (no browser on this runner) is not a test that ran.
   console.log(
     `tooling tests: ${total.pass} passed, ${total.skipped} skipped, ${total.todo} todo across ${files.length} files ` +
-      `(${AT_ONCE} at once, ${alone.length} alone) in ${seconds} s`,
+      `(${AT_ONCE} at once, ${alone.length} alone for ${aloneSeconds} s) in ${seconds} s; slowest: ${slowest.join(', ')}`,
   );
 }
 
