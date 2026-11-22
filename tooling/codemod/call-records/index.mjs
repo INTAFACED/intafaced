@@ -812,8 +812,15 @@ function write(result) {
     touched.push(file);
   }
   for (const [file, ch] of result.changes.files) if (ch.schemas) retype(file, ch.schemas);
-  for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneSchemas(file);
-  for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneBuilders(file);
+  // Each prune can leave the other something unread (a schema gone frees the list it enumerated), so both run until neither does.
+  for (const file of touched) {
+    if (file.startsWith(CONTRACTS)) continue;
+    for (let was = ''; was !== readFileSync(file, 'utf8');) {
+      was = readFileSync(file, 'utf8');
+      pruneSchemas(file);
+      pruneBuilders(file);
+    }
+  }
   // A schema a moved caller imported from another file of its app may now have no importer: that file is pruned too.
   const sources = new Set();
   for (const file of touched) {
@@ -1030,8 +1037,12 @@ export function pruneSchemas(file) {
         ? stmt.declarations[0]
         : undefined;
     };
-    // The file's own schema consts, to a fixpoint: a const built on another (`ref.nullable()`) is one too.
+    // The file's own schema consts, to a fixpoint: a const built on another (`ref.nullable()`) is one too, and so is one
+    // built on a schema it imports by a schema's name (`decimalSchema.nullable()`): reading a binding runs nothing.
     const schemas = new Set(['z']);
+    for (const top of p.program.body)
+      if (top.type === 'ImportDeclaration')
+        for (const sp of top.specifiers ?? []) if (/[sS]chema$/.test(sp.local.name)) schemas.add(sp.local.name);
     for (let grew = true; grew;) {
       grew = false;
       for (const top of p.program.body) {
@@ -1066,8 +1077,9 @@ export function pruneSchemas(file) {
 const plain = (n) => n?.type === 'Literal' || (n?.type === 'TSAsExpression' && n.expression.type === 'Literal');
 
 /**
- * A router's own builder consts that only the moved calls read: a procedure builder (`scopedProcedure('admin:read',
- * guards)`) or the literal guard object it took. A name read anywhere else in the file, or exported, stays.
+ * The consts only the moved calls read: a router's procedure builder (`scopedProcedure('admin:read', guards)`), the
+ * literal guard object it took, or a caller's literal list a removed schema enumerated (`['a', 'b'] as const`). A name
+ * read anywhere else in the file, or exported, stays.
  */
 export function pruneBuilders(file) {
   for (;;) {
@@ -1078,13 +1090,14 @@ export function pruneBuilders(file) {
       if (n.type !== 'VariableDeclaration' || n.kind !== 'const' || n.declarations.length !== 1) return;
       if (parent?.type === 'ExportNamedDeclaration' || /For(In|Of)?Statement$/.test(parent?.type ?? '')) return false;
       const d = n.declarations[0];
-      const init = d.init;
+      const init = d.init?.type === 'TSAsExpression' ? d.init.expression : d.init;
       const builder = init?.type === 'CallExpression' && init.callee.type === 'Identifier' && /Procedure(For)?$/.test(init.callee.name);
       const guard =
         init?.type === 'ObjectExpression' &&
         init.properties.length > 0 &&
         init.properties.every((q) => q.type === 'Property' && !q.computed && plain(q.value));
-      if (d.id.type !== 'Identifier' || !(builder || guard)) return false;
+      const list = init?.type === 'ArrayExpression' && init.elements.length > 0 && init.elements.every(plain);
+      if (d.id.type !== 'Identifier' || !(builder || guard || list)) return false;
       if (!usedOutside(p, d.id.name, [{ start: n.start, end: n.end }]))
         edits.push({ start: statementStart(p, n), end: statementEnd(p, n), text: '' });
       return false;
