@@ -12,6 +12,7 @@ use service_kit::trpc::TrpcError;
 
 use crate::db::{self, StoreError};
 use crate::runtime::{RunError, ThinkResult, denied, ms};
+use crate::webhooks::{self, FinishedRun};
 
 /// \`RUN_STATES\`.
 pub const RUN_STATES: [&str; 6] = [
@@ -34,6 +35,9 @@ pub fn can_move(from: &str, to: &str) -> bool {
     };
     allowed.contains(&to)
 }
+
+/// `ENDINGS`: the states a run ends in; each ending is delivered once to the person's run webhooks (J-agents-12 #5).
+const ENDINGS: [&str; 3] = ["completed", "refused", "failed"];
 
 /// \`RUN_LEASE_MS\`: how long a running run is left to its caller before a retry may take it over.
 pub const RUN_LEASE_MS: i64 = 300_000;
@@ -220,16 +224,41 @@ pub fn move_run(
                 &outcome.provenance.as_ref().map(Json::compact),
             ],
         )?;
-        tx.execute(
+        let event = tx.query_one(
             "INSERT INTO agents.agent_run_events (run_id, sequence, state, code)
              SELECT $1::text::uuid, COALESCE(MAX(sequence), 0) + 1, $2::text, $3::text
-               FROM agents.agent_run_events WHERE run_id = $1::text::uuid",
+               FROM agents.agent_run_events WHERE run_id = $1::text::uuid
+             RETURNING sequence",
             &[&run_id, &to, &outcome.code],
         )?;
-        run_of(
+        let run = run_of(
             rows.first()
                 .ok_or_else(|| RunError::Other(format!("agents run {run_id} is not stored")))?,
-        )
+        )?;
+        // Each ending is delivered once to the person's run webhooks, in the transaction that ends the run.
+        if ENDINGS.contains(&to) {
+            let sequence = i64::from(event.try_get::<_, i32>(0)?);
+            webhooks::enqueue_run_finished(
+                tx,
+                &FinishedRun {
+                    event_id: webhooks::finished_event_id(webhooks::Kind::Run, &run.id, sequence),
+                    kind: webhooks::Kind::Run,
+                    user_id: &run.user_id,
+                    run_id: &run.id,
+                    session_id: &run.session_id,
+                    agent_id: &run.agent_id,
+                    state: to,
+                    reply: run.reply.as_deref(),
+                    cost: run.cost.clone(),
+                    asset_id: run.asset_id.as_deref(),
+                    refusal_codes: match (&outcome.code, to) {
+                        (Some(code), "refused") => vec![code.clone()],
+                        _ => Vec::new(),
+                    },
+                },
+            )?;
+        }
+        Ok(run)
     })
 }
 

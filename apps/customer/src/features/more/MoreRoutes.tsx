@@ -7,11 +7,10 @@ import { Agents } from './Agents';
 import { OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { NewAgentRoom } from './new-agent/NewAgentRoom';
 import { AgentsTeam } from './AgentsTeam';
-import { AgentApprovals } from './AgentApprovals';
+import { AgentApprovalsRoom } from './agent-approvals/AgentApprovalsRoom';
 import { AgentConnect } from './AgentConnect';
 import { AgentRunPage, agentRunId } from './AgentRun';
 import { agentRunCopy } from './agent-run-copy';
-import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
@@ -77,9 +76,13 @@ function MoreRooms({ path }: { path: string }) {
   // A room on its Volt template draws its own title row, so it is mounted without the old page frame.
   let bare = false;
   if (p === '/academy' || p.startsWith('/academy/')) {
-    const kind = academyRoute(p).kind;
+    const academy = academyRoute(p);
     // The certificate check is the same for everyone; a signed-out visitor's assignment address opens the public Academy.
-    bare = kind === 'verify' || (kind === 'assignment' && Boolean(userId));
+    // The signed-in course-team inbox is on its Volt template; a signed-out visitor gets the public Academy.
+    bare =
+      academy.kind === 'verify' ||
+      (academy.kind === 'assignment' && Boolean(userId)) ||
+      (academy.kind === 'messages' && !academy.conversationId && Boolean(userId));
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
     content = (
@@ -111,9 +114,8 @@ function MoreRooms({ path }: { path: string }) {
     title = <OwnAgentTitle id={id} />;
     content = <OwnAgentPage key={id} id={id} />;
   } else if (p === '/agents/approvals') {
-    title = <agentApprovalsCopy.Copy k="title" />;
-    description = <agentApprovalsCopy.Copy k="description" />;
-    content = <AgentApprovals />;
+    bare = true;
+    content = <AgentApprovalsRoom />;
   } else if (p === '/agents/team') {
     title = <agentsTeamCopy.Copy k="title" />;
     description = <agentsTeamCopy.Copy k="description" />;
@@ -173,6 +175,7 @@ function MoreRooms({ path }: { path: string }) {
     content = <Token />;
   } else if (quant) {
     ({ title, description, content } = quant);
+    bare = 'bare' in quant && quant.bare === true;
   } else if (p === '/support/chat') {
     title = <chatCopy.Copy k="pageTitle" />;
     description = <chatCopy.Copy k="pageDescription" />;
