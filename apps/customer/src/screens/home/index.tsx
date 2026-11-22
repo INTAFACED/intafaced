@@ -81,8 +81,10 @@ function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) 
       ? wanted.map((label) => ACTIONS.find((action) => action.label === label)!)
       : ACTIONS.filter((action) => action.label !== 'Add money')
   ).filter((action) => !isHiddenPath(action.href.split('?')[0]!));
+  // While loading, the keys' placeholder row is the whole tray, not one more key beside the others.
+  const tray = loading ? undefined : 'lt-actions';
   return (
-    <nav data-testid="home-actions" className="lt-actions" aria-label={t('Actions')}>
+    <nav data-testid="home-actions" className={tray} aria-label={t('Actions')}>
       {loading ? (
         <Skeleton shape="keys" count={live.length} />
       ) : (
