@@ -99,25 +99,27 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
               shares={shown.map((slice) => ({ key: slice.key, label: slice.label, share: slice.share, text: pctText(slice.share) }))}
             />
           </div>
-          <table className="lt-sr">
-            <caption>{caption}</caption>
-            <thead>
-              <tr>
-                <th scope="col">{t('Group')}</th>
-                <th scope="col">{t('Share')}</th>
-                {grouping === 'class' ? <th scope="col">{t('Coins in it')}</th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((slice) => (
-                <tr key={slice.key}>
-                  <th scope="row">{slice.label}</th>
-                  <td>{pctText(slice.share)}</td>
-                  {grouping === 'class' ? <td>{slice.assets?.join(', ')}</td> : null}
+          <div className="lt-sr">
+            <table>
+              <caption>{caption}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">{t('Group')}</th>
+                  <th scope="col">{t('Share')}</th>
+                  {grouping === 'class' ? <th scope="col">{t('Coins in it')}</th> : null}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {shown.map((slice) => (
+                  <tr key={slice.key}>
+                    <th scope="row">{slice.label}</th>
+                    <td>{pctText(slice.share)}</td>
+                    {grouping === 'class' ? <td>{slice.assets?.join(', ')}</td> : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {unclassified.length > 0 ? (
             <p className="lt-hint">
               {t(unclassified.length === 1 ? 'Unclassified note' : 'Unclassified note many', { assets: unclassified.join(', ') })}
