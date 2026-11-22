@@ -6,16 +6,22 @@ import { Read } from './common';
 import { agentMemoryCopy } from './agent-memory-copy';
 import type { Failed } from './AgentGuardrails';
 import {
-  ownAgentMemorySchema,
-  ownAgentPrivacySchema,
-  ownAgentShareCheckSchema,
-  ownAgentShareSchema,
   type OwnAgent,
   type OwnAgentMemory,
   type OwnAgentPrivacy,
   type OwnAgentShare,
   type OwnAgentShareCheck,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_MEMORY_GET,
+  AGENTS_OWN_MEMORY_SET_ENABLED,
+  AGENTS_OWN_MEMORY_CLEAR,
+  AGENTS_OWN_PRIVACY_GET,
+  AGENTS_OWN_PRIVACY_KEEP_TRANSCRIPTS,
+  AGENTS_OWN_SHARE_GET,
+  AGENTS_OWN_SHARE_CHECK,
+  AGENTS_OWN_SHARE_SET,
+} from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Memory and Privacy pages and the privacy check before sharing it (AG-builder-02, AG-guardrails-04;
@@ -50,7 +56,7 @@ export function MemoryPage({ agent, onOpenRun }: { agent: OwnAgent; onOpenRun: (
   const api = useApi();
   const { t } = agentMemoryCopy.useCopy();
   const loaded = useResource(
-    (signal) => api.query('agents', 'own.memory.get', { id: agent.id, limit: 200 }, ownAgentMemorySchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_MEMORY_GET, { id: agent.id, limit: 200 }, { signal }),
     `own-memory:${agent.id}`,
   );
   return (
@@ -78,7 +84,7 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
     setCleared(false);
     // The switch follows the press at once; a refusal puts it back as svc-agents has it.
     setMemory({ ...memory, enabled });
-    const res = await api.mutate('agents', 'own.memory.setEnabled', { id: agent.id, enabled }, ownAgentMemorySchema);
+    const res = await api.call(AGENTS_OWN_MEMORY_SET_ENABLED, { id: agent.id, enabled });
     setBusy(false);
     if (!res.ok) {
       setMemory(before);
@@ -91,10 +97,10 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
     setBusy(true);
     setRefused(null);
     setCleared(false);
-    const res = await api.mutate('agents', 'own.memory.clear', { id: agent.id, itemId }, ownAgentMemorySchema);
+    const res = await api.call(AGENTS_OWN_MEMORY_CLEAR, { id: agent.id, itemId });
     if (!res.ok) {
       // Gone already (a lost reply, or another tab): read what is stored rather than act again.
-      const again = await api.query('agents', 'own.memory.get', { id: agent.id, limit: 200 }, ownAgentMemorySchema);
+      const again = await api.call(AGENTS_OWN_MEMORY_GET, { id: agent.id, limit: 200 });
       if (again.ok) setMemory(again.data);
       setBusy(false);
       return setRefused(res);
@@ -156,10 +162,7 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
 export function PrivacyPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentMemoryCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.privacy.get', { id: agent.id }, ownAgentPrivacySchema, { signal }),
-    `own-privacy:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_PRIVACY_GET, { id: agent.id }, { signal }), `own-privacy:${agent.id}`);
   return (
     <Panel title={t('privacyTitle')} role="region" aria-label={t('privacyTitle')}>
       <p className="muted">{t('privacyIntro')}</p>
@@ -180,7 +183,7 @@ function Privacy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPrivacy }
   async function keepTranscripts(keep: boolean) {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.privacy.keepTranscripts', { id: agent.id, keep }, ownAgentPrivacySchema);
+    const res = await api.call(AGENTS_OWN_PRIVACY_KEEP_TRANSCRIPTS, { id: agent.id, keep });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setPrivacy(res.data);
@@ -219,10 +222,7 @@ function Privacy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPrivacy }
 export function ShareWithCoOwners({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentMemoryCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.share.get', { id: agent.id }, ownAgentShareSchema, { signal }),
-    `own-share:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_SHARE_GET, { id: agent.id }, { signal }), `own-share:${agent.id}`);
   return (
     <Panel title={t('shareTitle')} role="region" aria-label={t('shareTitle')}>
       <p className="muted">{t('shareIntro')}</p>
@@ -246,12 +246,7 @@ function Share({ agent, stored }: { agent: OwnAgent; stored: OwnAgentShare }) {
   async function runCheck() {
     setBusy(true);
     setRefused(null);
-    const res = await api.query(
-      'agents',
-      'own.share.check',
-      { id: agent.id, includeTranscripts: transcripts, includeMemory: memory },
-      ownAgentShareCheckSchema,
-    );
+    const res = await api.call(AGENTS_OWN_SHARE_CHECK, { id: agent.id, includeTranscripts: transcripts, includeMemory: memory });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setCheck(res.data);
@@ -260,12 +255,12 @@ function Share({ agent, stored }: { agent: OwnAgent; stored: OwnAgentShare }) {
   async function confirm() {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.share.set',
-      { id: agent.id, includeTranscripts: transcripts, includeMemory: memory, confirmed: true },
-      ownAgentShareSchema,
-    );
+    const res = await api.call(AGENTS_OWN_SHARE_SET, {
+      id: agent.id,
+      includeTranscripts: transcripts,
+      includeMemory: memory,
+      confirmed: true,
+    });
     setBusy(false);
     setCheck(null);
     if (!res.ok) return setRefused(res);
