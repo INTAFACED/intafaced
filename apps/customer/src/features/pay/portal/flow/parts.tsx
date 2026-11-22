@@ -2,7 +2,12 @@ import { useContext, useId, useState, type ReactNode } from 'react';
 import { useRelease } from '../../../../shared/outside';
 import { Button, EmptyState, RefusalBox, Select, Tag } from '@intafaced/ui/lit';
 import { Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
-import { formatDateTime, formatDay } from '../ui/format';
+import { formatDateTime, formatDay, formatMoney, isRounded } from '../ui/format';
+import { parseAmount } from '../../../../shared/money';
+import type { Resource } from '../../../../shared/resource';
+import { useExactMoneyScope } from '../ui/ExactMoneyScope';
+import { activeHalts } from '../model';
+import type { HaltScope, HaltStatus } from '../schemas';
 import type { ApiResult } from '../../../../shared/api';
 import { portalCopy } from '../copy';
 import { uiCopy } from '../ui/copy';
@@ -237,4 +242,155 @@ export function SelectField({
   disabled?: boolean;
 }) {
   return <Select label={label} hint={hint} value={value} disabled={disabled} options={options} onChange={onChange} />;
+}
+
+/** A summary line of key facts: label and value pairs, on the kit's key-value rows. Journeys find it as `dl[data-testid="pp-facts"] > div`. */
+export function Facts({ items }: { items: ReadonlyArray<readonly [string, ReactNode]> }) {
+  return (
+    <dl data-testid="pp-facts" className="lt-kv">
+      {items.map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** Loading and refusal for one read that is not a list. */
+export function Gate<T>({
+  resource,
+  retry,
+  rows,
+  children,
+}: {
+  resource: Resource<T>;
+  retry: () => void;
+  rows?: number;
+  children: (data: T) => ReactNode;
+}) {
+  if (resource.status === 'loading') return <Loading rows={rows} />;
+  if (resource.status === 'failed') return <Failure result={resource.failure} retry={retry} />;
+  return <>{children(resource.data)}</>;
+}
+
+/** A link drawn as the kit's button (the portal's `LinkButton`). */
+export function LinkButton({
+  href,
+  children,
+  variant = 'secondary',
+}: {
+  href: string;
+  children: ReactNode;
+  variant?: 'primary' | 'secondary';
+}) {
+  return (
+    <a className="lt-button" data-slot="button" data-variant={variant} data-tone={variant} data-size="md" role="link" href={href}>
+      {children}
+    </a>
+  );
+}
+
+/** The portal's TEST mark on a value nobody may take for real. */
+export function TestTag() {
+  const { t } = portalCopy.useCopy();
+  return <Tag title={t('testValueTip')}>{t('testValue')}</Tag>;
+}
+
+/** A figure or setting nobody has configured. It is never a zero and never a default. */
+export function NotConfigured({ children }: { children?: ReactNode }) {
+  const { t } = portalCopy.useCopy();
+  return <span className="lt-hint">{children ?? t('notConfigured')}</span>;
+}
+
+function isZero(value: string): boolean {
+  try {
+    return parseAmount(value) === 0n;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An amount with its asset code on one line (the portal's `MoneyText`, same words and rules): every digit inside a
+ * review (`ExactMoneyScope`), elsewhere a rounded figure carries the exact one in its tooltip; `test` marks sandbox money.
+ */
+export function MoneyText({
+  value,
+  asset,
+  hideZero = false,
+  test = false,
+  sign,
+}: {
+  value: string;
+  asset: string;
+  hideZero?: boolean;
+  test?: boolean;
+  sign?: 'minus' | 'plus';
+}) {
+  const { t } = uiCopy.useCopy();
+  const exactScope = useExactMoneyScope();
+  if (hideZero && isZero(value)) return null;
+  const text = formatMoney(value, asset, { exact: exactScope, sign });
+  const rounded = !exactScope && isRounded(value, asset);
+  const exactTag = exactScope && isRounded(value, asset);
+  return (
+    <span className="lt-mono" data-money="" title={rounded ? `${formatMoney(value, asset, { exact: true })} ${asset}` : undefined}>
+      {text} <span lang="zxx">{asset}</span>
+      {exactTag && <span> ({t('exactTag')})</span>}
+      {test && (
+        <>
+          {' '}
+          <Tag title={t('testTip')}>{t('testTag')}</Tag>
+        </>
+      )}
+    </span>
+  );
+}
+
+/** Operation pauses: which operation is paused and since when. An unreadable pause store counts as paused. */
+export function HaltBanner({ resource, scopes }: { resource: Resource<HaltStatus>; scopes: readonly HaltScope[] }) {
+  const { t } = portalCopy.useCopy();
+  if (resource.status === 'loading') return null;
+  const parked = (title: string, body: ReactNode = null, key?: string) => (
+    <RefusalBox key={key} role={undefined} refusal={{ variant: 'parked', title, body: '' }}>
+      {body}
+    </RefusalBox>
+  );
+  // A refused or failed read (a team member's read is refused too) is not "nothing is paused": say we could not check.
+  if (resource.status === 'failed')
+    return (
+      <div role="alert" data-halt="">
+        {parked(t('haltCheckFailed', { ops: scopes.map((s) => t(`haltOpName_${s}` as 'haltOpName_intake')).join(t('haltOr')) }))}
+      </div>
+    );
+  const { unreadable, halts } = activeHalts(resource.data, scopes);
+  if (unreadable)
+    return (
+      <div role="alert" data-halt="">
+        {parked(t('haltUnreadable'))}
+      </div>
+    );
+  if (halts.length === 0) return null;
+  return (
+    <div role="alert" data-halt="">
+      {halts.map((h) => {
+        const where =
+          h.level === 'merchant' ? t('haltYours') : h.level === 'rail' ? t('haltRail', { rail: h.railId ?? '' }) : t('haltGlobal');
+        return parked(
+          `${t(`haltOp_${h.scope}` as 'haltOp_intake')} ${where}`,
+          <p>
+            {h.changedAt ? (
+              <>
+                {t('haltSince')} <DateTime value={h.changedAt} />.{' '}
+              </>
+            ) : null}
+            {t('haltEffect')}
+          </p>,
+          `${h.scope}:${h.level}:${h.railId ?? ''}`,
+        );
+      })}
+    </div>
+  );
 }
