@@ -241,6 +241,8 @@ pub struct BankDoor {
     cards: crate::cards::Wiring,
     /// Slice `loans`'s marks, venue, affiliates and owner values (`loans::Wiring`).
     loans: crate::loans::Wiring,
+    /// Slice `activity`'s history reads, cursor secret and owner values (`activity::Wiring`).
+    activity: crate::activity::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -290,6 +292,7 @@ impl BankDoor {
             earn: crate::earn::Settings::default(),
             cards: crate::cards::Wiring::none(),
             loans: crate::loans::Wiring::none(),
+            activity: crate::activity::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -370,6 +373,35 @@ impl BankDoor {
     pub fn with_loans(mut self, wiring: crate::loans::Wiring) -> BankDoor {
         self.loans = wiring;
         self
+    }
+
+    /// Slice `activity`'s wiring, built by the binary from the environment.
+    pub fn with_activity(mut self, wiring: crate::activity::Wiring) -> BankDoor {
+        self.activity = wiring;
+        self
+    }
+
+    /// `f` given slice `activity`'s dependencies at `now`: what a call or the statement worker hands the slice.
+    pub fn activity_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::activity::Deps<'_>) -> T,
+    ) -> T {
+        f(&crate::activity::Deps {
+            door: self,
+            w: &self.activity,
+            now,
+        })
+    }
+
+    /// Slice `spaces`'s wiring.
+    pub fn spaces(&self) -> &crate::spaces::Wiring {
+        &self.spaces
+    }
+
+    /// Slice `transfers`'s wiring.
+    pub fn transfers(&self) -> &crate::transfers::Wiring {
+        &self.transfers
     }
 
     /// Slice `earn`'s owner values, built by the binary from the environment.
@@ -467,6 +499,10 @@ impl BankDoor {
                 )
                 .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
             }
+            // `transfers.list` is the activity feed narrowed to transfers (`router/transfers.router.ts`).
+            Slice::Transfers if ctx.call.path == "transfers.list" => self
+                .activity_deps(ctx.now, |d| crate::activity::feed::transfers_list(d, ctx))
+                .map(Some),
             Slice::Transfers => crate::transfers::router::answer(
                 &self.transfers,
                 &self.spaces,
@@ -526,6 +562,9 @@ impl BankDoor {
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::Loans)))
             }
+            Slice::Activity => self
+                .activity_deps(ctx.now, |d| crate::activity::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Activity))),
             other => Err(not_ported(other)),
         }
     }
