@@ -27,7 +27,7 @@ import type { PinnedPostRequest } from './webhook-pinned-post.js';
  */
 
 // Its own database, made from the migrations (createTestDatabase): no other test file's rows reach these tests.
-const URL = resolveTestDatabaseUrl('TEST_DATABASE_URL_AGENTS', 'postgres://svc_agents:svc_agents@localhost:5433/intafaced_test');
+const URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
 const migrations = readdirSync(drizzleDir)
