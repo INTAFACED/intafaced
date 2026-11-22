@@ -134,14 +134,19 @@ export type ChoiceGroupProps<T extends string> = {
   /** The radio group's form name. */
   name: string;
   options: readonly { value: T; label: string; hint?: string }[];
-  value: T;
+  /** The chosen value; `null` while nothing is chosen yet (a question with no default answer). */
+  value: T | null;
   onChange: (value: T) => void;
+  /** Words about the whole question, after its choices. */
+  hint?: React.ReactNode;
+  disabled?: boolean;
 };
 
 /** One choice of several, each with its own words: native radios in a fieldset, so each is a radio named by its label. */
-export function ChoiceGroup<T extends string>({ legend, name, options, value, onChange }: ChoiceGroupProps<T>) {
+export function ChoiceGroup<T extends string>({ legend, name, options, value, onChange, hint, disabled }: ChoiceGroupProps<T>) {
+  const hintId = React.useId();
   return (
-    <fieldset className="lit-choices">
+    <fieldset className="lit-choices" disabled={disabled} aria-describedby={hint ? hintId : undefined}>
       <legend>{legend}</legend>
       {options.map((o) => (
         <label key={o.value} data-part="choice">
@@ -150,6 +155,11 @@ export function ChoiceGroup<T extends string>({ legend, name, options, value, on
           {o.hint ? <span data-part="hint">{o.hint}</span> : null}
         </label>
       ))}
+      {hint ? (
+        <span id={hintId} data-part="hint">
+          {hint}
+        </span>
+      ) : null}
     </fieldset>
   );
 }

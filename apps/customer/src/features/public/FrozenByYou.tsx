@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AccountRestriction } from '@intafaced/contracts/identity-account-status';
-import { Button } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { accountStatusCopy, selfFreezeCopy } from '../account';
@@ -36,13 +36,7 @@ export function FrozenByYou({
   // An owner wait identity could not state reads as unset, never as open.
   const liftKey = Number.isNaN(liftAt) ? 'liftUnset' : liftAt > now ? 'liftAt' : 'liftNow';
   return (
-    <section
-      data-testid="frozen-by-you"
-      data-state="frozen_self"
-      className="public-auth-recovery-used stack"
-      role="status"
-      aria-labelledby="frozen-by-you-title"
-    >
+    <section data-testid="frozen-by-you" data-state="frozen_self" role="status" aria-labelledby="frozen-by-you-title">
       <h1 id="frozen-by-you-title" lang={freezeCopy.languageFor('frozenTitle')}>
         {freezeCopy.t('frozenTitle')}
       </h1>
@@ -77,8 +71,10 @@ export function FrozenByYou({
             ? t('liftNow')
             : freezeCopy.t('liftWaitUnset')}
       </p>
-      <Button onClick={onSecurity}>{t('security')}</Button>
-      <Button variant="secondary" onClick={onContinue}>
+      <Button tone="primary" onClick={onSecurity}>
+        {t('security')}
+      </Button>
+      <Button tone="secondary" onClick={onContinue}>
         {t('continue')}
       </Button>
     </section>

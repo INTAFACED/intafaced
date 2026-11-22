@@ -219,11 +219,12 @@
   color: var(--lit-text-1);
   font: inherit;
 }
-.lit-field-control textarea {
-  padding-block: 0.5rem;
-}
 .lit-field-control :is(input, select, textarea):focus {
   box-shadow: inset 0 0 0 1px var(--lit-control-rim-active);
+}
+.lit-field-control textarea {
+  padding-block: 10px;
+  resize: vertical;
 }
 .lit-field-control [data-part='hint'] {
   color: var(--lit-text-3);
