@@ -506,7 +506,51 @@ pub fn held_for_review(
         .collect()
 }
 
+/// `partnerFeeKnown`: whether the partner says what a move costs; without the partner the published fee stands.
+fn partner_fee_known(d: &Deps<'_>, user_id: &str) -> bool {
+    d.partner
+        .partner
+        .as_ref()
+        .is_none_or(|p| p.switches(user_id).fee == "known")
+}
+
+/// `assertPartnerAnswering`.
+pub fn assert_partner_answering(d: &Deps<'_>, user_id: &str) -> Result<(), Refusal> {
+    if d.partner
+        .partner
+        .as_ref()
+        .is_some_and(|p| p.switches(user_id).down)
+    {
+        return Err(refuse(
+            "bank.partner_unavailable",
+            "The partner bank is not answering. Nothing was sent or changed.",
+        ));
+    }
+    Ok(())
+}
+
+fn text<'v>(v: &'v service_kit::schema::Value, key: &str) -> &'v str {
+    v.get(key).as_str().unwrap_or_default()
+}
+
 /// The answer of one of this part's calls, by its path; `None` for a path outside it.
-pub fn answer(_d: &Deps<'_>, _ctx: &crate::door::Ctx<'_>) -> Option<Result<Json, Refusal>> {
-    None
+pub fn answer(d: &Deps<'_>, ctx: &crate::door::Ctx<'_>) -> Option<Result<Json, Refusal>> {
+    let user = ctx
+        .principal
+        .map(|p| p.user_id.as_str())
+        .unwrap_or_default();
+    let input = &ctx.input;
+    Some(match ctx.call.path {
+        "transfers.get" => get(d, user, text(input, "ledgerTxId")).map(|v| v.receipt()),
+        "transfers.held" => held_send(d, user, text(input, "transferId")).map(|v| v.json()),
+        "transfers.quote" => (|| {
+            let asset = text(input, "assetId");
+            let amount = parse_amount(text(input, "amount")).map_err(Refusal::Other)?;
+            let q = with(d.store, |c| {
+                super::terms::quote(c, user, asset, amount, d.now)
+            })?;
+            Ok(q.json((!partner_fee_known(d, user)).then_some(Json::Null)))
+        })(),
+        _ => return None,
+    })
 }
