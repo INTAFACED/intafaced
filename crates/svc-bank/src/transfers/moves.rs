@@ -416,12 +416,12 @@ pub struct Failed {
     pub post: Option<PostFailure>,
 }
 
-impl From<Refusal> for Failed {
-    fn from(refusal: Refusal) -> Failed {
-        Failed {
+impl From<Refusal> for Box<Failed> {
+    fn from(refusal: Refusal) -> Box<Failed> {
+        Box::new(Failed {
             refusal,
             post: None,
-        }
+        })
     }
 }
 
@@ -439,7 +439,7 @@ pub fn move_between_outcome(
     d: &Deps<'_>,
     ask: &MoveAsk<'_>,
     partner_allowed: bool,
-) -> Result<Moved, Failed> {
+) -> Result<Moved, Box<Failed>> {
     let now = d.now;
     if ask.from_space_id == ask.to_space_id {
         return Err(refuse("bank.same_space", "A transfer needs two different spaces").into());
@@ -529,9 +529,11 @@ pub fn move_between_outcome(
         ask.amount,
         ask.key_space,
     )
-    .map_err(|f| Failed {
-        refusal: post_refusal(&f),
-        post: Some(f),
+    .map_err(|f| {
+        Box::new(Failed {
+            refusal: post_refusal(&f),
+            post: Some(f),
+        })
     })?;
     // A ledger answering a reused key with the ORIGINAL transaction: never report this one booked unless it is this move.
     if !booked_matches(d, &tx, &from_account, &to_account, ask.amount)? {
@@ -567,7 +569,7 @@ pub fn transfer_to_user_outcome(
     from_space_id: &str,
     to_user_id: &str,
     amount: Amount,
-) -> Result<Moved, Failed> {
+) -> Result<Moved, Box<Failed>> {
     let dest_user = to_user_id.trim();
     let from = with(d.store, |c| resolve_for_debit(c, from_space_id, d.now))?;
     let dest = if dest_user.is_empty() {

@@ -545,27 +545,27 @@ fn code_of(r: &Refusal) -> Option<String> {
     }
 }
 
-impl From<Refusal> for SendFailed {
+impl From<Refusal> for Box<SendFailed> {
     /// A `BankError` proves nothing was sent, except a partner answer that was lost; anything untyped may have.
-    fn from(refusal: Refusal) -> SendFailed {
+    fn from(refusal: Refusal) -> Box<SendFailed> {
         let definite =
             matches!(&refusal, Refusal::Bank(e) if e.row.code != "bank.partner_reply_lost");
         let code = code_of(&refusal);
-        SendFailed {
+        Box::new(SendFailed {
             refusal,
             definite,
             code,
-        }
+        })
     }
 }
 
 /// A failed move, judged as `send`'s catch judges it: a post failure is definite only when it proves no commit (the
 /// posting freeze, so proved, is answered as `ledger.frozen`), and a booked movement that is not this send never is.
-fn move_failure(f: Failed) -> SendFailed {
+fn move_failure(f: Failed) -> Box<SendFailed> {
     if let Some(post) = &f.post {
         let definite = post.proves_not_committed();
         if definite && post.code() == Some("ledger.frozen") {
-            return SendFailed {
+            return Box::new(SendFailed {
                 refusal: Refusal::Trpc(TrpcError::caused(
                     "PRECONDITION_FAILED",
                     "ledger.frozen",
@@ -573,17 +573,18 @@ fn move_failure(f: Failed) -> SendFailed {
                 )),
                 definite,
                 code: Some("ledger.frozen".to_owned()),
-            };
+            });
         }
-        return SendFailed {
-            code: post.code().map(str::to_owned),
+        let code = post.code().map(str::to_owned);
+        return Box::new(SendFailed {
+            code,
             refusal: f.refusal,
             definite,
-        };
+        });
     }
     let booked =
         matches!(&f.refusal, Refusal::Bank(e) if e.row.code == "bank.personal_transfer_conflict");
-    let mut out = SendFailed::from(f.refusal);
+    let mut out = Box::<SendFailed>::from(f.refusal);
     out.definite &= !booked;
     out
 }
@@ -626,7 +627,7 @@ fn lock_sender(tx: &mut Transaction<'_>, user_id: &str, asset_id: &str) -> Resul
 }
 
 /// `send`: a send to another person, reserved under its transfer id and posted once (see the module's words).
-pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, SendFailed> {
+pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, Box<SendFailed>> {
     let now = d.now;
     let note = requests::plain_note(i.note)?;
     let reference = requests::plain_reference(i.reference)?;
@@ -781,7 +782,7 @@ pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, SendFailed> {
             }
         },
         Err(f) => {
-            let failed = move_failure(f);
+            let failed = move_failure(*f);
             // A typed refusal proved this send did not post. Looking the key up would adopt whatever else is booked
             // under it, including an own-space move.
             if failed.definite {
@@ -874,7 +875,7 @@ fn send_at_partner(
     partner: &Held<'_>,
     transfer_id: &str,
     ask: &review::SendAsk<'_>,
-) -> Result<TransferView, SendFailed> {
+) -> Result<TransferView, Box<SendFailed>> {
     let moved = match moves::transfer_to_user_outcome(
         d,
         transfer_id,
@@ -892,7 +893,7 @@ fn send_at_partner(
             }
         },
         Err(f) => {
-            let failed = move_failure(f);
+            let failed = move_failure(*f);
             if !failed.definite {
                 return Err(failed);
             }
@@ -1166,7 +1167,7 @@ pub fn release_held(
     let sent = if d.custody.bank_for(&row.from_user_id).is_some() {
         // A held send of money the partner bank holds is not released through the partner yet: it stays in review, where
         // an operator can reject it, and nothing moves.
-        Err(SendFailed::from(moves::partner_path_not_built()))
+        Err(Box::<SendFailed>::from(moves::partner_path_not_built()))
     } else {
         send(
             d,
@@ -1308,7 +1309,7 @@ pub fn settle_withdrawal(d: &Deps<'_>, w: &Withdrawal<'_>) -> Result<Json, Refus
         Some(r) => d.now.0 - r.try_get::<_, i64>(0).map_err(|e| pg(&e))? < POST_IN_FLIGHT_BOUND_MS,
         None => false,
     };
-    let attempt = || -> Result<(String, String), SendFailed> {
+    let attempt = || -> Result<(String, String), Box<SendFailed>> {
         // A withdrawal from money the partner bank holds is not settled through the partner yet: refused, nothing sent.
         if d.custody.bank_for(w.from_user_id).is_some() {
             return Err(moves::partner_path_not_built().into());
