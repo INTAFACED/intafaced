@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { router, TRPCError, payAmountStringSchema } from '@intafaced/contracts';
+import { payAmountStringSchema } from '@intafaced/contracts/merchant-control';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {

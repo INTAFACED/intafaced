@@ -4,7 +4,8 @@
  * Unset TRADE_URL = honest `no_live_leaders`. Empty or 503 body = same refuse.
  */
 
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { CopyLeaderFixturesPort } from './live-leader-fixtures-port.js';
 import type { LeaderPerformanceFixture } from './stats.js';
 

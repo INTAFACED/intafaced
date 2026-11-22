@@ -7,7 +7,8 @@ import {
   QUANT_APPROVAL_SELF_REVIEW,
   QuantError,
 } from '../errors.js';
-import { publicJurisdictionProcedure, quantApprovalPolicySchema, router } from '@intafaced/contracts';
+import { quantApprovalPolicySchema } from '@intafaced/contracts/quant-research';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
 import {
   QUANT_APPROVAL_DECIDE,
   QUANT_APPROVAL_GET,

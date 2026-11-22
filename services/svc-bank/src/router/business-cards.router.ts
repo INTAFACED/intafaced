@@ -1,7 +1,5 @@
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
   BUSINESS_RECEIPT_TYPES,
   businessCardLimitRequestSchema,
   businessCardPurchaseSchema,
@@ -10,7 +8,8 @@ import {
   businessExpensesOverviewSchema,
   businessReceiptsZipSchema,
   businessReimbursementSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-business-cards';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import {
   MAX_RECEIPT_BYTES,

@@ -1,5 +1,6 @@
 import type { Queryable } from '@intafaced/db';
-import { QUANT_QUOTA_RESOURCES, QUANT_SANDBOX_LIMITS, type QuantQuotaResource, type QuantSandboxLimit } from '@intafaced/contracts';
+import type { QuantQuotaResource, QuantSandboxLimit } from '@intafaced/contracts';
+import { QUANT_QUOTA_RESOURCES, QUANT_SANDBOX_LIMITS } from '@intafaced/contracts/quant-algo';
 import type { AccountCounts } from './counts.js';
 import { QUANT_QUOTA_EXCEEDED, QUANT_QUOTA_PROFILE_UNSET, QUANT_QUOTA_UNSET, QuantError } from '../errors.js';
 

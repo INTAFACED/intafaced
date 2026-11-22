@@ -1,10 +1,6 @@
 import type { Sql } from 'postgres';
-import {
-  kybEntityTypeRequirementsSchema,
-  type KybEntityType,
-  type KybEntityTypeRequirements,
-  type KybRequirementsView,
-} from '@intafaced/contracts';
+import type { KybEntityType, KybEntityTypeRequirements, KybRequirementsView } from '@intafaced/contracts';
+import { kybEntityTypeRequirementsSchema } from '@intafaced/contracts/kyb-entity-types';
 import { KybError } from './kyb-service.js';
 
 /**

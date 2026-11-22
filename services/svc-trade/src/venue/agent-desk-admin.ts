@@ -1,4 +1,4 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { AgentAccountError } from './agent-account.js';
 import type { AgentDesk, AgentDeskConnections } from './agent-desk.js';
 import { answerKeys } from '../answer-keys.js';

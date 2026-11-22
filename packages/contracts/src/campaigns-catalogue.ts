@@ -19,6 +19,7 @@ import { participationRulesSchema } from './campaigns-rules.js';
 import { RISK_REFUSAL_CODES } from './campaigns-risk.js';
 import { campaignTasksSchema } from './campaigns-tasks.js';
 import { campaignLimitsSchema, feeSaverTermsSchema, voucherWindowSchema } from './campaigns-vouchers.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 // The campaign's parts, one file each; importers keep reading them from here.
 export {
@@ -283,8 +284,8 @@ export const campaignDefinitionInputSchema = z
     weekdays: z.array(weekday).min(1).max(7).nullish(),
     hours: z.object({ from: hhmm, to: hhmmEnd }).nullish(),
     participation: participationRulesSchema.nullish(),
-    budget: z.object({ asset: z.string().max(16), limit: z.unknown() }).nullish(),
-    reward: z.object({ asset: z.string().max(16), amount: z.unknown() }).nullish(),
+    budget: z.object({ asset: z.string().max(16), limit: jsonValueSchema }).nullish(),
+    reward: z.object({ asset: z.string().max(16), amount: jsonValueSchema }).nullish(),
     /** Only for a `task` campaign: anything else refuses `campaigns.tasks_invalid`. */
     tasks: campaignTasksSchema.nullish(),
     /**

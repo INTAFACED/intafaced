@@ -1,8 +1,6 @@
 import { createContext, useContext, useState } from 'react';
-import { z } from 'zod';
 import {
   POINTS_OWNER_QUESTION,
-  pointsProgrammeSchema,
   type PointsCatalogueItem,
   type PointsProgramme as Programme,
 } from '@intafaced/contracts/campaigns-catalogue';
@@ -13,6 +11,11 @@ import { Button, DataTable, EmptyState, Failure, Loading, Page, Panel } from '..
 import { PromotionTabs } from './Promotions';
 import { promotionsCopy } from './promotions-copy';
 import { pointsProgrammeCopy } from './points-programme-copy';
+import {
+  CAMPAIGNS_POINTS_PROGRAMME,
+  CAMPAIGNS_POINTS_CONVERT,
+  CAMPAIGNS_POINTS_REDEEM,
+} from '@intafaced/contracts/campaigns-points-procedures';
 
 /**
  * The points programme on /uc/promotion/points (CM-rewards-hub-04, J-campaigns-15 #1-#4): the wallet, members and
@@ -64,10 +67,7 @@ export function PromotionPoints() {
 export function PointsProgramme() {
   const api = useApi();
   const { t } = pointsProgrammeCopy.useCopy();
-  const programme = useResource(
-    (signal) => api.query('campaigns', 'points.programme', {}, pointsProgrammeSchema, { signal }),
-    'points-programme',
-  );
+  const programme = useResource((signal) => api.call(CAMPAIGNS_POINTS_PROGRAMME, undefined, { signal }), 'points-programme');
   const r = programme.resource;
   const [refusals, setRefusals] = useState<Record<string, Refused>>({});
   const set = (id: string, refused: Refused | null) =>
@@ -227,7 +227,7 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
           testId="points-convert-refusal"
           question={question}
           reread={reread}
-          send={(api) => api.mutate('campaigns', 'points.convert', {}, z.never())}
+          send={(api) => api.call(CAMPAIGNS_POINTS_CONVERT, {})}
         />
       </section>
     </>
@@ -259,7 +259,7 @@ function CatalogueRow({
           testId={`points-redeem-refusal-${item.id}`}
           question={question}
           reread={reread}
-          send={(api) => api.mutate('campaigns', 'points.redeem', { itemId: item.id }, z.never())}
+          send={(api) => api.call(CAMPAIGNS_POINTS_REDEEM, { itemId: item.id })}
         />
       </td>
     </tr>

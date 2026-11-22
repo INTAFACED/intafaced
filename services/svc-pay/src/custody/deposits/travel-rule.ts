@@ -2,6 +2,12 @@ import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import type {
+  PayDepositTravelRuleDeclareInput,
+  PayDepositTravelRuleState,
+  PayDepositTravelRuleView,
+  PayTravelRuleField,
+} from '@intafaced/contracts';
 import {
   PAY_DEPOSIT_TRAVEL_RULE_STATES,
   PAY_DEPOSIT_WALLET_TYPES,
@@ -9,14 +15,8 @@ import {
   payDepositTravelRuleDeclareInputSchema,
   payDepositTravelRuleGetInputSchema,
   payDepositTravelRuleViewSchema,
-  router,
-  scopedProcedure,
-  TRPCError,
-  type PayDepositTravelRuleDeclareInput,
-  type PayDepositTravelRuleState,
-  type PayDepositTravelRuleView,
-  type PayTravelRuleField,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/pay-custody-deposit';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { founderProcedure, type FounderContext } from '../../namespaces/founder-procedure.js';
 import type { FounderAuthority } from '../../founder-authority.js';
 import { reasonSchema } from '../../registries/schemas.js';

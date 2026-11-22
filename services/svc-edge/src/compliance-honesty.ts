@@ -35,15 +35,14 @@ import {
   type NetworkSignalObservation,
   type NetworkSignalStatus,
 } from '@intafaced/config';
+import type { EtlWatermarkState, WarehouseSurfaceResult } from '@intafaced/contracts';
 import {
   assertAnalyticsReplicaRole,
   listConfiguredAnalyticsReplicaUrls,
   queryWarehouseSurface,
   resolveEtlWatermark,
   warehouseSurfaceStatusLine,
-  type EtlWatermarkState,
-  type WarehouseSurfaceResult,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-analytics-warehouse';
 
 export type EdgeNetworkHonesty = {
   readonly signal: NetworkSignalStatus;
