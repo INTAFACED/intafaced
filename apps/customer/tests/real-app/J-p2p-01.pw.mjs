@@ -377,7 +377,8 @@ test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quo
   const quote = take.getByTestId('take-quote');
   await expect(quote).toContainText('20 EUR');
   await expect(quote).toContainText('0.92 EUR / USDT');
-  const feeRow = (where) => where.locator('dl.pay-details > div').filter({ has: page.locator('dt', { hasText: /^Service fee$/ }) });
+  const feeRow = (where) =>
+    where.locator('dl[data-testid="pay-details"] > div').filter({ has: page.locator('dt', { hasText: /^Service fee$/ }) });
   await expect(feeRow(quote).locator('dd')).toHaveText(`${held.fee} USDT (${percent}%)`);
   await take.getByTestId('take-review').click();
   const dialog = page.getByTestId('take-review-dialog');

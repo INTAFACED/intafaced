@@ -1041,6 +1041,28 @@ button.lt-tab {
   font-size: var(--lit-type-heading-size);
 }
 
+.lt-dialog {
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-panel);
+  padding: var(--lit-pad-panel);
+  inline-size: min(100vw - 1rem, 34rem);
+  max-block-size: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.lt-dialog::backdrop {
+  background: var(--lit-scrim);
+}
+
+.lt-dialog .lt-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding-block-start: var(--lit-gap-item);
+}
+
 .lt-table {
   inline-size: 100%;
   border-collapse: collapse;
@@ -1821,6 +1843,60 @@ button.lt-tab {
 }
 .lt-uptime > :is([data-state='partial_outage'], [data-state='major_outage']) {
   background: var(--lit-down);
+}
+
+/* ---- sections that fold ---- */
+
+.lt-disclosure {
+  display: flex;
+  flex-direction: column;
+  border-block-start: 1px solid var(--lit-line);
+}
+
+.lt-disclosure-item {
+  border-block-end: 1px solid var(--lit-line);
+}
+
+.lt-disclosure-head {
+  margin: 0;
+  font-size: var(--lit-type-body-size);
+  font-weight: var(--lit-type-heading-weight);
+}
+
+.lt-disclosure-head > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  inline-size: 100%;
+  min-block-size: var(--lit-control-h);
+  padding-inline: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.lt-disclosure-head > button::after {
+  content: '+';
+  color: var(--lit-text-2);
+}
+
+.lt-disclosure-head > button[aria-expanded='true']::after {
+  content: '−';
+}
+
+.lt-disclosure-head > button:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding-block-end: var(--lit-gap-item);
 }
 
 /* ---- a limit's use, and a sample of someone else's brand ---- */
