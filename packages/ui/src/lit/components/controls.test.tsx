@@ -59,4 +59,12 @@ describe('the headline figure', () => {
     expect(out).toContain('—');
     expect(out).not.toContain('>0<');
   });
+
+  it('a money figure is marked as money and stays left to right; a count is not money', () => {
+    const money = html(<Stat label="Free balance" value="4,100 USDT" money />);
+    expect(money).toContain('data-slot="money"');
+    expect(money).toContain('<span dir="ltr" data-ltr="">4,100 USDT</span>');
+    expect(html(<Stat label="Margin posted" value={null} money />)).toContain('data-slot="money"');
+    expect(html(<Stat label="Open positions" value="3" />)).not.toContain('data-slot="money"');
+  });
 });

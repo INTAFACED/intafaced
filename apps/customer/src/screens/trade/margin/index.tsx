@@ -190,14 +190,15 @@ export default function MarginScreen(_props: ScreenProps) {
               <Stat
                 label={t('Free balance')}
                 value={money(freeOf(balances, asset))}
+                money
                 hint={t('Free balance hint', { asset })}
                 asOf={balances.status === 'ready' ? balances.asOf : null}
                 now={now}
                 staleAfterMs={STALE_AFTER_MS.positions}
                 refused={balances.status === 'refused' || balances.status === 'error'}
               />
-              <Stat label={t('Margin posted')} value={money(totals?.collateral)} {...stat} />
-              <Stat label={t('Unrealised PnL')} value={money(totals?.unrealizedPnl)} {...stat} />
+              <Stat label={t('Margin posted')} value={money(totals?.collateral)} money {...stat} />
+              <Stat label={t('Unrealised PnL')} value={money(totals?.unrealizedPnl)} money {...stat} />
               <Stat label={t('Open positions')} value={totals ? String(totals.count) : null} {...stat} />
               <Stat label={t('Margin calls')} value={callCount === null ? null : String(callCount)} />
             </section>

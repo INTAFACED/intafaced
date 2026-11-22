@@ -321,6 +321,11 @@ export interface StatProps {
   label: string;
   /** Pre-formatted text. null = unknown: the dash, spoken "unknown", never 0. */
   value: string | null;
+  /**
+   * The value is money: marked as a money figure (`data-slot="money"`, which the look gate checks is never drawn on
+   * see-through glass) and kept left to right, so "4,100 USDT" never reads "USDT 4,100" on a right-to-left page.
+   */
+  money?: boolean;
   hint?: string;
   /** With it (or when refused), a freshness chip with the as-of time sits under the value. */
   asOf?: AsOf;
@@ -331,7 +336,7 @@ export interface StatProps {
 }
 
 /** One headline figure with its label, its hint and how fresh it is (Live, Stale, Unknown, Refused) in words. */
-export function Stat({ label, value, hint, asOf, now, staleAfterMs, refused }: StatProps) {
+export function Stat({ label, value, money, hint, asOf, now, staleAfterMs, refused }: StatProps) {
   const id = React.useId();
   const hasFreshness = asOf != null || refused === true;
   const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused, enabled: hasFreshness });
@@ -349,12 +354,16 @@ export function Stat({ label, value, hint, asOf, now, staleAfterMs, refused }: S
       <span id={`${id}-label`} className="lt-hint">
         {label}
       </span>
-      <span className="lt-figure">
+      <span className="lt-figure" data-slot={money ? 'money' : undefined}>
         {value === null ? (
           <>
             <span aria-hidden="true">—</span>
             <span className="lt-sr">unknown</span>
           </>
+        ) : money ? (
+          <span dir="ltr" data-ltr="">
+            {value}
+          </span>
         ) : (
           value
         )}
