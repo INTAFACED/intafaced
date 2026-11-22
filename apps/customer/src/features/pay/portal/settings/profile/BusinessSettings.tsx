@@ -1,24 +1,23 @@
+// volt-room: /pay/settings
+// volt-room: /pay/settings/profile
+// volt-room: portal:settings
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
-import { Field } from '../../../ui-kit';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import { useSession } from '../../../../session';
-import { PayDetails, PaySection } from '../../../components';
 import { useMerchantAccess } from '../../access/MerchantAccess';
-import { Chip, ListShell, MoreFooter } from '../../components';
 import { useCursorList, useMemberNames, type ListState } from '../../hooks';
 import type { PortalApi } from '../../api';
-import { AuditPanel } from '../../ui/AuditPanel';
-import { CopyReference } from '../../ui/CopyReference';
 import { DateTime } from '../../ui/DateTime';
-import { PortalReview } from '../../ui/PortalReview';
 import { useUnsavedForm } from '../../useUnsavedForm';
 import { actorName } from '../account/actors';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
+import { SettingsRoom } from '../../volt/SettingsRoom';
 import { isWaiting, profilePatch, sensitiveChanges, toForm, validateProfile, type ProfileForm } from '../account/model';
 import type { BusinessProfile, ProfileChange, ProfileFields } from '../account/schemas';
-import { ReadGate } from '../account/ui';
+import { AuditPanel, Chip, CopyReference, Details, ListShell, MoreFooter, ReadGate, Section } from '../../volt/parts';
+import { Review } from '../../volt/Review';
+import { Button, Field } from '@intafaced/ui/lit';
 
 type Who = {
   merchantId: string;
@@ -30,7 +29,7 @@ type Who = {
 };
 
 /** `/pay/settings`: the business's own details, who changed them, and what is waiting for review. */
-export function BusinessSettings({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function BusinessSettings({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { access, canOwnerWrite, can } = useMerchantAccess();
   const { userId } = useSession();
   const names = useMemberNames(portal);
@@ -93,9 +92,9 @@ export function BusinessSettingsView(props: {
   const read = profile.status === 'ready' ? profile.data : null;
   const shownName = read?.displayName ?? read?.legalName ?? who.displayName ?? who.legalName;
   return (
-    <div className="stack">
-      <PaySection title={t('profileAccountTitle')}>
-        <PayDetails
+    <div>
+      <Section title={t('profileAccountTitle')}>
+        <Details
           values={[
             [t('fName'), shownName ?? t('notSet')],
             [t('fAccountStatus'), <Chip kind="merchant" value={who.accountStatus} />],
@@ -106,11 +105,11 @@ export function BusinessSettingsView(props: {
         {lastApplied && (
           <AuditPanel who={actorName(lastApplied.makerId, props.me, props.names)} at={lastApplied.decidedAt ?? lastApplied.createdAt} />
         )}
-        <p className="muted">{props.mayEdit ? t('whoMayEdit') : t('whoMayEditNot')}</p>
-      </PaySection>
+        <p className="lt-hint">{props.mayEdit ? t('whoMayEdit') : t('whoMayEditNot')}</p>
+      </Section>
 
       {waiting.length > 0 && (
-        <p className="pp-callout" role="status">
+        <p className="lt-hint" role="status">
           <strong>{t('pendingTitle')}</strong> {waiting.length === 1 ? t('pendingBodyOne') : t('pendingBodyMany', { n: waiting.length })}
         </p>
       )}
@@ -133,11 +132,11 @@ export function BusinessSettingsView(props: {
         reload={props.reload}
       />
 
-      <PaySection title={t('profileHistoryTitle')} description={t('profileHistoryBody')}>
+      <Section title={t('profileHistoryTitle')} description={t('profileHistoryBody')}>
         <ListShell state={history} retry={props.reload} empty={{ title: t('profileHistoryEmpty'), body: t('profileHistoryEmptyBody') }}>
           {(rows) => (
             <>
-              <ul className="stack" aria-label={t('profileHistoryTitle')}>
+              <ul aria-label={t('profileHistoryTitle')}>
                 {rows.map((change) => (
                   <li key={change.requestId}>
                     <ChangeRow {...props} change={change} />
@@ -148,7 +147,7 @@ export function BusinessSettingsView(props: {
             </>
           )}
         </ListShell>
-      </PaySection>
+      </Section>
     </div>
   );
 }
@@ -234,26 +233,26 @@ function ProfileForm({
     />
   );
   return (
-    <PaySection title={t('profileFormTitle')} description={t('profileFormBody')}>
-      <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
-        <fieldset className="sa-group">
+    <Section title={t('profileFormTitle')} description={t('profileFormBody')}>
+      <form data-testid="form-stack" noValidate onSubmit={(e) => e.preventDefault()}>
+        <fieldset>
           <legend>{t('groupPublic')}</legend>
           {field('displayName', t('pfDisplayName'), { hint: t('pfhDisplayName') })}
           {field('website', t('pfWebsite'), { hint: t('pfhWebsite') })}
           {field('supportEmail', t('pfSupportEmail'))}
           {field('supportPhone', t('pfSupportPhone'))}
         </fieldset>
-        <fieldset className="sa-group">
+        <fieldset>
           <legend>{t('groupLegal')}</legend>
-          <p className="sa-reviewed">{kybLocked ? t('lockedInReview') : t('reviewedByIntafaced')}</p>
+          <p className="lt-hint">{kybLocked ? t('lockedInReview') : t('reviewedByIntafaced')}</p>
           {field('legalName', t('pfLegalName'), { sensitive: true, hint: t('pfhLegalName') })}
           {field('line1', t('pfLine1'), { sensitive: true })}
           {field('line2', t('pfLine2'), { sensitive: true })}
-          <div className="form-row">
+          <div className="lt-toolbar">
             {field('city', t('pfCity'), { sensitive: true })}
             {field('region', t('pfRegion'), { sensitive: true })}
           </div>
-          <div className="form-row">
+          <div className="lt-toolbar">
             {field('postalCode', t('pfPostalCode'), { sensitive: true, max: 32 })}
             {field('country', t('pfCountry'), { sensitive: true, max: 2, hint: t('pfhCountry') })}
           </div>
@@ -268,20 +267,20 @@ function ProfileForm({
           disabled={locked}
           hint={t('hReason')}
         />
-        <div className="pp-actions">
-          <PortalReview
+        <div className="lt-actions">
+          <Review
             title={t('saveChanges')}
             variant="primary"
             description={sensitive.length > 0 ? t('saveBodyReviewed') : t('saveBody')}
             review={
-              <div className="sa-diff">
+              <div>
                 {changed.map((key) => (
                   <p key={key}>
                     <strong>{t(FIELD_LABEL[key])}</strong>: <del>{show(profile[key], t('notSet'))}</del> → {show(patch[key], t('cleared'))}
-                    {sensitive.includes(key as never) && <span className="sa-reviewed"> · {t('reviewedByIntafaced')}</span>}
+                    {sensitive.includes(key as never) && <span className="lt-hint"> · {t('reviewedByIntafaced')}</span>}
                   </p>
                 ))}
-                <p className="muted">
+                <p className="lt-hint">
                   {t('fReason')}: {reason.trim()}
                 </p>
               </div>
@@ -297,19 +296,19 @@ function ProfileForm({
             disabledReason={blockedWhy}
           />
           {dirty && (
-            <Button variant="ghost" onClick={() => setForm(original)}>
+            <Button tone="quiet" onClick={() => setForm(original)}>
               {t('discard')}
             </Button>
           )}
         </div>
-        {blockedWhy && dirty && <p className="muted pp-note">{blockedWhy}</p>}
+        {blockedWhy && dirty && <p className="lt-hint">{blockedWhy}</p>}
         {outcome && (
-          <p className="pp-confirmed" role="status">
+          <p className="lt-hint" role="status">
             {t(outcome === 'applied' ? 'outcomeSaved' : outcome === 'pending_review' ? 'outcomeReview' : 'outcomeSecond')}
           </p>
         )}
       </form>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -353,18 +352,18 @@ function ChangeRow({
       reason: reason.trim(),
     });
   return (
-    <article className="pp-card">
+    <article>
       <div>
         <strong>{keys.length ? keys.map((k) => t(FIELD_LABEL[k])).join(', ') : t('chNoFields')}</strong>{' '}
-        <span className="muted">· {statusWord[change.status] ?? change.status}</span>
-        <small className="muted pay-cell-note">
+        <span className="lt-hint">· {statusWord[change.status] ?? change.status}</span>
+        <small className="lt-hint">
           {t('byWho', { who: actorName(change.makerId, me, names) })} · <DateTime value={change.createdAt} />
         </small>
-        <small className="muted pay-cell-note">
+        <small className="lt-hint">
           {t('fReason')}: {change.reason}
         </small>
         {change.checkerId && (
-          <small className="muted pay-cell-note">
+          <small className="lt-hint">
             {t('decidedBy', { who: actorName(change.checkerId, me, names) })}
             {change.decidedAt && (
               <>
@@ -376,12 +375,12 @@ function ChangeRow({
         )}
       </div>
       {open && mayEdit && (
-        <div data-testid="form-stack" className="form-stack">
+        <div data-testid="form-stack">
           <Field label={t('fReason')} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} hint={t('hReason')} />
-          <div className="pp-actions">
+          <div className="lt-actions">
             {change.status === 'pending' && !mine && (
               <>
-                <PortalReview
+                <Review
                   title={t('confirmChange')}
                   description={t('confirmChangeBody')}
                   perform={act('confirm')}
@@ -389,7 +388,7 @@ function ChangeRow({
                   disabled={!reasonOk}
                   disabledReason={t('reasonNeeded')}
                 />
-                <PortalReview
+                <Review
                   title={t('rejectChange')}
                   description={t('rejectChangeBody')}
                   perform={act('reject')}
@@ -400,7 +399,7 @@ function ChangeRow({
               </>
             )}
             {mine && (
-              <PortalReview
+              <Review
                 title={t('withdrawChange')}
                 description={t('withdrawChangeBody')}
                 perform={act('withdraw')}
@@ -441,20 +440,20 @@ function SecondApproval({
   const turnOn = current !== true;
   if (loading)
     return (
-      <PaySection title={t('secondApprovalTitle')} description={t('secondApprovalBody')}>
+      <Section title={t('secondApprovalTitle')} description={t('secondApprovalBody')}>
         <p role="status" aria-busy="true" />
-      </PaySection>
+      </Section>
     );
   return (
-    <PaySection title={t('secondApprovalTitle')} description={t('secondApprovalBody')}>
+    <Section title={t('secondApprovalTitle')} description={t('secondApprovalBody')}>
       <p role="status">
         <strong>{current === null ? t('secondApprovalUnknown') : current ? t('secondApprovalIsOn') : t('secondApprovalIsOff')}</strong>
       </p>
       {current === null ? (
-        <p className="muted pp-note">{t('secondApprovalCantChange')}</p>
+        <p className="lt-hint">{t('secondApprovalCantChange')}</p>
       ) : (
-        <div className="pp-actions">
-          <PortalReview
+        <div className="lt-actions">
+          <Review
             key={turnOn ? 'on' : 'off'}
             title={turnOn ? t('secondApprovalOn') : t('secondApprovalOff')}
             description={turnOn ? t('secondApprovalOnBody') : t('secondApprovalOffBody')}
@@ -465,6 +464,16 @@ function SecondApproval({
           />
         </div>
       )}
-    </PaySection>
+    </Section>
+  );
+}
+
+/** `/pay/settings` on the settings template. */
+export function BusinessSettingsRoom({ portal }: { portal: PortalApi }) {
+  const { t } = accountCopy.useCopy();
+  return (
+    <SettingsRoom explain={<p>{t('businessExplain')}</p>}>
+      {({ merchantId }) => <BusinessSettings portal={portal} merchantId={merchantId} />}
+    </SettingsRoom>
   );
 }

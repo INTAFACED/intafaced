@@ -55,20 +55,20 @@ export function FreezeConfirm() {
         <p role="status" data-testid="freeze-link-result" data-first-use={String(done.firstUse)} data-frozen-now={String(done.frozenNow)}>
           {done.firstUse ? t('doneBody') : t('usedBody')} <time dateTime={done.since}>{new Date(done.since).toUTCString()}</time>.{' '}
           {done.frozenNow ? null : <>{t('liftedNow')} </>}
-          <a className="text-link" href="/login">
+          <a className="lt-link" href="/login">
             {t('signIn')}
           </a>
         </p>
       ) : dead ? (
         <div className="pub-notice" role="alert">
           <p>{t('deadBody')}</p>
-          <a className="text-link" href="/cannot-sign-in">
+          <a className="lt-link" href="/cannot-sign-in">
             {t('help')}
           </a>
         </div>
       ) : (
         <>
-          <p className="muted">{t('intro')}</p>
+          <p className="lt-muted">{t('intro')}</p>
           <Button onClick={() => void freeze()} disabled={busy}>
             {busy ? t('freezing') : t('freeze')}
           </Button>

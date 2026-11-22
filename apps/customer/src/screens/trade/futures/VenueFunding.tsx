@@ -25,13 +25,13 @@ export function VenueFunding({ market, owner, venueName, test }: { market: Venue
   const read = usePolled((signal) => venue.fundingPayments(owner, since, signal), `funding:${owner}`, VENUE_POLL_MS);
   const payments = read.data?.value ?? null;
   return (
-    <div className="form-stack" data-testid="venue-funding-tab">
+    <div className="lt-stack" data-testid="venue-funding-tab">
       <FundingNow market={market} test={test} />
       <section aria-label={t('Payments title')} data-testid="venue-funding-payments">
         <h3 className="dk-tab-title">
           {t('Payments title')} <TestMark test={test} />
         </h3>
-        <p className="muted">{t('Payments note', { venue: venueName })}</p>
+        <p className="lt-muted">{t('Payments note', { venue: venueName })}</p>
         {payments === null ? null : payments.length === 0 ? (
           <p data-testid="venue-funding-none">{t('Payments none')}</p>
         ) : (
@@ -57,7 +57,7 @@ function FundingNow({ market, test }: { market: VenueMarket; test: boolean }) {
         <dl className="protocol-facts">
           <div>
             <dt>{t('Rate now')}</dt>
-            <dd className="numeric" data-line="rate" data-value={funding.rate}>
+            <dd className="lt-num" data-line="rate" data-value={funding.rate}>
               {t('Rate value', { percent: percentOf(funding.rate), every: intervalText(funding.intervalSeconds) })}
             </dd>
           </div>
@@ -71,31 +71,31 @@ function FundingNow({ market, test }: { market: VenueMarket; test: boolean }) {
             <>
               <div>
                 <dt>{t('Premium')}</dt>
-                <dd className="numeric" data-line="premium" data-value={inputs.premium}>
+                <dd className="lt-num" data-line="premium" data-value={inputs.premium}>
                   {percentOf(inputs.premium)}%
                 </dd>
               </div>
               <div>
                 <dt>{t('Interest')}</dt>
-                <dd className="numeric" data-line="interest" data-value={inputs.interestRate}>
+                <dd className="lt-num" data-line="interest" data-value={inputs.interestRate}>
                   {percentOf(inputs.interestRate)}%
                 </dd>
               </div>
               <div>
                 <dt>{t('Cap')}</dt>
-                <dd className="numeric" data-line="cap" data-value={inputs.rateCap}>
+                <dd className="lt-num" data-line="cap" data-value={inputs.rateCap}>
                   {t('Cap value', { percent: percentOf(inputs.rateCap) })}
                 </dd>
               </div>
               <div>
                 <dt>{t('Built from mark')}</dt>
-                <dd className="numeric" data-line="mark" data-value={inputs.markPrice}>
+                <dd className="lt-num" data-line="mark" data-value={inputs.markPrice}>
                   {inputs.markPrice}
                 </dd>
               </div>
               <div>
                 <dt>{t('Built from index')}</dt>
-                <dd className="numeric" data-line="index" data-value={inputs.indexPrice}>
+                <dd className="lt-num" data-line="index" data-value={inputs.indexPrice}>
                   {inputs.indexPrice}
                 </dd>
               </div>
@@ -138,17 +138,17 @@ function Payments({ payments }: { payments: readonly VenueFundingPayment[] }) {
           <td data-cell="period">
             <time dateTime={p.periodAt}>{p.periodAt}</time>
           </td>
-          <td className="numeric" data-cell="position">
+          <td className="lt-num" data-cell="position">
             {t('Position value', { side: t(`side_${p.side}`), size: p.size })}
           </td>
-          <td className="numeric" data-cell="mark">
+          <td className="lt-num" data-cell="mark">
             {p.markPrice}
           </td>
-          <td className="numeric" data-cell="rate">
+          <td className="lt-num" data-cell="rate">
             {percentOf(p.rate)}%
           </td>
           <td data-cell="direction">{parseAmount(p.amount) < 0n ? t('paid') : t('received')}</td>
-          <td className="numeric" data-cell="amount">
+          <td className="lt-num" data-cell="amount">
             {t('Amount value', { amount: unsigned(p.amount), asset: p.asset })}
           </td>
         </tr>
@@ -172,7 +172,7 @@ function Statement({ payments, venueName, test }: { payments: readonly VenueFund
       <h3 className="dk-tab-title">
         {t('Statement title')} <TestMark test={test} />
       </h3>
-      <p className="muted">{t('Statement note', { venue: venueName })}</p>
+      <p className="lt-muted">{t('Statement note', { venue: venueName })}</p>
       {[...positions.entries()].map(([key, rows]) => {
         const first = rows[0]!;
         const sum = rows.reduce((total, r) => total + parseAmount(r.amount), 0n);
@@ -187,14 +187,14 @@ function Statement({ payments, venueName, test }: { payments: readonly VenueFund
                 <td>
                   <time dateTime={r.periodAt}>{r.periodAt}</time>
                 </td>
-                <td className="numeric" data-cell="amount">
+                <td className="lt-num" data-cell="amount">
                   {t('Amount value', { amount: r.amount, asset: r.asset })}
                 </td>
               </tr>
             ))}
             <tr data-position-total={key}>
               <th scope="row">{t('Statement position total')}</th>
-              <td className="numeric" data-cell="amount">
+              <td className="lt-num" data-cell="amount">
                 {t('Amount value', { amount: formatAmount(sum), asset: first.asset })}
               </td>
             </tr>
@@ -205,7 +205,7 @@ function Statement({ payments, venueName, test }: { payments: readonly VenueFund
         {[...totals.entries()].map(([asset, total]) => (
           <div key={asset}>
             <dt>{t('Statement total')}</dt>
-            <dd className="numeric" data-testid="venue-funding-total" data-asset={asset} data-value={formatAmount(total)}>
+            <dd className="lt-num" data-testid="venue-funding-total" data-asset={asset} data-value={formatAmount(total)}>
               {t('Amount value', { amount: formatAmount(total), asset })}
             </dd>
           </div>

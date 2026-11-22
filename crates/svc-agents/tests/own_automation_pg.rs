@@ -29,9 +29,7 @@
     reason = "a test: a failure is the point"
 )]
 
-#[path = "../../service-kit/tests/support/standin.rs"]
-mod standin;
-mod support;
+use crate::support::{self, standin};
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};

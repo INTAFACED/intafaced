@@ -1,20 +1,36 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Link2, Undo2 } from 'lucide-react';
-import { Button, ChoiceGroup, DataTable, Accordion, AccordionItem, AccordionTrigger, AccordionPanel } from '@intafaced/ui';
-import { EmptyState } from '../../ui-kit';
+import { Button } from '@intafaced/ui/lit';
+import { Bars, Disclosure, SectionTabs } from '@intafaced/ui/lit/templates';
 import { useResource, type Resource } from '../../../../shared/resource';
 import type { PortalApi } from '../api';
 import { DashboardInsights, type DashboardData } from './Dashboard';
-import { AsOf, Chip, Gate, HaltBanner, Money, MoneyLines, ReadAt } from '../components';
+import {
+  AsOf,
+  Chip,
+  Empty,
+  Gate,
+  Grid,
+  HaltNotice,
+  HeroFigure,
+  LinkButton,
+  MoneyAction,
+  MoneyLines,
+  MoneyText,
+  ReadAt,
+  Section,
+  haltShows,
+} from '../volt/parts';
+import { OverviewRoom, type OverviewFrame } from '../volt/OverviewRoom';
 import { useReadAt } from '../hooks';
 import { bars } from '../model';
 import { largestAsset, seriesAssets } from './model';
 import type { MemberRole, MerchantRecord, MetricPreset, Payment, Series, Snapshot } from '../schemas';
 import { layoutCopy as c, portalCopy } from './copy';
-import { MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
+import { paymentLabel } from '../presentation';
 import { TierUsage } from './TierUsage';
-import { MoneyAction } from '../access/MoneyAction';
 import { RefundsIssuedValue } from './RefundsIssued';
+import { HomePanels } from './HomePanels';
 import { dateRange } from '../ui/FilterRow';
 import { DateTime, useDayText } from '../ui/DateTime';
 
@@ -26,6 +42,7 @@ export function LayoutDashboard({
   data,
   retry,
   todayDay,
+  frame,
 }: {
   portal: PortalApi;
   merchantId: string;
@@ -34,43 +51,58 @@ export function LayoutDashboard({
   data: DashboardData;
   retry: () => void;
   todayDay: string;
+  frame: OverviewFrame;
 }) {
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `portal:home-halts:${merchantId}`);
   return (
-    <>
-      <HaltBanner resource={halts.resource} scopes={['intake', 'payout']} />
-      <LayoutDashboardView
-        merchant={merchant}
-        role={role}
-        data={data}
-        retry={retry}
-        todayDay={todayDay}
-        activity={role === 'owner' ? <RecentPayments portal={portal} merchantId={merchantId} /> : null}
-        tier={<TierUsage portal={portal} merchantId={merchantId} />}
-        issued={(when) => <RefundsIssuedValue portal={portal} merchantId={merchantId} when={WHEN[when]} />}
-      />
-    </>
+    <LayoutDashboardView
+      frame={frame}
+      merchant={merchant}
+      role={role}
+      data={data}
+      retry={retry}
+      todayDay={todayDay}
+      halts={
+        haltShows(halts.resource, ['intake', 'payout']) ? <HaltNotice resource={halts.resource} scopes={['intake', 'payout']} /> : undefined
+      }
+      activity={role === 'owner' ? <RecentPayments portal={portal} merchantId={merchantId} /> : null}
+      tier={<TierUsage portal={portal} merchantId={merchantId} />}
+      issued={(when) => <RefundsIssuedValue portal={portal} merchantId={merchantId} when={WHEN[when]} />}
+      panels={<HomePanels portal={portal} merchantId={merchantId} merchant={merchant} role={role} />}
+    />
   );
 }
+
+/**
+ * `/pay/merchant` on the overview template: the balance is the hero, the owner's money actions the actions, a pause the
+ * needs-you slot; the period figures, pending settlement and the folding volume and insights are the sections; recent
+ * payments, the account and the three home panels sit beside them.
+ */
 export function LayoutDashboardView({
+  frame,
   merchant,
   role,
   data,
   retry,
   todayDay,
+  halts,
   activity,
   tier,
   issued,
+  panels,
 }: {
+  frame: OverviewFrame;
   merchant: MerchantRecord | null;
   role: MemberRole | null;
   data: DashboardData;
   retry: () => void;
   todayDay: string;
+  halts?: ReactNode;
   activity?: ReactNode;
   tier?: ReactNode;
   /** Refunds made in the period, worked out from the refunds list. Left out when no list is wired (tests, quiet accounts). */
   issued?: (when: MetricPreset) => ReactNode;
+  panels?: ReactNode;
 }) {
   const { t } = c.useCopy();
   const [pickedAsset, setAsset] = useState('');
@@ -79,77 +111,64 @@ export function LayoutDashboardView({
   const labels = { today: `${t('today')}: ${dayText(todayDay)}`, rolling_7d: t('week'), rolling_30d: t('month') };
   const actions =
     role === 'owner' ? (
-      <nav data-testid="plo-actions" className="plo-actions" aria-label={t('available')}>
-        <Button variant="primary" nativeButton={false} role="link" render={<a href={'/pay/links/new'} />}>
+      <nav data-testid="plo-actions" className="lt-actions" aria-label={t('available')}>
+        <LinkButton href="/pay/links/new" tone="primary">
           <Link2 size={16} aria-hidden="true" />
           {t('createLink')}
-        </Button>
+        </LinkButton>
         <MoneyAction kind="payout">
-          <Button variant="secondary" nativeButton={false} role="link" render={<a href={'/pay/payouts?view=tools'} />}>
+          <LinkButton href="/pay/payouts?view=tools">
             <ArrowUpRight size={16} aria-hidden="true" />
             {t('payOut')}
-          </Button>
+          </LinkButton>
         </MoneyAction>
         <MoneyAction kind="refund">
-          <Button variant="secondary" nativeButton={false} role="link" render={<a href={'/pay/refunds/new'} />}>
+          <LinkButton href="/pay/refunds/new">
             <Undo2 size={16} aria-hidden="true" />
             {t('refund')}
-          </Button>
+          </LinkButton>
         </MoneyAction>
       </nav>
-    ) : null;
+    ) : undefined;
   const hero = (
-    <section className="plo-balance" aria-label={t('available')}>
-      <p className="plo-label">{t('available')}</p>
+    <section aria-label={t('available')}>
+      <p className="lt-hint">{t('available')}</p>
       <Gate resource={data.today} retry={retry} rows={2}>
-        {(snap) => (
-          <>
-            {snap.balances.length > 1 && (
-              <ChoiceGroup
-                items={snap.balances.map((b) => b.assetCode)}
-                value={pickedAsset || snap.balances[0]!.assetCode}
-                onChange={setAsset}
-                label={t('balanceAsset')}
-              />
-            )}
-            {snap.balances.length ? (
-              snap.balances
-                .filter(
-                  (b) =>
-                    b.assetCode === (snap.balances.some((b) => b.assetCode === pickedAsset) ? pickedAsset : snap.balances[0]?.assetCode),
-                )
-                .map((balance) => (
-                  <div className="plo-balance-asset" key={balance.assetCode}>
-                    <MoneyDisplay
-                      sensitive
-                      testId="plo-balance-amount"
-                      className="plo-number"
-                      value={balance.available}
-                      asset={balance.assetCode}
-                      unit={balance.assetCode}
-                      unitClassName="plo-unit"
-                    />
-                  </div>
-                ))
-            ) : (
-              <EmptyState title={t('noBalance')}>{t('noBalanceBody')}</EmptyState>
-            )}
-            <AsOf freshness={snap.freshness} />
-          </>
-        )}
+        {(snap) => {
+          const shown = snap.balances.some((b) => b.assetCode === pickedAsset) ? pickedAsset : snap.balances[0]?.assetCode;
+          const balance = snap.balances.find((b) => b.assetCode === shown);
+          return (
+            <>
+              {snap.balances.length > 1 && (
+                <SectionTabs
+                  label={t('balanceAsset')}
+                  value={shown!}
+                  onChange={setAsset}
+                  items={snap.balances.map((b) => ({ value: b.assetCode, label: b.assetCode }))}
+                />
+              )}
+              {balance ? (
+                <HeroFigure testId="plo-balance-amount" value={balance.available} asset={balance.assetCode} />
+              ) : (
+                <Empty title={t('noBalance')}>{t('noBalanceBody')}</Empty>
+              )}
+              <AsOf freshness={snap.freshness} />
+            </>
+          );
+        }}
       </Gate>
-      {actions}
     </section>
   );
   const account = (
-    <section className="plo-card plo-account">
-      <div className="plo-section-head">
-        <h2>{t('account')}</h2>
-        <a href={'/pay/settings'}>
+    <Section
+      title={t('account')}
+      action={
+        <a className="lt-link" href="/pay/settings">
           <ArrowUpRight size={18} aria-label={t('settings')} />
         </a>
-      </div>
-      <div className="plo-account-status">
+      }
+    >
+      <p className="lt-actions">
         {merchant && (
           <>
             <Chip kind="merchant" value={merchant.status} />
@@ -157,45 +176,49 @@ export function LayoutDashboardView({
           </>
         )}
         {role && <span>{portalCopy.t(`role_${role}` as 'role_owner')}</span>}
-      </div>
+      </p>
       {tier}
-      {merchant && (merchant.status !== 'active' || merchant.kybStatus !== 'approved') && <a href={'/pay/onboarding'}>{t('setup')} →</a>}
-    </section>
+      {merchant && (merchant.status !== 'active' || merchant.kybStatus !== 'approved') && (
+        <a className="lt-link" href="/pay/onboarding">
+          {t('setup')} →
+        </a>
+      )}
+    </Section>
   );
   const pending = (
-    <section className="plo-card">
-      <div className="plo-section-head">
-        <h2>{t('pending')}</h2>
-        <a href={'/pay/settlements'}>{t('viewAll')} →</a>
-      </div>
+    <Section
+      title={t('pending')}
+      action={
+        <a className="lt-link" href="/pay/settlements">
+          {t('viewAll')} →
+        </a>
+      }
+    >
       <Gate resource={data.today} retry={retry} rows={1}>
         {(snap) => (
           <>
-            <div className="plo-pending">
+            <ul className="lt-lines">
               {snap.balances.map((b) => (
-                <div key={b.assetCode}>
-                  <Money value={b.clearing} asset={b.assetCode} />
-                </div>
+                <li key={b.assetCode}>
+                  <MoneyText value={b.clearing} asset={b.assetCode} />
+                </li>
               ))}
-            </div>
+            </ul>
             <AsOf freshness={snap.freshness} />
           </>
         )}
       </Gate>
-    </section>
+    </Section>
   );
   const metrics = (
-    <section className="plo-metrics" aria-label={t('period')}>
-      <div className="plo-section-head">
-        <h2>{t('payments')}</h2>
-        <ChoiceGroup
-          items={['today', 'rolling_7d', 'rolling_30d']}
-          value={period}
-          labels={labels}
-          onChange={(v) => setPeriod(v as MetricPreset)}
-          label={t('period')}
-        />
-      </div>
+    <section aria-label={t('period')}>
+      <h2>{t('payments')}</h2>
+      <SectionTabs
+        items={(['today', 'rolling_7d', 'rolling_30d'] as const).map((value) => ({ value, label: labels[value] }))}
+        value={period}
+        onChange={setPeriod}
+        label={t('period')}
+      />
       <Gate resource={data[period]} retry={retry} rows={1}>
         {(snap) => (
           <>
@@ -214,29 +237,36 @@ export function LayoutDashboardView({
   );
   const chart = <VolumeChart resource={data.series} retry={retry} todayDay={todayDay} />;
   return (
-    <div className="plo-home-grid">
-      <div className="plo-main">
-        {hero}
-        {metrics}
-        {pending}
-        <Accordion className="plo-card" defaultValue={['volume']}>
-          <AccordionItem value="volume">
-            <AccordionTrigger>{t('volume')}</AccordionTrigger>
-            <AccordionPanel>{chart}</AccordionPanel>
-          </AccordionItem>
-          <AccordionItem value="insights">
-            <AccordionTrigger>{t('insights')}</AccordionTrigger>
-            <AccordionPanel>
-              <DashboardInsights data={data} retry={retry} {...(issued ? { issued } : {})} />
-            </AccordionPanel>
-          </AccordionItem>
-        </Accordion>
-      </div>
-      <aside className="plo-rail">
-        <section className="plo-card">{activity}</section>
-        {account}
-      </aside>
-    </div>
+    <OverviewRoom
+      frame={frame}
+      hero={hero}
+      actions={actions}
+      needsYou={halts}
+      sections={
+        <>
+          {metrics}
+          {pending}
+          <Disclosure
+            defaultOpen={['volume']}
+            items={[
+              { value: 'volume', title: t('volume'), body: chart },
+              {
+                value: 'insights',
+                title: t('insights'),
+                body: <DashboardInsights data={data} retry={retry} {...(issued ? { issued } : {})} />,
+              },
+            ]}
+          />
+        </>
+      }
+      watching={
+        <>
+          {activity ? <section>{activity}</section> : null}
+          {account}
+          {panels}
+        </>
+      }
+    />
   );
 }
 
@@ -249,7 +279,7 @@ export function MetricStrip({ snap, period, when, issued }: { snap: Snapshot; pe
   const refunds = `/pay/refunds?${new URLSearchParams({ ...(range.from ? { from: range.from } : {}), ...(range.to ? { to: range.to } : {}) })}`;
   const payments = (status?: string) => `/pay/payments?${new URLSearchParams({ ...(status ? { status } : {}), date: key })}`;
   return (
-    <div data-testid="plo-kpi-strip" className="plo-kpi-strip">
+    <div data-testid="plo-kpi-strip" className="lt-kv">
       {[
         [t('captured'), <MoneyLines items={snap.captured} />, payments()],
         [t('count'), snap.paymentCount, payments()],
@@ -257,7 +287,7 @@ export function MetricStrip({ snap, period, when, issued }: { snap: Snapshot; pe
         ...(issued ? [[t('refundsIssuedLabel'), issued, refunds, t('refundsIssuedNote')]] : []),
         [t('net'), <MoneyLines items={snap.net} />, '/pay/money'],
       ].map(([label, value, href, note], index) => (
-        <a key={index} href={href as string} {...(note ? { title: note as string } : {})}>
+        <a key={index} className="lt-row-link" href={href as string} {...(note ? { title: note as string } : {})}>
           <span>
             {label} · {period}
           </span>
@@ -276,30 +306,28 @@ export function RecentPaymentsView({ resource, retry, at }: { resource: Resource
   const { t } = c.useCopy();
   return (
     <>
-      <div className="plo-section-head">
-        <h2>{t('recent')}</h2>
-        <a href={'/pay/payments'}>{t('viewAll')} →</a>
-      </div>
+      <h2>{t('recent')}</h2>
+      <p className="lt-actions">
+        <a className="lt-link" href="/pay/payments">
+          {t('viewAll')} →
+        </a>
+      </p>
       <Gate resource={resource} retry={retry} rows={4}>
         {(rows) =>
           rows.length ? (
             <>
-              <ul className="plo-payment-feed">
+              <ul className="lt-rows">
                 {rows.map((payment) => (
                   <li key={payment.id}>
-                    <a href={`/pay/payments/${encodeURIComponent(payment.id)}`}>
-                      <span className="plo-payment-icon">
-                        <ArrowDownLeft size={18} aria-hidden="true" />
-                      </span>
-                      <span className="plo-payment-label">
-                        <strong>{paymentLabel(payment)}</strong>
+                    <a className="lt-row-link" href={`/pay/payments/${encodeURIComponent(payment.id)}`}>
+                      <ArrowDownLeft size={18} aria-hidden="true" />
+                      <span>
+                        <strong>{paymentLabel(payment)}</strong>{' '}
                         <span>
                           <Chip kind="payment" value={payment.status} /> · <DateTime value={payment.createdAt} />
                         </span>
-                      </span>
-                      <span className="plo-payment-amount">
-                        <Money value={payment.amount} asset={payment.assetId} />
-                      </span>
+                      </span>{' '}
+                      <MoneyText value={payment.amount} asset={payment.assetId} />
                     </a>
                   </li>
                 ))}
@@ -307,9 +335,16 @@ export function RecentPaymentsView({ resource, retry, at }: { resource: Resource
               <ReadAt at={at} />
             </>
           ) : (
-            <EmptyState title={t('noPayments')} action={<a href={'/pay/links/new'}>{t('createLink')}</a>}>
+            <Empty
+              title={t('noPayments')}
+              action={
+                <a className="lt-link" href="/pay/links/new">
+                  {t('createLink')}
+                </a>
+              }
+            >
               {t('noPaymentsBody')}
-            </EmptyState>
+            </Empty>
           )
         }
       </Gate>
@@ -319,20 +354,18 @@ export function RecentPaymentsView({ resource, retry, at }: { resource: Resource
 function VolumeChart({ resource, retry, todayDay }: { resource: Resource<Series>; retry: () => void; todayDay: string }) {
   const { t } = c.useCopy();
   const dayText = useDayText();
-  const [days, setDays] = useState('30');
+  const [days, setDays] = useState<'1' | '7' | '30'>('30');
   const [pick, setPick] = useState('');
   const [table, setTable] = useState(false);
+  const dayLabels = { '1': t('today'), '7': t('week'), '30': t('month') };
   return (
-    <section data-testid="plo-volume" className="plo-volume">
-      <div className="plo-section-head">
-        <ChoiceGroup
-          items={['1', '7', '30']}
-          value={days}
-          onChange={setDays}
-          label={t('period')}
-          labels={{ '1': t('today'), '7': t('week'), '30': t('month') }}
-        />
-      </div>
+    <section data-testid="plo-volume">
+      <SectionTabs
+        items={(['1', '7', '30'] as const).map((value) => ({ value, label: dayLabels[value] }))}
+        value={days}
+        onChange={setDays}
+        label={t('period')}
+      />
       <Gate resource={resource} retry={retry} rows={4}>
         {(series) => {
           const assets = seriesAssets(series);
@@ -341,46 +374,42 @@ function VolumeChart({ resource, retry, todayDay }: { resource: Resource<Series>
             return (
               <>
                 <AsOf freshness={series.freshness} />
-                <EmptyState title={t('noSeries')}>{t('noPaymentsBody')}</EmptyState>
+                <Empty title={t('noSeries')}>{t('noPaymentsBody')}</Empty>
               </>
             );
           const points = bars(series, asset, Number(days), todayDay);
           return (
             <>
-              <p className="plo-chart-caption">
+              <p className="lt-hint">
                 {t('volumeBody')} · {asset}
               </p>
-              {assets.length > 1 && <ChoiceGroup items={assets} value={asset} onChange={setPick} label={t('asset')} />}
-              <div className="plo-chart" role="img" aria-label={`${t('volume')} · ${asset} · ${days}`}>
-                {points.map((point) => (
-                  <div
-                    className="plo-chart-slot"
-                    key={point.day}
-                    title={`${dayText(point.day)}: ${portalAmount(point.volume, asset)} ${asset}`}
-                  >
-                    <span style={{ height: `${point.pct}%` }} />
-                  </div>
-                ))}
-              </div>
-              <div className="plo-chart-axis">
+              {assets.length > 1 && (
+                <SectionTabs label={t('asset')} value={asset} onChange={setPick} items={assets.map((a) => ({ value: a, label: a }))} />
+              )}
+              <Bars
+                label={`${t('volume')} · ${asset} · ${days}`}
+                asset={asset}
+                bars={points.map((point) => ({ label: dayText(point.day), value: point.volume }))}
+              />
+              <p className="lt-actions">
                 <span>{points[0] ? dayText(points[0].day) : null}</span>
                 <span>{points.length ? dayText(points[points.length - 1]!.day) : null}</span>
-              </div>
+              </p>
               <AsOf freshness={series.freshness} />
-              <Button variant="ghost" aria-expanded={table} onClick={() => setTable(!table)}>
+              <Button tone="quiet" aria-expanded={table} onClick={() => setTable(!table)}>
                 {t(table ? 'hideTable' : 'table')}
               </Button>
               {table && (
-                <DataTable label={`${t('volume')} ${asset}`} headers={[t('day'), `${t('amount')} (${asset})`]}>
+                <Grid label={`${t('volume')} ${asset}`} headers={[t('day'), `${t('amount')} (${asset})`]}>
                   {points.map((point) => (
                     <tr key={point.day}>
                       <td>{dayText(point.day)}</td>
                       <td>
-                        <Money value={point.volume} asset={asset} />
+                        <MoneyText value={point.volume} asset={asset} />
                       </td>
                     </tr>
                   ))}
-                </DataTable>
+                </Grid>
               )}
             </>
           );

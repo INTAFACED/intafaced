@@ -138,11 +138,6 @@ export type LoanLedgerCheck = z.infer<typeof loanLedgerCheckSchema>;
 export const loansReads = {
   'loans.projection': loanProjectionSchema,
   'loans.payoffQuote': payoffQuoteSchema,
-  'loans.interestRows': loanInterestRowsSchema,
-  'loans.ledgerCheck': loanLedgerCheckSchema,
-  'loans.quote': loanQuoteSchema,
-  'loans.fees': loanFeesSchema,
-  'loans.terms': loanTermsSchema,
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */

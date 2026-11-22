@@ -2,9 +2,6 @@ import { z } from 'zod';
 import { paymentListPrivacySchema } from '@intafaced/contracts/pay-payment-views';
 import {
   PAY_CAP_KINDS,
-  merchantControlProfileSchema,
-  payControlUsageSchema,
-  payPricingQuoteSchema,
   payoutApprovalSchema,
   type MerchantControlProfile,
   type PayCapKind,
@@ -16,14 +13,12 @@ import {
 import {
   PAY_METRIC_PRESETS,
   PAY_PAYMENT_STATUSES,
-  merchantMetricsSeriesSchema,
-  merchantMetricsSnapshotSchema,
   type MerchantMetricsSeries,
   type MerchantMetricsSnapshot,
   type MetricsFreshness,
   type PayAssetAmount,
 } from '@intafaced/contracts/merchant-metrics';
-import { payHaltStatusSchema, type PayHaltScope, type PayHaltStatus } from '@intafaced/contracts/pay-halts';
+import { type PayHaltScope, type PayHaltStatus } from '@intafaced/contracts/pay-halts';
 import {
   payMerchantFailureSchema,
   payPaymentConfirmationsSchema,
@@ -76,9 +71,7 @@ export const paymentStatuses = PAY_PAYMENT_STATUSES;
 
 // svc-pay `merchantMetrics.snapshot` and `.series` answer with these, checked against them on the server.
 export type Freshness = MetricsFreshness;
-export const snapshotSchema = merchantMetricsSnapshotSchema;
 export type Snapshot = MerchantMetricsSnapshot;
-export const seriesSchema = merchantMetricsSeriesSchema;
 export type Series = MerchantMetricsSeries;
 
 const kybStatusSchema = z.enum(['none', 'pending', 'approved', 'rejected']);
@@ -93,7 +86,6 @@ export const kybEventSchema = z.object({
   at: timestamp,
 });
 export type KybEvent = z.infer<typeof kybEventSchema>;
-export const kybSubmitSchema = z.object({ id: z.string(), kybStatus: kybStatusSchema, kybRef: z.string().nullable() });
 export const merchantCreatedSchema = z.object({ id: z.string(), userId: z.string(), mode: z.string(), feeBps: z.number().nullable() });
 export const destinationSchema = z.object({ kind: z.string(), ref: z.string(), railId: z.string() });
 
@@ -108,7 +100,6 @@ const onboardingDraftFieldsSchema = z.object({
   expectedVolume: z.string(),
 });
 export type OnboardingDraftFields = z.infer<typeof onboardingDraftFieldsSchema>;
-export const onboardingDraftSchema = z.object({ fields: onboardingDraftFieldsSchema, updatedAt: z.string() }).nullable();
 
 export const teamRoles = ['admin', 'finance', 'developer', 'viewer'] as const;
 export type TeamRole = (typeof teamRoles)[number];
@@ -314,7 +305,7 @@ export type PreferenceChange = z.infer<typeof preferenceChangeSchema>;
 export const markedSchema = z.object({ marked: z.number().int() });
 export const unreadSchema = z.object({ unread: z.number().int() });
 
-export const merchantRecordSchema = z
+const merchantRecordSchema = z
   .object({
     id: z.string(),
     userId: z.string(),
@@ -332,17 +323,6 @@ export const merchantRecordSchema = z
 export type MerchantRecord = NonNullable<z.infer<typeof merchantRecordSchema>>;
 /** The fee INTAFACED has published for new accounts, exactly as the service states it. `local_test` marks a TEST value. */
 export type StarterFee = { bps: number; source: 'local_test' };
-export const railSchema = z.array(
-  z.object({
-    id: z.string(),
-    capabilities: z.array(z.string()),
-    mode: z.enum(['live', 'sandbox', 'absent']),
-    usable: z.boolean(),
-    healthy: z.boolean(),
-    latencyMs: z.number(),
-    reason: z.string().optional(),
-  }),
-);
 
 // ---- payments, settlements and payouts (W3b) -----------------------------------------------------------
 // `payment.*` and `settlement.*` are the pay service's own reads; both are checked on the server against the signed session.
@@ -358,12 +338,9 @@ export const settlementStatuses = ['pending', 'posted', 'paid_out', 'failed'] as
 export const capKinds = PAY_CAP_KINDS;
 export type CapKind = PayCapKind;
 export type PricingRule = PayPricingRule;
-export const controlProfileSchema = merchantControlProfileSchema;
 export type ControlProfile = MerchantControlProfile;
-export const usageSchema = payControlUsageSchema;
 export type Usage = PayControlUsage;
 export type UsageRow = Usage['rows'][number];
-export const quoteSchema = payPricingQuoteSchema;
 export type Quote = PayPricingQuote;
 
 export const approvalStatuses = ['pending', 'approved', 'rejected', 'voided', 'expired', 'consumed'] as const;
@@ -372,5 +349,4 @@ export const approvalSchema = payoutApprovalSchema;
 export type Approval = PayoutApproval;
 
 export type HaltScope = PayHaltScope;
-export const haltStatusSchema = payHaltStatusSchema;
 export type HaltStatus = PayHaltStatus;

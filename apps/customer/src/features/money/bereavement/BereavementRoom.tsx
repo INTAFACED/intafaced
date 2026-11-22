@@ -1,6 +1,6 @@
 // volt-room: /bank/safety/bereavement
 import { useState, type FormEvent } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { SupportBereavementRelation } from '@intafaced/contracts/support-safety';
 import { useSession } from '../../session';
@@ -72,11 +72,11 @@ export function BereavementRoom() {
         <div>
           {sent ? <Acknowledgement ack={sent} title={t('reportReceived')} live /> : null}
           <form aria-label={t('bereavementTitle')} onSubmit={(e) => void submit(e)}>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('deceasedNameLabel')}</span>
               <input name="deceasedName" value={form.deceasedName} maxLength={200} autoComplete="off" onChange={set('deceasedName')} />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('deceasedContactLabel')}</span>
               <input
                 name="deceasedContact"
@@ -86,11 +86,11 @@ export function BereavementRoom() {
                 onChange={set('deceasedContact')}
               />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('dateOfDeathLabel')}</span>
               <input name="dateOfDeath" type="date" max={today} value={form.dateOfDeath} onChange={set('dateOfDeath')} />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('relationLabel')}</span>
               <select name="relation" value={relation} onChange={(e) => setRelation(e.target.value as SupportBereavementRelation)}>
                 {RELATIONS.map(([value, key]) => (
@@ -100,11 +100,11 @@ export function BereavementRoom() {
                 ))}
               </select>
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('reporterNameLabel')}</span>
               <input name="reporterName" value={form.reporterName} maxLength={200} autoComplete="name" onChange={set('reporterName')} />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('reporterContactLabel')}</span>
               <input
                 name="reporterContact"
@@ -116,11 +116,11 @@ export function BereavementRoom() {
               />
               <small id="bereavement-contact-hint">{t('reporterContactHint')}</small>
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('bereavementDetailsLabel')}</span>
               <textarea name="details" value={form.details} maxLength={5000} rows={4} onChange={set('details')} />
             </label>
-            <Button type="submit" variant="primary" loading={busy} disabled={busy || !ready}>
+            <Button type="submit" tone="primary" aria-busy={busy || undefined} disabled={busy || !ready}>
               {t('sendReport')}
             </Button>
           </form>

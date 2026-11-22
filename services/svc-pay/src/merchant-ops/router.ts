@@ -1,10 +1,8 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema } from '@intafaced/contracts/merchant-portal';
 import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
 import { PAY_EXPORT_KINDS, payExportJobSchema, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
 import { router, TRPCError } from '@intafaced/contracts/trpc';
-import { merchantActivationSchema } from '@intafaced/contracts/merchant-activation';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure } from '../namespaces/founder-procedure.js';
@@ -51,6 +49,7 @@ import {
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
+import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /**
  * `merchantOps.*`   - the merchant's own operations pages (W15). Scoped to the
@@ -329,10 +328,11 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         get: read
           .input(z.object({ customerRef: z.string().trim().min(1).max(200), recentPaymentsLimit: limitInput }))
           .query(({ ctx, input }) => wrapOps(async () => need().customers.get(await callerOf(ctx), input))),
-        series: read
-          .input(merchantCustomerSeriesInputSchema)
-          .output(merchantCustomerSeriesSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().customers.series(await callerOf(ctx), input))),
+        series: mountRecord(
+          PAY_MERCHANT_OPS_CUSTOMERS_SERIES,
+          ({ ctx, input }) => wrapOps(async () => need().customers.series(await callerOf(ctx), input)),
+          payRefusal,
+        ),
       }),
 
       /** Team-wide sign-in rule (M-plat-org-06). Members read it; only the owner changes it. svc-identity enforces it. */
@@ -440,10 +440,11 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
        * Unconfirmed until a recorded change to active says otherwise; never derived from the verification.
        */
       activation: router({
-        get: onboardOrRead
-          .input(z.object({}).strict())
-          .output(merchantActivationSchema)
-          .query(({ ctx }) => wrapOps(async () => need().activation.get(await callerOf(ctx)))),
+        get: mountRecord(
+          PAY_MERCHANT_OPS_ACTIVATION_GET,
+          ({ ctx }) => wrapOps(async () => need().activation.get(await callerOf(ctx))),
+          payRefusal,
+        ),
       }),
 
       exports: router({

@@ -50,7 +50,7 @@ export function CounterpartyLink({ userId, returnTo, children }: { userId: strin
   const href = `/checkuser?userId=${encodeURIComponent(userId)}&returnTo=${encodeURIComponent(returnTo.href)}`;
   return (
     <a
-      className="text-link"
+      className="lt-link"
       href={href}
       onClick={(event) => {
         if (!ordinaryClick(event)) return;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Field } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { Facts, ListShell, MoreFooter, SelectField } from '../../components';
@@ -83,7 +83,7 @@ export function DeliveryList({
   const filtered = Boolean(status || date || (!endpointId && endpoint));
   const policy = useResource((signal) => api.webhookPolicy(signal), 'dev:policy');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       {!endpointId && <PolicyNotice resource={policy.resource} />}
       <div className="pp-filterbar" role="search" aria-label={t('deliveriesTitle')}>
         <div className="pp-filter-row">
@@ -131,7 +131,7 @@ export function DeliveryList({
               {' '}
               <button
                 type="button"
-                className="text-link"
+                className="lt-link"
                 onClick={() => {
                   setStatus('');
                   setDate('');
@@ -172,8 +172,8 @@ export function DeliveryList({
                     <>
                       <strong>{d.eventType}</strong>
                       {!endpointId && (
-                        <small className="pay-cell-note">
-                          <a className="text-link" href={`/pay/developer/webhooks/${encodeURIComponent(d.endpointId)}`}>
+                        <small className="lt-hint">
+                          <a className="lt-link" href={`/pay/developer/webhooks/${encodeURIComponent(d.endpointId)}`}>
                             {t('viewEndpoint')}
                           </a>
                         </small>
@@ -185,14 +185,14 @@ export function DeliveryList({
                 { header: t('colAttempts'), cell: (d) => d.attempts },
                 {
                   header: t('colReply'),
-                  cell: (d) => (d.lastStatusCode === null ? <span className="muted">{t('noReply')}</span> : d.lastStatusCode),
+                  cell: (d) => (d.lastStatusCode === null ? <span className="lt-muted">{t('noReply')}</span> : d.lastStatusCode),
                 },
                 { header: t('colWhen'), cell: (d) => <DateTime value={d.createdAt} /> },
                 {
                   header: <span className="pp-sr">{t('colActions')}</span>,
                   cell: (d) => (
-                    <div className="pp-actions">
-                      <Button variant="ghost" onClick={() => setOpen(d.id)} aria-label={t('openDelivery', { event: d.eventType })}>
+                    <div className="lt-actions">
+                      <Button tone="quiet" onClick={() => setOpen(d.id)} aria-label={t('openDelivery', { event: d.eventType })}>
                         {t('details')}
                       </Button>
                       <RetryButton
@@ -222,12 +222,12 @@ export function DeliveryList({
         <PaySection
           title={t('deliveryFacts')}
           action={
-            <Button variant="ghost" onClick={() => setOpen('')}>
+            <Button tone="quiet" onClick={() => setOpen('')}>
               {t('close')}
             </Button>
           }
         >
-          {detail ? <DeliveryDetail delivery={detail} api={api} /> : <p className="muted">{t('deliveryNotInList')}</p>}
+          {detail ? <DeliveryDetail delivery={detail} api={api} /> : <p className="lt-muted">{t('deliveryNotInList')}</p>}
         </PaySection>
       )}
       {!endpointId && endpoints.resource.status === 'ready' && (
@@ -251,7 +251,7 @@ export function PolicyNotice({ resource }: { resource: Resource<Policy> }) {
   if (resource.status === 'loading') return null;
   if (resource.status === 'failed')
     return (
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {t('policyUnavailable')}
       </p>
     );
@@ -366,7 +366,7 @@ export function DeliveryDetail({ delivery, api }: { delivery: Delivery; api?: Pi
         ]}
       />
       {api && <AttemptList api={api} delivery={delivery} />}
-      <p className="muted">{t('bodiesNotShown')}</p>
+      <p className="lt-muted">{t('bodiesNotShown')}</p>
     </>
   );
 }
@@ -384,13 +384,13 @@ export function AttemptList({ api, delivery }: { api: Pick<SettingsBApi, 'delive
     <section aria-label={t('attemptsTitle')} data-testid="delivery-attempts">
       <h4>{t('attemptsTitle')}</h4>
       {r.status === 'loading' ? (
-        <p className="muted">{t('attemptsLoading')}</p>
+        <p className="lt-muted">{t('attemptsLoading')}</p>
       ) : r.status === 'failed' ? (
-        <p className="muted" role="status">
+        <p className="lt-muted" role="status">
           {t('attemptsUnavailable')}
         </p>
       ) : r.data.attempts.length === 0 ? (
-        <p className="muted">{t('attemptsEmpty')}</p>
+        <p className="lt-muted">{t('attemptsEmpty')}</p>
       ) : (
         <table className="pp-table">
           <thead>

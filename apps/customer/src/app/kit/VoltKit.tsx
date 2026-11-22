@@ -32,7 +32,24 @@ import { VoltStack } from '../../screens/home/VoltStack';
 import type { HomePortfolio } from '../../screens/home/deps';
 import { MobileTabs } from '../TopBar';
 import { useResolvedColours } from '../../shared/resolved-colours';
-import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, StepsAndSpark, TypeRoles } from './KitParts';
+import {
+  Book,
+  CandleChart,
+  ComputerRail,
+  Controls,
+  Icons,
+  MarketList,
+  MoneyParts,
+  Overlays,
+  PayParts,
+  ScanCodes,
+  SmallCandles,
+  StepsAndSpark,
+  TypeRoles,
+} from './KitParts';
+import { TimeLines } from './KitTimeLine';
+import { ChartBoxes } from './KitChartBox';
+import { RoomBarAndRanges } from './KitRoomBar';
 import './kit.css';
 
 /**
@@ -319,6 +336,22 @@ export default function VoltKit() {
         </div>
       </Block>
 
+      <Block
+        id="money-parts"
+        title="Money parts"
+        note="An asset's mark (a lettered disc when the kit has no art), the info tip, the hero figure shown, hidden and missing, the small-balances fold and the card stack."
+      >
+        <MoneyParts />
+      </Block>
+
+      <Block
+        id="pay-parts"
+        title="Pay parts"
+        note="The money box with its unit, what is available and Max, and a refusal; the handle box; the person found; where a send stands; a confirmation."
+      >
+        <PayParts />
+      </Block>
+
       <Block id="buttons" title="Buttons" note="One primary per view. Every variant at rest, disabled and busy.">
         <div className="vk-grid">
           <div className="vk-row">
@@ -509,8 +542,37 @@ export default function VoltKit() {
         </div>
       </Block>
 
-      <Block id="candles" title="The candle chart" note="TEST hourly candles, with volume and moving averages.">
+      <Block
+        id="time-line"
+        title="A line over time"
+        note="TEST profit and loss placed by time, so a gap keeps its width, with its dashed zero line. Point at it, or focus it and use the arrow keys, to read a point. Below, its empty line."
+      >
+        <TimeLines />
+      </Block>
+
+      <Block
+        id="chart-box"
+        title="A box for a drawn chart"
+        note="A definite size a charting library draws into, the coin page's: TEST drawing, and a state in its place at the same size."
+      >
+        <ChartBoxes />
+      </Block>
+
+      <Block
+        id="room-bar"
+        title="A room bar, and range pills"
+        note="The coin page's bar: in a room it stays right under the top bar while the page scrolls. Its range pills are pressed buttons; the arrow keys move between them, Home and End to the ends. TEST coin."
+      >
+        <RoomBarAndRanges />
+      </Block>
+
+      <Block
+        id="candles"
+        title="The candle chart"
+        note="TEST hourly candles, with volume and moving averages. Below, the small one for a pool or a token: placed by time, so a quiet stretch is a gap, and its empty line."
+      >
         <CandleChart />
+        <SmallCandles />
       </Block>
 
       <Block id="book" title="The order book" note="TEST levels: asks above the price, bids below, the depth bar behind each row.">
@@ -519,6 +581,14 @@ export default function VoltKit() {
 
       <Block id="people" title="Quick send" note="The people you send to most, a tap away. New.">
         <QuickSend label="Quick send" people={TEST_PEOPLE} add={{ label: 'Add new', href: '/pay/send' }} />
+      </Block>
+
+      <Block
+        id="qr"
+        title="A code to scan"
+        note="Dark on a light ground in every theme, so a phone reads it; its words underneath when asked, and its failure line."
+      >
+        <ScanCodes />
       </Block>
 
       <Block id="states" title="Empty, loading and error">

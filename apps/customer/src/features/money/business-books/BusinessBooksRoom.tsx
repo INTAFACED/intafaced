@@ -1,7 +1,7 @@
 // volt-room: /bank/business/books
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { z, ZodType } from 'zod';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   BUSINESS_BOOK_FORMATS,
@@ -235,7 +235,7 @@ function Books({ overview: o, reloadTop, t }: { overview: z.infer<typeof busines
           {t('refusedTitle')}: {failed.message}
         </p>
       ) : null}
-      <label className="field">
+      <label className="lt-field">
         <span>{t('month')}</span>
         <input
           type="month"
@@ -258,6 +258,7 @@ function Books({ overview: o, reloadTop, t }: { overview: z.infer<typeof busines
         ) : null}
         {admin ? (
           <Button
+            tone="primary"
             type="button"
             disabled={busy}
             onClick={() =>
@@ -399,6 +400,7 @@ function FeedButton({ accountId, period, busy, act, t }: { accountId: string; pe
   const { api } = useSession();
   return (
     <Button
+      tone="primary"
       type="button"
       disabled={busy}
       onClick={() =>
@@ -460,19 +462,20 @@ function RuleForm({
         );
       }}
     >
-      <label className="field">
+      <label className="lt-field">
         <span>{t('payeeContains')}</span>
         <input value={text} onChange={(e) => (setText(e.target.value), setTested(null))} required maxLength={80} />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('category')}</span>
         <input value={category} onChange={(e) => setCategory(e.target.value)} required maxLength={60} />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('glCode')}</span>
         <input value={gl} onChange={(e) => setGl(e.target.value)} maxLength={32} />
       </label>
       <Button
+        tone="primary"
         type="button"
         disabled={busy || !text.trim()}
         onClick={() =>
@@ -496,7 +499,7 @@ function RuleForm({
           ))}
         </ul>
       ) : null}
-      <Button type="submit" variant="primary" disabled={busy || !text.trim() || !category.trim()}>
+      <Button type="submit" tone="primary" disabled={busy || !text.trim() || !category.trim()}>
         {t('saveRule')}
       </Button>
     </form>
@@ -545,15 +548,15 @@ function BulkForm({
       }}
     >
       <h3>{t('bulkTitle')}</h3>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('category')}</span>
         <input value={category} onChange={(e) => setCategory(e.target.value)} maxLength={60} />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('glCode')}</span>
         <input value={gl} onChange={(e) => setGl(e.target.value)} maxLength={32} />
       </label>
-      <Button type="submit" disabled={busy || selected.length === 0 || (!category.trim() && !gl.trim())}>
+      <Button tone="primary" type="submit" disabled={busy || selected.length === 0 || (!category.trim() && !gl.trim())}>
         {t('bulk', { count: String(selected.length) })}
       </Button>
     </form>
@@ -612,6 +615,7 @@ function Statements({
       <div>
         {BUSINESS_BOOK_FORMATS.map((format) => (
           <Button
+            tone="primary"
             key={format}
             type="button"
             disabled={busy || !confirmed}

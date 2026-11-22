@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { sessionLimitsCopy as copy } from './session-limits-copy';
 import { OUT_OF_RANGE, minutesFrom, spoken } from './session-limits-api';
 import { IDENTITY_SESSION_SETTINGS } from '@intafaced/contracts/identity-session-settings-procedures';
@@ -81,7 +82,7 @@ export function SessionLimits() {
   return (
     <section
       data-testid="security__card"
-      className="security__session-limits security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
@@ -94,13 +95,9 @@ export function SessionLimits() {
       </p>
       <p data-testid="session-limits__applied">
         <strong>{view.appliedIdleSeconds === null ? t('appliedNone') : t('applied', { time: time(view.appliedIdleSeconds) })}</strong>{' '}
-        <span className="muted">{view.own.idleSeconds === null ? t('ownUnset') : t('ownSet', { time: time(view.own.idleSeconds) })}</span>
+        <span className="lt-hint">{view.own.idleSeconds === null ? t('ownUnset') : t('ownSet', { time: time(view.own.idleSeconds) })}</span>
       </p>
-      {note && (
-        <p className="notice" role="status">
-          {note}
-        </p>
-      )}
+      {note && <p role="status">{note}</p>}
       {failure && <Failure result={failure} />}
       <form onSubmit={submit} noValidate>
         <Field
@@ -111,12 +108,12 @@ export function SessionLimits() {
           error={problem ?? undefined}
           disabled={busy}
         />
-        <div className="actions">
-          <Button type="submit" disabled={busy}>
+        <div className="lt-actions">
+          <Button tone="primary" type="submit" disabled={busy}>
             {busy ? t('working') : t('save')}
           </Button>
           {view.own.idleSeconds !== null && (
-            <Button type="button" variant="ghost" disabled={busy} onClick={() => void save(null, view.range)}>
+            <Button type="button" tone="quiet" disabled={busy} onClick={() => void save(null, view.range)}>
               {t('clear')}
             </Button>
           )}

@@ -297,7 +297,7 @@ test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notic
   const shown = page.getByTestId('home-notice').filter({ hasText: notice });
   await expect(shown).toHaveCount(1);
   expect(notice).toContain('TEST');
-  await expect(shown.locator('.home-notice__title')).toContainText('TEST');
+  await expect(shown.getByTestId('home-notice__title')).toContainText('TEST');
   // One inbox row on Home, the one the real deposit-credit consumer filed for that deposit, and it says TEST beside the amount.
   const inbox = page.getByTestId('home-inbox');
   await expect(inbox.getByTestId('nf-row')).toHaveCount(1);

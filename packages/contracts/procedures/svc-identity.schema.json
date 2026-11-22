@@ -5050,6 +5050,101 @@
         }
       ]
     },
+    "identity.apiKeys.list": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "apiKeys.list",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "prefix": {
+              "type": "string"
+            },
+            "scopes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "lastUsedAt": {
+              "type": ["string", "null"]
+            },
+            "revoked": {
+              "type": "boolean"
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["live", "sandbox"]
+            },
+            "requireSignature": {
+              "type": "boolean"
+            },
+            "requireNonEmptyIpAllowlist": {
+              "type": "boolean"
+            },
+            "ipAllowlist": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "prefix",
+            "scopes",
+            "lastUsedAt",
+            "revoked",
+            "mode",
+            "requireSignature",
+            "requireNonEmptyIpAllowlist",
+            "ipAllowlist"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "identity.apiKeys.revoke": {
       "service": "svc-identity",
       "module": "identity",
@@ -7267,6 +7362,189 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "identity.bindApiKeyIpAllowlist": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "bindApiKeyIpAllowlist",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "factorProof": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "totpCode": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  }
+                },
+                "required": ["totpCode"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "webauthn": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "rawId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "public-key"
+                      },
+                      "response": {
+                        "type": "object",
+                        "properties": {
+                          "clientDataJSON": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "authenticatorData": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "signature": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "userHandle": {
+                            "type": ["string", "null"]
+                          }
+                        },
+                        "required": ["clientDataJSON", "authenticatorData", "signature"]
+                      },
+                      "clientExtensionResults": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "$ref": "#/$defs/__schema0"
+                        }
+                      }
+                    },
+                    "required": ["id", "rawId", "type", "response"]
+                  }
+                },
+                "required": ["webauthn"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "proofId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["proofId"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["keyId", "ips"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "ipAllowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requireSignature": {
+            "type": "boolean"
+          },
+          "requireNonEmptyIpAllowlist": {
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "ipAllowlist", "requireSignature", "requireNonEmptyIpAllowlist"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "11111111-1111-4111-8111-111111111111",
+            "ips": []
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -15920,6 +16198,173 @@
         }
       ]
     },
+    "identity.rotateSigningSecret": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "rotateSigningSecret",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "factorProof": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "totpCode": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  }
+                },
+                "required": ["totpCode"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "webauthn": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "rawId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "public-key"
+                      },
+                      "response": {
+                        "type": "object",
+                        "properties": {
+                          "clientDataJSON": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "authenticatorData": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "signature": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "userHandle": {
+                            "type": ["string", "null"]
+                          }
+                        },
+                        "required": ["clientDataJSON", "authenticatorData", "signature"]
+                      },
+                      "clientExtensionResults": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "$ref": "#/$defs/__schema0"
+                        }
+                      }
+                    },
+                    "required": ["id", "rawId", "type", "response"]
+                  }
+                },
+                "required": ["webauthn"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "proofId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["proofId"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["keyId"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "signingSecret": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "signingSecret"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "identity.securityLock.read": {
       "service": "svc-identity",
       "module": "identity",
@@ -18065,6 +18510,186 @@
           "input": {
             "deviceId": "11111111-1111-4111-8111-111111111111",
             "clientRequestId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.unbindApiKeyIpAllowlist": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "unbindApiKeyIpAllowlist",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "factorProof": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "totpCode": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  }
+                },
+                "required": ["totpCode"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "webauthn": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "rawId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "public-key"
+                      },
+                      "response": {
+                        "type": "object",
+                        "properties": {
+                          "clientDataJSON": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "authenticatorData": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "signature": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "userHandle": {
+                            "type": ["string", "null"]
+                          }
+                        },
+                        "required": ["clientDataJSON", "authenticatorData", "signature"]
+                      },
+                      "clientExtensionResults": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "$ref": "#/$defs/__schema0"
+                        }
+                      }
+                    },
+                    "required": ["id", "rawId", "type", "response"]
+                  }
+                },
+                "required": ["webauthn"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "proofId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["proofId"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["keyId", "ip"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "ipAllowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requireSignature": {
+            "type": "boolean"
+          },
+          "requireNonEmptyIpAllowlist": {
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "ipAllowlist", "requireSignature", "requireNonEmptyIpAllowlist"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "11111111-1111-4111-8111-111111111111",
+            "ip": "USDC"
           }
         },
         {

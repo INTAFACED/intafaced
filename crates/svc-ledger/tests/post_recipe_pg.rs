@@ -12,6 +12,14 @@
 //!   Its who-may-call and body refusals are `post_recipe_parity.rs` and `wire_replay.rs`.
 //!
 //! The calls and posts are the TypeScript's own, recorded by `scripts/record-door-books.mjs`.
+//!
+//! svc-bank's recipes (`bank_*`), under svc-bank's own key: one of each booked on the real book with the custody layer
+//! on (each moves a customer's balance), a retry booking nothing twice, the custody layer off refusing them, and a
+//! service other than svc-bank refused before anything is read. Their bodies are `post_recipe_parity.rs`'s. Its earn
+//! recipes (`bank_earn_*`): a pool funded from the bank's fee revenue, a position opened, a day's interest paid once (a
+//! retry the same transaction, a different payout list 409, a day the reserve cannot cover refused), the position
+//! closed; the recipe's refusals (a day the calendar lacks, no payouts, a zero payout, a zero amount) before the book;
+//! with the layer off the pool still funded and every customer move refused 412; another service refused 403.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -20,7 +28,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use service_kit::json::Json;
 use service_kit::money::{format_amount, parse_amount};
@@ -28,7 +36,8 @@ use service_kit::s2s::Mode;
 use support::TestDb;
 use support::door::{Kit, Setup, fx, fx_list, migrated};
 use svc_ledger::errors::{
-    FROZEN, IDEMPOTENCY_CONFLICT, INSUFFICIENT_FUNDS, POST_RECIPE_INPUT_INVALID,
+    CALLER_FORBIDDEN, CUSTODY_LAYER_OFF, FROZEN, IDEMPOTENCY_CONFLICT, INSUFFICIENT_FUNDS,
+    POST_RECIPE_INPUT_INVALID,
 };
 use svc_ledger::freeze;
 
@@ -469,4 +478,520 @@ fn property_for_random_valid_purchases_and_their_refunds_the_two_doors_leave_the
     // Most runs book (a treasury wallet may go below zero): the property is not only refusals agreeing.
     assert!(booked > 20, "only {booked} of 60 runs booked");
     println!("postRecipe property: 60 runs, {booked} booked on both doors");
+}
+
+// ── svc-bank's recipes ───────────────────────────────────────────────────────────────────────────────────────────
+
+const PAYER: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const PAYEE: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const TRANSFER: &str = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const HOLD: &str = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const SECOND_HOLD: &str = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+fn account(owner_id: &str, kind: &str, purpose: Option<&str>) -> Json {
+    let mut fields = vec![
+        ("ownerType", Json::str("user")),
+        ("ownerId", Json::str(owner_id)),
+        ("assetId", Json::str("USDC")),
+        ("kind", Json::str(kind)),
+    ];
+    if let Some(p) = purpose {
+        fields.push(("purpose", Json::str(p)));
+    }
+    Json::Object(fields.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+}
+
+fn available(owner_id: &str) -> Json {
+    account(owner_id, "available", None)
+}
+
+fn pot(owner_id: &str, hold_id: &str) -> Json {
+    account(owner_id, "hold", Some(&format!("pay:recv:{hold_id}")))
+}
+
+fn call(recipe: &str, input: Json) -> Json {
+    Json::obj([("recipe", Json::str(recipe)), ("input", input)])
+}
+
+/// svc-bank's p2p transfer of 12.5 USDC from PAYER to PAYEE.
+fn transfer() -> Json {
+    call(
+        "bankTransfer",
+        Json::obj([
+            ("transferId", Json::str(TRANSFER)),
+            ("occurrence", Json::int(0)),
+            ("from", available(PAYER)),
+            ("to", available(PAYEE)),
+            ("amount", Json::str("12.5")),
+            ("kind", Json::str("manual")),
+            ("keySpace", Json::str("p2p")),
+        ]),
+    )
+}
+
+/// A hold, release or return of 12.5 USDC PAYEE received (`extra` adds the outcome's own fields).
+fn received(recipe: &str, hold_id: &str, extra: &[(&str, Json)]) -> Json {
+    let mut fields = vec![
+        ("holdId", Json::str(hold_id)),
+        ("userId", Json::str(PAYEE)),
+        ("assetId", Json::str("USDC")),
+        ("amount", Json::str("12.5")),
+    ];
+    fields.extend(extra.iter().cloned());
+    call(
+        recipe,
+        Json::Object(fields.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()),
+    )
+}
+
+/// The door with svc-bank's and svc-academy's keys, over a book where PAYER holds 100 USDC.
+fn bank_door(custody_on: bool) -> Option<(TestDb, Kit)> {
+    let db = migrated()?;
+    let k = Kit::new(
+        &db,
+        &Setup {
+            mode: Some(Mode::Keypair),
+            services: &["svc-bank", "svc-academy"],
+            custody_on,
+        },
+    );
+    if custody_on {
+        k.engine(&Json::obj([
+            ("idempotencyKey", Json::str("deposit:test:post-recipe-bank")),
+            ("module", Json::str("ledger")),
+            ("reason", Json::str("deposit")),
+            (
+                "entries",
+                Json::Array(vec![
+                    Json::obj([
+                        (
+                            "account",
+                            Json::obj([
+                                ("ownerType", Json::str("treasury")),
+                                ("ownerId", Json::str("rail:crypto-native")),
+                                ("assetId", Json::str("USDC")),
+                                ("kind", Json::str("available")),
+                            ]),
+                        ),
+                        ("direction", Json::str("credit")),
+                        ("amount", Json::str("100")),
+                    ]),
+                    Json::obj([
+                        ("account", available(PAYER)),
+                        ("direction", Json::str("debit")),
+                        ("amount", Json::str("100")),
+                    ]),
+                ]),
+            ),
+        ]));
+    }
+    Some((db, k))
+}
+
+fn bank(k: &Kit, body: &Json) -> (u16, Json) {
+    k.keyed("svc-bank", "/trpc/postRecipe", body)
+}
+
+#[test]
+fn bank_books_one_of_each_recipe_once_under_its_business_key_and_the_balances_move_as_the_recipes_say()
+ {
+    let Some((_db, k)) = bank_door(true) else {
+        return;
+    };
+    let key = format!("bank.transfer.p2p:{TRANSFER}:0");
+    let tx = booked(bank(&k, &transfer()));
+    assert_eq!(s(&tx, "idempotencyKey"), key);
+    assert_eq!(s(&tx, "module"), "bank");
+    assert_eq!(s(&tx, "reason"), "bank.transfer.manual");
+    assert_eq!(
+        legs(&tx),
+        [
+            ("credit".to_owned(), "12.5".to_owned()),
+            ("debit".to_owned(), "12.5".to_owned())
+        ]
+    );
+    // A retry after a lost reply is the same key and body: the same transaction, nothing booked twice.
+    assert_eq!(s(&booked(bank(&k, &transfer())), "txId"), s(&tx, "txId"));
+    assert_eq!(k.rows(&key), 1);
+    assert_eq!(k.bal(&available(PAYER)), "87.5");
+    assert_eq!(k.bal(&available(PAYEE)), "12.5");
+
+    // Held, then released whole: the pot fills and empties, the recipient's available comes back.
+    let held = booked(bank(&k, &received("payReceivedHold", HOLD, &[])));
+    assert_eq!(s(&held, "idempotencyKey"), format!("pay.recv.hold:{HOLD}"));
+    assert_eq!(k.bal(&available(PAYEE)), "0");
+    assert_eq!(k.bal(&pot(PAYEE, HOLD)), "12.5");
+    let whole = [("heldAmount", Json::str("12.5"))];
+    let released = booked(bank(&k, &received("payReceivedRelease", HOLD, &whole)));
+    assert_eq!(
+        s(&released, "idempotencyKey"),
+        format!("pay.recv.release:{HOLD}")
+    );
+    assert_eq!(k.bal(&pot(PAYEE, HOLD)), "0");
+    assert_eq!(k.bal(&available(PAYEE)), "12.5");
+    // One outcome per hold: a return after the release finds the pot empty.
+    let returned = [
+        ("heldAmount", Json::str("12.5")),
+        ("payerUserId", Json::str(PAYER)),
+    ];
+    let (status, refused) = bank(&k, &received("payReceivedReturn", HOLD, &returned));
+    assert_eq!(
+        (status, code(&refused).as_deref()),
+        (400, Some(INSUFFICIENT_FUNDS))
+    );
+    assert_eq!(k.rows(&format!("pay.recv.return:{HOLD}")), 0);
+
+    // A second hold, returned to the payer by a ruling.
+    booked(bank(&k, &received("payReceivedHold", SECOND_HOLD, &[])));
+    let back = booked(bank(
+        &k,
+        &received("payReceivedReturn", SECOND_HOLD, &returned),
+    ));
+    assert_eq!(
+        s(&back, "idempotencyKey"),
+        format!("pay.recv.return:{SECOND_HOLD}")
+    );
+    assert_eq!(k.bal(&pot(PAYEE, SECOND_HOLD)), "0");
+    assert_eq!(k.bal(&available(PAYEE)), "0");
+    assert_eq!(k.bal(&available(PAYER)), "100");
+}
+
+#[test]
+fn bank_a_partial_release_is_refused_before_the_book_and_nothing_is_booked() {
+    let Some((_db, k)) = bank_door(true) else {
+        return;
+    };
+    booked(bank(&k, &transfer()));
+    booked(bank(&k, &received("payReceivedHold", HOLD, &[])));
+    let part = received(
+        "payReceivedRelease",
+        HOLD,
+        &[("heldAmount", Json::str("20"))],
+    );
+    let (status, refused) = bank(&k, &part);
+    assert_eq!(
+        (status, code(&refused).as_deref()),
+        (400, Some(POST_RECIPE_INPUT_INVALID))
+    );
+    assert_eq!(k.rows(&format!("pay.recv.release:{HOLD}")), 0);
+    assert_eq!(k.bal(&pot(PAYEE, HOLD)), "12.5");
+}
+
+#[test]
+fn bank_with_the_custody_layer_off_a_transfer_between_customers_is_refused_412_and_nothing_is_booked()
+ {
+    let Some((_db, k)) = bank_door(false) else {
+        return;
+    };
+    let (status, refused) = bank(&k, &transfer());
+    assert_eq!(
+        (status, code(&refused).as_deref()),
+        (412, Some(CUSTODY_LAYER_OFF))
+    );
+    assert_eq!(k.rows(&format!("bank.transfer.p2p:{TRANSFER}:0")), 0);
+}
+
+#[test]
+fn bank_a_service_other_than_svc_bank_may_not_post_svc_banks_recipes_403_nothing_booked() {
+    let Some((_db, k)) = bank_door(true) else {
+        return;
+    };
+    for body in [transfer(), received("payReceivedHold", HOLD, &[])] {
+        let (status, refused) = k.keyed("svc-academy", "/trpc/postRecipe", &body);
+        assert_eq!(
+            (status, code(&refused).as_deref()),
+            (403, Some(CALLER_FORBIDDEN)),
+            "{}",
+            refused.compact()
+        );
+    }
+    assert_eq!(k.rows(&format!("bank.transfer.p2p:{TRANSFER}:0")), 0);
+    assert_eq!(k.rows(&format!("pay.recv.hold:{HOLD}")), 0);
+    assert_eq!(k.bal(&available(PAYER)), "100");
+}
+
+// ── svc-bank's earn pools ────────────────────────────────────────────────────────────────────────────────────────
+
+const POOL: &str = "99999999-9999-4999-8999-999999999999";
+const POSITION: &str = "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa";
+
+fn usdc(owner_type: &str, owner_id: &str) -> Json {
+    Json::obj([
+        ("ownerType", Json::str(owner_type)),
+        ("ownerId", Json::str(owner_id)),
+        ("assetId", Json::str("USDC")),
+        ("kind", Json::str("available")),
+    ])
+}
+
+/// `earnPoolReserve(POOL, 'USDC')`.
+fn reserve() -> Json {
+    usdc("module", &format!("bank:earn:{POOL}"))
+}
+
+/// `houseFees('bank', 'USDC')`.
+fn bank_fees() -> Json {
+    usdc("house", "fees:bank")
+}
+
+/// `earnStakeAccount(PAYER, 'USDC', POSITION)`.
+fn stake() -> Json {
+    account(PAYER, "stake", Some(&format!("bank:earn:{POSITION}")))
+}
+
+/// The bank's own fee revenue holds `amount` USDC (no customer balance moves, so it books with the layer off too).
+fn seed_bank_fees(k: &Kit, amount: &str) {
+    k.engine(&Json::obj([
+        ("idempotencyKey", Json::str("deposit:test:bank-fees")),
+        ("module", Json::str("ledger")),
+        ("reason", Json::str("deposit")),
+        (
+            "entries",
+            Json::Array(vec![
+                Json::obj([
+                    ("account", usdc("treasury", "rail:crypto-native")),
+                    ("direction", Json::str("credit")),
+                    ("amount", Json::str(amount)),
+                ]),
+                Json::obj([
+                    ("account", bank_fees()),
+                    ("direction", Json::str("debit")),
+                    ("amount", Json::str(amount)),
+                ]),
+            ]),
+        ),
+    ]));
+}
+
+fn position(recipe: &str, amount: &str) -> Json {
+    call(
+        recipe,
+        Json::obj([
+            ("positionId", Json::str(POSITION)),
+            ("poolId", Json::str(POOL)),
+            ("userId", Json::str(PAYER)),
+            ("assetId", Json::str("USDC")),
+            ("amount", Json::str(amount)),
+        ]),
+    )
+}
+
+fn fund(funding_id: &str, amount: &str) -> Json {
+    call(
+        "earnPoolFund",
+        Json::obj([
+            ("poolId", Json::str(POOL)),
+            ("fundingId", Json::str(funding_id)),
+            ("assetId", Json::str("USDC")),
+            ("amount", Json::str(amount)),
+        ]),
+    )
+}
+
+fn interest(date: &str, payouts: &[(&str, &str)]) -> Json {
+    call(
+        "earnInterest",
+        Json::obj([
+            ("poolId", Json::str(POOL)),
+            ("date", Json::str(date)),
+            ("assetId", Json::str("USDC")),
+            (
+                "payouts",
+                Json::Array(
+                    payouts
+                        .iter()
+                        .map(|(user, amount)| {
+                            Json::obj([
+                                ("userId", Json::str(*user)),
+                                ("amount", Json::str(*amount)),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+        ]),
+    )
+}
+
+#[test]
+fn bank_earn_funds_a_pool_opens_a_position_pays_a_day_and_closes_it_each_once_under_its_business_key()
+ {
+    let Some((_db, k)) = bank_door(true) else {
+        return;
+    };
+    seed_bank_fees(&k, "10");
+
+    // The pool's reserve is funded from the bank's own fee revenue; a retry is the same transaction.
+    let fund_key = format!("bank.earn.fund:{POOL}:treasury-2026-11");
+    let funded = booked(bank(&k, &fund("treasury-2026-11", "10")));
+    assert_eq!(s(&funded, "idempotencyKey"), fund_key);
+    assert_eq!(s(&funded, "reason"), "bank.earn.pool.funded");
+    assert_eq!(
+        s(&booked(bank(&k, &fund("treasury-2026-11", "10"))), "txId"),
+        s(&funded, "txId")
+    );
+    assert_eq!(k.rows(&fund_key), 1);
+    assert_eq!(k.bal(&bank_fees()), "0");
+    assert_eq!(k.bal(&reserve()), "10");
+
+    // A position: PAYER's available into PAYER's own stake pot for it.
+    let deposit = booked(bank(&k, &position("earnDeposit", "40")));
+    assert_eq!(
+        s(&deposit, "idempotencyKey"),
+        format!("bank.earn.deposit:{POSITION}")
+    );
+    assert_eq!(
+        legs(&deposit),
+        [
+            ("credit".to_owned(), "40".to_owned()),
+            ("debit".to_owned(), "40".to_owned())
+        ]
+    );
+    assert_eq!(k.bal(&available(PAYER)), "60");
+    assert_eq!(k.bal(&stake()), "40");
+
+    // One day's interest for the pool: the reserve down by the total, each person up by theirs; once per pool and day.
+    let day = interest("2026-11-22", &[(PAYER, "0.5"), (PAYEE, "0.25")]);
+    let day_key = format!("bank.interest:{POOL}:2026-11-22");
+    let paid = booked(bank(&k, &day));
+    assert_eq!(s(&paid, "idempotencyKey"), day_key);
+    assert_eq!(s(&paid, "reason"), "bank.earn.interest");
+    assert_eq!(
+        legs(&paid),
+        [
+            ("credit".to_owned(), "0.75".to_owned()),
+            ("debit".to_owned(), "0.5".to_owned()),
+            ("debit".to_owned(), "0.25".to_owned())
+        ]
+    );
+    assert_eq!(s(&booked(bank(&k, &day)), "txId"), s(&paid, "txId"));
+    assert_eq!(k.rows(&day_key), 1);
+    // The same day paid differently is refused: the first accrual stands.
+    let (status, refused) = bank(&k, &interest("2026-11-22", &[(PAYER, "1")]));
+    assert_eq!(
+        (status, code(&refused).as_deref()),
+        (409, Some(IDEMPOTENCY_CONFLICT))
+    );
+    assert_eq!(k.bal(&reserve()), "9.25");
+    assert_eq!(k.bal(&available(PAYER)), "60.5");
+    assert_eq!(k.bal(&available(PAYEE)), "0.25");
+
+    // A day the reserve cannot cover is refused by the book: interest is never minted.
+    let (status, refused) = bank(&k, &interest("2026-11-23", &[(PAYER, "9.26")]));
+    assert_eq!(
+        (status, code(&refused).as_deref()),
+        (400, Some(INSUFFICIENT_FUNDS))
+    );
+    assert_eq!(k.rows(&format!("bank.interest:{POOL}:2026-11-23")), 0);
+    assert_eq!(k.bal(&reserve()), "9.25");
+
+    // The position closes: the principal back to available, the pot empty.
+    let withdraw = booked(bank(&k, &position("earnWithdraw", "40")));
+    assert_eq!(
+        s(&withdraw, "idempotencyKey"),
+        format!("bank.earn.withdraw:{POSITION}")
+    );
+    assert_eq!(k.bal(&stake()), "0");
+    assert_eq!(k.bal(&available(PAYER)), "100.5");
+}
+
+#[test]
+fn bank_earn_inputs_the_recipe_refuses_are_refused_before_the_book_and_nothing_is_booked() {
+    let Some((_db, k)) = bank_door(true) else {
+        return;
+    };
+    seed_bank_fees(&k, "10");
+    booked(bank(&k, &fund("treasury-2026-11", "10")));
+    for (body, key) in [
+        (
+            interest("2026-02-31", &[(PAYER, "1")]),
+            format!("bank.interest:{POOL}:2026-02-31"),
+        ),
+        (
+            interest("2026-11-22", &[]),
+            format!("bank.interest:{POOL}:2026-11-22"),
+        ),
+        (
+            interest("2026-11-22", &[(PAYER, "1"), (PAYEE, "0")]),
+            format!("bank.interest:{POOL}:2026-11-22"),
+        ),
+        (
+            position("earnDeposit", "0"),
+            format!("bank.earn.deposit:{POSITION}"),
+        ),
+        (
+            fund("treasury-2026-12", "0"),
+            format!("bank.earn.fund:{POOL}:treasury-2026-12"),
+        ),
+    ] {
+        let (status, refused) = bank(&k, &body);
+        assert_eq!(
+            (status, code(&refused).as_deref()),
+            (400, Some(POST_RECIPE_INPUT_INVALID)),
+            "{}",
+            body.compact()
+        );
+        assert_eq!(k.rows(&key), 0);
+    }
+    assert_eq!(k.bal(&reserve()), "10");
+    assert_eq!(k.bal(&available(PAYER)), "100");
+}
+
+#[test]
+fn bank_earn_with_the_custody_layer_off_a_pool_is_funded_but_no_customer_balance_moves_412() {
+    let Some((_db, k)) = bank_door(false) else {
+        return;
+    };
+    seed_bank_fees(&k, "10");
+    // The bank's own money moving into its own reserve touches no customer: it books at launch.
+    booked(bank(&k, &fund("treasury-2026-11", "10")));
+    assert_eq!(k.bal(&reserve()), "10");
+    for (body, key) in [
+        (
+            position("earnDeposit", "1"),
+            format!("bank.earn.deposit:{POSITION}"),
+        ),
+        (
+            interest("2026-11-22", &[(PAYER, "1")]),
+            format!("bank.interest:{POOL}:2026-11-22"),
+        ),
+    ] {
+        let (status, refused) = bank(&k, &body);
+        assert_eq!(
+            (status, code(&refused).as_deref()),
+            (412, Some(CUSTODY_LAYER_OFF)),
+            "{}",
+            body.compact()
+        );
+        assert_eq!(k.rows(&key), 0);
+    }
+    assert_eq!(k.bal(&reserve()), "10");
+}
+
+#[test]
+fn bank_earn_a_service_other_than_svc_bank_may_not_post_the_earn_recipes_403_nothing_booked() {
+    let Some((_db, k)) = bank_door(true) else {
+        return;
+    };
+    seed_bank_fees(&k, "10");
+    for body in [
+        fund("treasury-2026-11", "10"),
+        position("earnDeposit", "1"),
+        position("earnWithdraw", "1"),
+        interest("2026-11-22", &[(PAYER, "1")]),
+    ] {
+        let (status, refused) = k.keyed("svc-academy", "/trpc/postRecipe", &body);
+        assert_eq!(
+            (status, code(&refused).as_deref()),
+            (403, Some(CALLER_FORBIDDEN)),
+            "{}",
+            refused.compact()
+        );
+    }
+    assert_eq!(
+        k.rows(&format!("bank.earn.fund:{POOL}:treasury-2026-11")),
+        0
+    );
+    assert_eq!(k.bal(&bank_fees()), "10");
+    assert_eq!(k.bal(&available(PAYER)), "100");
 }

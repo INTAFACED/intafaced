@@ -11,7 +11,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod authoring_kit;
+use crate::authoring_kit;
 
 use authoring_kit::{code, data, door, equals, matches, store, v, visitor};
 use service_kit::json::Json;

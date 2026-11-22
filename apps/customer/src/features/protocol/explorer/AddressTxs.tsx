@@ -3,12 +3,12 @@ import { formatUnits } from 'viem';
 import { useApi } from '../../session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Loading } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, EmptyState, Loading } from '../volt/parts';
 import { networkLabel } from '../blockers';
 import { explorerCopy, type ExplorerTranslate } from './copy';
 import { createExplorerApi, type ExplorerAddressTxsPage } from './explorer-api';
 import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from './parts';
-import './explorer.css';
 
 type AddressTxRow = ExplorerAddressTxsPage['rows'][number];
 type Transfer = AddressTxRow['transfers'][number];
@@ -61,7 +61,7 @@ export function AddressTxs({ address }: { address: string }) {
         <BlockerNote
           title={t('txsRefused', { reason: refusalWords(resource.failure, t) })}
           action={
-            <Button variant="secondary" onClick={txs.reload}>
+            <Button tone="secondary" onClick={txs.reload}>
               {t('retry')}
             </Button>
           }
@@ -106,9 +106,9 @@ export function AddressTxs({ address }: { address: string }) {
       <DataTable label={t('addressTxs')} headers={headers}>
         {body}
       </DataTable>
-      {page && page.asOfHeight !== null && <p className="muted">{t('addressTxsAsOf', { height: page.asOfHeight })}</p>}
+      {page && page.asOfHeight !== null && <p className="lt-hint">{t('addressTxsAsOf', { height: page.asOfHeight })}</p>}
       {page?.nextCursor && (
-        <Button variant="secondary" onClick={() => setCursor(page.nextCursor)}>
+        <Button tone="secondary" onClick={() => setCursor(page.nextCursor)}>
           {t('moreTxs')}
         </Button>
       )}

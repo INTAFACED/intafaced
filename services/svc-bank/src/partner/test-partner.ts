@@ -211,6 +211,13 @@ export function testPartner(): TestPartner {
     label: TEST_PARTNER_LABEL,
     staleAfterMs: TEST_PARTNER_STALE_AFTER_MS,
     balance: async (account) => report(account),
+    async openCurrency(userId, assetId) {
+      if (switches(userId).down) throw partnerDown();
+      const account: PartnerAccountRef = { userId, assetId, spaceId: null };
+      // An account it already holds is the same account: adding 0 opens it once and changes no figure.
+      book.add(account, 0n);
+      return report(account);
+    },
     async balances(userId) {
       const out: PartnerBalance[] = [];
       for (const key of held.keys()) {

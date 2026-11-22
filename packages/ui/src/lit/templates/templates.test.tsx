@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
 import { Bars, Coverage, Parts } from '../components/b2-charts.js';
-import { BrandSample, Meter } from '../components/b2-basics.js';
+import { BrandSample, Dialog, Disclosure, Meter } from '../components/b2-basics.js';
 import { LegalSlotsSwitch, Region, Review, RoomFrame } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
@@ -570,5 +570,54 @@ describe("a limit's use and a brand sample", () => {
     );
     expect(bad).not.toContain('url(x)');
     expect(bad).not.toContain('--lt-brand:');
+  });
+});
+
+describe('sections that fold', () => {
+  const items = [
+    { value: 'a', title: 'Volume', body: <p>TEST volume body</p> },
+    { value: 'b', title: 'More insights', body: <p>TEST insights body</p> },
+  ];
+  it('draws each heading as a button, and only the open body, as a region named by its heading', () => {
+    const out = html(<Disclosure items={items} defaultOpen={['a']} />);
+    expect(out.match(/<button type="button"/g)).toHaveLength(2);
+    expect(out).toContain('aria-expanded="true"');
+    expect(out).toContain('aria-expanded="false"');
+    expect(out).toContain('role="region"');
+    expect(out).toContain('TEST volume body');
+    expect(out).not.toContain('TEST insights body');
+    const head = /<button type="button" id="([^"]+)" aria-expanded="true"/.exec(out)![1]!;
+    expect(out).toContain(`aria-labelledby="${head}"`);
+  });
+  it('draws nothing open when no section is named', () => {
+    const out = html(<Disclosure items={items} />);
+    expect(out).not.toContain('role="region"');
+    expect(out).not.toContain('aria-expanded="true"');
+  });
+});
+
+describe('a dialog', () => {
+  it('is a native dialog named by its title, with a labelled close button and its body', () => {
+    const out = html(
+      <Dialog title="Review the order" closeLabel="Close dialog" onClose={() => undefined}>
+        <p>TEST body</p>
+      </Dialog>,
+    );
+    expect(out).toMatch(/^<dialog class="lt-dialog" aria-labelledby="([^"]+)">/);
+    const id = /aria-labelledby="([^"]+)"/.exec(out)![1]!;
+    expect(out).toContain(`<h2 id="${id}" class="lt-sheet-title">Review the order</h2>`);
+    expect(out).toContain('aria-label="Close dialog"');
+    expect(out).toContain('TEST body');
+  });
+
+  it('announces a confirmation before a step that cannot be undone as an alert dialog', () => {
+    const out = html(
+      <Dialog title="Send 1 USDT?" closeLabel="Close dialog" onClose={() => undefined} alert data-testid="send-review">
+        <p>TEST body</p>
+      </Dialog>,
+    );
+    expect(out).toMatch(
+      /^<dialog class="lt-dialog" role="alertdialog" aria-modal="true" data-testid="send-review" aria-labelledby="[^"]+">/,
+    );
   });
 });

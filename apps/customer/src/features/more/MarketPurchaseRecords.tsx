@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { MARKET_SUBSCRIPTION_ACCESS, type MarketPurchase } from '@intafaced/contracts/market-procedures';
-import { Button, DataTable, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { useResource, type Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session';
 import { marketPurchasesCopy as copy } from './market-purchases-copy';
-import './market-purchases.css';
+import { EmptyNote, FailureNote, ScrollTable, Waiting } from './volt-parts';
 
 export type MarketPurchaseRecord = MarketPurchase;
 type Props = {
@@ -75,39 +75,39 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
     if (selected) document.getElementById(`market-receipt-${selected}`)?.scrollIntoView?.({ block: 'nearest' });
   }, [selected]);
   return (
-    <section className="market-purchases" aria-label={t('title')} lang={languageFor('title')}>
-      <p className="market-purchases-description">
+    <section className="lt-stack" aria-label={t('title')} lang={languageFor('title')}>
+      <p className="lt-hint">
         <Copy k="meaning" />
       </p>
-      <div className="market-purchases-columns">
-        <div className="market-purchases-list">
-          <header className="market-purchases-controls">
+      <div className="lt-grid lt-grid-main-side">
+        <div className="lt-col-main lt-stack">
+          <header className="lt-toolbar">
             <h3>
               <Copy k="newest" />
             </h3>
-            <Button variant="secondary" onClick={reload}>
+            <Button tone="secondary" onClick={reload}>
               <Copy k="refresh" />
             </Button>
           </header>
           {resource.status === 'loading' ? (
-            <Loading />
+            <Waiting />
           ) : resource.status === 'failed' ? (
             <div lang="und">
-              <Failure result={resource.failure} retry={reload} />
+              <FailureNote result={resource.failure} retry={reload} />
             </div>
           ) : !rows ? (
-            <div role="alert">
-              <h3>
+            <div className="lt-refusal" role="alert">
+              <h3 className="lt-refusal-title">
                 <Copy k="invalid" />
               </h3>
-              <p>
+              <p className="lt-refusal-body">
                 <Copy k="invalidBody" />
               </p>
             </div>
           ) : (
             <>
               {rows.length ? (
-                <DataTable
+                <ScrollTable
                   label={t('title')}
                   headers={[t('listingColumn'), t('priceColumn'), t('refundWindowColumn'), t('statusColumn'), t('actionsColumn')]}
                 >
@@ -116,7 +116,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
                     return (
                       <tr key={row.id}>
                         <td>{title ? <span lang="und">{title}</span> : <code lang="zxx">{row.listingId}</code>}</td>
-                        <td className="numeric">
+                        <td className="lt-num">
                           {hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}{' '}
                           <span lang="zxx">{row.assetId}</span>
                         </td>
@@ -125,10 +125,10 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
                           <Copy k={statusKey(row)} />
                         </td>
                         <td>
-                          <div className="market-purchases-row-actions">
+                          <div className="lt-actions">
                             {hasReceipt(row) ? (
                               <a
-                                className="text-link"
+                                className="lt-link"
                                 href={`#market-receipt-${row.id}`}
                                 aria-current={selected === row.id ? 'true' : undefined}
                                 onClick={(event) => {
@@ -140,7 +140,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
                                 <Copy k="receipt" />
                               </a>
                             ) : (
-                              <Button variant="secondary" aria-pressed={selected === row.id} onClick={() => setSelected(row.id)}>
+                              <Button tone="secondary" aria-pressed={selected === row.id} onClick={() => setSelected(row.id)}>
                                 <Copy k="inspect" />
                               </Button>
                             )}
@@ -152,57 +152,59 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
                       </tr>
                     );
                   })}
-                </DataTable>
+                </ScrollTable>
               ) : (
-                <EmptyState title={t('noRows')}>
+                <EmptyNote title={t('noRows')}>
                   <Copy k="noRowsBody" />
-                </EmptyState>
+                </EmptyNote>
               )}
-              <p className="market-purchases-description">
+              <p className="lt-hint">
                 <Copy k="window" params={{ count: rows.length, limit: Math.min(50, limit) }} />
               </p>
             </>
           )}
         </div>
-        {selected && (
-          <section className="market-purchases-inspection" id={`market-receipt-${selected}`} aria-label={t('selected')}>
-            <header className="market-purchases-controls">
-              <h3>
-                <Copy k="selected" />
-              </h3>
-              <Button variant="ghost" onClick={() => setSelected(null)}>
-                <Copy k="hide" />
-              </Button>
-            </header>
-            <p className="market-purchases-reference" lang="zxx">
-              {selected}
-            </p>
-            {current ? (
-              <OriginalRecord
-                key={JSON.stringify([
-                  userId,
-                  current.id,
-                  current.listingId,
-                  current.status,
-                  current.price,
-                  current.ledgerTxId,
-                  current.settledAt,
-                  current.accessUntil,
-                ])}
-                row={current}
-              />
-            ) : (
-              <>
-                <p>
-                  <Copy k="missing" />
-                </p>
-                <p className="market-purchases-description">
-                  <Copy k="missingMeaning" />
-                </p>
-              </>
-            )}
-          </section>
-        )}
+        <div className="lt-col-side">
+          {selected && (
+            <section className="lt-stack" id={`market-receipt-${selected}`} aria-label={t('selected')}>
+              <header className="lt-toolbar">
+                <h3>
+                  <Copy k="selected" />
+                </h3>
+                <Button tone="quiet" onClick={() => setSelected(null)}>
+                  <Copy k="hide" />
+                </Button>
+              </header>
+              <p className="lt-mono lt-wrap" lang="zxx">
+                {selected}
+              </p>
+              {current ? (
+                <OriginalRecord
+                  key={JSON.stringify([
+                    userId,
+                    current.id,
+                    current.listingId,
+                    current.status,
+                    current.price,
+                    current.ledgerTxId,
+                    current.settledAt,
+                    current.accessUntil,
+                  ])}
+                  row={current}
+                />
+              ) : (
+                <>
+                  <p>
+                    <Copy k="missing" />
+                  </p>
+                  <p className="lt-hint">
+                    <Copy k="missingMeaning" />
+                  </p>
+                </>
+              )}
+            </section>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -211,7 +213,7 @@ function Timestamp({ value }: { value: string }) {
   const { requestedLocale } = copy.useCopy();
   const { timeZone } = usePreferences();
   return (
-    <time className="market-purchases-time" dateTime={value} lang={requestedLocale}>
+    <time className="lt-muted" dateTime={value} lang={requestedLocale}>
       {new Intl.DateTimeFormat(requestedLocale, {
         dateStyle: 'medium',
         timeStyle: 'short',
@@ -238,40 +240,40 @@ function OriginalRecord({ row }: { row: MarketPurchaseRecord }) {
   }
   return (
     <>
-      <div className="market-purchases-settlement">
+      <div className="lt-stack">
         <h3>
           <Copy k={recorded ? 'recorded' : rejected ? 'rejected' : 'unconfirmed'} />
         </h3>
-        <p className="market-purchases-description">
+        <p className="lt-hint">
           <Copy k={recorded ? 'recordedBody' : rejected ? 'rejectedBody' : 'unconfirmedBody'} />
         </p>
       </div>
-      <div className="market-purchases-value">
-        <p className="market-purchases-description">
+      <div className="lt-stack">
+        <p className="lt-hint">
           <Copy k="price" />
         </p>
-        <div className="market-purchases-exact-price" tabIndex={0} role="group" aria-label={t('price')}>
-          <strong className="numeric">{hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}</strong>
+        <div tabIndex={0} role="group" aria-label={t('price')}>
+          <strong className="lt-num">{hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}</strong>
         </div>
         <span lang="zxx">{row.assetId}</span>
         {hideBalances && (
-          <p className="market-purchases-description">
+          <p className="lt-hint">
             <Copy k="hidden" />
           </p>
         )}
       </div>
-      <dl className="market-purchases-facts">
+      <dl className="lt-kv">
         {fact('purchase', <span lang="zxx">{row.id}</span>)}
         {row.ledgerTxId && fact('ledger', <span lang="zxx">{row.ledgerTxId}</span>)}
         {fact('listing', <span lang="zxx">{row.listingId}</span>)}
         {fact('originalWindow', row.accessUntil ? <Timestamp value={row.accessUntil} /> : <Copy k="noWindow" />)}
         {row.rejectionCode && fact('rejection', <span lang="zxx">{row.rejectionCode}</span>)}
       </dl>
-      <details className="market-purchases-extra">
+      <details>
         <summary>
           <Copy k="more" />
         </summary>
-        <dl className="market-purchases-facts">
+        <dl className="lt-kv">
           {fact('status', <span lang="zxx">{row.status}</span>)}
           {fact('buyer', <span lang="zxx">{row.buyerId}</span>)}
           {fact('vendor', <span lang="zxx">{row.vendorId}</span>)}
@@ -282,7 +284,7 @@ function OriginalRecord({ row }: { row: MarketPurchaseRecord }) {
         </dl>
       </details>
       {!row.accessUntil && (
-        <p className="market-purchases-description">
+        <p className="lt-hint">
           <Copy k="noSubscriptionWindow" />
         </p>
       )}
@@ -319,11 +321,11 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
             ? 'notSubscription'
             : null;
   return (
-    <section className="market-purchases-access" aria-label={t('currentAccess')}>
+    <section className="lt-stack" aria-label={t('currentAccess')}>
       <h4>
         <Copy k="currentAccess" />
       </h4>
-      <p className="market-purchases-description">
+      <p className="lt-hint">
         <Copy k="accessMeaning" />
       </p>
       {!requested ? (
@@ -331,9 +333,9 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
           <Copy k="unchecked" />
         </p>
       ) : access.resource.status === 'loading' ? (
-        <Loading label={<Copy k="checking" />} />
+        <Waiting label={<Copy k="checking" />} />
       ) : failure ? (
-        <div className="market-purchases-access-outcome" role="status">
+        <div className="lt-stack" role="status">
           <h4>
             <Copy k="accessUnavailable" />
           </h4>
@@ -346,7 +348,7 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
             <p lang="und">{failure.message}</p>
           ) : (
             <div lang="und">
-              <Failure result={failure} />
+              <FailureNote result={failure} />
             </div>
           )}
           {failure.code && (
@@ -356,11 +358,11 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
           )}
         </div>
       ) : access.resource.status === 'ready' && access.resource.data ? (
-        <div className="market-purchases-access-outcome" role="status">
+        <div className="lt-stack" role="status">
           <h4>
             <Copy k="grant" />
           </h4>
-          <dl className="market-purchases-facts">
+          <dl className="lt-kv">
             <div>
               <dt>
                 <Copy k="currentWindow" />
@@ -370,13 +372,13 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
               </dd>
             </div>
           </dl>
-          <p className="market-purchases-description">
+          <p className="lt-hint">
             <Copy k="grantMeaning" />
           </p>
         </div>
       ) : null}
       <Button
-        variant="secondary"
+        tone="secondary"
         disabled={requested && access.resource.status === 'loading'}
         onClick={() => {
           setRequested(true);
@@ -385,7 +387,7 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
       >
         <Copy k="check" />
       </Button>
-      <p className="market-purchases-description">
+      <p className="lt-hint">
         <Copy k="separate" />
       </p>
     </section>

@@ -237,7 +237,11 @@ import {
   IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
 } from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
-import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
+import {
+  IDENTITY_API_KEYS_REVOKE,
+  IDENTITY_API_KEYS_CREATE,
+  IDENTITY_API_KEYS_LIST,
+} from '@intafaced/contracts/identity-api-keys-procedures';
 
 /**
  * svc-identity's API (§4.1).
@@ -3379,25 +3383,9 @@ export function createIdentityRouter(
       ),
 
       /** Limit required — omit never dumps API keys. */
-      list: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(
-          z.array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              prefix: z.string(),
-              scopes: z.array(z.string()),
-              lastUsedAt: z.string().nullable(),
-              revoked: z.boolean(),
-              mode: z.enum(['live', 'sandbox']),
-              requireSignature: z.boolean(),
-              requireNonEmptyIpAllowlist: z.boolean(),
-              ipAllowlist: z.array(z.string()),
-            }),
-          ),
-        )
-        .query(async ({ ctx, input }) => {
+      list: mountRecord(
+        IDENTITY_API_KEYS_LIST,
+        async ({ ctx, input }) => {
           try {
             const keys = await auth.listApiKeys(ctx.principal.userId, input.limit);
             return keys.map((k) => ({
@@ -3415,7 +3403,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       revoke: mountRecord(
         IDENTITY_API_KEYS_REVOKE,

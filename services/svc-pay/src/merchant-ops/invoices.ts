@@ -1,5 +1,6 @@
 import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { ListQueryError, encodeListCursor, parseListFilters } from '../list-page.js';
@@ -21,6 +22,7 @@ export const INVOICE_STATUSES = ['draft', 'sent', 'void', 'paid'] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
 const PAID_PAYMENT = new Set(['captured', 'settled']);
+const PaidPaymentRow = z.object({ id: z.string(), currency: z.string(), amount: z.string(), status: z.string() });
 
 export interface InvoiceLinkPort {
   createPaymentLink(input: {
@@ -567,7 +569,8 @@ export class InvoiceService {
 
   /**
    * Associate an existing payment and mark the invoice paid. The payment must
-   * already be captured or settled for the same asset and amount. This does
+   * already be captured or settled for the same asset and amount, less any
+   * refund done or in flight. This does
    * not capture, settle, or post.
    */
   async markPaidByPayment(
@@ -584,10 +587,24 @@ export class InvoiceService {
     const invoice = await this.owned(caller, input.invoiceId);
     if (!invoice) throw notFound();
     if (invoice.status !== 'draft' && invoice.status !== 'sent') throw statusError(invoice.status);
-    const payments = await this.sql<Array<{ id: string; currency: string; amount: string; status: string }>>`
-      SELECT id, currency, amount::text, status::text
-        FROM pay.payments
-       WHERE id = ${input.paymentId}::uuid AND merchant_id = ${caller.merchantId}`;
+    // What the payment still holds: its amount less every refund done or in flight (posted, neither refunded nor
+    // reversed yet). A payment a refund has eaten into no longer covers the invoice, though its status stays captured.
+    const payments = PaidPaymentRow.array().parse(
+      await this.sql`
+      SELECT p.id, p.currency, (p.amount - COALESCE((
+               SELECT SUM((e.payload->>'amount')::numeric)
+                 FROM pay.payment_events e
+                WHERE e.payment_id = p.id
+                  AND (e.event = 'refunded'
+                       OR (e.event = 'refund.posted' AND NOT EXISTS (
+                         SELECT 1 FROM pay.payment_events d
+                          WHERE d.payment_id = e.payment_id
+                            AND d.event IN ('refunded', 'refund.reversed')
+                            AND d.payload->>'refundId' = e.payload->>'refundId')))
+             ), 0))::text AS amount, p.status::text
+        FROM pay.payments p
+       WHERE p.id = ${input.paymentId}::uuid AND p.merchant_id = ${caller.merchantId}`,
+    );
     const payment = payments[0];
     if (!payment) throw new MerchantOpsError('pay.invoice_payment_not_found', 'not_found');
     if (!PAID_PAYMENT.has(payment.status)) throw new MerchantOpsError('pay.invoice_payment_not_paid', 'precondition');

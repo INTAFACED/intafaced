@@ -81,7 +81,7 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
         {t('title')}
       </h2>
       {view?.state === 'waiting' ? (
-        <div className="stack">
+        <div className="lt-stack">
           <p className="notice" role="status" lang={languageFor('waiting')}>
             <strong>{t('waiting', { time: when(view.completesAt) })}</strong>
           </p>
@@ -93,7 +93,7 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
         </div>
       ) : view?.state === 'code_sent' ? (
         <form
-          className="form-stack"
+          className="lt-stack"
           onSubmit={(event) =>
             void send(event, (form) => {
               const input = { resetId: view.resetId, code: value(form, 'mfaResetCode') };
@@ -123,7 +123,7 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
         </form>
       ) : (
         <form
-          className="form-stack"
+          className="lt-stack"
           onSubmit={(event) =>
             void send(event, (form) => {
               const input = { identifier: value(form, 'mfaResetIdentifier'), password: value(form, 'mfaResetPassword') };
@@ -148,10 +148,10 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
       )}
       {refusal &&
         (worded(code) && refusal.reason !== 'uncertain' ? (
-          <div data-testid="failure" className="failure" role="alert">
+          <div data-testid="failure" className="lt-refusal" role="alert">
             <p lang={languageFor(code)}>{t(code)}</p>
             {TO_SUPPORT.has(code) && (
-              <a className="text-link" href="/help" lang={languageFor('support')}>
+              <a className="lt-link" href="/help" lang={languageFor('support')}>
                 {t('support')}
               </a>
             )}

@@ -34,7 +34,7 @@ export function PartnerHolds() {
   // A read that failed says so in one line, and leaves the rest of Withdraw as it is.
   if (read.resource.status === 'failed') {
     return (
-      <p role="status" className="money-caption" data-testid="partner-holds-unread" data-code={read.resource.failure.code ?? ''}>
+      <p role="status" className="lt-muted" data-testid="partner-holds-unread" data-code={read.resource.failure.code ?? ''}>
         {t('unread')}
       </p>
     );
@@ -62,7 +62,7 @@ export function HeldView({ data }: { data: Extract<Holds, { held: true }> }) {
           >
             <Fact label={t('balance', { partner })}>
               <span data-cell="balance">{b.balance === null ? t('notKnown') : funds(b.balance, b.assetId)}</span>{' '}
-              {b.balanceAsOf && <small className="muted">{t('asOf', { time: date(b.balanceAsOf, true) })}</small>}
+              {b.balanceAsOf && <small className="lt-muted">{t('asOf', { time: date(b.balanceAsOf, true) })}</small>}
             </Fact>
             <Fact label={t('heldBack', { partner })}>
               <span data-cell="held-back">{b.heldBack === null ? t('notReported') : funds(b.heldBack, b.assetId)}</span>
@@ -74,9 +74,7 @@ export function HeldView({ data }: { data: Extract<Holds, { held: true }> }) {
             </Fact>
           </dl>
         ))}
-        {data.reported && data.holds.length === 0 && data.released.length === 0 && (
-          <p className="money-caption">{t('noHolds', { partner })}</p>
-        )}
+        {data.reported && data.holds.length === 0 && data.released.length === 0 && <p className="lt-muted">{t('noHolds', { partner })}</p>}
         {data.holds.length > 0 && (
           <ul data-testid="partner-hold-list">
             {data.holds.map((h) => (

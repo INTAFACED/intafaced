@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure } from './kit-parts';
 import { subAccountDeleteCopy as copy } from './sub-account-delete-copy';
 import { BLOCKER_KEYS, DELETE_REFUSAL_KEYS, deleteStepUp, isSixDigits } from './sub-account-delete';
 import { confirmWithStepUp } from './security-step-up';
@@ -74,7 +75,7 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
 
   if (!asking) {
     return (
-      <Button variant="ghost" aria-label={`${t('title')} ${subAccountId}`} onClick={() => setAsking(true)}>
+      <Button tone="quiet" aria-label={`${t('title')} ${subAccountId}`} onClick={() => setAsking(true)}>
         {t('open')}
       </Button>
     );
@@ -82,15 +83,13 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
   const refusal = failure && failure.code ? DELETE_REFUSAL_KEYS[failure.code] : undefined;
   const data = check.resource.status === 'ready' ? check.resource.data : null;
   return (
-    <div className="stack" role="group" aria-label={t('title')}>
+    <div role="group" aria-label={t('title')}>
       <h3>{t('title')}</h3>
       <p>{t('body')}</p>
-      {check.resource.status === 'loading' && <p className="muted">{t('checking')}</p>}
+      {check.resource.status === 'loading' && <p className="lt-hint">{t('checking')}</p>}
       {check.resource.status === 'failed' &&
         (check.resource.failure.code && DELETE_REFUSAL_KEYS[check.resource.failure.code] ? (
-          <p className="notice" role="status">
-            {t(DELETE_REFUSAL_KEYS[check.resource.failure.code] as 'refusedCheck')}
-          </p>
+          <p role="status">{t(DELETE_REFUSAL_KEYS[check.resource.failure.code] as 'refusedCheck')}</p>
         ) : (
           <Failure result={check.resource.failure} retry={check.reload} />
         ))}
@@ -101,9 +100,9 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
           ) : (
             <>
               <p>{t('stillOpen')}</p>
-              <ul data-testid="security__rows" className="security__rows">
+              <ul data-testid="security__rows">
                 {data.blockers.map((blocker) => (
-                  <li key={blocker.code} data-testid="security__row" className="security__row">
+                  <li key={blocker.code} data-testid="security__row">
                     {t((BLOCKER_KEYS[blocker.code] ?? 'blockOther') as 'blockOrder', { count: blocker.count })}
                   </li>
                 ))}
@@ -113,9 +112,9 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
           {data.balances.length > 0 && (
             <>
               <h3>{t('balancesTitle')}</h3>
-              <ul data-testid="security__rows" className="security__rows">
+              <ul data-testid="security__rows">
                 {data.balances.map((balance) => (
-                  <li key={balance.assetId} data-testid="security__row" className="security__row">
+                  <li key={balance.assetId} data-testid="security__row">
                     {balance.amount} {balance.assetId}
                   </li>
                 ))}
@@ -123,7 +122,7 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
             </>
           )}
           {data.blockers.length === 0 && (
-            <form method="post" className="stack" onSubmit={submit} noValidate>
+            <form method="post" onSubmit={submit} noValidate>
               <h3>{t('confirmTitle')}</h3>
               <p>{t('confirmBody')}</p>
               <Field
@@ -137,26 +136,19 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
                 error={problem ? t('invalidCode') : undefined}
                 data-security-sensitive="true"
               />
-              <Button type="submit" variant="danger" disabled={busy}>
+              <Button type="submit" tone="primary" disabled={busy}>
                 {busy ? t('working') : t('delete')}
               </Button>
             </form>
           )}
         </>
       )}
-      {failure &&
-        (refusal ? (
-          <p className="notice" role="alert">
-            {t(refusal as 'refusedBlocked')}
-          </p>
-        ) : (
-          <Failure result={failure} />
-        ))}
-      <div className="actions">
-        <Button variant="ghost" onClick={check.reload}>
+      {failure && (refusal ? <p role="alert">{t(refusal as 'refusedBlocked')}</p> : <Failure result={failure} />)}
+      <div className="lt-actions">
+        <Button tone="quiet" onClick={check.reload}>
           {t('recheck')}
         </Button>
-        <Button variant="ghost" disabled={busy} onClick={() => setAsking(false)}>
+        <Button tone="quiet" disabled={busy} onClick={() => setAsking(false)}>
           {t('cancel')}
         </Button>
       </div>

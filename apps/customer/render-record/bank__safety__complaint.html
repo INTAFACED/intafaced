@@ -110,7 +110,7 @@
 <section class="lt-region" data-region="step" aria-label="This step">
 <div>
 <form aria-label="Make a complaint">
-<label class="field">
+<label class="lt-field">
 <span>What is it about</span>
 <select name="topic">
 <option value="account">My account</option>
@@ -121,18 +121,18 @@
 <option value="other">Something else</option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>What went wrong</span>
 <textarea name="details" maxlength="5000" rows="6" aria-describedby="complaint-details-hint">
 </textarea>
 <small id="complaint-details-hint">At least 10 characters. Say what happened and when.</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>What you want us to do (optional)</span>
 <textarea name="outcome" maxlength="2000" rows="3">
 </textarea>
 </label>
-<button type="submit" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill">Send complaint</button>
+<button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Send complaint</button>
 </form>
 </div>
 </section>

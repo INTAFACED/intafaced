@@ -23,7 +23,7 @@ export function ReportsView({ jobs, hasMore, role }: { jobs: readonly ExportJob[
   const { t } = c.useCopy();
   const latest = (kind: ExportKind) => jobs.find((j) => j.kind === kind && j.status === 'ready');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={t('catalogTitle')} description={t('catalogBody')}>
         <EntityList
           label={t('catalogTitle')}
@@ -43,18 +43,18 @@ export function ReportsView({ jobs, hasMore, role }: { jobs: readonly ExportJob[
                   <>
                     <Covers job={job} />
                     {job.generatedAt && (
-                      <small className="pay-cell-note">
+                      <small className="lt-hint">
                         {t('generated')} <DateTime value={job.generatedAt} />
                       </small>
                     )}
                     {job.asOf && (
-                      <small className="pay-cell-note">
+                      <small className="lt-hint">
                         {t('asOf')} <DateTime value={job.asOf} />
                       </small>
                     )}
                   </>
                 ) : (
-                  <span className="muted">{hasMore ? t('notInNewest') : t('neverRequested')}</span>
+                  <span className="lt-muted">{hasMore ? t('notInNewest') : t('neverRequested')}</span>
                 );
               },
             },
@@ -65,7 +65,7 @@ export function ReportsView({ jobs, hasMore, role }: { jobs: readonly ExportJob[
             amount: t('columnCount', { n: columnsFor(k, role).length }),
           })}
         />
-        <p className="muted">{t('catalogNote')}</p>
+        <p className="lt-muted">{t('catalogNote')}</p>
       </PaySection>
     </div>
   );

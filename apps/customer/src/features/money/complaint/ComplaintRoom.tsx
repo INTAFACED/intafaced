@@ -1,6 +1,6 @@
 // volt-room: /bank/safety/complaint
 import { useState, type FormEvent } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { SupportComplaintTopic } from '@intafaced/contracts/support-safety';
 import { useSession } from '../../session';
@@ -51,7 +51,7 @@ export function ComplaintRoom() {
         <div>
           {sent ? <Acknowledgement ack={sent} title={t('complaintReceived')} live /> : null}
           <form aria-label={t('complaintTitle')} onSubmit={(e) => void submit(e)}>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('topicLabel')}</span>
               <select name="topic" value={topic} onChange={(e) => setTopic(e.target.value as SupportComplaintTopic)}>
                 {TOPICS.map(([value, key]) => (
@@ -61,7 +61,7 @@ export function ComplaintRoom() {
                 ))}
               </select>
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('detailsLabel')}</span>
               <textarea
                 name="details"
@@ -73,11 +73,11 @@ export function ComplaintRoom() {
               />
               <small id="complaint-details-hint">{t('detailsHint')}</small>
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('outcomeLabel')}</span>
               <textarea name="outcome" value={outcome} maxLength={2000} rows={3} onChange={(e) => setOutcome(e.target.value)} />
             </label>
-            <Button type="submit" variant="primary" loading={busy} disabled={busy || !ready}>
+            <Button type="submit" tone="primary" aria-busy={busy || undefined} disabled={busy || !ready}>
               {t('sendComplaint')}
             </Button>
           </form>

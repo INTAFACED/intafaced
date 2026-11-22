@@ -121,11 +121,11 @@ export function DeviceApproval({
         {t('title')}
       </h2>
       <p>{t('intro')}</p>
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {waiting.mailed ? t('mailed') : t('unmailed')}
       </p>
       {waiting.mailed && !final && (
-        <form method="post" className="form-stack" onSubmit={approve}>
+        <form method="post" className="lt-stack" onSubmit={approve}>
           <Field
             label={t('code')}
             name="deviceCode"
@@ -142,7 +142,7 @@ export function DeviceApproval({
       )}
       {!final && (
         <>
-          <p className="muted">{t('fromOther')}</p>
+          <p className="lt-muted">{t('fromOther')}</p>
           <Button
             variant="secondary"
             disabled={busy}
@@ -150,7 +150,7 @@ export function DeviceApproval({
           >
             {t('continue')}
           </Button>
-          <small className="muted">{t('expires', { time: expires })}</small>
+          <small className="lt-muted">{t('expires', { time: expires })}</small>
         </>
       )}
       {refusal &&

@@ -119,8 +119,8 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
     return (
       <div className="pay-block" data-testid="request-sent" data-request-id={sent.requestId}>
         <h3 className="pay-section-title">{t('sentTitle', { handle: who(sent.payerHandle, sent.payerUserId) })}</h3>
-        <p className="pay-hint">{t('sentBody')}</p>
-        <div className="pay-row-actions">
+        <p className="lt-hint">{t('sentBody')}</p>
+        <div className="lt-actions">
           <Button variant="primary" size={40} nativeButton={false} render={<a href={`/pay/request/${sent.requestId}`} />}>
             {t('sentOpen')}
           </Button>
@@ -164,7 +164,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
             <dd>{stamp(review.expiresAt, timeZone, Date.now())}</dd>
           </div>
         </dl>
-        <p className="pay-hint" data-testid="request-review-no-money">
+        <p className="lt-hint" data-testid="request-review-no-money">
           {t('reviewNoMoney')}
         </p>
         {problem ? (
@@ -172,7 +172,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
             {problem}
           </p>
         ) : null}
-        <div className="pay-row-actions">
+        <div className="lt-actions">
           <Button variant="primary" size={48} onClick={() => void send()} disabled={busy} data-testid="request-send">
             {t('reviewSend')}
           </Button>
@@ -195,7 +195,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
       }}
     >
       <h3 className="pay-section-title">{t('askTitle')}</h3>
-      <p className="pay-hint">{t('askIntro')}</p>
+      <p className="lt-hint">{t('askIntro')}</p>
       <div className="pay-field">
         <label className="pay-field__label" htmlFor="request-ask-who">
           {t('askWho')}
@@ -520,7 +520,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
 
   return (
     <div className="pay-body" data-testid="request-room" data-request-id={request.requestId} data-status={request.status}>
-      <p className="pay-hint">{iPay ? t('roomLineIncoming', { handle: payee }) : t('roomLineOutgoing', { handle: payer })}</p>
+      <p className="lt-hint">{iPay ? t('roomLineIncoming', { handle: payee }) : t('roomLineOutgoing', { handle: payer })}</p>
       <dl className="pay-quote" data-testid="request-facts">
         <div>
           <dt>{iPay ? t('roomFrom') : t('roomTo')}</dt>
@@ -557,12 +557,12 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
       </dl>
 
       {receipt ? (
-        <p className="pay-hint" role="status" data-testid="request-paid">
+        <p className="lt-hint" role="status" data-testid="request-paid">
           {t('paid', { receipt })}
         </p>
       ) : null}
       {note ? (
-        <p className="pay-hint" role="status" data-testid="request-note-shown">
+        <p className="lt-hint" role="status" data-testid="request-note-shown">
           {note}
         </p>
       ) : null}
@@ -571,9 +571,9 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
           {problem}
         </p>
       ) : null}
-      {request.status === 'paid' ? <p className="pay-hint">{t('closedPaid')}</p> : null}
-      {request.status === 'expired' ? <p className="pay-hint">{t('closedExpired')}</p> : null}
-      {request.status === 'declined' && iPay ? <p className="pay-hint">{t('declined', { handle: payee })}</p> : null}
+      {request.status === 'paid' ? <p className="lt-hint">{t('closedPaid')}</p> : null}
+      {request.status === 'expired' ? <p className="lt-hint">{t('closedExpired')}</p> : null}
+      {request.status === 'declined' && iPay ? <p className="lt-hint">{t('declined', { handle: payee })}</p> : null}
       {iPay && !open && !safety && !reporting ? (
         <Button variant="ghost" size={40} onClick={() => setReporting({ reason: 'scam', block: true })} disabled={busy}>
           {t('reportOnly')}
@@ -598,7 +598,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
       ) : null}
 
       {iPay && open && !confirming && !reporting ? (
-        <div className="pay-row-actions">
+        <div className="lt-actions">
           <Button variant="primary" size={48} onClick={() => setConfirming(true)} disabled={busy} data-testid="request-pay">
             {t('pay', { amount: shownAmount, asset: request.assetId })}
           </Button>
@@ -618,7 +618,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
 
       {iPay && open && confirming ? (
         <section className="pay-block" aria-label={t('payConfirm')} data-testid="request-pay-review">
-          <p className="pay-hint">{t('payReview', { handle: payee, amount: shownAmount, asset: request.assetId })}</p>
+          <p className="lt-hint">{t('payReview', { handle: payee, amount: shownAmount, asset: request.assetId })}</p>
           {stepUp ? (
             <div className="pay-field">
               <label className="pay-field__label" htmlFor="request-step-up">
@@ -642,7 +642,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
               </Button>
             </div>
           ) : (
-            <div className="pay-row-actions">
+            <div className="lt-actions">
               <Button variant="primary" size={48} onClick={() => void payNow()} disabled={busy} data-testid="request-pay-confirm">
                 {t('payConfirm')}
               </Button>
@@ -657,7 +657,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
       {iPay && reporting ? (
         <section className="pay-block" aria-label={t('reportTitle')} data-testid="request-report">
           <h3 className="pay-section-title">{t('reportTitle')}</h3>
-          <p className="pay-hint">{t('reportBody', { handle: payee })}</p>
+          <p className="lt-hint">{t('reportBody', { handle: payee })}</p>
           <div className="pay-field">
             <label className="pay-field__label" htmlFor="request-report-reason">
               {t('reportReason')}
@@ -683,7 +683,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
             />
             <span>{t('reportBlock', { handle: payee })}</span>
           </label>
-          <div className="pay-row-actions">
+          <div className="lt-actions">
             <Button variant="primary" size={48} onClick={() => void report()} disabled={busy} data-testid="request-report-send">
               {t('reportSend')}
             </Button>
@@ -697,20 +697,20 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
       {!iPay && open ? (
         <div className="pay-block" data-testid="request-remind-block">
           {reminders === 'unset' ? (
-            <p className="pay-hint">{t('remindUnset')}</p>
+            <p className="lt-hint">{t('remindUnset')}</p>
           ) : reminders ? (
             <>
-              <p className="pay-hint" data-testid="request-remind-count">
+              <p className="lt-hint" data-testid="request-remind-count">
                 {t('remindCount', { sent: String(reminders.sentInWindow), cap: String(reminders.cap) })}
               </p>
               {reminders.nextAllowedAt ? (
-                <p className="pay-hint" data-testid="request-remind-next" data-next={reminders.nextAllowedAt}>
+                <p className="lt-hint" data-testid="request-remind-next" data-next={reminders.nextAllowedAt}>
                   {t('remindNext', { when: stamp(reminders.nextAllowedAt, timeZone, Date.now()) })}
                 </p>
               ) : null}
             </>
           ) : null}
-          <div className="pay-row-actions">
+          <div className="lt-actions">
             <Button
               variant="primary"
               size={40}
