@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { EmptyState, Skeleton, StateBlock, Tabs, TabsList, TabsPanel, TabsTab } from '@intafaced/ui';
+import { StateBlock } from '@intafaced/ui/lit';
+import { DeskTemplate, Skeleton, TabPanel, Tabs, type Notice } from '@intafaced/ui/lit/templates';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ScreenProps } from '../../../app/screen-types';
 import { navigate } from '../../../app/location';
@@ -48,6 +49,7 @@ import { deskCopy } from './desk-copy';
 import { isPlaneOff } from './refusals';
 import { useVenueMode } from '../../../features/trade/use-venue-mode';
 import { VenueFuturesDesk } from './VenueFuturesDesk';
+import { RegionNote } from './notes';
 
 type Tab = 'positions' | 'orders' | 'history' | 'funding' | 'adl' | 'calls' | 'tiers' | 'calculator' | 'collateral';
 
@@ -61,7 +63,7 @@ export default function FuturesScreen(props: ScreenProps) {
   if (venue.mode === 'checking') {
     return (
       <div role="status" aria-busy="true">
-        <Skeleton className="m-4 h-96 bg-field" />
+        <Skeleton shape="chart" />
       </div>
     );
   }
@@ -112,10 +114,10 @@ function TodayFuturesScreen({ search }: ScreenProps) {
   let top: React.ReactNode;
   let chart: React.ReactNode = null;
   let side: React.ReactNode = null;
-  if (markets.status === 'loading') top = <Skeleton className="m-4 h-96 bg-field" />;
+  if (markets.status === 'loading') top = <Skeleton shape="figure" />;
   else if (markets.status === 'error')
     top = <StateBlock kind="error" title={t('Markets error title')} onRetry={markets.retry} retryLabel={t('Try again')} />;
-  else if (markets.status === 'refused') top = <EmptyState variant="refused" title={t('Markets error title')} reason={markets.code} />;
+  else if (markets.status === 'refused') top = <RegionNote variant="refused" title={t('Markets error title')} reason={markets.code} />;
   else if (!market) top = <EmptyDesk />;
   else {
     top = (
@@ -129,14 +131,14 @@ function TodayFuturesScreen({ search }: ScreenProps) {
       />
     );
     chart = (
-      <>
+      <div className="lt-stack">
         <FuturesChart market={market} positions={positions} />
         <RiskSummary asset={quote} positions={positions} balances={balances} calls={calls} now={now} />
         {userId ? <AccountMetrics asset={quote} /> : null}
-      </>
+      </div>
     );
     side = (
-      <>
+      <div className="lt-stack">
         {userId ? <AccessPanel symbol={market.symbol} /> : null}
         <Ticket
           market={market}
@@ -150,84 +152,94 @@ function TodayFuturesScreen({ search }: ScreenProps) {
             setTab(order && order.status === 'open' ? 'orders' : 'positions');
           }}
         />
-      </>
+      </div>
     );
   }
 
+  const panels: { value: Tab; label: string }[] = [
+    { value: 'positions', label: t('Positions') },
+    { value: 'orders', label: t('Orders') },
+    { value: 'history', label: t('Position history') },
+    { value: 'funding', label: t('Funding') },
+    { value: 'adl', label: t('ADL and liquidations') },
+    { value: 'calls', label: t('Margin calls') },
+    { value: 'tiers', label: t('Margin tiers') },
+    { value: 'calculator', label: t('Calculator') },
+    { value: 'collateral', label: t('Collateral') },
+  ];
+  const notices: Notice[] = userId
+    ? []
+    : [
+        {
+          id: 'sign-in',
+          refusal: {
+            variant: 'refused',
+            title: t('Sign in title'),
+            body: t('Sign in body'),
+            action: { label: t('Sign in'), href: `/login?redirect=${encodeURIComponent('/trade/futures')}` },
+          },
+        },
+      ];
+
   return (
-    <div className="flex min-w-0 flex-col" data-screen="futures">
+    <div data-screen="futures">
       <ModeStrip active="Futures" />
-      {!userId ? (
-        <EmptyState
-          variant="refused"
-          size="inline"
-          title={t('Sign in title')}
-          reason={t('Sign in body')}
-          action={{ label: t('Sign in'), href: `/login?redirect=${encodeURIComponent('/trade/futures')}` }}
-        />
-      ) : null}
-      {top}
-      {market ? (
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="flex min-w-0 flex-col">{chart}</div>
-          {side ? <aside className="border-line lg:border-l">{side}</aside> : null}
-        </div>
-      ) : null}
-      <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)} className="border-t border-line">
-        <TabsList divider aria-label={t('Desk panels')} className="overflow-x-auto px-4">
-          <TabsTab value="positions">{t('Positions')}</TabsTab>
-          <TabsTab value="orders">{t('Orders')}</TabsTab>
-          <TabsTab value="history">{t('Position history')}</TabsTab>
-          <TabsTab value="funding">{t('Funding')}</TabsTab>
-          <TabsTab value="adl">{t('ADL and liquidations')}</TabsTab>
-          <TabsTab value="calls">{t('Margin calls')}</TabsTab>
-          <TabsTab value="tiers">{t('Margin tiers')}</TabsTab>
-          <TabsTab value="calculator">{t('Calculator')}</TabsTab>
-          <TabsTab value="collateral">{t('Collateral')}</TabsTab>
-        </TabsList>
-        <TabsPanel value="positions">
-          <PositionsTable
-            positions={positions}
-            marginCalls={calls}
-            riskStops={riskStops}
-            freeBalances={balances}
-            planeOff={planeOff}
-            now={now}
-            onOpen={(p) => setSelectedId(p.id)}
-            onChanged={() => {
-              refresh();
-              refreshRiskStops();
-            }}
-            onReverse={setReversing}
-          />
-        </TabsPanel>
-        <TabsPanel value="orders">
-          <OrdersTab open={openOrders} all={allOrders} onChanged={refresh} />
-          <TriggersTable triggers={triggers} entries={entries} positions={positions} onChanged={refresh} />
-        </TabsPanel>
-        <TabsPanel value="history">
-          <HistoryTab closed={closed} />
-        </TabsPanel>
-        <TabsPanel value="funding">
-          <FundingTab symbol={symbol} funding={funding} strip={strip} positions={positions} now={now} />
-        </TabsPanel>
-        <TabsPanel value="adl">
-          <AdlTab disclosure={disclosure} events={events} closed={closed} />
-        </TabsPanel>
-        <TabsPanel value="calls">
-          <MarginCallsTab positions={positions} calls={calls} />
-        </TabsPanel>
-        <TabsPanel value="tiers">
-          <TiersTab tiers={tiers} quote={quote} />
-        </TabsPanel>
-        <TabsPanel value="collateral">
-          <CollateralTab collateral={collateral} />
-        </TabsPanel>
-        <TabsPanel value="calculator">
-          {/* Keyed by contract: a figure on screen always belongs to the contract and the numbers above it. */}
-          <CalculatorTab key={market?.symbol ?? 'none'} market={market} />
-        </TabsPanel>
-      </Tabs>
+      <DeskTemplate
+        title={t('Futures desk')}
+        mode="pro"
+        state={{ kind: 'ready' }}
+        notices={notices}
+        instrument={top}
+        chart={chart}
+        ticket={side}
+        orders={
+          <div className="lt-stack">
+            <Tabs id="futures-desk" label={t('Desk panels')} items={panels} value={tab} onChange={(value) => setTab(value as Tab)} />
+            <TabPanel id="futures-desk" value="positions" current={tab}>
+              <PositionsTable
+                positions={positions}
+                marginCalls={calls}
+                riskStops={riskStops}
+                freeBalances={balances}
+                planeOff={planeOff}
+                now={now}
+                onOpen={(p) => setSelectedId(p.id)}
+                onChanged={() => {
+                  refresh();
+                  refreshRiskStops();
+                }}
+                onReverse={setReversing}
+              />
+            </TabPanel>
+            <TabPanel id="futures-desk" value="orders" current={tab} className="lt-stack">
+              <OrdersTab open={openOrders} all={allOrders} onChanged={refresh} />
+              <TriggersTable triggers={triggers} entries={entries} positions={positions} onChanged={refresh} />
+            </TabPanel>
+            <TabPanel id="futures-desk" value="history" current={tab}>
+              <HistoryTab closed={closed} />
+            </TabPanel>
+            <TabPanel id="futures-desk" value="funding" current={tab}>
+              <FundingTab symbol={symbol} funding={funding} strip={strip} positions={positions} now={now} />
+            </TabPanel>
+            <TabPanel id="futures-desk" value="adl" current={tab}>
+              <AdlTab disclosure={disclosure} events={events} closed={closed} />
+            </TabPanel>
+            <TabPanel id="futures-desk" value="calls" current={tab}>
+              <MarginCallsTab positions={positions} calls={calls} />
+            </TabPanel>
+            <TabPanel id="futures-desk" value="tiers" current={tab}>
+              <TiersTab tiers={tiers} quote={quote} />
+            </TabPanel>
+            <TabPanel id="futures-desk" value="collateral" current={tab}>
+              <CollateralTab collateral={collateral} />
+            </TabPanel>
+            <TabPanel id="futures-desk" value="calculator" current={tab}>
+              {/* Keyed by contract: a figure on screen always belongs to the contract and the numbers above it. */}
+              <CalculatorTab key={market?.symbol ?? 'none'} market={market} />
+            </TabPanel>
+          </div>
+        }
+      />
       {selected ? (
         <PositionDetail
           position={selected}

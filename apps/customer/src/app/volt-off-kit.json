@@ -91,7 +91,6 @@
   "/charts",
   "/charts/:symbol",
   "/trade/buy",
-  "/trade/futures",
   "/trade/copy",
   "/trade/copy/:ref",
   "/trade/screener",

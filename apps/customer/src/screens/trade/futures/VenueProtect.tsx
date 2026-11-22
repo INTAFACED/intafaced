@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
-import { Button, Dialog } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { uiCopy } from '../../../shared/ui-copy';
 import { parseAmount } from '../../../shared/money';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -76,9 +78,9 @@ function RefusalAlert({ refusal }: { refusal: Refusal | null }) {
   const { t } = venueProtectCopy.useCopy();
   if (!refusal) return null;
   return (
-    <div className="failure" role="alert" data-testid="protection-refusal">
+    <div className="lt-callout lt-callout-bad" role="alert" data-testid="protection-refusal">
       <p>{refusal.message}</p>
-      {refusal.code ? <p className="muted">{t('Code', { code: refusal.code })}</p> : null}
+      {refusal.code ? <p className="lt-quiet">{t('Code', { code: refusal.code })}</p> : null}
     </div>
   );
 }
@@ -166,19 +168,26 @@ export function ProtectDialog({
     }
   }
 
+  const { t: ui, languageFor: uiLanguage } = uiCopy.useCopy();
   return (
-    <Dialog title={t('Protect title', { symbol: market.symbol })} onClose={onClose}>
-      <div className="form-stack" data-testid="protect-dialog">
+    <Sheet
+      open
+      title={t('Protect title', { symbol: market.symbol })}
+      onClose={onClose}
+      closeLabel={ui('closeDialog')}
+      closeLang={uiLanguage('closeDialog')}
+    >
+      <div className="lt-stack" data-testid="protect-dialog">
         <div role="group" aria-label={t('Protection kind')}>
           {PROTECTION_KINDS.map((k) => (
-            <Button key={k} variant={kind === k ? 'primary' : 'secondary'} aria-pressed={kind === k} onClick={() => setKind(k)}>
+            <Button key={k} tone={kind === k ? 'primary' : 'secondary'} aria-pressed={kind === k} onClick={() => setKind(k)}>
               {kindWords(t, k)}
             </Button>
           ))}
         </div>
         <div role="group" aria-label={t('Trigger source')}>
           {PROTECTION_SOURCES.map((s) => (
-            <Button key={s} variant={source === s ? 'primary' : 'secondary'} aria-pressed={source === s} onClick={() => setSource(s)}>
+            <Button key={s} tone={source === s ? 'primary' : 'secondary'} aria-pressed={source === s} onClick={() => setSource(s)}>
               {t(`source_${s}`)}
             </Button>
           ))}
@@ -200,23 +209,25 @@ export function ProtectDialog({
             {covers.whole ? t('Covers whole') : t('Covers part', { covers: covers.covers, of: covers.of, rest: covers.rest })}
           </p>
         ) : null}
-        <Button onClick={() => void arm()}>{t('Arm protection')}</Button>
+        <Button tone="primary" onClick={() => void arm()}>
+          {t('Arm protection')}
+        </Button>
         <RefusalAlert refusal={refusal} />
         {outcome ? (
           <p role="status" data-testid="protection-outcome">
             {outcome}
           </p>
         ) : null}
-        <section className="form-stack" aria-label={t('Listed title')} data-testid="protection-list">
-          <h3 className="dk-tab-title">{t('Listed title')}</h3>
+        <section className="lt-stack" aria-label={t('Listed title')} data-testid="protection-list">
+          <h3 className="lt-panel-title">{t('Listed title')}</h3>
           {list.failure ? (
-            <p className="failure">{list.failure.message}</p>
+            <p className="lt-callout lt-callout-bad">{list.failure.message}</p>
           ) : mine.length === 0 ? (
             list.data ? (
-              <p className="muted">{t('Listed empty')}</p>
+              <p className="lt-quiet">{t('Listed empty')}</p>
             ) : null
           ) : (
-            <ul className="form-stack">
+            <ul className="lt-stack">
               {mine.map((p) => (
                 <ProtectionItem key={p.id} protection={p} position={position} base={market.baseAsset} run={run} onDone={list.reload} />
               ))}
@@ -224,7 +235,7 @@ export function ProtectDialog({
           )}
         </section>
       </div>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -241,7 +252,7 @@ function positive(value: string): boolean {
 
 function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <label className="field">
+    <label className="lt-field">
       <span>{label}</span>
       <input inputMode="decimal" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
@@ -299,14 +310,14 @@ function ProtectionItem({
         {p.kind === 'stop_limit' && p.limitPrice ? `; ${t('Item limit', { price: canonical(p.limitPrice) })}` : ''}
         {p.kind === 'trailing_stop' && p.currentTrigger ? `; ${t('Item trails now', { price: canonical(p.currentTrigger) })}` : ''}
       </p>
-      <p className="muted">{p.label}</p>
-      {p.parentClientOrderId ? <p className="muted">{t('Item attached')}</p> : null}
+      <p className="lt-quiet">{p.label}</p>
+      {p.parentClientOrderId ? <p className="lt-quiet">{t('Item attached')}</p> : null}
       {covers ? (
         <p>{covers.whole ? t('Covers whole') : t('Covers part', { covers: covers.covers, of: covers.of, rest: covers.rest })}</p>
       ) : null}
       {p.status === 'failed' ? (
         <>
-          <p className="failure">{t('Item failed', { failure: p.failure ?? '' })}</p>
+          <p className="lt-callout lt-callout-bad">{t('Item failed', { failure: p.failure ?? '' })}</p>
           {position ? <p>{t('Item still open', { size: canonical(position.size), base, side: sideWords(t, position.side) })}</p> : null}
         </>
       ) : null}
@@ -320,7 +331,7 @@ function ProtectionItem({
         </p>
       ) : null}
       {live && (p.restsOn === 'engine' || p.actionKey) ? (
-        <Button variant="secondary" onClick={() => void cancel()}>
+        <Button tone="secondary" onClick={() => void cancel()}>
           {t('Cancel')}
         </Button>
       ) : null}
@@ -362,17 +373,19 @@ function AgentPermission({ owner }: { owner: string }) {
 
   const approved = agent.data?.approved === true || accepted;
   return (
-    <section className="form-stack" aria-label={t('Agent permission')} data-testid="protection-agent">
-      <h3 className="dk-tab-title">{t('Agent permission')}</h3>
+    <section className="lt-stack" aria-label={t('Agent permission')} data-testid="protection-agent">
+      <h3 className="lt-panel-title">{t('Agent permission')}</h3>
       <p>{t('Agent note')}</p>
       {approved ? (
         <p role="status">{t('Agent approved')}</p>
       ) : agent.failure ? (
         <RefusalAlert refusal={{ message: agent.failure.message, code: agent.failure.code ?? null }} />
       ) : agent.data ? (
-        <Button onClick={() => void approve()}>{t('Agent approve')}</Button>
+        <Button tone="primary" onClick={() => void approve()}>
+          {t('Agent approve')}
+        </Button>
       ) : (
-        <p className="muted">{t('Agent checking')}</p>
+        <p className="lt-quiet">{t('Agent checking')}</p>
       )}
       {!approved && agent.failure ? null : <RefusalAlert refusal={refusal} />}
     </section>
@@ -474,14 +487,23 @@ export function ReverseDialog({
   }
 
   const now = opened && live && live.side === opposite ? live : null;
+  const { t: ui, languageFor: uiLanguage } = uiCopy.useCopy();
   return (
-    <Dialog title={t('Reverse title', { symbol: snapshot.symbol })} onClose={onClose}>
-      <div className="form-stack" data-testid="reverse-dialog">
+    <Sheet
+      open
+      title={t('Reverse title', { symbol: snapshot.symbol })}
+      onClose={onClose}
+      closeLabel={ui('closeDialog')}
+      closeLang={uiLanguage('closeDialog')}
+    >
+      <div className="lt-stack" data-testid="reverse-dialog">
         <p>{t('Reverse plan', { size, base: market.baseAsset, side: sideWords(t, snapshot.side), opposite: sideWords(t, opposite) })}</p>
-        <p className="muted">{t(together ? 'Reverse note together' : 'Reverse note')}</p>
-        <Button onClick={() => void reverse()}>{t('Reverse sign')}</Button>
+        <p className="lt-quiet">{t(together ? 'Reverse note together' : 'Reverse note')}</p>
+        <Button tone="primary" onClick={() => void reverse()}>
+          {t('Reverse sign')}
+        </Button>
         {problem ? (
-          <p className="failure" role="alert">
+          <p className="lt-callout lt-callout-bad" role="alert">
             {problem}
           </p>
         ) : null}
@@ -493,6 +515,6 @@ export function ReverseDialog({
           </p>
         ) : null}
       </div>
-    </Dialog>
+    </Sheet>
   );
 }

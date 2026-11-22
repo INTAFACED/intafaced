@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import '../chart/chart.css';
-import { SegmentedControl, Skeleton, StateBlock } from '@intafaced/ui';
+import { Segmented, StateBlock } from '@intafaced/ui/lit';
+import { Skeleton } from '@intafaced/ui/lit/templates';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import { usePreferences } from '../../../shared/preferences';
 import { fmtPrice } from '../../../data/format';
@@ -50,7 +50,7 @@ export function FuturesChart({ market, positions }: Props) {
   );
   const price = (v: string | null) => fmtPrice(v, market.precision.price);
   let body: React.ReactNode;
-  if (candles.status === 'loading') body = <Skeleton className="h-full min-h-72 w-full bg-field" />;
+  if (candles.status === 'loading') body = <Skeleton shape="chart" />;
   else if (candles.status === 'empty' || candles.status === 'refused')
     body = <StateBlock kind="empty" title={t('Chart no candles title')} body={t('Chart no candles reason')} />;
   else if (candles.status === 'error')
@@ -70,27 +70,27 @@ export function FuturesChart({ market, positions }: Props) {
       />
     );
   return (
-    <section aria-label={t('Chart')} className="flex min-h-[460px] min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 px-4 py-2">
-        <SegmentedControl
-          size={28}
-          aria-label={t('Chart intervals')}
+    // The desk template's own Chart region names this panel; a second region of the same name would hide which is which.
+    <div className="lt-panel">
+      <div className="lt-row">
+        <Segmented
+          label={t('Chart intervals')}
           value={interval}
-          onValueChange={(value) => setInterval(value as ChartInterval)}
-          items={CHART_INTERVALS.map((id) => ({ value: id, label: id }))}
+          onChange={(value) => setInterval(value)}
+          options={CHART_INTERVALS.map((id) => ({ value: id, label: id }))}
         />
       </div>
-      <div className="relative min-h-[340px] flex-1">{body}</div>
+      <div className="lt-canvas">{body}</div>
       {mine.length > 0 ? (
-        <ul aria-label={t('Position lines')} className="flex flex-wrap gap-x-6 gap-y-1 border-t border-line px-4 py-2 text-xs text-fg-2">
+        <ul aria-label={t('Position lines')} className="lt-list lt-note">
           {mine.map((p) => (
-            <li key={p.id ?? p.symbol} className="if-num">
+            <li key={p.id ?? p.symbol} className="lt-num">
               {p.side === 'long' ? '▲' : '▼'} {t('Entry line', { price: price(p.entryPrice) })} ·{' '}
               {t('Mark line', { price: price(p.markPrice) })} · {t('Liquidation line', { price: price(p.liquidationPrice) })}
             </li>
           ))}
         </ul>
       ) : null}
-    </section>
+    </div>
   );
 }

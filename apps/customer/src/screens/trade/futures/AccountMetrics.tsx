@@ -49,8 +49,8 @@ export function AccountMetrics({ asset }: { asset: string }) {
   const { t } = metricsCopy.useCopy();
   const summary = useMarginSummary(asset);
   return (
-    <section aria-label={t('Metrics heading')} className="flex flex-col gap-2 border-t border-line px-4 py-3">
-      <h2 className="text-sm font-medium text-fg">{t('Metrics heading')}</h2>
+    <section aria-label={t('Metrics heading')} className="lt-panel">
+      <h2 className="lt-panel-title">{t('Metrics heading')}</h2>
       <LoadGate load={summary} thing={t('Metrics thing')}>
         {(s) => {
           // A figure is drawn only in the asset the service named; with no asset named there is nothing to draw it in.
@@ -67,21 +67,19 @@ export function AccountMetrics({ asset }: { asset: string }) {
           const waiting = waitingFor(s, t);
           return (
             <>
-              <dl className="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2 xl:grid-cols-5">
+              <dl className="lt-stats">
                 {rows.map(([id, label, hint, value]) => (
-                  <div key={id} className="flex min-w-0 flex-col gap-0.5">
-                    <dt className="text-xs text-fg-2" title={hint}>
-                      {label}
-                    </dt>
-                    <dd data-testid={`metric-${id}`} className="if-num break-all text-sm text-fg">
+                  <div key={id}>
+                    <dt title={hint}>{label}</dt>
+                    <dd data-testid={`metric-${id}`} className="lt-num">
                       {value}
                     </dd>
                   </div>
                 ))}
               </dl>
-              <p className="text-xs text-fg-2">{flat ? t('Metrics no positions') : waiting === null ? t('Metrics exact') : null}</p>
+              <p className="lt-note">{flat ? t('Metrics no positions') : waiting === null ? t('Metrics exact') : null}</p>
               {waiting ? (
-                <p role="status" className="text-xs text-warn">
+                <p role="status" className="lt-note lt-note-warn">
                   {waiting}
                 </p>
               ) : null}

@@ -35,7 +35,7 @@ function RateCell({ rate, t }: { rate: Rate; t: T }) {
 export function TiersTable({ schedule, current, t }: { schedule: VenueFeeTiers; current?: string | null; t: T }) {
   if (!schedule.tiers) return <p data-fees="venue-tiers-blank">{t('tiersNotSet')}</p>;
   return (
-    <table className="pub-table" data-fees="venue-tiers">
+    <table className="lt-table" data-fees="venue-tiers">
       <caption>{t('tiersCaption', { days: String(schedule.volumeDays), asset: schedule.volumeAsset })}</caption>
       <thead>
         <tr>
@@ -54,7 +54,7 @@ export function TiersTable({ schedule, current, t }: { schedule: VenueFeeTiers; 
               {tier.name}
               {current === tier.name ? ` (${t('yours')})` : ''}
             </th>
-            <td className="numeric" data-cell="from">
+            <td className="lt-num" data-cell="from">
               {tier.fromVolume}
             </td>
             <td data-cell="spot-maker">
@@ -84,7 +84,7 @@ export function TiersTable({ schedule, current, t }: { schedule: VenueFeeTiers; 
 export function VenueFeesView({ load }: { load: Loadable<VenuePublicFees> }) {
   const { t } = venueFeesCopy.useCopy();
   return (
-    <section className="pub-card" aria-labelledby="fees-venue" data-fees="venue">
+    <section className="lt-panel" aria-labelledby="fees-venue" data-fees="venue">
       <h2 id="fees-venue">
         {t('venueTitle')} {load.status === 'ready' ? <TestMark test={load.data.value.test} /> : null}
       </h2>
@@ -122,7 +122,7 @@ function VenueFeesBody({ fees, t }: { fees: VenuePublicFees['value']; t: T }) {
           perp: perpCaps.length ? perpCaps.map((c) => `${c}%`).join(', ') : t('notSet'),
         })}
       </p>
-      <table className="pub-table" data-fees="venue-markets">
+      <table className="lt-table" data-fees="venue-markets">
         <thead>
           <tr>
             <th scope="col">{t('colMarket')}</th>
@@ -191,7 +191,7 @@ function VenueTierBody() {
   const { t } = venueFeesCopy.useCopy();
   const owner = useOwner();
   return (
-    <section className="pub-card" aria-labelledby="tier-venue" data-tier-page="venue">
+    <section className="lt-panel" aria-labelledby="tier-venue" data-tier-page="venue">
       <h2 id="tier-venue">{t('tierTitle')}</h2>
       <p>{t('tierLead')}</p>
       <WalletBar />
@@ -218,14 +218,14 @@ export function VenueTierView({ tier }: { tier: VenueFeeTier }) {
   return (
     <div data-testid="venue-tier">
       <TestMark test={tier.test} />
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('yourTier')}</dt>
           <dd data-cell="tier">{a?.tierName ?? t('notReported')}</dd>
         </div>
         <div>
           <dt>{t('volumeCounted', { days: String(tier.value.schedule.volumeDays) })}</dt>
-          <dd className="numeric" data-cell="volume">
+          <dd className="lt-num" data-cell="volume">
             {a?.volume.known ? `${a.volume.value} ${tier.value.schedule.volumeAsset}` : t('notReported')}
           </dd>
         </div>
@@ -250,7 +250,7 @@ export function VenueTierView({ tier }: { tier: VenueFeeTier }) {
           </dd>
         </div>
       </dl>
-      <p className="muted">{t('updateRule')}</p>
+      <p className="lt-quiet">{t('updateRule')}</p>
       <TiersTable schedule={tier.value.schedule} current={a?.tierName ?? null} t={t} />
     </div>
   );
