@@ -82,6 +82,11 @@ fn jobs<'a>(door: &'a BankDoor, _env: &'a BankEnv) -> Vec<(&'static str, Job<'a>
             Box::new(move || rail.poll(partner, || door.now())),
         ));
     }
+    // Slice `activity`: the statement export worker makes queued exports, a batch a pass.
+    out.push((
+        "statement export worker",
+        Box::new(move || activity::statements::run_statement_jobs(door, door.now())),
+    ));
     out
 }
 
@@ -603,6 +608,15 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
         }
     }
 
+    let statement_jobs = table
+        .iter()
+        .any(|t| t.name == "statement export worker" && t.every.is_some());
+    if !statement_jobs {
+        log.warn(
+            Vec::new(),
+            "BANK_STATEMENT_JOBS_INTERVAL_MS or BANK_STATEMENT_JOBS_LEASE_MS is blank: background exports are off and asking for one refuses bank.statement_jobs_unset",
+        );
+    }
     if env.str("IDENTITY_URL").is_none() {
         log.warn(
             Vec::new(),
@@ -644,7 +658,7 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
             ("rampFiatLeg", field(&ramp, "fiatLeg")),
             ("rampFiatVia", field(&ramp, "fiatVia")),
             ("recoveryJobs", Json::Bool(recovery_lock.is_some())),
-            ("statementJobs", Json::Bool(false)),
+            ("statementJobs", Json::Bool(statement_jobs)),
         ],
         "svc-bank ready",
     );

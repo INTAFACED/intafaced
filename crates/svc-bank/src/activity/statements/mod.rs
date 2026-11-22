@@ -87,15 +87,70 @@ pub trait Collect: Send + Sync {
     ) -> Result<Vec<Line>, CollectError>;
 }
 
-/// The feed before it is connected here: every read answers that the feed (part `feed`) is not ported, so a call that
-/// reaches it stays owed by the slice.
-pub struct FeedNotConnected;
+/// The activity feed (`ActivityService.collect`, part `feed`). The feed's own refusals pass as the errors they are:
+/// a statement tells apart only "unavailable" and "not your account"; any other is thrown on as its message, as
+/// `throwBankProcedure` answers a plain `Error`.
+pub struct Feed;
 
-impl Collect for FeedNotConnected {
-    fn collect(&self, _: &Deps<'_>, _: &str, _: &Query<'_>) -> Result<Vec<Line>, CollectError> {
-        Err(CollectError::Failed(Refusal::Trpc(
-            crate::door::not_ported(crate::door::Slice::Activity),
-        )))
+impl Collect for Feed {
+    fn collect(
+        &self,
+        d: &Deps<'_>,
+        user_id: &str,
+        q: &Query<'_>,
+    ) -> Result<Vec<Line>, CollectError> {
+        use super::feed::{self, CollectQuery, FeedError};
+        let asked = CollectQuery {
+            from: q.from.to_owned(),
+            to: q.to.to_owned(),
+            asset_id: q.asset_id.map(str::to_owned),
+            account_id: q.account_id.map(str::to_owned),
+            kind: q.kind.map(|k| k.iter().map(|s| (*s).to_owned()).collect()),
+            limit: q.limit,
+        };
+        let other = |m: &str| CollectError::Failed(Refusal::Other(m.to_owned()));
+        let items = feed::collect(d, user_id, asked).map_err(|e| match e {
+            FeedError::Unavailable => {
+                CollectError::Unavailable("Activity is not available right now".to_owned())
+            }
+            FeedError::AccountUnknown => CollectError::AccountUnknown,
+            FeedError::Bank(b) => CollectError::Failed(Refusal::Bank(b)),
+            FeedError::Other(s) => CollectError::Failed(Refusal::Other(s.message)),
+            FeedError::CursorInvalid => {
+                other("Activity cursor is not valid, start again without a cursor")
+            }
+            FeedError::Range => other("The end of the range is before the start"),
+            FeedError::NotFound => other("That transaction is not in your activity"),
+            FeedError::LookupBounded => {
+                other("Activity lookup stopped before the end of your history. Try again.")
+            }
+            FeedError::TaxYearUnset => {
+                other("The tax year start is not set. Filter by calendar year instead")
+            }
+            FeedError::TaxEffectMapUnset => other("The tax effect of each kind of line is not set"),
+            FeedError::SortBounded => other(
+                "Oldest first is limited to 2,000 matching lines. Narrow the dates, the account or the filters",
+            ),
+            FeedError::Thrown(code) => other(code),
+        })?;
+        Ok(items
+            .into_iter()
+            .map(|i| Line {
+                id: i.id,
+                kind: i.kind.to_owned(),
+                direction: i.direction.to_owned(),
+                asset: i.asset,
+                amount: service_kit::money::format_amount(i.amount),
+                posted_at: i.posted_at.iso(),
+                tx_id: i.tx_id,
+                counterparty: i.counterparty,
+                space_name: i.space_name,
+                order_id: i.order_id,
+                note: i.note,
+                reference: i.reference,
+                report_description: i.report_description,
+            })
+            .collect())
     }
 }
 
@@ -108,10 +163,10 @@ pub struct Wiring {
 }
 
 impl Wiring {
-    /// Nothing wired: the feed is not connected and background exports are off.
+    /// Nothing wired: background exports are off.
     pub fn none() -> Wiring {
         Wiring {
-            collect: Box::new(FeedNotConnected),
+            collect: Box::new(Feed),
             jobs: jobs::Config::default(),
         }
     }
@@ -128,7 +183,7 @@ pub fn wiring(b: &super::Build<'_>) -> Result<Wiring, String> {
         b.raw("NODE_ENV"),
     )?;
     Ok(Wiring {
-        collect: Box::new(FeedNotConnected),
+        collect: Box::new(Feed),
         jobs: jobs::Config {
             lease_ms: interval.and(lease),
             test_render_hold_ms: hold,

@@ -220,6 +220,60 @@ fn page_json(p: service::Page) -> Json {
     ])
 }
 
+/// `transfers.list` (`router/transfers.router.ts`): the feed narrowed to transfers and space moves, every line
+/// `completed`, with the fields that router writes. Its failures are the feed's (`activityFailure`).
+pub fn transfers_list(d: &Deps<'_>, ctx: &Ctx<'_>) -> Result<Json, TrpcError> {
+    let mut q = query_of(&ctx.input);
+    q.kind = Some(
+        ["transfer_in", "transfer_out", "space_move"]
+            .map(str::to_owned)
+            .to_vec(),
+    );
+    let page = with_feed(d, |f| f.list(user_of(ctx), &q)).map_err(failure)?;
+    let items = page
+        .items
+        .iter()
+        .map(|i| {
+            let mut f = vec![
+                ("id".to_owned(), Json::str(i.id.clone())),
+                ("txId".to_owned(), Json::str(i.tx_id.clone())),
+                ("kind".to_owned(), Json::str(i.kind)),
+                ("direction".to_owned(), Json::str(i.direction)),
+                ("asset".to_owned(), Json::str(i.asset.clone())),
+                (
+                    "amount".to_owned(),
+                    Json::str(service_kit::money::format_amount(i.amount)),
+                ),
+                ("postedAt".to_owned(), Json::str(i.posted_at.iso())),
+                ("status".to_owned(), Json::str("completed")),
+                (
+                    "counterparty".to_owned(),
+                    i.counterparty.as_ref().map_or(Json::Null, |h| {
+                        Json::obj([("handle", Json::str(h.clone()))])
+                    }),
+                ),
+                ("spaceName".to_owned(), opt_str(i.space_name.clone())),
+            ];
+            if let Some(label) = &i.held_at {
+                f.push((
+                    "heldAt".to_owned(),
+                    Json::obj([("label", Json::str(label.clone()))]),
+                ));
+            }
+            for (key, v) in [("note", &i.note), ("reference", &i.reference)] {
+                if let Some(v) = v.as_ref().filter(|v| !v.is_empty()) {
+                    f.push((key.to_owned(), Json::str(v.clone())));
+                }
+            }
+            Json::Object(f)
+        })
+        .collect();
+    Ok(Json::obj([
+        ("items", Json::Array(items)),
+        ("nextCursor", opt_str(page.next_cursor)),
+    ]))
+}
+
 fn saved_json(s: &saved::Saved) -> Result<Json, FeedError> {
     Ok(Json::obj([
         ("name", Json::str(s.name.clone())),

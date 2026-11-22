@@ -456,6 +456,10 @@ impl BankDoor {
                 crate::spaces::router::answer(&self.spaces, &self.partner, &self.store, ctx)
                     .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
             }
+            // `transfers.list` is the activity feed narrowed to transfers (`router/transfers.router.ts`).
+            Slice::Transfers if ctx.call.path == "transfers.list" => self
+                .activity_deps(ctx.now, |d| crate::activity::feed::transfers_list(d, ctx))
+                .map(Some),
             Slice::Transfers => crate::transfers::router::answer(
                 &self.transfers,
                 &self.spaces,

@@ -1332,3 +1332,66 @@ fn the_statements_collect_reads_the_range_through_the_doors_own_wiring() {
     );
     let _ = activity::Wiring::none();
 }
+
+/// Not a TypeScript test: the statements part reads this feed (`statements::Feed`, `ActivityService.collect` as
+/// `composeStatementsArea` hands it over). A statement's totals are the person's own feed lines in the range, and a
+/// ledger that cannot be read refuses as unavailable, never a zero total.
+#[test]
+fn a_statement_totals_the_persons_own_feed_lines_and_refuses_when_the_ledger_is_down() {
+    let Some(db) = db() else { return };
+    named_space(&db, ALICE_SPACE, ALICE, "Holiday");
+    let b = bank(&db, feed_rows());
+    let input =
+        r#"{"from":"2026-10-12T00:00:00.000Z","to":"2026-10-14T00:00:00.000Z","assetId":"USDT"}"#;
+    let got = call(&b, ALICE, "statements.totals", input);
+    assert_eq!(got.0, 200, "{}", got.1.compact());
+    let data = got.1.get("result").and_then(|r| r.get("data")).unwrap();
+    assert_eq!(data.get("lines"), Some(&Json::int(2)), "{}", data.compact());
+    assert!(data.compact().contains("\"107\""), "{}", data.compact());
+
+    let down = bank_with(
+        &db,
+        Ledger {
+            down: true,
+            ..Ledger::default()
+        },
+        None,
+    );
+    let refused = call(&down, ALICE, "statements.totals", input);
+    assert_ne!(refused.0, 200, "{}", refused.1.compact());
+    assert!(
+        refused.1.compact().contains("Activity is not available"),
+        "{}",
+        refused.1.compact()
+    );
+}
+
+/// `transfers.list` (`router/transfers.router.ts`) is this feed narrowed to transfers and space moves: a deposit is
+/// not in it, each line says `completed`, and it is the person's own.
+#[test]
+fn transfers_list_is_the_feed_narrowed_to_transfers_each_line_completed() {
+    let Some(db) = db() else { return };
+    named_space(&db, ALICE_SPACE, ALICE, "Holiday");
+    let b = bank(&db, feed_rows());
+    let got = call(&b, ALICE, "transfers.list", "{}");
+    assert_eq!(got.0, 200, "{}", got.1.compact());
+    let page = got
+        .1
+        .get("result")
+        .and_then(|r| r.get("data"))
+        .unwrap()
+        .clone();
+    let lines = items(&page);
+    assert_eq!(txs(&page), vec!["a-sp".to_owned()], "{}", page.compact());
+    assert_eq!(s(&lines[0], "status"), "completed");
+    assert_eq!(s(&lines[0], "spaceName"), "Holiday");
+    assert!(lines[0].get("privateNote").is_none());
+    let none = call(&b, BOB, "transfers.list", "{}");
+    let bob = none
+        .1
+        .get("result")
+        .and_then(|r| r.get("data"))
+        .unwrap()
+        .clone();
+    assert!(items(&bob).is_empty(), "{}", bob.compact());
+}
