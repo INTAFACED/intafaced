@@ -456,8 +456,12 @@ extended.beforeAll = (...args) => {
   return beforeAll(...args, entered);
 };
 
-/** A file's afterAll hooks run after its last test: what they reach is its own, read once they end and attached by the
- *  next test that runs (journeyReach). */
+/** A file's afterAll hooks run after its last test: what they reach is its own, read once they end and attached from the
+ *  hook itself, which Playwright 1.65 reports on the file's last test (a skipped or failed one too). (Failure it prevents:
+ *  the record waited for the next test that ran, and a worker's last file has none, so in the three main runs the
+ *  touched-journeys map was built from on 22 Nov 2026, 44964720047, 44960297816 and 44959368996, 34 journey files had
+ *  no afterAll record in at least one of them and 14 in all three; the map reads each as reaching everything, and every
+ *  pull request ran them, J-campaigns-18 and J-cex-spot-17, the longest, among them.) */
 /** The journey file (`*.pw.mjs`) whose loading registers a hook, from the call stack, or null. */
 const registeringFile = () => {
   for (const line of String(new Error().stack).split('\n')) {
@@ -481,6 +485,14 @@ extended.afterAll = (...args) => {
       readLogs();
       await settleCode(stackCode, reach);
       reach.afterAll(testInfo.file);
+      try {
+        for (const file of reach.files()) {
+          const record = reach.take(file);
+          if (record) await testInfo.attach(REACH_ATTACHMENT, { body: JSON.stringify(record), contentType: 'application/json' });
+        }
+      } catch {
+        /* recording never fails a hook */
+      }
     }
   };
   after.toString = () => hook.toString();
