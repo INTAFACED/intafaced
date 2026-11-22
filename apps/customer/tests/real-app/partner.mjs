@@ -1,4 +1,19 @@
 import { api } from './stack.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
+
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts). */
+export const PARTNER_BOOK = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+
+/** What the TEST partner's own book says `userId` holds of `assetId` on their main balance there. */
+export async function partnerMainBalance(userId, assetId = 'USDT') {
+  return (await venueBalance(userId, assetId, PARTNER_BOOK)).total;
+}
+
+/** Every move on `userId`'s record at the TEST partner, oldest first, as the partner's own book lists it. */
+export async function partnerBookMoves(userId) {
+  return (await venueRecord(userId, '/moves', {}, PARTNER_BOOK, null)).value;
+}
 
 /**
  * The TEST partner bank and ramp's switches for one person (CUSTODY-DELTA §4; svc-bank `partner/test-partner.ts`). The
