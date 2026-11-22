@@ -170,7 +170,7 @@ impl Bus for NoBus {
 }
 
 /// The bus over NATS JetStream, into the bank's own stream.
-pub struct JetStreamBus(pub service_kit::nats::JetStream);
+pub struct JetStreamBus(pub std::sync::Arc<service_kit::nats::JetStream>);
 
 impl Bus for JetStreamBus {
     fn publish(&self, subject: &str, msg_id: &str, envelope: &Json) -> Result<(), String> {
