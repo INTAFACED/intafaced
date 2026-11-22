@@ -17,11 +17,18 @@ import { voltMarks } from './volt-count';
 const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
-/** A route's pattern as a person opens it: a `:pair` is a real market, a `:runId` a run's id (an agent run's page opens only on one), and an `:id` a help topic address (lower-case letters, digits and dashes). */
+/**
+ * A route's pattern as a person opens it: a `:pair` is a real market, a `:runId` a run's id (an agent run's page opens only
+ * on one), an `:id` a help topic address (lower-case letters, digits and dashes). A parameter the router checks the shape of
+ * gets a well-formed TEST value (a campaign id starts `cmp_`; a More record id starts with a letter or digit, more-room-routes.ts).
+ */
 const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
   ':pair': 'BTC-USDT',
   ':runId': '00000000-0000-4000-8000-000000000001',
   ':id': 'test-1',
+  ':campaignId': 'cmp_TEST',
+  ':listingId': 'TEST-listing',
+  ':projectId': 'TEST-launch',
 };
 const opened = (route: string) => route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_PARAMS[param] ?? param);
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
