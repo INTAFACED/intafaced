@@ -5,7 +5,8 @@
  */
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { API_VERSION_UNKNOWN, API_VERSIONS, parseApiVersion, type ApiVersion } from '@intafaced/contracts/api-versions';
 import {
   API_VERSION_SESSION_ONLY,

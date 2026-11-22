@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { roleHasPermission, type MerchantRole } from '../merchant-ops/roles.js';
 import type { FounderAuthority } from '../founder-authority.js';

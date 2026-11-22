@@ -1,13 +1,7 @@
 import { assertPartnerOffers } from '../partner/test-partner.js';
 import { z } from 'zod';
-import {
-  router,
-  scopedProcedure,
-  serviceProcedureFor,
-  BANK_OWN_SPACES_CALLERS,
-  bankOwnSpacesInputSchema,
-  bankOwnSpacesSchema,
-} from '@intafaced/contracts';
+import { BANK_OWN_SPACES_CALLERS, bankOwnSpacesInputSchema, bankOwnSpacesSchema } from '@intafaced/contracts/bank-own-spaces';
+import { router, scopedProcedure, serviceProcedureFor } from '@intafaced/contracts/trpc';
 import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { accountForSpace, lockEnd, type SpaceRecord } from '../spaces/space-service.js';

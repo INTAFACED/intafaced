@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { UNRESOLVED_REGION, isRegionResolved } from '@intafaced/config';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { kycLevelsDescribeOutputSchema } from '@intafaced/contracts/identity-kyc-levels';
 import type { KycTier } from '@intafaced/config';
 import { describeLevels, type KycLadderSettings } from './levels.js';

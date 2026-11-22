@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';
 import type { FounderAuthority } from '../founder-authority.js';

@@ -1,12 +1,11 @@
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
   businessBillSchema,
   businessBillLimitsSchema,
   businessBillSettingsSchema,
   businessBillVendorSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-business-bills';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import {

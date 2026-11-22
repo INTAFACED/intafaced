@@ -366,13 +366,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     process.exit(0);
   }
 
-  // The pre-push hook's question: does this branch change what the Rust job judges? Prints true or false.
-  if (args.includes('--rust-files')) {
-    const crates = rustCrates();
-    console.log(gitChangedFiles().some((f) => reachesRust(f, crates)) ? 'true' : 'false');
-    process.exit(0);
-  }
-
   const filesIdx = args.indexOf('--files');
   let files;
   let forceFull = runsEverything(process.env);

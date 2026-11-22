@@ -5,7 +5,7 @@
  * Outstanding principal is the write-once aggregate, per asset, as a decimal string.
  * This does not seize.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { z } from 'zod';

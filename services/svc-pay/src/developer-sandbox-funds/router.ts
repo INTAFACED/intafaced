@@ -1,4 +1,4 @@
-import { TRPCError, router, scopedProcedure } from '@intafaced/contracts';
+import { TRPCError, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   sandboxBalanceInputSchema,
   sandboxBalanceOutputSchema,

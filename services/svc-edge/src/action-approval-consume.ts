@@ -3,15 +3,9 @@
  * Freeze is forwarded to ledger (ledger consumes). Edge has no INTERNAL_SERVICE_SECRET.
  */
 import { createHash } from 'node:crypto';
-import {
-  actionApprovalConsumeInputSchema,
-  actionApprovalSchema,
-  ACTION_APPROVAL_CONSUME_FAILED,
-  IDENTITY_CONSUME_TIMEOUT_MS,
-  unwrapTrpcData,
-  type ActionApproval,
-  type ActionApprovalConsumeInput,
-} from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
+import { actionApprovalConsumeInputSchema, actionApprovalSchema } from '@intafaced/contracts/action-approval';
+import { ACTION_APPROVAL_CONSUME_FAILED, IDENTITY_CONSUME_TIMEOUT_MS, unwrapTrpcData } from '@intafaced/contracts/action-approval-client';
 import type { Principal } from '@intafaced/auth';
 import { forwardedPrincipalHeaders, type EdgeEd25519Signing } from './forward-principal-signature.js';
 

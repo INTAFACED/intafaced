@@ -8,15 +8,9 @@
  * svc-trade. Nothing is owed or paid here, so there is no reward intent and no balance.
  */
 import type postgres from 'postgres';
-import {
-  serviceCallSigner,
-  trialPassGrantSchema,
-  type CampaignState,
-  type CampaignTrialPass,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type TrialPassGrant,
-} from '@intafaced/contracts';
+import type { CampaignState, CampaignTrialPass, ServiceAuthMode, ServiceSigner, TrialPassGrant } from '@intafaced/contracts';
+import { trialPassGrantSchema } from '@intafaced/contracts/campaigns-catalogue';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { CampaignsError } from './codes.js';
 import { effectiveState } from './campaigns.js';
 
