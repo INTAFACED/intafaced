@@ -305,7 +305,10 @@ fn account_state(body: &Json) -> Option<(String, AccountOf)> {
     };
     let tier = str_of(body, "kycTier")
         .filter(|t| ["none", "basic", "full", "institutional"].contains(t))?;
-    if body.get("archived").is_some_and(|a| !matches!(a, Json::Bool(_))) {
+    if body
+        .get("archived")
+        .is_some_and(|a| !matches!(a, Json::Bool(_)))
+    {
         return None;
     }
     Some((
