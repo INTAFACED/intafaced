@@ -347,7 +347,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/uc/safe/api-keys': { template: 'settings' },
   '/uc/safe/api-keys/new': { template: 'flow', migrated: { file: 'features/account/api-key-create/ApiKeyCreateRoom.tsx' } },
   '/uc/safe/api-keys/:keyId': { template: 'settings' },
-  '/verification': { template: 'flow' },
+  '/verification': { template: 'flow', migrated: { file: 'features/account/Verification.tsx' } },
   '/identbusiness': { template: 'flow', migrated: { file: 'features/account/BusinessVerification.tsx' } },
   '/view': { template: 'settings' },
   '/notifications': { template: 'record-list' },
