@@ -415,6 +415,20 @@ describe('states never contradict themselves', () => {
     expect(block).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
   });
 
+  it('a document that prints alone prints on its own A4 page, hides the app around it and its own no-print parts', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    expect(css).toMatch(/@page lt-print-alone \{\s*size: A4;\s*margin: 1\.5rem;\s*\}/);
+    const print = css.slice(css.indexOf('@media print', css.indexOf('@page lt-print-alone')));
+    expect(print).toMatch(
+      /body:has\(\.lt-print-alone\) \*:not\(:has\(\.lt-print-alone\)\):not\(\.lt-print-alone, \.lt-print-alone \*\) \{\s*display: none !important;/,
+    );
+    expect(print).toMatch(/\.lt-print-alone \{\s*page: lt-print-alone;\s*\}/);
+    expect(print).toMatch(/\.lt-print-alone section \{\s*break-inside: avoid;\s*\}/);
+    expect(print).toMatch(/\.lt-print-alone \.lt-no-print \{\s*display: none;\s*\}/);
+    // Only its own named page is A4: no unnamed @page rule changes how any other room prints.
+    expect(css).not.toMatch(/@page\s*\{/);
+  });
+
   it('the risk band slot tells the focus tracker it covers the top; direction colours stay inside rooms', () => {
     const out = withLegal(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }));
     expect(out).toContain('class="lt-band-slot" data-obscures="top"');

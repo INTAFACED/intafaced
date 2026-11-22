@@ -2182,3 +2182,37 @@ button.lt-tab:focus-visible {
 .lt-tight {
   gap: 0.25rem;
 }
+
+/* A document that prints alone (a backtest's report, AL-report-03): printing while it is open prints it without the
+   app around it, on A4 pages (its own named page, so no other room's printing changes), no section split across two
+   pages, and its own lt-no-print parts (its Print button) left off the paper. */
+@page lt-print-alone {
+  size: A4;
+  margin: 1.5rem;
+}
+
+@media print {
+  /* Everything outside the document's own branch takes no room, so no blank page prints after it. Important, because an
+     element's own inline display (a portal or overlay root) would otherwise keep it on paper. */
+  body:has(.lt-print-alone) *:not(:has(.lt-print-alone)):not(.lt-print-alone, .lt-print-alone *) {
+    display: none !important;
+  }
+
+  /* Important, because another room's print sheet hides every element with an important rule while it is loaded. */
+  body:has(.lt-print-alone) .lt-print-alone,
+  body:has(.lt-print-alone) .lt-print-alone * {
+    visibility: visible !important;
+  }
+
+  .lt-print-alone {
+    page: lt-print-alone;
+  }
+
+  .lt-print-alone section {
+    break-inside: avoid;
+  }
+
+  .lt-print-alone .lt-no-print {
+    display: none;
+  }
+}
