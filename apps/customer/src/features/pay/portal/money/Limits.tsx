@@ -1,3 +1,5 @@
+// volt-room: /pay/limits
+// volt-room: portal:limits
 import { useRef, useState } from 'react';
 import { Field, TextArea } from '@intafaced/ui/lit';
 import { Meter } from '@intafaced/ui/lit/templates';

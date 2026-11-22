@@ -1,3 +1,5 @@
+// volt-room: /pay/payouts/destinations
+// volt-room: portal:payout-destinations
 import { useState } from 'react';
 import { Field } from '@intafaced/ui/lit';
 import { useResource } from '../../../../shared/resource';

@@ -1,3 +1,4 @@
+// volt-room: /uc/safe/api-keys/:keyId
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyDetail as Detail } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';

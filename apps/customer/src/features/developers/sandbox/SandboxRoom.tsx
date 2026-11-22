@@ -1,3 +1,4 @@
+// volt-room: /developers/sandbox/:sandboxId
 import { useState, type ReactNode } from 'react';
 import type { SandboxBalance, SandboxDetail } from '@intafaced/contracts/developer-sandboxes';
 import { Button } from '@intafaced/ui/lit';

@@ -1,3 +1,5 @@
+// volt-room: /pay/checkout
+// volt-room: portal:checkout-settings
 import { useMemo, useState } from 'react';
 import { z } from 'zod';
 import { Field } from '@intafaced/ui/lit';

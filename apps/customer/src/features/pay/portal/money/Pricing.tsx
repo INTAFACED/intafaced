@@ -1,3 +1,5 @@
+// volt-room: /pay/pricing
+// volt-room: portal:pricing
 import { useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import { useResource } from '../../../../shared/resource';

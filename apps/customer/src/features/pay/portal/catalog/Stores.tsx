@@ -1,3 +1,5 @@
+// volt-room: /pay/settings/stores
+// volt-room: portal:settings-stores
 import { useState } from 'react';
 import type { MerchantStore } from '@intafaced/contracts/merchant-stores';
 import type { PortalApi } from '../api';

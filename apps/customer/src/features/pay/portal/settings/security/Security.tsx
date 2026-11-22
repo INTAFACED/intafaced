@@ -1,3 +1,5 @@
+// volt-room: /pay/settings/security
+// volt-room: portal:settings-security
 import { useMerchantAccess, readyAccess } from '../../access/MerchantAccess';
 import { IdentitySessions } from '../../../../account';
 import { reason as notLive } from '../../chrome/copy';

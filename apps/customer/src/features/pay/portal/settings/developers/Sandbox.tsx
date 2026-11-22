@@ -1,3 +1,5 @@
+// volt-room: /pay/developer/sandbox
+// volt-room: portal:developer-sandbox
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
