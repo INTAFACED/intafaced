@@ -2018,6 +2018,9 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
       "  'eligibility.get': z.string(),",
       '} as const;',
       'export const earnWrites = {',
+      // Moved to its record: only a refusal copy's key and a check picked by the write's name still spell it (#3755).
+      "  'earn.deposit': z.object({ positionId: z.string() }),",
+      "  'earn.byCase': z.string(),",
       "  'autoInvest.cancel': z.object({ ok: z.literal(true) }),",
       "  'ramps.setWithdrawDestination': z.object({ kind: z.string() }),",
       '} as const;',
@@ -2030,7 +2033,12 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
       // A copy key is words, never a call, though it starts like one.
       'export const d = (state: string) => t(`eligibility.${state}`);',
       "type E = z.infer<(typeof earnReads)['earn.byType']>;",
+      "export const f = (procedure: string) => (procedure === 'earn.deposit' ? 1 : 0);",
+      "export const g = (procedure: string) => { switch (procedure) { case 'earn.deposit': return 1; } };",
+      "export const h = { procedure: 'earn.byCase' };",
     ],
+    // A file of words keys its sentences by the write's name; it calls nothing.
+    [`${money}/money-refusal-copy.ts`]: ["export const CHECKED = new Set(['earn.deposit']);"],
     // A test names an entry only by reading it from its map; a stubbed answer keyed by the name is not a caller.
     [`${money}/earn.test.ts`]: [
       "expect(bankReads['earn.byTest'].parse('x')).toBe('x');",
@@ -2040,16 +2048,17 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
   });
   assert.deepEqual(
     deadHandSchemas(repo).map((h) => h.name),
-    ['earn.dead', 'earn.stubbed', 'eligibility.get', 'ramps.setWithdrawDestination'],
+    ['earn.dead', 'earn.stubbed', 'eligibility.get', 'earn.deposit', 'ramps.setWithdrawDestination'],
   );
   const deleted = deleteDead(repo);
-  assert.equal(deleted.length, 4);
+  assert.equal(deleted.length, 5);
   const after = readFileSync(join(repo, `${money}/contracts-earn.ts`), 'utf8');
   assert.doesNotMatch(after, /earn\.dead|Nobody reads|setWithdrawDestination|earn\.stubbed|eligibility\.get/);
   for (const kept of [
     'earn.pools',
     'earn.byTest',
     'earn.byType',
+    'earn.byCase',
     'autoInvest.cancel',
     'const kept = z.string();',
     'A schema above the map',
