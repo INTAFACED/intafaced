@@ -148,7 +148,7 @@ function Maintenance({ maintenance }: { maintenance: Loadable<MaintenanceWindow[
         </ul>
       ) : null}
       <a className="lt-link" href="/notice">
-        {copy.t('noticesLink')} →
+        {copy.t('noticesLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
       </a>
     </section>
   );

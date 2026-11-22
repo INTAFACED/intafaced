@@ -131,7 +131,7 @@ function CategoryPage({ id }: { id: string }) {
             <article data-testid="help__row" className="lt-stack" key={section.id}>
               <h2 lang="und">{section.name}</h2>
               <a href={helpSectionHref(section.id)} className="lt-link" aria-label={`${t('openSection')}: ${section.name}`}>
-                {t('openSection')} →
+                {t('openSection')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
               </a>
               <p className="lt-hint">
                 {t('answersLabel')} <span lang="zxx">{section.articleCount}</span>
@@ -174,7 +174,7 @@ function SectionPage({ id }: { id: string }) {
                 <article data-testid="help__row" className="lt-stack" key={row.id}>
                   <h2 lang={row.language ?? 'und'}>{title}</h2>
                   <a href={helpHref(row.id)} className="lt-link" aria-label={`${t('readAnswer')}: ${title}`}>
-                    {t('readAnswer')} →
+                    {t('readAnswer')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
                   </a>
                   {first && <p lang={row.language ?? 'und'}>{first}</p>}
                 </article>

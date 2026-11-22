@@ -38,7 +38,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/help/mule-policy': { template: 'reading', migrated: { file: 'features/public/help/MulePolicyRoom.tsx' } },
   '/help/category/:id': { template: 'reading', migrated: { file: 'features/public/help/HelpLibraryRoom.tsx' } },
   '/help/section/:id': { template: 'reading', migrated: { file: 'features/public/help/HelpLibraryRoom.tsx' } },
-  '/status': { template: 'reading', migrated: { file: 'features/public/status/StatusRoom.tsx' } },
+  '/status': { template: 'reading', migrated: { file: 'features/public/status-room/StatusRoom.tsx' } },
   '/status/confirm': { template: 'flow' },
   '/status/manage': { template: 'settings' },
   '/support/guest/verify': { template: 'flow' },

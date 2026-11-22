@@ -25,7 +25,7 @@ vi.mock('../../data/hooks', () => ({
           : load,
 }));
 
-import { StatusRoom as StatusPage } from './status/StatusRoom';
+import { StatusRoom as StatusPage } from './status-room/StatusRoom';
 
 describe('/status', () => {
   it('says each reported mode and what it does to orders', () => {

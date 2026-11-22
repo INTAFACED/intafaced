@@ -30,7 +30,7 @@ import { MulePolicyRoom } from './help/MulePolicyRoom';
 import { FeesPage } from './FeesPage';
 import { MyTierPage } from './MyTierPage';
 import { RulebookRoom } from './rulebook/RulebookRoom';
-import { StatusRoom } from './status/StatusRoom';
+import { StatusRoom } from './status-room/StatusRoom';
 import { StatusSubscriptionPage } from './StatusSubscription';
 import { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from '../more';
 

@@ -57,7 +57,7 @@ function NoticeCard({ notice, link }: { notice: Notice; link: boolean }) {
       {feeChange ? <p className="lt-hint">{t('effectiveNote')}</p> : null}
       {link && (
         <a className="lt-link" href={`/notice/${notice.id}`}>
-          {t('open')} →
+          {t('open')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
         </a>
       )}
     </article>
