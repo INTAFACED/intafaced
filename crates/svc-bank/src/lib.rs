@@ -17,6 +17,7 @@ pub mod errors;
 pub mod errors_table;
 pub mod migrate;
 pub mod partner;
+pub mod partner_account;
 pub mod ready;
 pub mod recovery;
 pub mod refines;

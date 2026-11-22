@@ -322,6 +322,9 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
                 .unwrap_or(Value::Undefined);
             crate::partner::usage_payment::answer(door.partner(), door.store(), &parsed, door.now())
         }
+        Ok(true) if rest.slice == Slice::PartnerAccount => {
+            crate::partner_account::closure_check(&door.partner_account(), &body)
+        }
         Ok(true) => Response {
             status: 500,
             body: Json::obj([(

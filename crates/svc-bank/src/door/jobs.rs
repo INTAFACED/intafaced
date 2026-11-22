@@ -76,7 +76,8 @@ fn unauthenticated() -> Response {
     reply(401, "service credentials required", "bank.unauthenticated")
 }
 
-fn not_ported(slice: Slice) -> Response {
+/// A job door whose slice's work is not ported.
+pub fn not_ported(slice: Slice) -> Response {
     Response {
         status: 500,
         body: Json::obj([(
@@ -107,13 +108,21 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
     if !ops_read && job.is_none() {
         return None;
     }
-    if let Err(res) = read_body(req) {
-        return Some(res);
-    }
+    let body = match read_body(req) {
+        Ok(b) => b,
+        Err(res) => return Some(res),
+    };
     let Some(caller) = job_caller(door, req) else {
         return Some(unauthenticated());
     };
     if let Some(j) = job {
+        if j.slice == Slice::PartnerAccount {
+            return Some(crate::partner_account::job(
+                &door.partner_account(),
+                path,
+                &body,
+            ));
+        }
         return Some(not_ported(j.slice));
     }
     if caller != "svc-ops" {
