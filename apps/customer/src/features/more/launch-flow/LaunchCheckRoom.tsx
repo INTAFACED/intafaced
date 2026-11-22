@@ -7,7 +7,8 @@ import { launchDepthCopy } from '../launch-depth-copy';
 import type { AssessResult } from '../launch-journey';
 import { assessLaunch } from '../LaunchRooms';
 import { moreRoomRoutesCopy } from '../more-room-routes-copy';
-import { LaunchTabs, useLaunchGate, useLaunchScope } from './launch-flow-parts';
+import { LaunchFlowRoom } from './LaunchNewRoom';
+import { LaunchTabs, useLaunchGate, useLaunchScope, type LaunchFlowTab } from './launch-flow-parts';
 
 /**
  * `/launch/check`: the pre-listing deployer check, on the flow template. It reads the deployer's recorded liquidity
@@ -15,6 +16,11 @@ import { LaunchTabs, useLaunchGate, useLaunchScope } from './launch-flow-parts';
  * a decision to block or allow; a refusal is shown by name, never as a clean result.
  */
 export function LaunchCheckRoom() {
+  return <LaunchFlowRoom first="Check" />;
+}
+
+/** The check's own body inside the Launch flow room; its tabs switch back to the journey in place. */
+export function LaunchCheckBody({ onTab }: { onTab: (tab: LaunchFlowTab) => void }) {
   const api = useApi();
   const { Copy, t } = launchDepthCopy.useCopy();
   const routes = moreRoomRoutesCopy.useCopy();
@@ -37,7 +43,7 @@ export function LaunchCheckRoom() {
       roomAction={gate.retry}
       step={
         <>
-          <LaunchTabs current="/launch/check" />
+          <LaunchTabs current="Check" onTab={onTab} />
           {gate.blocked ? null : (
             <>
               <section aria-labelledby="launch-check-title">

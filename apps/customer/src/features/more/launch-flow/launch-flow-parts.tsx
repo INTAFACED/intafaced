@@ -1,27 +1,43 @@
 import type { ReactNode } from 'react';
-import { Button, Tag } from '@intafaced/ui/lit';
-import { Tabs, type RoomState } from '@intafaced/ui/lit/templates';
+import { Button, Segmented, Tag } from '@intafaced/ui/lit';
+import type { RoomState } from '@intafaced/ui/lit/templates';
 import { appCopy } from '../../../app/app-copy';
+import { navigate } from '../../../app/location';
 import { safeReturnTo } from '../../../app/navigation';
 import { useSession } from '../../session';
 import { launchCatalogueCopy } from '../launch-catalogue-copy';
 import { launchCopy } from '../launch-copy';
 import { launchDepthCopy } from '../launch-depth-copy';
+import type { LaunchTab } from '../LaunchAvailability';
 
-/** The Launch room's five sections, each at its own address (MoreRoutes' SECTION_TABS), as the kit's link tabs. */
-export function LaunchTabs({ current }: { current: '/launch/new' | '/launch/check' }) {
+/** The two Launch sections drawn on Volt, which switch in place, as the old room's tabs did. */
+export type LaunchFlowTab = Extract<LaunchTab, 'Journey' | 'Check'>;
+
+/** Where each of the three sections not yet on Volt opens, in the old Launch room (MoreRoutes' SECTION_TABS). */
+const ELSEWHERE: Record<Exclude<LaunchTab, LaunchFlowTab>, string> = {
+  Catalogue: '/launch',
+  Requirements: '/launch/requirements',
+  Participation: '/launch/mine',
+};
+
+/**
+ * The Launch room's five sections as the kit's switcher, the open one pressed. The issuer journey and the pre-listing
+ * check switch in place, as the old room's tabs did (Phantom 24 Oct); the other three open their own address.
+ */
+export function LaunchTabs({ current, onTab }: { current: LaunchFlowTab; onTab: (tab: LaunchFlowTab) => void }) {
   const { t } = launchDepthCopy.useCopy();
   const catalogue = launchCatalogueCopy.useCopy();
   return (
-    <Tabs
+    <Segmented<LaunchTab>
       label={t('sections')}
-      current={current}
-      items={[
-        { label: catalogue.t('tabCatalogue'), href: '/launch' },
-        { label: t('tabJourney'), href: '/launch/new' },
-        { label: t('tabCheck'), href: '/launch/check' },
-        { label: t('tabRequirements'), href: '/launch/requirements' },
-        { label: t('tabParticipation'), href: '/launch/mine' },
+      value={current}
+      onChange={(tab) => (tab === 'Journey' || tab === 'Check' ? onTab(tab) : navigate(ELSEWHERE[tab]))}
+      options={[
+        { value: 'Catalogue', label: catalogue.t('tabCatalogue') },
+        { value: 'Journey', label: t('tabJourney') },
+        { value: 'Check', label: t('tabCheck') },
+        { value: 'Requirements', label: t('tabRequirements') },
+        { value: 'Participation', label: t('tabParticipation') },
       ]}
     />
   );

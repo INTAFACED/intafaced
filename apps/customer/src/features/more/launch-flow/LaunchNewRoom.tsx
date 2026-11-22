@@ -4,14 +4,25 @@ import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { launchDepthCopy } from '../launch-depth-copy';
 import { draftIssues, EMPTY_DRAFT, LAUNCH_STEPS, normaliseSymbol, type LaunchDraft } from '../launch-journey';
 import { moreRoomRoutesCopy } from '../more-room-routes-copy';
-import { LaunchTabs, StepMark, useLaunchGate, useLaunchScope } from './launch-flow-parts';
+import { LaunchCheckBody } from './LaunchCheckRoom';
+import { LaunchTabs, StepMark, useLaunchGate, useLaunchScope, type LaunchFlowTab } from './launch-flow-parts';
 
 /**
  * `/launch/new`: the issuer journey, on the flow template. Seven steps from an idea to a sale, each saying whether it
- * can run today and, when it cannot, naming what is missing. The check step opens the pre-listing check at its own
- * address; the asset terms are a draft that stays on this page and is sent nowhere.
+ * can run today and, when it cannot, naming what is missing. Run check switches to the pre-listing check in place, as
+ * the old room did; the asset terms are a draft that stays on this page and is sent nowhere.
  */
 export function LaunchNewRoom() {
+  return <LaunchFlowRoom first="Journey" />;
+}
+
+/** The issuer journey and the pre-listing check, one room whose section tabs switch in place. */
+export function LaunchFlowRoom({ first }: { first: LaunchFlowTab }) {
+  const [tab, setTab] = useState<LaunchFlowTab>(first);
+  return tab === 'Journey' ? <LaunchJourneyBody onTab={setTab} /> : <LaunchCheckBody onTab={setTab} />;
+}
+
+function LaunchJourneyBody({ onTab }: { onTab: (tab: LaunchFlowTab) => void }) {
   const { Copy, t } = launchDepthCopy.useCopy();
   const routes = moreRoomRoutesCopy.useCopy();
   const description = useLaunchScope();
@@ -28,7 +39,7 @@ export function LaunchNewRoom() {
       roomAction={gate.retry}
       step={
         <>
-          <LaunchTabs current="/launch/new" />
+          <LaunchTabs current="Journey" onTab={onTab} />
           {gate.blocked ? null : (
             <>
               <section aria-labelledby="launch-journey-title">
@@ -49,9 +60,9 @@ export function LaunchNewRoom() {
                         <p>{t(`step_${step.id}_body`)}</p>
                         {step.mode === 'blocked' ? <p>{t(`step_${step.id}_reason` as 'step_issuance_reason')}</p> : null}
                         {step.id === 'check' ? (
-                          <a className="lt-button lt-button-secondary" href="/launch/check">
+                          <Button onClick={() => onTab('Check')}>
                             <Copy k="runCheck" />
-                          </a>
+                          </Button>
                         ) : step.id === 'details' ? (
                           <Button aria-expanded={open} onClick={() => setOpen(!open)}>
                             <Copy k="detailsOpen" />
