@@ -7,6 +7,8 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import prettier from 'prettier';
 
+/** Records per array literal in the registry. */
+const PART = 200;
 const RECORD = /^export const ([A-Z][A-Z0-9_]*) = defineProcedure\(/gm;
 
 export async function registrySource(packageDir, exportName, procedureModule) {
@@ -22,14 +24,19 @@ export async function registrySource(packageDir, exportName, procedureModule) {
   if (twice.length > 0) throw new Error(`two records share a constant name: ${twice.join(', ')}`);
   const byModule = new Map();
   for (const f of found) byModule.set(f.module, [...(byModule.get(f.module) ?? []), f.name]);
+  const parts = [];
+  for (let i = 0; i < names.length; i += PART) parts.push(names.slice(i, i + PART));
   const imports = [...byModule].map(([module, list]) => `import { ${list.join(', ')} } from '${module}';`);
   const text = [
     '// Written by `procedures:write` (scripts/procedure-registry.mjs) from every `defineProcedure` in src/. Do not edit by hand.',
     ...imports,
     `import type { ProcedureRecord } from '${procedureModule}';`,
     '',
+    // In parts of PART records: one array literal of every record is a union too complex for the compiler (TS2590).
+    ...parts.map((part, i) => `const part${i}: readonly ProcedureRecord[] = [${part.join(', ')}];`),
+    '',
     '/** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */',
-    `export const ${exportName}: readonly ProcedureRecord[] = [${names.join(', ')}];`,
+    `export const ${exportName}: readonly ProcedureRecord[] = [${parts.map((_, i) => `...part${i}`).join(', ')}];`,
     '',
   ].join('\n');
   const target = join(packageDir, 'src', 'procedure-registry.ts');
