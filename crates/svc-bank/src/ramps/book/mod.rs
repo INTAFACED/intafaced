@@ -1,5 +1,8 @@
 //! The address book (`PORT.md`, slice `ramps`). Being ported.
 
+pub mod fraud;
+pub mod store;
+
 use service_kit::json::Json;
 use service_kit::trpc::TrpcError;
 
