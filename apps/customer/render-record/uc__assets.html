@@ -97,30 +97,38 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money</p>
-<h1>Supported assets and networks</h1>
-<p class="muted">The one list Deposit and Withdraw read: each asset, its networks, how many decimal places it is counted to and what it can be used for. A retired asset stays here, so your history with it still makes sense.</p>
+<h1 class="lt-title">Supported assets and networks</h1>
+<p class="lt-description">The one list Deposit and Withdraw read: each asset, its networks, how many decimal places it is counted to and what it can be used for. A retired asset stays here, so your history with it still makes sense.</p>
 </div>
-<div class="actions">
-<a class="button button--secondary" href="/uc/recharge">Deposit</a>
-<a class="button button--secondary" href="/uc/withdraw">Withdraw</a>
+<div class="lt-room-action">
+<div class="lt-actions">
+<a class="lt-button lt-button-secondary" href="/uc/recharge">Deposit</a>
+<a class="lt-button lt-button-secondary" href="/uc/withdraw">Withdraw</a>
+</div>
 </div>
 </header>
-<section class="bd-panel" aria-labelledby="_r_3_">
+<div class="lt-body">
+<div class="lt-toolbar">
+</div>
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<p class="lt-hint">Money</p>
+</section>
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
+<section aria-labelledby="_r_3_">
 <h3 id="_r_3_">Supported assets and networks</h3>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
+</section>
+</div>
+</div>
 </div>
 </div>
 </div>

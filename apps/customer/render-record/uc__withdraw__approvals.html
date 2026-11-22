@@ -97,40 +97,44 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money</p>
-<h1>Withdrawal approvals</h1>
-<p class="muted">Some withdrawals wait for other people on your team to approve them before anything is sent.</p>
+<h1 class="lt-title">Withdrawal approvals</h1>
+<p class="lt-description">Some withdrawals wait for other people on your team to approve them before anything is sent.</p>
 </div>
 </header>
-<div class="withdrawal-page">
-<section class="money-section">
-<header>
+<div class="lt-body">
+<div class="lt-toolbar">
+</div>
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<p class="lt-hint">Money</p>
+</section>
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
+<section>
+<header class="lt-title-row">
 <div>
 <h2>Your requests</h2>
-<p class="muted">Latest requests · up to 50</p>
+<p class="lt-hint">Latest requests · up to 50</p>
 </div>
-<div class="actions">
-<button type="button" class="button button--secondary ">Refresh requests</button>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Refresh requests</button>
 </div>
 </header>
 <div lang="und">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
 <p>
-<a class="text-link withdrawal-back" href="/uc/withdraw">Back to Withdraw ↗</a>
+<a class="lt-link" href="/uc/withdraw">Back to Withdraw ↗</a>
 </p>
+</section>
+</div>
 </div>
 </div>
 </div>
