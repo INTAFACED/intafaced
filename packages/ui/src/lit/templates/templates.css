@@ -1053,6 +1053,40 @@ button.lt-tab {
   background: var(--lit-solid-bg-raised);
 }
 
+/* A table's naming cell: an icon beside a name with, under it, a hint, kept to one row's height (never wraps the icon
+   under the name). */
+.lt-cell-name {
+  display: flex;
+  align-items: center;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+.lt-cell-name > :last-child {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  line-height: 1.25;
+}
+
+/* A table wider than its region (Pro's extra columns) scrolls inside its own region, keyboard-reachable, rather than wrap
+   its rows onto two lines or widen the room. On a phone the table stacks, so nothing scrolls. */
+.lt-table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+.lt-table-scroll:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+@container room (min-width: 600px) {
+  .lt-table-scroll .lt-table :is(th, td) {
+    white-space: nowrap;
+  }
+  .lt-table-scroll .lt-table .lt-actions {
+    flex-wrap: nowrap;
+  }
+}
+
 .lt-row-link {
   display: inline-flex;
   align-items: center;
