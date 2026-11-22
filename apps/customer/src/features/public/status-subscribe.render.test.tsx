@@ -25,9 +25,9 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import { StatusSubscribe } from './StatusSubscribe';
+import { StatusSubscribe } from './status/StatusSubscribe';
 import { StatusSubscriptionPage } from './StatusSubscription';
-import { StatusBadgeShare } from './StatusBadgeShare';
+import { StatusBadgeShare } from './status/StatusBadgeShare';
 
 const POLICY = { email: null, sms: 'vendor.sms', push: 'vendor.push', challengeBits: 4, rateLimitSet: true };
 const COMPONENTS = [{ id: 'trading', name: 'Trading', group: null, basis: 'reading', state: 'operational', source: null, uptime: [] }];

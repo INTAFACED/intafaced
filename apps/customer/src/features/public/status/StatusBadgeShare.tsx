@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import type { StatusPage } from './status';
-import { statusCopy } from './status-copy';
+import { Button, Field, SelectField, TextField } from '@intafaced/ui/lit';
+import type { StatusPage } from '../status';
+import { statusCopy } from '../status-copy';
 
 /** Where the service draws the badge; Edge serves it on the site's own origin. */
 export const statusBadgeUrl = (origin: string, componentId: string | null) =>
@@ -31,40 +32,47 @@ export function StatusBadgeShare({ components }: { components: StatusPage['compo
   }
 
   return (
-    <section className="pub-card status-share" aria-labelledby="status-share" data-testid="status-share">
+    <section className="lt-stack" aria-labelledby="status-share" data-testid="status-share">
       <h2 id="status-share">{copy.t('shareTitle')}</h2>
-      <p className="muted">{copy.t('shareLead')}</p>
-      <label className="field">
-        <span>{copy.t('shareWhat')}</span>
-        <select
-          value={componentId ?? ''}
-          onChange={(event) => {
-            setComponentId(event.target.value || null);
-            setCopied(false);
-          }}
-        >
-          <option value="">{copy.t('shareWholePage')}</option>
-          {components.map((component) => (
-            <option key={component.id} value={component.id}>
-              {component.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <p className="status-share__preview">
+      <p className="lt-hint">{copy.t('shareLead')}</p>
+      <SelectField
+        label={copy.t('shareWhat')}
+        value={componentId ?? ''}
+        onChange={(event) => {
+          setComponentId(event.target.value || null);
+          setCopied(false);
+        }}
+      >
+        <option value="">{copy.t('shareWholePage')}</option>
+        {components.map((component) => (
+          <option key={component.id} value={component.id}>
+            {component.name}
+          </option>
+        ))}
+      </SelectField>
+      <p>
         <img src={image} alt={alt} data-testid="status-share-image" />
       </p>
-      <label className="field">
-        <span>{copy.t('shareImageLink')}</span>
-        <input readOnly value={image} data-testid="status-share-url" onFocus={(event) => event.currentTarget.select()} />
-      </label>
-      <label className="field">
-        <span>{copy.t('shareSnippet')}</span>
-        <textarea readOnly rows={3} value={snippet} data-testid="status-share-snippet" onFocus={(event) => event.currentTarget.select()} />
-      </label>
-      <button type="button" className="button button--secondary" onClick={() => void copySnippet()}>
-        {copied === true ? copy.t('shareCopied') : copy.t('shareCopy')}
-      </button>
+      <Field
+        label={copy.t('shareImageLink')}
+        readOnly
+        value={image}
+        data-testid="status-share-url"
+        onFocus={(event) => event.currentTarget.select()}
+      />
+      <TextField
+        label={copy.t('shareSnippet')}
+        readOnly
+        rows={3}
+        value={snippet}
+        data-testid="status-share-snippet"
+        onFocus={(event) => event.currentTarget.select()}
+      />
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={() => void copySnippet()}>
+          {copied === true ? copy.t('shareCopied') : copy.t('shareCopy')}
+        </Button>
+      </div>
       {copied === 'failed' ? (
         <p role="alert" data-testid="status-share-copy-failed">
           {copy.t('shareCopyFailed')}

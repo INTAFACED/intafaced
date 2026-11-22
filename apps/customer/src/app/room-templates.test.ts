@@ -17,7 +17,8 @@ const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
 /** A route's pattern as a person opens it: a `:pair` is a real market. */
-const opened = (route: string) => route.replace(':pair', 'BTC-USDT');
+// A route's parameter filled with a value its room reads as an address (a help topic id is lower-case letters, digits and dashes).
+const opened = (route: string) => route.replace(':pair', 'BTC-USDT').replace(':id', 'test-1');
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 
 describe('room templates registry', () => {

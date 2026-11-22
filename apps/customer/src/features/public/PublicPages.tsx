@@ -1,9 +1,7 @@
 import { findRoom, roomDescription, roomTitle } from '../../app/navigation';
-import { BreakingChangesNotice } from '../developers';
 import { useSession } from '../session';
 import { supportMailto, useSupportContact } from '../more';
-import { ContactSupport } from './ContactSupport';
-import { NoticeDetail, NoticeFeed } from './NoticeFeed';
+import { ContactSupport } from './help/ContactSupport';
 import { doorSummaries } from './public-catalogue';
 import { PARTICIPATION_ROOMS } from './public-pages';
 import { usePartnerSettings } from './partner-settings';
@@ -84,40 +82,6 @@ export function PartnerPage() {
         <p>{copy.t('partnerMerchantBody')}</p>
         <a className="text-link" href="/pay/merchant">
           {copy.t('partnerMerchantOpen')} →
-        </a>
-      </section>
-    </div>
-  );
-}
-
-/** /notice, /announcement and their detail pages: the published notice feed, read live. */
-export function NoticePage({ detail = false, id = null }: { detail?: boolean; id?: string | null }) {
-  const copy = pagesCopy.useCopy();
-  const { session } = useSession();
-  return (
-    <div className="pub-page">
-      <header className="pub-heading">
-        <h1>{copy.t('noticeTitle')}</h1>
-      </header>
-      {detail ? <NoticeDetail id={id} /> : <NoticeFeed />}
-      {detail ? null : <BreakingChangesNotice />}
-      {detail && (
-        <a className="text-link" href="/notice">
-          ← {copy.t('noticeBack')}
-        </a>
-      )}
-      <section className="pub-card">
-        <h2>{copy.t('noticeAccountTitle')}</h2>
-        <p>{copy.t('noticeAccountBody')}</p>
-        <a className="text-link" href={session ? '/notifications' : '/login?redirect=%2Fnotifications'}>
-          {copy.t(session ? 'noticeInbox' : 'noticeSignIn')} →
-        </a>
-      </section>
-      <section className="pub-card">
-        <h2>{copy.t('noticeStuckTitle')}</h2>
-        <p>{copy.t('noticeStuckBody')}</p>
-        <a className="text-link" href="/help">
-          {copy.t('noticeHelp')} →
         </a>
       </section>
     </div>

@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { checkOfficialChannel, type OfficialChannelList } from '@intafaced/contracts/support-official-channels';
-import { Button, Failure, Loading } from '../../shared/ui';
-import { useResource } from '../../shared/resource';
-import { useSession } from '../session';
-import { defineCopy } from '../../shared/i18n';
-import './help.css';
+import { Button, EmptyState, Field } from '@intafaced/ui/lit';
+import { ReadingTemplate, type RoomState } from '@intafaced/ui/lit/templates';
+import { useResource } from '../../../shared/resource';
+import { useSession } from '../../session';
+import { defineCopy } from '../../../shared/i18n';
+import { ApiFailure } from './ApiFailure';
 import { SUPPORT_OFFICIAL_CHANNELS } from '@intafaced/contracts/support-official-channels-procedures';
 
 const copy = defineCopy('public.official-channels', {
@@ -39,47 +40,56 @@ const GUIDES = [
 ] as const;
 
 /**
- * `/help/official-channels` (I-signin-sessions-26, J-identity-13 #1): the owner's published list of our domains,
- * senders and channels, a check that says whether a typed address is on it exactly (in the browser, no call), and the
- * scam guides. With no list published it says so and the check takes nothing; the guides stay.
+ * `/help/official-channels` (I-signin-sessions-26, J-identity-13 #1), on the reading template: the owner's published list
+ * of our domains, senders and channels, a check that says whether a typed address is on it exactly (in the browser, no
+ * call), and the scam guides. With no list published it says so and the check takes nothing; the guides stay.
  */
-export function OfficialChannels() {
+export function OfficialChannelsRoom() {
   const { t, languageFor } = copy.useCopy();
   const { api } = useSession();
   const { resource, reload } = useResource((signal) => api.call(SUPPORT_OFFICIAL_CHANNELS, undefined, { signal }), 'official-channels');
   const list = resource.status === 'ready' && resource.data.published ? resource.data : null;
+  const state: RoomState = resource.status === 'loading' ? { kind: 'loading' } : { kind: 'ready' };
   return (
-    <div data-testid="official-channels" className="help stack" lang={languageFor('title')}>
-      <header>
-        <h1>{t('title')}</h1>
-        <p className="muted">{t('intro')}</p>
-      </header>
-      {resource.status === 'loading' && <Loading />}
-      {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {resource.status === 'ready' && !resource.data.published && (
-        <p className="notice" role="status" data-testid="official-channels__unpublished">
-          {t('unpublished')}
-        </p>
-      )}
-      {list && <Published list={list} />}
-      {resource.status === 'ready' && <Check list={list} />}
-      <section aria-labelledby="official-guides">
-        <h2 id="official-guides">{t('guidesTitle')}</h2>
-        <ul data-testid="official-channels__guides">
-          {GUIDES.map(([id, key]) => (
-            <li key={id}>
-              <a className="text-link" href={`/helpdetail?id=${id}`}>
-                {t(key)}
+    <div data-testid="official-channels" lang={languageFor('title')}>
+      <ReadingTemplate
+        title={t('title')}
+        description={t('intro')}
+        state={state}
+        body={
+          resource.status === 'loading' ? null : (
+            <div className="lt-stack">
+              {resource.status === 'failed' && <ApiFailure result={resource.failure} retry={reload} />}
+              {resource.status === 'ready' && !resource.data.published && (
+                <div role="status" data-testid="official-channels__unpublished">
+                  <EmptyState title={t('unpublished')} />
+                </div>
+              )}
+              {list && <Published list={list} />}
+              {resource.status === 'ready' && <Check list={list} />}
+            </div>
+          )
+        }
+        related={
+          <section aria-labelledby="official-guides" className="lt-stack">
+            <h2 id="official-guides">{t('guidesTitle')}</h2>
+            <ul data-testid="official-channels__guides">
+              {GUIDES.map(([id, key]) => (
+                <li key={id}>
+                  <a className="lt-link" href={`/helpdetail?id=${id}`}>
+                    {t(key)}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <p>
+              <a className="lt-link" href="/support/new?topic=phishing">
+                {t('report')}
               </a>
-            </li>
-          ))}
-        </ul>
-        <p>
-          <a className="text-link" href="/support/new?topic=phishing">
-            {t('report')}
-          </a>
-        </p>
-      </section>
+            </p>
+          </section>
+        }
+      />
     </div>
   );
 }
@@ -87,9 +97,9 @@ export function OfficialChannels() {
 function Published({ list }: { list: OfficialChannelList }) {
   const { t } = copy.useCopy();
   return (
-    <section data-testid="official-channels__list" aria-label={t('title')}>
+    <section data-testid="official-channels__list" aria-label={t('title')} className="lt-stack">
       {list.test && (
-        <p className="notice" data-testid="official-channels__test">
+        <p role="note" data-testid="official-channels__test">
           {t('test')}
         </p>
       )}
@@ -135,26 +145,24 @@ function Check({ list }: { list: OfficialChannelList | null }) {
     setResult(checkOfficialChannel(list, value));
   }
   return (
-    <section aria-labelledby="official-check">
+    <section aria-labelledby="official-check" className="lt-stack">
       <h2 id="official-check">{t('checkTitle')}</h2>
-      <p className="muted">{t('checkBody')}</p>
-      <form className="stack" onSubmit={submit} noValidate>
-        <label className="field">
-          <span>{t('checkField')}</span>
-          <input
-            lang="zxx"
-            value={value}
-            onChange={(event) => {
-              setValue(event.target.value);
-              setResult(null);
-            }}
-            disabled={!list}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-        <div className="actions">
-          <Button type="submit" disabled={!list}>
+      <p className="lt-hint">{t('checkBody')}</p>
+      <form className="lt-stack" onSubmit={submit} noValidate>
+        <Field
+          label={t('checkField')}
+          lang="zxx"
+          value={value}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setResult(null);
+          }}
+          disabled={!list}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={!list}>
             {t('check')}
           </Button>
         </div>

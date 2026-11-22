@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useDataEnv } from '../../data/hooks';
-import { readContract, writeContract } from '../../shared/contract-call';
-import type { ApiResult } from '../../shared/api';
-import { Button, Field } from '../../shared/ui';
-import { solveStatusChallenge, statusSubscribe, statusSubscriptionChallenge, statusSubscriptionPolicy, type StatusPage } from './status';
-import { statusSubscribeCopy } from './status-subscribe-copy';
+import { Button, Choice, Field } from '@intafaced/ui/lit';
+import { useDataEnv } from '../../../data/hooks';
+import { readContract, writeContract } from '../../../shared/contract-call';
+import type { ApiResult } from '../../../shared/api';
+import { solveStatusChallenge, statusSubscribe, statusSubscriptionChallenge, statusSubscriptionPolicy, type StatusPage } from '../status';
+import { statusSubscribeCopy } from '../status-subscribe-copy';
 
 type Policy = Extract<Awaited<ReturnType<typeof readContract<typeof statusSubscriptionPolicy>>>, { ok: true }>['data'];
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -73,20 +73,20 @@ export function StatusSubscribe({ components }: { components: StatusPage['compon
 
   const closed = policy !== null && (policy.challengeBits === null || !policy.rateLimitSet);
   return (
-    <section className="pub-card status-subscribe" aria-labelledby="status-subscribe" data-testid="status-subscribe">
+    <section className="lt-stack" aria-labelledby="status-subscribe" data-testid="status-subscribe">
       <h2 id="status-subscribe">{t('title')}</h2>
-      <p className="muted">{t('lead')}</p>
+      <p className="lt-hint">{t('lead')}</p>
       {policy === null && !policyFailed ? <p role="status">{t('policyLoading')}</p> : null}
       {policyFailed ? (
         <p role="alert">
           {t('policyFailed')}{' '}
-          <button type="button" className="text-link" onClick={() => void loadPolicy()}>
+          <Button tone="quiet" onClick={() => void loadPolicy()}>
             {t('retry')}
-          </button>
+          </Button>
         </p>
       ) : null}
       {policy ? (
-        <ul className="status-subscribe__channels" data-testid="status-subscribe-channels">
+        <ul data-testid="status-subscribe-channels">
           {policy.email ? (
             <li data-testid="status-subscribe-email-off">
               {t('emailOff')} <small lang="zxx">{policy.email}</small>
@@ -101,12 +101,12 @@ export function StatusSubscribe({ components }: { components: StatusPage['compon
         </ul>
       ) : null}
       {closed ? (
-        <p className="pub-notice" role="status" data-testid="status-subscribe-closed">
+        <p role="status" data-testid="status-subscribe-closed">
           {t('unset')} <small lang="zxx">{policy?.challengeBits === null ? 'status.challenge_unset' : 'status.rate_limit_unset'}</small>
         </p>
       ) : null}
       {policy && !closed ? (
-        <form className="status-subscribe__form" onSubmit={(event) => void submit(event)}>
+        <form className="lt-stack" onSubmit={(event) => void submit(event)}>
           <Field
             label={t('email')}
             type="email"
@@ -116,36 +116,32 @@ export function StatusSubscribe({ components }: { components: StatusPage['compon
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
-          <fieldset className="status-subscribe__components">
-            <label>
-              <input type="radio" name="scope" checked={all} onChange={() => setAll(true)} /> {t('allComponents')}
-            </label>
+          <fieldset className="lt-stack">
+            <Choice type="radio" name="scope" checked={all} onChange={() => setAll(true)} label={t('allComponents')} />
             {components.length > 0 ? (
-              <label>
-                <input type="radio" name="scope" checked={!all} onChange={() => setAll(false)} /> {t('pickComponents')}
-              </label>
+              <Choice type="radio" name="scope" checked={!all} onChange={() => setAll(false)} label={t('pickComponents')} />
             ) : null}
             {!all
               ? components.map((component) => (
-                  <label key={component.id} className="status-subscribe__component">
-                    <input
-                      type="checkbox"
-                      name="component"
-                      value={component.id}
-                      checked={picked.includes(component.id)}
-                      onChange={(event) =>
-                        setPicked((now) => (event.target.checked ? [...now, component.id] : now.filter((id) => id !== component.id)))
-                      }
-                    />{' '}
-                    {component.name}
-                  </label>
+                  <Choice
+                    key={component.id}
+                    name="component"
+                    value={component.id}
+                    checked={picked.includes(component.id)}
+                    onChange={(event) =>
+                      setPicked((now) => (event.target.checked ? [...now, component.id] : now.filter((id) => id !== component.id)))
+                    }
+                    label={component.name}
+                  />
                 ))
               : null}
           </fieldset>
-          <Button type="submit" disabled={busy || (!all && picked.length === 0)}>
-            {busy ? t('working') : t('subscribe')}
-          </Button>
-          {busy ? <p className="muted">{t('workingHint')}</p> : null}
+          <div className="lt-actions">
+            <Button type="submit" tone="primary" disabled={busy || (!all && picked.length === 0)}>
+              {busy ? t('working') : t('subscribe')}
+            </Button>
+          </div>
+          {busy ? <p className="lt-hint">{t('workingHint')}</p> : null}
         </form>
       ) : null}
       {outcome?.kind === 'sent' ? (
@@ -154,7 +150,7 @@ export function StatusSubscribe({ components }: { components: StatusPage['compon
         </p>
       ) : null}
       {outcome?.kind === 'pending' ? (
-        <p className="pub-notice" role="status" data-testid="status-subscribe-pending">
+        <p role="status" data-testid="status-subscribe-pending">
           {t('pending')} <small lang="zxx">vendor.email</small>
         </p>
       ) : null}
