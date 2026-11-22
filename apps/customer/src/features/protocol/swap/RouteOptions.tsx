@@ -1,5 +1,4 @@
 import type { ProtocolRouteLeg, ProtocolRouteOptions, ProtocolSwapToken } from '@intafaced/contracts/protocol-swap';
-import { DataTable } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { shortContract } from '../wallet/transfer';
 import { swapCopy } from './copy';
@@ -30,28 +29,44 @@ export function RouteOptions({
       return t('routeLost', { amount: formatUnits(BigInt(leg.shortfall ?? '0'), tokenOut.decimals), token: tokenOut.name });
     return leg.reason === 'stale' ? t('routeStale') : leg.reason === 'unreadable' ? t('routeUnreadable') : t('routeNoLiquidity');
   };
+  const headers = [t('routePool'), t('routeFee'), t('routeOut'), t('routeStatus'), t('routeExclude')];
   const isExcluded = (pool: string) => excluded.some((item) => item.toLowerCase() === pool.toLowerCase());
   return (
     <>
       <p>{t('routesNote', { block: routes.blockNumber })}</p>
-      <DataTable label={t('routesTitle')} headers={[t('routePool'), t('routeFee'), t('routeOut'), t('routeStatus'), t('routeExclude')]}>
-        {routes.legs.map((leg) => (
-          <tr key={leg.pool} data-route-status={leg.status}>
-            <td className="numeric">{shortContract(leg.pool)}</td>
-            <td className="numeric">{bpsToPercent(leg.feeBps)}%</td>
-            <td className="numeric">
-              {leg.quote === null ? '—' : `${formatUnits(BigInt(leg.quote.amountOut), tokenOut.decimals)} ${tokenOut.name}`}
-            </td>
-            <td>{status(leg)}</td>
-            <td>
-              <label>
-                <input type="checkbox" checked={isExcluded(leg.pool)} onChange={(event) => onExclude(leg.pool, event.target.checked)} />{' '}
-                {t('routeExclude')}
-              </label>
-            </td>
-          </tr>
-        ))}
-      </DataTable>
+      <div tabIndex={0} role="region" aria-label={t('routesTitle')}>
+        <table className="lt-table">
+          <thead>
+            <tr>
+              {headers.map((head) => (
+                <th key={head} scope="col">
+                  {head}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {routes.legs.map((leg) => (
+              <tr key={leg.pool} data-route-status={leg.status}>
+                <td data-label={headers[0]} className="lt-mono">
+                  {shortContract(leg.pool)}
+                </td>
+                <td data-label={headers[1]}>{bpsToPercent(leg.feeBps)}%</td>
+                <td data-label={headers[2]}>
+                  {leg.quote === null ? '—' : `${formatUnits(BigInt(leg.quote.amountOut), tokenOut.decimals)} ${tokenOut.name}`}
+                </td>
+                <td data-label={headers[3]}>{status(leg)}</td>
+                <td data-label={headers[4]}>
+                  <label>
+                    <input type="checkbox" checked={isExcluded(leg.pool)} onChange={(event) => onExclude(leg.pool, event.target.checked)} />{' '}
+                    {t('routeExclude')}
+                  </label>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

@@ -305,7 +305,6 @@
   "/uc/promotion/perks",
   "/uc/invitingmining",
   "/uc/paydividends",
-  "/dex",
   "/dex/pools",
   "/dex/pools/new",
   "/dex/pools/:poolId",

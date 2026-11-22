@@ -268,9 +268,10 @@ export function TabPanel({ id, value, current, children }: { id: string; value: 
 
 /**
  * A bottom sheet on a phone, a side sheet on a computer: one of the two layers allowed glass. It is a modal
- * dialog (focus stays inside, Escape closes), built on the native <dialog> element. As an `alertdialog` it asks for
- * an answer: it draws no Close button of its own (its own buttons answer it), Escape asks `onClose` and the sheet
- * stays open until `open` turns false. An element inside marked `data-autofocus` takes the focus when it opens.
+ * dialog (focus stays inside, Escape closes, focus returns to what opened it), built on the native <dialog> element.
+ * As an `alertdialog` it asks for an answer: it draws no Close button of its own (its own buttons answer it), Escape
+ * asks `onClose` and the sheet stays open until `open` turns false. An element inside marked `data-autofocus` takes
+ * the focus when it opens.
  * A `description` (what the answer does) is drawn under the title and describes the sheet.
  */
 export function Sheet({
@@ -295,15 +296,27 @@ export function Sheet({
   const ref = React.useRef<HTMLDialogElement>(null);
   const descriptionId = React.useId();
   const alert = role === 'alertdialog';
+  // Focus goes back to what opened the sheet when it closes or goes away, as a modal dialog's should.
+  const opener = React.useRef<HTMLElement | null>(null);
+  const giveBack = () => {
+    const back = opener.current;
+    opener.current = null;
+    if (back?.isConnected) back.focus();
+  };
   React.useEffect(() => {
     const d = ref.current;
     if (!d) return;
     if (open && !d.open) {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       d.showModal?.();
       d.querySelector<HTMLElement>('[data-autofocus]')?.focus();
     }
-    if (!open && d.open) d.close();
+    if (!open && d.open) {
+      d.close();
+      giveBack();
+    }
   }, [open]);
+  React.useEffect(() => giveBack, []);
   return (
     <dialog
       ref={ref}

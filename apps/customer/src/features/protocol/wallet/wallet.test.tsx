@@ -148,6 +148,23 @@ describe('wallet provider', () => {
     expect(calls).not.toContain('eth_signTypedData_v4');
   });
 
+  it('gives focus back to what asked for the sheet once it is cancelled', async () => {
+    await connected();
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    await act(async () => {
+      void api.sign({ kind: 'message', message: 'hello' });
+    });
+    expect(document.body.querySelector('dialog[aria-label="Check before you sign"]')).not.toBeNull();
+    const cancel = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Cancel')!;
+    cancel.focus();
+    await act(async () => cancel.click());
+    expect(document.body.querySelector('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
   it('asks the wallet only after Continue and returns the signature', async () => {
     await connected();
     let result: SignResult | undefined;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { usePreferences } from '../../../shared/preferences';
 import type { ProtocolApi, RepresentationStatus } from '../api';
 import { isRegionBlocked } from '../region';
@@ -64,19 +64,20 @@ export function RepresentationPanel({
   };
 
   return (
-    <Panel title={t('reprTitle')}>
+    <section>
+      <h2>{t('reprTitle')}</h2>
       <div data-panel="representation" data-version={status.version}>
-        <p className="muted">{t('reprNote')}</p>
+        <p className="lt-hint">{t('reprNote')}</p>
         <blockquote data-representation-text>{status.text}</blockquote>
-        <p className="muted">{t('reprVersion', { version: status.version })}</p>
-        <label className="field field--inline">
+        <p className="lt-hint">{t('reprVersion', { version: status.version })}</p>
+        <label className="lt-field">
           <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
           <span>{t('reprAgree')}</span>
         </label>
-        <Button disabled={!agreed || busy} onClick={() => void accept()}>
+        <Button tone="primary" disabled={!agreed || busy} onClick={() => void accept()}>
           {t('reprAccept')}
         </Button>
       </div>
-    </Panel>
+    </section>
   );
 }
