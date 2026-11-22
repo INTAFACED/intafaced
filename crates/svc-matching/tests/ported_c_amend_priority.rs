@@ -22,8 +22,7 @@
     reason = "a test: a failure is the point"
 )]
 
-#[allow(dead_code, reason = "each test file uses its own share of the helpers")]
-mod ported_c_common;
+use crate::ported_c_common;
 
 use ported_c_common::{Body, ORDERS, at, live_ids, mount, patch, post, proof, text};
 use service_kit::json::Json;

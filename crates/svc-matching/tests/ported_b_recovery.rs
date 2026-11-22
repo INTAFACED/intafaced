@@ -355,7 +355,10 @@ fn an_append_whose_outcome_is_unknown_cannot_admit_a_second_input_at_the_same_jo
 
     let out = Command::new(std::env::current_exe().unwrap())
         .args([
-            "recovery_child",
+            // Its full name in the test binary, `ported_b_recovery::recovery_child` (tests/it.rs), for `--exact`.
+            concat!(module_path!(), "::recovery_child")
+                .split_once("::")
+                .map_or("recovery_child", |(_, name)| name),
             "--exact",
             "--nocapture",
             "--test-threads=1",

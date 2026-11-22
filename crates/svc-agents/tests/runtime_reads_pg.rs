@@ -20,7 +20,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
