@@ -18,8 +18,6 @@
 //! the TEST stand-in (`payroll-sim`, dev or test with the TEST partner bank), which keeps its own TEST record of each
 //! credit and reversal when the stack gives it a folder (`rail_records`).
 
-pub mod rail_records;
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use postgres::{GenericClient, IsolationLevel};
@@ -30,6 +28,7 @@ use service_kit::server::Response;
 use service_kit::time::Instant;
 use unicode_normalization::UnicodeNormalization as _;
 
+use super::rail_records::{self, Movement, RailRecorder};
 use super::{Deps, account_details, refuse};
 use crate::db::{StoreError, transaction, with_client};
 use crate::door::Ctx;
@@ -37,7 +36,6 @@ use crate::door::jobs::job_refuse;
 use crate::errors::Refusal;
 use crate::partner::custody::Held;
 use crate::partner::{AccountRef, LABEL, Move, MoveRequest, TestPartner, payouts_account};
-use rail_records::{Movement, RailRecorder};
 
 /// `PAYROLL_SIM_RAIL` and `PAYROLL_SIM_LABEL`.
 pub const PAYROLL_SIM_RAIL: &str = "payroll-sim";
@@ -436,11 +434,11 @@ fn read_back(held: &Held<'_>, key: &str, made: &Move) -> Result<Move, Refusal> {
     }
 }
 
-fn record(payroll: &Payroll, m: Movement, now: Instant) -> Step<()> {
+fn record(payroll: &Payroll, m: Movement) -> Step<()> {
     match &payroll.records {
         Some(r) => r
-            .record(&m, now)
-            .map_err(|e| Fail::Refused(Refusal::Other(e))),
+            .record(&m)
+            .map_err(|e| Fail::Refused(Refusal::Other(e.message))),
         None => Ok(()),
     }
 }
@@ -658,8 +656,8 @@ fn credit(d: &Deps<'_>, input: &PayrollCredit) -> Step<(Credit, bool)> {
                 direction: "in",
                 asset_id: input.currency.clone(),
                 amount,
+                reference: None,
             },
-            d.now,
         )?;
         let min = parse_min_credit(d.wiring.salary.min_credit.as_deref());
         transaction(pool, IsolationLevel::ReadCommitted, |tx| {
@@ -887,8 +885,8 @@ fn reverse(d: &Deps<'_>, network_id: &str) -> Step<Credit> {
             direction: "out",
             asset_id: credit.asset_id.clone(),
             amount: credit.amount,
+            reference: None,
         },
-        d.now,
     )?;
     with_client(pool, |c| {
         c.execute(
@@ -927,7 +925,7 @@ fn rails(d: &Deps<'_>) -> Step<Json> {
         .collect()
     })?;
     let movements = match &payroll.records {
-        Some(r) => Some(r.movements().map_err(Refusal::Other)?),
+        Some(r) => Some(r.movements().map_err(|e| Refusal::Other(e.message))?),
         None => None,
     };
     let mut network: BTreeMap<String, (Amount, Amount)> = BTreeMap::new();

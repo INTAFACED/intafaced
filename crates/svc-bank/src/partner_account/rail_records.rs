@@ -1,6 +1,7 @@
-//! LOCAL TEST: the payout stand-in's own record of what it paid out and took back (`cash-out/rail-records.ts`), so the
-//! stack's outside source can say what rail `payout-sim` holds in the stand-in's words. One append-only JSONL file per
-//! rail in the stack's folder (`BANK_PAYOUT_SIM_RECORDS_DIR`), a line
+//! LOCAL TEST: a stand-in's own record of what it carried (`cash-out/rail-records.ts`): the payout stand-in's payouts
+//! and take-backs (`BANK_PAYOUT_SIM_RECORDS_DIR`) and the payroll stand-in's credits and reversals
+//! (`BANK_PAYROLL_SIM_RECORDS_DIR`), so the stack's outside source says what a TEST rail holds in the stand-in's words,
+//! never by reading the ledger back. One append-only JSONL file per rail in the stack's folder, a line
 //! `{"label":"TEST","rail","key","direction","assetId"[,"ref"],"amount","at"}`; `key` is the movement's business key: the
 //! same key with the same facts writes nothing new, and with other facts refuses before anything is written. A line
 //! counts once its newline is written; a torn last line is cut off by the next write. Writers share the folder's `.lock`.
@@ -188,7 +189,7 @@ fn now_iso() -> String {
 }
 
 /// One rail's records in one folder (`railRecorder`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RailRecorder {
     pub dir: PathBuf,
     pub rail: String,
@@ -272,6 +273,28 @@ impl RailRecorder {
         })
     }
 
+    /// `movements`: every complete movement the rail recorded, oldest first, each checked.
+    pub fn movements(&self) -> Result<Vec<Movement>, RailRecordError> {
+        read_complete(&self.file(), &self.rail)?
+            .0
+            .into_iter()
+            .map(|l| {
+                let direction = match l.direction.as_str() {
+                    "in" => "in",
+                    _ => "out",
+                };
+                Ok(Movement {
+                    amount: parse_amount(&l.amount)
+                        .map_err(|e| fail(format!("{} {}: {e}", l.rail, l.key)))?,
+                    key: l.key,
+                    direction,
+                    asset_id: l.asset_id,
+                    reference: l.reference,
+                })
+            })
+            .collect()
+    }
+
     /// Whether the rail has a complete record under `key`.
     pub fn has(&self, key: &str) -> Result<bool, RailRecordError> {
         Ok(read_complete(&self.file(), &self.rail)?
@@ -313,6 +336,11 @@ fn read_complete(file: &Path, rail: &str) -> Result<(Vec<Line>, usize, usize), R
     Ok((lines, complete, bytes.len()))
 }
 
+/// Whether a records folder is a local test path (`path.isAbsolute`).
+pub fn is_absolute(dir: &str) -> bool {
+    Path::new(dir).is_absolute()
+}
+
 /// One writer at a time across the stack's processes: the folder's `.lock`, waited on, then refused by name.
 fn with_lock<T>(
     dir: &Path,
@@ -342,5 +370,71 @@ fn with_lock<T>(
         (Ok(v), Ok(())) => Ok(v),
         (Err(e), _) => Err(e),
         (Ok(_), Err(e)) => Err(fail(e.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "a test")]
+    use super::*;
+
+    fn dir() -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        std::env::temp_dir().join(format!("rail-records-{}-{nanos}", std::process::id()))
+    }
+
+    #[test]
+    fn a_key_is_recorded_once_and_other_facts_under_it_refuse_before_anything_is_written() {
+        let d = dir();
+        let r = RailRecorder::new(d.to_str().unwrap(), "payroll-sim");
+        let m = Movement {
+            key: "salary:credit:net-1".to_owned(),
+            direction: "in",
+            asset_id: "USD".to_owned(),
+            amount: parse_amount("2000").unwrap(),
+            reference: None,
+        };
+        r.record(&m).unwrap();
+        r.record(&m).unwrap();
+        let other = Movement {
+            amount: 1,
+            ..m.clone()
+        };
+        let refused = r.record(&other).unwrap_err();
+        assert!(refused.conflict);
+        assert!(
+            refused
+                .message
+                .contains("is already recorded as \"in USD 2000\""),
+            "{}",
+            refused.message
+        );
+        assert_eq!(r.movements().unwrap(), vec![m.clone()]);
+        assert!(r.has("salary:credit:net-1").unwrap());
+        let text = fs::read_to_string(d.join("payroll-sim.jsonl")).unwrap();
+        assert!(
+            text.starts_with(
+                "{\"label\":\"TEST\",\"rail\":\"payroll-sim\",\"key\":\"salary:credit:net-1\",\"direction\":\"in\",\"assetId\":\"USD\",\"amount\":\"2000\",\"at\":\""
+            ),
+            "{text}"
+        );
+        assert_eq!(text.matches('\n').count(), 1);
+        // A torn last line is cut off by the next write.
+        OpenOptions::new()
+            .append(true)
+            .open(d.join("payroll-sim.jsonl"))
+            .unwrap()
+            .write_all(b"{\"torn")
+            .unwrap();
+        let next = Movement {
+            key: "salary:reverse:net-1".to_owned(),
+            direction: "out",
+            ..m
+        };
+        r.record(&next).unwrap();
+        assert_eq!(r.movements().unwrap().len(), 2);
+        fs::remove_dir_all(d).unwrap();
     }
 }

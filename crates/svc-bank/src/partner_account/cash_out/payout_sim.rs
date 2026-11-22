@@ -11,7 +11,7 @@
 use service_kit::json::{self, Json};
 use service_kit::money::{Amount, Rounding, format_amount, mul_rounded, parse_amount};
 
-use super::rail_records::RailRecorder;
+use crate::partner_account::rail_records::RailRecorder;
 
 /// `PAYOUT_SIM_RAIL`: the ledger rail boundary the stand-in pays out to and returns from.
 pub const RAIL: &str = "payout-sim";

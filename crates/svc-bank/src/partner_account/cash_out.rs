@@ -14,7 +14,6 @@
 
 pub mod ledger;
 pub mod payout_sim;
-pub mod rail_records;
 pub mod receipt;
 pub mod security_lock;
 pub mod session_lock;
@@ -32,6 +31,7 @@ use service_kit::server::Response;
 use service_kit::time::Instant;
 
 use super::linked_accounts::{self, View as AccountView, is_uuid, store_err};
+use super::rail_records::Movement;
 use super::{Deps, refuse};
 use crate::db::{StoreError, with_client};
 use crate::door::Ctx;
@@ -41,7 +41,6 @@ use crate::partner::custody::{Custody, Held};
 use crate::partner::{AccountRef, MoveRequest, balance_not_known, payouts_account};
 use ledger::{Ledger, PostError, Recipe, Unwired, Withdrawal};
 use payout_sim::Partner;
-use rail_records::Movement;
 use security_lock::{Identity, SecurityLock, Unconfigured, assert_holds_open};
 use session_lock::{Gate, with_lock};
 
