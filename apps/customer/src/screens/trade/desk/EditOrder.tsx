@@ -26,8 +26,6 @@ import { replaceKey } from './replace-key';
 
 type Note = { tone: 'good' | 'bad'; text: string } | null;
 
-export { canEdit };
-
 /**
  * Change an open limit order. A smaller (or larger) amount at the same price goes through the service's native amend,
  * which keeps the order's place in the queue. A new price is a different thing: the service cancels the order and
