@@ -10,7 +10,7 @@
 //! answer is the handler's: while the Rust door answers it "not ported" it is owed by the call's slice, counted and
 //! printed, and fails nothing. One difference that is not owed fails the test.
 //!
-//! For one slice: `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-bank --test wire_replay -- --nocapture` prints that
+//! For one slice: `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-bank --test it -- wire_replay:: --nocapture` prints that
 //! slice's owed answers, and `WIRE_REPLAY_STRICT=<slice>` also fails while it owes any.
 #![allow(
     clippy::unwrap_used,
@@ -169,9 +169,16 @@ fn serve() -> BankDoor {
         },
         env,
         now: door::system_now,
-        store: svc_bank::db::Store::Down("no database".to_owned()),
+        // The replay's `sql` is a stub that refuses every query with its own name.
+        store: svc_bank::db::Store::Down("replay stub: sql".to_owned()),
     })
     .unwrap()
+    // The TypeScript replay's `activity` options: a history port (a stub that throws) and the cursor secret.
+    .with_activity(svc_bank::activity::Wiring {
+        pages: Box::new(svc_bank::activity::pages::NoPages),
+        cursor_secret: Some(INTERNAL.to_owned()),
+        ..svc_bank::activity::Wiring::none()
+    })
 }
 
 /// `encodePrincipal` of the replay's principal, signed for the caller's region.

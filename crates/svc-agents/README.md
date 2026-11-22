@@ -68,7 +68,7 @@ All tables are in the `agents` schema; the 44 migrations are in `services/svc-ag
 | `own-sharing`  | `own/routes.ts` (access, co-owners, sharing, the agent's identity and token)                                                    | `own_agent_account_access`, `own_agent_co_owners`, `own_agent_tokens`, `self_freezes_applied`                                                                                                                                   |
 | `webhooks`     | `router.ts` `webhook` (`webhooks/run-webhooks.ts`, mounted from `packages/contracts/src/agents-webhooks-procedures.ts`)         | `run_webhook_endpoints`, `run_webhook_deliveries`                                                                                                                                                                               |
 
-Each call's slice is `scripts/record-door.mjs`'s `SLICES`, written into `src/door/calls.rs`; `cargo test -p svc-agents --test wire_replay -- --nocapture` prints each slice's answers and any that differ.
+Each call's slice is `scripts/record-door.mjs`'s `SLICES`, written into `src/door/calls.rs`; `cargo test -p svc-agents --test it -- wire_replay:: --nocapture` prints each slice's answers and any that differ.
 
 ## Where the port cannot be the TypeScript's
 

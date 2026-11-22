@@ -22,6 +22,30 @@ pub struct TrpcError {
     pub cause: Option<String>,
     /// `data.preview`: the typed Preview refusal (`previewRefusalOf`), when the cause is one.
     pub preview: Option<Box<Preview>>,
+    /// `data.spend`: the caller's own figures on `bank.insufficient_funds` (`spendFiguresOf`): `assetId`, `available`,
+    /// `onHold`, `inEarn`.
+    pub spend: Option<Box<SpendFigures>>,
+}
+
+/// `SpendFigures` (`spendFiguresOf`): what the caller holds of the asset they tried to spend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpendFigures {
+    pub asset_id: String,
+    pub available: String,
+    pub on_hold: String,
+    /// `None`: the earn read failed, sent as `null`.
+    pub in_earn: Option<String>,
+}
+
+impl SpendFigures {
+    pub fn to_json(&self) -> Json {
+        Json::obj([
+            ("assetId", Json::str(self.asset_id.clone())),
+            ("available", Json::str(self.available.clone())),
+            ("onHold", Json::str(self.on_hold.clone())),
+            ("inEarn", self.in_earn.clone().map_or(Json::Null, Json::str)),
+        ])
+    }
 }
 
 /// `PREVIEW_REFUSAL_CODE` (`packages/contracts/src/preview-refusal.ts`).
@@ -66,6 +90,7 @@ impl Preview {
             intafaced_code: None,
             cause: Some(PREVIEW_REFUSAL_CODE.to_owned()),
             preview: Some(Box::new(self)),
+            spend: None,
         }
     }
 }
@@ -79,6 +104,7 @@ impl TrpcError {
             intafaced_code: None,
             cause: None,
             preview: None,
+            spend: None,
         }
     }
 
@@ -94,6 +120,7 @@ impl TrpcError {
             intafaced_code: None,
             cause: Some(cause.into()),
             preview: None,
+            spend: None,
         }
     }
 
@@ -110,6 +137,7 @@ impl TrpcError {
             intafaced_code: Some(refused.code.clone()),
             cause: Some(refused.code),
             preview: None,
+            spend: None,
         }
     }
 
@@ -173,6 +201,9 @@ pub fn render(e: &TrpcError, path: &str, request_id: &str, service: &str, dev: b
     }
     if let Some(preview) = &e.preview {
         data.push(("preview".to_owned(), preview.to_json()));
+    }
+    if let Some(spend) = &e.spend {
+        data.push(("spend".to_owned(), spend.to_json()));
     }
     let body = Json::obj([(
         "error",

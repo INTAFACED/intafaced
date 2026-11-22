@@ -38,7 +38,7 @@ test('More at 1440x900 and 1280x800: sections, tile sizes, words, no dead links'
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   await page.goto('/more');
-  await expect(page.getByTestId('more-title')).toHaveText('More');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('More');
   expect(await page.getByTestId('more-h2').allTextContents()).toEqual([
     'Learn and build',
     'Markets and assets',

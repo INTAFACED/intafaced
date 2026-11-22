@@ -24,6 +24,9 @@ const STRINGS = [
   'a',
   '1',
   '0',
+  // A self-declaring placeholder ahead of 'abc': a `key` or `token` field sampled 'abc' reads as a committed credential to
+  // the secret scan (tooling/ci/secret-scan.mjs PLACEHOLDER_VALUES), 'sample' says what it is.
+  'sample',
   'abc',
   'ethereum',
   '11111111-1111-4111-8111-111111111111',

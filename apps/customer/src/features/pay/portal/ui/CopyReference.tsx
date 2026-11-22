@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { uiCopy } from './copy';
 
 /** An ID the merchant may need to quote. Copying says it worked, or says it didn't, to everyone including screen readers. */
@@ -7,10 +7,10 @@ export function CopyReference({ value, what }: { value: string; what?: string })
   const { t } = uiCopy.useCopy();
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   return (
-    <div className="pp-actions">
+    <div className="lt-actions">
       <code className="pp-wrap">{value}</code>
       <Button
-        variant="ghost"
+        tone="quiet"
         aria-label={what ? t('copyLabel', { what }) : undefined}
         onClick={async () => {
           try {

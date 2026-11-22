@@ -9,6 +9,7 @@ import { signInWithCode } from './merchant.mjs';
 import { signUp, verify } from './desk.mjs';
 import { absentIn } from './absent.mjs';
 import { withKey } from './developer.mjs';
+import { partnerBookMoves as partnerMoves, partnerMainBalance as partnerMain } from './partner.mjs';
 
 // J-bank-24, in the running app (docs/roadmap/journeys.json): I connect my systems to the bank API. One test per step,
 // titled "J-bank-24 #<n>", run in order on one TEST account with a passkey (its second factor), whose bank money the
@@ -20,10 +21,15 @@ import { withKey } from './developer.mjs';
 // authenticator, added before the passkey), as every money-out door does; the key is refused it.
 // The webhook receiver is this test's own TEST server on loopback (the URL guard's dev/test hatch). The ledger posts
 // nothing: every figure checked is the partner's, and the person's ledger balance stays as it was.
+// #2, #3 and #4 compare what the bank API says with the partner's own book: the TEST partner bank's record of the
+// person's main balance and moves, read on loopback straight from the stand-in (svc-bank src/partner/test-partner-record.ts)
+// through the outside record read (venue.mjs venueRecord and venueBalance), never through the person's bank API.
 const J = 'J-bank-24';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
 const PARTNER = 'TEST partner bank';
+/** The partner's own outbound-payments account a payment out leaves into. */
+const PAYOUTS = 'partner:outbound-payments';
 const RECIPIENT = { name: 'TEST Supplier Inc', accountNumber: '000123456789', routingNumber: '021000021' };
 
 test.describe.configure({ mode: 'serial' });
@@ -114,6 +120,13 @@ async function moneySession(who) {
   };
   return signedIn;
 }
+
+/** A pot's balance in the partner's own book: what its moves brought in less what they took out, in TEST whole units. */
+const potAtPartner = (moves, spaceId) =>
+  moves.reduce(
+    (sum, m) => sum + (m.to.spaceId === spaceId ? Number(m.amount) : 0) - (m.from.spaceId === spaceId ? Number(m.amount) : 0),
+    0,
+  );
 
 const okData = (res, what) => {
   expect(res, `${what}: ${JSON.stringify(res.body ?? {}).slice(0, 400)}`).toMatchObject({ ok: true });
@@ -272,6 +285,15 @@ test(`${J} #2 lists accounts with the filter joint: the partner's accounts and f
   // The figures are the partner's: the same as the app's own read of that pot at the partner.
   const appPot = okData(await own.query('spaces.list', { limit: 50 }), 'spaces again').find((s) => s.id === joint.id);
   expect(appPot.balance).toBe('20');
+  // And the partner's own book agrees: one move of TEST 20 from the main balance into the household pot, which holds
+  // 20 there, and TEST 80 left on the main balance.
+  const moves = await partnerMoves(own.userId);
+  const intoJoint = moves.filter((m) => m.to.spaceId === joint.id);
+  expect(intoJoint).toEqual([
+    expect.objectContaining({ amount: '20', from: expect.objectContaining({ owner: own.userId, spaceId: null }) }),
+  ]);
+  expect(potAtPartner(moves, joint.id)).toBe(20);
+  expect(await partnerMain(own.userId)).toBe('80');
   // Without the filter every account is listed; the main balance's spend-today is a decimal string too.
   const all = okData(await keyCall('query', 'bankApi.accounts', { limit: 20 }), 'every account').items;
   expect(all.map((a) => a.type).sort()).toEqual(['joint', 'savings', 'savings', 'standard']);
@@ -284,10 +306,17 @@ test(`${J} #2 lists accounts with the filter joint: the partner's accounts and f
   expect(okData(await keyCall('query', 'bankApi.accounts', { limit: 20 }), 'unchanged').items.find((a) => a.id === main.id)).toMatchObject({
     balance: '80',
   });
+  // Nothing was asked of the partner: its book has no move out of the locked pot and no new move at all.
+  const afterRefusal = await partnerMoves(own.userId);
+  expect(afterRefusal).toHaveLength(moves.length);
+  expect(afterRefusal.filter((m) => m.from.spaceId === locked.id)).toEqual([]);
+  expect(await partnerMain(own.userId)).toBe('80');
 });
 
 test(`${J} #3 moves a balance with a quote: the partner's quote with the exact figures; one partner move, once`, async () => {
-  const { mainId, savingsId } = run.read();
+  const { who, mainId, savingsId } = run.read();
+  const userId = (await session(who)).userId;
+  const movesBefore = await partnerMoves(userId);
   const quote = okData(
     await keyCall('mutation', 'bankApi.quoteMove', { fromAccountId: mainId, toAccountId: savingsId, amount: '25' }),
     'quote',
@@ -304,6 +333,20 @@ test(`${J} #3 moves a balance with a quote: the partner's quote with the exact f
   const after = okData(await keyCall('query', 'bankApi.accounts', { limit: 20 }), 'after').items;
   expect(after.find((a) => a.id === mainId)).toMatchObject({ balance: '55' });
   expect(after.find((a) => a.id === savingsId)).toMatchObject({ balance: '25' });
+  // The partner's own book: exactly one new move, the one the API named, TEST 25 from the main balance into savings;
+  // the main balance holds 55 there.
+  const movesAfter = await partnerMoves(userId);
+  const made = movesAfter.slice(movesBefore.length);
+  expect(made).toEqual([
+    expect.objectContaining({
+      id: first.partnerMoveId,
+      amount: '25',
+      from: expect.objectContaining({ owner: userId, spaceId: null, assetId: 'USDT' }),
+      to: expect.objectContaining({ owner: userId, spaceId: savingsId, assetId: 'USDT' }),
+    }),
+  ]);
+  expect(potAtPartner(movesAfter, savingsId)).toBe(25);
+  expect(await partnerMain(userId)).toBe('55');
   // The same dedupe id on another quote is another instruction, refused; nothing moves.
   const other = okData(
     await keyCall('mutation', 'bankApi.quoteMove', { fromAccountId: mainId, toAccountId: savingsId, amount: '5' }),
@@ -316,6 +359,8 @@ test(`${J} #3 moves a balance with a quote: the partner's quote with the exact f
   expect(okData(await keyCall('query', 'bankApi.accounts', { limit: 20 }), 'unchanged').items.find((a) => a.id === mainId)).toMatchObject({
     balance: '55',
   });
+  expect(await partnerMoves(userId)).toHaveLength(movesAfter.length);
+  expect(await partnerMain(userId)).toBe('55');
 });
 
 test(`${J} #4 creates an instant and an ACH payment: the transfer in its lifecycle through the partner; with no rail the notice with rail.bank`, async () => {
@@ -327,6 +372,8 @@ test(`${J} #4 creates an instant and an ACH payment: the transfer in its lifecyc
   // The person's own session makes the payments, through the same bank API, each with a fresh confirmation of their
   // second factor; the session alone, unconfirmed, is refused too.
   const own = await moneySession(who);
+  const movesBefore = await partnerMoves(own.userId);
+  const payoutsOf = (moves) => moves.filter((m) => m.from.owner === own.userId && m.from.spaceId === null && m.to.owner === PAYOUTS);
   const unconfirmed = await own.mutate('bankApi.createPayment', { ...ask, idempotencyKey: `jb24-bare-${RUN}`, method: 'ach' });
   expect(unconfirmed).toMatchObject({ ok: false, status: 403 });
   // No rail: the notice names rail.bank, and the payment's intent row is kept refused.
@@ -341,6 +388,9 @@ test(`${J} #4 creates an instant and an ACH payment: the transfer in its lifecyc
     method: 'instant',
   });
   expect(kept.find((p) => p.idempotencyKey === `jb24-key-${RUN}`)).toBeUndefined();
+  // Refused by key, unconfirmed and for want of a rail: the partner's own book moved nothing.
+  expect(await partnerMoves(own.userId)).toHaveLength(movesBefore.length);
+  expect(await partnerMain(own.userId)).toBe('55');
 
   // With the TEST partner's rail: each payment is made pending through the partner, once per key.
   okData(await own.mutate('testPartner.set', { bankRail: 'test' }), 'the TEST rail');
@@ -360,6 +410,15 @@ test(`${J} #4 creates an instant and an ACH payment: the transfer in its lifecyc
     balance: '35',
     spendToday: '20',
   });
+  // The partner's own book: two moves of TEST 10 from the main balance into its outbound-payments account, one per
+  // payment (the ACH retry made none), and 35 left on the main balance there.
+  const movesAfter = await partnerMoves(own.userId);
+  expect(movesAfter).toHaveLength(movesBefore.length + 2);
+  expect(payoutsOf(movesAfter.slice(movesBefore.length))).toEqual([
+    expect.objectContaining({ amount: '10' }),
+    expect.objectContaining({ amount: '10' }),
+  ]);
+  expect(await partnerMain(own.userId)).toBe('35');
   run.write({ achId: ach.id });
 });
 

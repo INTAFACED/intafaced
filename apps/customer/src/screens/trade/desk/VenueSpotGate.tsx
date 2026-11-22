@@ -67,7 +67,7 @@ export function VenueSpotGate({
     return (
       <div data-testid="if-desk" className="if-desk" data-venue="on">
         {!mode.status.available ? (
-          <p className="failure" role="alert" data-testid="venue-down">
+          <p className="lt-refusal" role="alert" data-testid="venue-down">
             {v('Venue unavailable', { detail: mode.status.refusal.detail })}
           </p>
         ) : (

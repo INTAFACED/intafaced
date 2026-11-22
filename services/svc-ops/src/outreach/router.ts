@@ -60,6 +60,7 @@ import {
   outreachQuestionnaireInputSchema,
   crmListInputSchema,
   crmOpportunitySchema,
+  crmOpportunityDetailSchema,
   crmOpportunityPageSchema,
   crmAssignmentInputSchema,
   crmStageChangeInputSchema,
@@ -188,6 +189,7 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .query(({ input }) => mapped(() => crm.listOpportunities(input))),
     getOpportunity: staffRead
       .input(z.object({ opportunityId: z.string().guid() }).strict())
+      .output(crmOpportunityDetailSchema)
       .query(({ input }) => mapped(() => crm.getOpportunity(input))),
     assign: staffWrite
       .input(crmAssignmentInputSchema)

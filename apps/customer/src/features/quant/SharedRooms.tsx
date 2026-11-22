@@ -17,14 +17,14 @@ export function SharedRoom({ paper }: { paper: boolean }) {
       <QuantRooms active="strategies" paper={paper} />
       <Panel title={t('sharedTitle')}>
         <div data-testid="quant-shared">
-          <p className="muted">{t('sharedIntro')}</p>
+          <p className="lt-muted">{t('sharedIntro')}</p>
           <Read resource={list.resource} retry={list.reload}>
             {(data) => (
               <>
                 <p data-testid="quant-my-account-id" data-id={data.accountId}>
                   {t('yourId', { id: data.accountId })}
                 </p>
-                <p className="muted">{t('yourIdHint')}</p>
+                <p className="lt-muted">{t('yourIdHint')}</p>
                 {data.strategies.length === 0 ? (
                   <EmptyState title={t('noShared')} />
                 ) : (
@@ -36,7 +36,7 @@ export function SharedRoom({ paper }: { paper: boolean }) {
                         <td>{t(row.role)}</td>
                         <td lang="zxx">{row.ownerId}</td>
                         <td>
-                          <a className="text-link" href={preservePaperHref(`/quant/shared/${encodeURIComponent(row.strategyId)}`, paper)}>
+                          <a className="lt-link" href={preservePaperHref(`/quant/shared/${encodeURIComponent(row.strategyId)}`, paper)}>
                             {t('open', { name: row.name })}
                           </a>
                         </td>

@@ -432,7 +432,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await create.getByRole('button', { name: 'Review subaccount', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Create subaccount', exact: true }).click();
   await expect(page.getByTestId('subaccounts__request').last()).toContainText('The service created the original strategy subaccount.');
-  const row = page.locator('li.subaccounts__row').filter({ has: page.getByText(subLabel, { exact: true }) });
+  const row = page.getByTestId('subaccounts__row').filter({ has: page.getByText(subLabel, { exact: true }) });
   const use = row.getByRole('button', { name: /^Use sub-account / });
   await expect(use).toBeEnabled();
   const subAccountId = (await use.getAttribute('aria-label')).replace('Use sub-account ', '').toLowerCase();

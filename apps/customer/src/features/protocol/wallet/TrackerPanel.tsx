@@ -72,8 +72,8 @@ export function TrackerPanel() {
   return (
     <>
       <Panel title={t('trackerTitle')}>
-        <p className="muted">{t('trackerNote')}</p>
-        <form aria-label={t('trackerTitle')} onSubmit={submit} className="form-stack" noValidate>
+        <p className="lt-muted">{t('trackerNote')}</p>
+        <form aria-label={t('trackerTitle')} onSubmit={submit} className="lt-stack" noValidate>
           <Field
             label={t('trackerAddress')}
             hint={t('trackerAddressHint')}
@@ -94,7 +94,7 @@ export function TrackerPanel() {
           <ul aria-label={t('watchlistLabel')} className="protocol-actions">
             {watchlist.map((address) => (
               <li key={address}>
-                <Button variant="ghost" className="numeric" onClick={() => track(address)}>
+                <Button variant="ghost" className="lt-num" onClick={() => track(address)}>
                   {address}
                 </Button>{' '}
                 <Button variant="secondary" aria-label={t('watchlistRemove', { address })} onClick={() => remove(address)}>
@@ -121,7 +121,7 @@ function Tracked({ address, api, t }: { address: string; api: ReturnType<typeof 
       {!data ? (
         failure ? (
           <>
-            <p className="muted">{t('readFailed')}</p>
+            <p className="lt-muted">{t('readFailed')}</p>
             <p role="alert">{failure.message}</p>
             <Button variant="secondary" onClick={reload}>
               {t('trackerButton')}
@@ -148,7 +148,7 @@ function TrackedBody({ data, t }: { data: ProtocolPortfolio; t: PortfolioTransla
       <dl className="protocol-facts">
         <div>
           <dt>{t('totalLabel')}</dt>
-          <dd className="numeric">{usdDisplay(data.totalUsd)}</dd>
+          <dd className="lt-num">{usdDisplay(data.totalUsd)}</dd>
         </div>
         <div>
           <dt>{t('asOf', { block: data.blockNumber })}</dt>
@@ -171,11 +171,11 @@ function TrackedBody({ data, t }: { data: ProtocolPortfolio; t: PortfolioTransla
           data.holdings.map((row) => (
             <tr key={row.token}>
               <td>
-                {row.name} <span className="muted">{row.symbol}</span>
+                {row.name} <span className="lt-muted">{row.symbol}</span>
               </td>
-              <td className="numeric">{tokenAmount(row.balance, row.decimals)}</td>
-              <td className="numeric">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</td>
-              <td className="numeric">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</td>
+              <td className="lt-num">{tokenAmount(row.balance, row.decimals)}</td>
+              <td className="lt-num">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</td>
+              <td className="lt-num">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</td>
             </tr>
           ))
         )}
@@ -190,24 +190,24 @@ function HistoryTable({ data, headers, t }: { data: ProtocolPortfolio; headers: 
     <section aria-label={t('historyLabel')}>
       <h3>{t('historyLabel')}</h3>
       {data.transferCount > data.transfers.length && (
-        <p className="muted">{t('historyNewest', { shown: String(data.transfers.length), count: String(data.transferCount) })}</p>
+        <p className="lt-muted">{t('historyNewest', { shown: String(data.transfers.length), count: String(data.transferCount) })}</p>
       )}
       <DataTable label={t('transfersLabel')} headers={headers}>
         {data.transfers.map((row) => (
           <tr key={`${row.tx}:${row.token}:${row.direction}:${row.amount}`}>
-            <td className="numeric">
+            <td className="lt-num">
               <a href={`/chain/blocks/${row.block}`}>{row.block}</a>
             </td>
             <td>{row.symbol}</td>
             <td>
               {row.direction === 'in' ? t('dirIn') : t('dirOut')}
-              {row.pool && <span className="muted"> · {t('poolTrade')}</span>}
+              {row.pool && <span className="lt-muted"> · {t('poolTrade')}</span>}
             </td>
-            <td className="numeric">{tokenAmount(row.amount, row.decimals)}</td>
-            <td className="numeric">
+            <td className="lt-num">{tokenAmount(row.amount, row.decimals)}</td>
+            <td className="lt-num">
               <a href={`/chain/address/${row.counterparty}`}>{row.counterparty}</a>
             </td>
-            <td className="numeric">
+            <td className="lt-num">
               <a href={`/chain/tx/${row.tx}`} title={row.tx}>
                 {row.tx.slice(0, 10)}…
               </a>

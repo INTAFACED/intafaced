@@ -131,7 +131,7 @@ for (const count of [1, 3, 7])
           parent: { x: p.x, width: p.width },
           columns: getComputedStyle(parent).gridTemplateColumns,
           background: getComputedStyle(parent).backgroundColor,
-          price: getComputedStyle(el.querySelector('.numeric')).fontSize,
+          price: getComputedStyle(el.querySelector(':is(.numeric, .lt-num)')).fontSize,
         };
       });
       writeFileSync(dir + '/layout-' + count + '-' + width + '.json', JSON.stringify(before, null, 2));

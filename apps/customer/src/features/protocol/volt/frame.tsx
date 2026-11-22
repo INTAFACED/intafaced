@@ -80,6 +80,8 @@ export function useProtocolTab(slug: Slug, tab: string) {
   const actions = tabs.find((entry) => entry.id === tab)?.actions ?? [];
   return {
     room,
+    /** The room's status reads themselves, for a tab that shows an answer whole (the chain status, the Protocol health). */
+    reads: { chain, health },
     lang: renderedLocale,
     title: slug === 'chain' ? t('titleChain') : slug === 'dex' ? t('titleDex') : t('titleProtocol'),
     description: slug === 'chain' ? t('descChain') : slug === 'dex' ? t('descDex') : t('descProtocol'),

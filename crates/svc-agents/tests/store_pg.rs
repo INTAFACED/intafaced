@@ -29,7 +29,7 @@ use svc_agents::gateway::readiness::ReadyInput;
 use svc_agents::gateway::routing;
 use svc_agents::migrate::MIGRATIONS;
 
-mod support;
+use crate::support;
 use support::TestDb;
 
 /// Every table `README.md` names, slice by slice.
@@ -172,7 +172,7 @@ fn the_schema_check_refuses_before_the_migrations_and_passes_after() {
     let Some(db) = TestDb::new() else { return };
     let store = db.store();
     assert_eq!(boot::check_schema(&store), Err(SCHEMA_MISSING.to_owned()));
-    db.migrated();
+    db.migrated_in_place();
     assert_eq!(boot::check_schema(&store), Ok(()));
     store.end();
 }
@@ -213,7 +213,7 @@ fn sorted(v: &Json) -> Json {
 #[test]
 fn the_boot_upserts_every_agent_and_a_reboot_keeps_an_operators_switch() {
     let Some(db) = TestDb::new() else { return };
-    db.migrated();
+    db.migrated_in_place();
     let store = db.store();
     let rows = boot::boot_agents().unwrap();
     let written = boot::register_agents(&store, &rows).unwrap();
@@ -279,7 +279,7 @@ fn the_boot_upsert_refuses_on_a_database_without_the_schema() {
 #[test]
 fn every_pooled_connection_reads_the_agents_schema_first_under_the_services_name() {
     let Some(db) = TestDb::new() else { return };
-    db.migrated();
+    db.migrated_in_place();
     let store = db.store();
     let pool = store.pool().unwrap();
     let (path, name, table): (String, String, Option<String>) = db::with_client(pool, |c| {
@@ -322,7 +322,7 @@ fn every_pooled_connection_reads_the_agents_schema_first_under_the_services_name
 #[test]
 fn health_answers_as_index_ts_and_ready_reports_the_gateway() {
     let Some(db) = TestDb::new() else { return };
-    db.migrated();
+    db.migrated_in_place();
     let mock: Arc<dyn Provider> = Arc::new(MockProvider::new(
         MockOptions {
             id: Some("primary".to_owned()),

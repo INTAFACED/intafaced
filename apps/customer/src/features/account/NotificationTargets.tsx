@@ -302,7 +302,7 @@ function TargetControls({
         )}
       </p>
       {id === 'push' && (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="pushDependency" />
         </p>
       )}
@@ -342,7 +342,7 @@ function TargetControls({
             error={error && error !== 'codeInvalid' ? <Copy k={error} /> : undefined}
             autoComplete={id === 'email' ? 'email' : 'tel'}
           />
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="consequences" />
           </p>
           <label className="notification-target-ack">
