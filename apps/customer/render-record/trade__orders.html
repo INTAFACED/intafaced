@@ -167,62 +167,64 @@
 </p>
 <p class="muted orders-note" role="status">2 orders shown</p>
 <div data-testid="orders-table" class="orders-table">
-<table data-testid="dk-table" class="dk-table">
+<div class="lt-table-scroll" tabindex="0" role="region" aria-label="Order history">
+<table data-testid="dk-table" class="lt-table lt-table-dense">
 <thead>
 <tr>
 <th>Time</th>
 <th>Market</th>
 <th>Type</th>
 <th>Side</th>
-<th class="dk-num">Price</th>
-<th class="dk-num">Amount</th>
-<th class="dk-num">Filled</th>
-<th class="dk-num">Average price</th>
-<th class="dk-num">Cost</th>
+<th class="lt-end">Price</th>
+<th class="lt-end">Amount</th>
+<th class="lt-end">Filled</th>
+<th class="lt-end">Average price</th>
+<th class="lt-end">Cost</th>
 <th>Status</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="if-num">
-<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o2" title="Open this order’s details">14 Oct, 08:01</a>
+<td class="lt-num">
+<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o2" title="Open this order’s details">14 Oct, 08:01</a>
 </td>
 <td>BTC/USDT</td>
 <td>Limit</td>
 <td>
-<span class="dk-side" data-side="buy">Buy</span>
+<span class="lt-up" data-side="buy">Buy</span>
 </td>
-<td class="dk-num if-num">65,100.00</td>
-<td class="dk-num if-num">0.0002</td>
-<td class="dk-num if-num">0.0002</td>
-<td class="dk-num if-num">—</td>
-<td class="dk-num if-num">0.000000 <span class="dk-unit">USDT</span>
+<td class="lt-end lt-num">65,100.00</td>
+<td class="lt-end lt-num">0.0002</td>
+<td class="lt-end lt-num">0.0002</td>
+<td class="lt-end lt-num">—</td>
+<td class="lt-end lt-num">0.000000 <span class="lt-quiet">USDT</span>
 </td>
 <td>
-<span data-slot="status-tag" data-status="filled" class="inline-flex h-5 items-center whitespace-nowrap rounded-xs border border-current/40 px-1.5 text-2xs text-accent-text bg-lime-soft">Filled</span> <button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_3_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="dk-changes-trigger">Changes</button>
+<span data-slot="status-tag" data-status="filled" class="lt-status">Filled</span> <button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_3_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="lt-link">Changes</button>
 </td>
 </tr>
 <tr>
-<td class="if-num">
-<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o3" title="Open this order’s details">13 Oct, 17:00</a>
+<td class="lt-num">
+<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o3" title="Open this order’s details">13 Oct, 17:00</a>
 </td>
 <td>BTC/USDT</td>
 <td>Limit</td>
 <td>
-<span class="dk-side" data-side="buy">Buy</span>
+<span class="lt-up" data-side="buy">Buy</span>
 </td>
-<td class="dk-num if-num">60,000.00</td>
-<td class="dk-num if-num">0.0001</td>
-<td class="dk-num if-num">0</td>
-<td class="dk-num if-num">—</td>
-<td class="dk-num if-num">0.000000 <span class="dk-unit">USDT</span>
+<td class="lt-end lt-num">60,000.00</td>
+<td class="lt-end lt-num">0.0001</td>
+<td class="lt-end lt-num">0</td>
+<td class="lt-end lt-num">—</td>
+<td class="lt-end lt-num">0.000000 <span class="lt-quiet">USDT</span>
 </td>
 <td>
-<span data-slot="status-tag" data-status="cancelled" class="inline-flex h-5 items-center whitespace-nowrap rounded-xs border border-current/40 px-1.5 text-2xs text-down-text">Cancelled</span> <button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_4_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="dk-changes-trigger">Changes</button>
+<span data-slot="status-tag" data-status="cancelled" class="lt-status">Cancelled</span> <button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_4_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="lt-link">Changes</button>
 </td>
 </tr>
 </tbody>
 </table>
+</div>
 </div>
 <p class="muted orders-note">That’s every order that matches these filters.</p>
 <section data-testid="assistant-orders" aria-labelledby="assistant-orders-title" class="orders-assistant">

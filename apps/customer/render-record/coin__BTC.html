@@ -211,41 +211,47 @@
 <a data-testid="coin-recent__all" class="coin-recent__all" href="/money/activity?tab=trades&amp;asset=BTC">View all</a>
 </div>
 <div class="coin-card coin-recent__card">
-<table data-testid="dk-table" class="dk-table" data-layout="activity">
+<div class="lt-table-scroll" tabindex="0" role="region" aria-label="Trade history">
+<table data-testid="dk-table" class="lt-table lt-table-dense" data-layout="activity">
 <thead>
 <tr>
 <th>Time</th>
 <th>Trade</th>
-<th class="dk-num">Price</th>
-<th class="dk-num">Total</th>
-<th class="dk-num">Fee</th>
+<th class="lt-end">Price</th>
+<th class="lt-end">Total</th>
+<th class="lt-end">Fee</th>
 </tr>
 </thead>
 <tbody>
 <tr data-fill="f1">
-<td class="if-num">14 Oct, 08:02</td>
+<td class="lt-num">14 Oct, 08:02</td>
 <td>
-<span data-testid="dk-trade-what" class="dk-trade-what" data-side="buy">Bought 0.00015 BTC</span>
-<span class="dk-trade-sub">BTC/USDT</span>
+<span class="lt-stack-tight">
+<span data-testid="dk-trade-what" class="lt-strong" data-side="buy">Bought 0.00015 BTC</span>
+<span class="lt-note">BTC/USDT</span>
+</span>
 </td>
-<td class="dk-num if-num">65,083.66</td>
-<td class="dk-num if-num">9.762549 <span class="dk-unit">USDT</span>
+<td class="lt-end lt-num">65,083.66</td>
+<td class="lt-end lt-num">9.762549 <span class="lt-quiet">USDT</span>
 </td>
-<td class="dk-num if-num">0.00000015 BTC</td>
+<td class="lt-end lt-num">0.00000015 BTC</td>
 </tr>
 <tr data-fill="f2">
-<td class="if-num">13 Oct, 10:30</td>
+<td class="lt-num">13 Oct, 10:30</td>
 <td>
-<span data-testid="dk-trade-what" class="dk-trade-what" data-side="sell">Sold 0.002 BTC</span>
-<span class="dk-trade-sub">BTC/USDT</span>
+<span class="lt-stack-tight">
+<span data-testid="dk-trade-what" class="lt-strong" data-side="sell">Sold 0.002 BTC</span>
+<span class="lt-note">BTC/USDT</span>
+</span>
 </td>
-<td class="dk-num if-num">64,000.00</td>
-<td class="dk-num if-num">128.000000 <span class="dk-unit">USDT</span>
+<td class="lt-end lt-num">64,000.00</td>
+<td class="lt-end lt-num">128.000000 <span class="lt-quiet">USDT</span>
 </td>
-<td class="dk-num if-num">0.128 USDT</td>
+<td class="lt-end lt-num">0.128 USDT</td>
 </tr>
 </tbody>
 </table>
+</div>
 </div>
 </section>
 </div>
