@@ -46,12 +46,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          key=$(node tooling/scripts/local-test-snapshot.mjs key)
+          inputs=$(node tooling/scripts/local-test-snapshot.mjs key)
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/caches?ref=refs/heads/main&key=real-app-journeys-snapshot-&per_page=100" \
             --jq '.actions_caches[]' > "$RUNNER_TEMP/snapshots.jsonl"
-          save="real-app-journeys-snapshot-$key-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          save="real-app-journeys-snapshot-$inputs-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           echo "save=$save" >> "$GITHUB_OUTPUT"
-          if node tooling/scripts/local-test-snapshot.mjs due "$key" "$RUNNER_TEMP/snapshots.jsonl"; then echo "due=true" >> "$GITHUB_OUTPUT"; fi
+          if node tooling/scripts/local-test-snapshot.mjs due "$inputs" "$RUNNER_TEMP/snapshots.jsonl"; then echo "due=true" >> "$GITHUB_OUTPUT"; fi
       # The journeys build job's build, step for step (real-app-journeys.yml, `Build the stack once`).
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         if: steps.due.outputs.due == 'true'
