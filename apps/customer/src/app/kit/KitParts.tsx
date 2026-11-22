@@ -33,8 +33,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@intafaced/ui';
-import { Rail, typeRoles, type DoorLink, type TypeRole } from '@intafaced/ui/lit';
-import { Stepper } from '@intafaced/ui/lit/templates';
+import { Rail, ToggleChips, typeRoles, type DoorLink, type TypeRole } from '@intafaced/ui/lit';
+import { Sparkline as LineSpark, sortRows, Stepper, Table, type Column, type SortState } from '@intafaced/ui/lit/templates';
 import type { OrderBook as WireBook } from '@intafaced/exchange-contract/schemas';
 import { ShellIcon, type ShellIconName } from '../icons';
 import { PriceChart } from '../../screens/trade/chart/PriceChart';
@@ -229,6 +229,79 @@ export function StepsAndSpark() {
       <div className="vk-panel vk-row">
         <Sparkline values={SPARK} width={120} height={32} direction="up" label="TEST BTC, the last ten hours" />
         <Sparkline values={[...SPARK].reverse()} width={120} height={32} direction="down" label="TEST ETH, the last ten hours" />
+      </div>
+    </div>
+  );
+}
+
+type ListRow = { symbol: string; last: string; change: string; spark: readonly string[] };
+type ListChip = 'all' | 'gainers' | 'losers';
+
+/** 120 TEST markets, so the list is long enough to draw only the rows on screen. */
+const LIST_ROWS: readonly ListRow[] = Array.from({ length: 120 }, (_, i) => {
+  const up = i % 3 !== 1;
+  const base = 100 + ((i * 37) % 900);
+  return {
+    symbol: `TEST${String(i + 1).padStart(3, '0')}/USDT`,
+    last: `${base}.${String((i * 13) % 100).padStart(2, '0')}`,
+    change: `${up ? '' : '-'}${(i % 9) + 1}.${(i * 7) % 10}`,
+    spark: Array.from({ length: 12 }, (_, h) => String(base + (up ? h : -h) * ((i % 5) + 1) + ((h * i) % 7))),
+  };
+});
+
+const LIST_COLUMNS: readonly Column<ListRow>[] = [
+  { key: 'name', label: 'Name', cell: (r) => r.symbol, sortType: 'text', sortLabel: 'Sort by Name' },
+  { key: 'last', label: 'Price', cell: (r) => r.last, align: 'end', sortType: 'decimal', sortLabel: 'Sort by Price' },
+  { key: 'change', label: '24h change', cell: (r) => `${r.change}%`, align: 'end', sortType: 'decimal', sortLabel: 'Sort by 24h change' },
+  {
+    key: 'spark',
+    label: 'Last 12h',
+    cell: (r) => (
+      <LineSpark label={`${r.symbol}, the last twelve hours`} values={r.spark} size="row" tone={r.change.startsWith('-') ? 'down' : 'up'} />
+    ),
+  },
+];
+
+const LIST_SORT_VALUES = [
+  { id: 'name', value: (r: ListRow) => r.symbol, sortType: 'text' as const },
+  { id: 'last', value: (r: ListRow) => r.last, sortType: 'decimal' as const },
+  { id: 'change', value: (r: ListRow) => r.change, sortType: 'decimal' as const },
+];
+
+/** A markets list: filter chips over a sortable table that draws only the rows near the window's view. */
+export function MarketList() {
+  const [chip, setChip] = useState<ListChip | null>('all');
+  const [sort, setSort] = useState<SortState | null>(null);
+  const shown = LIST_ROWS.filter((r) => chip !== 'gainers' || !r.change.startsWith('-')).filter(
+    (r) => chip !== 'losers' || r.change.startsWith('-'),
+  );
+  return (
+    // Inside a room frame, as in a room: the table stacks its rows by the room's own width.
+    <div className="lt-room">
+      <div className="vk-stack">
+        <ToggleChips
+          label="Filter by change"
+          options={[
+            { value: 'all', label: 'All' },
+            { value: 'gainers', label: 'Gainers' },
+            { value: 'losers', label: 'Losers' },
+          ]}
+          value={chip}
+          onChange={setChip}
+          clearable
+        />
+        <Table
+          caption="TEST markets"
+          columns={LIST_COLUMNS}
+          rows={sortRows(shown, LIST_SORT_VALUES, sort)}
+          rowKey={(r) => r.symbol}
+          rowHref={() => '/kit'}
+          rowMarks={(r) => ({ 'data-symbol': r.symbol })}
+          sort={sort}
+          onSort={setSort}
+          empty="No TEST markets match"
+          virtual={{ estimate: 56 }}
+        />
       </div>
     </div>
   );
