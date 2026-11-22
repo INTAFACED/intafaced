@@ -170,6 +170,8 @@ export function StatusTag({
 
 export interface StateAction {
   label: string;
+  /** The language of `label`, when the room's copy fell back to another one than the page's. */
+  lang?: string;
   onClick?: () => void;
   /** Renders a link instead of a button. */
   href?: string;
@@ -177,20 +179,30 @@ export interface StateAction {
 
 export type StateBlockProps = { className?: string; testId?: string } & (
   | { kind: 'loading'; rows?: number; label?: string }
-  | { kind: 'empty'; title: React.ReactNode; body?: React.ReactNode; action?: StateAction }
-  | { kind: 'error'; thing?: string; title?: string; onRetry: () => void; retryLabel?: string }
-  | { kind: 'refused'; title: string; body: React.ReactNode; code?: string; action?: StateAction }
+  | { kind: 'empty'; title: React.ReactNode; titleLang?: string; body?: React.ReactNode; action?: StateAction }
+  | {
+      kind: 'error';
+      thing?: string;
+      title?: string;
+      /** The language of `title`, when the room's copy fell back to another one than the page's. */
+      titleLang?: string;
+      onRetry: () => void;
+      retryLabel?: string;
+      /** The language of `retryLabel`, the same way. */
+      retryLang?: string;
+    }
+  | { kind: 'refused'; title: string; titleLang?: string; body: React.ReactNode; code?: string; action?: StateAction }
 );
 
 function StateButton({ action, tone }: { action: StateAction; tone: 'primary' | 'secondary' }) {
   if (action.href)
     return (
-      <a className="lit-button" data-tone={tone} data-size="md" role="link" href={action.href}>
+      <a className="lit-button" data-tone={tone} data-size="md" role="link" href={action.href} lang={action.lang}>
         {action.label}
       </a>
     );
   return (
-    <button type="button" className="lit-button" data-tone={tone} data-size="md" onClick={action.onClick}>
+    <button type="button" className="lit-button" data-tone={tone} data-size="md" onClick={action.onClick} lang={action.lang}>
       {action.label}
     </button>
   );
@@ -217,7 +229,9 @@ export function StateBlock(props: StateBlockProps) {
   if (props.kind === 'empty')
     return (
       <div data-slot="state-block" data-testid={props.testId} data-kind="empty" className={clsx('lt-state', props.className)}>
-        <h3 className="lt-state-title">{props.title}</h3>
+        <h3 className="lt-state-title" lang={props.titleLang}>
+          {props.title}
+        </h3>
         {props.body ? <p className="lt-state-body">{props.body}</p> : null}
         {props.action ? <StateButton action={props.action} tone="primary" /> : null}
       </div>
@@ -225,13 +239,24 @@ export function StateBlock(props: StateBlockProps) {
   if (props.kind === 'error')
     return (
       <div data-slot="state-block" data-testid={props.testId} data-kind="error" role="alert" className={clsx('lt-state', props.className)}>
-        <p className="lt-state-title">{props.title ?? `Couldn't load ${props.thing ?? 'this'}.`}</p>
-        <StateButton action={{ label: props.retryLabel ?? 'Try again', onClick: props.onRetry }} tone="secondary" />
+        <p className="lt-state-title" lang={props.title === undefined ? undefined : props.titleLang}>
+          {props.title ?? `Couldn't load ${props.thing ?? 'this'}.`}
+        </p>
+        <StateButton
+          action={{
+            label: props.retryLabel ?? 'Try again',
+            lang: props.retryLabel === undefined ? undefined : props.retryLang,
+            onClick: props.onRetry,
+          }}
+          tone="secondary"
+        />
       </div>
     );
   return (
     <div data-slot="state-block" data-testid={props.testId} data-kind="refused" className={clsx('lt-state', props.className)}>
-      <p className="lt-state-title">{props.title}</p>
+      <p className="lt-state-title" lang={props.titleLang}>
+        {props.title}
+      </p>
       <p className="lt-state-body">{props.body}</p>
       {props.action ? <StateButton action={props.action} tone="secondary" /> : null}
       {props.code ? <p className="lt-ref">{props.code}</p> : null}

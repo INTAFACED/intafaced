@@ -317,12 +317,18 @@ export function Sheet({
   closeButton = role !== 'alertdialog',
   closeLabel,
   closeLang,
+  titleLang,
   footer,
   testId,
   children,
 }: {
   open: boolean;
   title: string;
+  /**
+   * The language of `title`, when the room's copy fell back to another one than the page's: the heading carries it and
+   * names the sheet, so the name is read in the words' own language.
+   */
+  titleLang?: string;
   /** What the sheet asks or does, read out with its name (`aria-describedby`). */
   description?: React.ReactNode;
   onClose: () => void;
@@ -340,6 +346,7 @@ export function Sheet({
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
   const descriptionId = React.useId();
+  const titleId = React.useId();
   const alert = role === 'alertdialog';
   // Focus goes back to what opened the sheet when it closes or goes away, as a modal dialog's should.
   const opener = React.useRef<HTMLElement | null>(null);
@@ -369,7 +376,8 @@ export function Sheet({
       data-testid={testId}
       role={alert ? 'alertdialog' : undefined}
       aria-modal={alert || undefined}
-      aria-label={title}
+      aria-label={titleLang ? undefined : title}
+      aria-labelledby={titleLang ? titleId : undefined}
       aria-describedby={description ? descriptionId : undefined}
       onClose={alert ? undefined : onClose}
       onCancel={(e) => {
@@ -378,7 +386,9 @@ export function Sheet({
       }}
     >
       <header className="lt-sheet-head">
-        <h2 className="lt-sheet-title">{title}</h2>
+        <h2 className="lt-sheet-title" id={titleLang ? titleId : undefined} lang={titleLang}>
+          {title}
+        </h2>
         {closeButton ? (
           <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} lang={closeLang} onClick={onClose}>
             Close
