@@ -358,7 +358,12 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
             <legend>{t('Sync in a group')}</legend>
             <div className="lt-toolbar">
               {(['symbol', 'interval', 'crosshair', 'range'] as const).map((key) => (
-                <Checkbox key={key} label={t(SYNC_LABEL[key])} checked={grid.sync[key]} onChange={(checked) => setSync(key, checked)} />
+                <Checkbox
+                  key={key}
+                  label={t(SYNC_LABEL[key])}
+                  checked={grid.sync[key]}
+                  onChange={(e) => setSync(key, e.currentTarget.checked)}
+                />
               ))}
             </div>
           </fieldset>
