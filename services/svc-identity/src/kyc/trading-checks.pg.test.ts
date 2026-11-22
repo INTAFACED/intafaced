@@ -1,5 +1,5 @@
 /**
- * The trading checks against Postgres (J-cex-spot-01 #3, OWNER 258 (4)). A clear grants level basic for trading in one
+ * The trading checks against Postgres (J-cex-spot-01 #3). A clear grants level basic for trading in one
  * transaction with its case and capabilities; a hit holds the account behind a pending record and grants nothing; a
  * blank owner list refuses kyc.screening_list_unset and writes nothing; a repeat answers the first outcome by its
  * business key and never screens again; the name and date of birth are never stored in plaintext.
