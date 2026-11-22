@@ -662,6 +662,71 @@ test("a guard behind the service's own function or const options is copied whole
   assert.equal(reasonOf(access.audited), 'guard chained with .use()');
 });
 
+test("a guard whose one check runs inside the service's own error mapper names its check; the mount is handed it without next(), and a near shape stays", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const { partsFor } = await import('./guard-check.mjs');
+  const { reasonOf } = await import('./report.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-wrapped-'));
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'src/kit.ts'), 'export async function mappedElsewhere(fn) { return fn(); }\n');
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { scopedProcedure, router } from '@intafaced/contracts/trpc';",
+      "import { mappedElsewhere } from './kit.js';",
+      'async function mapped(fn) { try { return await fn(); } catch (e) { throw e; } }',
+      'export function createSvcRouter(authority, other) {',
+      "  const staffRead = scopedProcedure('ops:read').use(async ({ ctx, next }) =>\n    mapped(async () => {\n      await authority(ctx);\n      return next({ ctx });\n    }),\n  );",
+      "  const imported = scopedProcedure('ops:read').use(async ({ ctx, next }) => mappedElsewhere(async () => { await authority(ctx); return next({ ctx }); }));",
+      "  const twice = scopedProcedure('ops:read').use(async ({ ctx, next }) => mapped(async () => { await authority(ctx); await authority(ctx); return next({ ctx }); }));",
+      "  const reads = scopedProcedure('ops:read').use(async ({ ctx, next }) => mapped(async () => { await authority(other); return next({ ctx }); }));",
+      "  const changes = scopedProcedure('ops:read').use(async ({ ctx, next }) => mapped(async () => { await authority(ctx); return next({ ctx: { ...ctx, x: 1 } }); }));",
+      '  const shadowed = (authority) => router({ inner: staffRead.output(o).query(h) });',
+      '  return router({',
+      '    preview: staffRead.output(o).query(h),',
+      '    imported: imported.output(o).query(h),',
+      '    twice: twice.output(o).query(h),',
+      '    reads: reads.output(o).query(h),',
+      '    changes: changes.output(o).query(h),',
+      '    nested: shadowed(other),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const chains = new Map([...found].map(([path, proc]) => [path, chainOf(proc)]));
+  const access = Object.fromEntries([...chains].map(([path, c]) => [path, c.problems.length ? c.problems.join('; ') : c.guard.text]));
+  assert.deepEqual(access, {
+    preview: "{ caller: 'scope', scope: 'ops:read', check: 'authority' }",
+    // A wrapper from another file, a second statement, a check reading more than ctx, a changed context: each stays.
+    imported: 'guard use() chained: not one a record names',
+    twice: 'guard use() chained: not one a record names',
+    reads: 'guard use() chained: not one a record names',
+    changes: 'guard use() chained: not one a record names',
+    // Where the record would mount, \`authority\` is another function's parameter: the check would read something else.
+    'nested.inner': 'guard use() chained: its wrapped check reads a name that means something else where the record mounts',
+  });
+  for (const why of Object.values(access).filter((t) => !t.startsWith('{'))) assert.equal(reasonOf(why), 'guard chained with .use()');
+  // The mount is handed the same check with next() taken out, beside the router file's refusal reader.
+  const guard = chains.get('preview').guard;
+  const file = join(dir, 'src/router.ts');
+  const reader = { name: 'storageRefusal', file, exported: false };
+  assert.deepEqual(
+    partsFor([{ name: 'svcParts', file, parts: true }], file, guard, () => reader),
+    {
+      name: '{ refusalOf: storageRefusal, checks: { authority: (ctx) => mapped(async () => { await authority(ctx); }) } }',
+      file,
+      imports: [],
+    },
+  );
+  assert.equal(
+    partsFor([], file, guard, () => undefined),
+    undefined,
+  );
+});
+
 test("a record naming its service's own check mounts with the router file's parts, else with its refusal reader and the check's export", async () => {
   const { partsFor } = await import('./guard-check.mjs');
   const guard = {

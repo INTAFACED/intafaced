@@ -804,6 +804,8 @@ import {
 
 import { OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET } from './ops-console-mode-procedures.js';
 
+import { OPS_OUTREACH_PRIVACY_RETENTION_STATUS, OPS_OUTREACH_OWNERS, OPS_OUTREACH_LIST_WORKFLOW_AUDIT } from './ops-outreach-procedures.js';
+
 import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from './ops-preferences-procedures.js';
 
 import {
@@ -2302,6 +2304,12 @@ const part_ops_compliance_procedures: readonly ProcedureRecord[] = [
 
 const part_ops_console_mode_procedures: readonly ProcedureRecord[] = [OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET];
 
+const part_ops_outreach_procedures: readonly ProcedureRecord[] = [
+  OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+  OPS_OUTREACH_OWNERS,
+  OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+];
+
 const part_ops_preferences_procedures: readonly ProcedureRecord[] = [OPS_PREFERENCES_GET, OPS_PREFERENCES_SET];
 
 const part_ops_protocol_listing_procedures: readonly ProcedureRecord[] = [
@@ -3121,6 +3129,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_ops_capital_procedures,
   ...part_ops_compliance_procedures,
   ...part_ops_console_mode_procedures,
+  ...part_ops_outreach_procedures,
   ...part_ops_preferences_procedures,
   ...part_ops_protocol_listing_procedures,
   ...part_ops_public_procedures,
