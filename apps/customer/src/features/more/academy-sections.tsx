@@ -12,12 +12,15 @@ const LABELS = {
   Programmes: 'academy.programmes',
 } as const;
 
-/** The Academy's sections as links, each at its own address, with the one this room belongs to marked as current. */
-export function AcademySections({ current }: { current: AcademyTab }) {
+/**
+ * The Academy's sections as links, each at its own address, with the one this room belongs to marked as current; `null`
+ * for a page of its own outside them (/academy/progress), where none is current.
+ */
+export function AcademySections({ current }: { current: AcademyTab | null }) {
   return (
     <Tabs
       label={copyText('academy.academy.sections')}
-      current={academyTabHref(current)}
+      current={current === null ? '' : academyTabHref(current)}
       items={academyTabs.map(([name]) => ({ label: copyText(LABELS[name]), href: academyTabHref(name) }))}
     />
   );

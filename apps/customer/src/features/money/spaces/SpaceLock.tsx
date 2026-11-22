@@ -1,12 +1,12 @@
-import { Button } from '../../shared/ui';
-import { decimalSchema, parseAmount } from '../../shared/money';
-import type { Space } from './client';
-import { date, funds, iso, startsField, type ActionSpec } from './components';
-import { spaceLockStateSchema } from './contracts';
-import { spaceLockCopy } from './space-lock-copy';
+import { Button } from '@intafaced/ui/lit';
+import { decimalSchema, parseAmount } from '../../../shared/money';
+import type { Space } from '../client';
+import { date, funds, iso, startsField, type ActionSpec } from '../components';
+import { spaceLockStateSchema } from '../contracts';
+import { spaceLockCopy } from '../space-lock-copy';
 
 /** Whether a space is locked now, as the bank last said. An early unlock that took effect already came back as no lock. */
-export const lockedNow = (space: Pick<Space, 'lockedUntil'>, now = Date.now()) =>
+const lockedNow = (space: Pick<Space, 'lockedUntil'>, now = Date.now()) =>
   space.lockedUntil !== null && Date.parse(space.lockedUntil) > now;
 
 /**
@@ -34,7 +34,7 @@ export function SpaceLockActions({ space, open }: { space: Space; open: (spec: A
   return (
     <>
       <Button
-        variant="ghost"
+        tone="quiet"
         onClick={() =>
           open({
             title: t('goalTitle'),
@@ -59,7 +59,7 @@ export function SpaceLockActions({ space, open }: { space: Space; open: (spec: A
         {t('setGoal')}
       </Button>
       <Button
-        variant="ghost"
+        tone="quiet"
         onClick={() =>
           open({
             title: t('lockTitle'),
@@ -76,7 +76,7 @@ export function SpaceLockActions({ space, open }: { space: Space; open: (spec: A
       </Button>
       {locked && !waiting && (
         <Button
-          variant="ghost"
+          tone="quiet"
           onClick={() =>
             open({
               title: t('unlockTitle'),
@@ -94,7 +94,7 @@ export function SpaceLockActions({ space, open }: { space: Space; open: (spec: A
       )}
       {waiting && (
         <Button
-          variant="ghost"
+          tone="quiet"
           onClick={() =>
             open({
               title: t('keepTitle'),
@@ -118,10 +118,10 @@ export function EarlyUnlock({ space }: { space: Space }) {
   const { t } = spaceLockCopy.useCopy();
   if (!space.unlocksAt || !lockedNow(space)) return null;
   return (
-    <div className="money-selected-unlock" data-testid="space-early-unlock" data-opens={space.unlocksAt}>
+    <div data-testid="space-early-unlock" data-opens={space.unlocksAt}>
       <dt>{t('opensAt')}</dt>
       <dd>{date(space.unlocksAt)}</dd>
-      <dd className="money-caption">{t('opensNote')}</dd>
+      <dd className="lt-hint">{t('opensNote')}</dd>
     </div>
   );
 }
