@@ -11,19 +11,28 @@ const USER = '11111111-1111-4111-8111-111111111111';
 /** [name, frame selector under #boot-frame, Home selector under #root, every match] */
 const BLOCKS = [
   ['top bar', '.bf-top', 'header.tb'],
+  ['title row', '.lt-room > .lt-title-row', '.lt-room > .lt-title-row'],
+  ['title head', '.bf-title', '.lt-room > .lt-title-row h1'],
+  ['room key', '.bf-key', '.lt-room-action'],
+  ['hero', '[data-region="hero"]', '[data-region="hero"]'],
   ['label', '.bf-label', '[data-testid="home-label"]'],
-  ['figure', '.bf-figure', '[data-testid="home-total"] > *'],
-  ['change', '.bf-line', '[data-testid="home-change"] > *'],
+  ['figure', '.bf-total > *', '[data-testid="home-total"] > *'],
+  ['figure bar', '.bf-total .lt-ghost-item', '[data-testid="home-total"] .lt-ghost-item'],
+  ['change', '.bf-change > *', '[data-testid="home-change"] > *'],
+  ['actions', '[data-region="actions"]', '[data-region="actions"]'],
   ['keys tray', '.bf-keys', '[data-testid="home-actions"]'],
-  ['key', '.bf-keys > i', '[data-testid="home-actions"] > *', true],
+  ['key', '.bf-keys .lt-ghost-item', '[data-testid="home-actions"] .lt-ghost-item', true],
+  ['needs you', '[data-region="needs-you"]', '[data-region="needs-you"]'],
   ['needs head', '.bf-work-head', '#home-work-title'],
-  ['needs card', '.bf-work', '.home-work__rows'],
-  ['needs bar', '.bf-work > i', '.home-work__row > div', true],
-  ['money object', '.bf-stack', '.volt-stack'],
-  ['stack card', '.bf-stack > i', '.volt-stack > .volt-card', true],
-  ['markets head', '.bf-markets-head', 'section:has(> [data-testid="home-cards"]) h2'],
-  ['card', '.bf-cards > *', '[data-testid="home-cards"] > *', true],
-  ['side card', '.bf-side > *', '.home-side > section', true],
+  ['needs card', '.bf-work', '[data-testid="home-work__rows"]'],
+  ['needs bar', '.bf-work .lt-ghost-item', '[data-testid="home-work__rows"] .lt-ghost-item', true],
+  ['money object', '.lt-card-stack', '.lt-card-stack'],
+  ['stack card', '.lt-card-stack > .lt-card-stack-card', '.lt-card-stack > .lt-card-stack-card', true],
+  ['markets head', '.bf-markets-head', '#home-markets-title'],
+  ['card', '.bf-cards .lt-ghost-item', '[data-testid="home-cards"] .lt-ghost-item', true],
+  ['watching', '[data-region="watching"]', '[data-region="watching"]'],
+  ['side card', '.bf-side > *', '[data-testid="home-side"] > section', true],
+  ['side bar', '.bf-side .lt-ghost-item', '[data-testid="home-side"] .lt-ghost-item', true],
 ];
 
 async function boxes(browser, { width, height, frame }) {
@@ -50,7 +59,7 @@ async function boxes(browser, { width, height, frame }) {
   } else {
     await page.goto('/home');
     await expect(page.getByTestId('home-total')).toBeVisible();
-    await expect(page.locator('.home-work__row').first()).toBeVisible();
+    await expect(page.getByTestId('home-work__rows')).toBeVisible();
     // Home's text swaps to Inter when it arrives (font-display: swap), and at 390 the label row wraps to its settled
     // height only in Inter; measured on the fallback face the row is 18 px shorter (#7896)
     await page.evaluate(() => document.fonts.load('400 1rem Inter'));
