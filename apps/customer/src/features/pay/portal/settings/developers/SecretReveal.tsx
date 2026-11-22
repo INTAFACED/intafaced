@@ -1,6 +1,6 @@
-import { Button } from '@intafaced/ui';
-import { CopyReference } from '../../ui/CopyReference';
+import { Button } from '@intafaced/ui/lit';
 import { developersCopy as c } from './copy';
+import { CopyReference } from '../../volt/parts';
 
 /**
  * A secret the service shows exactly once. It lives only in the page's memory: Hide removes it, and so does leaving
@@ -11,11 +11,11 @@ export function SecretReveal({ title, secret, what, onHide }: { title: string; s
   return (
     <section className="pp-secret" aria-label={title}>
       <h3>{title}</h3>
-      <p className="pp-callout pp-callout--warn" role="alert">
+      <p className="lt-hint" role="alert">
         {t('secretOnce')}
       </p>
       <CopyReference value={secret} what={what} />
-      <Button variant="secondary" onClick={onHide}>
+      <Button tone="secondary" onClick={onHide}>
         {t('secretHide')}
       </Button>
     </section>

@@ -1,11 +1,11 @@
-import { PaySection } from '../../../components';
-import { Gate } from '../../components';
-import { KpiStrip } from '../../ui/Kpi';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
+import { DeveloperRoom } from './DeveloperRoom';
 import { isPayKey } from './model';
 import type { ApiKey, Health } from './schemas';
+import { Button } from '@intafaced/ui/lit';
+import { KpiStrip, Section } from '../../volt/parts';
 
 const tools = [
   ['/pay/payments?view=tools', 'toolPayment', 'toolPaymentBody'],
@@ -15,7 +15,7 @@ const tools = [
 ] as const;
 
 /** Test mode at a glance: what you have set up, what has been delivered, and the tools that make test activity. */
-export function Sandbox({ api }: { api: SettingsBApi }) {
+function Sandbox({ api }: { api: SettingsBApi }) {
   const keys = useResource((signal) => api.keysList(signal), 'dev:sandbox:keys');
   const health = useResource((signal) => api.webhookHealth(signal), 'dev:sandbox:health');
   return <SandboxView keys={keys.resource} health={health.resource} reload={() => (keys.reload(), health.reload())} />;
@@ -33,8 +33,8 @@ export function SandboxView({ keys, health, reload }: { keys: Resource<ApiKey[]>
   const dash = '—';
   const step = (done: boolean | null) => (done === null ? t('stepUnknown') : done ? t('stepDone') : t('stepTodo'));
   return (
-    <div className="stack">
-      <p className="pp-callout">
+    <div>
+      <p className="lt-hint">
         <strong>{t('testOnlyTitle')}</strong> {t('sandboxIntro')}
       </p>
       <KpiStrip
@@ -52,47 +52,57 @@ export function SandboxView({ keys, health, reload }: { keys: Resource<ApiKey[]>
         ]}
       />
       {(keys.status === 'failed' || health.status === 'failed') && (
-        <p className="muted" role="status">
+        <p className="lt-hint" role="status">
           {t('someCountsMissing')}{' '}
-          <button type="button" className="text-link" onClick={reload}>
+          <Button tone="quiet" onClick={reload}>
             {t('tryAgain')}
-          </button>
+          </Button>
         </p>
       )}
-      <PaySection title={t('gettingStarted')} description={t('gettingStartedBody')}>
-        <ol className="pp-checklist">
+      <Section title={t('gettingStarted')} description={t('gettingStartedBody')}>
+        <ol>
           <li>
-            <a className="text-link" href="/pay/developer/keys#create">
+            <a className="lt-link" href="/pay/developer/keys#create">
               {t('stepKey')}
             </a>
-            <span className="muted">{step(testKeys === null ? null : testKeys > 0)}</span>
+            <span className="lt-hint">{step(testKeys === null ? null : testKeys > 0)}</span>
           </li>
           <li>
-            <a className="text-link" href="/pay/developer/webhooks#add">
+            <a className="lt-link" href="/pay/developer/webhooks#add">
               {t('stepEndpoint')}
             </a>
-            <span className="muted">{step(endpointsOn === null ? null : endpointsOn > 0)}</span>
+            <span className="lt-hint">{step(endpointsOn === null ? null : endpointsOn > 0)}</span>
           </li>
           <li>
-            <a className="text-link" href="/pay/developer/deliveries">
+            <a className="lt-link" href="/pay/developer/deliveries">
               {t('stepEvent')}
             </a>
-            <span className="muted">{step(delivered === null ? null : delivered > 0)}</span>
+            <span className="lt-hint">{step(delivered === null ? null : delivered > 0)}</span>
           </li>
         </ol>
-      </PaySection>
-      <PaySection title={t('toolsTitle')} description={t('toolsBody')}>
-        <ul className="pp-tool-list">
+      </Section>
+      <Section title={t('toolsTitle')} description={t('toolsBody')}>
+        <ul>
           {tools.map(([href, title, body]) => (
             <li key={href}>
-              <a className="text-link" href={href}>
+              <a className="lt-link" href={href}>
                 {t(title)}
               </a>
-              <small className="muted">{t(body)}</small>
+              <small className="lt-hint">{t(body)}</small>
             </li>
           ))}
         </ul>
-      </PaySection>
+      </Section>
     </div>
+  );
+}
+
+/** `/pay/developer/sandbox` on the settings template. */
+export function SandboxRoom() {
+  const { t } = c.useCopy();
+  return (
+    <DeveloperRoom room="developer-sandbox" explain={<p>{t('sandboxExplain')}</p>}>
+      {(api) => <Sandbox api={api} />}
+    </DeveloperRoom>
   );
 }
