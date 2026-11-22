@@ -8,8 +8,20 @@ import { ReadView as ResourceView } from '../../../shared/read-state';
 import type { sharedPotActivitySchema, sharedPotCardSchema, sharedPotsSchema } from '../contracts';
 import { maskedPan } from '../card-controls';
 import { sharedPotsCopy } from '../shared-pots-copy';
-import { BANK_CARDS_LIST } from '@intafaced/contracts/bank-cards-procedures';
-import { BANK_SHARED_POTS_LIST, BANK_SHARED_POTS_ACTIVITY } from '@intafaced/contracts/bank-shared-pots-procedures';
+import { BANK_CARDS_LIST, BANK_CARDS_SET_STATUS } from '@intafaced/contracts/bank-cards-procedures';
+import {
+  BANK_SHARED_POTS_ACCEPT,
+  BANK_SHARED_POTS_ACTIVITY,
+  BANK_SHARED_POTS_CANCEL_INVITE,
+  BANK_SHARED_POTS_DECLINE,
+  BANK_SHARED_POTS_FREEZE_CARD,
+  BANK_SHARED_POTS_INVITE,
+  BANK_SHARED_POTS_LEAVE,
+  BANK_SHARED_POTS_LINK_CARD,
+  BANK_SHARED_POTS_LIST,
+  BANK_SHARED_POTS_REMOVE,
+  BANK_SHARED_POTS_UNLINK_CARD,
+} from '@intafaced/contracts/bank-shared-pots-procedures';
 
 type SharedPots = z.infer<typeof sharedPotsSchema>;
 type Person = { userId: string; handle: string | null };
@@ -36,7 +48,7 @@ export function SharedPots({ spaces, open }: { spaces: Space[]; open: (spec: Act
   const share = () =>
     open({
       title: t('shareTitle'),
-      procedure: 'sharedPots.invite',
+      record: BANK_SHARED_POTS_INVITE,
       fields: [
         {
           name: 'spaceId',
@@ -124,7 +136,7 @@ const freezeSpec = (
   note: string,
 ): ActionSpec => ({
   title: t('freezeTitle', { card: maskedPan(card.panTail) }),
-  procedure: 'sharedPots.freezeCard',
+  record: BANK_SHARED_POTS_FREEZE_CARD,
   facts: [[t('pot'), pot.name]],
   notes: [note],
   input: () => ({ spaceId: pot.id }),
@@ -163,7 +175,7 @@ function Invites({ invites, open, name, roleName }: { invites: SharedPots['invit
                 onClick={() =>
                   open({
                     title: t('acceptTitle', { pot: invite.pot.name }),
-                    procedure: 'sharedPots.accept',
+                    record: BANK_SHARED_POTS_ACCEPT,
                     facts: [
                       [t('owner'), name(invite.owner)],
                       [t('yourRole'), roleName(invite.role)],
@@ -182,7 +194,7 @@ function Invites({ invites, open, name, roleName }: { invites: SharedPots['invit
                 onClick={() =>
                   open({
                     title: t('declineTitle', { pot: invite.pot.name }),
-                    procedure: 'sharedPots.decline',
+                    record: BANK_SHARED_POTS_DECLINE,
                     facts: [[t('owner'), name(invite.owner)]],
                     notes: [],
                     input: () => ({ inviteId: invite.inviteId }),
@@ -283,7 +295,7 @@ function SharedWithMe({
                 onClick={() =>
                   open({
                     title: t('leaveTitle', { pot: row.pot.name }),
-                    procedure: 'sharedPots.leave',
+                    record: BANK_SHARED_POTS_LEAVE,
                     facts: [[t('owner'), name(row.owner)]],
                     notes: [t('leaveNote')],
                     input: () => ({ spaceId: row.pot.id }),
@@ -325,7 +337,7 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
                   onClick={() =>
                     open({
                       title: t('removeTitle', { pot: row.pot.name, person: name(member) }),
-                      procedure: 'sharedPots.remove',
+                      record: BANK_SHARED_POTS_REMOVE,
                       notes: [t('removeNote')],
                       input: () => ({ spaceId: row.pot.id, userId: member.userId }),
                       submit: t('remove'),
@@ -348,7 +360,7 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
                   onClick={() =>
                     open({
                       title: t('cancelTitle', { person: name(invite.invitee) }),
-                      procedure: 'sharedPots.cancelInvite',
+                      record: BANK_SHARED_POTS_CANCEL_INVITE,
                       facts: [[t('pot'), row.pot.name]],
                       notes: [t('cancelNote')],
                       input: () => ({ inviteId: invite.inviteId }),
@@ -378,7 +390,7 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
                       onClick={() =>
                         open({
                           title: t('unfreezeTitle', { card: maskedPan(row.card!.panTail) }),
-                          procedure: 'cards.setStatus',
+                          record: BANK_CARDS_SET_STATUS,
                           facts: [[t('pot'), row.pot.name]],
                           notes: [t('unfreezeNote')],
                           input: () => ({ cardId: row.card!.cardId, status: 'active' }),
@@ -394,7 +406,7 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
                     onClick={() =>
                       open({
                         title: t('unlinkTitle', { pot: row.pot.name }),
-                        procedure: 'sharedPots.unlinkCard',
+                        record: BANK_SHARED_POTS_UNLINK_CARD,
                         facts: [[t('cardTitle'), maskedPan(row.card!.panTail)]],
                         notes: [t('unlinkNote')],
                         input: () => ({ spaceId: row.pot.id }),
@@ -416,7 +428,7 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
                   onClick={() =>
                     open({
                       title: t('linkTitle', { pot: row.pot.name }),
-                      procedure: 'sharedPots.linkCard',
+                      record: BANK_SHARED_POTS_LINK_CARD,
                       fields: [
                         {
                           name: 'cardId',
