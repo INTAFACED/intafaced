@@ -237,6 +237,8 @@ pub struct BankDoor {
     transfers: crate::transfers::Wiring,
     /// Slice `earn`'s owner values (`earn::Settings`); identity and the ledger are the slices' above.
     earn: crate::earn::Settings,
+    /// Slice `cards`' issuer, rank door and owner values (`cards::Wiring`); no card programme until handed in.
+    cards: crate::cards::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -284,6 +286,7 @@ impl BankDoor {
             spaces: crate::spaces::Wiring::none(),
             transfers: crate::transfers::Wiring::none(),
             earn: crate::earn::Settings::default(),
+            cards: crate::cards::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -334,6 +337,35 @@ impl BankDoor {
     pub fn with_earn(mut self, settings: crate::earn::Settings) -> BankDoor {
         self.earn = settings;
         self
+    }
+
+    /// Slice `cards`' wiring, built by the binary from the environment.
+    pub fn with_cards(mut self, wiring: crate::cards::Wiring) -> BankDoor {
+        self.cards = wiring;
+        self
+    }
+
+    /// Slice `cards`' wiring.
+    pub fn cards(&self) -> &crate::cards::Wiring {
+        &self.cards
+    }
+
+    /// `f` given slice `cards`' dependencies at `now`: what a job door or another slice's call hands the slice.
+    pub fn cards_deps<T>(&self, now: Instant, f: impl FnOnce(&crate::cards::Deps<'_>) -> T) -> T {
+        let custody = self.partner.custody(&self.store);
+        let t = crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now,
+        };
+        f(&crate::cards::Deps {
+            t: &t,
+            w: &self.cards,
+        })
     }
 
     /// Slice `partner`'s wiring, built by the binary from the environment.
@@ -410,6 +442,15 @@ impl BankDoor {
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::Earn)))
             }
+            Slice::Cards => crate::cards::router::answer(
+                &self.cards,
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::Cards))),
             other => Err(not_ported(other)),
         }
     }
