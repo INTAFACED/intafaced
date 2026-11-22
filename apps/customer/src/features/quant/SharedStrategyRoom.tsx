@@ -9,7 +9,7 @@ import {
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { preservePaperHref } from '../more';
+import { EmptyNote, FailureNote, KitRead, preservePaperHref, ScrollTable, Section } from '../more';
 import { useApi } from '../session';
 import { ApprovalPanel } from './ApprovalPanel';
 import { QuantRooms } from './QuantRooms';
@@ -18,7 +18,6 @@ import { EditLock, lockedUntil, refusalCode, useLastReady } from './StrategyTeam
 import { teamCopy } from './team-copy';
 import { Button, Field } from '@intafaced/ui/lit';
 import { ReadingTemplate, SelectField, TextAreaField } from '@intafaced/ui/lit/templates';
-import { EmptyNote, FailureNote, Read, ScrollTable, Section } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 19).replace('T', ' ');
@@ -55,7 +54,7 @@ export function SharedStrategy({ strategyId, paper }: { strategyId: string; pape
             {t('gone')}
           </p>
         ) : (
-          <Read resource={kept ? { status: 'ready', data: kept } : opened.resource} retry={opened.reload}>
+          <KitRead resource={kept ? { status: 'ready', data: kept } : opened.resource} retry={opened.reload}>
             {(data) => (
               <Section title={t('sharedStrategyTitle', { name: data.name })}>
                 <div data-testid="quant-shared-strategy" data-id={data.strategyId} data-role={data.role} data-version={data.version}>
@@ -77,7 +76,7 @@ export function SharedStrategy({ strategyId, paper }: { strategyId: string; pape
                 </div>
               </Section>
             )}
-          </Read>
+          </KitRead>
         )
       }
     />
@@ -175,7 +174,7 @@ function OwnerRuns({ strategyId }: { strategyId: string }) {
   return (
     <section aria-label={t('runsTitle')} data-testid="quant-shared-runs">
       <h4>{t('runsTitle')}</h4>
-      <Read resource={runs.resource} retry={runs.reload}>
+      <KitRead resource={runs.resource} retry={runs.reload}>
         {(data) =>
           data.runs.length === 0 ? (
             <EmptyNote title={t('noRuns')} />
@@ -198,13 +197,13 @@ function OwnerRuns({ strategyId }: { strategyId: string }) {
             </ScrollTable>
           )
         }
-      </Read>
-      <Read resource={runs.resource} retry={runs.reload}>
+      </KitRead>
+      <KitRead resource={runs.resource} retry={runs.reload}>
         {(data) => {
           const running = data.runs.filter((row) => row.state === 'running');
           return running.length ? <SharedManualOrder strategyId={strategyId} runIds={running.map((row) => row.runId)} /> : null;
         }}
-      </Read>
+      </KitRead>
       {note && (
         <p role="status" data-testid="quant-shared-run-note">
           {note}

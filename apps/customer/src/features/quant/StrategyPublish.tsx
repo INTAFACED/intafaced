@@ -20,12 +20,12 @@ import {
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
+import { EmptyNote, FailureNote, KitRead, ScrollTable, Waiting } from '../more';
 import { useApi } from '../session';
 import { libraryCopy } from './library-copy';
 import { refusalCode, useLastReady } from './StrategyTeam';
 import { Button, Field } from '@intafaced/ui/lit';
 import { CheckField, SelectField, TextAreaField } from '@intafaced/ui/lit/templates';
-import { EmptyNote, FailureNote, Read, ScrollTable, Waiting } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type Refusal = { code: string; text: string };
@@ -89,16 +89,16 @@ export function StrategyPublish({ strategy }: { strategy: QuantStrategyDetail })
     <section aria-label={t('publishTitle')} data-testid="quant-publish">
       <h3>{t('publishTitle')}</h3>
       <p>{t('publishIntro')}</p>
-      <Read resource={options.resource} retry={options.reload}>
+      <KitRead resource={options.resource} retry={options.reload}>
         {(data) => <PublishForm strategy={strategy} options={data} onPublished={reload} />}
-      </Read>
+      </KitRead>
       <h4>{t('listingsTitle')}</h4>
       {kept ? (
         <MyListings listings={kept.listings.filter((row) => row.strategyId === strategy.id)} onChange={reload} />
       ) : (
-        <Read resource={mine.resource} retry={mine.reload}>
+        <KitRead resource={mine.resource} retry={mine.reload}>
           {() => null}
-        </Read>
+        </KitRead>
       )}
     </section>
   );

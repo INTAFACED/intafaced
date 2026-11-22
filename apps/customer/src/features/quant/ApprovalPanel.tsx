@@ -8,11 +8,11 @@ import type { QuantApprovalState } from '@intafaced/contracts/quant-research';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
+import { EmptyNote, FailureNote, KitRead, ScrollTable } from '../more';
 import { useApi } from '../session';
 import { researchCopy } from './research-copy';
 import { refusalCode, useLastReady } from './StrategyTeam';
 import { Button, Field } from '@intafaced/ui/lit';
-import { EmptyNote, FailureNote, Read, ScrollTable } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utc = (iso: string) => iso.slice(0, 19).replace('T', ' ');
@@ -167,9 +167,9 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
       {kept ? (
         view(kept)
       ) : (
-        <Read resource={state.resource} retry={state.reload}>
+        <KitRead resource={state.resource} retry={state.reload}>
           {() => null}
-        </Read>
+        </KitRead>
       )}
       {refused && (
         <p role="alert" data-testid="quant-approval-refusal" data-code={refused.code}>

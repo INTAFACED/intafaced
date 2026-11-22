@@ -8,11 +8,11 @@ import { QUANT_LIFECYCLE_GET, QUANT_LIFECYCLE_PROMOTE } from '@intafaced/contrac
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
+import { EmptyNote, FailureNote, KitRead, ScrollTable, Waiting } from '../more';
 import { useApi } from '../session';
 import { lifecycleCopy } from './lifecycle-copy';
 import { Button } from '@intafaced/ui/lit';
 import { SelectField } from '@intafaced/ui/lit/templates';
-import { EmptyNote, FailureNote, Read, ScrollTable, Waiting } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -65,7 +65,7 @@ function VersionLifecycle({ strategyId, version }: { strategyId: string; version
     setRevision((n) => n + 1);
   }
   return (
-    <Read resource={read.resource} retry={read.reload}>
+    <KitRead resource={read.resource} retry={read.reload}>
       {(data) => (
         <div data-testid="quant-lifecycle-version" data-version={version} data-stage={data.stage}>
           <p data-testid="quant-stage" data-stage={data.stage}>
@@ -90,7 +90,7 @@ function VersionLifecycle({ strategyId, version }: { strategyId: string; version
           <Decisions data={data} />
         </div>
       )}
-    </Read>
+    </KitRead>
   );
 }
 

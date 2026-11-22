@@ -1,6 +1,6 @@
 import { QUANT_QUOTA_RESOURCES, type QuantQuotaResource } from '@intafaced/contracts/quant-algo';
+import { FailureNote } from '../more';
 import type { ApiResult } from '../../shared/api';
-import { FailureNote } from './volt-parts';
 import { usageCopy } from './usage-copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;

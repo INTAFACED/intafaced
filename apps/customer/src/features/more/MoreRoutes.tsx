@@ -3,6 +3,8 @@ import { Page, Panel, EmptyState } from '../../shared/ui';
 import { useSession } from '../session';
 import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
+import { AcademyDiscussionThreadRoom } from './AcademyDiscussion';
+import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
 import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
@@ -76,7 +78,12 @@ function MoreRooms({ path }: { path: string }) {
   let room: MoreRoomId | undefined;
   // A room drawn on its Volt template: it carries its own title, so it opens without the old page frame.
   let volt: ReactNode = undefined;
-  if (p === '/academy' || p.startsWith('/academy/')) {
+  const academy = p === '/academy' || p.startsWith('/academy/') ? academyRoute(p) : null;
+  if (userId && academy?.kind === 'discussion' && academy.postId) {
+    volt = <AcademyDiscussionThreadRoom key={academy.postId} courseSlug={academy.courseSlug} postId={academy.postId} />;
+  } else if (userId && academy?.kind === 'messages' && academy.conversationId) {
+    volt = <AcademyCourseConversationRoom key={academy.conversationId} conversationId={academy.conversationId} />;
+  } else if (academy) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
     content = (
@@ -84,7 +91,7 @@ function MoreRooms({ path }: { path: string }) {
         key={`${p}:${url.search}`}
         pathname={p}
         search={url.search}
-        route={academyRoute(p)}
+        route={academy}
         slug={url.searchParams.get('slug') ?? undefined}
         initialPath={url.searchParams.get('path') ?? undefined}
       />

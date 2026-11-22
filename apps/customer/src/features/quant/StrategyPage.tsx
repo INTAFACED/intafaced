@@ -9,7 +9,7 @@ import { QUANT_STUDIO_DIFF, QUANT_STUDIO_GET } from '@intafaced/contracts/quant-
 import { useState } from 'react';
 import { parsesAs } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { preservePaperHref } from '../more';
+import { EmptyNote, KitRead, preservePaperHref, ScrollTable, Section } from '../more';
 import { useApi } from '../session';
 import { PaperRuns } from './PaperRuns';
 import { StrategyAlerts, StrategyChannels } from './StrategyNotify';
@@ -22,7 +22,6 @@ import { StrategyLineage, StrategyPublish } from './StrategyPublish';
 import { strategyPageCopy } from './strategy-page-copy';
 import { Button } from '@intafaced/ui/lit';
 import { CheckField, ReadingTemplate } from '@intafaced/ui/lit/templates';
-import { EmptyNote, Read, ScrollTable, Section } from './volt-parts';
 
 /** How many of this strategy's recent runs the page reads. A page size, not a product limit. */
 const RUN_PAGE = 20;
@@ -58,7 +57,7 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
         </>
       }
       body={
-        <Read resource={detail.resource} retry={detail.reload}>
+        <KitRead resource={detail.resource} retry={detail.reload}>
           {(strategy) => (
             <>
               <StrategyLineage strategy={strategy} />
@@ -78,7 +77,7 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
               <StrategyPublish strategy={strategy} />
             </>
           )}
-        </Read>
+        </KitRead>
       }
     />
   );
@@ -159,9 +158,9 @@ function VersionDiff({ strategyId, from, to }: { strategyId: string; from: numbe
   return (
     <section aria-label={t('diffTitle', { from, to })} data-testid="quant-diff" data-from={from} data-to={to}>
       <h4>{t('diffTitle', { from, to })}</h4>
-      <Read resource={diff.resource} retry={diff.reload}>
+      <KitRead resource={diff.resource} retry={diff.reload}>
         {(data) => (data.changed ? <DiffParts diff={data} /> : <p data-testid="quant-diff-same">{t('diffSame')}</p>)}
-      </Read>
+      </KitRead>
     </section>
   );
 }
@@ -218,7 +217,7 @@ function RunsOfStrategy({ strategy }: { strategy: QuantStrategyDetail }) {
   return (
     <section aria-label={t('runs')} data-testid="quant-strategy-runs">
       <h3>{t('runs')}</h3>
-      <Read resource={runs.resource} retry={runs.reload}>
+      <KitRead resource={runs.resource} retry={runs.reload}>
         {(data) => {
           const mine = data.runs.filter((run) => run.strategyId === strategy.id);
           if (!mine.length) return <EmptyNote title={t('noRuns')} />;
@@ -253,7 +252,7 @@ function RunsOfStrategy({ strategy }: { strategy: QuantStrategyDetail }) {
             </>
           );
         }}
-      </Read>
+      </KitRead>
     </section>
   );
 }

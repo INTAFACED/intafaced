@@ -12,3 +12,4 @@ export { chatCopy } from './support-chat-copy';
 export { useSupportContact, type SupportContact } from './support-contact';
 export { supportMailto, supportNewHref, supportRequestHref } from './support-desk';
 export { preservePaperHref } from './trade-context';
+export { EmptyNote, FailureNote, KitRead, ScrollTable, Section, Waiting } from './volt-parts';

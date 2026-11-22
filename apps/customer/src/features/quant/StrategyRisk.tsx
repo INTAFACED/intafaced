@@ -9,11 +9,11 @@ import { QUANT_RISK_GET, QUANT_RISK_SET, QUANT_RISK_TRADING } from '@intafaced/c
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
+import { FailureNote, KitRead, Waiting } from '../more';
 import { useApi } from '../session';
 import { riskCopy } from './risk-copy';
 import { Button, Field } from '@intafaced/ui/lit';
 import { SelectField } from '@intafaced/ui/lit/templates';
-import { FailureNote, Read, Waiting } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 /** `quant.risk_cap_unset — trading stays off — still blank: A, B`: the caps a refusal names. */
@@ -39,9 +39,9 @@ export function StrategyRisk({ strategy }: { strategy: QuantStrategyDetail }) {
       <h3>{t('title')}</h3>
       <p>{t('intro')}</p>
       <p>{t('simulated')}</p>
-      <Read resource={screen.resource} retry={screen.reload}>
+      <KitRead resource={screen.resource} retry={screen.reload}>
         {(saved) => <RiskForm key={`${saved.updatedAt}:${saved.trading.version}`} saved={saved} reload={() => setRevision((n) => n + 1)} />}
-      </Read>
+      </KitRead>
     </section>
   );
 }

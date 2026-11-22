@@ -3,12 +3,12 @@ import { QUANT_PAPER_GET, QUANT_PAPER_LIST, QUANT_PAPER_START, QUANT_PAPER_STOP 
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
+import { EmptyNote, KitRead, ScrollTable, Waiting } from '../more';
 import { useApi } from '../session';
 import { paperCopy } from './paper-copy';
 import { QuotaAwareFailure } from './quota-refusal';
 import { Button, Field } from '@intafaced/ui/lit';
 import { SelectField } from '@intafaced/ui/lit/templates';
-import { EmptyNote, Read, ScrollTable, Waiting } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -51,7 +51,7 @@ export function PaperRuns({ strategy }: { strategy: QuantStrategyDetail }) {
           {note}
         </p>
       )}
-      <Read resource={list.resource} retry={list.reload}>
+      <KitRead resource={list.resource} retry={list.reload}>
         {(data) => (
           <>
             {opening ? (
@@ -112,7 +112,7 @@ export function PaperRuns({ strategy }: { strategy: QuantStrategyDetail }) {
             {shown && <PaperRunView key={`${shown}:${revision}`} runId={shown} />}
           </>
         )}
-      </Read>
+      </KitRead>
     </section>
   );
 }
@@ -242,7 +242,7 @@ function PaperRunView({ runId }: { runId: string }) {
   const { t } = paperCopy.useCopy();
   const run = useResource((signal) => api.call(QUANT_PAPER_GET, { runId }, { signal }), `quant-paper-run:${runId}`);
   return (
-    <Read resource={run.resource} retry={run.reload}>
+    <KitRead resource={run.resource} retry={run.reload}>
       {(data) => (
         <div
           data-testid="quant-paper-view"
@@ -301,6 +301,6 @@ function PaperRunView({ runId }: { runId: string }) {
           )}
         </div>
       )}
-    </Read>
+    </KitRead>
   );
 }

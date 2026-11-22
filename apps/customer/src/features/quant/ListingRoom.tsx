@@ -9,7 +9,7 @@ import {
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { preservePaperHref } from '../more';
+import { EmptyNote, FailureNote, KitRead, preservePaperHref, Section } from '../more';
 import { useApi } from '../session';
 import { libraryCopy } from './library-copy';
 import { QuantRooms } from './QuantRooms';
@@ -17,7 +17,6 @@ import { libraryRefusal } from './StrategyPublish';
 import { useLastReady } from './StrategyTeam';
 import { Button } from '@intafaced/ui/lit';
 import { ReadingTemplate, TextAreaField } from '@intafaced/ui/lit/templates';
-import { EmptyNote, FailureNote, Read, Section } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type Refusal = { code: string; text: string };
@@ -63,9 +62,9 @@ export function ListingRoom({ listingId, paper }: { listingId: string; paper: bo
             </div>
           </Section>
         ) : (
-          <Read resource={preview.resource} retry={preview.reload}>
+          <KitRead resource={preview.resource} retry={preview.reload}>
             {() => null}
-          </Read>
+          </KitRead>
         )
       }
     />
@@ -116,9 +115,9 @@ function ListingBody({ listingId, paper }: { listingId: string; paper: boolean }
   }
   if (!kept)
     return (
-      <Read resource={page.resource} retry={page.reload}>
+      <KitRead resource={page.resource} retry={page.reload}>
         {() => null}
-      </Read>
+      </KitRead>
     );
   return <ListingDetail listing={kept} paper={paper} onChange={() => setRevision((n) => n + 1)} />;
 }

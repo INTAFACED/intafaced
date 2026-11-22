@@ -11,12 +11,12 @@ import {
 import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource, type Resource } from '../../shared/resource';
+import { EmptyNote, FailureNote, KitRead, ScrollTable, Waiting } from '../more';
 import { useApi } from '../session';
 import { QuotaAwareFailure } from './quota-refusal';
 import { teamCopy } from './team-copy';
 import { Button, Field } from '@intafaced/ui/lit';
 import { CheckField, SelectField } from '@intafaced/ui/lit/templates';
-import { EmptyNote, FailureNote, Read, ScrollTable, Waiting } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 19).replace('T', ' ');
@@ -115,9 +115,9 @@ export function StrategyTeam({ strategy }: { strategy: QuantStrategyDetail }) {
           <SupportAccess team={kept} onChange={reload} />
         </>
       ) : (
-        <Read resource={team.resource} retry={team.reload}>
+        <KitRead resource={team.resource} retry={team.reload}>
           {() => null}
-        </Read>
+        </KitRead>
       )}
     </section>
   );

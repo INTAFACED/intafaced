@@ -4,12 +4,12 @@ import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { channelStatus } from '../../screens/notifications/notify-api';
+import { EmptyNote, FailureNote, KitRead, ScrollTable, Waiting } from '../more';
 import { useApi } from '../session';
 import { notifyCopy } from './notify-copy';
 import { QUANT_ALERT_LIST, QUANT_ALERT_CREATE } from '@intafaced/contracts/quant-alert-procedures';
 import { Button } from '@intafaced/ui/lit';
 import { CheckField, SelectField, TextAreaField } from '@intafaced/ui/lit/templates';
-import { EmptyNote, FailureNote, Read, ScrollTable, Waiting } from './volt-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -52,7 +52,7 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
     <section aria-label={t('channelsTitle')} data-testid="quant-notify">
       <h3>{t('channelsTitle')}</h3>
       <p>{t('channelsIntro')}</p>
-      <Read resource={settings.resource} retry={settings.reload}>
+      <KitRead resource={settings.resource} retry={settings.reload}>
         {(saved) => {
           const chosen: Set<Choice> = picked ?? new Set<Choice>(saved.channels.filter((c) => c !== 'inapp'));
           const unconfigured = (channel: Choice) =>
@@ -124,7 +124,7 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
             </>
           );
         }}
-      </Read>
+      </KitRead>
     </section>
   );
 }
@@ -149,7 +149,7 @@ export function StrategyAlerts({ strategy }: { strategy: QuantStrategyDetail }) 
           {note}
         </p>
       )}
-      <Read resource={list.resource} retry={list.reload}>
+      <KitRead resource={list.resource} retry={list.reload}>
         {(data) => (
           <>
             {opening ? (
@@ -190,7 +190,7 @@ export function StrategyAlerts({ strategy }: { strategy: QuantStrategyDetail }) 
             )}
           </>
         )}
-      </Read>
+      </KitRead>
     </section>
   );
 }

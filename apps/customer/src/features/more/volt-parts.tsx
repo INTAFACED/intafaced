@@ -1,5 +1,5 @@
 /**
- * The parts the Algo dev rooms on the kit share (intafaced issue 9568): a read's waiting, failed and empty answers, a
+ * The parts the More and Algo dev rooms on the kit share (intafaced issue 9568): a read's waiting, failed and empty answers, a
  * section with its heading, and a table that scrolls in its own named region. Drawn only from the kit's `lt-` classes and
  * parts; the words of a failure are the shared `Failure`'s (`shared/failure-words.ts`).
  */
@@ -54,7 +54,7 @@ export function EmptyNote({ title, children, action }: { title: ReactNode; child
 }
 
 /** One read's answer: waiting, its failure, empty, or the data. */
-export function Read<T>({
+export function KitRead<T>({
   resource,
   retry,
   empty,
