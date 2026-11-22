@@ -49,6 +49,15 @@ export const IMPORTED = {
     args: [7, 7],
   },
 };
+const BUSINESS_HOME = /\/apps\/customer\/src\/features\/pay\/pay-api\.ts$/;
+/**
+ * Whether `name`, declared in `file`, is a by-name tool with its record form beside it: a portal tool, or the Business
+ * API's `query`/`mutate` (pay-business.mjs). Its callers move one by one; the tool goes when none is left.
+ */
+export function hasRecordForm(file, name) {
+  if (BUSINESS_HOME.test(file)) return name === 'query' || name === 'mutate';
+  return Object.values(TOOLS).some((t) => t.home.test(file) && Object.hasOwn(t.tools, name));
+}
 /** Every by-name tool's shape, as a site's `shape`: `tool:<name>`. */
 export const toolShape = (s) => (typeof s.shape === 'string' && s.shape.startsWith('tool:') ? s.tool : undefined);
 
@@ -120,8 +129,7 @@ export function toolSite(p, n) {
   const site = { shape: `tool:${name}`, module: form.module, path: literal(a[form.path]), kind: form.kind, tool };
   if (a.length < form.args[0] || a.length > form.args[1] || a.some((x) => x.type === 'SpreadElement'))
     site.problem = `${name} with ${a.length} arguments`;
-  else if (a[form.path].type === 'TemplateLiteral' && a[form.path].expressions.length)
-    site.problem = `${name} names its call by a template`;
+  else if (a[form.path].type === 'TemplateLiteral' && a[form.path].expressions.length) site.problem = `${name}'s call named by a template`;
   else if (tool.pattern && (!tool.prop.shorthand || tool.pattern.properties.some((x) => x.type !== 'Property' || !x.shorthand)))
     site.problem = `${name} is taken apart with a rename or a rest element`;
   return site;

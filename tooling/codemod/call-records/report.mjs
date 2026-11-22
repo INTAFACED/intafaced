@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { portInFlight } from './index.mjs';
 import { findSites } from './sites.mjs';
+import { toolShape } from './tool-forms.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const here = (f) => join(REPO, 'tooling/codemod/call-records', f);
@@ -34,6 +35,7 @@ export function reasonOf(why) {
     [/which depends on @intafaced\/contracts, so contracts can't import it/, 'schema from a package that depends on contracts (it stays)'],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
     [/named by a template/, 'service or call named by a template'],
+    [/has a record form its callers move to one by one/, 'tool kept while a caller is left (each caller named under its own reason)'],
     [
       /call name passed through a wrapper|another caller of its wrapper|but its wrapper/,
       'wrapper that takes its call name (named, with its reason)',
@@ -89,6 +91,12 @@ export function wrapperSenders(sites) {
   }
   return [...by.values()].reduce((a, w) => a + w.findings - w.sites, 0);
 }
+
+/**
+ * The sites the rule does not count: a tool's caller that names its call bare (`query('x.y', ...)` taken from the portal's
+ * tools, `validatedMutation(pay, 'x.y', ...)`; tool-forms.mjs). The rule counts the tool's own sender, its caller none.
+ */
+export const toolCallers = (sites) => [...sites].filter((s) => toolShape(s)).length;
 
 /** The commit that deleted services/<service>: its parent holds the router a door's records are read from. */
 const deletedAt = (service) => git('log', '--diff-filter=D', '-1', '--format=%H', '--', `services/${service}/src/router.ts`).trim();
@@ -298,8 +306,9 @@ function main() {
   const refusedSites = Object.values(totals.refused).reduce((a, r) => a + r.sites, 0);
   const noServiceSites = Object.values(noService).reduce((a, b) => a + b, 0);
   totals.wrapperSenders = wrapperSenders(nodes.values());
+  totals.toolCallers = toolCallers(nodes.values());
   // What the rule counts and no row above names: 0 when every finding is a site the codemod finds.
-  totals.unnamed = totals.ruleFindings - totals.sites - refusedSites - noServiceSites - totals.wrapperSenders;
+  totals.unnamed = totals.ruleFindings - totals.sites - refusedSites - noServiceSites - totals.wrapperSenders + totals.toolCallers;
   const report = { at: new Date().toISOString(), head: git('rev-parse', 'HEAD').trim(), totals, services: rows };
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify({ totals }, null, 2));
