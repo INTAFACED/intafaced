@@ -36,6 +36,8 @@ mod loans_ops_db;
 mod loans_repay_db;
 #[path = "loans_sweep_db.rs"]
 mod loans_sweep_db;
+#[path = "ops_desk_db.rs"]
+mod ops_desk_db;
 #[path = "partner_db.rs"]
 mod partner_db;
 #[path = "partner_probe.rs"]

@@ -13,8 +13,9 @@ import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
 import { AcademyCourseRoom } from './AcademyCourseRoom';
 import { AcademyReaderRoom } from './academy-reader/AcademyReaderRoom';
 import { AcademyProgressRoom } from './academy-progress/AcademyProgressRoom';
-import { Agents } from './Agents';
-import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
+import { AgentsRoom } from './agents-room/AgentsRoom';
+import { OwnAgentRoom } from './agent-room/OwnAgentRoom';
+import { NewAgent, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
 import { AgentsTeam } from './AgentsTeam';
 import { AgentApprovalsRoom } from './agent-approvals/AgentApprovalsRoom';
@@ -33,6 +34,7 @@ import { Launch, Mining } from './AvailabilityRooms';
 import type { LaunchTab } from './LaunchAvailability';
 import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
+import { MarketRoom } from './market-room/MarketRoom';
 import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { PredictRoom } from './predict-room/PredictRoom';
@@ -139,9 +141,7 @@ function MoreRooms({ path }: { path: string }) {
     // The signed-in course-team inbox is on its Volt template; a signed-out visitor gets the public Academy.
     if (academy.kind === 'messages' && !academy.conversationId && userId) volt = content;
   } else if (p === '/agents') {
-    title = copyText('moreroutes.agents');
-    description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
-    content = <Agents paper={paper} />;
+    volt = <AgentsRoom paper={paper} />;
   } else if (p === '/agents/connect') {
     title = <agentConnectCopy.Copy k="title" />;
     description = <agentConnectCopy.Copy k="description" />;
@@ -154,8 +154,7 @@ function MoreRooms({ path }: { path: string }) {
     volt = <AgentRunPage key={runId} runId={runId} />;
   } else if (ownAgentId(p)) {
     const id = ownAgentId(p)!;
-    title = <OwnAgentTitle id={id} />;
-    content = <OwnAgentPage key={id} id={id} />;
+    volt = <OwnAgentRoom key={id} id={id} />;
   } else if (p === '/agents/approvals') {
     volt = <AgentApprovalsRoom />;
   } else if (p === '/blueprint') {
@@ -179,14 +178,12 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.my.launch.orders');
     description = <launchCopy.Copy k="scope" />;
     content = <Launch orders />;
-  } else if (p === '/market' || p === '/market/mine' || p === '/market/strategy') {
+  } else if (p === '/market') {
     room = 'market';
-    title =
-      p === '/market'
-        ? copyText('moreroutes.market')
-        : p === '/market/mine'
-          ? copyText('moreroutes.my.listings')
-          : copyText('moreroutes.strategy.subscriptions');
+    volt = <MarketRoom />;
+  } else if (p === '/market/mine' || p === '/market/strategy') {
+    room = 'market';
+    title = p === '/market/mine' ? copyText('moreroutes.my.listings') : copyText('moreroutes.strategy.subscriptions');
     description = copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace');
     content = <Market key={p} mine={p === '/market/mine'} strategy={p === '/market/strategy'} />;
   } else if (p === '/predict') {

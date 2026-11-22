@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, Field, Panel } from './agent-room/parts';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
 import { useVenueMode, VenueFrame } from '../trade';
@@ -197,7 +198,7 @@ function Planner({ agent }: { agent: OwnAgent }) {
           disabled={busy}
           onChange={(event) => setText(event.target.value)}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('ask')}
         </Button>
       </form>
@@ -254,10 +255,10 @@ function Planner({ agent }: { agent: OwnAgent }) {
             </DataTable>
             {p.status === 'proposed' ? (
               <p>
-                <Button type="button" disabled={busy} onClick={() => void decide(p, 'approve')}>
+                <Button tone="primary" type="button" disabled={busy} onClick={() => void decide(p, 'approve')}>
                   {t('approve')}
                 </Button>{' '}
-                <Button type="button" disabled={busy} onClick={() => void decide(p, 'reject')}>
+                <Button tone="primary" type="button" disabled={busy} onClick={() => void decide(p, 'reject')}>
                   {t('reject')}
                 </Button>
               </p>

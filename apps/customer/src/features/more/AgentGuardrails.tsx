@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Dialog, Failure, Field, Panel } from '../../shared/ui';
-import { Read, Select } from './common';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, Dialog, Failure, Field, Panel, Read } from './agent-room/parts';
 import { agentGuardrailsCopy, hasGuardrailWords } from './agent-guardrails-copy';
 import {
   OWN_AGENT_RULE_CHOICES,
@@ -179,7 +179,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
             }}
             options={OWN_AGENT_RULE_CHOICES.map((value) => ({ value, label: t(`choice_${value}`) }))}
           />
-          <Button type="submit" disabled={busy || !tool}>
+          <Button tone="primary" type="submit" disabled={busy || !tool}>
             {t('saveRule')}
           </Button>
         </>
@@ -269,7 +269,7 @@ function Consents({ agent, classes, stored }: { agent: OwnAgent; classes: OwnAge
               {row?.state === 'granted' ? (
                 <>
                   {' '}
-                  <Button variant="secondary" disabled={busy} onClick={() => void revoke(dataClass)}>
+                  <Button tone="secondary" disabled={busy} onClick={() => void revoke(dataClass)}>
                     {t('revoke')}
                   </Button>
                 </>
@@ -391,7 +391,7 @@ export function TryTool({
                     onChange={(event) => setArgs((current) => ({ ...current, [field]: event.target.value }))}
                   />
                 ))}
-                <Button disabled={busy || !tool} onClick={() => void run(classOf)}>
+                <Button tone="primary" disabled={busy || !tool} onClick={() => void run(classOf)}>
                   {t('runTest')}
                 </Button>
               </>
@@ -411,10 +411,10 @@ export function TryTool({
           <Dialog title={t('consentTitle', { class: classWords(t, consent.dataClass) })} onClose={() => setConsent(null)}>
             <Answer failed={consent.failed} />
             <p>{t('consentBody', { class: classWords(t, consent.dataClass) })}</p>
-            <Button disabled={busy} onClick={() => void allow(consent.dataClass)}>
+            <Button tone="primary" disabled={busy} onClick={() => void allow(consent.dataClass)}>
               {t('allow')}
             </Button>
-            <Button variant="secondary" onClick={() => setConsent(null)}>
+            <Button tone="secondary" onClick={() => setConsent(null)}>
               {t('notNow')}
             </Button>
           </Dialog>
