@@ -3,6 +3,7 @@ import {
   edgeCall,
   explainRefusal,
   failureRefusal,
+  founderAskedCall,
   founderCall,
   founderRecordCall,
   type DeskRequest,
@@ -150,26 +151,6 @@ export function readCapitalThresholdAnswer(raw: unknown): CapitalThresholdAnswer
   const { assetId, minimum, contact, version } = raw;
   return typeof assetId === 'string' && typeof minimum === 'string' && typeof contact === 'string' && typeof version === 'number'
     ? { assetId, minimum, contact, version }
-    : null;
-}
-
-interface ListingAnswer {
-  readonly action: string;
-  readonly targetId: string;
-  readonly state: string;
-  readonly outcome: string;
-  readonly note: string | null;
-}
-
-export function readListingAnswer(raw: unknown): ListingAnswer | null {
-  if (!isRecord(raw)) return null;
-  const { action, targetId, state, outcome, note } = raw;
-  return typeof action === 'string' &&
-    typeof targetId === 'string' &&
-    typeof state === 'string' &&
-    typeof outcome === 'string' &&
-    (note === null || typeof note === 'string')
-    ? { action, targetId, state, outcome, note }
     : null;
 }
 
@@ -426,7 +407,8 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
     ) {
       const call = listingCall(request);
       const spec = LISTING_CALLS[request.kind];
-      const result = await founderRecordRead(ctx, spec.record, { ...call.input, ...ids }, readListingAnswer);
+      // The record checks the input the request built and parses the answer svc-ops sends.
+      const result = await founderAskedCall(ctx, spec.record, { ...call.input, ...ids });
       if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
       const a = result.data;
       if (a.action !== request.kind || a.targetId !== call.targetId || a.state !== call.state) return WRONG_STATE;
