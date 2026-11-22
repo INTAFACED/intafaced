@@ -67,7 +67,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { githubFetch, githubToken } from './github-fetch.mjs';
-import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, moneyRule, readReport, rootInputs } from './journey-verdict.mjs';
+import { runJobs } from './run-jobs.mjs';
+import {
+  BASELINE_PATH,
+  JOURNEYS_ARTIFACT,
+  fetchInputs,
+  isMainRun,
+  judge,
+  manifestsAt,
+  moneyRule,
+  readReport,
+  rootInputs,
+} from './journey-verdict.mjs';
 import {
   DISPATCH_GROUP_MAX,
   RUN_FILE,
@@ -628,7 +639,11 @@ export function makeIo(repo, token) {
     // A run whose last job (START_JOB) is what started this seal is read as finished (settledRun).
     // Each finished one carries its job count (countJobs), so a run that started no job is passed over (startedNoJob).
     runs: async (sha) => {
-      const jobsOf = (id) => listWhole(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, 'jobs', token, `run ${id}'s jobs`);
+      const jobsOf = async (id) => {
+        const jobs = await runJobs(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, (p) => api(p, token));
+        if (!jobs) throw new Error(`run ${id}'s jobs: not a list`);
+        return jobs;
+      };
       return countJobs(
         await settleRuns(
           await listWhole(
@@ -751,7 +766,8 @@ export function makeIo(repo, token) {
       }
       return out;
     },
-    verdictOf: (report, run, { headMoney = null } = {}) => fullVerdict({ repo, report, run, inputs: baseInputs(), headMoney }),
+    verdictOf: (report, run, { headMoney = null, headBaseline = null } = {}) =>
+      fullVerdict({ repo, report, run, inputs: baseInputs(), headMoney, headBaseline }),
     // The money rule at a pull request's head (moneyAt), for a money-flag mismatch on its own run (sealPull).
     headMoney: (ref) => moneyVia(repo, token, ref),
   };
@@ -760,7 +776,8 @@ export function makeIo(repo, token) {
 /** The default branch's checkout this script runs from (ci.yml runs the base's copy): its baseline and money rule. */
 const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 let base = null;
-const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map() });
+// `memo`: each GET fetchInputs makes is made once per seal step, for every run it judges (journey-verdict.mjs fetchInputs).
+const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map(), memo: new Map() });
 
 /**
  * The journey files a checkout holds (`apps/customer/tests/real-app/*.pw.mjs`), as a set of names, or null when the
@@ -777,9 +794,9 @@ export function journeyFilesAt(root) {
 
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
-export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null }) {
-  const { baseline, money, reports } = inputs;
-  const got = read({ repo, baseline, thisRun: run, reports, log: () => {} });
+export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null, headBaseline = null }) {
+  const { baseline, money, reports, memo } = inputs;
+  const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
   // The files each run ran, never the step-to-file map: that keeps one file a step, so a step id two files share
@@ -806,6 +823,8 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, hea
     issues: got.issues,
     target,
     headMoney,
+    // The baseline the merge would hold: the head's when the pull request changes it (sealPull), else main's.
+    headBaseline: headMoney ? (headBaseline ?? baseline) : null,
   });
   // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
   // when it passed there), or null when it never passed: the merge seal bounds an inherited red by the commits since.
@@ -897,6 +916,12 @@ function moneyVia(repo, token, ref) {
     text: (p) => makeIo(repo, token).text(p, ref),
   });
 }
+
+/** A path the money rule or the baseline is read from (rootInputs, moneyAt): changing one can change a step's money flag. */
+export const moneyInput = (path) =>
+  ['docs/roadmap/journeys.json', 'docs/roadmap/slices.json', BASELINE_PATH].includes(path) ||
+  /^(?:apps|services|packages|tooling)\/[^/]+\/package\.json$/.test(path) ||
+  /^crates\/[^/]+\/Cargo\.toml$/.test(path);
 
 /** A pull request's changed paths, whole: GitHub lists at most 3,000, so a longer list fails closed. */
 export async function pullFiles(get, repo, n) {
@@ -1607,18 +1632,33 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // This head's own runs: a step whose baseline money flag main's money rule disagrees with (`mismatch`) is judged again
   // with this head's money rule too, read once and only then (journey-verdict.mjs judge, headMoney). Main's runs keep
   // main's rule alone. The flag a pull request can change for itself is only ever read the stricter way.
+  // A pull request that changes a file the rule or the baseline is read from (moneyInput) is always judged with its head's
+  // rule and the baseline it would merge, so it can't make a baselined step money unseen (#9539); unreadable, it fails closed.
+  const changesMoney = paths.filter(moneyInput);
   let headMoney;
   const ownVerdictOf = async (rep, r) => {
     const v = await verdictOf(rep, r);
-    if (!io.headMoney || !(v?.red ?? []).some((x) => x?.mismatch)) return v;
-    let rule;
+    if (!io.headMoney || !(changesMoney.length || (v?.red ?? []).some((x) => x?.mismatch))) return v;
+    let got;
     try {
-      rule = await (headMoney ??= Promise.resolve().then(() => io.headMoney(head)));
+      got = await (headMoney ??= Promise.resolve().then(async () => {
+        const rule = await io.headMoney(head);
+        if (!paths.includes(BASELINE_PATH)) return { headMoney: rule };
+        const t = await text(BASELINE_PATH, head);
+        if (typeof t !== 'string') throw new Error(`${BASELINE_PATH} is not on this head`);
+        return { headMoney: rule, headBaseline: JSON.parse(t) };
+      }));
     } catch (e) {
       const why = `; this head's own money rule couldn't be read (${e.message}), so it stays red`;
-      return { ...v, red: v.red.map((x) => (x?.mismatch ? { ...x, why: x.why + why } : x)) };
+      const red = v.red.map((x) => (x?.mismatch ? { ...x, why: x.why + why } : x));
+      if (changesMoney.length)
+        red.push({
+          step: '(input)',
+          why: `this pull request changes ${changesMoney.slice(0, 3).join(', ')}${changesMoney.length > 3 ? `, ${changesMoney.length - 3} more` : ''}, which the money rule or the baseline is read from, and its head's couldn't be read (${e.message}), so the seal fails closed`,
+        });
+      return { ...v, red };
     }
-    return io.verdictOf(rep, r, { headMoney: rule });
+    return io.verdictOf(rep, r, got);
   };
   // The area of this pull request, for reds it inherited from main (splitInherited): the journeys it touches and its paths.
   const touches = {
@@ -1989,7 +2029,7 @@ export async function rerunSealJob({
     const jobsByRun = new Map();
     let step = recheckStep(runs, jobsByRun, event);
     while (step.act === 'jobs') {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${step.runId}'s jobs: not a list`);
       jobsByRun.set(step.runId, jobs);
       step = recheckStep(runs, jobsByRun, event);
@@ -2104,7 +2144,7 @@ export async function readVerdicts({ get, repo, sha }) {
   if (!Array.isArray(runs)) throw new Error(`merge-seal.yml runs on ${sha}: not a list`);
   const out = { any: false, green: false };
   for (const r of runs.filter((x) => x?.head_sha === sha)) {
-    const jobs = (await get(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    const jobs = await runJobs(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=latest`, get);
     if (!Array.isArray(jobs)) throw new Error(`run ${r.id}'s jobs: not a list`);
     for (const j of jobs.filter((x) => x?.name === SEAL)) {
       out.any = true;
@@ -2142,7 +2182,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
     runsOf[workflow] = !settle
       ? onHead
       : await settleRuns(onHead, async (id) => {
-          const jobs = (await get(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100`))?.jobs;
+          const jobs = await runJobs(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, get);
           if (!Array.isArray(jobs)) throw new Error(`run ${id}'s jobs: not a list`);
           return jobs;
         });
@@ -2153,7 +2193,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
     const { workflow } = SEAL_INPUTS.find((i) => i.journeys);
     const newest = [...runsOf[workflow]].sort((a, b) => b.id - a.id)[0];
     if (newest?.status === 'completed') {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
       const touch = jobs.find((j) => j?.name === TOUCH_JOB);
       newest.deferred = (touch?.steps ?? []).some((st) => st?.name === DEFER_MARK && st?.conclusion === 'success');
@@ -2181,7 +2221,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
       .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
       .sort((a, b) => b.id - a.id);
     for (const run of finished.slice(0, REVIEW_RUNS_READ)) {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
       const job = jobs.find(reviewRan);
       if (!job) continue;
@@ -2195,7 +2235,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
       .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
       .sort((a, b) => b.id - a.id)[0];
     if (!newest) continue;
-    const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    const jobs = await runJobs(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest`, get);
     if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
     newest.judgeDown = jobs.some(isModelDown);
   }

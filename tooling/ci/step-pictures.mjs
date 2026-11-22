@@ -19,6 +19,7 @@
  *        meta.json; a step with none is NOT READ (step-read.mjs), never a pass
  *   node tooling/ci/step-pictures.mjs fetch --run <id> <pictures dir>     one run's shards, for a read made off CI
  */
+import { runJobsSync } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -197,7 +198,7 @@ export function fetchRun(repo, run, picDir, { list = shards, get = unpack, wait 
 
 /** Whether a finished run was deferred for main (it ran nothing now and is re-run later; main-first.mjs). */
 const deferred = (repo, run) =>
-  (api(`repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`).jobs ?? [])
+  (runJobsSync(`repos/${repo}/actions/runs/${run.id}/jobs?filter=latest`, api) ?? [])
     .find((j) => j?.name === TOUCH_JOB)
     ?.steps?.some((s) => s?.name === DEFER_MARK && s?.conclusion === 'success') ?? false;
 
