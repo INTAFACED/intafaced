@@ -1,15 +1,21 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { PayDetails } from '../volt/parts';
+import { ToggleChips } from '@intafaced/ui/lit';
 import { StatusChip } from '@intafaced/ui/lit/templates';
 import type { Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
 import { orderHistoryCopy } from './order-history-copy';
 import { disputeStages, escrowView, timeLeft, type OrderAction, type OrderFilter, type StepId, type StepState } from './p2p-model';
 
+/** The kit's step mark for a path state: filled when done, ringed when current, hollow otherwise (the words say which). */
+function kitStep(state: StepState): 'done' | 'current' | 'todo' {
+  return state === 'done' ? 'done' : state === 'current' ? 'current' : 'todo';
+}
+
 /** A plain, always-visible reason. Used where a control exists but the service behind it does not. */
 export function P2PReason({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section role="note" aria-label={title}>
+    <section className="lt-region" role="note" aria-label={title}>
       <h3>{title}</h3>
       <p>{children}</p>
     </section>
@@ -101,12 +107,18 @@ export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | n
   return (
     <section aria-label={t('escrowTitle')} lang={languageFor('escrowTitle')} dir={directionFor('escrowTitle')} data-testid="escrow-path">
       <h3>{t('escrowTitle')}</h3>
-      <ol>
+      <ol className="lt-steps">
         {view.steps.map((step) => (
-          <li key={step.id} data-state={step.state} aria-current={step.state === 'current' ? 'step' : undefined}>
-            <span aria-hidden="true" />
+          <li
+            key={step.id}
+            className="lt-step"
+            data-step={kitStep(step.state)}
+            data-state={step.state}
+            aria-current={step.state === 'current' ? 'step' : undefined}
+          >
+            <span className="lt-step-dot" aria-hidden="true" />
             <span>{labels[step.id]}</span>
-            <span>{stateLabel(step.state)}</span>
+            <span className="lt-step-at">{stateLabel(step.state)}</span>
           </li>
         ))}
       </ol>
@@ -161,12 +173,20 @@ export function DisputeProgress({
   return (
     <div data-testid="dispute-progress">
       <h3>{t('disputeProgress')}</h3>
-      <ol>
+      <ol className="lt-steps">
         {disputeStages(dispute).map((stage) => (
-          <li key={stage.id} data-state={stage.state} aria-current={stage.state === 'current' ? 'step' : undefined}>
-            <span aria-hidden="true" />
+          <li
+            key={stage.id}
+            className="lt-step"
+            data-step={kitStep(stage.state)}
+            data-state={stage.state}
+            aria-current={stage.state === 'current' ? 'step' : undefined}
+          >
+            <span className="lt-step-dot" aria-hidden="true" />
             <span>{labels[stage.id]}</span>
-            <span>{stage.state === 'done' ? t('stateDone') : stage.state === 'current' ? t('stateCurrent') : ''}</span>
+            <span className="lt-step-at">
+              {stage.state === 'done' ? t('stateDone') : stage.state === 'current' ? t('stateCurrent') : ''}
+            </span>
           </li>
         ))}
       </ol>
@@ -185,13 +205,12 @@ export function OfferTabs({ side, onSide }: { side: '' | 'buy' | 'sell'; onSide:
     [t('tabSell'), 'buy'],
   ];
   return (
-    <div role="group" aria-label={t('tabAllOffers')}>
-      {tabs.map(([label, value]) => (
-        <button key={label} type="button" aria-pressed={side === value} onClick={() => onSide(value)}>
-          {label}
-        </button>
-      ))}
-    </div>
+    <ToggleChips
+      label={t('tabAllOffers')}
+      options={tabs.map(([label, value]) => ({ value, label }))}
+      value={side}
+      onChange={(next) => next !== null && onSide(next)}
+    />
   );
 }
 
@@ -217,12 +236,13 @@ export function OrderFilterTabs({
   ];
   return (
     <>
-      <div role="group" aria-label={t('ordersFilterLabel')} data-testid="order-filters">
-        {tabs.map(([label, key]) => (
-          <button key={key} type="button" aria-pressed={value === key} onClick={() => onChange(key)}>
-            {`${label} (${counts[key]})`}
-          </button>
-        ))}
+      <div data-testid="order-filters">
+        <ToggleChips
+          label={t('ordersFilterLabel')}
+          options={tabs.map(([label, key]) => ({ value: key, label: `${label} (${counts[key]})` }))}
+          value={value}
+          onChange={(next) => next !== null && onChange(next)}
+        />
       </div>
       <p className="lt-hint">{note ?? t('ordersCountsNote')}</p>
     </>
