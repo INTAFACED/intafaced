@@ -1,5 +1,5 @@
 /**
- * Owner: lane B2 (templates). LineChart, AreaChart, Bars and Parts: plain SVG, every chart with its data as a
+ * Owner: lane B2 (templates). LineChart, AreaChart, Sparkline, Bars and Parts: plain SVG, every chart with its data as a
  * table (its text equivalent, and Pro's "table behind the chart"). Values arrive as decimal strings; they become
  * floats here only to place pixels (the kit's rule: floats for drawing only). Parts never draws a whole its
  * parts don't add up to: it adds "Other" for the difference or refuses.
@@ -101,6 +101,70 @@ export function LineChart(props: SeriesProps) {
 /** `soft` fades the fill from the line down to nothing (the balance over time); without it the fill is flat, as before. */
 export function AreaChart({ soft, ...props }: SeriesProps & { soft?: boolean }) {
   return <Series {...props} fill soft={soft} />;
+}
+
+/**
+ * A small trend line with no axes, for a card or a row: the line only, coloured by its last value against its first,
+ * or by `tone` when the room already shows a direction (the sign of its change figure), so the two never disagree.
+ * Fewer than two points draw nothing (never a made-up line); the caller says why. `label` names it for a screen reader.
+ */
+export function Sparkline({
+  label,
+  values,
+  tone,
+  size = 'card',
+}: {
+  label: string;
+  values: readonly DecimalString[];
+  tone?: 'up' | 'down' | 'neutral';
+  size?: 'card' | 'row';
+}) {
+  if (values.length < 2) return null;
+  const { x, y, ys } = scale(values.map((value, i) => ({ at: String(i), value })));
+  const d = ys.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const first = ys[0] ?? 0;
+  const last = ys.at(-1) ?? first;
+  return (
+    <figure className="lt-chart lt-spark" data-size={size} data-tone={tone ?? (last > first ? 'up' : last < first ? 'down' : 'neutral')}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
+        <path className="lt-chart-line" d={d} vectorEffect="non-scaling-stroke" />
+      </svg>
+    </figure>
+  );
+}
+
+/**
+ * Which stretches of a time window hold data: one track, each covered range drawn where it falls and the gaps left
+ * empty, so a gap reads as a gap. `from` and `to` are the window (ISO times); a range too short to see keeps a sliver.
+ * Times become floats here only to place pixels. `rangeTestId` marks each range for a room's journey test.
+ */
+export function Coverage({
+  label,
+  from,
+  to,
+  ranges,
+  rangeTestId,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  ranges: readonly { from: string; to: string }[];
+  rangeTestId?: string;
+}) {
+  const start = Date.parse(from);
+  const span = Math.max(1, Date.parse(to) - start);
+  const at = (iso: string) => Math.min(100, Math.max(0, ((Date.parse(iso) - start) / span) * 100));
+  return (
+    <div className="lt-coverage" role="img" aria-label={label}>
+      {ranges.map((range) => (
+        <span
+          key={range.from}
+          data-testid={rangeTestId}
+          style={{ insetInlineStart: `${at(range.from)}%`, inlineSize: `${Math.max(0.5, at(range.to) - at(range.from))}%` }}
+        />
+      ))}
+    </div>
+  );
 }
 
 export function Bars({ label, bars, asset }: { label: string; bars: readonly { label: string; value: DecimalString }[]; asset: string }) {

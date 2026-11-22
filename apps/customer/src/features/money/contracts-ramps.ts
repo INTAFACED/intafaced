@@ -117,6 +117,5 @@ export const rampsReads = {
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const rampsWrites = {
   'ramps.destinations.rename': destinationSchema,
-  'ramps.setWithdrawDestination': z.object({ kind: z.string(), ref: z.string() }),
   'ramps.offramp': offrampSchema,
 } as const;

@@ -2,7 +2,7 @@ import { TradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
@@ -51,7 +51,7 @@ async function openComboAdmin(): Promise<{ url: string; stop: () => Promise<void
     return { url: envUrl, stop: async () => undefined };
   }
   try {
-    const container = await new PostgreSqlContainer(PG_IMAGE)
+    const container = await testPostgres(PG_IMAGE)
       .withDatabase('intafaced_combo_h4_test')
       .withUsername('intafaced')
       .withPassword('intafaced')

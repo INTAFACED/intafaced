@@ -10,6 +10,14 @@ import type { CheckVenueFollowAnswer, CopyService } from './copy-service.js';
 import type { PresentCopyFollow } from './follows.js';
 import type { LeaderDirectoryPage } from './leader-listing.js';
 import type { LeaderProfile, LeaderTradesPage } from './leader-profile.js';
+import {
+  copyLeaderTradesAnswer,
+  copyFollowAnswer,
+  copyCheckVenueFollowAnswer,
+  copyGrantSessionKeyAnswer,
+  copyCloseCopiedPositionAnswer,
+  copySkipLogAnswer,
+} from '@intafaced/contracts/trade-call-schemas';
 
 type Answer<K extends keyof CopyService> = CopyService[K] extends (...args: never[]) => Promise<infer A> ? A : never;
 
@@ -73,81 +81,13 @@ export const copyLeaderProfileAnswer = z.object({
 });
 answerKeys<LeaderProfile>()(copyLeaderProfileAnswer);
 
-export const copyLeaderTradesAnswer = z.object({
-  trades: z
-    .array(
-      z.object({
-        tradeId: z.string(),
-        symbol: z.string(),
-        state: z.enum(['open', 'closed']),
-        openedAt: z.string().nullable(),
-        closedAt: z.string().nullable(),
-        entryPrice: z.string().nullable(),
-        qty: z.string(),
-        margin: z.string().nullable(),
-        takeProfit: z.string().nullable(),
-        stopLoss: z.string().nullable(),
-        closePrice: z.string().nullable(),
-        closedQty: z.string(),
-        roiPercent: z.string().nullable(),
-      }),
-    )
-    .readonly(),
-  nextCursor: z.string().nullable(),
-});
 answerKeys<LeaderTradesPage>()(copyLeaderTradesAnswer);
 
-/** One follow as its follower sees it (follows.ts `presentCopyFollow`). */
-export const copyFollowAnswer = z.object({
-  followId: z.string(),
-  followerId: z.string(),
-  leaderId: z.string().nullable(),
-  leaderRef: z.string().nullable(),
-  permittedMarkets: z.array(z.string()).readonly(),
-  maxNotionalPerOrder: z.string(),
-  maxAggregateExposure: z.string(),
-  fixedOrderSize: z.string().nullable(),
-  sizingMode: z.enum(['fixed_amount', 'smart_sync']),
-  smartSync: z.object({ followerTotal: z.string() }).nullable(),
-  maxPerMarket: z.string().nullable(),
-  maxPerDay: z.string().nullable(),
-  reserve: z.object({ asset: z.string(), amount: z.string(), released: z.boolean() }).nullable(),
-  maxLoss: z.string().nullable(),
-  maxSlippageBps: z.number().nullable(),
-  maxConcurrent: z.number().nullable(),
-  maxDrawdown: z.string().nullable(),
-  peakResult: z.string().nullable(),
-  currentExposure: z.string(),
-  remainingExposure: z.string(),
-  expiresAt: z.string(),
-  region: z.string(),
-  createdAt: z.string(),
-  feeShareKilled: z.boolean(),
-  sessionKeyGranted: z.boolean(),
-  sessionKeyRevoked: z.boolean(),
-  relationshipState: z.enum(['ACTIVE', 'PAUSED', 'STOPPING', 'CLOSE_ONLY', 'DETACHED']),
-  newIntentFenced: z.boolean(),
-  leaderStatus: z.enum(['listed', 'suspended', 'delisted', 'unknown']),
-  // Last, as presentCopyFollow spreads them after every other key (and a grant adds sessionKey after them).
-  sessionKeyPrefix: z.string().optional(),
-  sessionKeyId: z.string().optional(),
-  sessionKey: z.string().optional(),
-});
 answerKeys<PresentCopyFollow>()(copyFollowAnswer);
 answerKeys<Answer<'startFollow'> | Answer<'startVenueFollow'> | Answer<'amendFollow'> | Answer<'killSessionKey'>>()(copyFollowAnswer);
 
-/** A new session key's grant: the follow with the key's id and its raw token, shown this once. `extend` keeps both keys where copyFollowAnswer puts them, last. */
-export const copyGrantSessionKeyAnswer = copyFollowAnswer.extend({ sessionKeyId: z.string(), sessionKey: z.string() });
 answerKeys<Answer<'grantSessionKey'>>()(copyGrantSessionKeyAnswer);
 
-/**
- * The venue follow's check (copy-service.ts `checkVenueFollow`). The unwritten form is tried first: only it has
- * `quoteAsset`, and its follow is null, so a follow already written (an object) never reads as one.
- */
-export const copyCheckVenueFollowAnswer = z.union([
-  z.object({ followId: z.string(), follow: z.null(), quoteAsset: z.string(), maxAggregateExposure: z.string() }),
-  z.object({ followId: z.string(), follow: copyFollowAnswer }),
-]);
 answerKeys<CheckVenueFollowAnswer>()(copyCheckVenueFollowAnswer);
 
 export const copyFollowPositionsAnswer = z.object({
@@ -213,39 +153,17 @@ export const copyCopiedPositionsAnswer = z.object({
 });
 answerKeys<Answer<'copiedPositions'>>()(copyCopiedPositionsAnswer);
 
-export const copyCloseCopiedPositionAnswer = z.object({
-  followId: z.string(),
-  positionId: z.string(),
-  orderId: z.string(),
-  qty: z.string(),
-  duplicate: z.boolean(),
-});
 answerKeys<Answer<'closePosition'>>()(copyCloseCopiedPositionAnswer);
 
-export const copySkipLogAnswer = z.object({
-  items: z.array(
-    z.object({
-      leaderFillId: z.string(),
-      reason: z.enum([
-        'paused',
-        'stopped',
-        'lead_stopped',
-        'platform_paused',
-        'risk_control',
-        'insufficient_funds',
-        'max_copy_total',
-        'per_contract_cap',
-        'daily_cap',
-        'copy_slippage_exceeded',
-        'position_closed',
-        'not_lead_order',
-        'refused',
-      ]),
-      at: z.string(),
-    }),
-  ),
-});
 answerKeys<Answer<'skipLog'>>()(copySkipLogAnswer);
 
 export const copyListMyFollowsAnswer = z.array(copyFollowAnswer);
 answerKeys<Answer<'listMyFollows'>>()(copyListMyFollowsAnswer);
+export {
+  copyLeaderTradesAnswer,
+  copyFollowAnswer,
+  copyCheckVenueFollowAnswer,
+  copyGrantSessionKeyAnswer,
+  copyCloseCopiedPositionAnswer,
+  copySkipLogAnswer,
+};

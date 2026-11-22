@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { sessionRunSchema, sessionRunStopSchema, type SessionRun } from '@intafaced/contracts/agents-runs';
+import { type SessionRun } from '@intafaced/contracts/agents-runs';
 import { useApi } from '../session';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { displayAmount } from '../../shared/money';
@@ -7,10 +7,16 @@ import { Button, DataTable, Panel } from '../../shared/ui';
 import { channelStatus } from '../../screens/notifications/notify-api';
 import { Details, TextArea } from './common';
 import { agentRunCopy } from './agent-run-copy';
+import {
+  AGENTS_RUN_BACKGROUND_GET,
+  AGENTS_RUN_BACKGROUND_STOP,
+  AGENTS_RUN_BACKGROUND_ASK_MORE,
+  AGENTS_RUN_BACKGROUND_START,
+  AGENTS_RUN_BACKGROUND_PAUSE,
+  AGENTS_RUN_BACKGROUND_RESUME,
+} from '@intafaced/contracts/agents-run-procedures';
 
-export const agentRunSchema = sessionRunSchema;
 export type AgentRun = SessionRun;
-const stopSchema = sessionRunStopSchema;
 
 const ENDED: readonly AgentRun['state'][] = ['completed', 'stopped', 'failed'];
 /** How often the page reads the run again while it is still going. */
@@ -43,7 +49,7 @@ export function AgentRunPage({ runId }: { runId: string }) {
     if (!live) return;
     const controller = new AbortController();
     const read = () =>
-      void api.query('agents', 'run.background.get', { runId }, agentRunSchema, { signal: controller.signal }).then((res) => {
+      void api.call(AGENTS_RUN_BACKGROUND_GET, { runId }, { signal: controller.signal }).then((res) => {
         if (controller.signal.aborted) return;
         if (res.ok) return setRun(res.data);
         if (res.message === 'agents.run_not_found' || res.code === 'NOT_FOUND') setMissing(true);
@@ -82,7 +88,9 @@ export function AgentRunPage({ runId }: { runId: string }) {
     setBusy(true);
     setRefusal(null);
     setRepeated(false);
-    const res = await api.mutate('agents', path, { runId }, agentRunSchema);
+    const res = await (path === 'run.background.pause'
+      ? api.call(AGENTS_RUN_BACKGROUND_PAUSE, { runId })
+      : api.call(AGENTS_RUN_BACKGROUND_RESUME, { runId }));
     setBusy(false);
     if (res.ok) setRun(res.data);
     else setRefusal(res.message);
@@ -90,7 +98,7 @@ export function AgentRunPage({ runId }: { runId: string }) {
   const stop = async () => {
     setBusy(true);
     setRefusal(null);
-    const res = await api.mutate('agents', 'run.background.stop', { runId }, stopSchema);
+    const res = await api.call(AGENTS_RUN_BACKGROUND_STOP, { runId });
     setBusy(false);
     if (!res.ok) return setRefusal(res.message);
     setRun(res.data.run);
@@ -100,7 +108,7 @@ export function AgentRunPage({ runId }: { runId: string }) {
     setBusy(true);
     setRefusal(null);
     setRepeated(false);
-    const res = await api.mutate('agents', 'run.background.askMore', { runId, text: more }, agentRunSchema);
+    const res = await api.call(AGENTS_RUN_BACKGROUND_ASK_MORE, { runId, text: more });
     setBusy(false);
     if (!res.ok) return setRefusal(res.message);
     setRun(res.data);
@@ -213,12 +221,7 @@ export function BackgroundRunStart({
     setRefusal(null);
     // One click is one run: a retry of this request is the same run, never a second one.
     const requestId = `bg:${crypto.randomUUID()}`;
-    const res = await api.mutate(
-      'agents',
-      'run.background.start',
-      { sessionId, requestId, task, ask, steps: count, notice },
-      agentRunSchema,
-    );
+    const res = await api.call(AGENTS_RUN_BACKGROUND_START, { sessionId, requestId, task, ask, steps: count, notice });
     setBusy(false);
     if (res.ok) setStarted(res.data);
     else setRefusal(res.message);
