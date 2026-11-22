@@ -16,13 +16,30 @@ import { AgentsCatalogue, refusalKeyWords, refusalWords } from './AgentsCatalogu
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
-import { navigatorAskResultSchema, type NavigatorOrder } from '@intafaced/contracts/agents-onchain';
+import { type NavigatorOrder } from '@intafaced/contracts/agents-onchain';
 import { BackgroundRunStart } from './AgentRun';
 import { ResearchProvenance, ResearchReply } from './ResearchProvenance';
 import { researchProvenanceSchema, type ResearchProvenance as ResearchProvenanceShape } from '@intafaced/contracts/agents-research';
 import { NavigatorCapLine, NavigatorOrderView, NavigatorOrders, NavigatorTradeRefusalView, useNavigatorTrading } from './NavigatorOrders';
 import { AgentsActivity, AgentsDashboard, AgentsUsage, RunTraces } from './AgentsReview';
 import { agentsReviewCopy } from './agents-review-copy';
+import { AGENTS_ROUTES_LIST } from '@intafaced/contracts/agents-routes-procedures';
+import { callAs } from '../../shared/api';
+import { AGENTS_RUN_COMPLETE } from '@intafaced/contracts/agents-run-procedures';
+import {
+  AGENTS_SESSION_SELECT,
+  AGENTS_SESSION_SELECTED,
+  AGENTS_SESSION_LOG,
+  AGENTS_SESSION_DETAIL,
+  AGENTS_SESSION_CLOSE,
+  AGENTS_SESSION_OPEN,
+} from '@intafaced/contracts/agents-session-procedures';
+import { AGENTS_AGENT_GET } from '@intafaced/contracts/agents-agent-procedures';
+import { AGENTS_LOG_MINE } from '@intafaced/contracts/agents-log-procedures';
+import { AGENTS_USAGE_CURRENT } from '@intafaced/contracts/agents-usage-procedures';
+import { AGENTS_COACH_SESSION } from '@intafaced/contracts/agents-coach-procedures';
+import { AGENTS_NAVIGATOR_ASK } from '@intafaced/contracts/agents-navigator-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 const uuid = z.string().guid();
 const routeSchema = z.object({
   task: z.string(),
@@ -55,26 +72,7 @@ const definition = z.object({
     allowedTasks: z.array(z.string()),
   }),
 });
-const sessionDetailSchema = z
-  .object({
-    session: z.object({ id: uuid, agentId: z.string(), status: z.enum(['open', 'closed']) }).passthrough(),
-    assetId: z.string().min(1),
-    windows: z.array(
-      z.object({
-        windowId: z.string(),
-        openedAt: z.string(),
-        state: z.enum(['open', 'unpaid', 'settled']),
-        amount: decimalSchema.nullable(),
-        chargeKey: z.string().nullable(),
-        paidBy: z.enum(['ledger', 'partner']).nullable().default(null),
-        payment: z.object({ ref: z.string(), label: z.string() }).nullable().default(null),
-      }),
-    ),
-    /** Each run of the session by its request id, oldest first; a trace opens from here. */
-    runs: z.array(z.object({ requestId: z.string().min(1), startedAt: z.string(), state: z.enum(['running', 'completed']) })).optional(),
-  })
-  .nullable();
-type SessionDetail = NonNullable<z.infer<typeof sessionDetailSchema>>;
+type SessionDetail = NonNullable<ProcedureOutput<typeof AGENTS_SESSION_DETAIL>>;
 const sessionSchema = z.object({
   id: uuid,
   agentId: z.string(),
@@ -103,7 +101,6 @@ const actionSchema = z.object({
   occurredAt: z.string().datetime({ offset: true }),
 });
 type AgentAction = z.infer<typeof actionSchema>;
-const selectedSchema = z.object({ sessionId: uuid, agentId: z.string().min(1) });
 type Inspection = { owner: string; id: string; agentId: string };
 const inspectionSchema = z.object({ owner: uuid, id: uuid, agentId: z.string().min(1) });
 function readInspection(owner: string | null): Inspection | null {
@@ -193,8 +190,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     } catch {
       /* Inspection remains available in this view. */
     }
-    if (remember)
-      void api.mutate('agents', 'session.select', { sessionId: row.sessionId }, selectedSchema).then((res) => setSelectNotKept(!res.ok));
+    if (remember) void api.call(AGENTS_SESSION_SELECT, { sessionId: row.sessionId }).then((res) => setSelectNotKept(!res.ok));
   }
   function contextMatches(expected: typeof currentContext.current) {
     const current = currentContext.current;
@@ -227,35 +223,26 @@ export function Agents({ paper = false }: { paper?: boolean }) {
       return { message: current.t(key), language: current.languageFor(key) };
     });
   }
-  const routes = useResource(
-      (signal) => api.query('agents', 'routes.list', undefined, z.array(routeSchema), { signal }),
-      `agent-routes:${userId}`,
-    ),
+  const routes = useResource((signal) => api.call(AGENTS_ROUTES_LIST, undefined, { signal }), `agent-routes:${userId}`),
     guard = useResource(
       (signal) =>
-        api.query(
-          'agents',
-          'agent.get',
+        callAs(
+          api,
+          AGENTS_AGENT_GET,
           { agentId: agent },
           definition.nullable().refine((row) => row === null || row.agentId === agent),
           { signal },
         ),
       `agent:${userId}:${agent}`,
     ),
-    stored = useResource(
-      (signal) => api.query('agents', 'session.selected', undefined, selectedSchema.nullable(), { signal }),
-      `agent-selected:${userId}`,
-    ),
-    log = useResource(
-      (signal) => api.query('agents', 'log.mine', { limit }, actionList(limit), { signal }),
-      `agent-log:${userId}:${limit}`,
-    ),
+    stored = useResource((signal) => api.call(AGENTS_SESSION_SELECTED, undefined, { signal }), `agent-selected:${userId}`),
+    log = useResource((signal) => callAs(api, AGENTS_LOG_MINE, { limit }, actionList(limit), { signal }), `agent-log:${userId}:${limit}`),
     sessionLog = useResource(
       (signal) =>
         active
-          ? api.query(
-              'agents',
-              'session.log',
+          ? callAs(
+              api,
+              AGENTS_SESSION_LOG,
               { sessionId: active.id, limit },
               actionList(limit, { owner: userId!, id: active.id, agentId: active.agentId }),
               { signal },
@@ -265,71 +252,31 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     ),
     usage = useResource(
       (signal) =>
-        active
-          ? api.query(
-              'agents',
-              'usage.current',
-              { sessionId: active.id },
-              z.object({ windowId: z.string(), pending: decimalSchema, sessionTotal: decimalSchema, assetId: z.string().min(1) }),
-              { signal },
-            )
-          : Promise.resolve({ ok: true as const, data: null }),
+        active ? api.call(AGENTS_USAGE_CURRENT, { sessionId: active.id }, { signal }) : Promise.resolve({ ok: true as const, data: null }),
       `agent-usage:${userId}:${active?.id}`,
     ),
     selectedHistory = useResource(
       (signal) =>
         selectedSession
-          ? api.query('agents', 'session.log', { sessionId: selectedSession.id, limit }, actionList(limit, selectedSession), { signal })
+          ? callAs(api, AGENTS_SESSION_LOG, { sessionId: selectedSession.id, limit }, actionList(limit, selectedSession), { signal })
           : Promise.resolve({ ok: true as const, data: [] as AgentAction[] }),
       `agent-inspect-log:${userId}:${selectedSession?.id}:${limit}`,
     ),
     selectedUsage = useResource(
       (signal) =>
         selectedSession
-          ? api.query(
-              'agents',
-              'usage.current',
-              { sessionId: selectedSession.id },
-              z.object({ windowId: z.string().min(1), pending: decimalSchema, sessionTotal: decimalSchema, assetId: z.string().min(1) }),
-              { signal },
-            )
+          ? api.call(AGENTS_USAGE_CURRENT, { sessionId: selectedSession.id }, { signal })
           : Promise.resolve({ ok: true as const, data: null }),
       `agent-inspect-usage:${userId}:${selectedSession?.id}`,
     ),
     selectedDetail = useResource(
       (signal) =>
         selectedSession
-          ? api.query('agents', 'session.detail', { sessionId: selectedSession.id }, sessionDetailSchema, { signal })
+          ? api.call(AGENTS_SESSION_DETAIL, { sessionId: selectedSession.id }, { signal })
           : Promise.resolve({ ok: true as const, data: null }),
       `agent-inspect-detail:${userId}:${selectedSession?.id}`,
     ),
-    coach = useResource(
-      (signal) =>
-        api.query(
-          'agents',
-          'coach.session',
-          { ask: coachQuery },
-          z.discriminatedUnion('status', [
-            z.object({
-              status: z.literal('refuse'),
-              reason: z.string(),
-              isAdvice: z.literal(false),
-              positionsReferenced: z.literal(false),
-              citedCount: z.literal(0),
-            }),
-            z.object({
-              status: z.literal('grounded'),
-              kind: z.literal('citation'),
-              isAdvice: z.literal(false),
-              positionsReferenced: z.literal(false),
-              citedCount: z.number().int(),
-              citations: z.array(z.object({ slug: z.string(), title: z.string() })),
-            }),
-          ]),
-          { signal },
-        ),
-      `coach:${userId}:${coachQuery}`,
-    );
+    coach = useResource((signal) => api.call(AGENTS_COACH_SESSION, { ask: coachQuery }, { signal }), `coach:${userId}:${coachQuery}`);
   useEffect(() => {
     setInspection(readInspection(userId));
     setSessionFilter('');
@@ -420,8 +367,8 @@ export function Agents({ paper = false }: { paper?: boolean }) {
       run: async (canDispatch) => {
         if (!contextMatches(expected)) return changed();
         const [freshGuard, freshRoutes] = await Promise.all([
-          api.query('agents', 'agent.get', { agentId: agent }, definition.nullable()),
-          api.query('agents', 'routes.list', undefined, z.array(routeSchema)),
+          api.call(AGENTS_AGENT_GET, { agentId: agent }),
+          api.call(AGENTS_ROUTES_LIST, undefined),
         ]);
         if (!freshGuard.ok) return freshGuard;
         if (!freshRoutes.ok) return freshRoutes;
@@ -455,9 +402,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
         };
         setRunNote(null);
         setRuns((current) => [row, ...current]);
-        const res = await api.mutate(
-          'agents',
-          'run.complete',
+        const res = await callAs(
+          api,
+          AGENTS_RUN_COMPLETE,
           {
             sessionId: active.id,
             requestId,
@@ -679,7 +626,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             onClose={async () => {
                               setClosing(true);
                               setCloseFailure(null);
-                              const res = await api.mutate('agents', 'session.close', { sessionId: detail.session.id }, sessionSchema);
+                              const res = await api.call(AGENTS_SESSION_CLOSE, { sessionId: detail.session.id });
                               setClosing(false);
                               if (res.ok) {
                                 setClosedNote(detail.session.id);
@@ -801,7 +748,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                               ),
                               run: async (canDispatch) => {
                                 if (!contextMatches(expected)) return changed();
-                                const fresh = await api.query('agents', 'agent.get', { agentId: agent }, definition.nullable());
+                                const fresh = await api.call(AGENTS_AGENT_GET, { agentId: agent });
                                 if (!fresh.ok) return fresh;
                                 if (
                                   !fresh.data ||
@@ -813,9 +760,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                                   return preflightFailure('error', 'agents.the.agent.guardrails.changed.reload.and.review');
                                 if (!canDispatch() || !contextMatches(expected))
                                   return preflightFailure('aborted', 'agents.the.account.changed.review.this.session.again');
-                                const res = await api.mutate(
-                                  'agents',
-                                  'session.open',
+                                const res = await callAs(
+                                  api,
+                                  AGENTS_SESSION_OPEN,
                                   { agentId: agent },
                                   sessionSchema.refine(
                                     (s) =>
@@ -946,21 +893,19 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         // nothing. Neither calls the engine or charges. Any other ask goes on to the ordinary run.
                         const expectedAsk = { ...currentContext.current };
                         const session = active;
-                        void api
-                          .mutate('agents', 'navigator.ask', { sessionId: session.id, requestId, text: ask }, navigatorAskResultSchema)
-                          .then((res) => {
-                            if (!contextMatches(expectedAsk)) return;
-                            if (!res.ok) {
-                              setOrdersRevision((n) => n + 1);
-                              return setAskFailure(res);
-                            }
-                            if (res.data.kind === 'order') {
-                              setPlaced(res.data.order);
-                              setOrdersRevision((n) => n + 1);
-                              return;
-                            }
-                            stageRun(requestId, selectedRoute, defs, session);
-                          });
+                        void api.call(AGENTS_NAVIGATOR_ASK, { sessionId: session.id, requestId, text: ask }).then((res) => {
+                          if (!contextMatches(expectedAsk)) return;
+                          if (!res.ok) {
+                            setOrdersRevision((n) => n + 1);
+                            return setAskFailure(res);
+                          }
+                          if (res.data.kind === 'order') {
+                            setPlaced(res.data.order);
+                            setOrdersRevision((n) => n + 1);
+                            return;
+                          }
+                          stageRun(requestId, selectedRoute, defs, session);
+                        });
                       }}
                     >
                       {agentsCatalogueCopy.t('run')}
@@ -979,20 +924,12 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     rows={runs}
                     onSendAgain={async (row) => {
                       // The same request id is the same run: the service returns it or names it, and charges once.
-                      const res = await api.mutate(
-                        'agents',
-                        'run.complete',
-                        { sessionId: active.id, requestId: row.requestId, task: row.task, messages: [{ role: 'user', content: row.ask }] },
-                        z
-                          .object({
-                            cost: decimalSchema,
-                            text: z.string(),
-                            assetId: z.string(),
-                            metered: z.boolean(),
-                            provenance: researchProvenanceSchema.nullable(),
-                          })
-                          .passthrough(),
-                      );
+                      const res = await api.call(AGENTS_RUN_COMPLETE, {
+                        sessionId: active.id,
+                        requestId: row.requestId,
+                        task: row.task,
+                        messages: [{ role: 'user', content: row.ask }],
+                      });
                       // Answered: the first try never reached the engine, so this is the run and its own cost.
                       if (res.ok) {
                         setRunNote(null);
@@ -1054,9 +991,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         reference: active.id,
                         run: async (canDispatch) => {
                           if (!canDispatch() || !contextMatches(expected)) return changed();
-                          const res = await api.mutate(
-                            'agents',
-                            'session.close',
+                          const res = await callAs(
+                            api,
+                            AGENTS_SESSION_CLOSE,
                             { sessionId: active.id },
                             sessionSchema.refine(
                               (row) =>
