@@ -17,7 +17,10 @@
  *     - `old-kit`: an import from `@intafaced/ui` other than `@intafaced/ui/lit…`, or from the app's `shared/ui`;
  *     - `outside-component`: a component (a capitalised name) imported from a `.tsx` file outside the room's folder
  *       that itself draws off the kit: that file is judged by this same rule, in its own folder, so a part several rooms
- *       share is drawn from the kit once, where it lives (hooks, copy and helpers from there are not judged);
+ *       share is drawn from the kit once, where it lives (hooks, copy and helpers from there are not judged). A name
+ *       imported through a `.ts` barrel (a folder's `index.ts`, or any `.ts` that re-exports) is followed through its
+ *       `export { … } from` and `export * from` lines to the `.tsx` that holds it, which is judged the same way; a name
+ *       a barrel re-exports from the old kit is off the kit there;
  *     - `own-class`: a class name written in `className` that is not the kit's (`lt-…`).
  * A room that fails 1 is `not-migrated` (or `no-template` when the registry has no row for it); one that fails 2 is
  * `off-kit`, with each finding named by file and line.
@@ -64,7 +67,7 @@ export interface VoltCount {
 }
 
 const VOLT_RULE =
-  "In Volt: a screen file carries the room's `// volt-room: <route>` line, it imports @intafaced/ui/lit, and it and the files it reaches by relative import inside its own folder import no stylesheet, set no style=, import nothing from @intafaced/ui outside /lit nor from shared/ui, import no component (a capitalised name) from a .tsx outside the folder unless that file passes this same rule, and write no className that is not the kit's lt- class.";
+  "In Volt: a screen file carries the room's `// volt-room: <route>` line, it imports @intafaced/ui/lit, and it and the files it reaches by relative import inside its own folder import no stylesheet, set no style=, import nothing from @intafaced/ui outside /lit nor from shared/ui, import no component (a capitalised name) from a .tsx outside the folder, directly or through a .ts barrel's re-exports, unless that file passes this same rule, and write no className that is not the kit's lt- class.";
 
 const APP_SRC = resolve(dirname(new URL(import.meta.url).pathname), '..');
 
@@ -120,6 +123,65 @@ function imports(source: string): { spec: string; line: number; names: string[] 
   return found;
 }
 
+/** Each `export … from` line in `source`: the names it re-exports (exported name to the name in `spec`), or `*`. */
+function reexports(source: string): { spec: string; line: number; star: boolean; names: Map<string, string> }[] {
+  const found: { spec: string; line: number; star: boolean; names: Map<string, string> }[] = [];
+  for (const m of source.matchAll(/^[ \t]*export\s+(?!type\s)(\*(?:\s+as\s+(\w+))?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/gm)) {
+    const names = new Map<string, string>();
+    if (m[2]) names.set(m[2], '*');
+    else if (m[1]!.startsWith('{'))
+      for (const part of m[1]!.slice(1, -1).split(',')) {
+        const n = part.trim();
+        if (!n || n.startsWith('type ')) continue;
+        const [inner, outer] = n.split(/\s+as\s+/).map((x) => x.trim());
+        names.set(outer ?? inner!, inner!);
+      }
+    found.push({ spec: m[3]!, line: source.slice(0, m.index).split('\n').length, star: m[1] === '*', names });
+  }
+  return found;
+}
+
+/** Whether the `.tsx` at `file` exports `name` itself or by a named re-export (an `export *` reaches it only so). */
+const holds = (file: string, name: string) =>
+  new RegExp(
+    `^[ \\t]*export\\s+(?:(?:default\\s+)?(?:async\\s+)?(?:const|let|var|function\\*?|class)\\s+${name}\\b|\\{[^}]*\\b${name}\\b[^}]*\\})`,
+    'm',
+  ).test(readFileSync(file, 'utf8'));
+
+/**
+ * Where `name`, imported from the `.ts` barrel `file`, is drawn: the `.tsx` that holds it (reached through the barrel's named
+ * and star re-exports, and any `.ts` barrels behind them), an old-kit re-export (`old`), or nothing when a `.ts` holds it
+ * itself or it is not found. `seen` ends a cycle of barrels.
+ */
+function throughBarrel(
+  file: string,
+  name: string,
+  seen: Set<string> = new Set(),
+): { tsx?: string; old?: { file: string; line: number; spec: string } } | undefined {
+  const key = `${file}#${name}`;
+  if (seen.has(key)) return undefined;
+  seen.add(key);
+  const lines = reexports(readFileSync(file, 'utf8'));
+  const follow = (spec: string, line: number, inner: string, star = false) => {
+    if (spec === '@intafaced/ui' || (spec.startsWith('@intafaced/ui/') && !spec.startsWith('@intafaced/ui/lit')))
+      return { old: { file, line, spec } };
+    if (!spec.startsWith('.')) return undefined;
+    const target = resolveImport(file, spec);
+    if (!target) return undefined;
+    if (/(^|\/)shared\/ui(\.tsx?|\/.*)$/.test(target)) return { old: { file, line, spec } };
+    if (target.endsWith('.tsx')) return star && !holds(target, inner) ? undefined : { tsx: target };
+    if (target.endsWith('.ts') && inner !== '*') return throughBarrel(target, inner, seen);
+    return undefined;
+  };
+  const named = lines.find((l) => l.names.has(name));
+  if (named) return follow(named.spec, named.line, named.names.get(name)!);
+  for (const l of lines.filter((l) => l.star)) {
+    const found = follow(l.spec, l.line, name, true);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /**
  * Every finding that keeps the room whose screen file is `entry` (absolute) off the kit. `judged` carries the verdict
  * on each outside part already judged (a part under judgement counts as clean, so an import cycle ends).
@@ -156,6 +218,27 @@ export function offKitFindings(entry: string, judged: Map<string, Finding[]> = n
               at: where,
               text: `${names.filter((n) => /^[A-Z]/.test(n)).join(', ')} from ${spec}, which draws off the kit: ${off[0]!.kind} at ${off[0]!.at}${off.length > 1 ? ` (+${off.length - 1} more)` : ''}`,
             });
+        } else if (target.endsWith('.ts')) {
+          for (const name of names.filter((n) => /^[A-Z]/.test(n))) {
+            const drawn = throughBarrel(target, name);
+            if (drawn?.old) {
+              findings.push({
+                kind: 'outside-component',
+                at: where,
+                text: `${name} from ${spec}, which draws off the kit: old-kit at ${at(drawn.old.file, drawn.old.line)} (${drawn.old.spec})`,
+              });
+              continue;
+            }
+            if (!drawn?.tsx) continue;
+            if (!judged.has(drawn.tsx)) judged.set(drawn.tsx, offKitFindings(drawn.tsx, judged, root));
+            const off = judged.get(drawn.tsx)!;
+            if (off.length > 0)
+              findings.push({
+                kind: 'outside-component',
+                at: where,
+                text: `${name} from ${spec} (${relative(root, drawn.tsx)}), which draws off the kit: ${off[0]!.kind} at ${off[0]!.at}${off.length > 1 ? ` (+${off.length - 1} more)` : ''}`,
+              });
+          }
         }
       }
     }
