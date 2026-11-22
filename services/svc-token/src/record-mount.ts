@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
 import { mountRecord, type RecordHandler, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { TokenError } from './token-service.js';

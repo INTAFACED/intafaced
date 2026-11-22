@@ -27,8 +27,7 @@ Each slice of svc-matching's move to Rust starts here, in a fresh thread. `servi
   - `tests/engine_calls.rs`: `mass-cancel`, `close-position`, `l3-queue`, `post-only-market`, `reduce-only-market`, `core-tif`, `reconcile.test.ts`.
   - Each file's tests not ported say why at the top: they test a later slice's door or wrapper, a helper no door calls, or what a Rust type already holds (a required depth window, a required snapshot cadence, a TIF that is an enum).
   - Where the Rust differs:
-    - The book holds every order type `book.ts` holds, but the door serves only the ported slices' orders. A submit naming a strike, expiry, combo or legs is owed by `spreads`.
-    - A cold start stops, rather than rebuild a book without the module that reads it, on a journalled order with such a part or a `spread_list`.
+    - The book holds every order type `book.ts` holds, and the door serves every ported slice's orders.
     - The market modes are read back from the journal and gate every submit and amend; the doors that switch them are the `venue` slice's. The `open_surveillance` evidence records `surveillance-persist.ts` appends are the `venue` slice's.
     - SBE links no encoder: `/depth/sbe` and `?format=sbe` answer the TypeScript's 409 `matching.sbe_unavailable` without its Java bridge.
     - The mass cancel is cod-fence's, as the TypeScript serves it: it journals `mass_cancel` and then cancels each order. In maintenance every cancel is refused live, but replay of that record cancels them; the port keeps this. No door enters maintenance (`enterMaintenance` has no route), so it can only come from a journal written before.
@@ -45,8 +44,21 @@ Each slice of svc-matching's move to Rust starts here, in a fresh thread. `servi
   - `tests/triggers_bracket.rs`: `bracket.test.ts`.
   - `tests/triggers_engine.rs`: `stop-limit`, `trailing-stop`, `gtd`, `gtd-amend-clock`, and the trigger tests of `slice-s20.test.ts`.
   - `tests/triggers_doors.rs`: `stop-limit.router`, `trailing-stop.router`, `trailing-mark.router`, `oco.router`, through the whole door.
-  - The TypeScript installs trailing stops, brackets, OCO links and OCO cancels by replacing `OrderBook.prototype.submit` on import; here `OrderBook::submit` is that one chain, outermost first, over the core book's `submit_core`. What the wrappers remember beside a book (a bracket's pending entry and armed exits, the trailing rows) lives on the book outside its snapshot, as the TypeScript's `WeakMap`s do.
-  - Where the Rust differs: a helper the wrappers keep private (`readOcoPair`, `wantsOco`, `readTrail`) is tested through `submit`; an OCO cancel never sees an option, which is the `spreads` slice's. A mark that tightens a stop into a fill announces nothing, in the TypeScript and here.
+  - The TypeScript installs trailing stops, brackets, OCO links and OCO cancels by replacing `OrderBook.prototype.submit` on import; here `OrderBook::submit` is that one chain, outermost first, between the combo layer and the option layer (below). What the wrappers remember beside a book (a bracket's pending entry and armed exits, the trailing rows) lives on the book outside its snapshot, as the TypeScript's `WeakMap`s do.
+  - Where the Rust differs: a helper the wrappers keep private (`readOcoPair`, `wantsOco`, `readTrail`) is tested through `submit`. A mark that tightens a stop into a fill announces nothing, in the TypeScript and here.
+- **Options, combos and spreads** (`src/book/order_book/option.rs`, `combo.rs`, `spread_book.rs`, `src/book/spread.rs`, the engine's listings, `src/door/spreads.rs`): the replay owes them nothing (`WIRE_REPLAY_STRICT=spreads`), and the TypeScript tests are ported test for test:
+  - `tests/options.rs`: `option`, `option-amend-price`, `option-cancel`, `option-expire`, `option-replace`, `option.router`.
+  - `tests/combos.rs`: `combo-book`, `option-combo`, `option-combo.router`.
+  - `tests/spreads.rs`: `spread-book`, `spread-core-refuse`, `spread-fill-publisher`, `spread.router`.
+  - Each file's tests not ported say why at the top.
+  - Where the Rust differs:
+    - The TypeScript installs each layer on `OrderBook`'s prototype and keeps its rows in a `WeakMap` beside the book. Here the book's `submit` runs the spread and combo layers, the trigger wrappers, then the option layer over the core book, outermost first, as the TypeScript's imports install them (`option.ts` first, `spread-book.ts` last); `amend` runs the spread layer, the bracket's amend, then the option layer; and each layer's rows are the book's own fields. As in the TypeScript they are not part of the book's durable state.
+    - A spread lists exactly two legs as a type (`[SpreadLegDefinition; 2]`).
+    - Products and quotients are formed in 256 bits (`mul_div`); a sum past an i128 refuses as a value past `MAX_AMOUNT` does.
+    - A spread fill whose legs no longer price after the rehearsal priced them is `EngineError::Invariant`, where the TypeScript throws; nothing is announced.
+    - `spreadFills` is `EngineParts::spread_fills`: `spreadFilled` goes out on the engine's bus.
+    - An amend carries no unknown field (`EngineAmend` is a struct), so `unsupportedAmendField` has nothing to refuse.
+    - The listing spends its approval through the rulebook's `src/approval.rs` (`matching.spread_list` on `spread_list:<spreadId>`), so the binary's door spends it at `IDENTITY_URL` like every other.
 - **Liquidity** (`src/engine/liquidity.rs`, `src/door/liquidity.rs`, and the in-flight marks in `src/engine/mod.rs`): the replay owes it nothing (`WIRE_REPLAY_STRICT=liquidity`), and the TypeScript tests are ported test for test:
   - `tests/liquidity_book.rs`: `iceberg`, `peg`, `aon`, `auction`.
   - `tests/liquidity_engine.rs`: `ifm`, `ifm-crash`, `mass-quote`, `mmp`, `auction-uncross`, `liquidity`.
@@ -140,6 +152,6 @@ Events go out on the bus from `engine.ts`: `orderAccepted`, `orderFilled`, `orde
 - `triggers` (after `book`): stop, stop-limit and take-profit orders, trailing stops and `POST /markets/:marketId/mark`, OCO and brackets, good-till-date expiry. Ported: `src/book/triggers.rs`, the mark in `src/engine/`, the doors in `src/door/book.rs`
 - `liquidity` (after `book`): iceberg, peg, all-or-none, IFM, the auction and its uncross, liquidity, `POST /markets/:marketId/mass-quote` with MMP. Ported: `src/engine/liquidity.rs`, `src/door/liquidity.rs`
 - `venue` (after `book`): `POST /markets/:marketId/halt`, `/resume`, `/reduce-only`, `/reduce-only/resume`, `/post-only`, `/post-only/resume`, `/prelaunch`, `/open`, `/expire`, `/delist`, `POST /halt-all`, `/resume-all` with the identity approval they spend, the halt law, `POST /session/dead` and cancel-on-disconnect, `GET /surveillance/cases`, `POST /surveillance/adjudicate`, `/fine`. Ported: `src/engine/venue.rs`, `src/door/venue.rs`, `src/approval.rs`
-- `spreads` (after `book`): `GET /spreads`, `GET /spreads/:spreadId/book`, `POST /spreads/:spreadId/list`, `POST /spreads/:spreadId/orders`, the combo and option books, and `spreadFilled`
+- `spreads` (after `book`): `GET /spreads`, `GET /spreads/:spreadId/book`, `POST /spreads/:spreadId/list`, `POST /spreads/:spreadId/orders`, the combo and option books, and `spreadFilled`. Ported: `src/book/spread.rs`, `src/book/order_book/{option,combo,spread_book}.rs`, `src/door/spreads.rs`
 - `rulebook` (after `book`): `GET /rulebook`, `GET /rulebook/versions`, `POST /operator/rulebook/check`, `POST /operator/rulebook/publish`, and the rulebook and certificate refusals in the engine. Ported: `src/rulebook/`, `src/door/rulebook.rs`, `src/approval.rs`
 - `operator` (after `venue`): `GET /operator/in-flight`, `POST /operator/halt`, `/resume`, `/halt-all`, `/resume-all` with their idempotency keys. Ported: `src/door/operator.rs`

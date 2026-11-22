@@ -1,4 +1,4 @@
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { DEX_ORDERS_COUNT } from '@intafaced/contracts/dex-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { dexRefusal } from '../refusal.js';

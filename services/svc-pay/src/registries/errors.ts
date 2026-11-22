@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { DualControlError } from '../dual-control.js';
 import { ActionApprovalConsumeError } from '../action-approval-consume.js';
 

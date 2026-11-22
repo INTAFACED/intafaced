@@ -1,20 +1,19 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
-import {
-  CATEGORY_CLASS_RAILS,
-  businessCategoryTermsSchema,
-  type BusinessCategory,
-  type BusinessCategoryClass,
-  type BusinessCategoryTerms,
-  type CategoryPolicyEvent,
-  type CategoryPolicyPreview,
-  type CategoryPolicyPreviewInput,
-  type CategoryPolicySetInput,
-  type CategoryPolicyView,
-  type MerchantCategoryChooseInput,
-  type MerchantCategoryView,
+import type {
+  BusinessCategory,
+  BusinessCategoryClass,
+  BusinessCategoryTerms,
+  CategoryPolicyEvent,
+  CategoryPolicyPreview,
+  CategoryPolicyPreviewInput,
+  CategoryPolicySetInput,
+  CategoryPolicyView,
+  MerchantCategoryChooseInput,
+  MerchantCategoryView,
 } from '@intafaced/contracts';
+import { CATEGORY_CLASS_RAILS, businessCategoryTermsSchema } from '@intafaced/contracts/business-category';
 import { consumePayApproval, payActionPayloadHash, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { PAY_BUSINESS_CATEGORY_CHANGE, businessCategoryChangeFields } from '../approval-bindings.js';
 import { requireDualControl } from '../dual-control.js';

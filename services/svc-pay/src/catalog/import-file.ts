@@ -1,3 +1,4 @@
+import type { ProductCreateInput, ProductImportColumn, ProductImportProblem } from '@intafaced/contracts';
 import {
   PRODUCT_IMPORT_COLUMNS,
   PRODUCT_IMPORT_MAX_ROWS,
@@ -5,10 +6,7 @@ import {
   productCreateInputSchema,
   productEventSchema,
   productKeySchema,
-  type ProductCreateInput,
-  type ProductImportColumn,
-  type ProductImportProblem,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-catalog';
 import { z } from 'zod';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 

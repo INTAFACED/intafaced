@@ -1,11 +1,6 @@
 import { z } from 'zod';
-import {
-  bankHoldingsChangeSchema,
-  bankValueOverTimeInputSchema,
-  bankValueOverTimeSchema,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+import { bankHoldingsChangeSchema, bankValueOverTimeInputSchema, bankValueOverTimeSchema } from '@intafaced/contracts/bank-value-history';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { activityFailure } from '../activity/activity.router.js';
 import { BALANCE_ENTRIES_DEFAULT_LIMIT, BALANCE_ENTRIES_MAX_LIMIT } from '../portfolio/portfolio-service.js';
 import { portfolioSummaryOutput, balanceAccountsOutput, balanceBreakdownOutput, balanceEntriesOutput, allocationOutput } from './shared.js';

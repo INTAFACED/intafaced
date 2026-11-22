@@ -34,7 +34,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { StepUpCheckError } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import { VenueRefusalError, VenueWireError, decodeVenueWire, encodeVenueWire, type VenueSignature } from '@intafaced/venue-contracts';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { AgentAccountError, type AgentAccounts } from './agent-account.js';

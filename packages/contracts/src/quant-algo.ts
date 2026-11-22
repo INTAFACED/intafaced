@@ -1153,6 +1153,11 @@ export const quantLiveCheckSchema = z.object({
   compiles: z.boolean(),
   /** The platform's live switch as the owner set it now; off when blank. */
   liveEnabled: z.boolean(),
+  /**
+   * The account's second-approver rule for this version (RC-algo-dev-01; J-algo-dev-06 #3): `required` only while the
+   * owner turned the rule on; `allowed` while the rule is off or a different member's approval still matches the version.
+   */
+  approval: z.object({ required: z.boolean(), allowed: z.boolean() }),
   asOf: z.string(),
 });
 export type QuantLiveCheck = z.infer<typeof quantLiveCheckSchema>;

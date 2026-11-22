@@ -15,7 +15,9 @@
  * with compare-and-set revisions is a later slice.
  */
 import { z } from 'zod';
-import { homeConfigOutputSchema, router, type HomeConfig } from '@intafaced/contracts';
+import type { HomeConfig } from '@intafaced/contracts';
+import { homeConfigOutputSchema } from '@intafaced/contracts/home-work-items';
+import { router } from '@intafaced/contracts/trpc';
 import { OPS_HOME_CONFIG } from '@intafaced/contracts/ops-public-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 

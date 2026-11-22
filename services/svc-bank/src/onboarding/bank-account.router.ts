@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { BankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';
 import { NO_PARTNER_BANK_CODE } from '../partner/partner-bank.js';

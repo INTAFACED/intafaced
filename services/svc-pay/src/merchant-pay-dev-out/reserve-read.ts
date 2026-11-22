@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
-import { RESERVE_HOLDING, type MerchantReserveView } from '@intafaced/contracts';
+import type { MerchantReserveView } from '@intafaced/contracts';
+import { RESERVE_HOLDING } from '@intafaced/contracts/merchant-control';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { ControlRefusal } from '../control/errors.js';
 import { effectiveReserve, loadMerchantControl } from '../control/store.js';
