@@ -19,7 +19,6 @@ import type { DeskMarket } from './market';
 import { checkOrder, padDecimals, scaled } from './order-math';
 import { asReplacement, failureOf, previewFailure, previewIsOrderable } from './preview';
 import { problemText } from './problem-text';
-import { canEdit } from './order-kind';
 import { outcomeOf, orderTag, tifFields, type Tif } from './tif';
 import { placesOf } from './text';
 import { replaceKey } from './replace-key';
