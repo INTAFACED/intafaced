@@ -706,6 +706,10 @@ export function FreshnessChip({
   showAsOf = false,
   now,
   reason,
+  kind: fixed,
+  labels,
+  asOfLabel,
+  timeZone,
 }: {
   asOf: AsOf;
   staleAfterMs: number;
@@ -714,19 +718,27 @@ export function FreshnessChip({
   now?: number;
   /** Why it is unknown, refused or behind: in the title and read out (a title alone is not read reliably). */
   reason?: string;
+  /** A fixed kind (a lifecycle state drawn in the chip's shapes); absent, it is read from `asOf`. */
+  kind?: Freshness;
+  /** The room's own words for each kind. */
+  labels?: Partial<Record<Freshness, string>>;
+  /** The room's own words for "as of". */
+  asOfLabel?: string;
+  /** IANA zone for the as-of time; the browser's own when not given. */
+  timeZone?: string;
 }) {
-  const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused });
-  const kind = freshnessOf({ asOf, now: clock, staleAfterMs, refused });
+  const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused, enabled: fixed == null });
+  const kind = fixed ?? freshnessOf({ asOf, now: clock, staleAfterMs, refused });
   const iso = showAsOf ? asOfIso(asOf) : null;
-  const shown = iso ? formatAsOf(asOf, { now: clock }) : null;
+  const shown = iso ? formatAsOf(asOf, { now: clock, timeZone }) : null;
   return (
     <span className="lt-chip" role="status" data-freshness={kind} title={reason}>
       <span className="lt-chip-mark" aria-hidden="true" />
       <span>
-        <span data-part="word">{FRESHNESS_WORDS[kind]}</span>
+        <span data-part="word">{labels?.[kind] ?? FRESHNESS_WORDS[kind]}</span>
         {iso && shown ? (
           <span className="lt-chip-when">
-            {' · as of '}
+            {asOfLabel === undefined ? ' · as of ' : ` · ${asOfLabel} `}
             <time dateTime={iso}>{shown}</time>
           </span>
         ) : null}

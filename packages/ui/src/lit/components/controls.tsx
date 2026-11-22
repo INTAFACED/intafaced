@@ -228,7 +228,8 @@ export function Input(props: InputProps) {
 
 export interface MenuItemSpec {
   key: string;
-  label: string;
+  /** Its words; a refused item may add its reason on a second line. */
+  label: React.ReactNode;
   disabled?: boolean;
   onSelect: () => void;
 }
