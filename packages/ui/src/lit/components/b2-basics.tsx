@@ -4,6 +4,8 @@
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
+import { moveFocusByArrow } from './arrow-focus.js';
+import type { DataMarks } from './b2-table.js';
 
 /**
  * Two or more choices of the same size, style and level (COBS 4.12A.18R(2); Directive 2023/2673 Art 16e(1)(a)).
@@ -156,7 +158,8 @@ export function Tabs({ items, current, label }: { items: readonly { label: strin
 
 /**
  * A room's own sections, one button each, the open one pressed: the same row as Tabs, for sections a room switches
- * itself (it navigates in `onChange`) rather than by link. Wraps onto a second line when it overflows, as Tabs do.
+ * itself (it navigates in `onChange`) rather than by link. Wraps onto a second line when it overflows, as Tabs do. The
+ * arrow keys move focus between the sections (`arrow-focus.ts`).
  */
 export function SectionTabs<T extends string>({
   items,
@@ -170,12 +173,28 @@ export function SectionTabs<T extends string>({
   label: string;
 }) {
   return (
-    <div className="lt-tabs" role="group" aria-label={label}>
+    <div className="lt-tabs" role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
       {items.map((t) => (
         <button key={t.value} type="button" className="lt-tab" aria-pressed={t.value === value} onClick={() => onChange(t.value)}>
           {t.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A room's own bar (an asset page's name, price and sections), given to the room as its `bar`: the frame draws it
+ * first, and it stays right under the app's top bar (and under the legal band when that is on) while the page scrolls.
+ * Its place is the top bar's real bottom edge as measured (`--a11y-obscured-top`, from `trackObscuringBars`), so a
+ * banner above the top bar or a top bar of another height moves it too; before the first measure it is the
+ * `--lit-topbar-h` token. Its children sit in a row, the first at the start and the last at the end. `marks` are the
+ * bar's own (`data-testid`), where a room's tests find it.
+ */
+export function RoomBar({ marks, children }: { marks?: DataMarks; children: React.ReactNode }) {
+  return (
+    <div className="lt-room-bar" data-region="room-bar" {...marks}>
+      {children}
     </div>
   );
 }

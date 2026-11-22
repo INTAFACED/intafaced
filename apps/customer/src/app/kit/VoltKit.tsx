@@ -48,6 +48,7 @@ import {
 } from './KitParts';
 import { TimeLines } from './KitTimeLine';
 import { ChartBoxes } from './KitChartBox';
+import { RoomBarAndRanges } from './KitRoomBar';
 import './kit.css';
 
 /**
@@ -546,6 +547,14 @@ export default function VoltKit() {
         note="A definite size a charting library draws into, the coin page's: TEST drawing, and a state in its place at the same size."
       >
         <ChartBoxes />
+      </Block>
+
+      <Block
+        id="room-bar"
+        title="A room bar, and range pills"
+        note="The coin page's bar: in a room it stays right under the top bar while the page scrolls. Its range pills are pressed buttons; the arrow keys move between them, Home and End to the ends. TEST coin."
+      >
+        <RoomBarAndRanges />
       </Block>
 
       <Block
