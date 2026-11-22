@@ -1,16 +1,15 @@
 import { TRPCError, router, scopedProcedure } from '@intafaced/contracts';
-import {
-  sandboxBalanceInputSchema,
-  sandboxBalanceOutputSchema,
-  sandboxFundInputSchema,
-  sandboxFundOutputSchema,
-  sandboxResetInputSchema,
-  sandboxResetOutputSchema,
-  type SandboxFundRefusal,
-} from '@intafaced/contracts/developer-sandboxes';
+import { type SandboxFundRefusal } from '@intafaced/contracts/developer-sandboxes';
 import type { Sql } from 'postgres';
 import type { SandboxFundSettings } from './settings.js';
 import { SandboxFundError, SandboxStore } from './store.js';
+import {
+  PAY_SANDBOX_FUNDS_BALANCE,
+  PAY_SANDBOX_FUNDS_FUND,
+  PAY_SANDBOX_FUNDS_RESET,
+} from '@intafaced/contracts/pay-sandbox-funds-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 /**
  * `sandboxFunds.*` (DV-sandbox-02, J-developer-02 #4, #5, #8): a person's developer sandbox TEST balance, Fund and
@@ -42,22 +41,21 @@ export function createSandboxFundsRouter(deps: { readonly sql: Sql; readonly set
   const write = scopedProcedure('trade:write', { person: true });
   return router({
     sandboxFunds: router({
-      balance: read
-        .input(sandboxBalanceInputSchema)
-        .output(sandboxBalanceOutputSchema)
-        .query(({ ctx, input }) => guarded(() => store.balance({ userId: ctx.principal.userId, sandboxId: input.sandboxId }))),
-      fund: write
-        .input(sandboxFundInputSchema)
-        .output(sandboxFundOutputSchema)
-        .mutation(({ ctx, input }) =>
-          guarded(() => store.fund({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
-        ),
-      reset: write
-        .input(sandboxResetInputSchema)
-        .output(sandboxResetOutputSchema)
-        .mutation(({ ctx, input }) =>
-          guarded(() => store.reset({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
-        ),
+      balance: mountRecord(
+        PAY_SANDBOX_FUNDS_BALANCE,
+        ({ ctx, input }) => guarded(() => store.balance({ userId: ctx.principal.userId, sandboxId: input.sandboxId })),
+        payRefusal,
+      ),
+      fund: mountRecord(
+        PAY_SANDBOX_FUNDS_FUND,
+        ({ ctx, input }) => guarded(() => store.fund({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
+        payRefusal,
+      ),
+      reset: mountRecord(
+        PAY_SANDBOX_FUNDS_RESET,
+        ({ ctx, input }) => guarded(() => store.reset({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
+        payRefusal,
+      ),
     }),
   });
 }

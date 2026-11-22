@@ -4,6 +4,7 @@ import { ACADEMY_APPOINT_AMBASSADOR } from '@intafaced/contracts/academy-appoint
 import { ACADEMY_FREEZE_AMBASSADOR } from '@intafaced/contracts/academy-freeze-ambassador-procedures';
 import { ACADEMY_OPEN_RESIDENCIES } from '@intafaced/contracts/academy-open-residencies-procedures';
 import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-residency-procedures';
+import { PAY_DEPOSIT_CREDIT } from '@intafaced/contracts/pay-deposit-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -398,9 +399,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Operator deposit credit',
     summary: 'Credit a user from a rail boundary. Moves value. MFA + admin:treasury on the token.',
-    edgeModule: 'pay',
-    procedure: 'deposit.credit',
-    kind: 'mutation',
+    ...toolOf(PAY_DEPOSIT_CREDIT),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,

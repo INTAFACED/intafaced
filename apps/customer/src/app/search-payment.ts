@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { ApiClient } from '../shared/api';
 import { useApi } from '../features/session/session';
-import { paymentSchema, type Payment } from '../features/pay/schemas';
+import { type Payment } from '../features/pay/schemas';
+import { PAY_PAYMENT_GET } from '@intafaced/contracts/pay-payment-procedures';
 
 /**
  * The Payments group of the header search (J-home-ia-02 #7). In Business mode a merchant payment id typed or pasted in
@@ -32,7 +33,7 @@ export const paymentHref = (id: string) => `/pay/payments/${encodeURIComponent(i
  * lost answer, is a failure the panel names, never "no results".
  */
 export async function findPayment(api: Pick<ApiClient, 'query'>, id: string, signal: AbortSignal): Promise<PaymentState> {
-  const answer = await api.query('pay', 'payment.get', { paymentId: id }, paymentSchema, { signal });
+  const answer = await api.call(PAY_PAYMENT_GET, { paymentId: id }, { signal });
   if (answer.ok) return answer.data.id.toLowerCase() === id ? { status: 'ready', payment: answer.data } : { status: 'none' };
   return answer.status === 404 && answer.code === 'NOT_FOUND' ? { status: 'none' } : { status: 'failed' };
 }

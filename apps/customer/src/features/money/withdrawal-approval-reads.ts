@@ -2,6 +2,11 @@ import { z } from 'zod';
 import { payApprovalRequestSchema } from '@intafaced/contracts/pay-money-room';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { approvalCopy } from './withdrawal-approval-copy';
+import {
+  PAY_WITHDRAWAL_APPROVAL_LIST,
+  PAY_WITHDRAWAL_APPROVAL_GET,
+  PAY_WITHDRAWAL_APPROVAL_CANCEL,
+} from '@intafaced/contracts/pay-withdrawal-approval-procedures';
 
 // Published svc-pay `withdrawalApproval.*` requestView, from `@intafaced/contracts/pay-money-room`. A request is the ask and
 // its tally, not a balance and not proof that money was sent: only the withdrawal record says what happened to the funds.
@@ -41,7 +46,7 @@ export function createApprovalReads(api: ApiClient, userId: string | null, curre
       const denied = admission(signal);
       if (denied) return denied;
       if (!limitSchema.safeParse(limit).success) return refuse('withdrawal_approval.window_invalid', 'invalidWindow');
-      const result = await api.query('pay', 'withdrawalApproval.list', { limit }, z.array(payApprovalRequestSchema), { signal });
+      const result = await api.call(PAY_WITHDRAWAL_APPROVAL_LIST, { limit }, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -55,7 +60,7 @@ export function createApprovalReads(api: ApiClient, userId: string | null, curre
       if (denied) return denied;
       const parsed = requestIdSchema.safeParse(requestId);
       if (!parsed.success) return refuse('withdrawal_approval.input_invalid', 'invalidId');
-      const result = await api.query('pay', 'withdrawalApproval.get', { requestId: parsed.data }, payApprovalRequestSchema, { signal });
+      const result = await api.call(PAY_WITHDRAWAL_APPROVAL_GET, { requestId: parsed.data }, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -68,7 +73,7 @@ export function createApprovalReads(api: ApiClient, userId: string | null, curre
       if (denied) return denied;
       const parsed = requestIdSchema.safeParse(requestId);
       if (!parsed.success) return refuse('withdrawal_approval.input_invalid', 'invalidId');
-      return api.mutate('pay', 'withdrawalApproval.cancel', { requestId: parsed.data }, payApprovalRequestSchema);
+      return api.call(PAY_WITHDRAWAL_APPROVAL_CANCEL, { requestId: parsed.data });
     },
   };
 }
