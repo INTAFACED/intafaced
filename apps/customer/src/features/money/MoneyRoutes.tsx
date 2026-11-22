@@ -5,7 +5,7 @@ import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session';
 import { MutationDialog, type ActionSpec, type BankActionContext } from './components';
 import { BankRoutes } from './rooms';
-import { RepeatBuy } from './repeat-buy/repeat-buy';
+import { RepeatBuy } from './repeat-buy-room/repeat-buy';
 import { Withdrawal } from './withdraw/Withdrawal';
 import { WithdrawalAllowlist } from './WithdrawalAllowlist';
 import { WithdrawalApprovals } from './WithdrawalApprovals';

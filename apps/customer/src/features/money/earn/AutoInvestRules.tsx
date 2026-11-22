@@ -7,7 +7,7 @@ import { BankSection, Continuation, NoRows } from '../bank-frame/BankFrame';
 
 /**
  * The person's automatic investing rules (threshold sweeps, round-ups, repeat buys), each with its pause, resume and
- * cancel review. Shown in Earn for every rule and on an asset's repeat-buy page for that asset's (repeat-buy.tsx).
+ * cancel review. Shown in Earn for every rule and on an asset's repeat-buy page for that asset's (repeat-buy-room/repeat-buy.tsx).
  */
 export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: ActionSpec) => void }) {
   const { limit, setLimit, resource, reload, lifecycle } = useAutoInvestRules();
