@@ -213,7 +213,6 @@ const en = {
   importColLine: 'Line',
   importColProblem: 'Problem',
   importWholeLine: 'Whole line',
-  importLineCard: 'Line {line} · {column}',
   importProblem_column_unknown: 'This column is not one a products file has.',
   importProblem_column_repeated: 'This column is named twice.',
   importProblem_column_missing: 'The header lacks this required column.',

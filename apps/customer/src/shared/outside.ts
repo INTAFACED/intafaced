@@ -10,6 +10,8 @@
  * - `useEventListener`: a listener on `window`, `document`, an element or an element's ref, while the target is there.
  * - `useMediaQuery`: whether a media query matches now, read with useSyncExternalStore.
  * - `useResizeObserver`: a callback when the element behind a ref changes size.
+ * - `useRelease`: let go of something held for `key` (a claim, an object URL) when `key` changes or the room unmounts.
+ *   Unlike the others it runs the `release` made when `key` took its value, not the latest one.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 
@@ -106,4 +108,13 @@ export function useResizeObserver(ref: RefObject<Element | null>, onResize: () =
     observer.observe(node);
     return () => observer.disconnect();
   }, [ref, latest]);
+}
+
+/** Runs `release`, as made for `key`, when `key` changes or the room unmounts. */
+export function useRelease(key: string, release: () => void): void {
+  const latest = useLatest(release);
+  useEffect(() => {
+    const made = latest.current;
+    return () => made();
+  }, [key, latest]);
 }

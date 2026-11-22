@@ -1,8 +1,15 @@
 // @vitest-environment happy-dom
 // The route-to-template registry stays in step with the app's route table (the Volt kit).
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
-import { PORTAL_ROOMS } from '../features/pay/portal/routes';
+import { PORTAL_ROOMS, type PortalRoom } from '../features/pay/portal/routes';
+import { rooms as portalRooms } from '../features/pay/portal/rooms';
+import { MerchantAccessContext, type MerchantAccessValue } from '../features/pay/portal/access/MerchantAccess';
+import { allows, type Access } from '../features/pay/portal/access/resolve';
+import { ROLE_CAPABILITIES } from '../features/pay/portal/access/capabilities';
+import type { PortalApi } from '../features/pay/portal/api';
 import { rooms } from './navigation';
 import { renderPart } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
@@ -62,11 +69,48 @@ describe('room templates registry', () => {
     } finally {
       vi.useRealTimers();
     }
-    // A portal page has no route of its own in the room table to open; one marked migrated is drawn here first.
-    const portal = Object.entries(PORTAL_TEMPLATES).filter(([, entry]) => entry.migrated);
-    expect(
-      portal.map(([room]) => room),
-      'a migrated merchant portal page: open its /pay address above and check it draws its template',
-    ).toEqual([]);
+  });
+
+  it('a migrated merchant portal page really renders through its template, for the owner of a ready account', () => {
+    // A portal page is drawn by the portal's own room table. The look gate's TEST account reads no business, so its
+    // /pay address above stops at the account check; here the owner of a ready TEST account opens it, every read
+    // still on its way, and the page must draw its template.
+    const access = {
+      status: 'ready',
+      source: 'my-access',
+      merchantId: '11111111-1111-4111-8111-111111111111',
+      role: 'owner',
+      accountStatus: 'active',
+      kybStatus: 'approved',
+      mode: 'gateway',
+      sessionInteractive: true,
+      displayName: null,
+      legalName: null,
+      pricingVisibility: null,
+      capabilities: ROLE_CAPABILITIES.owner,
+    } as Access;
+    const value: MerchantAccessValue = {
+      access,
+      merchant: { status: 'loading' },
+      team: { status: 'loading' },
+      reloadMerchant: () => undefined,
+      reload: () => undefined,
+      can: (need) => allows(access, need),
+      canOwnerWrite: true,
+      sessionScopes: null,
+      moneyReason: () => null,
+    };
+    const pending = new Promise<never>(() => undefined);
+    const portal = new Proxy({}, { get: () => () => pending }) as PortalApi;
+    for (const [room, entry] of Object.entries(PORTAL_TEMPLATES)) {
+      if (!entry.migrated) continue;
+      const page = portalRooms[room as PortalRoom].render(
+        { room: room as PortalRoom },
+        { portal, authority: null, access: value, starterFee: null },
+      );
+      const html = renderToStaticMarkup(createElement(MerchantAccessContext.Provider, { value }, page));
+      const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
+      expect(drawn, `portal:${room} (${entry.migrated.file}) draws the ${entry.template} template`).toContain(entry.template);
+    }
   });
 });

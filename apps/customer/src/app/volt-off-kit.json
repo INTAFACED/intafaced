@@ -370,7 +370,6 @@
   "portal:invoice",
   "portal:money",
   "portal:money-activity",
-  "portal:money-top-up",
   "portal:reports",
   "portal:report-exports",
   "portal:links",
@@ -410,8 +409,6 @@
   "portal:activity",
   "portal:invoice-new",
   "portal:products",
-  "portal:product-new",
-  "portal:product-import",
   "portal:product",
   "portal:settings-stores"
 ]
