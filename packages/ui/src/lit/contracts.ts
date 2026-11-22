@@ -329,6 +329,8 @@ export const components = {
   SplitGrid: 'One, two or four panels with borders the person drags to resize them (SplitCell, SplitBorder): the chart grid',
   TimeLine:
     '(B2) A line placed by time, so a gap keeps its real width; a zero line, a readout by pointer or arrow keys, an honest empty line for none',
+  ChartBox: "(B2) A chart's box of definite size (22.5rem high, full width) for a library that draws into it, or a state in its place",
+  ChartCanvas: '(B2) The named picture inside a ChartBox and the element a charting library draws into, filling the box',
   AssetIcon: "An asset's round mark: the kit's artwork for a listed asset, a lettered disc for any other, never a guessed logo",
   InfoTip: 'A short explanation behind an (i) button: opens on hover, focus and tap, closes on Escape; also the description',
   HeroFigure: 'The one large figure a room is about: masked when balances are hidden, a dash when there is none, never animated',

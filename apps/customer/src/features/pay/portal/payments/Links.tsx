@@ -6,7 +6,7 @@ import { Button } from '@intafaced/ui';
 import { EmptyState, Field } from '../../ui-kit';
 import { PayDetails, PaySection } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
-import { validatedMutation } from '../../BusinessPay';
+import { validatedRecordMutation } from '../../BusinessPay';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import * as s from '../../schemas';
 import { BackLink, Facts, Gate, Kpi, KpiGrid, Money, PortalFailure, PortalLoading, ReadAt, SelectField, Timeline } from '../components';
@@ -33,7 +33,11 @@ import { LinkAddress } from './LinkAddress';
 import { CopyReference } from '../ui/CopyReference';
 import { definite } from './not-available';
 import { linkRowSchema } from './schemas';
-import { PAY_MERCHANT_DEACTIVATE_LINK, PAY_MERCHANT_GET_LINK } from '@intafaced/contracts/pay-merchant-procedures';
+import {
+  PAY_MERCHANT_DEACTIVATE_LINK,
+  PAY_MERCHANT_GET_LINK,
+  PAY_MERCHANT_CREATE_LINK,
+} from '@intafaced/contracts/pay-merchant-procedures';
 
 type Link = z.infer<typeof linkRowSchema>;
 export function linkState(link: Link, now: number) {
@@ -701,7 +705,7 @@ function LinkRecovery({
           setBusy(true);
           try {
             const result = definite(
-              await validatedMutation(pay, 'merchant.createLink', body, createLinkInputSchema, s.newLinkSchema, 'pay:write', 'link-create'),
+              await validatedRecordMutation(pay, PAY_MERCHANT_CREATE_LINK, body, createLinkInputSchema, 'pay:write', 'link-create'),
             );
             if (result.ok) onFinished(result.data);
             else setMessage(result.reason === 'uncertain' || result.reason === 'aborted' ? t('lk_stillUnresolved') : result.message);
@@ -902,12 +906,11 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
             perform={async () => {
               if (parsed.success) original.current = parsed.data;
               const result = definite(
-                await validatedMutation(
+                await validatedRecordMutation(
                   pay,
-                  'merchant.createLink',
+                  PAY_MERCHANT_CREATE_LINK,
                   parsed.success ? parsed.data : {},
                   createLinkInputSchema,
-                  s.newLinkSchema,
                   'pay:write',
                   'link-create',
                 ),

@@ -23,6 +23,7 @@ use service_kit::telemetry::{Logger, Telemetry};
 
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
+use svc_bank::earn;
 use svc_bank::env::{self, BankEnv, DEFAULT_PORT};
 use svc_bank::migrate;
 use svc_bank::partner::custody::LedgerFreeze;
@@ -263,6 +264,17 @@ fn recovery_jobs<'a>(
 ) -> Vec<(&'static str, recovery::Job<'a>)> {
     vec![
         (
+            "bank.recovery.resume_pending_earn",
+            Box::new(move |batch| {
+                let now = door.now();
+                door.earn_deps(now, |d| {
+                    earn::service::resume_pending(d, Some(f64::from(batch)))
+                        .map(|rows| rows.into_iter().map(|r| r.outcome.to_owned()).collect())
+                        .map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        (
             "bank.recovery.announce_posted_transfers",
             Box::new(move |batch| {
                 door.transfers_deps(|d| {
@@ -341,6 +353,20 @@ fn service_auth(env: &BankEnv) -> Result<ServiceAuth, String> {
     })
 }
 
+/// Slice `earn`'s owner values (`index.ts`): the asset svc-token stakes, the staking risk wording as published, and
+/// whether interest accrues.
+fn earn_settings(env: &BankEnv) -> earn::Settings {
+    earn::Settings {
+        native_asset_id: env.str("TOKEN_ASSET_ID").unwrap_or("IFC").to_owned(),
+        risk_wording: env
+            .raw
+            .get("BANK_EARN_RISK_WORDING_JSON")
+            .cloned()
+            .filter(|v| !v.trim().is_empty()),
+        interest_accrual: env.flag("INTEREST_ACCRUAL_ENABLED").unwrap_or(true),
+    }
+}
+
 /// The door, built once from the environment, with the store.
 fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -359,7 +385,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_test_age(test_age)
     .with_partner(partner)
     .with_spaces(spaces)
-    .with_transfers(transfers);
+    .with_transfers(transfers)
+    .with_earn(earn_settings(env));
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

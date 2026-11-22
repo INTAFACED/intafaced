@@ -11,7 +11,7 @@ const status = z.enum(['pending', 'active', 'suspended', 'closed']);
 const kyb = z.enum(['none', 'pending', 'approved', 'rejected']);
 
 // ---- business profile ----------------------------------------------------------------------------------
-export const addressSchema = z.object({
+const addressSchema = z.object({
   line1: z.string(),
   line2: z.string().nullable(),
   city: z.string(),
@@ -116,7 +116,7 @@ export const activityItemSchema = z.object({
 export type ActivityItem = z.infer<typeof activityItemSchema>;
 
 // ---- network (sub-merchants) -------------------------------------------------------------------------------
-export const subMerchantSchema = z.object({
+const subMerchantSchema = z.object({
   id: z.string(),
   userId: z.string(),
   parentMerchantId: z.string().nullable(),
@@ -130,7 +130,7 @@ export const subMerchantSchema = z.object({
 });
 export type SubMerchant = z.infer<typeof subMerchantSchema>;
 
-export const subSummarySchema = subMerchantSchema.extend({
+const subSummarySchema = subMerchantSchema.extend({
   displayName: z.string().nullable(),
   legalName: z.string().nullable(),
   volume: z
@@ -149,7 +149,7 @@ export const subSummarySchema = subMerchantSchema.extend({
 });
 export type SubSummary = z.infer<typeof subSummarySchema>;
 
-export const grantSchema = z.object({
+const grantSchema = z.object({
   granteeMerchantId: z.string(),
   subjectMerchantId: z.string(),
   area: z.string(),

@@ -7,12 +7,20 @@ import type { RoomState } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../session';
 import type { ApiResult } from '../../../shared/api';
 import { decodeBase64, saveFile, shortFingerprint } from '../../../screens/money/statement-model';
-import { amount, bps, date, useBankRead, useBankRecord } from '../components';
-import { loanStatementSchema, type LoanInterestRows, type LoanLedgerCheck, type LoanProjection, type PayoffQuote } from '../contracts';
+import { amount, bps, date, useBankRecord } from '../components';
+import { type LoanInterestRows, type LoanLedgerCheck, type LoanProjection, type PayoffQuote } from '../contracts';
 import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { Loading, Panel } from '../bank-settings/parts';
 import { loanRefusal, loanStatementMonth } from '../LoanDetail';
 import { loanDetailCopy } from '../loan-detail-copy';
+import {
+  BANK_LOANS_TERMS,
+  BANK_LOANS_PAYOFF_QUOTE,
+  BANK_LOANS_PROJECTION,
+  BANK_LOANS_INTEREST_ROWS,
+  BANK_LOANS_LEDGER_CHECK,
+  BANK_LOANS_STATEMENT,
+} from '@intafaced/contracts/bank-loans-2-procedures';
 
 /**
  * `/bank/loans/detail?loan=<id>` (J-bank-11 #1, #4 and #6, BK-loan-06, LOAN-05): one loan's payoff quote, a
@@ -44,7 +52,7 @@ function Refused({ failure, retry, label }: { failure: Failed; retry: () => void
 /** The terms snapshotted on the loan at open (J-bank-09 #5): read from the loan, never from its product. */
 function TermsPanel({ loanId }: { loanId: string }) {
   const { t } = loanDetailCopy.useCopy();
-  const terms = useBankRead('loans.terms', { loanId });
+  const terms = useBankRecord(BANK_LOANS_TERMS, { loanId });
   const threshold = (value: number | null) => (value === null ? t('termsNotWritten') : bps(value));
   return (
     <Panel id="loan-terms" title={t('termsTitle')} lead={t('termsLead')}>
@@ -94,7 +102,7 @@ function TermsPanel({ loanId }: { loanId: string }) {
 
 function QuotePanel({ loanId }: { loanId: string }) {
   const { t } = loanDetailCopy.useCopy();
-  const quote = useBankRead('loans.payoffQuote', { loanId });
+  const quote = useBankRecord(BANK_LOANS_PAYOFF_QUOTE, { loanId });
   const reload = quote.reload;
   return (
     <Panel id="loan-quote" title={t('quoteTitle')} lead={t('quoteLead')}>
@@ -169,7 +177,7 @@ function ProjectionPanel({ loanId, assetId }: { loanId: string; assetId: string 
   const [extra, setExtra] = useState('');
   const [asked, setAsked] = useState<{ days: Days; extra: string }>({ days: 30, extra: '' });
   const [invalid, setInvalid] = useState(false);
-  const projection = useBankRead('loans.projection', {
+  const projection = useBankRecord(BANK_LOANS_PROJECTION, {
     loanId,
     days: asked.days,
     ...(asked.extra ? { extraRepayment: asked.extra } : {}),
@@ -271,7 +279,7 @@ const signed = (value: string, assetId: string) =>
 
 function InterestPanel({ loanId }: { loanId: string }) {
   const { t } = loanDetailCopy.useCopy();
-  const rows = useBankRead('loans.interestRows', { loanId });
+  const rows = useBankRecord(BANK_LOANS_INTEREST_ROWS, { loanId });
   return (
     <Panel id="loan-interest" title={t('irTitle')} lead={t('irLead')}>
       {rows.resource.status === 'loading' && <Loading />}
@@ -389,7 +397,7 @@ function ledgerMismatch(t: Copy, m: { kind: string; ref: string; problem: string
 
 function LedgerCheckPanel({ loanId, collateralAssetId }: { loanId: string; collateralAssetId: string }) {
   const { t } = loanDetailCopy.useCopy();
-  const check = useBankRead('loans.ledgerCheck', { loanId });
+  const check = useBankRecord(BANK_LOANS_LEDGER_CHECK, { loanId });
   return (
     <Panel id="loan-ledger-check" title={t('ckTitle')} lead={t('ckLead')}>
       {check.resource.status === 'loading' && <Loading />}
@@ -458,7 +466,7 @@ function StatementPanel({ loanId, assetId }: { loanId: string; assetId: string }
     setBusy(true);
     setSaid(null);
     // The whole month is asked for: the bank marks a month still running provisional and closes it at the moment it answers.
-    const result = await api.query('bank', 'loans.statement', { loanId, from: range.from, to: range.to }, loanStatementSchema);
+    const result = await api.call(BANK_LOANS_STATEMENT, { loanId, from: range.from, to: range.to });
     setBusy(false);
     if (!result.ok) {
       setSaid({ kind: 'error', words: result.code === 'bank.statement_unavailable' ? t('stUnavailable') : loanRefusal(t, result) });

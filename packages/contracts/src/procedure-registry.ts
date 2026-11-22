@@ -436,9 +436,17 @@ import {
 
 import { BANK_ASSETS_LIST } from './bank-assets-procedures.js';
 
+import {
+  BANK_AUTO_INVEST_CREATE_ROUND_UP,
+  BANK_AUTO_INVEST_CREATE_THRESHOLD_SWEEP,
+  BANK_AUTO_INVEST_CREATE_DCA,
+} from './bank-auto-invest-2-procedures.js';
+
 import { BANK_AUTO_INVEST_LIST } from './bank-auto-invest-procedures.js';
 
 import { BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED } from './bank-bills-procedures.js';
+
+import { BANK_BUSINESS_PROPOSE_TRANSFER, BANK_BUSINESS_CREATE, BANK_BUSINESS_RUN_PAYROLL } from './bank-business-2-procedures.js';
 
 import {
   BANK_BUSINESS_BOOKS_CONNECT_ACCOUNTING,
@@ -456,7 +464,21 @@ import {
   BANK_BUSINESS_LIST,
   BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE,
   BANK_BUSINESS_MEMBERS,
+  BANK_BUSINESS_SET_MEMBER_ROLE,
+  BANK_BUSINESS_REMOVE_MEMBER,
+  BANK_BUSINESS_ADD_MEMBER,
 } from './bank-business-procedures.js';
+
+import { BANK_CARDS_ISSUE, BANK_CARDS_SET_LIMITS, BANK_CARDS_SET_CHANNELS } from './bank-cards-2-procedures.js';
+
+import {
+  BANK_CARDS_DISPUTES_LIST,
+  BANK_CARDS_DISPUTES_FORM,
+  BANK_CARDS_DISPUTES_OPEN,
+  BANK_CARDS_DISPUTES_GET,
+  BANK_CARDS_DISPUTES_EVIDENCE,
+  BANK_CARDS_DISPUTES_WITHDRAW,
+} from './bank-cards-disputes-procedures.js';
 
 import {
   BANK_CARDS_PROGRAMME,
@@ -488,6 +510,7 @@ import {
   BANK_CARDS_WALLET_PROVISION,
   BANK_CARDS_LIST,
   BANK_CARDS_PARTNER_HELD,
+  BANK_CARDS_SET_STATUS,
 } from './bank-cards-procedures.js';
 
 import { BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ } from './bank-cash-leg-procedures.js';
@@ -525,6 +548,8 @@ import {
 
 import { BANK_DORMANCY_NOTICES } from './bank-dormancy-procedures.js';
 
+import { BANK_EARN_DEPOSIT, BANK_EARN_WITHDRAW } from './bank-earn-2-procedures.js';
+
 import {
   BANK_EARN_POOLS,
   BANK_EARN_POOL,
@@ -532,6 +557,7 @@ import {
   BANK_EARN_POSITIONS,
   BANK_EARN_RISK_DISCLOSURE,
   BANK_EARN_INTEREST_HISTORY,
+  BANK_EARN_SET_AUTO_RENEW,
 } from './bank-earn-procedures.js';
 
 import { BANK_ELIGIBILITY_GET } from './bank-eligibility-procedures.js';
@@ -571,12 +597,32 @@ import { BANK_HOLDS_RULE, BANK_HOLDS_SET_RULE, BANK_HOLDS_WAITING, BANK_HOLDS_AC
 import { BANK_LINKED_ACCOUNTS_LIST, BANK_LINKED_ACCOUNTS_LINK, BANK_LINKED_ACCOUNTS_REMOVE } from './bank-linked-accounts-procedures.js';
 
 import {
+  BANK_LOANS_QUOTE,
+  BANK_LOANS_FEES,
+  BANK_LOANS_TERMS,
+  BANK_LOANS_PAYOFF_QUOTE,
+  BANK_LOANS_PROJECTION,
+  BANK_LOANS_INTEREST_ROWS,
+  BANK_LOANS_LEDGER_CHECK,
+  BANK_LOANS_STATEMENT,
+} from './bank-loans-2-procedures.js';
+
+import {
   BANK_LOANS_PRODUCTS,
   BANK_LOANS_ELIGIBILITY,
   BANK_LOANS_LIST,
   BANK_LOANS_RELEASABLE,
   BANK_LOANS_HEALTH,
 } from './bank-loans-procedures.js';
+
+import {
+  BANK_OPS_CARD_PROGRAMME_FUNDING,
+  BANK_OPS_POOL_TOTALS,
+  BANK_OPS_CARD_PROGRAMME,
+  BANK_OPS_BUSINESS_APPROVALS,
+  BANK_OPS_FAILED_TRANSFERS,
+  BANK_OPS_TRANSFER_DETAIL,
+} from './bank-ops-2-procedures.js';
 
 import {
   BANK_OPS_SALARY_RAILS,
@@ -633,6 +679,8 @@ import {
   BANK_RAIL_SENDS_REMOVE_PAYEE,
 } from './bank-rail-sends-procedures.js';
 
+import { BANK_RAMPS_DESTINATIONS_RENAME } from './bank-ramps-destinations-procedures.js';
+
 import {
   BANK_RAMPS_PROGRAMME,
   BANK_RAMPS_FIAT_SETTLE,
@@ -647,6 +695,7 @@ import {
   BANK_RAMPS_DESTINATIONS_CHECK,
   BANK_RAMPS_DESTINATIONS_SAVE,
   BANK_RAMPS_DESTINATIONS_REMOVE,
+  BANK_RAMPS_OFFRAMP,
 } from './bank-ramps-procedures.js';
 
 import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES } from './bank-recovery-procedures.js';
@@ -657,13 +706,37 @@ import { BANK_SAFETY_REGION_NOTICE } from './bank-safety-procedures.js';
 
 import { BANK_SALARY_CREDITS } from './bank-salary-procedures.js';
 
-import { BANK_SHARED_POTS_LIST, BANK_SHARED_POTS_ACTIVITY } from './bank-shared-pots-procedures.js';
+import {
+  BANK_SHARED_POTS_LIST,
+  BANK_SHARED_POTS_ACTIVITY,
+  BANK_SHARED_POTS_INVITE,
+  BANK_SHARED_POTS_FREEZE_CARD,
+  BANK_SHARED_POTS_ACCEPT,
+  BANK_SHARED_POTS_DECLINE,
+  BANK_SHARED_POTS_LEAVE,
+  BANK_SHARED_POTS_REMOVE,
+  BANK_SHARED_POTS_CANCEL_INVITE,
+  BANK_SHARED_POTS_UNLINK_CARD,
+  BANK_SHARED_POTS_LINK_CARD,
+} from './bank-shared-pots-procedures.js';
+
+import { BANK_SORTER_CREATE, BANK_SORTER_CANCEL } from './bank-sorter-2-procedures.js';
 
 import { BANK_SORTER_LIST, BANK_SORTER_RUNS } from './bank-sorter-procedures.js';
 
+import { BANK_SPACES_SET_GOAL, BANK_SPACES_CREATE } from './bank-spaces-2-procedures.js';
+
 import { BANK_SPACES_LIST } from './bank-spaces-list.js';
 
-import { BANK_SPACES_UNNAMED } from './bank-spaces-procedures.js';
+import {
+  BANK_SPACES_UNNAMED,
+  BANK_SPACES_SET_BILLS_POT,
+  BANK_SPACES_CLEAR_BILLS_POT,
+  BANK_SPACES_SET_LOCK,
+  BANK_SPACES_REQUEST_UNLOCK,
+  BANK_SPACES_CANCEL_UNLOCK,
+  BANK_SPACES_ARCHIVE,
+} from './bank-spaces-procedures.js';
 
 import {
   BANK_STATEMENTS_EXPORT,
@@ -675,12 +748,15 @@ import {
   BANK_STATEMENTS_TOTALS,
 } from './bank-statements-procedures.js';
 
+import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from './bank-transfers-2-procedures.js';
+
 import {
   BANK_TRANSFERS_EXECUTIONS,
   BANK_TRANSFERS_LIST_SCHEDULES,
   BANK_TRANSFERS_QUOTE,
   BANK_TRANSFERS_HELD,
   BANK_TRANSFERS_TO_USER,
+  BANK_TRANSFERS_CANCEL,
 } from './bank-transfers-procedures.js';
 
 import {
@@ -826,7 +902,7 @@ import {
 
 import { IDENTITY_API_KEY_OPS_REVOKE } from './identity-api-key-ops-procedures.js';
 
-import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from './identity-api-keys-procedures.js';
+import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE, IDENTITY_API_KEYS_LIST } from './identity-api-keys-procedures.js';
 
 import { IDENTITY_API_RATE_TIERS } from './identity-api-rate-tiers-procedures.js';
 
@@ -860,6 +936,8 @@ import {
   IDENTITY_AUTH_STEP_UP_OPTIONS,
   IDENTITY_AUTH_LOGOUT_ALL,
 } from './identity-auth-procedures.js';
+
+import { IDENTITY_BIND_API_KEY_IP_ALLOWLIST } from './identity-bind-api-key-ip-allowlist-procedures.js';
 
 import {
   IDENTITY_DEVELOPER_KEYS_LIST,
@@ -972,6 +1050,8 @@ import { IDENTITY_REVOKE_OTHER_SESSIONS } from './identity-revoke-other-sessions
 
 import { IDENTITY_REVOKE_SESSION_FAMILY } from './identity-revoke-session-family-procedures.js';
 
+import { IDENTITY_ROTATE_SIGNING_SECRET } from './identity-rotate-signing-secret-procedures.js';
+
 import {
   IDENTITY_SECURITY_LOCK_READ,
   IDENTITY_SECURITY_LOCK_SET,
@@ -1015,6 +1095,8 @@ import {
   IDENTITY_TRUSTED_DEVICES_APPROVE,
   IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN,
 } from './identity-trusted-devices-procedures.js';
+
+import { IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST } from './identity-unbind-api-key-ip-allowlist-procedures.js';
 
 import { IDENTITY_UNLINK_SIGNIN_METHOD } from './identity-unlink-signin-method-procedures.js';
 
@@ -1345,6 +1427,8 @@ import {
 
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from './pay-checkout-procedures.js';
 
+import { PAY_CONVERSION_LIST, PAY_CONVERSION_GET, PAY_CONVERSION_QUOTE, PAY_CONVERSION_EXECUTE } from './pay-conversion-procedures.js';
+
 import { PAY_DEPOSIT_CREDIT } from './pay-deposit-procedures.js';
 
 import {
@@ -1391,7 +1475,48 @@ import {
   PAY_KYB_REQUESTS_FILE,
   PAY_KYB_REQUESTS_REVIEW_LIST,
   PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+  PAY_KYB_ENTITY_TYPES_READ,
+  PAY_KYB_APPLICATION_CURRENT,
+  PAY_KYB_APPLICATION_RESTART,
+  PAY_KYB_APPLICATION_SUBMIT,
+  PAY_KYB_DOCUMENTS_CHECKLIST,
+  PAY_KYB_DOCUMENTS_UPLOAD,
+  PAY_KYB_REQUESTS_LIST,
 } from './pay-kyb-procedures.js';
+
+import {
+  PAY_MERCHANT_CATALOG_PRODUCTS_GET,
+  PAY_MERCHANT_CATALOG_IMAGES_RULES,
+  PAY_MERCHANT_CATALOG_IMAGES_GET,
+  PAY_MERCHANT_CATALOG_PRICES_LIST,
+  PAY_MERCHANT_CATALOG_PRICES_USAGE,
+  PAY_MERCHANT_CATALOG_PRICES_GET,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+} from './pay-merchant-catalog-procedures.js';
+
+import { PAY_MERCHANT_CHECKOUT_BRANDING_GET } from './pay-merchant-checkout-procedures.js';
+
+import {
+  PAY_MERCHANT_CONTROL_GET,
+  PAY_MERCHANT_CONTROL_RESERVE,
+  PAY_MERCHANT_CONTROL_TOP_UP_OPTIONS,
+  PAY_MERCHANT_CONTROL_USAGE,
+  PAY_MERCHANT_CONTROL_PRICING_PREVIEW,
+  PAY_MERCHANT_CONTROL_APPROVALS_CANCEL,
+  PAY_MERCHANT_CONTROL_APPROVALS_REQUEST,
+  PAY_MERCHANT_CONTROL_LIMITS_OPEN,
+  PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
+  PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+} from './pay-merchant-control-procedures.js';
+
+import {
+  PAY_MERCHANT_METRICS_SNAPSHOT,
+  PAY_MERCHANT_METRICS_SERIES,
+  PAY_MERCHANT_METRICS_PARTNER_TERMS,
+  PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS,
+} from './pay-merchant-metrics-procedures.js';
+
+import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET } from './pay-merchant-ops-procedures.js';
 
 import {
   PAY_MERCHANT_STARTER_FEE,
@@ -1400,7 +1525,24 @@ import {
   PAY_MERCHANT_LIST_LINKS,
   PAY_MERCHANT_DEACTIVATE_LINK,
   PAY_MERCHANT_GET_LINK,
+  PAY_MERCHANT_STATEMENT_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_SET_DEFAULT,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_REMOVE,
+  PAY_MERCHANT_PROFILE,
+  PAY_MERCHANT_CREATE_LINK,
+  PAY_MERCHANT_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SUBMIT_KYB,
 } from './pay-merchant-procedures.js';
+
+import {
+  PAY_MERCHANT_RECEIVING_WALLET_GET,
+  PAY_MERCHANT_RECEIVING_WALLET_OUTSIDE_FUNDS,
+} from './pay-merchant-receiving-wallet-procedures.js';
+
+import { PAY_PAY_HALTS_STATUS } from './pay-pay-halts-procedures.js';
 
 import {
   PAY_PAYMENT_GET,
@@ -1408,6 +1550,9 @@ import {
   PAY_PAYMENT_LIST,
   PAY_PAYMENT_AUTHORIZE,
   PAY_PAYMENT_CAPTURE,
+  PAY_PAYMENT_CREATE,
+  PAY_PAYMENT_REFUNDS_GET,
+  PAY_PAYMENT_VIEWS_LIST,
 } from './pay-payment-procedures.js';
 
 import { PAY_RAIL_HEALTH } from './pay-rail-health-procedures.js';
@@ -1416,7 +1561,15 @@ import { PAY_RESOLVE_LINK } from './pay-resolve-link-procedures.js';
 
 import { PAY_SANDBOX_FUNDS_BALANCE, PAY_SANDBOX_FUNDS_FUND, PAY_SANDBOX_FUNDS_RESET } from './pay-sandbox-funds-procedures.js';
 
-import { PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE } from './pay-settlement-procedures.js';
+import {
+  PAY_SETTLEMENT_LIST,
+  PAY_SETTLEMENT_GET,
+  PAY_SETTLEMENT_RELEASE,
+  PAY_SETTLEMENT_LINES,
+  PAY_SETTLEMENT_CLEARING,
+  PAY_SETTLEMENT_LIFECYCLE,
+  PAY_SETTLEMENT_PAYOUT,
+} from './pay-settlement-procedures.js';
 
 import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
@@ -1424,7 +1577,12 @@ import {
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
 } from './pay-submerchant-permission-procedures.js';
 
-import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET } from './pay-submerchant-procedures.js';
+import {
+  PAY_SUBMERCHANT_LIST,
+  PAY_SUBMERCHANT_GET,
+  PAY_SUBMERCHANT_CREATE,
+  PAY_SUBMERCHANT_SUMMARY,
+} from './pay-submerchant-procedures.js';
 
 import {
   PAY_SUBSCRIPTION_LIST,
@@ -2404,9 +2562,21 @@ const part_bank_analytics_procedures: readonly ProcedureRecord[] = [
 
 const part_bank_assets_procedures: readonly ProcedureRecord[] = [BANK_ASSETS_LIST];
 
+const part_bank_auto_invest_2_procedures: readonly ProcedureRecord[] = [
+  BANK_AUTO_INVEST_CREATE_ROUND_UP,
+  BANK_AUTO_INVEST_CREATE_THRESHOLD_SWEEP,
+  BANK_AUTO_INVEST_CREATE_DCA,
+];
+
 const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [BANK_AUTO_INVEST_LIST];
 
 const part_bank_bills_procedures: readonly ProcedureRecord[] = [BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED];
+
+const part_bank_business_2_procedures: readonly ProcedureRecord[] = [
+  BANK_BUSINESS_PROPOSE_TRANSFER,
+  BANK_BUSINESS_CREATE,
+  BANK_BUSINESS_RUN_PAYROLL,
+];
 
 const part_bank_business_books_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_BOOKS_CONNECT_ACCOUNTING,
@@ -2424,6 +2594,20 @@ const part_bank_business_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_LIST,
   BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE,
   BANK_BUSINESS_MEMBERS,
+  BANK_BUSINESS_SET_MEMBER_ROLE,
+  BANK_BUSINESS_REMOVE_MEMBER,
+  BANK_BUSINESS_ADD_MEMBER,
+];
+
+const part_bank_cards_2_procedures: readonly ProcedureRecord[] = [BANK_CARDS_ISSUE, BANK_CARDS_SET_LIMITS, BANK_CARDS_SET_CHANNELS];
+
+const part_bank_cards_disputes_procedures: readonly ProcedureRecord[] = [
+  BANK_CARDS_DISPUTES_LIST,
+  BANK_CARDS_DISPUTES_FORM,
+  BANK_CARDS_DISPUTES_OPEN,
+  BANK_CARDS_DISPUTES_GET,
+  BANK_CARDS_DISPUTES_EVIDENCE,
+  BANK_CARDS_DISPUTES_WITHDRAW,
 ];
 
 const part_bank_cards_procedures: readonly ProcedureRecord[] = [
@@ -2456,6 +2640,7 @@ const part_bank_cards_procedures: readonly ProcedureRecord[] = [
   BANK_CARDS_WALLET_PROVISION,
   BANK_CARDS_LIST,
   BANK_CARDS_PARTNER_HELD,
+  BANK_CARDS_SET_STATUS,
 ];
 
 const part_bank_cash_leg_procedures: readonly ProcedureRecord[] = [BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ];
@@ -2498,6 +2683,8 @@ const part_bank_direct_debits_procedures: readonly ProcedureRecord[] = [
 
 const part_bank_dormancy_procedures: readonly ProcedureRecord[] = [BANK_DORMANCY_NOTICES];
 
+const part_bank_earn_2_procedures: readonly ProcedureRecord[] = [BANK_EARN_DEPOSIT, BANK_EARN_WITHDRAW];
+
 const part_bank_earn_procedures: readonly ProcedureRecord[] = [
   BANK_EARN_POOLS,
   BANK_EARN_POOL,
@@ -2505,6 +2692,7 @@ const part_bank_earn_procedures: readonly ProcedureRecord[] = [
   BANK_EARN_POSITIONS,
   BANK_EARN_RISK_DISCLOSURE,
   BANK_EARN_INTEREST_HISTORY,
+  BANK_EARN_SET_AUTO_RENEW,
 ];
 
 const part_bank_eligibility_procedures: readonly ProcedureRecord[] = [BANK_ELIGIBILITY_GET];
@@ -2553,12 +2741,32 @@ const part_bank_linked_accounts_procedures: readonly ProcedureRecord[] = [
   BANK_LINKED_ACCOUNTS_REMOVE,
 ];
 
+const part_bank_loans_2_procedures: readonly ProcedureRecord[] = [
+  BANK_LOANS_QUOTE,
+  BANK_LOANS_FEES,
+  BANK_LOANS_TERMS,
+  BANK_LOANS_PAYOFF_QUOTE,
+  BANK_LOANS_PROJECTION,
+  BANK_LOANS_INTEREST_ROWS,
+  BANK_LOANS_LEDGER_CHECK,
+  BANK_LOANS_STATEMENT,
+];
+
 const part_bank_loans_procedures: readonly ProcedureRecord[] = [
   BANK_LOANS_PRODUCTS,
   BANK_LOANS_ELIGIBILITY,
   BANK_LOANS_LIST,
   BANK_LOANS_RELEASABLE,
   BANK_LOANS_HEALTH,
+];
+
+const part_bank_ops_2_procedures: readonly ProcedureRecord[] = [
+  BANK_OPS_CARD_PROGRAMME_FUNDING,
+  BANK_OPS_POOL_TOTALS,
+  BANK_OPS_CARD_PROGRAMME,
+  BANK_OPS_BUSINESS_APPROVALS,
+  BANK_OPS_FAILED_TRANSFERS,
+  BANK_OPS_TRANSFER_DETAIL,
 ];
 
 const part_bank_ops_procedures: readonly ProcedureRecord[] = [
@@ -2620,6 +2828,8 @@ const part_bank_rail_sends_procedures: readonly ProcedureRecord[] = [
   BANK_RAIL_SENDS_REMOVE_PAYEE,
 ];
 
+const part_bank_ramps_destinations_procedures: readonly ProcedureRecord[] = [BANK_RAMPS_DESTINATIONS_RENAME];
+
 const part_bank_ramps_procedures: readonly ProcedureRecord[] = [
   BANK_RAMPS_PROGRAMME,
   BANK_RAMPS_FIAT_SETTLE,
@@ -2634,6 +2844,7 @@ const part_bank_ramps_procedures: readonly ProcedureRecord[] = [
   BANK_RAMPS_DESTINATIONS_CHECK,
   BANK_RAMPS_DESTINATIONS_SAVE,
   BANK_RAMPS_DESTINATIONS_REMOVE,
+  BANK_RAMPS_OFFRAMP,
 ];
 
 const part_bank_recovery_procedures: readonly ProcedureRecord[] = [BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES];
@@ -2644,13 +2855,37 @@ const part_bank_safety_procedures: readonly ProcedureRecord[] = [BANK_SAFETY_REG
 
 const part_bank_salary_procedures: readonly ProcedureRecord[] = [BANK_SALARY_CREDITS];
 
-const part_bank_shared_pots_procedures: readonly ProcedureRecord[] = [BANK_SHARED_POTS_LIST, BANK_SHARED_POTS_ACTIVITY];
+const part_bank_shared_pots_procedures: readonly ProcedureRecord[] = [
+  BANK_SHARED_POTS_LIST,
+  BANK_SHARED_POTS_ACTIVITY,
+  BANK_SHARED_POTS_INVITE,
+  BANK_SHARED_POTS_FREEZE_CARD,
+  BANK_SHARED_POTS_ACCEPT,
+  BANK_SHARED_POTS_DECLINE,
+  BANK_SHARED_POTS_LEAVE,
+  BANK_SHARED_POTS_REMOVE,
+  BANK_SHARED_POTS_CANCEL_INVITE,
+  BANK_SHARED_POTS_UNLINK_CARD,
+  BANK_SHARED_POTS_LINK_CARD,
+];
+
+const part_bank_sorter_2_procedures: readonly ProcedureRecord[] = [BANK_SORTER_CREATE, BANK_SORTER_CANCEL];
 
 const part_bank_sorter_procedures: readonly ProcedureRecord[] = [BANK_SORTER_LIST, BANK_SORTER_RUNS];
 
+const part_bank_spaces_2_procedures: readonly ProcedureRecord[] = [BANK_SPACES_SET_GOAL, BANK_SPACES_CREATE];
+
 const part_bank_spaces_list: readonly ProcedureRecord[] = [BANK_SPACES_LIST];
 
-const part_bank_spaces_procedures: readonly ProcedureRecord[] = [BANK_SPACES_UNNAMED];
+const part_bank_spaces_procedures: readonly ProcedureRecord[] = [
+  BANK_SPACES_UNNAMED,
+  BANK_SPACES_SET_BILLS_POT,
+  BANK_SPACES_CLEAR_BILLS_POT,
+  BANK_SPACES_SET_LOCK,
+  BANK_SPACES_REQUEST_UNLOCK,
+  BANK_SPACES_CANCEL_UNLOCK,
+  BANK_SPACES_ARCHIVE,
+];
 
 const part_bank_statements_procedures: readonly ProcedureRecord[] = [
   BANK_STATEMENTS_EXPORT,
@@ -2662,12 +2897,15 @@ const part_bank_statements_procedures: readonly ProcedureRecord[] = [
   BANK_STATEMENTS_TOTALS,
 ];
 
+const part_bank_transfers_2_procedures: readonly ProcedureRecord[] = [BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE];
+
 const part_bank_transfers_procedures: readonly ProcedureRecord[] = [
   BANK_TRANSFERS_EXECUTIONS,
   BANK_TRANSFERS_LIST_SCHEDULES,
   BANK_TRANSFERS_QUOTE,
   BANK_TRANSFERS_HELD,
   BANK_TRANSFERS_TO_USER,
+  BANK_TRANSFERS_CANCEL,
 ];
 
 const part_blueprint_procedures: readonly ProcedureRecord[] = [
@@ -2817,7 +3055,11 @@ const part_identity_affiliates_procedures: readonly ProcedureRecord[] = [
 
 const part_identity_api_key_ops_procedures: readonly ProcedureRecord[] = [IDENTITY_API_KEY_OPS_REVOKE];
 
-const part_identity_api_keys_procedures: readonly ProcedureRecord[] = [IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE];
+const part_identity_api_keys_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_API_KEYS_REVOKE,
+  IDENTITY_API_KEYS_CREATE,
+  IDENTITY_API_KEYS_LIST,
+];
 
 const part_identity_api_rate_tiers_procedures: readonly ProcedureRecord[] = [IDENTITY_API_RATE_TIERS];
 
@@ -2851,6 +3093,8 @@ const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_STEP_UP_OPTIONS,
   IDENTITY_AUTH_LOGOUT_ALL,
 ];
+
+const part_identity_bind_api_key_ip_allowlist_procedures: readonly ProcedureRecord[] = [IDENTITY_BIND_API_KEY_IP_ALLOWLIST];
 
 const part_identity_developer_keys_procedures: readonly ProcedureRecord[] = [
   IDENTITY_DEVELOPER_KEYS_LIST,
@@ -2974,6 +3218,8 @@ const part_identity_revoke_other_sessions_procedures: readonly ProcedureRecord[]
 
 const part_identity_revoke_session_family_procedures: readonly ProcedureRecord[] = [IDENTITY_REVOKE_SESSION_FAMILY];
 
+const part_identity_rotate_signing_secret_procedures: readonly ProcedureRecord[] = [IDENTITY_ROTATE_SIGNING_SECRET];
+
 const part_identity_security_lock_procedures: readonly ProcedureRecord[] = [
   IDENTITY_SECURITY_LOCK_READ,
   IDENTITY_SECURITY_LOCK_SET,
@@ -3021,6 +3267,8 @@ const part_identity_trusted_devices_procedures: readonly ProcedureRecord[] = [
   IDENTITY_TRUSTED_DEVICES_APPROVE,
   IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN,
 ];
+
+const part_identity_unbind_api_key_ip_allowlist_procedures: readonly ProcedureRecord[] = [IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST];
 
 const part_identity_unlink_signin_method_procedures: readonly ProcedureRecord[] = [IDENTITY_UNLINK_SIGNIN_METHOD];
 
@@ -3375,6 +3623,13 @@ const part_pay_allowlist_procedures: readonly ProcedureRecord[] = [
 
 const part_pay_checkout_procedures: readonly ProcedureRecord[] = [PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN];
 
+const part_pay_conversion_procedures: readonly ProcedureRecord[] = [
+  PAY_CONVERSION_LIST,
+  PAY_CONVERSION_GET,
+  PAY_CONVERSION_QUOTE,
+  PAY_CONVERSION_EXECUTE,
+];
+
 const part_pay_deposit_procedures: readonly ProcedureRecord[] = [PAY_DEPOSIT_CREDIT];
 
 const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
@@ -3426,7 +3681,48 @@ const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
   PAY_KYB_REQUESTS_FILE,
   PAY_KYB_REQUESTS_REVIEW_LIST,
   PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+  PAY_KYB_ENTITY_TYPES_READ,
+  PAY_KYB_APPLICATION_CURRENT,
+  PAY_KYB_APPLICATION_RESTART,
+  PAY_KYB_APPLICATION_SUBMIT,
+  PAY_KYB_DOCUMENTS_CHECKLIST,
+  PAY_KYB_DOCUMENTS_UPLOAD,
+  PAY_KYB_REQUESTS_LIST,
 ];
+
+const part_pay_merchant_catalog_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_CATALOG_PRODUCTS_GET,
+  PAY_MERCHANT_CATALOG_IMAGES_RULES,
+  PAY_MERCHANT_CATALOG_IMAGES_GET,
+  PAY_MERCHANT_CATALOG_PRICES_LIST,
+  PAY_MERCHANT_CATALOG_PRICES_USAGE,
+  PAY_MERCHANT_CATALOG_PRICES_GET,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+];
+
+const part_pay_merchant_checkout_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_CHECKOUT_BRANDING_GET];
+
+const part_pay_merchant_control_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_CONTROL_GET,
+  PAY_MERCHANT_CONTROL_RESERVE,
+  PAY_MERCHANT_CONTROL_TOP_UP_OPTIONS,
+  PAY_MERCHANT_CONTROL_USAGE,
+  PAY_MERCHANT_CONTROL_PRICING_PREVIEW,
+  PAY_MERCHANT_CONTROL_APPROVALS_CANCEL,
+  PAY_MERCHANT_CONTROL_APPROVALS_REQUEST,
+  PAY_MERCHANT_CONTROL_LIMITS_OPEN,
+  PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
+  PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+];
+
+const part_pay_merchant_metrics_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_METRICS_SNAPSHOT,
+  PAY_MERCHANT_METRICS_SERIES,
+  PAY_MERCHANT_METRICS_PARTNER_TERMS,
+  PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS,
+];
+
+const part_pay_merchant_ops_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET];
 
 const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_STARTER_FEE,
@@ -3435,7 +3731,24 @@ const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_LIST_LINKS,
   PAY_MERCHANT_DEACTIVATE_LINK,
   PAY_MERCHANT_GET_LINK,
+  PAY_MERCHANT_STATEMENT_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_SET_DEFAULT,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_REMOVE,
+  PAY_MERCHANT_PROFILE,
+  PAY_MERCHANT_CREATE_LINK,
+  PAY_MERCHANT_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SUBMIT_KYB,
 ];
+
+const part_pay_merchant_receiving_wallet_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_RECEIVING_WALLET_GET,
+  PAY_MERCHANT_RECEIVING_WALLET_OUTSIDE_FUNDS,
+];
+
+const part_pay_pay_halts_procedures: readonly ProcedureRecord[] = [PAY_PAY_HALTS_STATUS];
 
 const part_pay_payment_procedures: readonly ProcedureRecord[] = [
   PAY_PAYMENT_GET,
@@ -3443,6 +3756,9 @@ const part_pay_payment_procedures: readonly ProcedureRecord[] = [
   PAY_PAYMENT_LIST,
   PAY_PAYMENT_AUTHORIZE,
   PAY_PAYMENT_CAPTURE,
+  PAY_PAYMENT_CREATE,
+  PAY_PAYMENT_REFUNDS_GET,
+  PAY_PAYMENT_VIEWS_LIST,
 ];
 
 const part_pay_rail_health_procedures: readonly ProcedureRecord[] = [PAY_RAIL_HEALTH];
@@ -3455,7 +3771,15 @@ const part_pay_sandbox_funds_procedures: readonly ProcedureRecord[] = [
   PAY_SANDBOX_FUNDS_RESET,
 ];
 
-const part_pay_settlement_procedures: readonly ProcedureRecord[] = [PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE];
+const part_pay_settlement_procedures: readonly ProcedureRecord[] = [
+  PAY_SETTLEMENT_LIST,
+  PAY_SETTLEMENT_GET,
+  PAY_SETTLEMENT_RELEASE,
+  PAY_SETTLEMENT_LINES,
+  PAY_SETTLEMENT_CLEARING,
+  PAY_SETTLEMENT_LIFECYCLE,
+  PAY_SETTLEMENT_PAYOUT,
+];
 
 const part_pay_submerchant_permission_procedures: readonly ProcedureRecord[] = [
   PAY_SUBMERCHANT_PERMISSION_AREAS,
@@ -3463,7 +3787,12 @@ const part_pay_submerchant_permission_procedures: readonly ProcedureRecord[] = [
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
 ];
 
-const part_pay_submerchant_procedures: readonly ProcedureRecord[] = [PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET];
+const part_pay_submerchant_procedures: readonly ProcedureRecord[] = [
+  PAY_SUBMERCHANT_LIST,
+  PAY_SUBMERCHANT_GET,
+  PAY_SUBMERCHANT_CREATE,
+  PAY_SUBMERCHANT_SUMMARY,
+];
 
 const part_pay_subscription_procedures: readonly ProcedureRecord[] = [
   PAY_SUBSCRIPTION_LIST,
@@ -4086,11 +4415,15 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_add_money_procedures,
   ...part_bank_analytics_procedures,
   ...part_bank_assets_procedures,
+  ...part_bank_auto_invest_2_procedures,
   ...part_bank_auto_invest_procedures,
   ...part_bank_bills_procedures,
+  ...part_bank_business_2_procedures,
   ...part_bank_business_books_procedures,
   ...part_bank_business_cards_procedures,
   ...part_bank_business_procedures,
+  ...part_bank_cards_2_procedures,
+  ...part_bank_cards_disputes_procedures,
   ...part_bank_cards_procedures,
   ...part_bank_cash_leg_procedures,
   ...part_bank_cash_out_procedures,
@@ -4098,6 +4431,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_deposit_procedures,
   ...part_bank_direct_debits_procedures,
   ...part_bank_dormancy_procedures,
+  ...part_bank_earn_2_procedures,
   ...part_bank_earn_procedures,
   ...part_bank_eligibility_procedures,
   ...part_bank_fees_procedures,
@@ -4106,7 +4440,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_health_procedures,
   ...part_bank_holds_procedures,
   ...part_bank_linked_accounts_procedures,
+  ...part_bank_loans_2_procedures,
   ...part_bank_loans_procedures,
+  ...part_bank_ops_2_procedures,
   ...part_bank_ops_procedures,
   ...part_bank_own_moves_procedures,
   ...part_bank_partner_holds_procedures,
@@ -4115,16 +4451,20 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_plans_procedures,
   ...part_bank_portfolio_procedures,
   ...part_bank_rail_sends_procedures,
+  ...part_bank_ramps_destinations_procedures,
   ...part_bank_ramps_procedures,
   ...part_bank_recovery_procedures,
   ...part_bank_rules_procedures,
   ...part_bank_safety_procedures,
   ...part_bank_salary_procedures,
   ...part_bank_shared_pots_procedures,
+  ...part_bank_sorter_2_procedures,
   ...part_bank_sorter_procedures,
+  ...part_bank_spaces_2_procedures,
   ...part_bank_spaces_list,
   ...part_bank_spaces_procedures,
   ...part_bank_statements_procedures,
+  ...part_bank_transfers_2_procedures,
   ...part_bank_transfers_procedures,
   ...part_blueprint_procedures,
   ...part_campaigns_distribution_procedures,
@@ -4153,6 +4493,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_approval_policy_procedures,
   ...part_identity_auth_keys_procedures,
   ...part_identity_auth_procedures,
+  ...part_identity_bind_api_key_ip_allowlist_procedures,
   ...part_identity_developer_keys_procedures,
   ...part_identity_developer_sandboxes_procedures,
   ...part_identity_developer_support_procedures,
@@ -4173,6 +4514,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_revoke_all_api_keys_procedures,
   ...part_identity_revoke_other_sessions_procedures,
   ...part_identity_revoke_session_family_procedures,
+  ...part_identity_rotate_signing_secret_procedures,
   ...part_identity_security_lock_procedures,
   ...part_identity_self_freeze_manage_procedures,
   ...part_identity_session_settings_procedures,
@@ -4184,6 +4526,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_totp_manage_procedures,
   ...part_identity_totp_procedures,
   ...part_identity_trusted_devices_procedures,
+  ...part_identity_unbind_api_key_ip_allowlist_procedures,
   ...part_identity_unlink_signin_method_procedures,
   ...part_identity_waitlist_procedures,
   ...part_identity_wallet_link_challenge_procedures,
@@ -4215,12 +4558,20 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_p2p_procedures,
   ...part_pay_allowlist_procedures,
   ...part_pay_checkout_procedures,
+  ...part_pay_conversion_procedures,
   ...part_pay_deposit_procedures,
   ...part_pay_founder_admin_procedures,
   ...part_pay_fraud_procedures,
   ...part_pay_halt_procedures,
   ...part_pay_kyb_procedures,
+  ...part_pay_merchant_catalog_procedures,
+  ...part_pay_merchant_checkout_procedures,
+  ...part_pay_merchant_control_procedures,
+  ...part_pay_merchant_metrics_procedures,
+  ...part_pay_merchant_ops_procedures,
   ...part_pay_merchant_procedures,
+  ...part_pay_merchant_receiving_wallet_procedures,
+  ...part_pay_pay_halts_procedures,
   ...part_pay_payment_procedures,
   ...part_pay_rail_health_procedures,
   ...part_pay_resolve_link_procedures,
