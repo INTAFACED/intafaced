@@ -1,3 +1,4 @@
+// volt-room: /trade/margin
 import { Button, EmptyState, RefusalBox, Stat, Tag } from '@intafaced/ui/lit';
 import { DeskTemplate, KeyValue, Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
 import type { Position } from '@intafaced/exchange-contract/schemas';

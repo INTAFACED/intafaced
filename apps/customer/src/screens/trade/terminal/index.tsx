@@ -1,3 +1,4 @@
+// volt-room: /trade/terminal
 /**
  * Terminal (/trade/terminal, J-copy-bots-otc-30, CB-order-controls-05): one MetaTrader-style view of the person's own
  * open orders, ended orders and fills, copied positions with their close, and algo orders with their child orders, plus a

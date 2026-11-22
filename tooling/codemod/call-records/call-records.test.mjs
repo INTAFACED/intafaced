@@ -11,13 +11,18 @@ import {
   checkedCall,
   importedFrom,
   importsFile,
+  holdCallersOnly,
   portInFlight,
+  portRefusal,
   pruneImports,
   pruneReExports,
+  pruneBuilders,
   pruneSchemas,
   recordName,
   rewriteSite,
+  schemaArgOf,
 } from './index.mjs';
+import { answerFromCallers } from './answer.mjs';
 import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
@@ -45,6 +50,84 @@ test('a service whose Rust port is in flight is refused, by name, before anythin
   assert.match(portInFlight('svc-agents', root) ?? '', /svc-agents's Rust port is in flight/);
   assert.equal(portInFlight('svc-bank', root), null, 'no crate yet: its port has not started');
   assert.equal(portInFlight('svc-academy', root), null, 'switched: its TypeScript is gone, the door path (--from-rev) runs');
+  // Mid-port, only --callers-only runs; and --callers-only runs only mid-port.
+  assert.equal(portRefusal({ service: 'svc-agents' }, root)?.code, 3);
+  assert.equal(portRefusal({ service: 'svc-agents', callersOnly: true }, root), null);
+  assert.match(portRefusal({ service: 'svc-bank', callersOnly: true }, root)?.why ?? '', /svc-bank's is not: run without it/);
+  // Planted: a callers-only run that touched a service or its crate fails, naming the file; one that touched only callers and contracts does not.
+  assert.throws(() => holdCallersOnly([join(root, 'services/svc-agents/src/router.ts')], root), /services\/svc-agents\/src\/router\.ts/);
+  assert.throws(() => holdCallersOnly([join(root, 'crates/svc-agents/src/door/calls.rs')], root), /crates\/svc-agents/);
+  holdCallersOnly([join(root, 'apps/customer/src/a.ts'), join(root, 'packages/contracts/src/agents-own-procedures.ts')], root);
+});
+
+test('--callers-only moves a caller of a service mid-port to a record written from its router, leaves a near case, and never touches the service or its crate', () => {
+  // The codemod, copied into a small repo: a service whose crate sits beside it, a helper its router declares, and two callers.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const files = {
+    'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-agents/src/router.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().min(1) });',
+      'const agentOut = z.object({ id: z.string(), name: z.string() });',
+      'export function createAgentsRouter() {',
+      "  return router({ own: router({ get: scopedProcedure('agents:read').input(idInput).output(agentOut).query(({ input }) => get(input)) }) });",
+      '}',
+      '',
+    ].join('\n'),
+    'crates/svc-agents/src/lib.rs': '// the port\n',
+    'apps/customer/src/features/agents/agent.ts': [
+      "import { z } from 'zod';",
+      'const agent = z.object({ id: z.string(), name: z.string() });',
+      "export const a = (api) => api.query('agents', 'own.get', { id: 'x' }, agent);",
+      "export const b = (api) => api.query('agents', 'own.gone', { id: 'x' }, agent);",
+      '',
+    ].join('\n'),
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  mkdirSync(join(root, 'packages/contracts/src'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  const run = (...a) => execFileSync('node', [index, '--module', 'agents', ...a], { cwd: root, encoding: 'utf8', stdio: 'pipe' });
+  // Without the mode the service is still refused, by name, exit 3.
+  assert.throws(
+    () => run('--write'),
+    (e) => e.status === 3 && /Rust port is in flight/.test(e.stderr),
+  );
+  run('--callers-only', '--write', '--json', join(root, '.git/summary.json'));
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.records, ['AGENTS_OWN_GET']);
+  assert.deepEqual(
+    summary.hand.map((h) => h.call),
+    ['agents own.gone'],
+  );
+  const caller = readFileSync(join(root, 'apps/customer/src/features/agents/agent.ts'), 'utf8');
+  assert.match(caller, /export const a = \(api\) => api\.call\(AGENTS_OWN_GET, \{ id: ["']x["'] \}\);/);
+  assert.match(
+    caller,
+    /export const b = \(api\) => api\.query\(["']agents["'], ["']own\.gone["']/,
+    'the near case, a path the router has not, stays',
+  );
+  // The service and its crate are as they were: the router keeps its own schemas and mounts nothing.
+  assert.equal(git('status', '--porcelain', '--', 'services', 'crates'), '');
+  // The record's input and answer are the router's own declarations, copied as written.
+  const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
+  assert.match(shared, /export const idInput = z\.object\(\{ id: z\.string\(\)\.min\(1\) \}\);/);
+  assert.match(shared, /export const agentOut = z\.object\(\{ id: z\.string\(\), name: z\.string\(\) \}\);/);
+  const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
+  assert.match(record, /input: idInput,\s+output: agentOut,/);
+  assert.match(record, /access: \{ caller: ["']scope["'], scope: ["']agents:read["'] \}/);
 });
 
 test('an import read only as a JSX tag or a re-export stays; one nothing reads goes', () => {
@@ -305,8 +388,20 @@ test('the report sorts each hand reason into the kind one script change or one d
   );
   assert.equal(reasonOf('identity.x: no accepted input found; write its samples by hand'), 'no sample inputs');
   assert.equal(
+    reasonOf("its `action` sends one input value to 3 records: each one's input type can't be kept"),
+    'one input sent to each of a closed set of calls',
+  );
+  assert.equal(
     reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
     'helper name clash (a rerun places it)',
+  );
+  assert.equal(
+    reasonOf("r: s comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it"),
+    'schema from a package that depends on contracts (it stays)',
+  );
+  assert.equal(
+    reasonOf('r: s comes from @intafaced/money-math, which contracts does not depend on'),
+    'answer or input schema from another package or generic',
   );
   assert.equal(reasonOf('something new'), 'other');
 });
@@ -341,6 +436,58 @@ test('the router reader follows a builder member, an imported builder and both b
   assert.deepEqual(
     unread.map((u) => `${u.path}: ${u.why}`),
     ['flagged.shared: two procedures under one path (a switch router)'],
+  );
+});
+
+test('the router reader follows a re-exported factory and a factory parameter to the router its call passes, and still names a parameter no call binds', async () => {
+  const { procedures } = await import('./router.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-svc-'));
+  mkdirSync(join(dir, 'src/parts'), { recursive: true });
+  writeFileSync(
+    join(dir, 'src/parts/router.ts'),
+    [
+      'export function createPartRouter() { return router({ preview: p.query(h) }); }',
+      'export function createSubRouter() { return router({ mine: p.query(h) }); }',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(join(dir, 'src/parts/index.ts'), "export { createPartRouter } from './router.js';\nexport * from './router.js';\n");
+  writeFileSync(
+    join(dir, 'src/account.ts'),
+    [
+      'export function createAccountRouter(deps: unknown, sub: unknown) {',
+      '  return router({ sub, own: p.query(h) });',
+      '}',
+      'export function createLoneRouter(sub: unknown) { return router({ sub }); }',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { createPartRouter, createSubRouter } from './parts/index.js';",
+      "import { createAccountRouter, createLoneRouter } from './account.js';",
+      'export function createSvcRouter(deps: unknown, given: unknown) {',
+      '  return router({',
+      '    part: createPartRouter(),',
+      '    account: createAccountRouter(deps, createSubRouter()),',
+      '    lone: createLoneRouter(given),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found, unread } = procedures(dir);
+  assert.deepEqual([...found.keys()].sort(), ['account.own', 'account.sub.mine', 'part.preview']);
+  // `given` is the root's own parameter: nothing passes it, so the part stays, named.
+  assert.deepEqual(
+    unread.map((u) => `${u.path}: ${u.why}`),
+    ['lone.sub.*: name given not followed (param)'],
+  );
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(
+    reasonOf('pay founderAdmin.changes.submit: two procedures under one path (a switch router)'),
+    'two procedures under one path (a switch router)',
   );
 });
 
@@ -439,13 +586,84 @@ test('a call naming one of two paths by `? :` is a site per branch, its input wr
   );
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['add', '.'], { cwd: repo });
-  const found = findSites(repo).map((s) => `${s.path} ${s.branch} ${s.problem ? 'stays' : 'moves'}`);
-  assert.deepEqual(found, [
-    'holds.accept consequent moves',
-    'holds.deny alternate moves',
-    'auth.register consequent stays',
-    'auth.login alternate stays',
+  const found = findSites(repo).map((s) => `${s.path} ${s.fan.at} ${s.problem ? 'stays' : 'moves'}`);
+  assert.deepEqual(found, ['holds.accept 0 moves', 'holds.deny 1 moves', 'auth.register 0 stays', 'auth.login 1 stays']);
+});
+
+test('a call named by a template over a closed set the code lists is one site per value, written back as one call; an open one stays, named', async () => {
+  const { callText } = await import('./index.mjs');
+  const { fanIn } = await import('./fan.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-fan-'));
+  mkdirSync(join(repo, 'apps/customer/src'), { recursive: true });
+  mkdirSync(join(repo, 'apps/admin/src/lib'), { recursive: true });
+  // A union written on the parameter, an alias of an `as const` list in another file, and a const: each a closed set.
+  writeFileSync(
+    join(repo, 'apps/customer/src/actions.ts'),
+    "export const STEPS = ['declare', 'resolve'] as const;\nexport type Step = (typeof STEPS)[number];\nexport const NOW = 'clock.now';\n",
+  );
+  const file = join(repo, 'apps/customer/src/tool-api.ts');
+  writeFileSync(
+    file,
+    [
+      "import { NOW, type Step } from './actions';",
+      "export const a = (api: any, action: 'pause' | 'resume' | 'cancel', algoId: string) => api.mutate('trade', `algo.${action}`, { algoId }, s);",
+      "export const b = (api: any, step: Step, id: string) => api.mutate('ops', `incidents.${step}`, { id }, s);",
+      "export const c = (api: any) => api.query('identity', NOW, undefined, s);",
+      // The near cases: a wider string, a name assigned again, a value read off an object, and a closed set sent one input.
+      "export const d = (api: any, action: string, algoId: string) => api.mutate('trade', `algo.${action}`, { algoId }, s);",
+      "export const e = (api: any, action: 'pause' | 'resume', algoId: string) => { action = 'pause'; return api.mutate('trade', `algo.${action}`, { algoId }, s); };",
+      "export const f = (api: any, spec: { procedure: string }) => api.mutate('bank', spec.procedure, {}, s);",
+      "export const g = (api: any, action: 'pause' | 'resume', body: object) => api.mutate('trade', `algo.${action}`, body, s);",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo).filter((s) => s.file === file);
+  const row = (s) => `${s.module} ${s.path ?? '?'} ${s.fan ? `${s.fan.at}/${s.fan.size}` : '-'} ${s.problem ?? 'moves'}`;
+  assert.deepEqual(sites.map(row), [
+    'trade algo.pause 0/3 moves',
+    'trade algo.resume 1/3 moves',
+    'trade algo.cancel 2/3 moves',
+    'ops incidents.declare 0/2 moves',
+    'ops incidents.resolve 1/2 moves',
+    'identity clock.now - moves',
+    "trade ? - service or call named by a template: parameter `action`'s type is not a closed set of strings",
+    'trade ? - service or call named by a template: parameter `action` is assigned again',
+    'bank ? - service or call named by a template: `spec.procedure` is not a name, a `? :` or a string',
+    "trade algo.pause 0/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
+    "trade algo.resume 1/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
   ]);
+
+  // Every value moved: one call again, each value sent by its own record.
+  const changes = new Changes();
+  const name = (s) => s.path.toUpperCase().replace('.', '_');
+  for (const s of sites.filter((x) => !x.problem)) rewriteSite(changes, s, name(s), '@intafaced/contracts/x', s.path === 'clock.now');
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(
+    out,
+    /=> \(action === 'pause' \? api\.call\(ALGO_PAUSE, \{ algoId \}\) : action === 'resume' \? api\.call\(ALGO_RESUME, \{ algoId \}\) : api\.call\(ALGO_CANCEL, \{ algoId \}\)\);$/m,
+  );
+  assert.match(out, /=> \(step === 'declare' \? api\.call\(INCIDENTS_DECLARE, \{ id \}\) : api\.call\(INCIDENTS_RESOLVE, \{ id \}\)\);$/m);
+  assert.match(out, /=> api\.call\(CLOCK_NOW, undefined\);$/m);
+  assert.deepEqual(planned.hand, []);
+
+  // One value left: none moves, each named.
+  const some = new Changes();
+  const algo = sites.filter((s) => s.path?.startsWith('algo.') && !s.problem);
+  for (const s of algo.slice(0, 2)) rewriteSite(some, s, name(s), '@intafaced/contracts/x', false);
+  const left = { hand: [], existing: [] };
+  fanIn(some, left, [], callText);
+  assert.deepEqual(some.of(file).edits, []);
+  assert.deepEqual(
+    left.hand.map((h) => `${h.site.path} ${h.why}`),
+    [
+      'algo.pause another value of its call stays, and one call sends them all',
+      'algo.resume another value of its call stays, and one call sends them all',
+    ],
+  );
 });
 
 test("a guard behind the service's own function or const options is copied whole onto its record; one that checks more names its check, or keeps its call, named", async () => {
@@ -522,6 +740,71 @@ test("a guard behind the service's own function or const options is copied whole
   const { reasonOf } = await import('./report.mjs');
   assert.equal(reasonOf(access.job), 'guard kept by hand (named, with its reason)');
   assert.equal(reasonOf(access.audited), 'guard chained with .use()');
+});
+
+test("a guard whose one check runs inside the service's own error mapper names its check; the mount is handed it without next(), and a near shape stays", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const { partsFor } = await import('./guard-check.mjs');
+  const { reasonOf } = await import('./report.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-wrapped-'));
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'src/kit.ts'), 'export async function mappedElsewhere(fn) { return fn(); }\n');
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { scopedProcedure, router } from '@intafaced/contracts/trpc';",
+      "import { mappedElsewhere } from './kit.js';",
+      'async function mapped(fn) { try { return await fn(); } catch (e) { throw e; } }',
+      'export function createSvcRouter(authority, other) {',
+      "  const staffRead = scopedProcedure('ops:read').use(async ({ ctx, next }) =>\n    mapped(async () => {\n      await authority(ctx);\n      return next({ ctx });\n    }),\n  );",
+      "  const imported = scopedProcedure('ops:read').use(async ({ ctx, next }) => mappedElsewhere(async () => { await authority(ctx); return next({ ctx }); }));",
+      "  const twice = scopedProcedure('ops:read').use(async ({ ctx, next }) => mapped(async () => { await authority(ctx); await authority(ctx); return next({ ctx }); }));",
+      "  const reads = scopedProcedure('ops:read').use(async ({ ctx, next }) => mapped(async () => { await authority(other); return next({ ctx }); }));",
+      "  const changes = scopedProcedure('ops:read').use(async ({ ctx, next }) => mapped(async () => { await authority(ctx); return next({ ctx: { ...ctx, x: 1 } }); }));",
+      '  const shadowed = (authority) => router({ inner: staffRead.output(o).query(h) });',
+      '  return router({',
+      '    preview: staffRead.output(o).query(h),',
+      '    imported: imported.output(o).query(h),',
+      '    twice: twice.output(o).query(h),',
+      '    reads: reads.output(o).query(h),',
+      '    changes: changes.output(o).query(h),',
+      '    nested: shadowed(other),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const chains = new Map([...found].map(([path, proc]) => [path, chainOf(proc)]));
+  const access = Object.fromEntries([...chains].map(([path, c]) => [path, c.problems.length ? c.problems.join('; ') : c.guard.text]));
+  assert.deepEqual(access, {
+    preview: "{ caller: 'scope', scope: 'ops:read', check: 'authority' }",
+    // A wrapper from another file, a second statement, a check reading more than ctx, a changed context: each stays.
+    imported: 'guard use() chained: not one a record names',
+    twice: 'guard use() chained: not one a record names',
+    reads: 'guard use() chained: not one a record names',
+    changes: 'guard use() chained: not one a record names',
+    // Where the record would mount, \`authority\` is another function's parameter: the check would read something else.
+    'nested.inner': 'guard use() chained: its wrapped check reads a name that means something else where the record mounts',
+  });
+  for (const why of Object.values(access).filter((t) => !t.startsWith('{'))) assert.equal(reasonOf(why), 'guard chained with .use()');
+  // The mount is handed the same check with next() taken out, beside the router file's refusal reader.
+  const guard = chains.get('preview').guard;
+  const file = join(dir, 'src/router.ts');
+  const reader = { name: 'storageRefusal', file, exported: false };
+  assert.deepEqual(
+    partsFor([{ name: 'svcParts', file, parts: true }], file, guard, () => reader),
+    {
+      name: '{ refusalOf: storageRefusal, checks: { authority: (ctx) => mapped(async () => { await authority(ctx); }) } }',
+      file,
+      imports: [],
+    },
+  );
+  assert.equal(
+    partsFor([], file, guard, () => undefined),
+    undefined,
+  );
 });
 
 test("a record naming its service's own check mounts with the router file's parts, else with its refusal reader and the check's export", async () => {
@@ -772,6 +1055,59 @@ test('a schema const the moved call left unread goes, and the one it read after 
   assert.match(out, /const impure = makeSchema\(\);/);
 });
 
+test('a builder or guard object only the moved calls read goes; one still read, exported or not plain stays', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'call-records-builders-')), 'router.ts');
+  writeFileSync(
+    file,
+    [
+      "const guards = { module: 'core-ops' as const, plane: 'fiat' as const };",
+      "const kept = { module: 'core-ops' as const };",
+      'const built = { at: Date.now() };',
+      "export const shown = { module: 'x' };",
+      'export function make() {',
+      "  const reader = scopedProcedure('admin:read', guards);",
+      "  const writer = scopedProcedure('admin:write', kept);",
+      '  return router({ a: writer.query(() => built) });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  pruneBuilders(file);
+  const out = readFileSync(file, 'utf8');
+  assert.doesNotMatch(out, /const (reader|guards) =/);
+  assert.match(out, /const writer = scopedProcedure/);
+  assert.match(out, /const kept = /);
+  assert.match(out, /const built = /);
+  assert.match(out, /export const shown = /);
+});
+
+test('a schema built on an imported schema, and the literal list only it read, go once no one reads them', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'call-records-imported-')), 'screen.tsx');
+  writeFileSync(
+    file,
+    [
+      "import { z } from 'zod';",
+      "import { decimalSchema } from '../money';",
+      "import { makeThing } from '../thing';",
+      "const KINDS = ['a', 'b'] as const;",
+      "const KEPT = ['c'] as const;",
+      'const dead = z.object({ kind: z.enum(KINDS), cap: decimalSchema.nullable() });',
+      'const impure = makeThing().nullable();',
+      'export const use = () => KEPT[0];',
+      '',
+    ].join('\n'),
+  );
+  for (let was = ''; was !== readFileSync(file, 'utf8');) {
+    was = readFileSync(file, 'utf8');
+    pruneSchemas(file);
+    pruneBuilders(file);
+  }
+  const out = readFileSync(file, 'utf8');
+  assert.doesNotMatch(out, /const (dead|KINDS) =/);
+  assert.match(out, /const KEPT = /);
+  assert.match(out, /const impure = makeThing\(\)/);
+});
+
 test('a name a service file re-exports is followed to where it is declared, renamed or not, and a renamed declaration is named', () => {
   const repo = mkdtempSync(join(tmpdir(), 'call-records-reexport-'));
   const put = (path, lines) => {
@@ -813,6 +1149,42 @@ test('a name a service file re-exports is followed to where it is declared, rena
   assert.deepEqual(b.problems, []);
   assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: local is re-exported as renamed']);
   assert.deepEqual(closureOf(repo, [root(3)]).problems, ['r: keyField is imported as passed']);
+});
+
+test('a generic helper moves with its own type parameter; a package import moves when contracts depends on it, and one that depends on contracts stays, named', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-outside-'));
+  const put = (path, lines) => {
+    mkdirSync(dirname(join(repo, path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  put('packages/contracts/src/wire.ts', ['export const unused = 1;']);
+  put('packages/contracts/package.json', [JSON.stringify({ dependencies: { zod: '^4', '@intafaced/config': 'workspace:*' } })]);
+  put('packages/cyc/package.json', [JSON.stringify({ dependencies: { '@intafaced/contracts': 'workspace:*' } })]);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { sideSchema } from '@intafaced/cyc';",
+    "import { cfgSchema } from '@intafaced/config';",
+    'function wireEnum<T extends string>(values: readonly [T, ...T[]]) { return z.enum(values as [T, ...T[]]); }',
+    "const a = z.object({ state: wireEnum(['ON', 'OFF'] as const), cfg: cfgSchema });",
+    'const b = z.object({ side: sideSchema });',
+    'const c = z.object({ t: z.custom<T>() });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const root = (i) => ({ p, node: p.program.body[4 + i].declarations[0].init, where: 'r' });
+  const a = closureOf(repo, [root(0)]);
+  assert.deepEqual(a.problems, []);
+  assert.deepEqual(
+    a.moved.map((m) => m.name),
+    ['wireEnum'],
+  );
+  assert.deepEqual(
+    [...a.fromPackages].map(([s, n]) => [s, [...n]]),
+    [['@intafaced/config', ['cfgSchema']]],
+  );
+  assert.deepEqual(closureOf(repo, [root(1)]).problems, [
+    "r: sideSchema comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it",
+  ]);
+  assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: T is not declared anywhere it can be read'], 'a T no helper declares stays');
 });
 
 test("portable: a door answer's Date becomes its ISO string; a mounted service's stays named", async () => {
@@ -892,4 +1264,90 @@ test('a customer call whose own schema only refuses an answer moves through call
   assert.match(out, /api\.call\(AGENTS_SESSION_CLOSE, \{ id \}\)/);
   assert.deepEqual([...(f.imports.get('../../shared/api') ?? [])], ['callAs']);
   assert.ok(!(f.schemas ?? new Map()).has('mine'), 'the checked schema is kept as written, not retyped');
+});
+
+test('a re-run whose records already exist (no record file changes) skips the file-list steps and still runs the rest', () => {
+  // The failure it prevents: on 22 Nov 2026 a layer branch re-ran the identity run after main's (#9593) had written the
+  // record; prettier was handed no paths and failed, and build, procedures:write and doubles were skipped.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-rerun-'));
+  const dir = join(root, 'tooling/codemod/call-records');
+  const bin = join(root, 'bin');
+  const log = join(root, 'calls.log');
+  for (const d of [dir, bin, join(root, 'node_modules/.bin'), join(root, 'packages/contracts/src')]) mkdirSync(d, { recursive: true });
+  writeFileSync(join(dir, 'run.mjs'), readFileSync(new URL('./run.mjs', import.meta.url)));
+  const stub = (body) =>
+    `#!/usr/bin/env node\nconst { appendFileSync, writeFileSync } = process.getBuiltinModule('node:fs');\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, process.getBuiltinModule('node:path').basename(process.argv[1]) + ' ' + a.join(' ') + '\\n');\n${body}\n`;
+  const flagOut = (flag, json) => `const i = a.indexOf('${flag}'); if (i >= 0) writeFileSync(a[i + 1], '${json}');`;
+  writeFileSync(join(dir, 'index.mjs'), stub(flagOut('--json', '{"records":[],"rewritten":1,"hand":[]}')));
+  writeFileSync(join(dir, 'samples.mjs'), stub(flagOut('--unportable', '{}')));
+  for (const f of ['portable.mjs', 'refusals.mjs', 'door-check.mjs', 'doubles.mjs']) writeFileSync(join(dir, f), stub(''));
+  // Like the real prettier: no paths is an error.
+  writeFileSync(
+    join(root, 'node_modules/.bin/prettier'),
+    stub("if (!a.some((x) => !x.startsWith('--') && x !== 'warn')) process.exit(2);"),
+  );
+  writeFileSync(join(bin, 'pnpm'), stub(''));
+  for (const f of [join(root, 'node_modules/.bin/prettier'), join(bin, 'pnpm')]) execFileSync('chmod', ['+x', f]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\nbin\ncalls.log\n');
+  writeFileSync(join(root, 'packages/contracts/src/identity-procedures.ts'), 'export {};\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, stdio: 'ignore' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'records already written');
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  execFileSync('node', [join(dir, 'run.mjs'), '--module', 'identity', '--service', 'svc-identity', '--refusals', '--door', 'x'], {
+    cwd: root,
+    env,
+    stdio: 'pipe',
+  });
+  const calls = readFileSync(log, 'utf8').trim().split('\n');
+  assert.ok(
+    !calls.some((c) => /^(prettier|samples|portable|refusals|door-check)\.mjs? /.test(c) || c.startsWith('prettier ')),
+    calls.join('\n'),
+  );
+  assert.ok(
+    calls.some((c) => c.startsWith('pnpm procedures:write')),
+    calls.join('\n'),
+  );
+  assert.ok(
+    calls.some((c) => c.startsWith('doubles.mjs --write')),
+    calls.join('\n'),
+  );
+});
+
+test("a call whose router writes no answer schema takes its callers' one pure zod schema; callers that disagree, check or parse with none keep it", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-answer-'));
+  const file = join(repo, 'apps/customer/src/features/session/passkey.ts');
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    [
+      "import { z } from 'zod';",
+      'const options = z.object({ challenge: z.string(), timeout: z.number().optional() });',
+      'const same = options;',
+      "export const a = (api) => api.mutate('identity', 'auth.stepUpOptions', {}, options);",
+      "export const b = (api) => api.mutate('identity', 'auth.stepUpOptions', {}, same, { signal });",
+      "export const c = (api) => api.mutate('identity', 'webauthn.registerOptions', {}, options);",
+      "export const d = (api) => api.mutate('identity', 'webauthn.registerOptions', {}, z.object({ challenge: z.string(), timeout: z.number().optional() }));",
+      "export const e = (api) => api.mutate('identity', 'webauthn.authOptions', {}, options.refine((o) => o.challenge !== ''));",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo).sort((x, y) => x.node.start - y.node.start);
+  const of = (path) =>
+    answerFromCallers(
+      repo,
+      sites.filter((s) => s.path === path),
+      { schemaOf: schemaArgOf, checksOf: answerChecks },
+    );
+  const moved = of('auth.stepUpOptions');
+  assert.ok(moved.output, moved.why);
+  assert.equal(text(moved.output.p, moved.output.node), 'options', "the record takes the caller's schema as the caller names it");
+  assert.match(of('webauthn.registerOptions').why ?? '', /passkey\.ts:6 and .*passkey\.ts:7 parse it with different schemas/);
+  assert.match(of('webauthn.authOptions').why ?? '', /not pure zod \(\.refine\(\)/);
+  const reader = { ...sites[0], node: sites[0].node, reader: true };
+  const none = answerFromCallers(repo, [reader], { schemaOf: () => undefined, checksOf: answerChecks });
+  assert.match(none.why ?? '', /with its own reader function, not a zod schema/);
 });

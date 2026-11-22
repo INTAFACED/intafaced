@@ -15,29 +15,7 @@
 
 import { CANCEL_INCOMPLETE_HALT, CHASE_CHILD_UNACCOUNTED_HALT, CHASE_EXPIRED_HALT, CHASE_MAX_DISTANCE_HALT } from './twap-engine.js';
 import type { AlgoMissCode, TwapParent } from './types.js';
-
-export const ALGO_STOP_REASONS = {
-  cancel_incomplete: 'Cancel incomplete',
-  market_closed: 'Market closed',
-  mark_unavailable: 'Market price unavailable',
-  price_band: 'Price outside the limit',
-  no_liquidity: 'No liquidity',
-  no_volume: 'No market volume',
-  insufficient_balance: 'Insufficient balance',
-  account_unavailable: 'Account unavailable',
-  order_refused: 'Order refused',
-  chase_max_distance: 'Maximum chase distance reached',
-  chase_expired: 'Chase time ended',
-  chase_child_unaccounted: 'Stopped: a fill is still settling',
-  liquidation: 'Liquidation',
-  delisting: 'Delisting',
-  position_limit: 'Position limit',
-  contract_change: 'Contract parameter change',
-  copied_lead_stop: 'Copied lead stopped',
-  unrecorded: 'Stop reason not recorded',
-} as const;
-
-export type AlgoStopReasonCode = keyof typeof ALGO_STOP_REASONS;
+import { ALGO_STOP_REASONS, type AlgoStopReasonCode } from '@intafaced/contracts/trade-call-schemas';
 
 export interface AlgoStopReason {
   readonly code: AlgoStopReasonCode;
@@ -74,3 +52,4 @@ export function algoStopReason(parent: Pick<TwapParent, 'status' | 'haltReason' 
   if (!last) return reason('unrecorded');
   return reason(BY_MISS_CODE[last.code] ?? 'unrecorded');
 }
+export { ALGO_STOP_REASONS };

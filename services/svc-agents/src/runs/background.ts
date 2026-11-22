@@ -1,12 +1,14 @@
 import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import type { EventBus } from '@intafaced/events';
 import { STEP_STATES, type RunNotice, type SessionRun, type SessionRunState, type StopResult } from '@intafaced/contracts/agents-runs';
-import { formatAmount, InsufficientFundsError, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
 import { UsageOwedError } from '../metering/meter.js';
 import type { AgentRuntime } from '../runtime.js';
 import { asAssetId } from '@intafaced/contracts/asset-id';
+import { enqueueRunFinished, finishedEventId } from '../webhooks/run-webhooks.js';
 
 /**
  * A session's background runs (AG-sessions-04, AG-control-01; J-agents-06). A person starts a run on their own open
@@ -138,6 +140,44 @@ async function stepsOf(tx: Queryable, runId: string): Promise<StepRow[]> {
   `;
 }
 
+/** The ended run's own columns its delivery carries. */
+const EndedRow = z.object({
+  user_id: z.string(),
+  session_id: z.string(),
+  agent_id: z.string(),
+  state: z.string(),
+  failure_code: z.string().nullable(),
+});
+
+/**
+ * The ended background run's webhook delivery (J-agents-12 #5), in the transaction that ended it: its state, the last
+ * reply, the steps' summed cost and the failure code. A background run ends once, so its event is sequence 1.
+ */
+async function deliverEnded(tx: Queryable, runId: string, feeAssetId: string | null): Promise<void> {
+  const [run] = EndedRow.array().parse(
+    await tx`
+    SELECT user_id, session_id::text AS session_id, agent_id, state, failure_code
+      FROM agents.session_background_runs WHERE id = ${runId}
+  `,
+  );
+  if (!run) return;
+  const steps = await stepsOf(tx, runId);
+  const costs = steps.flatMap((s) => (s.cost === null ? [] : [parseAmount(s.cost)]));
+  await enqueueRunFinished(tx, {
+    eventId: finishedEventId('background', runId, 1),
+    kind: 'background',
+    userId: run.user_id,
+    runId,
+    sessionId: run.session_id,
+    agentId: run.agent_id,
+    state: run.state,
+    reply: steps.filter((s) => s.reply !== null).at(-1)?.reply ?? null,
+    cost: costs.length === 0 ? null : formatAmount(costs.reduce((sum, c) => sum + c, 0n)),
+    assetId: costs.length === 0 ? null : feeAssetId,
+    refusalCodes: run.failure_code ? [run.failure_code] : [],
+  });
+}
+
 /**
  * Makes the in-flight step's call and stores what it returned, as `done` (or `done_after_stop` when the person stopped
  * the run meanwhile). A refused call stores the step as `refused` and fails the run on its code. Called under the run's
@@ -149,6 +189,7 @@ async function finishStep(
   run: RunRow,
   steps: StepRow[],
   afterStop: boolean,
+  feeAssetId: string | null,
 ): Promise<'done' | 'refused'> {
   const step = steps.at(-1)!;
   try {
@@ -176,6 +217,7 @@ async function finishStep(
         UPDATE agents.session_background_runs SET state = 'failed', failure_code = ${code}, finished_at = now(), updated_at = now()
          WHERE id = ${run.id}
       `;
+      await deliverEnded(tx, run.id, feeAssetId);
     }
     return 'refused';
   }
@@ -273,12 +315,13 @@ export class SessionRunStore {
       if (ENDED.includes(run.state)) throw new SessionRunConflict('agents.run.ended');
       await tx`UPDATE agents.session_background_runs SET state = 'stopped', updated_at = now() WHERE id = ${run.id}`;
       const steps = await stepsOf(tx, run.id);
-      if (steps.at(-1)?.state === 'in_flight') await finishStep(tx, this.runtime, run, steps, true);
+      if (steps.at(-1)?.state === 'in_flight') await finishStep(tx, this.runtime, run, steps, true, this.feeAssetId);
       const result = await this.settle(run.session_id);
       await tx`
         UPDATE agents.session_background_runs SET stop_result = ${tx.json(result)}, finished_at = now(), updated_at = now()
          WHERE id = ${run.id}
       `;
+      await deliverEnded(tx, run.id, this.feeAssetId);
       return { repeated: false };
     });
     if (!outcome) return null;
@@ -327,7 +370,13 @@ export class SessionRunStore {
  * starts its next step, or completes after its last. A paused run starts nothing. A run another ticker holds is skipped,
  * so two instances never make the same call. Returns how many runs it touched.
  */
-export async function advanceSessionRuns(sql: Sql, runtime: AgentRuntime, stepMs: number, batch = 50): Promise<number> {
+export async function advanceSessionRuns(
+  sql: Sql,
+  runtime: AgentRuntime,
+  stepMs: number,
+  batch = 50,
+  feeAssetId: string | null = null,
+): Promise<number> {
   const live = await sql<{ id: string }[]>`
     SELECT id::text AS id FROM agents.session_background_runs
      WHERE state IN ('queued', 'running', 'paused')
@@ -343,7 +392,7 @@ export async function advanceSessionRuns(sql: Sql, runtime: AgentRuntime, stepMs
       const last = steps.at(-1);
       if (last?.state === 'in_flight') {
         if (Date.now() - last.started_at.getTime() < stepMs) return false;
-        if ((await finishStep(tx, runtime, run, steps, false)) === 'refused') return true;
+        if ((await finishStep(tx, runtime, run, steps, false, feeAssetId)) === 'refused') return true;
       }
       if (run.state === 'paused') return last?.state === 'in_flight';
       const taken = last ? last.n : 0;
@@ -351,6 +400,7 @@ export async function advanceSessionRuns(sql: Sql, runtime: AgentRuntime, stepMs
         await tx`
           UPDATE agents.session_background_runs SET state = 'completed', finished_at = now(), updated_at = now() WHERE id = ${id}
         `;
+        await deliverEnded(tx, id, feeAssetId);
         return true;
       }
       await tx`INSERT INTO agents.session_background_run_steps (run_id, n) VALUES (${id}, ${taken + 1})`;
