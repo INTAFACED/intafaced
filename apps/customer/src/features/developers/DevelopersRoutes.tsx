@@ -91,14 +91,14 @@ function SectionPage({ id }: { id: string }) {
       <section className="pub-notice" role="status">
         {section.published ? (
           <a className="button button--primary" href={section.published.href}>
-            {t('sectionOpenPublished')} ↗
+            {t('sectionOpenPublished')} <span className="lt-arrow lt-arrow-out" aria-hidden="true" />
           </a>
         ) : (
           <p>{section.waitsFor ? t('waitsForBody', { slice: section.waitsFor }) : t('unpublished')}</p>
         )}
       </section>
       <a className="text-link" href="/developers">
-        ← {t('back')}
+        <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {t('back')}
       </a>
     </div>
   );
@@ -112,7 +112,7 @@ function Unknown() {
         <h1>{t('unknownTitle')}</h1>
         <p>{t('unknownBody')}</p>
         <a className="text-link" href="/developers">
-          ← {t('back')}
+          <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {t('back')}
         </a>
       </section>
     </div>

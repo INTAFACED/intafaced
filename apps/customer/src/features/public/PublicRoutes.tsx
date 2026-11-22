@@ -59,11 +59,11 @@ export function PublicHeader({ path }: { path: string }) {
       {session || restoreFailed ? (
         // When the service did not answer, /home is where the Retry screen lives; Sign in would wrongly say the person is signed out.
         <a href="/home" className="public-signin" data-session="signed-in">
-          {t('Open your account')} <span aria-hidden="true">↗</span>
+          {t('Open your account')} <span className="lt-arrow lt-arrow-out" aria-hidden="true" />
         </a>
       ) : (
         <a href={authHref} className="public-signin" data-session="signed-out">
-          {path.startsWith('/login') ? t('Create account') : t('Sign in')} <span aria-hidden="true">↗</span>
+          {path.startsWith('/login') ? t('Create account') : t('Sign in')} <span className="lt-arrow lt-arrow-out" aria-hidden="true" />
         </a>
       )}
     </header>

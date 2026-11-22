@@ -27,8 +27,8 @@ export function LabPage({ detail = false }: { detail?: boolean }) {
               role="note"
             />
             {detail && (
-              <a className="lt-link" href="/lab">
-                ← {copy.t('back')}
+              <a className="lt-link lt-link-alone" href="/lab">
+                <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {copy.t('back')}
               </a>
             )}
           </section>
@@ -38,11 +38,11 @@ export function LabPage({ detail = false }: { detail?: boolean }) {
             <h2 id="lab-elsewhere">{copy.t('elsewhereTitle')}</h2>
             <p>{copy.t('elsewhereBody')}</p>
             <p className="lt-actions">
-              <a className="lt-link" href="/">
-                {copy.t('home')} →
+              <a className="lt-link lt-link-alone" href="/">
+                {copy.t('home')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
               </a>
-              <a className="lt-link" href="/help">
-                {copy.t('help')} →
+              <a className="lt-link lt-link-alone" href="/help">
+                {copy.t('help')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
               </a>
             </p>
           </section>

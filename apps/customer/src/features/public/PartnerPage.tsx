@@ -26,7 +26,7 @@ export function PartnerPage() {
             <p>{copy.t(form ? 'partnerFormBody' : 'partnerNoFormBody')}</p>
             {settings.status === 'loading' ? null : form ? (
               <a className="lt-button lt-button-primary" href={form} data-testid="partner-form-link">
-                {copy.t('partnerOpenForm')} ↗
+                {copy.t('partnerOpenForm')} <span className="lt-arrow lt-arrow-out" aria-hidden="true" />
               </a>
             ) : to ? (
               <>
@@ -81,8 +81,8 @@ export function PartnerPage() {
         <section aria-labelledby="partner-merchant">
           <h2 id="partner-merchant">{copy.t('partnerMerchantTitle')}</h2>
           <p>{copy.t('partnerMerchantBody')}</p>
-          <a className="lt-link" href="/pay/merchant">
-            {copy.t('partnerMerchantOpen')} →
+          <a className="lt-link lt-link-alone" href="/pay/merchant">
+            {copy.t('partnerMerchantOpen')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
           </a>
         </section>
       }

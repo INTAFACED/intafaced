@@ -85,8 +85,8 @@ export function MyTierView({ load, apply, venue }: { load: Loadable<FeeTier | nu
         }
         related={
           <p>
-            <a className="lt-link" href="/fees">
-              {copy.t('feesLink')} →
+            <a className="lt-link lt-link-alone" href="/fees">
+              {copy.t('feesLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
             </a>
           </p>
         }

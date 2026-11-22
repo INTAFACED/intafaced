@@ -19,21 +19,21 @@ export function NoticePage({ detail = false, id = null }: { detail?: boolean; id
       {detail ? null : <BreakingChangesNotice />}
       {detail && (
         <a className="text-link" href="/notice">
-          ← {copy.t('noticeBack')}
+          <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {copy.t('noticeBack')}
         </a>
       )}
       <section className="pub-card">
         <h2>{copy.t('noticeAccountTitle')}</h2>
         <p>{copy.t('noticeAccountBody')}</p>
         <a className="text-link" href={session ? '/notifications' : '/login?redirect=%2Fnotifications'}>
-          {copy.t(session ? 'noticeInbox' : 'noticeSignIn')} →
+          {copy.t(session ? 'noticeInbox' : 'noticeSignIn')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
         </a>
       </section>
       <section className="pub-card">
         <h2>{copy.t('noticeStuckTitle')}</h2>
         <p>{copy.t('noticeStuckBody')}</p>
         <a className="text-link" href="/help">
-          {copy.t('noticeHelp')} →
+          {copy.t('noticeHelp')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
         </a>
       </section>
     </div>
@@ -71,7 +71,7 @@ export function CampaignsOverview({ heading = true }: { heading?: boolean }) {
                   {room && <small className="muted">{roomDescription(room)}</small>}
                 </span>
                 <a className="text-link" href={session ? path : `/login?redirect=${encodeURIComponent(path)}`}>
-                  {copy.t(session ? 'campOpen' : 'campSignIn')} →
+                  {copy.t(session ? 'campOpen' : 'campSignIn')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
                 </a>
               </li>
             );

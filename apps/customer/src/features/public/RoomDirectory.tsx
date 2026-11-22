@@ -24,8 +24,8 @@ export function RoomDirectory({ limit = 6 }: { limit?: number }) {
             ))}
           </ul>
           {door.count > limit && <p>{copy.t('andMore', { count: door.count - limit })}</p>}
-          <a className="lt-link" href={`/${door.door.toLowerCase()}`}>
-            {copy.t('openDoor', { door: door.label })} →
+          <a className="lt-link lt-link-alone" href={`/${door.door.toLowerCase()}`}>
+            {copy.t('openDoor', { door: door.label })} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
           </a>
         </section>
       ))}

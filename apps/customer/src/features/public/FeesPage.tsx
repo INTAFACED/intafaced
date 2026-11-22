@@ -33,8 +33,8 @@ export function FeesView({ load, venue }: { load: Loadable<PublicFeeSchedule | n
           <>
             {load.status === 'ready' && load.data ? <p>{copy.t('version', { version: load.data.version })}</p> : null}
             <p>
-              <a className="lt-link" href="/fees/my-tier">
-                {copy.t('myTierLink')} →
+              <a className="lt-link lt-link-alone" href="/fees/my-tier">
+                {copy.t('myTierLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
               </a>
             </p>
           </>
@@ -66,8 +66,8 @@ export function FeesView({ load, venue }: { load: Loadable<PublicFeeSchedule | n
             <section aria-labelledby="fees-maker-taker">
               <h2 id="fees-maker-taker">{copy.t('makerTakerTitle')}</h2>
               <p>{copy.t('makerTakerBody')}</p>
-              <a className="lt-link" href="/exchange">
-                {copy.t('tradeLink')} →
+              <a className="lt-link lt-link-alone" href="/exchange">
+                {copy.t('tradeLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
               </a>
             </section>
             <section aria-labelledby="fees-network" data-fees="network">

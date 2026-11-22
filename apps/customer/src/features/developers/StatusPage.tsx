@@ -28,8 +28,8 @@ export function StatusPage() {
           )
         }
         footer={
-          <a className="lt-link" href="/developers">
-            ← {t('back')}
+          <a className="lt-link lt-link-alone" href="/developers">
+            <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {t('back')}
           </a>
         }
       />
@@ -107,7 +107,7 @@ export function StatusView({ feed }: { feed: StatusFeed }) {
                 <strong>{window.title}</strong>{' '}
                 <small>
                   {window.components.map((id) => t(`component_${id}` as const)).join(', ')} ·{' '}
-                  {window.startsAt ? when(window.startsAt) : t('windowNotSet')} → {window.endsAt ? when(window.endsAt) : t('windowNotSet')}
+                  {window.startsAt ? when(window.startsAt) : t('windowNotSet')} – {window.endsAt ? when(window.endsAt) : t('windowNotSet')}
                 </small>
               </li>
             ))}

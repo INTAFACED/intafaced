@@ -39,7 +39,7 @@ export function HomePage() {
             <div className="lt-actions">
               <a className="lt-button lt-button-primary" href="/register">
                 {t('Create your account')}
-                <span aria-hidden="true">↗</span>
+                <span className="lt-arrow lt-arrow-out" aria-hidden="true" />
               </a>
               <a className="lt-button lt-button-secondary" href="/exchange">
                 {t('Explore the desk')}
@@ -74,7 +74,7 @@ export function HomePage() {
             {details.map(([title, body]) => (
               <article key={title}>
                 <h3>
-                  <span aria-hidden="true">↗</span> {title}
+                  <span className="lt-arrow lt-arrow-out" aria-hidden="true" /> {title}
                 </h3>
                 <p>{body}</p>
               </article>

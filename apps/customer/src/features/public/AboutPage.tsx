@@ -27,8 +27,8 @@ export function AboutPage() {
               'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
             )}
           </p>
-          <a className="lt-link" href="/register">
-            {t('Create an account ↗')}
+          <a className="lt-link lt-link-alone" href="/register">
+            {t('Create an account')} <span className="lt-arrow lt-arrow-out" aria-hidden="true" />
           </a>
         </section>
       }

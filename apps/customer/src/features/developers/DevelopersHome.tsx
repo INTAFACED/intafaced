@@ -37,8 +37,8 @@ export function DevelopersHome() {
             <section aria-labelledby="dev-hosts">
               <h2 id="dev-hosts">{t('hostsTitle')}</h2>
               <p>{t('hostsLead')}</p>
-              <a className="lt-link" href="/developers/hosts">
-                {t('hostsOpen')} →
+              <a className="lt-link lt-link-alone" href="/developers/hosts">
+                {t('hostsOpen')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
               </a>
             </section>
             {AUDIENCES.map((audience) => (
@@ -66,8 +66,8 @@ export function DevelopersHome() {
           <section aria-labelledby="dev-merchant">
             <h2 id="dev-merchant">{t('merchantTitle')}</h2>
             <p>{t('merchantBody')}</p>
-            <a className="lt-link" href="/pay/developer">
-              {t('merchantOpen')} →
+            <a className="lt-link lt-link-alone" href="/pay/developer">
+              {t('merchantOpen')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
             </a>
           </section>
         }

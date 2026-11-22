@@ -49,8 +49,8 @@ export function ChangelogPage() {
             <label className="lt-field">
               <input type="checkbox" checked={breaking} onChange={(event) => setBreaking(event.target.checked)} /> {t('filterBreaking')}
             </label>
-            <a className="lt-link" href="/developers/changelog/upcoming">
-              {t('upcomingLink')} →
+            <a className="lt-link lt-link-alone" href="/developers/changelog/upcoming">
+              {t('upcomingLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
             </a>
           </div>
         }
@@ -64,8 +64,8 @@ export function ChangelogPage() {
           )
         }
         footer={
-          <a className="lt-link" href="/developers">
-            ← {t('back')}
+          <a className="lt-link lt-link-alone" href="/developers">
+            <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {t('back')}
           </a>
         }
       />
@@ -173,8 +173,8 @@ export function UpcomingPage() {
           )
         }
         footer={
-          <a className="lt-link" href="/developers/changelog">
-            ← {t('changelogBack')}
+          <a className="lt-link lt-link-alone" href="/developers/changelog">
+            <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {t('changelogBack')}
           </a>
         }
       />

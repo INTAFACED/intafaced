@@ -54,8 +54,8 @@ export function HostsRoom() {
               </>
             )}
             <RegionalRule />
-            <a className="lt-link" href="/developers">
-              ← {t('hostsBack')}
+            <a className="lt-link lt-link-alone" href="/developers">
+              <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {t('hostsBack')}
             </a>
           </section>
         }
