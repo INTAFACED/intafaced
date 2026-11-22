@@ -10,7 +10,7 @@ import { KeyRevoke, ModeChip } from './Keys';
 import { ipProblem, isPayKey, signingSnippets, splitIps, type SnippetLanguage } from './model';
 import { SecretReveal, type Revealed } from './SecretReveal';
 import type { ApiKey } from './schemas';
-import { Button, Field, Segmented } from '@intafaced/ui/lit';
+import { Field, Segmented } from '@intafaced/ui/lit';
 import { Empty, Facts, Gate, NotLive, Section, SelectField, StatusChip } from '../../volt/parts';
 import { Review } from '../../volt/Review';
 

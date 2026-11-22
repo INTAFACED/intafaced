@@ -1,6 +1,4 @@
 import './settings.css';
-import { Button } from '@intafaced/ui';
-import { WithAccount } from '../access/WithAccount';
 import { extensionCopy, portalCopy } from './copy';
 import type { RoomTable } from '../rooms-model';
 import { NotificationPreferencesRoom, Notifications } from './Notifications';
@@ -10,11 +8,6 @@ import { analyticsRooms } from './analytics/rooms';
 import { developersRooms } from './developers/rooms';
 import { reportsRooms } from './reports/rooms';
 
-const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
-  <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
-    {label}
-  </Button>
-);
 const t = portalCopy.t;
 
 const settingsHeader = (room: 'settings' | 'settings-notifications') =>

@@ -4,12 +4,12 @@
  * `../components.tsx` and `../ui/`, so a page moves onto the kit without a test or a journey noticing; the logic (what a
  * refusal says, how old figures are) stays where it was and is only called from here.
  */
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
 import { Button, Select } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
-import { useRefusalOnce } from '../components';
+import { useSaidOnce } from '../components';
 import { portalCopy } from '../copy';
 import { chromeCopy } from '../chrome/copy';
 import type { AllowlistCode } from '../chrome/NotLiveCard';
@@ -138,12 +138,9 @@ export function CopyReference({ value, what }: { value: string; what?: string })
 export function Failure({ result, retry, notLive }: { result: Failed; retry?: () => void; notLive?: string }) {
   const { t } = portalCopy.useCopy();
   const { t: u } = uiCopy.useCopy();
-  const once = useRefusalOnce();
-  const id = useId();
-  const key = `${refusalTitle(result)}|${refusalText(result)}`;
-  useEffect(() => () => once?.release(key, id), [once, key, id]);
+  const claim = useSaidOnce(`${refusalTitle(result)}|${refusalText(result)}`);
   if (isNotLive(result)) return <NotLive reason={notLive ?? notLiveReason(result)} />;
-  if (once && !once.claim(key, id)) return null;
+  if (!claim()) return null;
   return (
     <div
       data-testid="failure"
