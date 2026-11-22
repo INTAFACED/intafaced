@@ -337,6 +337,8 @@ export const components = {
   HeroFigure: 'The one large figure a room is about: masked when balances are hidden, a dash when there is none, never animated',
   Fold: 'A group closed until opened (small balances), with its count: the native disclosure',
   CardStack: 'The account as two cards you hold, each a link: matte black metal in front, the lit card behind',
+  AmountField:
+    'The box an amount of money is typed into: a decimal string (inputMode decimal, never a number), its unit beside it, what is available and a Max key under it, a refusal announced',
 } as const;
 export type ComponentName = keyof typeof components;
 
