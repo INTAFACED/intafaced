@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { Select } from '@intafaced/ui/lit';
 import type { RailRequirements } from '../contracts';
 import { railSendCopy } from '../rail-send-copy';
 import { TextField as Field } from './TransferParts';
@@ -32,25 +32,17 @@ export function RailForm({
   onChange: (name: string, value: string) => void;
 }) {
   const { t } = railSendCopy.useCopy();
-  const id = useId();
   return (
     <>
       {rail.fields.map((field) =>
         field.choices ? (
-          <label className="lt-field" htmlFor={`${id}-${field.name}`} key={field.name}>
-            <span>{t(`field_${field.name}` as Key)}</span>
-            <select
-              id={`${id}-${field.name}`}
-              value={values[field.name] ?? field.choices[0] ?? ''}
-              onChange={(event) => onChange(field.name, event.target.value)}
-            >
-              {field.choices.map((choice) => (
-                <option key={choice} value={choice}>
-                  {t(`choice_${choice}` as Key)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            key={field.name}
+            label={t(`field_${field.name}` as Key)}
+            value={values[field.name] ?? field.choices[0] ?? ''}
+            options={field.choices.map((choice) => [choice, t(`choice_${choice}` as Key)] as const)}
+            onChange={(value) => onChange(field.name, value)}
+          />
         ) : (
           <Field
             key={field.name}
