@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import { Sheet } from '@intafaced/ui/lit/templates';
+import { Dialog } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { walletCopy } from './copy';
 import {
@@ -682,7 +682,7 @@ export function SignSheet({
   const { t } = walletCopy.forLocale(language);
   const facts = describeRequest(request);
   return (
-    <Sheet open title={t('sheetTitle')} onClose={onCancel}>
+    <Dialog title={t('sheetTitle')} onClose={onCancel}>
       <div data-sheet="sign">
         <p>{t(request.kind === 'transaction' ? 'sheetSends' : request.kind === 'message' ? 'sheetSignsMessage' : 'sheetSignsData')}</p>
         <dl className="lt-kv">
@@ -717,7 +717,7 @@ export function SignSheet({
           {t('sheetCancel')}
         </Button>
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 
@@ -738,7 +738,7 @@ export function SequenceSheet({
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   return (
-    <Sheet open title={t('sheetTitle')} onClose={onCancel}>
+    <Dialog title={t('sheetTitle')} onClose={onCancel}>
       <div data-sheet="sequence">
         <p>
           {sequence.steps.some((step) => 'sign' in step)
@@ -789,6 +789,6 @@ export function SequenceSheet({
           {t('sheetCancel')}
         </Button>
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Checkbox } from '@intafaced/ui/lit/templates';
+import { Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import type { ProtocolApi, RepresentationStatus } from '../api';
 import { isRegionBlocked } from '../region';
@@ -66,14 +68,11 @@ export function RepresentationPanel({
   return (
     <Panel title={t('reprTitle')}>
       <div data-panel="representation" data-version={status.version}>
-        <p className="muted">{t('reprNote')}</p>
+        <p className="lt-hint">{t('reprNote')}</p>
         <blockquote data-representation-text>{status.text}</blockquote>
-        <p className="muted">{t('reprVersion', { version: status.version })}</p>
-        <label className="field field--inline">
-          <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
-          <span>{t('reprAgree')}</span>
-        </label>
-        <Button disabled={!agreed || busy} onClick={() => void accept()}>
+        <p className="lt-hint">{t('reprVersion', { version: status.version })}</p>
+        <Checkbox label={t('reprAgree')} checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
+        <Button tone="primary" disabled={!agreed || busy} onClick={() => void accept()}>
           {t('reprAccept')}
         </Button>
       </div>

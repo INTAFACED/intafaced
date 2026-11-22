@@ -17,6 +17,8 @@ import { useNow, type ListState } from '../hooks';
 import { isNotLive, notLiveReason, refusalText, refusalTitle } from '../refusal';
 import { uiCopy } from '../ui/copy';
 import { DateTime, formatDateTime } from '../ui/DateTime';
+import { useExactMoneyScope } from '../ui/ExactMoneyScope';
+import { formatMoney, isRounded } from '../ui/format';
 import { ageSeconds } from '../ui/Freshness';
 import type { KpiTileProps } from '../ui/Kpi';
 import type { ChipKind } from '../ui/status-vocabulary';
@@ -502,5 +504,46 @@ export function Details({ values }: { values: [string, ReactNode, string?][] }) 
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * An amount with its asset code, formatted by `formatMoney` (`../ui/format`): fiat and stablecoins at 2 places, thousands
+ * separators, never a float (`MoneyText` in `../ui/MoneyText`). Inside a review (`ExactMoneyScope`) it shows every digit;
+ * elsewhere a rounded figure carries the exact one in its tooltip. `test`: sandbox money carries the kit's TEST tag.
+ */
+export function MoneyText({ value, asset, test = false, sign }: { value: string; asset: string; test?: boolean; sign?: 'minus' | 'plus' }) {
+  const { t } = uiCopy.useCopy();
+  const exact = useExactMoneyScope();
+  const rounded = isRounded(value, asset);
+  return (
+    <span title={!exact && rounded ? `${formatMoney(value, asset, { exact: true })} ${asset}` : undefined}>
+      {formatMoney(value, asset, { exact, sign })} <span lang="zxx">{asset}</span>
+      {exact && rounded && <span> ({t('exactTag')})</span>}
+      {test && (
+        <>
+          {' '}
+          <span className="lt-test" title={t('testTip')}>
+            {t('testTag')}
+          </span>
+        </>
+      )}
+    </span>
+  );
+}
+
+/** A value the service has not set: said in words, never drawn as zero (`NotConfigured` in `../components`). */
+export function NotConfigured({ children }: { children?: ReactNode }) {
+  const { t } = portalCopy.useCopy();
+  return <em>{children ?? t('notConfigured')}</em>;
+}
+
+/** The kit's TEST tag on a figure that is practice money (`TestTag` in `../components`). */
+export function TestTag() {
+  const { t } = portalCopy.useCopy();
+  return (
+    <span className="lt-test" title={t('testValueTip')}>
+      {t('testValue')}
+    </span>
   );
 }

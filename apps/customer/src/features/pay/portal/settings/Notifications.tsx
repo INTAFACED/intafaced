@@ -252,7 +252,7 @@ function FeedItem({ n, portal, reload }: { n: Notification; portal: PortalApi; r
       <div>
         <span>
           {t(`notifKind_${n.kind}` as 'notifKind_dispute_due')}
-          {n.readAt === null && <span className="pp-sr"> ({t('unread')})</span>}
+          {n.readAt === null && <span className="lt-sr"> ({t('unread')})</span>}
         </span>
         <strong>{n.title}</strong>
         {n.body && <p className="lt-hint">{n.body}</p>}

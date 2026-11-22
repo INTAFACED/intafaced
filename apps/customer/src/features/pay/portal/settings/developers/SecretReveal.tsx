@@ -9,7 +9,7 @@ import { CopyReference } from '../../volt/parts';
 export function SecretReveal({ title, secret, what, onHide }: { title: string; secret: string; what: string; onHide: () => void }) {
   const { t } = c.useCopy();
   return (
-    <section className="pp-secret" aria-label={title}>
+    <section className="lt-region" aria-label={title} data-testid="secret-reveal">
       <h3>{title}</h3>
       <p className="lt-hint" role="alert">
         {t('secretOnce')}

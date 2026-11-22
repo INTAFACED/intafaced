@@ -12,7 +12,8 @@ import { Invoices } from './Invoices';
 import { Links } from './Links';
 import { PaymentDetailPage, Payments } from './Payments';
 import { Subscriptions, subscriptionHeader } from './Subscriptions';
-import { CheckoutSettingsPage, HomePanels } from './HomePanels';
+import { CheckoutSettingsRoom } from './CheckoutSettings';
+import { HomePanels } from './HomePanels';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
   <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
@@ -165,14 +166,7 @@ export const paymentsRooms: RoomTable = {
       purpose: paymentsCopy.t('checkoutSettingsPurpose'),
     }),
     here: '/pay/checkout',
-    render: (_route, { portal, authority }) => (
-      <WithAccount>
-        {({ merchantId }) => (
-          <Requires need="profile.read">
-            <CheckoutSettingsPage portal={portal} merchantId={merchantId} authority={authority} />
-          </Requires>
-        )}
-      </WithAccount>
-    ),
+    ownTitle: true,
+    render: (_route, { portal, authority }) => <CheckoutSettingsRoom portal={portal} authority={authority} />,
   },
 };
