@@ -4,11 +4,12 @@
 //! The door (`door`) holds every call of the TypeScript router and the REST doors `index.ts` mounts through an exported
 //! register function: who may call each, and its input check, held to the TypeScript's recorded answers by
 //! `tests/wire_replay.rs`. Past those checks a call is owed by its slice (`door::Slice`). `env` is the environment,
-//! `errors` the refusals and how the router's guard answers them. The store: `db` (the pool and the schema check),
-//! `migrate` (the `bank` schema's migrations), `ready` (`/ready`), `restore_watermark` (svc-ops' restore position),
-//! `recovery` (the recovery jobs' lock and pass) and `timers` (what else `index.ts` runs on a period); the binary
-//! (`main.rs`) puts them together.
+//! `errors` the refusals and how the router's guard answers them. Each ported slice is its own module
+//! (`credit_previews`). The store: `db` (the pool and the schema check), `migrate` (the `bank` schema's migrations),
+//! `ready` (`/ready`), `restore_watermark` (svc-ops' restore position), `recovery` (the recovery jobs' lock and pass)
+//! and `timers` (what else `index.ts` runs on a period); the binary (`main.rs`) puts them together.
 
+pub mod credit_previews;
 pub mod db;
 pub mod door;
 pub mod env;

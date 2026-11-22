@@ -292,13 +292,15 @@ impl BankDoor {
         self
     }
 
-    /// The slices' answers: the door's own call, and "not ported" for the rest.
+    /// The slices' answers: the door's own call, each ported slice's, and "not ported" for the rest.
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
             Slice::Door => Ok(Some(Json::obj([
                 ("ok", Json::Bool(true)),
                 ("service", Json::str("svc-bank")),
             ]))),
+            Slice::CreditPreviews => crate::credit_previews::answer(ctx)
+                .unwrap_or_else(|| Err(not_ported(Slice::CreditPreviews))),
             other => Err(not_ported(other)),
         }
     }
