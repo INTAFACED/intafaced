@@ -14,8 +14,15 @@ import {
   crmTaskSchema,
   crmContactProvenanceSchema,
 } from '@intafaced/contracts';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import {
+  adminSessionErrorResponse,
+  AdminSessionError,
+  authorizeAdminRequest,
+  founderEdgeCall,
+  founderEdgeRecordCall,
+} from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import { OPS_OUTREACH_OWNERS } from '@intafaced/contracts/ops-outreach-procedures';
 
 export const dynamic = 'force-dynamic';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -84,7 +91,7 @@ export async function GET(request: Request) {
     const { session, config } = await authorizeAdminRequest(request);
     const params = new URL(request.url).searchParams;
     if (params.get('view') === 'owners' && [...params.keys()].every((key) => key === 'view')) {
-      const data = await founderEdgeCall(config, 'ops', 'outreach.owners', 'GET', {}, session.accessToken);
+      const data = await founderEdgeRecordCall(config, OPS_OUTREACH_OWNERS, undefined, session.accessToken);
       if (
         !record(data) ||
         !Array.isArray(data.ownerUserIds) ||

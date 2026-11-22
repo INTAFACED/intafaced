@@ -107,6 +107,9 @@ import {
   MERCHANT_OWNER,
   OwnerFactor,
   enrolledTestOperatorPair,
+  signInTestOperatorPair,
+  ensurePayStepUp,
+  populateMerchantStepUpMoney,
   readMerchantOwner,
   accessTokenMfa,
   freshTotpCode,
@@ -761,13 +764,153 @@ try {
 
   // The step-up token is only ever a one-request bearer; no log line, record or file carries it.
   {
-    const src = readFileSync(new URL('./local-test-world.mjs', import.meta.url), 'utf8');
-    const flow = src.slice(src.indexOf('async function ensurePayStepUp'), src.indexOf('function trpcData'));
-    assert.ok(flow.indexOf("'No procedure found") < flow.indexOf('nextCode()'), 'a missing procedure is found before a TOTP step is spent');
-    assert.doesNotMatch(flow, /(?:log|record)\([^)]*(?:tok\.token|accessToken|payStepUp\.token)/, 'the token is never logged or recorded');
-    assert.doesNotMatch(flow, /(?:writePrivate\w*|writeFileSync)\([^)]*(?:token|accessToken)/i, 'the token is never written down');
-    for (const proc of ['payment.refund', 'merchantControl.approvals.request', 'settlement.payout']) {
-      assert.match(flow, new RegExp(`'${proc.replace('.', '\\.')}'[\\s\\S]{0,160}tok\\.token`), `${proc} carries the step-up token`);
+    // A missing procedure is found before a TOTP step is spent, and the answer is kept for the run.
+    for (const probe of [
+      { status: 404, json: null, text: 'Not Found' },
+      { status: 400, json: { error: { message: 'No procedure found on path "auth.stepUpPay"', data: { code: 'NOT_FOUND' } } }, text: '' },
+    ]) {
+      let codes = 0;
+      const ctx = {
+        user: {
+          mutate: async () => probe,
+          factor: { secret: 'S', nextCode: async () => (codes += 1) },
+        },
+      };
+      const r = await ensurePayStepUp(ctx, 'm-1');
+      assert.equal(r.ok, false);
+      assert.equal(r.missing, true);
+      assert.match(r.refusal, /predates #5011/);
+      assert.equal(codes, 0, 'no TOTP step is spent on a door that is not there');
+      assert.equal(await ensurePayStepUp(ctx, 'm-1'), r, 'the failed answer is kept for the run');
+    }
+
+    // The flow: a saved destination, one refund, the teammate's request, the owner's approval, the send. A scripted
+    // stack answers each door and records the bearer it was sent with; every log line, record and file write is kept.
+    const OWNER_TOKEN = 'owner.STEPUP-TOKEN-OWNER.sig';
+    const MATE_TOKEN = 'mate.STEPUP-TOKEN-MATE.sig';
+    const ownerId = '0a1b2c3d-1111-4000-8000-000000000001';
+    const mateId = '0a1b2c3d-2222-4000-8000-000000000002';
+    const mId = '0a1b2c3d-3333-4000-8000-000000000003';
+    const day = '2026-10-17T10:00:00.000Z';
+    const payments = [
+      { id: merchantPaymentId(ownerId, MERCHANT_REFUND.n), status: 'captured', refundedAmount: '0', createdAt: day },
+      { id: merchantPaymentId(ownerId, MERCHANT_PAYOUT_PAYMENT_N), status: 'settled', refundedAmount: '0', createdAt: day },
+    ];
+    const settlement = { id: 'st-1', window: utcDayLabel(day), status: 'posted', net: '40', assetId: 'USDT' };
+    const sent = [];
+    const ok = (data) => ({ status: 200, json: { result: { data } }, text: '' });
+    const answer = (who, mod, proc, input, bearer) => {
+      sent.push({ who, door: `${mod} ${proc}`, input, bearer });
+      switch (`${mod} ${proc}`) {
+        case 'pay merchant.payoutDestinations.list':
+          return ok({
+            items: [{ railId: MERCHANT_PAYOUT_DESTINATION.railId, kind: 'crypto', state: 'active', destinationMasked: '0x12...ab' }],
+          });
+        case 'identity auth.stepUpPay':
+          if (!input.factorProof) return { status: 400, json: { error: { message: 'factor proof required' } }, text: '' };
+          return ok({
+            accessToken: who === 'owner' ? OWNER_TOKEN : MATE_TOKEN,
+            refreshable: false,
+            expiresAt: new Date(Date.now() + 300_000).toISOString(),
+          });
+        case 'pay payment.refund':
+          return ok({ id: input.paymentId, amount: '12', status: 'captured', refundedAmount: input.amount });
+        case 'pay merchantControl.approvals.list':
+          return ok({ items: [] });
+        case 'pay merchantOps.team.list':
+          return ok({ items: [{ userId: mateId, memberId: 'mem-1', status: 'active', role: MERCHANT_CHECKER_ROLE }] });
+        case 'pay merchantControl.approvals.request':
+          return ok({
+            approvalId: 'ap-1',
+            status: 'pending',
+            makerUserId: mateId,
+            railId: input.railId,
+            assetCode: 'USDT',
+            amount: '40',
+            payloadHash: 'h1',
+          });
+        case 'pay merchantControl.approvals.decide':
+          return ok({ approvalId: 'ap-1', status: 'approved' });
+        case 'pay settlement.payout':
+          return ok({ id: input.settlementId, status: 'paid_out', net: '40', assetId: 'USDT', payoutMethod: input.railId });
+        default:
+          throw new Error(`unexpected door ${mod} ${proc}`);
+      }
+    };
+    const d = mkdtempSync(join(tmpdir(), 'world-stepup-'));
+    const opsFile = join(d, 'operators.json');
+    writeFileSync(opsFile, JSON.stringify({ operators: { b: { totpSecret: 'MATESECRET', lastStep: 0 } } }));
+    const logs = [];
+    const records = [];
+    const writes = [];
+    const fsMod = (await import('node:fs')).default;
+    const real = { writeFileSync: fsMod.writeFileSync, appendFileSync: fsMod.appendFileSync, writeSync: fsMod.writeSync };
+    for (const name of Object.keys(real))
+      fsMod[name] = (...args) => {
+        writes.push(String(args[1]));
+        return real[name].apply(fsMod, args);
+      };
+    try {
+      const ctx = {
+        log: (...a) => logs.push(a.join(' ')),
+        record: (...a) => records.push(a),
+        user: {
+          account: { userId: ownerId },
+          factor: { secret: 'OWNERSECRET', nextCode: async () => '111111' },
+          query: async (mod, proc, input, bearer) => answer('owner', mod, proc, input, bearer),
+          mutate: async (mod, proc, input, bearer) => answer('owner', mod, proc, input, bearer),
+        },
+        opPair: {
+          ok: true,
+          gates: { refusalText: (res) => JSON.stringify(res.json?.error ?? res.text) },
+          gctx: {
+            paths: { operators: opsFile },
+            totp: { totp: () => '222222' },
+            edge: { mutate: async (mod, proc, input, bearer) => answer('mate', mod, proc, input, bearer) },
+          },
+          a: { userId: '0a1b2c3d-4444-4000-8000-000000000004', letter: 'a', loginToken: 'a-login' },
+          b: { userId: mateId, letter: 'b', loginToken: 'mate-login' },
+        },
+      };
+      await populateMerchantStepUpMoney(ctx, mId, { payments, windows: [utcDayLabel(day)], settlements: [settlement] });
+      assert.deepEqual(
+        records.map((r) => `${r[1]}: ${r[2]}`),
+        ['payout destination: exists', 'refund: created', 'payout request: created', 'payout approval: created', 'payout send: created'],
+        JSON.stringify(records),
+      );
+      const bearerOf = (door) => sent.filter((c) => c.door === door).map((c) => c.bearer);
+      assert.deepEqual(bearerOf('pay payment.refund'), [OWNER_TOKEN], "payment.refund carries the owner's step-up token");
+      assert.deepEqual(
+        bearerOf('pay merchantControl.approvals.request'),
+        [MATE_TOKEN],
+        "merchantControl.approvals.request carries the teammate's step-up token",
+      );
+      assert.deepEqual(bearerOf('pay settlement.payout'), [OWNER_TOKEN], "settlement.payout carries the owner's step-up token");
+      assert.deepEqual(bearerOf('pay merchantControl.approvals.decide'), [null], 'the owner decides on their own session');
+      assert.equal(
+        sent.filter((c) => c.who === 'owner' && c.door === 'identity auth.stepUpPay' && c.input.factorProof).length,
+        1,
+        'one owner step-up serves the refund and the send',
+      );
+      const doors = sent.map((c) => c.door);
+      assert.ok(doors.indexOf('pay merchant.payoutDestinations.list') === 0, 'the saved destination is read first');
+      assert.ok(doors.indexOf('pay merchantControl.approvals.list') < doors.indexOf('pay merchantControl.approvals.request'));
+      assert.ok(doors.indexOf('pay merchantControl.approvals.request') < doors.indexOf('pay merchantControl.approvals.decide'));
+      assert.ok(doors.indexOf('pay merchantControl.approvals.decide') < doors.indexOf('pay settlement.payout'));
+      // Bearers only: neither token is in a log line, a record or anything written to a file.
+      const carried = [
+        ...logs,
+        ...records.map((r) => JSON.stringify(r)),
+        ...writes,
+        ...readdirSync(d).map((f) => readFileSync(join(d, f), 'utf8')),
+      ];
+      assert.ok(writes.length > 0, 'the teammate step spends a TOTP step and writes it down');
+      for (const text of carried)
+        for (const token of ['STEPUP-TOKEN-OWNER', 'STEPUP-TOKEN-MATE'])
+          assert.equal(text.includes(token), false, `the step-up token is never logged, recorded or written: ${text.slice(0, 120)}`);
+    } finally {
+      Object.assign(fsMod, real);
+      rmSync(d, { recursive: true, force: true });
     }
   }
 
@@ -1408,13 +1551,61 @@ try {
     }
   }
 
-  // Operator pair: the signed-in subject must be the operator the pair names before any elevated token is used.
+  // Operator pair: the signed-in subject must be the operator the pair names before any elevated token is used, and
+  // signing in writes no second credentials file.
   {
-    const src = readFileSync(new URL('./local-test-world.mjs', import.meta.url), 'utf8');
-    const body = src.slice(src.indexOf('async function signInTestOperatorPair'), src.indexOf('function loadEnrolledFounders'));
-    assert.match(body, /claims\.sub !== expected/);
-    assert.match(body, /sess\.op\.userId !== expected/);
-    assert.ok(body.indexOf('claims.sub !== expected') < body.indexOf('out.push('), 'identity check runs before the session is used');
+    const d = mkdtempSync(join(tmpdir(), 'world-op-pair-'));
+    try {
+      const ids = { a: '00000000-0000-4000-8000-00000000000a', b: '00000000-0000-4000-8000-00000000000b' };
+      const opsFile = join(d, 'operators.json');
+      const opsText = JSON.stringify({
+        operators: Object.fromEntries(
+          ['a', 'b'].map((l) => [l, { handle: `local_test_operator_${l}`, userId: ids[l], password: 'pw', totpSecret: 'S', lastStep: 1 }]),
+        ),
+      });
+      writeFileSync(opsFile, opsText);
+      const jwt = (claims) => `h.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.s`;
+      const gatesWith = (over = {}) => {
+        const minted = [];
+        const session = (l) => ({
+          token: over[l]?.token ?? jwt({ sub: over[l]?.sub ?? ids[l], tier: 'full' }),
+          op: { userId: over[l]?.userId ?? ids[l], sessionId: `sess-${l}` },
+          approvalToken: async () => {
+            minted.push(l);
+            return `approval-${l}`;
+          },
+        });
+        return { minted, gates: { operatorSessions: async () => ({ a: session('a'), b: session('b') }) } };
+      };
+      const gctx = { paths: { operators: opsFile, stateDir: d } };
+      const good = await signInTestOperatorPair(gctx, gatesWith().gates);
+      assert.equal(good.ok, true);
+      assert.deepEqual(
+        good.sessions.map((x) => [x.letter, x.userId, x.token, x.tier]),
+        [
+          ['a', ids.a, 'approval-a', 'full'],
+          ['b', ids.b, 'approval-b', 'full'],
+        ],
+      );
+      for (const [over, who] of [
+        [{ a: { sub: ids.b } }, 'A'],
+        [{ b: { userId: ids.a } }, 'B'],
+        [{ a: { token: 'not-a-jwt' } }, 'A'],
+        [{ b: { sub: 'someone-else' } }, 'B'],
+      ]) {
+        const r = await signInTestOperatorPair(gctx, gatesWith(over).gates);
+        assert.equal(r.ok, false, JSON.stringify(over));
+        assert.equal(r.sessions, undefined, 'no session, and so no elevated token, leaves a pair that is not who it names');
+        assert.match(r.refusal, new RegExp(`operator ${who} signed in as a different account`));
+      }
+      assert.equal(await signInTestOperatorPair({ paths: { operators: join(d, 'none.json') } }, gatesWith().gates), null);
+      const failing = { operatorSessions: async () => Promise.reject(new Error('identity down')) };
+      assert.match((await signInTestOperatorPair(gctx, failing)).refusal, /identity down/);
+      assert.deepEqual(readdirSync(d), ['operators.json'], 'never writes a second credentials file');
+      assert.equal(readFileSync(opsFile, 'utf8'), opsText, 'leaves operators.json to the gates');
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
   }
 
   // open-dispute (journey tests): the dispute id is the payment's business key, the reason is labelled LOCAL-TEST and
