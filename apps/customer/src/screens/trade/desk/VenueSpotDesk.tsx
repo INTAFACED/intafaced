@@ -1,6 +1,5 @@
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
-import { useResource } from '../../../shared/resource';
 import { usePreferences } from '../../../shared/preferences';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import { draftId, keys, type OrderIntent, type VenueMarket, type VenueOrder, type VenueUp } from '../../../features/trade/venue-api';
@@ -61,6 +60,7 @@ import { FeeCurrencyRow } from './VenueReviewRows';
 import { DepositDialog, VenueAccountPanel, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
 import { VenueSideForm, type TicketHandle } from './VenueSideForm';
 import { PendingCheck } from './VenuePending';
+import { useCancelledOrders, useFilledOrders } from './venue-order-reads';
 
 export function VenueSpotDesk({
   status,
@@ -559,48 +559,4 @@ export function VenueSpotDesk({
 function cancelOutcome(answer: ActionResult): CancelOutcome {
   if (answer.kind === 'outcome') return answer.outcome.accepted ? 'done' : 'refused';
   return answer.kind === 'unknown' ? 'uncertain' : 'refused';
-}
-
-/**
- * The orders behind the venue's fills, and those this page placed, that have left the venue's open orders and not been
- * cancelled here, read back by client id: the ones the venue reads as filled stay listed, Filled (J-cex-spot-01 #8). The
- * latest 20 are read.
- */
-function useFilledOrders(
-  owner: string | null,
-  placed: string[],
-  open: VenueOrder[] | null,
-  cancelled: Array<{ key: string; clientOrderId: string }>,
-): VenueOrder[] {
-  const venue = useVenueApi();
-  const gone = open
-    ? placed.filter((id) => !open.some((o) => o.venueClientOrderId === id) && !cancelled.some((c) => c.clientOrderId === id)).slice(-20)
-    : [];
-  const ids = gone.join(',');
-  const read = useResource(async (signal) => {
-    if (!owner || gone.length === 0) return { ok: true as const, data: [] as VenueOrder[] };
-    const rows: VenueOrder[] = [];
-    for (const id of gone) {
-      const r = await venue.orderByClientId(owner, id, signal);
-      if (r.ok && r.data.value?.status === 'filled') rows.push(r.data.value);
-    }
-    return { ok: true as const, data: rows };
-  }, `filled:${owner}:${ids}`);
-  return useMemo(() => (read.resource.status === 'ready' ? read.resource.data : []), [read.resource]);
-}
-
-/** The orders this page cancelled, read back from the venue by their client ids, so they stay listed with their status. */
-function useCancelledOrders(owner: string | null, cancelled: Array<{ key: string; clientOrderId: string }>): VenueOrder[] {
-  const venue = useVenueApi();
-  const ids = cancelled.map((c) => c.clientOrderId).join(',');
-  const read = useResource(async (signal) => {
-    if (!owner || cancelled.length === 0) return { ok: true as const, data: [] as VenueOrder[] };
-    const rows: VenueOrder[] = [];
-    for (const c of cancelled) {
-      const r = await venue.orderByClientId(owner, c.clientOrderId, signal);
-      if (r.ok && r.data.value) rows.push(r.data.value);
-    }
-    return { ok: true as const, data: rows };
-  }, `cancelled:${owner}:${ids}`);
-  return useMemo(() => (read.resource.status === 'ready' ? read.resource.data : []), [read.resource]);
 }
