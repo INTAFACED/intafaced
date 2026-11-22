@@ -218,3 +218,34 @@ export function List<T>({
     </section>
   );
 }
+
+/** A choice from a short list, as a native select inside the kit's field. */
+export function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  hint,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: ReadonlyArray<readonly [string, string]>;
+  hint?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="lt-field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
+        {options.map(([v, text]) => (
+          <option key={v} value={v}>
+            {text}
+          </option>
+        ))}
+      </select>
+      {hint && <small>{hint}</small>}
+    </label>
+  );
+}
