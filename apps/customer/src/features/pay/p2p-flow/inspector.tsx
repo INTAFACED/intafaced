@@ -10,9 +10,8 @@ import { p2pDepth } from '../personal/p2p-depth-copy';
 import { myAdsCopy } from '../personal/p2p-my-ads-copy';
 import { isOwnOffer } from '../personal/p2p-model';
 import { useTraders } from '../personal/Trader';
-// The take form for a stranger's offer opened here by its reference is the board's own (`TakeOffer.tsx`, 850 lines):
-// it moves to the kit with the board, not with this room.
-import { TakeOfferPanel } from '../personal/P2PDepth';
+// The take form for a stranger's offer opened here by its reference is the board's own, drawn from the kit where it lives.
+import { TakeOfferPanel } from '../personal/TakeOffer';
 import type { P2PReturn } from '../p2p-return';
 import { manageOwnOffer, offerMethods, useOfferInspector } from '../p2p-offers-state';
 import { Amount, Details, MutationResult, Notice, ReviewedAction, State, Status } from './parts';

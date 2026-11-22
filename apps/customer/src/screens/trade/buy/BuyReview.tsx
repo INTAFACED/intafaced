@@ -7,13 +7,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
-  fmtAmount,
-  fmtPrice,
-  fmtUsd,
-  type Draft,
-  type MarketRow,
-  type Preview,
-} from './deps';
+} from '@intafaced/ui/lit';
+import { fmtAmount, fmtPrice, fmtUsd, type Draft, type MarketRow, type Preview } from './deps';
 import { buyCopy } from './copy';
 import { costRows } from './cost';
 import { formatGet } from './cost-format';
@@ -73,13 +68,13 @@ export function BuyReview({
         if (!open && !busy) onCancel();
       }}
     >
-      <AlertDialogContent className="buy-dialog">
+      <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{buying ? t('Review your buy') : t('Review your sell')}</AlertDialogTitle>
           <AlertDialogDescription>{buying ? t('Review hint') : t('Review hint sell')}</AlertDialogDescription>
         </AlertDialogHeader>
         {review ? (
-          <dl className="buy-dialog__rows">
+          <dl className="lt-kv">
             {buying ? (
               <>
                 <Row label={t('You pay about')} value={payValue} data-testid="review-pay" />
@@ -123,20 +118,16 @@ export function BuyReview({
           </dl>
         ) : null}
         {review?.changed ? (
-          <p className="buy-dialog__note" role="status" data-testid="review-changed">
+          <p className="lt-hint" role="status" data-testid="review-changed">
             {t('Price moved')}
           </p>
         ) : null}
-        {message ? (
-          <p className="buy-dialog__error" role="alert">
-            {message}
-          </p>
-        ) : null}
+        {message ? <p role="alert">{message}</p> : null}
         <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="secondary" size={40} />} disabled={busy}>
+          <AlertDialogClose render={<Button tone="secondary" />} disabled={busy}>
             {t('Cancel')}
           </AlertDialogClose>
-          <Button variant={buying ? 'buy' : 'sell'} size={40} loading={busy} onClick={onConfirm}>
+          <Button tone="primary" disabled={busy} aria-busy={busy || undefined} onClick={onConfirm}>
             {busy ? t('Sending') : buying ? t('Confirm buy') : t('Confirm sell')}
           </Button>
         </AlertDialogFooter>
@@ -147,7 +138,7 @@ export function BuyReview({
 
 function Row({ label, value, strong, ...rest }: { label: string; value: string; strong?: boolean; 'data-testid'?: string }) {
   return (
-    <div className="buy-dialog__row" data-strong={strong || undefined}>
+    <div data-strong={strong || undefined} data-total={strong || undefined}>
       <dt>{label}</dt>
       <dd {...rest}>{value}</dd>
     </div>

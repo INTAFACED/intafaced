@@ -2,7 +2,8 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { countryOptions } from '../public';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Checkbox, Field, Select } from '@intafaced/ui/lit';
+import { ReadFailure, ReadLoading } from '../../shared/read-state';
 import { verificationTradingCopy as copy } from './verification-trading-copy';
 import { IDENTITY_KYC_TRADING_CHECKS_READ, IDENTITY_KYC_TRADING_CHECKS_RUN } from '@intafaced/contracts/identity-kyc-procedures';
 
@@ -38,16 +39,16 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
   const [country, setCountry] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [refused, setRefused] = useState<{ code: string | null; failure: Parameters<typeof Failure>[0]['result'] } | null>(null);
+  const [refused, setRefused] = useState<{ code: string | null; failure: Parameters<typeof ReadFailure>[0]['result'] } | null>(null);
 
-  if (resource.status === 'loading') return <Loading />;
+  if (resource.status === 'loading') return <ReadLoading />;
   if (resource.status === 'failed')
     return (
-      <section className="verification__trading" aria-label={t('form')} data-testid="verification__trading">
+      <section aria-label={t('form')} data-testid="verification__trading">
         <h2>
           <Copy k="failedTitle" />
         </h2>
-        <Failure result={resource.failure} retry={reload} />
+        <ReadFailure result={resource.failure} retry={reload} />
       </section>
     );
   const view = resource.data;
@@ -72,7 +73,7 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
 
   if (view.state !== 'not_run')
     return (
-      <section className="verification__trading" aria-label={t('form')} data-testid="verification__trading" data-state={view.state}>
+      <section aria-label={t('form')} data-testid="verification__trading" data-state={view.state}>
         <h2>
           <Copy k={view.state === 'cleared' ? 'cleared' : 'held'} />
         </h2>
@@ -84,12 +85,12 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
 
   const words = refused?.code ? REFUSED[refused.code] : undefined;
   return (
-    <section className="verification__trading" data-testid="verification__trading" data-state="not_run">
-      <form className="form-stack" aria-label={t('form')} onSubmit={(event) => void submit(event)}>
+    <section data-testid="verification__trading" data-state="not_run">
+      <form aria-label={t('form')} onSubmit={(event) => void submit(event)}>
         <h2>
           <Copy k="form" />
         </h2>
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="intro" />
         </p>
         <Field
@@ -104,51 +105,44 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
           onChange={(event) => setLegalName(event.target.value)}
           hint={t('legalNameHint')}
         />
-        <label className="field">
-          <span>
-            <Copy k="country" />
-          </span>
-          <select
-            name="trading-country"
-            required
-            value={chosen}
-            disabled={disabled || busy}
-            onChange={(event) => {
-              setCountry(event.target.value);
-              setConfirmed(false);
-            }}
-          >
-            <option value="" disabled>
-              {t('countryPick')}
+        <Select
+          label={t('country')}
+          name="trading-country"
+          required
+          value={chosen}
+          disabled={disabled || busy}
+          onChange={(value) => {
+            setCountry(value);
+            setConfirmed(false);
+          }}
+        >
+          <option value="" disabled>
+            {t('countryPick')}
+          </option>
+          {countries.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.name}
             </option>
-            {countries.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="verification__trading-confirm">
-          <input
-            type="checkbox"
-            required
-            checked={confirmed}
-            disabled={disabled || busy || !chosen}
-            onChange={(event) => setConfirmed(event.target.checked)}
-          />
-          <span>{t('confirm', { country: chosenName || '…' })}</span>
-        </label>
-        <Button type="submit" disabled={disabled || busy || !chosen || !confirmed || legalName.trim().length < 2}>
+          ))}
+        </Select>
+        <Checkbox
+          required
+          checked={confirmed}
+          disabled={disabled || busy || !chosen}
+          onCheckedChange={setConfirmed}
+          label={t('confirm', { country: chosenName || '…' })}
+        />
+        <Button type="submit" tone="primary" disabled={disabled || busy || !chosen || !confirmed || legalName.trim().length < 2}>
           <Copy k={busy ? 'running' : 'run'} />
         </Button>
         {refused ? (
           words ? (
-            <p className="failure" role="alert" data-code={refused.code ?? undefined}>
+            <p className="lt-refusal-body" role="alert" data-code={refused.code ?? undefined}>
               {words === 'regionBlocked' ? t('regionBlocked', { country: chosenName }) : <Copy k={words} />}
             </p>
           ) : (
             <div role="alert" data-code={refused.code ?? undefined}>
-              <Failure result={refused.failure} />
+              <ReadFailure result={refused.failure} />
             </div>
           )
         ) : null}

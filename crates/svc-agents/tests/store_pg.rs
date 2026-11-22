@@ -2,7 +2,7 @@
 //! database name ends in `_test`), each test in its own throwaway database. Without a URL it skips; with
 //! `REQUIRE_POSTGRES=1` it fails.
 //!
-//! The binary's `migrate` up, re-run and `--down` (`scripts/migrate.ts`'s three behaviours), every table `PORT.md`
+//! The binary's `migrate` up, re-run and `--down` (`scripts/migrate.ts`'s three behaviours), every table `README.md`
 //! names, the schema check, the boot upsert of the agents' guardrails (and an operator's switch surviving a reboot),
 //! each pooled connection's session settings, and `/health` and `/ready` through the kit's server routing.
 #![allow(
@@ -32,7 +32,7 @@ use svc_agents::migrate::MIGRATIONS;
 mod support;
 use support::TestDb;
 
-/// Every table `PORT.md` names, slice by slice.
+/// Every table `README.md` names, slice by slice.
 const TABLES: &[&str] = &[
     "route_overrides",
     "route_change_requests",

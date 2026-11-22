@@ -2,7 +2,7 @@ import { Button } from '../../shared/ui';
 
 import type { Space } from './client';
 
-import { amount, date, NoRows, ResourceView, Section, useBankRead, type ActionSpec } from './components';
+import { amount, date, NoRows, ResourceView, Section, type ActionSpec, useBankRecord } from './components';
 
 import type { sorterListSchema } from './contracts';
 
@@ -11,6 +11,7 @@ import { sorterCopy } from './sorter-copy';
 import { bpToPercent, percentToBp, sorterLegs } from './sorter-model';
 
 import type { z } from 'zod';
+import { BANK_SORTER_LIST, BANK_SORTER_RUNS } from '@intafaced/contracts/bank-sorter-procedures';
 
 type Sorter = z.infer<typeof sorterListSchema>['sorters'][number];
 const RUNS_SHOWN = 5;
@@ -25,7 +26,7 @@ const fieldName = (spaceId: string) => `share-${spaceId}`;
 /** The sorter's read, its names and the two changes it offers (`open` specs), for this part and the Salary room's. */
 export function useIncomeSorter(spaces: Space[], open: (spec: ActionSpec) => void) {
   const { t } = sorterCopy.useCopy();
-  const read = useBankRead('sorter.list', undefined);
+  const read = useBankRecord(BANK_SORTER_LIST, undefined);
   const named = spaces.filter((space) => space.kind === 'named');
   const nameOf = (spaceId: string) => spaces.find((space) => space.id === spaceId)?.name ?? t('unknownSpace');
   const assets = [...new Set(spaces.map((space) => space.assetId))].sort();
@@ -183,5 +184,5 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
 
 /** One sorter's recent sorts, as the bank reports them. */
 export function useSorterRuns(sorterId: string) {
-  return useBankRead('sorter.runs', { sorterId, limit: RUNS_SHOWN });
+  return useBankRecord(BANK_SORTER_RUNS, { sorterId, limit: RUNS_SHOWN });
 }

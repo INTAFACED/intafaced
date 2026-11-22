@@ -7,11 +7,15 @@
 // Every finding of `garden/no-call-by-name` is one site the codemod finds, and each site is counted once, under the
 // service its call names: planned (a TypeScript router, or a door the Rust crate serves, its router read from the commit
 // before it was deleted), refused (its port in flight, or its plan failed: the reason and the count), or named by why it
-// has no service run (no service of that name; no service named at all). The totals add up to the rule's count.
+// has no service run (no service of that name; no service named at all). The totals add up to the rule's count, with
+// `wrapperSenders` for a wrapper whose sender the rule counts once where the codemod finds each caller.
 //
-// Without --deep it only plans (index.mjs without --write). With --deep it also writes every service's records into
-// this checkout, builds contracts, runs the samples step, typechecks the apps and runs the secret scan, then puts the
-// checkout back exactly as it was. It starts only on a clean tree, as run.mjs does.
+// Without --deep it only plans (index.mjs without --write): `planned` is what the plan rewrites, before the run's own
+// export, samples and type checks, so it is not what a run moves. With --deep each planned service is run for real
+// (run.mjs, the very steps a service's run takes), one at a time: `wouldMove` is what that run moved and `left` names each
+// call it left, with the export's own reason (.refine, transform, regex lookaround, ...); then the apps are typechecked
+// and the secret scan run over what it wrote, and the checkout is put back exactly as it was before the next service. It
+// starts only on a clean tree, as run.mjs does.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,7 +42,7 @@ export function reasonOf(why) {
     [/builds the schema/, "schema built by the caller's own function"],
     [/own schema checks the answer/, 'caller schema checks the answer (.refine and the like)'],
     [/no accepted input found|no refused input/, 'no sample inputs'],
-    [/can't be exported|cannot be exported/, "record can't be exported as written"],
+    [/can't be exported|cannot be exported/, exportReason],
     [/has no procedure/, 'procedure the codemod cannot find'],
     [/two procedures under one path/, 'two procedures under one path (a switch router)'],
     [/clashes with another/, 'helper name clash (a rerun places it)'],
@@ -51,7 +55,39 @@ export function reasonOf(why) {
     [/takes no input|as a (query|mutation)/, 'caller disagrees with the router (input or kind)'],
     [/already exports|mounted from a record/, 'record name or file clash'],
   ];
-  return rules.find(([re]) => re.test(why))?.[1] ?? 'other';
+  const kind = rules.find(([re]) => re.test(why))?.[1] ?? 'other';
+  return typeof kind === 'function' ? kind(why) : kind;
+}
+
+/** The constructs the export refused, each named once in a fixed order (one script change closes each). */
+const EXPORT_CONSTRUCTS = [
+  [/\.refine\/\.superRefine/, '.refine'],
+  [/transform \(a value computed/, 'transform'],
+  [/uses lookaround or backreferences/, 'regex lookaround'],
+  [/z\.lazy/, 'z.lazy'],
+  [/Date object/, 'Date'],
+  [/z\.unknown|z\.any/, 'z.unknown or z.any'],
+  [/optional root/, 'optional root'],
+];
+function exportReason(why) {
+  const found = EXPORT_CONSTRUCTS.filter(([re]) => re.test(why)).map(([, name]) => name);
+  return `record can't be exported as written${found.length ? `: ${found.join(' + ')}` : ''}`;
+}
+
+/**
+ * What the rule counts beyond the sites for wrappers that take their call name (wrapper.mjs): the codemod finds one site
+ * per caller, while the rule counts the wrapper's sender once, and a caller only where it names the call in a property
+ * (`procedure: 'x.y'`). The sum over wrappers of (rule findings - sites), negative when callers pass plain strings.
+ */
+export function wrapperSenders(sites) {
+  const by = new Map();
+  for (const s of sites) {
+    if (!s.wrapper) continue;
+    const w = by.get(s.wrapper.key) ?? by.set(s.wrapper.key, { sites: 0, findings: 1 }).get(s.wrapper.key);
+    w.sites += 1;
+    if (s.node?.type === 'Property') w.findings += 1;
+  }
+  return [...by.values()].reduce((a, w) => a + w.findings - w.sites, 0);
 }
 
 /** The commit that deleted services/<service>: its parent holds the router a door's records are read from. */
@@ -102,43 +138,58 @@ function plan(service, write, how = howToPlan(service) ?? {}) {
 
 const count = (rows) => rows.reduce((m, k) => ((m[k] = (m[k] ?? 0) + 1), m), {});
 
-function deep(rows) {
-  const recordFiles = () =>
-    git('status', '--porcelain', '--', 'packages/contracts/src')
+const putBack = () => {
+  git('checkout', '--', 'apps', 'services', 'packages/contracts');
+  git('clean', '-fdq', '--', 'apps', 'services', 'packages/contracts/src', 'packages/contracts/procedures');
+};
+
+/**
+ * Each planned service run for real (run.mjs), one at a time, and put back: what it moved, what it left and why, the
+ * type errors in the apps after its run (in files it touched, or not), and the credential-shaped literals it wrote.
+ * `runOne` and `checkOne` are the run and the checks after it (tests plant them).
+ */
+export function deep(rows, runOne = runService, checkOne = checksAfter, restore = putBack) {
+  for (const row of rows) {
+    if (!row.planned) continue;
+    try {
+      const s = runOne(row);
+      if (s.error) {
+        row.runError = s.error;
+        row.wouldMove = 0;
+        continue;
+      }
+      row.wouldMove = s.rewritten;
+      row.records = s.records;
+      row.left = count(s.hand.map((h) => reasonOf(h.why)));
+      Object.assign(row, checkOne());
+    } finally {
+      restore();
+    }
+  }
+}
+
+function runService(row) {
+  const json = join(tmpdir(), `call-records-report-run-${process.pid}-${row.service}.json`);
+  const door = row.door ? ['--door', row.door, '--from-rev', row.fromRev] : [];
+  const r = spawnSync('node', [here('run.mjs'), '--module', row.service.slice(4), '--service', row.service, ...door, '--summary', json], {
+    cwd: REPO,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (r.status !== 0 || !existsSync(json))
+    return { error: `${r.stderr}\n${r.stdout}`.split('\n').find((l) => /^\w*Error: /.test(l)) ?? `exit ${r.status}` };
+  return JSON.parse(readFileSync(json, 'utf8'));
+}
+
+function checksAfter() {
+  const touched = new Set(
+    git('status', '--porcelain', '--', 'apps')
       .split('\n')
       .map((l) => l.slice(3))
-      .filter((f) => f.endsWith('-procedures.ts'));
-  const touched = new Map();
-  for (const row of rows) {
-    if (!row.sites) continue;
-    const before = new Set(recordFiles());
-    const s = plan(row.service, true);
-    if (s.error) {
-      row.writeError = s.error;
-      continue;
-    }
-    for (const f of s.touched ?? []) if (!touched.has(f)) touched.set(f, row.service);
-    row.recordFiles = recordFiles().filter((f) => !before.has(f));
-  }
-  const build = () => {
-    const r = spawnSync('pnpm', ['--filter', '@intafaced/contracts', 'build'], {
-      cwd: REPO,
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    return r.status === 0 ? [] : `${r.stdout}\n${r.stderr}`.split('\n').filter((l) => /error TS/.test(l));
-  };
-  const buildErrors = build();
-  for (const row of rows) {
-    if (!row.recordFiles?.length) continue;
-    const out = join(tmpdir(), `call-records-report-unportable-${process.pid}-${row.service}.json`);
-    const r = spawnSync('node', [here('samples.mjs'), '--unportable', out, ...row.recordFiles], { cwd: REPO, encoding: 'utf8' });
-    const skipped = r.status === 0 && existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : {};
-    row.samples = count(Object.values(skipped).map(reasonOf));
-  }
-  build();
-  // Type errors in app files a service's run touched, after its records were written.
-  const typeErrors = {};
+      .filter(Boolean),
+  );
+  let typeErrors = 0;
+  let untouchedTypeErrors = 0;
   for (const app of readdirSync(join(REPO, 'apps'))) {
     if (!existsSync(join(REPO, 'apps', app, 'tsconfig.json'))) continue;
     const r = spawnSync('node', [join(REPO, 'tooling', 'scripts', 'tsc.mjs'), '--noEmit', '-p', '.'], {
@@ -149,31 +200,16 @@ function deep(rows) {
     for (const line of (r.stdout ?? '').split('\n')) {
       const m = /^([^(]+)\(\d+,\d+\): error TS/.exec(line);
       if (!m) continue;
-      const file = `apps/${app}/${m[1]}`;
-      const owner = touched.get(file) ?? 'not a touched file';
-      typeErrors[owner] = (typeErrors[owner] ?? 0) + 1;
+      if (touched.has(`apps/${app}/${m[1]}`)) typeErrors++;
+      else untouchedTypeErrors++;
     }
   }
-  // Credential-shaped literals the secret scan finds in what the codemod wrote.
+  // Credential-shaped literals the secret scan finds (stderr: the known-disclosed list on stdout is not the codemod's).
   const scan = spawnSync('node', ['tooling/ci/secret-scan.mjs'], { cwd: REPO, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  const secrets = {};
-  // Only the failures (stderr); the known-disclosed list on stdout is not the codemod's.
-  for (const line of (scan.stderr ?? '').split('\n')) {
-    const m = /^\s+\[[^\]]+\] (packages\/contracts\/[^\s:]+|apps\/[^\s:]+|services\/[^\s:]+)/.exec(line);
-    if (!m) continue;
-    const owner = touched.get(m[1]) ?? rows.find((r) => r.recordFiles?.includes(m[1]))?.service ?? 'not a touched file';
-    secrets[owner] = (secrets[owner] ?? 0) + 1;
-  }
-  for (const row of rows) {
-    row.typeErrors = typeErrors[row.service] ?? 0;
-    row.secretLiterals = secrets[row.service] ?? 0;
-  }
-  return {
-    contractsBuildErrors: buildErrors.length,
-    contractsBuildSample: buildErrors.slice(0, 10),
-    untouchedTypeErrors: typeErrors['not a touched file'] ?? 0,
-    untouchedSecretLiterals: secrets['not a touched file'] ?? 0,
-  };
+  const secretLiterals = (scan.stderr ?? '')
+    .split('\n')
+    .filter((line) => /^\s+\[[^\]]+\] (packages\/contracts\/|apps\/|services\/)/.test(line)).length;
+  return { typeErrors, untouchedTypeErrors, secretLiterals };
 }
 
 function main() {
@@ -193,7 +229,7 @@ function main() {
     const found = named[service.slice(4)] ?? 0;
     if (how.refused) return { service, sites: found, refused: how.refused };
     // A door with no caller left by name: nothing to plan (its crate need not be indexed).
-    if (how.door && !found) return { service, door: how.door, sites: 0, wouldMove: 0, records: 0, left: {} };
+    if (how.door && !found) return { service, door: how.door, sites: 0, planned: 0, records: 0, left: {} };
     const s = plan(service, false, how);
     // No tRPC router to read (svc-edge, svc-fix, svc-ws; svc-matching serves REST): no app calls it by name.
     if (s.error && /no src\/router\.ts|no create\*Router function/.test(s.error)) return { service, sites: found, noTrpcRouter: true };
@@ -202,7 +238,7 @@ function main() {
       service,
       ...(how.door ? { door: how.door, fromRev: how.fromRev } : {}),
       sites: s.sites,
-      wouldMove: s.rewritten,
+      planned: s.rewritten,
       records: s.records.length,
       left: count(s.hand.map((h) => reasonOf(h.why))),
     };
@@ -224,25 +260,17 @@ function main() {
     for (const r of failed.slice(0, 5)) console.error(`  ${r.service}: ${r.error}`);
     process.exit(1);
   }
-  let extra = {};
-  if (argv.includes('--deep')) {
-    try {
-      extra = deep(rows);
-    } finally {
-      git('checkout', '--', 'apps', 'services', 'packages/contracts');
-      git('clean', '-fdq', '--', 'apps', 'services', 'packages/contracts/src');
-    }
-  }
-  const totals = { sites: 0, wouldMove: 0, left: {}, refused: {}, noService };
+  if (argv.includes('--deep')) deep(rows);
+  const totals = { sites: 0, planned: 0, ...(argv.includes('--deep') ? { wouldMove: 0 } : {}), left: {}, refused: {}, noService };
   for (const r of rows) {
     if (r.refused || r.error) {
       totals.refused[r.service] = { sites: r.sites, why: r.refused ?? r.error };
       continue;
     }
     totals.sites += r.sites ?? 0;
-    totals.wouldMove += r.wouldMove ?? 0;
+    totals.planned += r.planned ?? 0;
+    if ('wouldMove' in totals) totals.wouldMove += r.wouldMove ?? 0;
     for (const [k, n] of Object.entries(r.left ?? {})) totals.left[k] = (totals.left[k] ?? 0) + n;
-    for (const [k, n] of Object.entries(r.samples ?? {})) totals.left[`after write: ${k}`] = (totals.left[`after write: ${k}`] ?? 0) + n;
   }
   // Every finding the rule counts, by the shape it names, so what no service run sees is counted too.
   const ox = spawnSync(
@@ -269,11 +297,12 @@ function main() {
   totals.byShape = shapes;
   const refusedSites = Object.values(totals.refused).reduce((a, r) => a + r.sites, 0);
   const noServiceSites = Object.values(noService).reduce((a, b) => a + b, 0);
+  totals.wrapperSenders = wrapperSenders(nodes.values());
   // What the rule counts and no row above names: 0 when every finding is a site the codemod finds.
-  totals.unnamed = totals.ruleFindings - totals.sites - refusedSites - noServiceSites;
-  const report = { at: new Date().toISOString(), head: git('rev-parse', 'HEAD').trim(), totals, ...extra, services: rows };
+  totals.unnamed = totals.ruleFindings - totals.sites - refusedSites - noServiceSites - totals.wrapperSenders;
+  const report = { at: new Date().toISOString(), head: git('rev-parse', 'HEAD').trim(), totals, services: rows };
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
-  console.log(JSON.stringify({ totals, ...extra }, null, 2));
+  console.log(JSON.stringify({ totals }, null, 2));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();

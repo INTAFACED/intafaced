@@ -86,7 +86,7 @@ export function NotificationRow({
 }
 
 /** On a test build every amount is TEST money, so a notification that names one says so (inbox and delivery log). */
-export function TestFigureTag({ item }: { item: Pick<Notification, 'params'> }) {
+function TestFigureTag({ item }: { item: Pick<Notification, 'params'> }) {
   const copy = notifyCopy.useCopy();
   return isTestBuild() && carriesFigure(item) ? (
     <StatusTag data-testid="nf-test" data-status="test" status="pending" label={copy.t('TEST')} />

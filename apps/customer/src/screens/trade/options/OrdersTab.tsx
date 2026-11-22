@@ -20,7 +20,7 @@ import {
 } from '../rooms/ui';
 import type { Order } from '../../../features/trade/trade-api';
 import type { ListedMarket } from '../rooms/api';
-import { Freshness } from '../rooms/RoomNotices';
+import { Freshness } from '../rooms/RoomFreshness';
 import { asOfOf, useNow } from '../rooms/read';
 import { roomWords } from '../rooms/refusals';
 import { BLOCK_WORDS, type RoomWriter } from '../rooms/write';

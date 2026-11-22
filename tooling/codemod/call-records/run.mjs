@@ -16,7 +16,8 @@
 // It starts only on a clean tree (nothing uncommitted under apps/, services/ or packages/contracts/), so step 3 can put
 // back exactly what step 1 wrote.
 //
-//   node tooling/codemod/call-records/run.mjs --module notify [--service svc-notify] [--paths a.,b.] [--refusals]
+//   node tooling/codemod/call-records/run.mjs --module notify [--service svc-notify] [--paths a.,b.] [--refusals] [--summary out.json]
+// --summary writes the last line's summary (records, calls moved, each call left and why) to a file: report.mjs --deep reads it.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -32,7 +33,8 @@ const prettier = (files) => files.length && sh(join(REPO, 'node_modules/.bin/pre
 
 export function run(argv) {
   const refusals = argv.includes('--refusals');
-  const pass = argv.filter((a) => a !== '--refusals');
+  const summaryOut = argv.includes('--summary') ? argv[argv.indexOf('--summary') + 1] : undefined;
+  const pass = argv.filter((a, i) => a !== '--refusals' && a !== '--summary' && argv[i - 1] !== '--summary');
   const service =
     pass[pass.indexOf('--service') + 1] && pass.includes('--service')
       ? pass[pass.indexOf('--service') + 1]
@@ -95,7 +97,9 @@ export function run(argv) {
       if (!Object.keys(skipped).length || callersOnly) break;
       const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...door, ...files]));
       if (!fixed.fixed) break;
-      for (const f of fixed.files) if (tracked.has(f)) kept.add(f);
+      // A record file is written again by the next round's step 1 (and fixed again by portable.mjs), so only the
+      // schema sources it edited are kept: keeping a record file would bring back this round's records after a put back.
+      for (const f of fixed.files) if (tracked.has(f) && !files.includes(f)) kept.add(f);
       build();
     }
     if (!Object.keys(skipped).length) break;
@@ -128,7 +132,9 @@ export function run(argv) {
       process.exit(1);
     }
   }
-  console.log(JSON.stringify({ service, records: result.records.length, rewritten: result.rewritten, hand: result.hand }, null, 2));
+  const done = { service, records: result.records.length, rewritten: result.rewritten, hand: result.hand };
+  if (summaryOut) writeFileSync(summaryOut, JSON.stringify(done));
+  console.log(JSON.stringify(done, null, 2));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) run(process.argv.slice(2));

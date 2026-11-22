@@ -26,10 +26,14 @@ export function EmailProofNotice() {
 
   if (!unproved) return null;
   return (
-    <section className="notice email-proof-notice" aria-labelledby="email-proof-notice-title">
+    <section aria-labelledby="email-proof-notice-title" data-notice="email-proof">
       <h2 id="email-proof-notice-title">{t('title')}</h2>
-      <p>{t('body')}</p>
-      <a href="/uc/account">{t('action')}</a>
+      <p className="lt-hint">{t('body')}</p>
+      <div className="lt-actions">
+        <a className="lt-link" href="/uc/account">
+          {t('action')}
+        </a>
+      </div>
     </section>
   );
 }

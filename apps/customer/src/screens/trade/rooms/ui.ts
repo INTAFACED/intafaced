@@ -45,7 +45,7 @@ export {
   type SortState,
   type TableColumn,
 } from '@intafaced/ui';
-export { UNKNOWN, fmtAmount, fmtPrice, refusalCopy, refusalSupportCode, useDataEnv, useSource, type Loadable } from '../../../data';
+export { UNKNOWN, fmtAmount, fmtPrice, refusalSupportCode, useDataEnv, useSource, type Loadable } from '../../../data';
 export { dec, str, times, ratio, add, sub, compare, ZERO, type Scaled } from '../../../data/decimal';
 export { useSession } from '../../../features/session/session';
 export { navigate } from '../../../app/location';

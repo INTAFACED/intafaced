@@ -245,15 +245,31 @@ export function Sheet({
   closeLabel?: string;
   /** False while a save is in flight: Escape is refused and Close is disabled. Default true. */
   dismissible?: boolean;
+  /** The Close button's word in the room's language. Default "Close". */
+  closeLabel?: string;
   children: React.ReactNode;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
+  // The control that opened the sheet gets focus back when it closes or goes away, as a modal dialog's opener should.
+  const opener = React.useRef<HTMLElement | null>(null);
+  const giveBack = () => {
+    const o = opener.current;
+    opener.current = null;
+    if (o?.isConnected) o.focus();
+  };
   React.useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal?.();
-    if (!open && d.open) d.close();
+    if (open && !d.open) {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      d.showModal?.();
+    }
+    if (!open && d.open) {
+      d.close();
+      giveBack();
+    }
   }, [open]);
+  React.useEffect(() => giveBack, []);
   return (
     <dialog
       ref={ref}

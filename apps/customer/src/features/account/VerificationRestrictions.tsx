@@ -1,8 +1,8 @@
 import { accountStatusSchema } from '@intafaced/contracts/identity-account-status';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
-import { RestrictionList } from './AccountStatus';
+import { ReadFailure, ReadLoading } from '../../shared/read-state';
+import { RestrictionList } from './RestrictionList';
 import { accountStatusCopy as copy } from './account-status-copy';
 
 /**
@@ -22,7 +22,7 @@ export function VerificationRestrictions({ recordsKey }: { recordsKey: string })
     `verification-restrictions:${userId}:${recordsKey}`,
   );
   const body = () => {
-    if (resource.status === 'loading') return <Loading />;
+    if (resource.status === 'loading') return <ReadLoading />;
     if (resource.status === 'failed')
       // A sub-account's session reads no status of its own: say where it lives rather than offer a retry that fails.
       return resource.failure.code === 'identity.delegated_refused' ? (
@@ -30,7 +30,7 @@ export function VerificationRestrictions({ recordsKey }: { recordsKey: string })
           <Copy k="delegated" />
         </p>
       ) : (
-        <Failure result={resource.failure} retry={reload} />
+        <ReadFailure result={resource.failure} retry={reload} />
       );
     if (!resource.data) return null;
     // A switched-off capability is already in Capabilities above; listing it again here would say it twice.
@@ -56,13 +56,13 @@ export function VerificationRestrictions({ recordsKey }: { recordsKey: string })
     );
   };
   return (
-    <section className="verification__cases" aria-labelledby="verification-restrictions-title" data-testid="verification__restrictions">
+    <section aria-labelledby="verification-restrictions-title" data-testid="verification__restrictions">
       <h2 id="verification-restrictions-title">
         <Copy k="restrictionsOnAccount" />
       </h2>
       {body()}
       <p>
-        <a href="/uc/account">
+        <a className="lt-link" href="/uc/account">
           <Copy k="seeStatus" />
         </a>
       </p>
@@ -87,14 +87,14 @@ export function VerificationCapabilityRefused({ recordsKey }: { recordsKey: stri
     `verification-capability-refused:${userId}:${recordsKey}`,
   );
   const body = () => {
-    if (resource.status === 'loading') return <Loading />;
+    if (resource.status === 'loading') return <ReadLoading />;
     if (resource.status === 'failed')
       return resource.failure.code === 'identity.delegated_refused' ? (
         <p>
           <Copy k="delegated" />
         </p>
       ) : (
-        <Failure result={resource.failure} retry={reload} />
+        <ReadFailure result={resource.failure} retry={reload} />
       );
     const stops = (resource.data?.restrictions ?? []).filter((r) => r.kind === 'capability_off' && r.blocks.length > 0);
     // Lifted or remapped since the refusal: point to where capabilities are read, never an empty list.

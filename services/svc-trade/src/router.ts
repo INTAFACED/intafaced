@@ -27,7 +27,7 @@ import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/a
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
-import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
+import { orderSideSchema, timeInForceSchema } from '@intafaced/contracts/order-enums';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
@@ -84,12 +84,10 @@ import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { VenueCopyRefusal } from './copy/venue-copy.js';
-import { algoPolicyAnswer, optionsPolicyAnswer } from './desk/answers.js';
-import { otcConvertQuoteAnswer, otcDeskStatusAnswer, rfqQuoteAnswer } from './otc/answers.js';
+import { optionsPolicyAnswer } from './desk/answers.js';
+import { otcDeskStatusAnswer, rfqQuoteAnswer } from './otc/answers.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
-import { algoCreateInputSchema } from './algo/create-input.js';
-import { POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -98,7 +96,7 @@ import { supportTradeSummaryRouter } from './support/router.js';
 import { ownVenueActivityRouter, type OwnVenueActivityDeps } from './venue/own-activity-router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
-import { decimal, algoStopReasonSchema, algoScheduleHonestySchema } from '@intafaced/contracts/trade-call-schemas';
+import { decimal, convertQuoteOutput, convertAcceptInput, convertTradeOutput } from '@intafaced/contracts/trade-call-schemas';
 import {
   TRADE_COPY_MY_LEAD_APPLICATION,
   TRADE_COPY_LEAD_ELIGIBILITY,
@@ -125,13 +123,26 @@ import {
   TRADE_CONVERT_LIMIT_PLACE,
   TRADE_CONVERT_LIMIT_CANCEL,
   TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_QUOTE,
+  TRADE_CONVERT_ACCEPT,
 } from '@intafaced/contracts/trade-convert-procedures';
-import { TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT } from '@intafaced/contracts/trade-algo-procedures';
+import {
+  TRADE_ALGO_PROGRESS,
+  TRADE_ALGO_PREVIEW_TWAP_SIZES,
+  TRADE_ALGO_RESULT,
+  TRADE_ALGO_GET,
+  TRADE_ALGO_PAUSE,
+  TRADE_ALGO_RESUME,
+  TRADE_ALGO_CANCEL,
+  TRADE_ALGO_POLICY,
+  TRADE_ALGO_CREATE_TWAP,
+} from '@intafaced/contracts/trade-algo-procedures';
 import {
   TRADE_OTC_MAKERS_LIST,
   TRADE_OTC_ACCEPT,
   TRADE_OTC_SETTLE,
   TRADE_OTC_CONVERT_BOUNDS,
+  TRADE_OTC_CONVERT_QUOTE,
 } from '@intafaced/contracts/trade-otc-procedures';
 import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from '@intafaced/contracts/trade-rfq-procedures';
 
@@ -215,60 +226,6 @@ const copyTrailOutput = z
   })
   .strict();
 
-const convertSourceOutput = z.object({
-  kind: z.literal('book'),
-  symbol: z.string(),
-  asOf: z.string(),
-});
-
-const convertQuoteOutput = z.object({
-  quoteId: z.string(),
-  symbol: z.string(),
-  side: orderSideSchema,
-  requestedQty: decimal,
-  filledQty: decimal,
-  bookNotional: decimal,
-  userNotional: decimal,
-  avgPrice: decimal,
-  fullyFilled: z.boolean(),
-  convertSpreadBps: z.number().int(),
-  expiresAt: z.string(),
-  source: convertSourceOutput,
-  inAsset: z.string(),
-  outAsset: z.string(),
-  inAmount: decimal,
-  outAmount: decimal,
-});
-
-const convertTradeOutput = z.object({
-  quoteId: z.string(),
-  fillId: z.string(),
-  takerOrderId: z.string(),
-  makerOrderId: z.string(),
-  symbol: z.string(),
-  side: orderSideSchema,
-  inAsset: z.string(),
-  outAsset: z.string(),
-  inAmount: decimal,
-  outAmount: decimal,
-  fillPrice: decimal,
-  fillNotional: decimal,
-  convertSpreadBps: z.number().int(),
-  source: convertSourceOutput,
-  expiresAt: z.string(),
-  acceptedAt: z.string(),
-  settledAt: z.string(),
-});
-
-const convertAcceptInput = z.object({
-  quoteId: z.string().min(1).max(64),
-  clientConvertId: z.string().min(1).max(48).optional(),
-  symbol: z.string().min(3).optional(),
-  side: orderSideSchema.optional(),
-  qty: decimal.optional(),
-  maxAvgPrice: decimal.optional(),
-});
-
 const standingCaller = z.object({ userId: z.string().guid(), instructionId: z.string().guid() });
 
 /** Only svc-bank may act for a standing instruction; the user id is the signed body's. */
@@ -277,66 +234,6 @@ function requireBankCaller(service: string | null): void {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'standing-instruction convert is callable only by svc-bank' });
   }
 }
-
-const algoParentOutputSchema = z.object({
-  id: z.string(),
-  symbol: z.string(),
-  side: orderSideSchema,
-  kind: z.enum(['twap', 'vwap', 'pov', 'chase']),
-  totalQty: decimal,
-  durationMs: z.number().int(),
-  sliceIntervalMs: z.number().int(),
-  limitPrice: decimal.nullable(),
-  status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
-  slicesPlanned: z.number().int(),
-  nextSliceIndex: z.number().int(),
-  childrenEmitted: z.number().int(),
-  missesRecorded: z.number().int(),
-  haltReason: z.string().nullable(),
-  stopReason: algoStopReasonSchema,
-  participationBps: z.number().int().nullable(),
-  /** POV: what participation is applied to; null for TWAP and VWAP. */
-  povBasis: z.enum(POV_BASES).nullable(),
-  createdAt: z.string(),
-  startedAt: z.string(),
-  nextDueAt: z.string(),
-  /** Projected wall-clock end after last re-space (ADR 2026-08-08). */
-  projectedEndsAt: z.string(),
-  /** Distinguishes user pause from tick outage; null until first stretch. */
-  scheduleStretchReason: z.enum(['user_pause', 'tick_outage']).nullable(),
-  /** Set when the slice sizes are random, fixed by this seed. */
-  randomSeed: z.number().int().nullable(),
-  /** The price the schedule waits for before its first slice; null when it starts at once. */
-  triggerPrice: decimal.nullable(),
-  triggeredAt: z.string().nullable(),
-  awaitingTrigger: z.boolean(),
-  /** Chase: the caller's maximum distance from the start price, in bps; null for other kinds. */
-  chaseMaxDistanceBps: z.number().int().nullable(),
-  /** Chase: the best same-side price read at create, the distance's origin. */
-  chaseStartPrice: decimal.nullable(),
-  /** Chase: the price of the newest child; null before the first child and for other kinds. */
-  chasePrice: decimal.nullable(),
-  /** Chase: how many times the child was re-priced (children placed after the first). */
-  chaseReprices: z.number().int().nullable(),
-});
-
-const algoGetOutputSchema = algoParentOutputSchema.extend({
-  children: z.array(
-    z.object({
-      orderId: z.string(),
-      sliceIndex: z.number().int(),
-      time: z.string(),
-      qty: decimal,
-      basisQty: decimal.nullable(),
-      price: decimal.nullable(),
-    }),
-  ),
-  misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
-  filledQty: decimal,
-  /** The planned size of every slice, in order, as stored with the parent. */
-  plannedSliceQtys: z.array(decimal),
-  ...algoScheduleHonestySchema,
-});
 
 const marketOutput = z.object({
   id: z.string().guid(),
@@ -1206,19 +1103,9 @@ export function createTradeRouter(
         tradeRefusal,
       ),
 
-      quote: scopedProcedure('trade:read', { module: 'trade' })
-        .input(
-          z.object({
-            symbol: z.string().min(3),
-            side: orderSideSchema,
-            /** Base amount. Exactly one of `qty` or `quoteQty`; the service refuses both or neither. */
-            qty: decimal.optional(),
-            /** Spend in the quote asset ("spend 100 USDT"), buy only; never charges more than this. */
-            quoteQty: decimal.optional(),
-          }),
-        )
-        .output(convertQuoteOutput)
-        .query(({ ctx, input }) =>
+      quote: mountRecord(
+        TRADE_CONVERT_QUOTE,
+        ({ ctx, input }) =>
           guard(async () =>
             trade.convertQuote(ctx.principal, {
               symbol: input.symbol,
@@ -1227,12 +1114,12 @@ export function createTradeRouter(
               quoteQty: input.quoteQty === undefined ? undefined : parseAmount(input.quoteQty),
             }),
           ),
-        ),
+        tradeRefusal,
+      ),
 
-      accept: scopedProcedure('trade:write', { module: 'trade' })
-        .input(convertAcceptInput)
-        .output(convertTradeOutput)
-        .mutation(({ ctx, input }) =>
+      accept: mountRecord(
+        TRADE_CONVERT_ACCEPT,
+        ({ ctx, input }) =>
           guard(async () =>
             trade.convertAccept(ctx.principal, {
               quoteId: input.quoteId,
@@ -1243,7 +1130,8 @@ export function createTradeRouter(
               maxAvgPrice: input.maxAvgPrice === undefined ? null : parseAmount(input.maxAvgPrice),
             }),
           ),
-        ),
+        tradeRefusal,
+      ),
 
       execute: scopedProcedure('trade:write', { module: 'trade' })
         .input(convertAcceptInput)
@@ -1387,25 +1275,15 @@ export function createTradeRouter(
       ),
 
       /** Bounds-gated OTC quote for one-click buy / convert. The desk names the price. */
-      convertQuote: scopedProcedure('trade:read', { module: 'trade' })
-        .input(
-          z
-            .object({
-              flow: z.enum(['convert', 'oneClickBuy']),
-              side: orderSideSchema,
-              baseAsset: z.string().min(1).max(32),
-              quoteAsset: z.string().min(1).max(32),
-              qty: decimal,
-            })
-            .strict(),
-        )
-        .output(otcConvertQuoteAnswer)
-        .mutation(({ ctx, input }) =>
+      convertQuote: mountRecord(
+        TRADE_OTC_CONVERT_QUOTE,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.convertQuote(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
     }),
 
     /**
@@ -1508,13 +1386,12 @@ export function createTradeRouter(
      */
     algo: router({
       // The flags this service was started with, so the room shows whether slices are placed (CB-order-controls-03 #1).
-      policy: publicProcedure.output(algoPolicyAnswer).query(() => trade.algoPolicy()),
+      policy: mountRecord(TRADE_ALGO_POLICY, () => trade.algoPolicy(), tradeRefusal),
       ...algoDeskProcedures(trade),
 
-      createTwap: scopedProcedure('trade:write', { module: 'trade' })
-        .input(algoCreateInputSchema)
-        .output(algoParentOutputSchema)
-        .mutation(({ ctx, input }) =>
+      createTwap: mountRecord(
+        TRADE_ALGO_CREATE_TWAP,
+        ({ ctx, input }) =>
           guard(async () => {
             const parent = await trade.createTwap(ctx.principal, {
               symbol: input.symbol,
@@ -1534,12 +1411,12 @@ export function createTradeRouter(
             });
             return presentAlgo(parent);
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      get: scopedProcedure('trade:read')
-        .input(z.object({ algoId: z.string().min(1) }))
-        .output(algoGetOutputSchema)
-        .query(({ ctx, input }) =>
+      get: mountRecord(
+        TRADE_ALGO_GET,
+        ({ ctx, input }) =>
           guard(async () => {
             const parent = await trade.getAlgo(ctx.principal, input.algoId);
             const progress = await trade.algoProgress(ctx.principal, input.algoId);
@@ -1551,7 +1428,8 @@ export function createTradeRouter(
               ...presentScheduleHonesty(parent, progress.scheduler),
             };
           }),
-        ),
+        tradeRefusal,
+      ),
 
       // The slice sizes a TWAP create would plan, so the review shows exactly what the service will place.
       previewTwapSizes: mountRecord(
@@ -1582,17 +1460,23 @@ export function createTradeRouter(
         tradeRefusal,
       ),
 
-      pause: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ algoId: z.string().min(1) }))
-        .mutation(({ ctx, input }) => guard(async () => presentAlgo(await trade.pauseAlgo(ctx.principal, input.algoId)))),
+      pause: mountRecord(
+        TRADE_ALGO_PAUSE,
+        ({ ctx, input }) => guard(async () => presentAlgo(await trade.pauseAlgo(ctx.principal, input.algoId))),
+        tradeRefusal,
+      ),
 
-      resume: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ algoId: z.string().min(1) }))
-        .mutation(({ ctx, input }) => guard(async () => presentAlgo(await trade.resumeAlgo(ctx.principal, input.algoId)))),
+      resume: mountRecord(
+        TRADE_ALGO_RESUME,
+        ({ ctx, input }) => guard(async () => presentAlgo(await trade.resumeAlgo(ctx.principal, input.algoId))),
+        tradeRefusal,
+      ),
 
-      cancel: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ algoId: z.string().min(1) }))
-        .mutation(({ ctx, input }) => guard(async () => presentAlgo(await trade.cancelAlgo(ctx.principal, input.algoId)))),
+      cancel: mountRecord(
+        TRADE_ALGO_CANCEL,
+        ({ ctx, input }) => guard(async () => presentAlgo(await trade.cancelAlgo(ctx.principal, input.algoId))),
+        tradeRefusal,
+      ),
     }),
 
     /**

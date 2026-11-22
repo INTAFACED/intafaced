@@ -4,7 +4,8 @@ import type { ApiResult } from '../../shared/api';
 import { base64Of, kib, localToday } from '../../shared/file-base64';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { ReadFailure, ReadLoading } from '../../shared/read-state';
 import { verificationPoaCopy as copy } from './verification-poa-copy';
 import { IDENTITY_KYC_PROOF_OF_ADDRESS_READ, IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT } from '@intafaced/contracts/identity-kyc-procedures';
 
@@ -49,16 +50,16 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
           <h3>
             <Copy k="failedTitle" />
           </h3>
-          <Failure result={resource.failure} retry={reload} />
+          <ReadFailure result={resource.failure} retry={reload} />
         </>
       );
-    if (!data) return <Loading />;
+    if (!data) return <ReadLoading />;
     const rereadFailed = resource.status === 'failed' ? resource.failure : null;
     const { requested, residence, maxAgeDays, documents, latest, uploadCaps } = data;
     const reading = resource.status === 'loading';
     if (!requested)
       return (
-        <p className="muted" data-testid="verification__poa-state" data-state="not-requested">
+        <p className="lt-hint" data-testid="verification__poa-state" data-state="not-requested">
           <Copy k="notRequested" />
         </p>
       );
@@ -129,13 +130,13 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
       }
     };
     return (
-      <div className="stack">
-        {rereadFailed && <Failure result={rereadFailed} retry={reload} />}
+      <div>
+        {rereadFailed && <ReadFailure result={rereadFailed} retry={reload} />}
         <p data-testid="verification__poa-rule" data-max-age-days={maxAgeDays ?? ''}>
           {maxAgeDays ? <Copy k="rule" params={{ days: String(maxAgeDays) }} /> : <Copy k="ruleUnset" />}
         </p>
         {residence && (
-          <p className="muted">
+          <p className="lt-hint">
             <Copy k="residence" params={{ country: residence }} />
           </p>
         )}
@@ -153,12 +154,11 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
           </p>
         )}
         {latest?.status === 'submitted' && (
-          <p className="muted" data-testid="verification__poa-one-at-a-time">
+          <p className="lt-hint" data-testid="verification__poa-one-at-a-time">
             <Copy k="oneAtATime" />
           </p>
         )}
         <form
-          className="form-stack"
           onSubmit={(event) => {
             event.preventDefault();
             void send();
@@ -210,25 +210,21 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
             )}
           </div>
           {documents.published && (
-            <label className="field">
-              <span>
-                <Copy k="typeField" />
-              </span>
-              {/* Held while another country's list is read, and only a type on the list shown counts as chosen. */}
-              <select
-                required
-                value={documents.accepted.some((row) => row.type === type) ? type : ''}
-                disabled={busy || reading}
-                onChange={(event) => setType(event.target.value)}
-              >
-                <option value="" disabled />
-                {documents.accepted.map((row) => (
-                  <option key={row.type} value={row.type}>
-                    {row.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            // Held while another country's list is read, and only a type on the list shown counts as chosen.
+            <Select
+              label={t('typeField')}
+              required
+              value={documents.accepted.some((row) => row.type === type) ? type : ''}
+              disabled={busy || reading}
+              onChange={(value) => setType(value)}
+            >
+              <option value="" disabled />
+              {documents.accepted.map((row) => (
+                <option key={row.type} value={row.type}>
+                  {row.label}
+                </option>
+              ))}
+            </Select>
           )}
           <Field
             label={t('issuedOnField')}
@@ -262,6 +258,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
           )}
           <Button
             type="submit"
+            tone="primary"
             disabled={disabled || busy || reading || !file || !uploadCaps || !documents.accepted.some((row) => row.type === type)}
           >
             <Copy k={busy ? 'sending' : 'send'} />
@@ -284,17 +281,17 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
   };
 
   return (
-    <section className="verification__cases" aria-labelledby="verification-poa-title" data-testid="verification__poa">
+    <section aria-labelledby="verification-poa-title" data-testid="verification__poa">
       <h2 id="verification-poa-title">
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-hint">
         <Copy k="intro" />
       </p>
       {body()}
       {problem && (
         <div role="alert" data-testid="verification__poa-problem" data-code={problem.kind === 'copy' ? problem.code : problem.result.code}>
-          {problem.kind === 'copy' ? <p>{problem.text}</p> : <Failure result={problem.result} />}
+          {problem.kind === 'copy' ? <p>{problem.text}</p> : <ReadFailure result={problem.result} />}
         </div>
       )}
     </section>

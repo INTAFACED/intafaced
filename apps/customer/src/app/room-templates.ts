@@ -14,6 +14,11 @@ export type NotARoom = 'operator' | 'fallback';
 
 export interface RoomTemplate {
   template: TemplateId;
+  /**
+   * The route as a person opens it, when its parameter has a shape a placeholder fails (a `:poolId` is a contract
+   * address, a `:pair` a real market): `room-templates.test.ts` opens this address, not the pattern.
+   */
+  sample?: string;
 }
 
 export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> = {
@@ -136,6 +141,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/trade/positions': { template: 'monitor' },
   '/trade/account': { template: 'monitor' },
   '/trade/vaults': { template: 'monitor' },
+  '/trade/staking': { template: 'monitor' },
   '/trade/orders': { template: 'record-list' },
   '/trade/orders/:id': { template: 'record-list' },
   '/trade/news': { template: 'reading' },
@@ -354,7 +360,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/pools': { template: 'record-list' },
   '/dex/pools/new': { template: 'flow' },
   '/dex/pools/:poolId': { template: 'monitor' },
-  '/dex/pools/:poolId/add': { template: 'flow' },
+  '/dex/pools/:poolId/add': { template: 'flow', sample: '/dex/pools/0x00000000000000000000000000000000000000a1/add' },
   '/dex/positions': { template: 'record-list' },
   '/dex/positions/:positionId': { template: 'record-list' },
   '/dex/tokens': { template: 'record-list' },
@@ -394,7 +400,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/protocol/*': 'fallback',
   '/wallet/*': 'fallback',
   '/copy/lead/apply': { template: 'flow' },
-  '/trade/analytics/:pair': { template: 'monitor' },
+  '/trade/analytics/:pair': { template: 'monitor', sample: '/trade/analytics/BTC-USDT' },
   '/rulebook': { template: 'reading' },
   '/trade/screener': { template: 'record-list' },
 };

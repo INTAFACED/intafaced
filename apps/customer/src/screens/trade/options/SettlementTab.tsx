@@ -1,6 +1,6 @@
 import { EmptyState, KeyValue, type Loadable } from '../rooms/ui';
 import type { OptionsPolicy } from '../rooms/api';
-import { Freshness } from '../rooms/RoomNotices';
+import { Freshness } from '../rooms/RoomFreshness';
 import { asOfOf } from '../rooms/read';
 import { optionsCopy } from './copy';
 import { RefusedRegion } from './shared';

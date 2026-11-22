@@ -61,13 +61,12 @@ const ASSETS: WithdrawAsset[] = [
 ];
 vi.mock('../components', async (original) => {
   const real = await original<typeof import('../components')>();
-  return {
-    ...real,
-    useBankRead: (procedure: string) =>
-      procedure === 'ramps.destinations.networks'
-        ? { resource: { status: 'ready', data: ASSETS }, reload: () => undefined }
-        : { resource: { status: 'ready', data: rows }, reload: () => void (reloads.book += 1) },
-  };
+  // The room reads by its records now: each record's read is served from the same answers, by its path.
+  const useBankRead = (procedure: string) =>
+    procedure === 'ramps.destinations.networks'
+      ? { resource: { status: 'ready', data: ASSETS }, reload: () => undefined }
+      : { resource: { status: 'ready', data: rows }, reload: () => void (reloads.book += 1) };
+  return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
 import { WithdrawalAddresses } from './WithdrawalAddresses';
 

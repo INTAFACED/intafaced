@@ -1,0 +1,89 @@
+name: Seed the TEST stack
+description: >-
+  The one way CI seeds the local test stack once (project-state#3330): the TEST gates, the market maker's two TEST
+  accounts and the TEST chart history, then the stack stopped, with the seeding time in $RUNNER_TEMP/seeded-at and the
+  snapshot later runs start from packed in $RUNNER_TEMP/stack-snapshot (state.tar, seeded-at). Real-app journeys' build
+  job seeds with it for its shards, and journeys-snapshot.yml for main's snapshot, so a snapshot holds exactly what a
+  fresh seed holds. The stack must already be built in $RUNNER_TEMP/stack-state. TEST funds only.
+
+inputs:
+  sanctions-regions:
+    description: The screening placeholder's regions (the INTAFACED_SANCTIONS_REGIONS secret).
+    required: true
+  sanctions-list-source:
+    description: The screening placeholder's list source (the INTAFACED_SANCTIONS_LIST_SOURCE secret).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Get a nats-server binary
+      uses: ./.github/actions/nats-server
+      with:
+        path: ${{ runner.temp }}/nats-server
+    # The same TEST chain launcher as the shards'.
+    - name: Get an anvil launcher
+      shell: bash
+      run: |
+        docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+        cat > "$RUNNER_TEMP/anvil" <<'SH'
+        #!/bin/sh
+        exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+        SH
+        chmod +x "$RUNNER_TEMP/anvil"
+    # The same steps as a shard's `Start the local test stack` and `Open the TEST markets` on a shard that writes the
+    # history (`--markets journeys`), and the market maker stopped at the end, so the copy holds no resting order.
+    - name: Seed the stack (TEST funds only)
+      shell: bash
+      env:
+        INTAFACED_SANCTIONS_REGIONS: ${{ inputs.sanctions-regions }}
+        INTAFACED_SANCTIONS_LIST_SOURCE: ${{ inputs.sanctions-list-source }}
+      run: |
+        export LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" LOCAL_STACK_NATS_BIN="$RUNNER_TEMP/nats-server" LOCAL_STACK_ANVIL_BIN="$RUNNER_TEMP/anvil"
+        if [ -z "$INTAFACED_SANCTIONS_REGIONS" ] || [ -z "$INTAFACED_SANCTIONS_LIST_SOURCE" ]; then
+          echo "::warning::no screening placeholder, so no seeded stack: each shard says why"
+          exit 1
+        fi
+        # Before the stack starts, so the snapshot's age (local-test-snapshot.mjs fresh) never reads younger than its data.
+        date -u +%Y-%m-%dT%H:%M:%SZ > "$RUNNER_TEMP/seeded-at"
+        node tooling/scripts/local-test-stack.mjs start
+        node tooling/scripts/local-test-stack.mjs restart matching
+        node tooling/scripts/local-test-gates.mjs apply
+        if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
+          node tooling/scripts/local-test-market.mjs
+          node tooling/scripts/local-test-gates.mjs verify
+        else
+          node tooling/scripts/local-test-market.mjs
+          for _ in $(seq 1 30); do
+            grep -Eq 'taker (created|existing) \(test_taker\)' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && break
+            sleep 2
+          done
+          node tooling/scripts/local-test-market.mjs stop
+          node tooling/scripts/local-test-gates.mjs verify
+          node tooling/scripts/local-test-market.mjs history --markets journeys
+        fi
+        node tooling/scripts/local-test-market.mjs stop || true
+        node tooling/scripts/local-test-stack.mjs stop
+    # The stopped stack's state folder (its database, NATS store, TEST chain, TEST secrets and founders) less this run's
+    # build stamp, which a later run lays its own over. Not the logs, the process records (another runner's PIDs), the
+    # JDK archives (each job's own cache) or cargo's target folder. Real-app journeys' `Pack the seeded stack` packs the
+    # shards' copy with the same exclusions and the stamp.
+    - name: Pack the snapshot
+      shell: bash
+      run: |
+        set -euo pipefail
+        rm -rf "$RUNNER_TEMP/stack-snapshot" && mkdir -p "$RUNNER_TEMP/stack-snapshot"
+        tar -C "$RUNNER_TEMP/stack-state" -cf "$RUNNER_TEMP/stack-snapshot/state.tar" \
+          --exclude=./logs --exclude=./tmp --exclude=./java-tools --exclude=./cargo-target --exclude=./run/processes.json \
+          --exclude=./csp-violations.jsonl --exclude=./build-stamp.json .
+        cp "$RUNNER_TEMP/seeded-at" "$RUNNER_TEMP/stack-snapshot/seeded-at"
+        du -sh "$RUNNER_TEMP/stack-snapshot"
+    - name: Stack logs when seeding failed
+      if: failure()
+      shell: bash
+      run: |
+        for f in "$RUNNER_TEMP"/stack-state/logs/*.log; do
+          [ -f "$f" ] || continue
+          echo "::group::$f"; tail -100 "$f" || true; echo "::endgroup::"
+        done
+        LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs stop || true

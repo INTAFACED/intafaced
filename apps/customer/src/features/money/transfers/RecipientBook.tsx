@@ -1,13 +1,13 @@
 import { useId, useMemo, useState } from 'react';
-import { z } from 'zod';
 import { Button } from '@intafaced/ui/lit';
 import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../session';
 import { date } from '../components';
-import { railPayeeCheckSchema, railPayeeRemovedSchema, railPayeeSchema, type RailPayee, type RailRequirements } from '../contracts';
+import { railPayeeCheckSchema, railPayeeSchema, type RailPayee, type RailRequirements } from '../contracts';
 import { railSendCopy } from '../rail-send-copy';
 import { RailForm, filled, type Key } from './rail-form';
 import { Failure, TextField as Field, StepUpSheet as WithdrawStepUp } from './TransferParts';
+import { BANK_RAIL_SENDS_INVITE_PAYEE, BANK_RAIL_SENDS_REMOVE_PAYEE } from '@intafaced/contracts/bank-rail-sends-procedures';
 
 /**
  * The recipient book for bank rails (J-bank-04 #2): save an account by its country (which picks the forms it takes), see
@@ -48,7 +48,7 @@ function Invite() {
   async function invite() {
     setBusy(true);
     setAnswer(null);
-    const result = await api.mutate('bank', 'railSends.invitePayee', { email: email.trim() }, z.never());
+    const result = await api.call(BANK_RAIL_SENDS_INVITE_PAYEE, { email: email.trim() });
     setBusy(false);
     if (!result.ok) setAnswer({ code: result.code, message: result.message });
   }
@@ -142,7 +142,7 @@ export function RecipientBook({
   async function remove(payeeId: string) {
     setRemoving(payeeId);
     setRemoveProblem(null);
-    const result = await api.mutate('bank', 'railSends.removePayee', { payeeId }, railPayeeRemovedSchema);
+    const result = await api.call(BANK_RAIL_SENDS_REMOVE_PAYEE, { payeeId });
     setRemoving(null);
     if (result.ok) reload();
     else setRemoveProblem(result.message);

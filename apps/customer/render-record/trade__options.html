@@ -97,16 +97,16 @@
 <main id="main" tabindex="-1">
 <div data-slot="page" data-width="full" data-density="dense" class="w-full min-w-0 px-(--if-gutter) text-fg py-4 max-w-none">
 <div class="flex flex-col gap-3">
-<nav data-slot="sub-nav" aria-label="Trading rooms" class="flex flex-wrap items-center gap-1 border-b border-line px-(--if-gutter) py-2">
-<a href="/trade/spot/BTC-USDT" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Spot</a>
-<a href="/trade/margin" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Margin</a>
-<a href="/trade/futures" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Futures</a>
-<a href="/trade/options" aria-current="page" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Options</a>
-<a href="/trade/copy" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Copy</a>
-<a href="/trade/bots" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Bots</a>
-<a href="/trade/convert" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Convert</a>
-<a href="/execution" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Execution</a>
-<a href="/otc" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Quote desk</a>
+<nav class="lt-tabs" aria-label="Trading rooms">
+<a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
+<a href="/trade/margin" class="lt-tab">Margin</a>
+<a href="/trade/futures" class="lt-tab">Futures</a>
+<a href="/trade/options" class="lt-tab" aria-current="page">Options</a>
+<a href="/trade/copy" class="lt-tab">Copy</a>
+<a href="/trade/bots" class="lt-tab">Bots</a>
+<a href="/trade/convert" class="lt-tab">Convert</a>
+<a href="/execution" class="lt-tab">Execution</a>
+<a href="/otc" class="lt-tab">Quote desk</a>
 </nav>
 <header data-slot="page-header" data-density="dense" class="flex flex-col gap-2 pb-3">
 <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
@@ -135,7 +135,7 @@
 </div>
 <div data-slot="page-body" data-density="dense" class="flex min-w-0 flex-col gap-4 pt-3">
 <div class="flex flex-col gap-3">
-<div class="flex flex-col gap-2" aria-live="polite">
+<div aria-live="polite">
 </div>
 <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
 <div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="flex flex-col">

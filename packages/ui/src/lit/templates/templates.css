@@ -1471,3 +1471,40 @@ button.lt-tab {
   background: var(--lt-brand, var(--lit-accent));
   color: var(--lt-on-brand, var(--lit-text-1));
 }
+
+/* ---- record rows: a list of records, one per row, each with its own stacked lines ---- */
+
+/* A list of records drawn as rows (a notification, an alert, a firing): no bullets, a line between rows, each row's
+   parts stacked. */
+.lt-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lt-rows > li {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  padding-block: var(--lit-gap-item);
+  border-block-end: 1px solid var(--lit-line);
+}
+
+/* A record's own lines, stacked: its name first, then each line under it. */
+.lt-lines {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 4);
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.lt-lines > :first-child {
+  font-weight: var(--lit-type-heading-weight);
+}
+
+/* A field's or a hint's words when they say what is wrong. */
+.lt-field small[data-part='error'],
+.lt-hint[data-part='error'] {
+  color: var(--lit-down-text);
+}

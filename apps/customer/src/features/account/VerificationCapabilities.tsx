@@ -1,16 +1,17 @@
-import { StatusTag } from '@intafaced/ui';
+import { StatusChip } from '@intafaced/ui/lit/templates';
+import type { MoneyStatus } from '@intafaced/ui/lit';
 import { type KycCapabilityState } from '@intafaced/contracts/identity-kyc-capabilities';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
+import { ReadFailure, ReadLoading } from '../../shared/read-state';
 import { verificationCapabilitiesCopy as copy } from './verification-capabilities-copy';
 import { IDENTITY_KYC_CAPABILITIES_GET } from '@intafaced/contracts/identity-kyc-procedures';
 
 // Not requested is no status at all, so it is plain text, never a tag that reads as something under way.
-const tagOf: Record<Exclude<KycCapabilityState, 'unrequested'>, 'pending' | 'filled' | 'cancelled'> = {
+const tagOf: Record<Exclude<KycCapabilityState, 'unrequested'>, MoneyStatus> = {
   pending: 'pending',
-  active: 'filled',
-  inactive: 'cancelled',
+  active: 'done',
+  inactive: 'failed',
 };
 
 /**
@@ -28,44 +29,38 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
     `verification-capabilities:${userId}:${recordsKey}`,
   );
   const body = () => {
-    if (resource.status === 'loading') return <Loading />;
+    if (resource.status === 'loading') return <ReadLoading />;
     if (resource.status === 'failed')
       return (
         <>
           <h3>
             <Copy k="failedTitle" />
           </h3>
-          <Failure result={resource.failure} retry={reload} />
+          <ReadFailure result={resource.failure} retry={reload} />
         </>
       );
     const { mapped, capabilities } = resource.data;
     return (
       <>
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k={mapped ? 'intro' : 'unmapped'} />
         </p>
-        <ul className="verification__capabilities-list" data-testid="verification__capabilities" data-mapped={mapped}>
+        <ul data-testid="verification__capabilities" data-mapped={mapped}>
           {capabilities.map((c) => (
-            <li
-              key={c.capability}
-              className="verification__capability"
-              data-testid="verification__capability"
-              data-capability={c.capability}
-              data-state={c.state}
-            >
-              <div className="verification__case-head">
+            <li key={c.capability} data-testid="verification__capability" data-capability={c.capability} data-state={c.state}>
+              <div>
                 <span>
                   <Copy k={c.capability} />
                 </span>
                 {c.state === 'unrequested' ? (
-                  <span className="muted">
+                  <span className="lt-hint">
                     <Copy k="unrequested" />
                   </span>
                 ) : (
-                  <StatusTag status={tagOf[c.state]} label={t(c.state)} />
+                  <StatusChip status={tagOf[c.state]} label={t(c.state)} />
                 )}
               </div>
-              <p className="muted">{c.grantedAt ? <Copy k="grantedAt" params={{ level: t(c.grantedAt) }} /> : <Copy k="notGranted" />}</p>
+              <p className="lt-hint">{c.grantedAt ? <Copy k="grantedAt" params={{ level: t(c.grantedAt) }} /> : <Copy k="notGranted" />}</p>
               {c.state === 'inactive' && (
                 <div data-testid="verification__capability-reason" data-reason={c.reasonCode ?? ''}>
                   {c.reasonText && (
@@ -73,7 +68,7 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
                       <Copy k="reason" params={{ text: c.reasonText }} />
                     </p>
                   )}
-                  <p className="muted">
+                  <p className="lt-hint">
                     <Copy k="inactiveHelp" />
                   </p>
                 </div>
@@ -85,7 +80,7 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
     );
   };
   return (
-    <section className="verification__cases" aria-labelledby="verification-capabilities-title">
+    <section aria-labelledby="verification-capabilities-title">
       <h2 id="verification-capabilities-title">
         <Copy k="title" />
       </h2>

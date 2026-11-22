@@ -13,6 +13,15 @@ import { DateTime } from './portal/ui/DateTime';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { mandateFormDirty, useMandateForm } from './mandate-form';
 import * as s from './schemas';
+import {
+  PAY_SUBSCRIPTION_LIST,
+  PAY_SUBSCRIPTION_PRODUCT_READY,
+  PAY_SUBSCRIPTION_GET,
+  PAY_SUBSCRIPTION_LIST_EXECUTIONS,
+  PAY_SUBSCRIPTION_PAUSE,
+  PAY_SUBSCRIPTION_RESUME,
+  PAY_SUBSCRIPTION_CANCEL,
+} from '@intafaced/contracts/pay-subscription-procedures';
 
 export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoices: boolean }) {
   const merchantId = pay.authority!.merchantId;
@@ -34,19 +43,11 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
     `pay:mandates:${merchantId}:${limit}`,
   );
   const subscriptions = useResource(
-    (signal) =>
-      pay
-        .query(
-          'subscription.list',
-          { merchantId, limit },
-          z.object({ items: z.array(s.subscriptionSchema), nextCursor: z.string().nullable() }),
-          signal,
-        )
-        .then((result) => s.listed(result)),
+    (signal) => pay.queryRecord(PAY_SUBSCRIPTION_LIST, { merchantId, limit }, signal).then((result) => s.listed(result)),
     `pay:subscriptions:${merchantId}:${limit}`,
   );
   const posture = useResource(
-    (signal) => pay.query('subscription.productReady', undefined, s.subscriptionPostureSchema, signal),
+    (signal) => pay.queryRecord(PAY_SUBSCRIPTION_PRODUCT_READY, undefined, signal),
     `pay:subscription-posture:${merchantId}`,
   );
   function refresh() {
@@ -410,11 +411,11 @@ function SubscriptionDetail({
 }) {
   const [limit, setLimit] = useState(50);
   const record = useResource(
-    (signal) => pay.query('subscription.get', { subscriptionId }, s.subscriptionSchema, signal),
+    (signal) => pay.queryRecord(PAY_SUBSCRIPTION_GET, { subscriptionId }, signal),
     `pay:subscription:${pay.authority!.merchantId}:${subscriptionId}`,
   );
   const executions = useResource(
-    (signal) => pay.query('subscription.listExecutions', { subscriptionId, limit }, z.array(s.executionSchema), signal),
+    (signal) => pay.queryRecord(PAY_SUBSCRIPTION_LIST_EXECUTIONS, { subscriptionId, limit }, signal),
     `pay:subscription-executions:${pay.authority!.merchantId}:${subscriptionId}:${limit}`,
   );
   function reload() {
@@ -462,13 +463,7 @@ function SubscriptionDetail({
                   title={payCopy.t('pauseSubscription')}
                   description={payCopy.t('pauseTheSubscriptionWithoutReversingSettledInvoices')}
                   perform={() =>
-                    pay.mutate(
-                      'subscription.pause',
-                      { subscriptionId },
-                      s.subscriptionSchema,
-                      'pay:write',
-                      `subscription:${subscriptionId}`,
-                    )
+                    pay.mutateRecord(PAY_SUBSCRIPTION_PAUSE, { subscriptionId }, 'pay:write', `subscription:${subscriptionId}`)
                   }
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={reload}
@@ -479,13 +474,7 @@ function SubscriptionDetail({
                   title={payCopy.t('resumeSubscription')}
                   description={payCopy.t('theServiceReSpacesTheScheduleAnd')}
                   perform={() =>
-                    pay.mutate(
-                      'subscription.resume',
-                      { subscriptionId },
-                      z.object({ subscription: s.subscriptionSchema, projectedEnd: z.string().nullable() }),
-                      'pay:write',
-                      `subscription:${subscriptionId}`,
-                    )
+                    pay.mutateRecord(PAY_SUBSCRIPTION_RESUME, { subscriptionId }, 'pay:write', `subscription:${subscriptionId}`)
                   }
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={(data) => {
@@ -499,13 +488,7 @@ function SubscriptionDetail({
                   title={payCopy.t('cancelSubscription')}
                   description={payCopy.t('cancelThisSubscriptionImmediatelySettledInvoiceExecutions')}
                   perform={() =>
-                    pay.mutate(
-                      'subscription.cancel',
-                      { subscriptionId },
-                      s.subscriptionSchema,
-                      'pay:write',
-                      `subscription:${subscriptionId}`,
-                    )
+                    pay.mutateRecord(PAY_SUBSCRIPTION_CANCEL, { subscriptionId }, 'pay:write', `subscription:${subscriptionId}`)
                   }
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={reload}

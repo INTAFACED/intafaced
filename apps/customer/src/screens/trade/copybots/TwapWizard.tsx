@@ -13,8 +13,8 @@ import {
   SegmentedControl,
 } from '@intafaced/ui';
 import type { Listing } from '../../../features/trade/trade-api';
-import type { z } from 'zod';
-import type { algoSchema } from '../../../features/trade/tool-api';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import type { TRADE_ALGO_CREATE_TWAP } from '@intafaced/contracts/trade-algo-procedures';
 import { useTicker } from '../../../data';
 import { dec, str, times } from '../../../data/decimal';
 import { ratioPercent } from './desk';
@@ -27,7 +27,7 @@ import { formatClock, minutesToMs, planSlices, MAX_DURATION_MS } from './plan';
 
 type Step = 1 | 2 | 3;
 export type BotKind = 'twap' | 'vwap' | 'pov';
-export type CreatedAlgo = z.infer<typeof algoSchema>;
+export type CreatedAlgo = ProcedureOutput<typeof TRADE_ALGO_CREATE_TWAP>;
 
 const PRESETS = [
   { value: '5', label: '5 min' },

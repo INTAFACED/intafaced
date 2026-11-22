@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
+import { ReadFailure, ReadLoading } from '../../shared/read-state';
 import { verificationAttemptsCopy as copy } from './verification-attempts-copy';
 import { IDENTITY_KYC_ATTEMPTS_READ } from '@intafaced/contracts/identity-kyc-procedures';
 
@@ -35,24 +35,24 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
     return () => window.clearInterval(timer);
   }, [locked]);
   useEffect(() => () => onLocked(false), [onLocked]);
-  if (resource.status === 'loading') return <Loading />;
+  if (resource.status === 'loading') return <ReadLoading />;
   if (resource.status === 'failed')
     return (
-      <div className="verification__attempts" data-testid="verification__attempts" data-state="unread">
+      <div data-testid="verification__attempts" data-state="unread">
         <h3>
           <Copy k="failedTitle" />
         </h3>
-        <Failure result={resource.failure} retry={reload} />
+        <ReadFailure result={resource.failure} retry={reload} />
       </div>
     );
   const { limit, denialsInWindow } = resource.data;
   return (
-    <div className="verification__attempts" data-testid="verification__attempts" data-state={!limit ? 'unset' : locked ? 'locked' : 'open'}>
+    <div data-testid="verification__attempts" data-state={!limit ? 'unset' : locked ? 'locked' : 'open'}>
       <h3>
         <Copy k="title" />
       </h3>
       {!limit ? (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="unset" />
         </p>
       ) : locked ? (
@@ -60,12 +60,12 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
           <p data-testid="verification__attempts-locked" data-locked-until={lockedUntil}>
             <Copy k="locked" params={{ seconds: String(seconds) }} />
           </p>
-          <p className="muted">
+          <p className="lt-hint">
             <Copy k="lockedHelp" />
           </p>
         </>
       ) : (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy
             k="standing"
             params={{

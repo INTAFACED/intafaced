@@ -2,18 +2,6 @@
 import { z } from 'zod';
 import { decimalSchema as money, signedDecimalSchema } from '../../shared/money';
 
-const productSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  debtAssetId: z.string(),
-  collateralAssetId: z.string(),
-  quoteAssetId: z.string(),
-  aprBps: z.number().int(),
-  maxLtvBps: z.number().int(),
-  marginCallLtvBps: z.number().int(),
-  liquidationLtvBps: z.number().int(),
-  minPrincipal: money,
-});
 export const loanSchema = z.object({
   id: z.string(),
   productId: z.string(),
@@ -148,8 +136,6 @@ export type LoanLedgerCheck = z.infer<typeof loanLedgerCheckSchema>;
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const loansReads = {
-  'loans.products': z.array(productSchema),
-  'loans.list': z.array(loanSchema),
   'loans.projection': loanProjectionSchema,
   'loans.payoffQuote': payoffQuoteSchema,
   'loans.interestRows': loanInterestRowsSchema,
@@ -158,20 +144,6 @@ export const loansReads = {
   'loans.eligibility': loanEligibilitySchema,
   'loans.fees': loanFeesSchema,
   'loans.terms': loanTermsSchema,
-  /** `bank.loans.releasable` (BK-loan-05): the most collateral `releaseExcess` would release now, under the product's max LTV. */
-  'loans.releasable': z.object({
-    loanId: z.string(),
-    held: money,
-    releasable: money,
-    maxLtvBps: z.number().int(),
-    ltvBps: z.number().int(),
-  }),
-  'loans.health': z.object({
-    debtValue: money,
-    collateralValue: money,
-    portfolioLtvBps: z.number().int().nonnegative().safe(),
-    loans: z.array(z.object({ loanId: z.string(), debtValue: money, collateralValue: money, ltvBps: z.number().int() })),
-  }),
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */

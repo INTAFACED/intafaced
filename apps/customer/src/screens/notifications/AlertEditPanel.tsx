@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import { alertsCopy } from './alerts-copy';
 import { editDiff, editStart, expiryProblem, priceProblem, SOURCE_KEY } from './alerts-model';
-import { Button } from './deps';
+import { Button } from '@intafaced/ui/lit';
 import { ALERT_CONDITIONS, ALERT_SOURCES, type AlertCondition, type AlertEdit, type PriceAlert } from './notify-api';
 
 const CONDITION_KEY = {
@@ -40,7 +40,6 @@ export function AlertEditPanel({
 
   return (
     <form
-      className="nf-alertask nf-alertform"
       aria-label={copy.t('editTitle')}
       data-testid="alert-edit"
       onSubmit={(event) => {
@@ -50,7 +49,7 @@ export function AlertEditPanel({
         onSave(edit);
       }}
     >
-      <label className="nf-field">
+      <label className="lt-field">
         <span>{copy.t('editConditionLabel')}</span>
         <select
           value={form.condition}
@@ -67,7 +66,7 @@ export function AlertEditPanel({
           ))}
         </select>
       </label>
-      <label className="nf-field">
+      <label className="lt-field">
         <span>{copy.t('priceLabel', { quote })}</span>
         <input
           inputMode="decimal"
@@ -79,12 +78,12 @@ export function AlertEditPanel({
           aria-describedby={`${id}-price`}
           onChange={(event) => setForm({ ...form, price: event.target.value })}
         />
-        <small id={`${id}-price`} className={priceBad ? 'nf-error' : 'nf-muted'}>
+        <small id={`${id}-price`} data-part={priceBad ? 'error' : undefined}>
           {priceBad ? copy.t(form.price.trim() === '' ? 'priceEmpty' : 'priceInvalid') : copy.t('priceHint')}
         </small>
       </label>
       {alert.kind === 'price' ? (
-        <label className="nf-field">
+        <label className="lt-field">
           <span>{copy.t('sourceLabel')}</span>
           <select
             value={form.source}
@@ -102,11 +101,11 @@ export function AlertEditPanel({
           </select>
         </label>
       ) : null}
-      <label className="nf-field">
+      <label className="lt-field">
         <span>{copy.t('nameLabel')}</span>
         <input autoComplete="off" value={form.name} disabled={busy} onChange={(event) => setForm({ ...form, name: event.target.value })} />
       </label>
-      <label className="nf-field">
+      <label className="lt-field">
         <span>{copy.t('messageLabel')}</span>
         <input
           autoComplete="off"
@@ -115,7 +114,7 @@ export function AlertEditPanel({
           onChange={(event) => setForm({ ...form, message: event.target.value })}
         />
       </label>
-      <label className="nf-field">
+      <label className="lt-field">
         <span>{copy.t('expiresLabel')}</span>
         <input
           type="datetime-local"
@@ -124,19 +123,19 @@ export function AlertEditPanel({
           aria-invalid={expiryBad}
           onChange={(event) => setForm({ ...form, expires: event.target.value })}
         />
-        <small className={expiryBad ? 'nf-error' : 'nf-muted'}>{expiryBad ? copy.t('expiresInvalid') : copy.t('expiresHint')}</small>
+        <small data-part={expiryBad ? 'error' : undefined}>{expiryBad ? copy.t('expiresInvalid') : copy.t('expiresHint')}</small>
       </label>
-      {(alert.extras ?? []).length > 0 ? <p className="nf-muted">{copy.t('editExtrasKept')}</p> : null}
+      {(alert.extras ?? []).length > 0 ? <p className="lt-hint">{copy.t('editExtrasKept')}</p> : null}
       {touched && nothing && !priceBad && !expiryBad ? (
-        <p className="nf-muted" role="status">
+        <p className="lt-hint" role="status">
           {copy.t('editNothing')}
         </p>
       ) : null}
-      <div className="nf-address__actions">
-        <Button variant="secondary" size={32} disabled={busy} onClick={onClose}>
+      <div className="lt-actions">
+        <Button tone="secondary" disabled={busy} onClick={onClose}>
           {copy.t('editClose')}
         </Button>
-        <Button type="submit" size={32} loading={busy} disabled={busy}>
+        <Button tone="primary" type="submit" aria-busy={busy || undefined} disabled={busy}>
           {copy.t(busy ? 'editSaving' : 'editSave')}
         </Button>
       </div>

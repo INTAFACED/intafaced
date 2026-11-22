@@ -116,7 +116,6 @@ const merchantSchema = z.object({
     .nullable()
     .optional(),
 });
-export const balanceSchema = z.object({ clearing: amount, available: amount });
 export const linkSchema = z.object({
   id,
   prefix: z.string(),
@@ -290,15 +289,6 @@ export const submerchantSchema = z.object({
   feeBps: z.number().int().nullable(),
   depth: z.number().int(),
   createdAt: z.string(),
-});
-export const grantSchema = z.object({
-  granteeMerchantId: id,
-  subjectMerchantId: id,
-  area: z.string(),
-  reason: z.string(),
-  actorId: z.string(),
-  actorMerchantId: id,
-  grantedAt: z.string(),
 });
 export const permissionEventSchema = z.object({
   id,

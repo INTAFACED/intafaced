@@ -17,7 +17,7 @@ import {
   type TableColumn,
 } from '../rooms/ui';
 import type { ListedMarket, OptionsPolicy } from '../rooms/api';
-import { Freshness } from '../rooms/RoomNotices';
+import { Freshness } from '../rooms/RoomFreshness';
 import { asOfOf, useNow } from '../rooms/read';
 import { optionsCopy } from './copy';
 import { policyGaps, timeLeft } from './model';

@@ -1,6 +1,7 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
+import { type FounderCallContext, partFrom, type Part, founderRecordRead } from '@/lib/desk';
 import { parseDirectDebits, parseRampMetrics, type DirectDebitsReport, type RampMetrics } from './model';
+import { BANK_OPS_RAMP_METRICS, BANK_OPS_DIRECT_DEBIT_MANDATES } from '@intafaced/contracts/bank-ops-procedures';
 
 export interface ServiceDesk {
   readonly asOf: string;
@@ -18,8 +19,8 @@ const labels = {
 /** Both parts are read on their own, so a refused ramp read never hides the direct debits, and the other way round. */
 export async function readServiceDesk(ctx: FounderCallContext): Promise<ServiceDesk> {
   const [ramps, directDebits] = await Promise.all([
-    founderCall(ctx, 'bank', 'ops.rampMetrics', 'GET', undefined, parseRampMetrics),
-    founderCall(ctx, 'bank', 'ops.directDebitMandates', 'GET', undefined, parseDirectDebits),
+    founderRecordRead(ctx, BANK_OPS_RAMP_METRICS, undefined, parseRampMetrics),
+    founderRecordRead(ctx, BANK_OPS_DIRECT_DEBIT_MANDATES, undefined, parseDirectDebits),
   ]);
   return {
     asOf: new Date().toISOString(),

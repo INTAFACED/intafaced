@@ -5,7 +5,7 @@ import { currentPreferences } from '../../shared/preferences';
 import { amount, date } from './money-format';
 import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { authoredRefusal, type ApiResult, type AppProcedure } from '../../shared/api';
+import { authoredRefusal, callAs, type ApiResult, type AppProcedure } from '../../shared/api';
 import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
@@ -54,6 +54,26 @@ export function useBankRecord<R extends AppProcedure & { readonly module: 'bank'
       if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
       if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
       return api.call(record, input, { signal });
+    },
+    `${userId}:${record.path}:${JSON.stringify(input)}:${enabled}`,
+  );
+}
+/**
+ * `useBankRecord` where this caller keeps its own stricter answer schema on top of the record's (`callAs`): the record
+ * names the path and input, and the answer must pass both the record's output and `schema`.
+ */
+export function useBankRecordAs<R extends AppProcedure & { readonly module: 'bank'; readonly kind: 'query' }, T>(
+  record: R,
+  input: ProcedureInput<R>,
+  schema: ZodType<T>,
+  enabled = true,
+) {
+  const { api, userId } = useSession();
+  return useResource<T>(
+    async (signal) => {
+      if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
+      if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
+      return callAs(api, record, input, schema, { signal });
     },
     `${userId}:${record.path}:${JSON.stringify(input)}:${enabled}`,
   );

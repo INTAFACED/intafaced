@@ -1,6 +1,6 @@
+// volt-room: /trade/buy
 import { useState } from 'react';
-import './buy.css';
-import './volt.css';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { BuyCard, ORDERS_HREF } from './BuyCard';
 import { buyCopy } from './copy';
 import { YourOrders } from './YourOrders';
@@ -14,31 +14,36 @@ function readSearch(search: string): { asset: string | null; side: 'buy' | 'sell
   return { asset: /^[A-Z0-9]{2,12}$/.test(asset) ? asset : null, side: query.get('side') === 'sell' ? 'sell' : 'buy' };
 }
 
-/** Simple Buy / Sell (UI-SPEC 5.9): breadcrumb, headline on the left, the BuyCard on the right. */
+/** Simple Buy / Sell (UI-SPEC 5.9) on the flow template: the headline, the breadcrumb and the BuyCard, your orders beside them. */
 export default function TradeBuyScreen({ search }: ScreenProps) {
   const { t } = buyCopy.useCopy();
   const { asset, side: initialSide } = readSearch(search);
   const [side, setSide] = useState(initialSide);
   const selling = side === 'sell';
   return (
-    <div data-testid="if-buy" className="if-buy">
-      <nav data-testid="buy-crumbs" className="buy-crumbs" aria-label={selling ? t('Sell crypto') : t('Buy crypto')}>
-        <a href="/trade">{t('Trade')}</a>
-        <span aria-hidden="true">›</span>
-        <span aria-current="page">{selling ? t('Sell crypto') : t('Buy crypto')}</span>
-        <a data-testid="buy-crumbs__history" className="buy-crumbs__history" href={ORDERS_HREF}>
+    <FlowTemplate
+      title={selling ? t('Sell crypto in a few steps') : t('Buy crypto in a few steps')}
+      description={selling ? t('Sell crypto intro') : t('Buy crypto intro')}
+      state={{ kind: 'ready' }}
+      roomAction={
+        <a data-testid="buy-crumbs__history" className="lt-link" href={ORDERS_HREF}>
           {t('Order history')}
         </a>
-      </nav>
-      <EmailProofNotice />
-      <div className="buy-grid">
-        <header data-testid="buy-hero" className="buy-hero">
-          <h1>{selling ? t('Sell crypto in a few steps') : t('Buy crypto in a few steps')}</h1>
-          <p>{selling ? t('Sell crypto intro') : t('Buy crypto intro')}</p>
-        </header>
-        <BuyCard initialAsset={asset} initialSide={initialSide} onAssetChange={undefined} onSideChange={setSide} />
-      </div>
-      <YourOrders />
-    </div>
+      }
+      step={
+        <div data-testid="if-buy">
+          <nav data-testid="buy-crumbs" className="lt-actions" aria-label={selling ? t('Sell crypto') : t('Buy crypto')}>
+            <a className="lt-link" href="/trade">
+              {t('Trade')}
+            </a>
+            <span aria-hidden="true">›</span>
+            <span aria-current="page">{selling ? t('Sell crypto') : t('Buy crypto')}</span>
+          </nav>
+          <EmailProofNotice />
+          <BuyCard initialAsset={asset} initialSide={initialSide} onAssetChange={undefined} onSideChange={setSide} />
+        </div>
+      }
+      summary={<YourOrders />}
+    />
   );
 }

@@ -1,9 +1,6 @@
 import { z } from 'zod';
 import { positionSchema } from '@intafaced/exchange-contract/schemas';
 import {
-  convertQuoteSchema,
-  convertTradeSchema,
-  algoSchema,
   copyFollowSchema,
   copyStatusSchema,
   otcStatusSchema,
@@ -21,8 +18,16 @@ import {
   TRADE_CONVERT_LIMIT_CANCEL,
   TRADE_CONVERT_ROUTE,
   TRADE_CONVERT_LIST,
+  TRADE_CONVERT_QUOTE,
+  TRADE_CONVERT_ACCEPT,
 } from '@intafaced/contracts/trade-convert-procedures';
-import { TRADE_ALGO_PROGRESS } from '@intafaced/contracts/trade-algo-procedures';
+import {
+  TRADE_ALGO_PROGRESS,
+  TRADE_ALGO_GET,
+  TRADE_ALGO_PAUSE,
+  TRADE_ALGO_RESUME,
+  TRADE_ALGO_CANCEL,
+} from '@intafaced/contracts/trade-algo-procedures';
 import { TRADE_OTC_MAKERS_LIST, TRADE_OTC_ACCEPT, TRADE_OTC_SETTLE } from '@intafaced/contracts/trade-otc-procedures';
 import { TRADE_RFQ_GET } from '@intafaced/contracts/trade-rfq-procedures';
 
@@ -45,15 +50,19 @@ export function createToolApi(api: ApiClient) {
     convertLimitCancel: (id: string) => api.call(TRADE_CONVERT_LIMIT_CANCEL, { id }),
     /** How one asset converts to another; refuses by name where no route is built (a cash currency through a coin). */
     convertRoute: (input: { from: string; to: string }, signal?: AbortSignal) => api.call(TRADE_CONVERT_ROUTE, input, { signal }),
-    convertQuote: (input: ConvertQuoteInput) => api.query('trade', 'convert.quote', input, convertQuoteSchema),
+    convertQuote: (input: ConvertQuoteInput) => api.call(TRADE_CONVERT_QUOTE, input),
     /** The service refuses without a window (92 days at most) and a limit, so the caller always names both. */
     convertList: (input: { from: string; to: string; limit: number; cursor?: string }, signal?: AbortSignal) =>
       api.call(TRADE_CONVERT_LIST, input, { signal }),
-    convertAccept: (quoteId: string, clientConvertId: string) =>
-      api.mutate('trade', 'convert.accept', { quoteId, clientConvertId }, convertTradeSchema),
-    algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoSchema, { signal }),
+    convertAccept: (quoteId: string, clientConvertId: string) => api.call(TRADE_CONVERT_ACCEPT, { quoteId, clientConvertId }),
+    algoGet: (algoId: string, signal?: AbortSignal) => api.call(TRADE_ALGO_GET, { algoId }, { signal }),
     algoProgress: (algoId: string, signal?: AbortSignal) => api.call(TRADE_ALGO_PROGRESS, { algoId }, { signal }),
-    algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) => api.mutate('trade', `algo.${action}`, { algoId }, algoSchema),
+    algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) =>
+      action === 'pause'
+        ? api.call(TRADE_ALGO_PAUSE, { algoId })
+        : action === 'resume'
+          ? api.call(TRADE_ALGO_RESUME, { algoId })
+          : api.call(TRADE_ALGO_CANCEL, { algoId }),
     copyStatus: (signal?: AbortSignal) => api.query('trade', 'copy.deskStatus', undefined, copyStatusSchema, { signal }),
     copyFollows: (signal?: AbortSignal) => api.query('trade', 'copy.listMyFollows', { limit: 100 }, z.array(copyFollowSchema), { signal }),
     copyAction: (action: 'pause' | 'stop' | 'detach' | 'resume', followId: string) =>

@@ -1,0 +1,309 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Checkbox, Field, Select } from '@intafaced/ui/lit';
+import { KeyValue, Sheet } from '@intafaced/ui/lit/templates';
+import { usePreferences } from '../../../shared/preferences';
+import { useApi } from '../../session';
+import { createProtocolApi, type RepresentationStatus } from '../api';
+import { networkLabel } from '../blockers';
+import { RepresentationStep } from '../liquidity/RepresentationStep';
+import { useRegionBlocked } from '../region';
+import { walletCopy } from '../wallet/copy';
+import { APP_CHAIN_ID } from '../wallet/eip1193';
+import { useResource } from '../../../shared/resource';
+import {
+  exactUnits,
+  isContractCode,
+  lastFour,
+  nativeCurrency,
+  readDestination,
+  receiptFee,
+  sameAddress,
+  toBaseUnits,
+  toHexValue,
+  tokenLabel,
+  transferCalldata,
+} from '../wallet/transfer';
+import { useWallet, waitMined } from '../wallet/WalletProvider';
+import { recordSent } from '../wallet/sent-store';
+import { signingGate } from '../wallet/signing-gate';
+
+type Contract = 'checking' | 'contract' | 'wallet' | 'unknown';
+type Outcome =
+  | { kind: 'idle' }
+  | { kind: 'busy' }
+  | { kind: 'representation'; address: string; status: RepresentationStatus }
+  | { kind: 'sent'; hash: string; fee: SentFee }
+  | { kind: 'refused'; message: string };
+
+const NATIVE = 'native';
+/** How long the panel waits for a sent transfer to be mined before it says its fee is not known. */
+const FEE_WAIT_MS = 120_000;
+
+/** A sent transfer's network fee: waiting for the chain, read from its receipt, or not known (never shown as 0). */
+type SentFee = { kind: 'waiting' } | { kind: 'known'; units: bigint } | { kind: 'unknown' };
+
+/**
+ * Send: the network's own currency from the connected wallet to an address (D-portfolio-wallet-03, D-swap-12). The
+ * wallet builds, signs and sends the transaction itself; nothing posts to the ledger. Review shows every line first, and
+ * a new address needs its last four characters typed. A name is never guessed into an address: with no name service
+ * connected it says so. `to` and `token` arrive pre-filled from a scanned code; nothing is chosen for the person.
+ */
+export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to?: string; token?: string }) {
+  const { language } = usePreferences();
+  const { t } = walletCopy.forLocale(language);
+  const wallet = useWallet();
+  const regionBlocked = useRegionBlocked();
+  const transport = useApi();
+  const api = useMemo(() => createProtocolApi(transport), [transport]);
+  const network = networkLabel(APP_CHAIN_ID).name;
+  const native = nativeCurrency(APP_CHAIN_ID);
+  // Tokens come from the pools the network's factory lists; the network's own currency is always there.
+  const pairs = useResource((signal) => api.ammPairs(signal), 'send:pairs');
+  const listed = pairs.resource.status === 'ready' ? pairs.resource.data.tokens : [];
+  const askedListed = askedToken ? listed.find((entry) => entry.address.toLowerCase() === askedToken.toLowerCase()) : undefined;
+  const [token, setToken] = useState('');
+  useEffect(() => {
+    if (askedListed) setToken(askedListed.address);
+  }, [askedListed]);
+  const [amount, setAmount] = useState('');
+  const [to, setTo] = useState(prefilledTo);
+  // A new pre-filled address (another scanned code) replaces the old one and closes any review of the old one.
+  useEffect(() => {
+    setTo(prefilledTo);
+    setReviewing(false);
+  }, [prefilledTo]);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [contract, setContract] = useState<Contract>('checking');
+  const [ticked, setTicked] = useState(false);
+  const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
+  const asked = useRef(0);
+  /** The send whose fee is being read; another send or an edit of the form ends that read. */
+  const feeFor = useRef<string | null>(null);
+
+  /** Reads the sent transfer's receipt from the chain through the wallet, and shows the fee it paid or "not known". */
+  const readFee = async (hash: string) => {
+    const mined = await waitMined(
+      (h) => wallet.read('eth_getTransactionReceipt', [h]),
+      hash,
+      FEE_WAIT_MS,
+      () => feeFor.current !== hash,
+    );
+    if (feeFor.current !== hash) return;
+    let fee: SentFee = { kind: 'unknown' };
+    if (mined.status !== 'timeout') {
+      const units = receiptFee(await wallet.read('eth_getTransactionReceipt', [hash]).catch(() => null));
+      if (units !== null) fee = { kind: 'known', units };
+    }
+    setOutcome((now) => (now.kind === 'sent' && now.hash === hash ? { ...now, fee } : now));
+  };
+
+  const destination = readDestination(to);
+  const chosen =
+    token === NATIVE && native
+      ? { address: null, label: native.symbol, decimals: native.decimals }
+      : (() => {
+          const found = listed.find((entry) => entry.address === token);
+          return found ? { address: found.address, label: found.name, decimals: found.decimals } : null;
+        })();
+  const units = chosen ? toBaseUnits(amount, chosen.decimals) : null;
+  const ready = wallet.status === 'connected' && wallet.address !== null && wallet.guard?.ok === true;
+  // A code that asked for a token this list does not hold is never paid in another currency instead.
+  const canReview = ready && destination.kind === 'address' && (!askedToken || askedListed !== undefined);
+  const edit = (set: (value: string) => void) => (event: { target: { value: string } }) => {
+    set(event.target.value);
+    setReviewing(false);
+    setProblem(null);
+    feeFor.current = null;
+    setOutcome({ kind: 'idle' });
+  };
+
+  const review = async () => {
+    if (destination.kind !== 'address' || !wallet.address) return;
+    if (sameAddress(destination.address, wallet.address)) return setProblem(t('sendSelf'));
+    if (!chosen) return setProblem(t('sendChooseToken'));
+    if (units === null) return setProblem(t('sendAmountInvalid', { decimals: String(chosen.decimals) }));
+    setProblem(null);
+    setTyped('');
+    setTicked(false);
+    setContract('checking');
+    setReviewing(true);
+    const turn = ++asked.current;
+    const code = await wallet.code(destination.address);
+    if (turn !== asked.current) return;
+    setContract(code === null ? 'unknown' : isContractCode(code) ? 'contract' : 'wallet');
+  };
+
+  const send = async () => {
+    if (destination.kind !== 'address' || !wallet.address || units === null) return;
+    setOutcome({ kind: 'busy' });
+    // A send is a signing action: the representation gate runs first and never fails open.
+    const gate = await signingGate(api, wallet.address);
+    if (gate.kind === 'refused') {
+      setReviewing(false);
+      return setOutcome({ kind: 'refused', message: t(gate.key) });
+    }
+    if (gate.kind === 'needed') {
+      setReviewing(false);
+      return setOutcome({ kind: 'representation', address: gate.address, status: gate.status });
+    }
+    setReviewing(false);
+    const result = await wallet.sign(
+      chosen?.address
+        ? { kind: 'transaction', to: chosen.address, data: transferCalldata(destination.address, units) }
+        : { kind: 'transaction', to: destination.address, value: toHexValue(units) },
+    );
+    if (result.status === 'sent') {
+      // Kept in this browser so Activity shows it while it is pending, and a speed-up or cancel can name it.
+      recordSent(APP_CHAIN_ID, wallet.address, {
+        hash: result.hash,
+        sentAt: Date.now(),
+        kind: 'send',
+        label: `${amount.trim()} ${chosen?.label ?? ''} → ${destination.address}`,
+      });
+      setOutcome({ kind: 'sent', hash: result.hash, fee: { kind: 'waiting' } });
+      feeFor.current = result.hash;
+      void readFee(result.hash);
+    } else if (result.status === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
+    else if (result.status === 'failed') setOutcome({ kind: 'refused', message: result.message });
+    else setOutcome({ kind: 'idle' });
+  };
+
+  if (regionBlocked)
+    return (
+      <section>
+        <h2>{t('sendTitle')}</h2>
+        <p className="lt-hint" data-permit-refused="region">
+          {t('permitRefused_region')}
+        </p>
+      </section>
+    );
+
+  const confirmed =
+    destination.kind === 'address' &&
+    typed.trim().toLowerCase() === lastFour(destination.address) &&
+    contract !== 'checking' &&
+    (contract !== 'contract' || ticked);
+
+  return (
+    <>
+      {outcome.kind === 'representation' && (
+        <RepresentationStep
+          address={outcome.address}
+          status={outcome.status}
+          api={api}
+          onEnd={(end) => {
+            if (end.kind === 'accepted') void send();
+            else if (end.kind === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
+            else if (end.kind === 'region') setOutcome({ kind: 'refused', message: t('permitRefused_region') });
+            else setOutcome({ kind: 'refused', message: end.message });
+          }}
+        />
+      )}
+      <section>
+        <h2>{t('sendTitle')}</h2>
+        <p className="lt-hint">{t('sendNote', { network })}</p>
+        {!ready && <p className="lt-hint">{t('needsWallet')}</p>}
+        <form
+          aria-label={t('sendTitle')}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void review();
+          }}
+        >
+          <Select
+            label={t('sendToken')}
+            hint={
+              askedToken && !askedListed
+                ? t('sendTokenAsked', { token: askedToken })
+                : pairs.resource.status === 'ready'
+                  ? t('sendTokenListPools')
+                  : t('sendTokenListNote')
+            }
+            value={token}
+            onChange={(value) => edit(setToken)({ target: { value } })}
+            // A code that asked for one token is paid in that token only.
+            disabled={askedListed !== undefined}
+          >
+            <option value="">{t('sendTokenChoose')}</option>
+            {native && <option value={NATIVE}>{t('sendNative', { symbol: native.symbol })}</option>}
+            {listed.map((entry) => (
+              <option key={entry.address} value={entry.address}>
+                {tokenLabel(entry, listed)}
+              </option>
+            ))}
+          </Select>
+          <Field label={t('sendAmount')} hint={t('sendAmountHint')} inputMode="decimal" value={amount} onChange={edit(setAmount)} />
+          <Field label={t('sendTo')} hint={t('sendToHint')} value={to} onChange={edit(setTo)} autoComplete="off" spellCheck={false} />
+          {destination.kind === 'name' && (
+            <>
+              <p role="alert">{t('sendNameUnresolved')}</p>
+              <p className="lt-hint">{t('sendNameWhy')}</p>
+            </>
+          )}
+          {destination.kind === 'invalid' && <p role="alert">{t('sendInvalidTo')}</p>}
+          {problem && <p role="alert">{problem}</p>}
+          <Button tone="primary" type="submit" disabled={!canReview || outcome.kind === 'busy'}>
+            {t('sendReview')}
+          </Button>
+        </form>
+        {outcome.kind === 'sent' && (
+          <>
+            <p role="status">{t('sendSent', { hash: outcome.hash })}</p>
+            <p
+              data-testid="send-network-fee"
+              data-fee={outcome.fee.kind}
+              data-fee-units={outcome.fee.kind === 'known' ? outcome.fee.units.toString() : undefined}
+            >
+              {outcome.fee.kind === 'waiting'
+                ? t('sendFeeWaiting')
+                : outcome.fee.kind === 'known' && native
+                  ? t('sendFeeKnown', { fee: exactUnits(outcome.fee.units, native.decimals), symbol: native.symbol })
+                  : t('sendFeeUnknown')}
+            </p>
+          </>
+        )}
+        {outcome.kind === 'refused' && <p role="alert">{outcome.message}</p>}
+      </section>
+      {reviewing && destination.kind === 'address' && chosen && (
+        <Sheet open title={t('reviewTitle')} onClose={() => setReviewing(false)}>
+          <KeyValue
+            rows={[
+              { label: t('reviewFrom'), value: wallet.address, ltr: true },
+              { label: t('reviewTo'), value: destination.address, ltr: true },
+              { label: t('reviewAmount'), value: `${amount.trim()} ${chosen.label}` },
+              ...(chosen.address ? [{ label: t('reviewTokenContract'), value: chosen.address, ltr: true }] : []),
+              { label: t('reviewNetwork'), value: network },
+            ]}
+          />
+          {contract === 'checking' && <p role="status">{t('reviewChecking')}</p>}
+          {contract === 'contract' && (
+            <>
+              <p role="note">{t('reviewContract')}</p>
+              <Checkbox label={t('reviewContractTick')} checked={ticked} onCheckedChange={setTicked} />
+            </>
+          )}
+          {contract === 'unknown' && <p role="note">{t('reviewContractUnknown')}</p>}
+          <Field
+            label={t('reviewLastFour')}
+            hint={t('reviewLastFourHint')}
+            value={typed}
+            maxLength={4}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => setTyped(event.target.value)}
+          />
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => setReviewing(false)}>
+              {t('reviewBack')}
+            </Button>
+            <Button tone="primary" disabled={!confirmed || outcome.kind === 'busy'} onClick={() => void send()}>
+              {t('reviewSend')}
+            </Button>
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+}
