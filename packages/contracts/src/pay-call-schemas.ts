@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { payPricingSnapshotViewSchema, payMerchantFailureSchema } from './pay-merchant-reads.js';
 import { assetIdSchema as brandedAssetIdSchema } from './asset-id.js';
+import { PAY_TRAVEL_RULE_FIELDS, PAY_DEPOSIT_TRAVEL_RULE_STATES, PAY_DEPOSIT_WALLET_TYPES } from './pay-custody-deposit.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-pay's records share, moved from the service so the records and every caller read one copy. */
@@ -327,3 +328,26 @@ export const permissionEventView = z.object({
   actorScope: z.string(),
   createdAt: z.string().datetime({ offset: true }),
 });
+
+export const fieldSchema = z.enum(PAY_TRAVEL_RULE_FIELDS);
+
+export const heldDepositViewSchema = z
+  .object({
+    depositId: z.string(),
+    userId: z.string(),
+    assetId: z.string(),
+    networkId: z.string(),
+    txHash: z.string(),
+    amount: z.string(),
+    threshold: z.string(),
+    ruleVersion: z.number().int(),
+    requiredFields: z.array(fieldSchema),
+    state: z.enum(PAY_DEPOSIT_TRAVEL_RULE_STATES),
+    walletType: z.enum(PAY_DEPOSIT_WALLET_TYPES).nullable(),
+    declaredAt: z.string().nullable(),
+    waitDeadline: z.string().nullable(),
+    openedAt: z.string(),
+    lastActor: z.string(),
+    lastReason: z.string().nullable(),
+  })
+  .strict();

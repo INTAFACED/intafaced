@@ -1372,6 +1372,7 @@ import {
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
 } from './pay-founder-admin-procedures.js';
 
 import { PAY_HALTS_OPERATOR_STATUS, PAY_HALTS_SET, PAY_HALTS_HISTORY, PAY_HALTS_PENDING_CLEARS } from './pay-halt-procedures.js';
@@ -1381,6 +1382,7 @@ import {
   PAY_KYB_REQUESTS_FILE,
   PAY_KYB_REQUESTS_REVIEW_LIST,
   PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+  PAY_KYB_DOCUMENTS_REVIEW,
 } from './pay-kyb-procedures.js';
 
 import {
@@ -1398,6 +1400,7 @@ import {
   PAY_PAYMENT_LIST,
   PAY_PAYMENT_AUTHORIZE,
   PAY_PAYMENT_CAPTURE,
+  PAY_PAYMENT_REFUND,
 } from './pay-payment-procedures.js';
 
 import { PAY_RAIL_HEALTH } from './pay-rail-health-procedures.js';
@@ -3385,6 +3388,7 @@ const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
 ];
 
 const part_pay_halt_procedures: readonly ProcedureRecord[] = [
@@ -3399,6 +3403,7 @@ const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
   PAY_KYB_REQUESTS_FILE,
   PAY_KYB_REQUESTS_REVIEW_LIST,
   PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+  PAY_KYB_DOCUMENTS_REVIEW,
 ];
 
 const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
@@ -3416,6 +3421,7 @@ const part_pay_payment_procedures: readonly ProcedureRecord[] = [
   PAY_PAYMENT_LIST,
   PAY_PAYMENT_AUTHORIZE,
   PAY_PAYMENT_CAPTURE,
+  PAY_PAYMENT_REFUND,
 ];
 
 const part_pay_rail_health_procedures: readonly ProcedureRecord[] = [PAY_RAIL_HEALTH];

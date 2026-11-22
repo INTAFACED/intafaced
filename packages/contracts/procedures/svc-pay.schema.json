@@ -4994,6 +4994,151 @@
         }
       ]
     },
+    "pay.founderAdmin.depositTravelRule.list": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "founderAdmin.depositTravelRule.list",
+      "access": {
+        "caller": "founder"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["userId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "depositId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": "string"
+            },
+            "assetId": {
+              "type": "string"
+            },
+            "networkId": {
+              "type": "string"
+            },
+            "txHash": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "string"
+            },
+            "threshold": {
+              "type": "string"
+            },
+            "ruleVersion": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "requiredFields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "originator_name",
+                  "originator_address",
+                  "originator_date_of_birth",
+                  "originator_national_identifier",
+                  "beneficiary_name",
+                  "beneficiary_address",
+                  "beneficiary_account",
+                  "beneficiary_institution",
+                  "beneficiary_wallet_type",
+                  "transfer_purpose",
+                  "self_or_third_party"
+                ]
+              }
+            },
+            "state": {
+              "type": "string",
+              "enum": ["awaiting_declaration", "under_review", "counterparty_pending", "blocking_time_expired", "released"]
+            },
+            "walletType": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["exchange", "self_hosted"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "declaredAt": {
+              "type": ["string", "null"]
+            },
+            "waitDeadline": {
+              "type": ["string", "null"]
+            },
+            "openedAt": {
+              "type": "string"
+            },
+            "lastActor": {
+              "type": "string"
+            },
+            "lastReason": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": [
+            "depositId",
+            "userId",
+            "assetId",
+            "networkId",
+            "txHash",
+            "amount",
+            "threshold",
+            "ruleVersion",
+            "requiredFields",
+            "state",
+            "walletType",
+            "declaredAt",
+            "waitDeadline",
+            "openedAt",
+            "lastActor",
+            "lastReason"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "pay.founderAdmin.disputes.list": {
       "service": "svc-pay",
       "module": "pay",
@@ -10617,6 +10762,157 @@
         }
       ]
     },
+    "pay.kyb.documents.review": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "kyb.documents.review",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance",
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "applicationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["accepted", "rejected"]
+          },
+          "reason": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["applicationId", "documentId", "verdict"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "row": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{1,63}$"
+              },
+              "state": {
+                "type": "string",
+                "enum": ["missing", "provided", "accepted", "rejected"]
+              },
+              "rejectionReason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "document": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      },
+                      "contentType": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "byteLength": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "uploadedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "contentType", "byteLength", "sha256", "uploadedAt"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["key", "state", "rejectionReason", "document"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["row"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "kyb_document_review_input_holds": {
+          "at": "input",
+          "says": "a rejection needs a reason, and an acceptance takes none"
+        },
+        "reason_holds": {
+          "at": "input.reason",
+          "says": "a reason is 3 to 1000 characters"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "applicationId": "11111111-1111-4111-8111-111111111111",
+            "documentId": "11111111-1111-4111-8111-111111111111",
+            "verdict": "accepted"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "kyb_document_review_input_holds",
+          "input": {
+            "applicationId": "11111111-1111-4111-8111-111111111111",
+            "documentId": "11111111-1111-4111-8111-111111111111",
+            "verdict": "rejected"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "reason_holds",
+          "input": {
+            "applicationId": "11111111-1111-4111-8111-111111111111",
+            "documentId": "11111111-1111-4111-8111-111111111111",
+            "verdict": "accepted",
+            "reason": ""
+          }
+        }
+      ]
+    },
     "pay.kyb.documents.reviewView": {
       "service": "svc-pay",
       "module": "pay",
@@ -14132,6 +14428,323 @@
         {
           "verdict": "refuse",
           "input": 42
+        }
+      ]
+    },
+    "pay.payment.refund": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "payment.refund",
+      "access": {
+        "caller": "scope",
+        "scope": "pay:refund",
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "refundId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["paymentId", "amount", "refundId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "merchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "profileId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "method": {
+            "type": "string"
+          },
+          "railAdapter": {
+            "type": "string"
+          },
+          "railRef": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"]
+          },
+          "capturedAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "refundedAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "pricingSnapshot": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "fee": {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      },
+                      "assetCode": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16
+                      },
+                      "appliedLayer": {
+                        "type": "string",
+                        "enum": ["global", "tier", "merchant"]
+                      },
+                      "ruleId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      },
+                      "feeBps": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      "flatFee": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^\\d+(\\.\\d{1,18})?$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "spreadBps": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "roundingBeneficiary": {
+                        "type": "string",
+                        "enum": ["platform", "merchant"]
+                      },
+                      "roundingMode": {
+                        "type": "string",
+                        "enum": ["ceil", "floor"]
+                      },
+                      "bookedFee": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^\\d+(\\.\\d{1,18})?$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "reserveAmount": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^\\d+(\\.\\d{1,18})?$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "recordedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      "parts": {
+                        "anyOf": [
+                          {
+                            "minItems": 1,
+                            "maxItems": 4,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": ["percent", "flat", "minimum", "maximum"]
+                                },
+                                "amount": {
+                                  "type": "string",
+                                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                                }
+                              },
+                              "required": ["kind", "amount"],
+                              "additionalProperties": false
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "fee",
+                      "assetCode",
+                      "appliedLayer",
+                      "ruleId",
+                      "feeBps",
+                      "flatFee",
+                      "spreadBps",
+                      "roundingBeneficiary",
+                      "roundingMode",
+                      "bookedFee",
+                      "reserveAmount",
+                      "recordedAt",
+                      "parts"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "fee": {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      }
+                    },
+                    "required": ["fee"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9._]{0,63}$"
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": ["code", "message"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "merchantId",
+          "profileId",
+          "amount",
+          "assetId",
+          "method",
+          "railAdapter",
+          "railRef",
+          "status",
+          "capturedAmount",
+          "refundedAmount",
+          "createdAt",
+          "pricingSnapshot",
+          "failure"
+        ],
+        "additionalProperties": false
+      },
+      "checks": {
+        "refund_id_holds": {
+          "at": "input.refundId",
+          "says": "refundId must not be blank"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "paymentId": "11111111-1111-4111-8111-111111111111",
+            "amount": "1",
+            "refundId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "refund_id_holds",
+          "input": {
+            "paymentId": "11111111-1111-4111-8111-111111111111",
+            "amount": "1",
+            "refundId": " "
+          }
         }
       ]
     },

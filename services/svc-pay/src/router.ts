@@ -145,6 +145,7 @@ import {
   PAY_PAYMENT_LIST,
   PAY_PAYMENT_AUTHORIZE,
   PAY_PAYMENT_CAPTURE,
+  PAY_PAYMENT_REFUND,
 } from '@intafaced/contracts/pay-payment-procedures';
 import {
   PAY_MERCHANT_STARTER_FEE,
@@ -1029,23 +1030,9 @@ export function createPayRouter(
       ),
 
       /** Its own scope. Refunding is not the same authority as taking payment. */
-      refund: scopedProcedure('pay:refund', { module: 'pay' })
-        // refundId is the caller's idempotency key. Without it the service invented
-        // `${paymentId}:${count + 1}`, so a client retry of a PARTIAL refund that had
-        // already succeeded booked a second refund. A retry must carry the same id.
-        .input(
-          z.object({
-            paymentId: z.string().guid(),
-            amount: amountSchema,
-            refundId: z
-              .string()
-              .min(1)
-              .max(200)
-              .refine((id) => id.trim().length > 0, 'refundId must not be blank'),
-          }),
-        )
-        .output(paymentView)
-        .mutation(({ ctx, input }) =>
+      refund: mountRecord(
+        PAY_PAYMENT_REFUND,
+        ({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
@@ -1058,7 +1045,8 @@ export function createPayRouter(
               true,
             );
           }),
-        ),
+        payRefusal,
+      ),
 
       get: mountRecord(
         PAY_PAYMENT_GET,
