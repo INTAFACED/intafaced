@@ -867,6 +867,105 @@ test("the window ends when main's workflow last began to index, from its history
   );
 });
 
+// readIndexLive's GraphQL read (project-state#3718): the same versions as the REST walk's, from INDEX_HISTORY_QUERY's pages.
+const fakeGraph = (index, { size = 20, fail = null } = {}) => {
+  const asked = [];
+  const graph = async (query, vars) => {
+    asked.push(vars);
+    if (fail) throw new Error(fail);
+    const from = vars.after ? Number(vars.after) : 0;
+    const all = index.commits ?? [];
+    const nodes = all.slice(from, from + size).map((c) => ({
+      oid: c.sha,
+      parents: { totalCount: c.parents },
+      file: c.text == null ? null : { object: { text: c.text, isTruncated: false } },
+      associatedPullRequests: {
+        nodes:
+          c.pull === 'unreadable'
+            ? null
+            : c.pull
+              ? [{ mergeCommit: { oid: c.sha }, baseRefName: c.pull.base?.ref, mergedAt: c.pull.merged_at }]
+              : [],
+      },
+    }));
+    return {
+      repository: { object: { history: { pageInfo: { hasNextPage: from + size < all.length, endCursor: String(from + size) }, nodes } } },
+    };
+  };
+  return { graph, asked };
+};
+
+test("the window's end read by GraphQL is the REST walk's, in one read instead of two per edit; unread, it is read over REST", async () => {
+  const RESTORED = '2026-11-06T09:00:00Z';
+  const cases = {
+    live: INDEX,
+    reverted: { ...INDEX, commits: [version(4, RESTORED, WF), version(3, '2026-11-04T09:00:00Z', WF_BARE), ...INDEX.commits] },
+    late: { ...INDEX, commits: [version(2, '2026-11-04T10:00:00Z', WF, { committed: MERGED_AT }), INDEX.commits[1]] },
+    ...Object.fromEntries(
+      [
+        { parents: 2 },
+        { parents: 0 },
+        { pull: null },
+        { pull: { merged_at: MERGED_AT, base: { ref: 'side/b' } } },
+        { pull: { merged_at: null, base: { ref: 'main' } } },
+      ].map((odd) => [JSON.stringify(odd), { ...INDEX, commits: [version(2, MERGED_AT, WF, odd), INDEX.commits[1]] }]),
+    ),
+    bare: { ...INDEX, commits: [version(5, '2026-11-04T08:30:00Z', WF_BARE), ...INDEX.commits] },
+    deleted: { ...INDEX, commits: [version(5, '2026-11-04T08:30:00Z', null), ...INDEX.commits] },
+    // 45 indexing versions over three GraphQL pages (main had about 35 by 22 Nov 2026).
+    many: {
+      ...INDEX,
+      commits: [
+        ...Array.from({ length: 44 }, (_, i) =>
+          version(200 - i, `2026-11-${String(5 + Math.floor(i / 4)).padStart(2, '0')}T00:00:00Z`, WF),
+        ),
+        ...INDEX.commits,
+      ],
+    },
+  };
+  for (const [name, index] of Object.entries(cases)) {
+    const rest = fakeApi({ index });
+    const want = await readIndexLive('o/r', 't', rest.get);
+    const viaRest = rest.asked.filter((p) => p.includes('/contents/') || p.includes('/pulls') || p.includes('/commits?')).length;
+    const api = fakeApi({ index });
+    const g = fakeGraph(index);
+    assert.deepEqual(await readIndexLive('o/r', 't', api.get, g.graph), want, name);
+    // GraphQL reads none of the per-version REST paths: only the workflow, and one GraphQL read per 20 versions.
+    assert.deepEqual(
+      api.asked.filter((p) => !p.endsWith('/actions/workflows/ci-review.yml')),
+      [],
+      name,
+    );
+    assert.ok(g.asked.length <= Math.ceil((index.commits.length + 1) / 20), `${name}: ${g.asked.length} GraphQL reads`);
+    if (name === 'many') {
+      // The past mistake: two REST reads per edit since the index went live (74 a seal on 22 Nov), against 3 here.
+      assert.ok(viaRest >= 2 * 45, `REST walk read ${viaRest}`);
+      assert.equal(g.asked.length, 3);
+    }
+    // GraphQL unread (a spent GraphQL budget, an error, a cut answer): the REST walk decides, exactly as before.
+    for (const broken of [fakeGraph(index, { fail: 'GraphQL: RATE_LIMITED' }).graph, async () => ({ repository: null })]) {
+      const back = fakeApi({ index });
+      assert.deepEqual(await readIndexLive('o/r', 't', back.get, broken), want, name);
+      assert.equal(back.asked.filter((p) => p.includes('/commits?')).length, rest.asked.filter((p) => p.includes('/commits?')).length);
+    }
+  }
+  // A version's text GraphQL cut short, or its pull requests unreadable, is never read as an answer: REST decides.
+  const cut = fakeGraph(INDEX).graph;
+  const truncated = async (q, v) => {
+    const d = await cut(q, v);
+    d.repository.object.history.nodes[0].file.object.isTruncated = true;
+    return d;
+  };
+  const tr = fakeApi();
+  assert.deepEqual(await readIndexLive('o/r', 't', tr.get, truncated), await readIndexLive('o/r', 't', fakeApi().get));
+  assert.ok(tr.asked.some((p) => p.includes('/contents/')));
+  const unreadable = { ...INDEX, commits: [version(2, MERGED_AT, WF, { pull: 'unreadable' }), INDEX.commits[1]] };
+  await assert.rejects(
+    readIndexLive('o/r', 't', fakeApi({ index: unreadable }).get, fakeGraph(unreadable).graph),
+    /pull requests of .*not a list/,
+  );
+});
+
 test('a closed window is read once per seal, and its runs on this code again by id on every poll', async () => {
   const mine = run({ id: 3, head_sha: NEXT, head_commit: { tree_id: TREE }, jobs: [[reviewJob(NEXT, 'success')]] });
   const same = run({ id: 8, head_sha: OLDER, head_commit: { tree_id: TREE }, jobs: [[reviewJob(OLDER, 'success')]] });

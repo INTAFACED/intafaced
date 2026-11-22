@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { BLOCKER_REFUSAL } from '@intafaced/contracts/protocol-blockers';
 import type { useResource } from '../../../shared/resource';
 import { ServiceOffNotice } from '../../../shared/service-off';
 import { blockersFor, isServiceNotConnected, type Blocker, type ProtocolAction, type ProtocolSnapshot, type Source } from '../blockers';
 import type { protocolCopy } from '../copy';
+import { NO_ANSWER_CODE, useNoAnswerWindow } from '../no-answer';
 import { DataTable, EmptyState, Failure, Loading, Panel } from './parts';
 
 /**
@@ -24,15 +25,6 @@ export function toSource<T>(value: Resource<T>): Source<T> {
       : { status: 'down', reason: resource.failure.reason, message: resource.failure.message, code: resource.failure.code };
 }
 
-/** The gateway's answer when the service did not reply: a crash, a restart or a service that is not running. */
-const NO_ANSWER_CODE = 'edge.upstream_unavailable';
-/**
- * The retry window: the room asks again on its own, and a person may ask again too. After this many no-answer replies in a
- * row, a second attempt is no longer worth offering, so the room says the service is not running here and hides Try again.
- */
-const NO_ANSWER_ATTEMPTS = 3;
-const NO_ANSWER_RETRY_MS = 4000;
-
 /** The service did not reply. Inside the retry window it offers Try again; once the window has closed it says the service is not running here. */
 export function NoAnswerNote({ service, closed, reload, t }: { service: string; closed: boolean; reload: () => void; t: Translate }) {
   return closed ? (
@@ -49,26 +41,6 @@ export function NoAnswerNote({ service, closed, reload, t }: { service: string; 
       </Button>
     </div>
   );
-}
-
-/** True once the retry window has run out of attempts. Any other answer starts the count again. */
-function useNoAnswerWindow<T>({ resource, reload }: Resource<T>): boolean {
-  const [failures, setFailures] = useState(0);
-  const latest = useRef(reload);
-  latest.current = reload;
-  const noAnswer = resource.status === 'failed' && resource.failure.code === NO_ANSWER_CODE;
-  const counted = useRef<unknown>(null);
-  useEffect(() => {
-    if (resource.status === 'loading' || counted.current === resource) return;
-    counted.current = resource;
-    setFailures((count) => (noAnswer ? count + 1 : 0));
-  }, [resource, noAnswer]);
-  useEffect(() => {
-    if (!noAnswer || failures === 0 || failures >= NO_ANSWER_ATTEMPTS) return;
-    const timer = setTimeout(() => latest.current(), NO_ANSWER_RETRY_MS);
-    return () => clearTimeout(timer);
-  }, [noAnswer, failures]);
-  return failures >= NO_ANSWER_ATTEMPTS;
 }
 
 /**

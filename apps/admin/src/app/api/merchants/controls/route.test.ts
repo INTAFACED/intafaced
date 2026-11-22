@@ -275,6 +275,8 @@ describe('POST as a signed-in founder', () => {
       approvalTtlSeconds: 3600,
       version: '2',
       merchants: 1,
+      merchantVisible: false,
+      payoutFee: null,
     };
     const calls = upstream({ 'founderAdmin.control.tiers.list': () => ok([tier]) });
     const res = await POST(post({ action: 'tiers' }, authed()));

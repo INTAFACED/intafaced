@@ -784,9 +784,7 @@ const BACKEND_PKGS = [
   'svc-bank',
   'svc-trade',
   'svc-pay',
-  'svc-matching',
   'svc-token',
-  'svc-agents',
   'svc-p2p',
   'svc-notify',
   'svc-support',
@@ -1189,7 +1187,7 @@ function javaBin() {
   return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
 }
 
-// ── Rust services (svc-tax, svc-academy, svc-ledger) ───────────────────────────────────
+// ── Rust services (svc-tax, svc-academy, svc-ledger, svc-matching, svc-agents) ───────────────────────────────────
 
 /** The stack's Rust services: each `local-stack-services/<name>.mjs` that says `rust: true` runs `crates/svc-<name>`. */
 function rustServices() {
@@ -1364,7 +1362,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
 // one per core (they were 19 runs of about a second each, one after another).
 async function migrate(secrets, schemas = SCHEMAS) {
   await inPool(schemas, os.availableParallelism(), (s) =>
-    // A Rust service (svc-tax, svc-academy, svc-ledger) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
+    // A Rust service (svc-tax, svc-academy, svc-ledger, svc-agents) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
     // the rest are Node packages.
     rustServices().includes(serviceOfSchema(s))
       ? runPnpmAsync(['migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) }, rustBin(serviceOfSchema(s)))
@@ -1426,9 +1424,13 @@ CREATE SCHEMA IF NOT EXISTS agents AUTHORIZATION svc_agents;
 GRANT USAGE ON SCHEMA public TO svc_agents;`,
     { db: AGENTS_EMPTY_CATALOGUE_DB },
   );
-  await runPnpmAsync(['--filter', '@intafaced/svc-agents', 'db:migrate'], 'migrate-agents-empty-catalogue', {
-    DATABASE_URL: onEmptyAgentsDb(dbUrl('svc_agents', secrets)),
-  });
+  // The Rust binary applies its own migrations (`svc-agents migrate`), as `migrate` runs it for the stack's database.
+  await runPnpmAsync(
+    ['migrate'],
+    'migrate-agents-empty-catalogue',
+    { DATABASE_URL: onEmptyAgentsDb(dbUrl('svc_agents', secrets)) },
+    rustBin('agents'),
+  );
 }
 
 /** With svc-agents up on the empty-catalogue database: every agent its boot stored there taken out, so none is published. */
@@ -1644,8 +1646,7 @@ export function absentWhy(name, chain) {
 }
 
 /** Starts every service once the services it waits for (startDependencies) answer, the rest side by side. */
-async function startServices(all) {
-  const chain = testChain();
+export async function startServices(all, { chain = testChain(), start = startNodeService } = {}) {
   const defs = all.filter((d) => {
     const why = absentWhy(d.name, chain);
     if (why) say(`  ${d.name}: not started, ${why}`);
@@ -1658,7 +1659,7 @@ async function startServices(all) {
     const waits = startDependencies(defs, def, envOf).map((d) => started.get(d));
     started.set(
       def,
-      Promise.all(waits).then(() => startNodeService(def)),
+      Promise.all(waits).then(() => start(def)),
     );
   }
   await Promise.all(started.values());
@@ -1805,15 +1806,14 @@ END $$;`;
  * A new TEST chain: every service that stored the old one's blocks is stopped and its chain rows emptied, so it starts
  * again from the new node's block 0. Called only when this script starts a new anvil, never for a running one.
  */
-async function forgetOldChain(secrets) {
-  const procs = readProcs();
+export async function forgetOldChain(secrets, { procs = readProcs(), alive = ownedAlive, stop = stopProc, run = psql } = {}) {
   const stopped = [];
   for (const { service, schema } of CHAIN_DERIVED) {
-    if (ownedAlive(procs[service])) {
-      say(`  ${service}: ${await stopProc(service, procs[service])} (a new TEST chain)`);
+    if (alive(procs[service])) {
+      say(`  ${service}: ${await stop(service, procs[service])} (a new TEST chain)`);
       stopped.push(service);
     }
-    psql(secrets, emptySchemaSql(schema), { db: DB_NAME });
+    run(secrets, emptySchemaSql(schema), { db: DB_NAME });
     say(`  ${service}: rows from the earlier TEST chain emptied (schema ${schema}); it reads the new chain from block 0`);
   }
   return stopped;
@@ -1827,7 +1827,7 @@ async function forgetOldChain(secrets) {
  */
 async function startTestChain(secrets) {
   const bin = anvilBin(process.env);
-  let renewed = false;
+  let renewed;
   const procs = readProcs();
   if (!bin) {
     if (!ownedAlive(procs.chain)) {
@@ -1843,22 +1843,7 @@ async function startTestChain(secrets) {
     );
     return [];
   }
-  if (!ownedAlive(procs.chain)) {
-    for (const port of Object.values(CHAIN_PORTS)) if (await portOpen(port)) portTaken(port, 'TEST chain');
-    // A new anvil starts empty: whatever an earlier record named is gone with the old node, and so is every block a
-    // service stored from it.
-    fs.rmSync(chainRecordPath(STATE), { force: true });
-    renewed = true;
-    startProc(
-      'chain',
-      [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
-      {
-        ...baseEnv(),
-        LOCAL_STACK_ANVIL_BIN: bin,
-      },
-      REPO,
-    );
-  }
+  renewed = await startNewAnvil(procs, bin);
   const want = `0x${TEST_CHAIN_ID.toString(16)}`;
   for (let i = 0; i < 60; i++) {
     const answer = await rpcChainId();
@@ -1872,6 +1857,38 @@ async function startTestChain(secrets) {
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
   return afterSeed({ seeded, renewed, forget: () => forgetOldChain(secrets) });
+}
+
+/**
+ * Starts a new anvil unless this stack's chain is running, and says whether it did. Only a new anvil is renewed: it starts
+ * empty, so whatever an earlier record named is gone with the old node, and so is every block a service stored from it.
+ * A running chain keeps its record. The collaborators are the script's own (a test passes its own).
+ */
+export async function startNewAnvil(
+  procs,
+  bin,
+  {
+    alive = ownedAlive,
+    open = portOpen,
+    taken = portTaken,
+    dropRecord = () => fs.rmSync(chainRecordPath(STATE), { force: true }),
+    start = () =>
+      startProc(
+        'chain',
+        [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
+        {
+          ...baseEnv(),
+          LOCAL_STACK_ANVIL_BIN: bin,
+        },
+        REPO,
+      ),
+  } = {},
+) {
+  if (alive(procs.chain)) return false;
+  for (const port of Object.values(CHAIN_PORTS)) if (await open(port)) taken(port, 'TEST chain');
+  dropRecord();
+  start();
+  return true;
 }
 
 /** A failed seed stops the start; only a new chain that answers and is seeded forgets the old one's rows, so a start that
@@ -1957,13 +1974,14 @@ export function portDecision({ owned, healthy, portInUse }) {
   return portInUse ? 'refuse' : 'start';
 }
 
-async function startNodeService(def) {
+/** `stop` is stopForNewBuild (a test passes its own); so is each part's start below. */
+export async function startNodeService(def, { stop = stopForNewBuild } = {}) {
   const env = def.env();
   const port = Number(env.HTTP_PORT);
   const procs = readProcs();
   const url = `http://${HOST}:${port}/health`;
   const build = currentBuild('backendBuild');
-  await stopForNewBuild(def.name, procs[def.name], build, port);
+  await stop(def.name, procs[def.name], build, port);
   const rec = readProcs()[def.name];
   const owned = ownedAlive(rec);
   const healthy = owned && (await httpGet(url, 2000)).status === 200;
@@ -1983,7 +2001,7 @@ async function startNodeService(def) {
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); a Rust one (svc-tax,
-  // svc-academy, svc-ledger) runs its binary (ensureRustBinaries); every other one is Node.
+  // svc-academy, svc-ledger, svc-agents) runs its binary (ensureRustBinaries); every other one is Node.
   // A Node service records which of its own files ran, for the touched-journeys map (service-reach.mjs).
   const node = !def.java && !def.rust ? nodeServiceReach(codeReachDir(STATE), def.name, env) : null;
   const argv = def.java
@@ -2081,9 +2099,9 @@ async function pinOpsFounders() {
   await startNodeService(serviceDefs(readJson(P.secrets)).find((d) => d.name === 'ops'));
 }
 
-async function startCustomer() {
+export async function startCustomer({ stop = stopForNewBuild } = {}) {
   const build = currentBuild('customerBuild');
-  await stopForNewBuild('customer', readProcs().customer, build, PORTS.customer);
+  await stop('customer', readProcs().customer, build, PORTS.customer);
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
   if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
@@ -2176,9 +2194,9 @@ async function startTestVenue(name = 'test-venue') {
 }
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
-async function startInvitation() {
+export async function startInvitation({ stop = stopForNewBuild } = {}) {
   const build = currentBuild('invitationBuild');
-  await stopForNewBuild('invitation', readProcs().invitation, build, PORTS.invitation);
+  await stop('invitation', readProcs().invitation, build, PORTS.invitation);
   const procs = readProcs();
   const url = `${INVITATION_ORIGIN}/`;
   if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
@@ -2252,12 +2270,12 @@ function treasuryHeldUntil(rec) {
   return Number.isFinite(until) && until > Date.now() ? until : null;
 }
 
-async function startAdmin(secrets) {
+export async function startAdmin(secrets, { stop = stopForNewBuild } = {}) {
   let procs = readProcs();
   const url = `${ADMIN_ORIGIN}/login`;
   let treasury = null;
   const build = currentBuild('adminBuild');
-  await stopForNewBuild('admin', procs.admin, build, PORTS.admin);
+  await stop('admin', procs.admin, build, PORTS.admin);
   procs = readProcs();
   if (ownedAlive(procs.admin)) {
     const until = treasuryHeldUntil(procs.admin);
@@ -2340,8 +2358,8 @@ function serviceNames() {
  * Why the indexer halted, or null. It stays up and answers /health when it halts (its projection no longer matches the
  * chain), so only /ready says so; a /ready that is down for another reason (no chain door yet) is not a halt.
  */
-async function indexerHalt() {
-  const r = await httpGet(`${urlOf('indexer')}/ready`, 2500);
+export async function indexerHalt(get = httpGet) {
+  const r = await get(`${urlOf('indexer')}/ready`, 2500);
   try {
     const body = JSON.parse(r.text);
     return body?.haltedAt ? String(body.reason ?? 'no reason given').slice(0, 120) : null;
@@ -2388,14 +2406,7 @@ async function healthTable({ gateMarket = false } = {}) {
   const nats = await httpGet(`http://${HOST}:${PORTS.natsMonitor}/healthz`, 2000);
   rows.push(['nats', `${PORTS.nats}/${PORTS.natsMonitor}`, procs.nats?.pid ?? '-', nats.status === 200 ? 'ok' : 'DOWN']);
   const chain = testChain();
-  for (const n of serviceNames()) {
-    const r = await settledHealth(() => httpGet(`${urlOf(n)}/health`, 2500), { alive: () => ownedAlive(procs[n]) });
-    const halted = r.status === 200 && n === 'indexer' ? await indexerHalt() : null;
-    // A service the start leaves out on purpose (absentWhy) reads "absent", which doesn't fail the start; DOWN still does.
-    const absent = r.status !== 200 ? absentWhy(n, chain) : null;
-    const state = absent ? 'absent (no TEST chain)' : r.status !== 200 ? `DOWN (${r.status})` : halted ? `HALTED (${halted})` : 'ok';
-    rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state]);
-  }
+  for (const n of serviceNames()) rows.push(await serviceHealthRow(n, { procs, chain }));
   if (procs.chain) {
     const status = await chainStatus();
     const answer = await rpcChainId();
@@ -2428,16 +2439,8 @@ async function healthTable({ gateMarket = false } = {}) {
   // marker holds. One this start left off (the user-venue switch, or an `--only` without it) reads "off", which doesn't fail.
   // A venue's record outlives its process (a stop keeps it), so a stopped venue the switch doesn't ask for is off too;
   // one the switch asks for that is not running is DOWN.
-  const venues = userVenueOn() ? userVenueCount(process.env.LOCAL_STACK_USER_VENUE) : 0;
-  const wanted = { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true };
-  for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) {
-    if (!procs[name] || (!wanted[name] && !ownedAlive(procs[name]))) {
-      rows.push([`${name} (TEST)`, PORTS[name], '-', 'off (not started)']);
-      continue;
-    }
-    const adapter = await httpGet(`${urlOf(name)}/health`, 2500);
-    rows.push([`${name} (TEST)`, PORTS[name], procs[name].pid ?? '-', adapter.status === 200 ? 'ok (TEST)' : `DOWN (${adapter.status})`]);
-  }
+  const wanted = adaptersWanted();
+  for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) rows.push(await adapterHealthRow(name, { procs, wanted }));
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
     'customer',
@@ -2472,7 +2475,88 @@ async function healthTable({ gateMarket = false } = {}) {
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
   const marketBad = mk.state === 'down' || mk.state === 'stale';
+  return healthAllOk(rows, { gateMarket, marketBad });
+}
+
+/**
+ * One service's health row. A halted indexer still answers /health, so its /ready is read too (`halt`) and names the
+ * halt. A service the start leaves out on purpose (absentWhy) reads "absent", which doesn't fail the start; DOWN still
+ * does. `read` and `halt` are the script's own reads (a test passes its own).
+ */
+export async function serviceHealthRow(
+  n,
+  {
+    procs,
+    chain,
+    read = () => settledHealth(() => httpGet(`${urlOf(n)}/health`, 2500), { alive: () => ownedAlive(procs[n]) }),
+    halt = indexerHalt,
+  },
+) {
+  const r = await read();
+  const halted = r.status === 200 && n === 'indexer' ? await halt() : null;
+  const absent = r.status !== 200 ? absentWhy(n, chain) : null;
+  const state = absent ? 'absent (no TEST chain)' : r.status !== 200 ? `DOWN (${r.status})` : halted ? `HALTED (${halted})` : 'ok';
+  return [`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state];
+}
+
+/** Which TEST adapters this start asks for: the venues by the user-venue switch, the wallet provider always. */
+export function adaptersWanted(env = process.env) {
+  const venues = userVenueOn(env) ? userVenueCount(env.LOCAL_STACK_USER_VENUE) : 0;
+  return { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true };
+}
+
+/**
+ * A TEST adapter's health row. One this start never recorded, or a stopped one the switch doesn't ask for (a venue's
+ * record outlives its process), reads "off", which doesn't fail; one it asks for that doesn't answer is DOWN.
+ */
+export async function adapterHealthRow(name, { procs, wanted, alive = ownedAlive, get = httpGet }) {
+  if (!procs[name] || (!wanted[name] && !alive(procs[name]))) return [`${name} (TEST)`, PORTS[name], '-', 'off (not started)'];
+  const adapter = await get(`${urlOf(name)}/health`, 2500);
+  return [`${name} (TEST)`, PORTS[name], procs[name].pid ?? '-', adapter.status === 200 ? 'ok (TEST)' : `DOWN (${adapter.status})`];
+}
+
+/** The health table passes when every row but the market maker's reads ok, absent or off (and, gated, the maker is live). */
+export function healthAllOk(rows, { gateMarket = false, marketBad = false } = {}) {
   return rows.slice(0, -1).every((r) => /^(ok|absent|off)\b/.test(String(r[3]))) && !(gateMarket && marketBad);
+}
+
+/**
+ * The services this start runs anew: each not running, or running on another build than `build`. An old build never
+ * serves a schema migrated past it, so each is stopped (stopForNewBuild) before their schemas are migrated. `stop` and
+ * `migrateSchemas` are the script's own (a test passes its own).
+ */
+export async function stopThenMigrate({
+  wanted,
+  procs,
+  build,
+  secrets,
+  alive = ownedAlive,
+  stop = stopForNewBuild,
+  migrateSchemas = migrate,
+}) {
+  const toStart = wanted.filter((d) => !alive(procs[d.name]) || !onCurrentBuild(procs[d.name], build));
+  for (const d of toStart) await stop(d.name, procs[d.name], build, PORTS[d.name]);
+  await migrateSchemas(
+    secrets,
+    SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
+  );
+  return toStart;
+}
+
+/** A service stopped for the new chain (`renewed`) that this start did not plan for is migrated before it comes back. */
+export async function migrateRenewed({ renewed, toStart, secrets, migrateSchemas = migrate }) {
+  const extra = renewed.filter((name) => !toStart.some((d) => d.name === name));
+  if (extra.length)
+    await migrateSchemas(
+      secrets,
+      SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
+    );
+  return extra;
+}
+
+/** What the start runs: what was asked for, and what it stopped for a new chain (`renewed`), even under `--only`. */
+export function withRenewed(wanted, defs, renewed) {
+  return [...wanted, ...defs.filter((d) => renewed.includes(d.name) && !wanted.some((w) => w.name === d.name))];
 }
 
 /** `--only a,b` -> ['a','b'] (validated against the services this script knows); null when absent. */
@@ -2795,14 +2879,7 @@ async function cmdStart(flags) {
   // The same for svc-agents and the empty agent catalogue.
   if (wanted.some((d) => d.name === 'agents') && ownedAlive(readProcs().agents) && agentsCatalogueWas() !== agentsCatalogueWanted())
     await cmdStop(['agents']);
-  const procsNow = readProcs();
-  const toStart = wanted.filter((d) => !ownedAlive(procsNow[d.name]) || !onCurrentBuild(procsNow[d.name], backendBuild));
-  // An old build never serves a schema migrated past it: stop it before its migrations run.
-  for (const d of toStart) await stopForNewBuild(d.name, procsNow[d.name], backendBuild, PORTS[d.name]);
-  await migrate(
-    secrets,
-    SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
-  );
+  const toStart = await stopThenMigrate({ wanted, procs: readProcs(), build: backendBuild, secrets });
   if (supportCatalogueOff() && !keepSupportEmptyCatalogue() && toStart.some((d) => d.name === 'support'))
     await resetSupportEmptyCatalogue(secrets);
   if (toStart.some((d) => d.name === 'support')) writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
@@ -2814,13 +2891,7 @@ async function cmdStart(flags) {
   await startNats();
   ensureStreams();
   const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
-  // A service stopped for the new chain that this start did not plan for is migrated before it comes back.
-  const extra = renewed.filter((name) => !toStart.some((d) => d.name === name));
-  if (extra.length)
-    await migrate(
-      secrets,
-      SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
-    );
+  const extra = await migrateRenewed({ renewed, toStart, secrets });
   if (extra.includes('support')) {
     if (supportCatalogueOff() && !keepSupportEmptyCatalogue()) await resetSupportEmptyCatalogue(secrets);
     writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
@@ -2852,10 +2923,7 @@ async function cmdStart(flags) {
   // Protocol's env points at the TEST wallet provider, so `--only protocol` starts it too.
   if (!only || only.includes('test-wallet-provider') || only.includes('protocol')) await startTestWalletProvider();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
-  await startServices([
-    ...wanted,
-    ...serviceDefs(secrets).filter((d) => renewed.includes(d.name) && !wanted.some((w) => w.name === d.name)),
-  ]);
+  await startServices(withRenewed(wanted, serviceDefs(secrets), renewed));
   if (agentsEmpty || agentsEmptyExtra) emptyAgentsCatalogue(secrets);
   try {
     await ensureLocalTestFounders();
@@ -3048,16 +3116,17 @@ function restartNames() {
   ];
 }
 
-async function cmdRestart(names) {
+/** A stop and a full start, so a restart takes the start's own path. The collaborators are the script's own (a test passes its own). */
+export async function cmdRestart(names, { take = takeSlot, refuse = refuseOtherStack, stop = cmdStop, start = cmdStart } = {}) {
   const known = restartNames();
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
   checkedS2sMode();
-  await takeSlot();
-  await refuseOtherStack();
-  await cmdStop(names);
-  await cmdStart([]);
+  await take();
+  await refuse();
+  await stop(names);
+  await start([]);
 }
 
 // The Customer server proxies /ws/* to CUSTOMER_WS_URL with the /ws prefix stripped, as apps/customer/nginx.conf

@@ -21,6 +21,7 @@ import { ACADEMY_APPOINT_AMBASSADOR } from '@intafaced/contracts/academy-appoint
 import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-residency-procedures';
 import { OPS_CAPITAL_SET_THRESHOLD } from '@intafaced/contracts/ops-capital-procedures';
 import { OPS_RECORD_VENUE_COST } from '@intafaced/contracts/ops-record-venue-cost-procedures';
+import { BANK_OPS_SET_CARD_STATUS } from '@intafaced/contracts/bank-ops-procedures';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -296,13 +297,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       };
     }
     if (request.kind === 'bank.card.status') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'bank',
-        'ops.setCardStatus',
-        'POST',
-        // The operation id is the client key, so running the same approved request twice replays the first
-        // result at the service instead of acting twice.
+        BANK_OPS_SET_CARD_STATUS,
         { cardId: request.cardId, status: request.status, reason: request.reason, ...ids, clientRequestId: ids.operationId },
         readCardStatusAnswer,
       );

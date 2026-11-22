@@ -4,7 +4,7 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { NoticeDetail, NoticeList, NoticeMissing } from './NoticeFeed';
+import { NoticeDetail, NoticeList, NoticeMissing } from './notices/NoticeFeed';
 import { feedNotices, isNoticeId, maintenancePhase, readNotice, type Notice } from './notices-api';
 import type { ApiClient } from '../../shared/api';
 import { entrySchema } from '../../shared/notify-reads';

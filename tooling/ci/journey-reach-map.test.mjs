@@ -1014,6 +1014,11 @@ test('planted: what main changed between the map and the merge base loads a file
     'a built path elsewhere names no customer file',
   );
   assert.deepEqual(
+    nodeTargets("readFileSync(path.join(ROOT, 'crates/svc-x/src/door/calls.rs'), 'utf8');", 'apps/customer/tests/real-app/J-x.pw.mjs'),
+    { targets: [], any: false },
+    'a crate file read from the repository root names no customer file',
+  );
+  assert.deepEqual(
     nodeTargets("const title = 'customer src';", 'tooling/scripts/s.mjs'),
     { targets: [], any: false },
     'no load built from a path: plain text',
@@ -1029,7 +1034,7 @@ test('customerImporters on this repository: who loads a style sheet, the buildâ€
   const { importers, built, computed } = customerImporters();
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim();
   assert.deepEqual(customerImporters(ROOT_DIR, head), customerImporters(ROOT_DIR), 'read at a commit, the same as its checkout');
-  assert.ok(importers[`${SRC}/features/trade/news/news.css`].includes(`${SRC}/features/trade/news/NewsRooms.tsx`));
+  assert.ok(importers[`${SRC}/features/trade/news/news.css`].includes(`${SRC}/features/trade/news/NewsNotice.tsx`));
   assert.ok(importers[`${SRC}/main.tsx`].includes('apps/customer/index.html'));
   assert.ok(built.includes(`${SRC}/app/boot.ts`), 'vite.config.ts imports it');
   assert.ok(

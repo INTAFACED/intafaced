@@ -52,7 +52,7 @@ export function RoutingTab() {
           {t('Open Quant Studio')}
         </a>
       </div>
-      <Table caption={t('Capabilities')} mode="pro" columns={capColumns} rows={rows} rowKey={(c) => c.id} />
+      <Table caption={t('Capabilities')} mode="pro" scroll columns={capColumns} rows={rows} rowKey={(c) => c.id} />
       {spine.status === 'refused' && spine.code === 'scope.denied' ? (
         <div className="lt-body">
           <p role="note" className="lt-hint">
@@ -66,6 +66,7 @@ export function RoutingTab() {
             <Table
               caption={t('Execution doors')}
               mode="pro"
+              scroll
               columns={doorColumns}
               rows={data.doors}
               rowKey={(d) => d.id}

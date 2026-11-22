@@ -97,21 +97,22 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>
-<span lang="en" dir="ltr" data-i18n="support-desk.pageMyRequests">My requests</span>
-</h1>
-<p class="muted">Help articles and your support requests.</p>
+<h1 class="lt-title">My requests</h1>
+<p class="lt-description">Help articles and your support requests.</p>
 </div>
 </header>
-<div class="support-desk">
-<div class="tabs" role="group" aria-label="Support sections">
-<button type="button" class="" aria-pressed="false">Help articles</button>
-<button type="button" class="selected" aria-pressed="true">Your requests</button>
-<button type="button" class="" aria-pressed="false">New request</button>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<div class="lt-stack" data-room="support">
+<div class="lit-segmented" role="group" aria-label="Support sections">
+<button type="button" aria-pressed="false">Help articles</button>
+<button type="button" aria-pressed="true">Your requests</button>
+<button type="button" aria-pressed="false">New request</button>
 </div>
 <div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
@@ -119,6 +120,9 @@
 <p class="lt-refusal-body">No services run in the look gate.</p>
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
+</div>
+</div>
+</section>
 </div>
 </div>
 </div>

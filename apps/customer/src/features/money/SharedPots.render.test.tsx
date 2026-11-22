@@ -21,10 +21,9 @@ const INVITE = '33333333-3333-4333-8333-333333333333';
 let reads: Record<string, { status: 'ready'; data: unknown }>;
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
-  return {
-    ...real,
-    useBankRead: (procedure: string) => ({ resource: reads[procedure] ?? { status: 'loading' }, reload: () => undefined }),
-  };
+  // The room reads by its records now: each record's read is served from the same answers, by its path.
+  const useBankRead = (procedure: string) => ({ resource: reads[procedure] ?? { status: 'loading' }, reload: () => undefined });
+  return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
 import { SharedPots } from './SharedPots';
 

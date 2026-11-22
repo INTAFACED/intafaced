@@ -5,31 +5,15 @@
  * the call, or one that cannot answer, leaves only the by-coin view; the screen says so and never fills the groups itself.
  */
 import { useMemo } from 'react';
-import { z } from 'zod';
 import { useDataEnv, useSource, type Loadable } from '../../data';
 import { dec } from '../../data/decimal';
 import type { DataEnv } from '../../data/queries';
 import { constantSource } from '../../data/source';
 import type { Fetcher } from '../../data/poll';
+import { BANK_PORTFOLIO_ALLOCATION } from '@intafaced/contracts/bank-portfolio-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
-export const allocationSchema = z.object({
-  totalValueUsd: z.string(),
-  classes: z.array(
-    z.object({
-      class: z.enum(['fiat', 'stablecoin', 'crypto', 'commodity', 'earn', 'unclassified']),
-      valueUsd: z.string(),
-      share: z.string(),
-      assets: z.array(z.object({ asset: z.string(), valueUsd: z.string(), share: z.string() })),
-    }),
-  ),
-  /** Set when the bank could not work out the classes (its asset list could not be read); `classes` is then empty. */
-  classesRefused: z.string().nullable(),
-  types: z.array(z.object({ type: z.enum(['available', 'locked']), valueUsd: z.string(), share: z.string() })),
-  unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.string() })),
-  asOf: z.number(),
-});
-
-export type ServerAllocation = z.infer<typeof allocationSchema>;
+export type ServerAllocation = ProcedureOutput<typeof BANK_PORTFOLIO_ALLOCATION>;
 
 export type AllocationGrouping = 'class' | 'type';
 
@@ -74,7 +58,7 @@ export function groupSlices(answer: ServerAllocation, by: AllocationGrouping): G
 }
 
 export function allocationFetcher(env: DataEnv): Fetcher<ServerAllocation> {
-  return (signal) => env.api.query('bank', 'portfolio.allocation', undefined, allocationSchema, { signal });
+  return (signal) => env.api.call(BANK_PORTFOLIO_ALLOCATION, undefined, { signal });
 }
 
 const ALLOCATION_INTERVAL = 30_000;

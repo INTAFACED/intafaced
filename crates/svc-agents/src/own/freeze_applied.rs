@@ -4,7 +4,7 @@
 //! transaction recorded under the freeze's id, so a second delivery changes nothing. A revoked permission stays revoked
 //! after the lift: the person grants it again. Nothing here moves value or holds a balance.
 //!
-//! The kit has no JetStream consumer yet, so the binary subscribes to nothing (`PORT.md`, slice `store`): a delivery is
+//! The kit has no JetStream consumer yet, so the binary subscribes to nothing (`README.md`, slice `store`): a delivery is
 //! [`on_self_freeze_applied`], which the consumer calls once the kit has one. Its idempotency is the freeze's own record
 //! in Postgres, which a redelivery after a restart meets too; the TypeScript's in-memory seen-set adds nothing to it.
 

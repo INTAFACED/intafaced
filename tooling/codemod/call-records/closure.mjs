@@ -1,7 +1,7 @@
 // What a schema needs to live in @intafaced/contracts: every name it reads, followed to where it is declared. A name
 // declared in a service or app file moves into the record file (its old home then imports it from contracts); a name
 // contracts already exports is imported from its file there; zod is zod. Anything else is a problem the run names.
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { bindingOf, freeNames, load, resolveRelative, text, walk } from './ast.mjs';
 import { packageRefusal, typeParametersIn } from './outside.mjs';
@@ -57,6 +57,16 @@ export function contractsExports(repo) {
       if (!contractsIndex.has(m[1])) contractsIndex.set(m[1], join(dir, f));
   }
   return contractsIndex;
+}
+
+/** The contracts file a subpath import names, when it declares `name` itself; else undefined (a re-export, or the root). */
+function subpathFile(repo, from, name) {
+  const sub = from.slice('@intafaced/contracts/'.length);
+  if (!sub || from === '@intafaced/contracts') return undefined;
+  const file = join(repo, 'packages/contracts/src', `${sub}.ts`);
+  if (!existsSync(file)) return undefined;
+  const declares = new RegExp(`^export (?:const|function|class|enum|type|interface|let) ${name.replace(/\$/g, '\\$')}\\b`, 'm');
+  return declares.test(readFileSync(file, 'utf8')) ? file : undefined;
 }
 
 const unsafeCache = new Map();
@@ -125,7 +135,9 @@ export function closureOf(repo, roots) {
   const viaImport = (p, name, b, where) => {
     const from = b.from;
     if (from === '@intafaced/contracts' || from.startsWith('@intafaced/contracts/')) {
-      const file = index.get(b.imported);
+      // A subpath names its file (`./*` is `src/*.ts`): two files may export one name (svc-pay's `assetIdSchema` in
+      // pay-call-schemas and the branded one in asset-id), so the name alone picks the file only for the root import.
+      const file = subpathFile(repo, from, b.imported) ?? index.get(b.imported);
       if (!file) problems.push(`${where}: ${b.imported} from ${from} not found in contracts' files`);
       else if (nodeOnly(file)) inlineOrRefuse(p, name, file, b.imported);
       else fromContracts.set(name, { file, imported: b.imported, typeOnly: b.typeOnly });
@@ -252,6 +264,25 @@ function declText(q, b) {
   })();
   if (b.kind === 'var') return `${doc}export ${b.declaration.kind} ${text(q, b.declarator)};`;
   return `${doc}export ${text(q, b.declaration)}`;
+}
+
+/**
+ * True when `file` already declares `name` at its top level exactly as `text` (a moved declaration's `declText`)
+ * writes it, docs and spacing aside: the copy is already there, so it is imported, never declared a second time.
+ */
+export function declaresSame(file, name, text) {
+  if (!existsSync(file)) return false;
+  const q = load(file);
+  const b = topLevel(q, name);
+  return !!b && asWritten(declText(q, b)) === asWritten(text);
+}
+
+/** A moved declaration's text with its JSDoc dropped and its spacing folded: two copies that read the same are one. */
+export function asWritten(text) {
+  return text
+    .replace(/^\/\*\*(?:(?!\*\/)[\s\S])*\*\/\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** True when `name` is read anywhere in a file outside the given ranges. */

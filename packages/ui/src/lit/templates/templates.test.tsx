@@ -547,9 +547,31 @@ describe('states never contradict themselves', () => {
   });
 });
 
+describe('record rows', () => {
+  it('rows drop their bullets and divide by a line, lines stack with the name first, and error words read down', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    expect(css).toMatch(/\.lt-rows \{\s*list-style: none;/);
+    expect(css).toMatch(/\.lt-rows > li \{[^}]*border-block-end: 1px solid var\(--lit-line\);/);
+    expect(css).toMatch(/\.lt-lines \{[^}]*flex-direction: column;/);
+    expect(css).toMatch(/\.lt-lines > :first-child \{\s*font-weight: var\(--lit-type-heading-weight\);/);
+    expect(css).toMatch(/\.lt-field small\[data-part='error'\],\s*\.lt-hint\[data-part='error'\] \{\s*color: var\(--lit-down-text\);/);
+  });
+});
+
 describe('gallery fixtures are shaped as the API sends them', () => {
   it('holdings are decimal strings, as ledgerHoldingSchema requires', () => {
     for (const h of HOLDINGS) expect(h.amount).toMatch(/^\d+(\.\d+)?$/);
+  });
+});
+
+describe('the room title', () => {
+  it('takes a language of its own and is focusable only when the room holds its ref', async () => {
+    const { ReadingTemplate } = await import('./templates.js');
+    const plain = html(<ReadingTemplate title="Help" state={{ kind: 'ready' }} body="B" />);
+    expect(plain).toContain('<h1 class="lt-title">Help</h1>');
+    const ref = React.createRef<HTMLHeadingElement>();
+    const own = html(<ReadingTemplate title="Ayuda" titleLang="es" titleRef={ref} state={{ kind: 'ready' }} body="B" />);
+    expect(own).toContain('<h1 class="lt-title" lang="es" tabindex="-1">Ayuda</h1>');
   });
 });
 

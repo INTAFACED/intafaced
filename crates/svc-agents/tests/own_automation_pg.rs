@@ -29,6 +29,8 @@
     reason = "a test: a failure is the point"
 )]
 
+#[path = "../../service-kit/tests/support/standin.rs"]
+mod standin;
 mod support;
 
 use std::collections::BTreeMap;
@@ -1223,4 +1225,79 @@ fn a_started_run_finishes_at_its_last_step_and_a_kind_kill_stops_another_with_it
     assert_eq!(text(stopped, "state"), "stopped");
     assert_eq!(num(stopped, "stepsDone"), 0);
     assert_eq!(text(stopped, "stopCode"), "agents.agent.disabled_by_kind");
+}
+
+/// The `fillSettled` consumer the binary runs, end to end over a stand-in JetStream: the fill runs its owner's trigger
+/// once and its ack is lost, so JetStream delivers it again; the redelivery runs nothing and is acked.
+#[test]
+fn the_fill_consumer_runs_the_trigger_once_and_a_redelivery_after_a_lost_ack_runs_nothing() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use service_kit::nats::{Envelope, JetStream, consume};
+    use svc_agents::bus::{FILL_SETTLED, on_fill_settled};
+
+    let w = world_or_skip!();
+    let p = w.open();
+    let rt = World::runtime(Some(&Freeze::new(FreezeState::Open)));
+    let deps = auto_runs(&w, &rt, CADENCE, None);
+    let id = p.agent(&w, true);
+    p.trigger(&id, "trigger:1", "trade.fill.settled").data();
+    let now = w.pg_time("now()");
+    let server = standin::StandIn::start();
+    let spec = FILL_SETTLED.spec("INTAFACED");
+    server.state.lock().unwrap().lose_acks = 1;
+    let fill_id = "5f1c0de0-0000-4000-8000-000000000001";
+    let envelope = Json::obj([
+        ("id", Json::str("0b8f6a1e-0000-4000-8000-0000000000bb")),
+        ("subject", Json::str(FILL_SETTLED.subject())),
+        ("version", Json::int(1)),
+        ("occurredAt", Json::str(now.clone())),
+        ("producer", Json::str("svc-trade")),
+        ("idempotencyKey", Json::str(format!("fill:{fill_id}"))),
+        (
+            "payload",
+            Json::obj([
+                ("fillId", Json::str(fill_id)),
+                ("userId", Json::str(USER)),
+                ("ts", Json::str(now.clone())),
+            ]),
+        ),
+    ]);
+    server.push(&spec.filter_subject, envelope.compact().as_bytes());
+    let js = JetStream::connect(&server.url(), "svc-agents-test", Duration::from_secs(5)).unwrap();
+    js.ensure_consumer(&spec).unwrap();
+    let stop = AtomicBool::new(false);
+    let work = |env: &Envelope| on_fill_settled(&deps, env);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            server.until(Duration::from_secs(30), |s| !s.acks.is_empty());
+            std::thread::sleep(Duration::from_millis(400));
+            stop.store(true, Ordering::Relaxed);
+        });
+        consume(
+            &js,
+            &spec,
+            Duration::from_millis(200),
+            &stop,
+            &work,
+            &|_| {},
+        );
+    });
+    let s = server.state.lock().unwrap();
+    assert_eq!(
+        s.deliveries,
+        vec![(1, 1), (1, 2)],
+        "the lost ack delivered it again"
+    );
+    assert_eq!(s.acks, vec![(1, 2)]);
+    assert!(s.naks.is_empty(), "{:?}", s.naks);
+    let listed = p.triggers(&id);
+    let runs = list(get(&listed[0], "runs"));
+    assert_eq!(runs.len(), 1);
+    assert_eq!(text(&runs[0], "eventId"), fill_id);
+    assert_eq!(num(&runs[0], "runs"), 1);
+    // The same envelope delivered again is the same delivery: one row, and the run row stood between it and a second run.
+    assert_eq!(list(get(&listed[0], "deliveries")).len(), 1);
+    assert_eq!(w.completions(), 1);
 }

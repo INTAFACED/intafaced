@@ -264,7 +264,7 @@ test(`${J} #2 fixes the criteria and presses Promote again: the gate approves, o
   });
   const button = life.getByRole('button', { name: 'Promote version 1' });
   await button.click();
-  await expect(life.locator('.failure')).toBeVisible();
+  await expect(life.getByTestId('failure')).toBeVisible();
   // Pressed again from the same reading: the stored answer comes back; the gate approved and the stage moved once.
   await button.click();
   const decision = life.getByTestId('quant-promote-decision');

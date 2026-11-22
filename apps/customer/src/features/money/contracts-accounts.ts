@@ -152,10 +152,6 @@ export const linkedAccountSchema = z.object({
   coolingOffEndsAt: z.string().nullable(),
 });
 export type LinkedAccount = z.infer<typeof linkedAccountSchema>;
-export const linkedAccountWrites = {
-  link: z.object({ account: linkedAccountSchema, created: z.boolean() }),
-  remove: z.object({ accountId: z.string(), removed: z.literal(true) }),
-};
 
 /** svc-bank `bank.activity.list` lines read for incoming payments (J-bank-02 #7). Unknown fields are dropped. */
 const incomingLineSchema = z.object({
@@ -170,6 +166,8 @@ const incomingLineSchema = z.object({
   counterparty: z.object({ handle: z.string() }).nullable(),
 });
 export type IncomingLine = z.infer<typeof incomingLineSchema>;
+/** The caller's own stricter answer for incoming payments' `activity.list` read: only the kinds it asked for. */
+export const incomingPageSchema = z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() });
 export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
@@ -275,16 +273,11 @@ export type SalaryCredit = z.infer<typeof salaryCreditSchema>;
 export const accountsReads = {
   'salary.details': salaryDetailsSchema,
   'salary.form': salaryFormSchema,
-  'salary.credits': z.array(salaryCreditSchema),
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
   'addMoney.methods': addMoneyMethodsSchema,
-  'addMoney.requests': z.array(addMoneyRequestSchema),
   'addMoney.request': addMoneyRequestSchema,
   'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
-  'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
-  'recovery.estates': z.object({ estates: z.array(recoveryEstateSchema) }),
-  'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
 } as const;
