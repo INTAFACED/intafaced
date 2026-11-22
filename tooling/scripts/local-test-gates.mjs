@@ -3404,11 +3404,6 @@ export async function scopedConsoleSession(ctx, without) {
   };
 }
 
-/** The CLI's help: every command and its arguments, printed for one this script does not know. */
-export function gatesUsage() {
-  return 'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status';
-}
-
 async function main() {
   const cmd = process.argv[2] ?? 'status';
   // Usage first: a typo never signs anyone in or touches the stack.
@@ -3610,7 +3605,10 @@ async function main() {
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
-      die(gatesUsage(), 2);
+      die(
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
+        2,
+      );
     }
   } catch (err) {
     die(String(err.message ?? err));
