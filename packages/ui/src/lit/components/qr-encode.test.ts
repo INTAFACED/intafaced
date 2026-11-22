@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodeQr, qrCapacity, qrPath } from './qr';
+import { encodeQr, qrCapacity, qrPath } from './qr-encode.js';
 
 // Decoding proof: 50 codes (all four levels, versions 1 to 40, accents, 0 to 1700 characters) were rendered and read back
 // with Apple's Vision QR detector during development and every payload matched. These tests keep the structure honest.
