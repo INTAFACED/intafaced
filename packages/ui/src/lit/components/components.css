@@ -1105,3 +1105,52 @@
     animation: none;
   }
 }
+
+/* Payee: the person being paid, on one row: face, name over handle, a confirmed badge, the tick. */
+.lit-payee {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-inline-size: 0;
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+}
+.lit-payee [data-part='face'] {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  border-radius: 50%;
+  background: var(--lit-solid-bg-sunken);
+  box-shadow: var(--lit-solid-lip);
+  font-weight: 600;
+}
+.lit-payee [data-part='who'] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-inline-size: 0;
+}
+.lit-payee [data-part='name'] {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.lit-payee [data-part='handle'] {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+.lit-payee [data-part='badge'] {
+  flex: none;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lit-payee [data-part='tick'] {
+  flex: none;
+  color: var(--lit-status-done);
+}
