@@ -35,7 +35,6 @@ import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
 import { findSites } from './sites.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
-import { importClash, wantedNames } from './import-clash.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -357,26 +356,6 @@ function build(opts, planned) {
     // Each moved declaration lands once: in the service's shared schema file, or, when its name is taken there by
     // another declaration, with all of this file's new ones in the record file itself.
     const shared = join(CONTRACTS, `${opts.module}-call-schemas.ts`);
-    // A record file appended to may already bind a name this group reads as another declaration (import-clash.mjs).
-    const old = created.get(file) ?? (existsSync(file) ? readFileSync(file, 'utf8') : undefined);
-    if (old) {
-      const bad = [];
-      for (const r of recs) {
-        const c = closureOf(
-          REPO,
-          roots.filter((x) => x.where.startsWith(`${r.path} `)),
-        );
-        const clash = importClash(old, wantedNames(c, shared), file);
-        if (!clash) continue;
-        bad.push(r);
-        for (const site of r.sites)
-          planned.hand.push({
-            site,
-            why: `${basename(file)} already binds ${clash.name} to ${clash.has}, and the record reads ${clash.wants}: it clashes with another ${clash.name} there`,
-          });
-      }
-      if (bad.length) return build(opts, { ...planned, records: planned.records.filter((r) => !bad.includes(r)) });
-    }
     if (!schemaNames.has(shared))
       schemaNames.set(
         shared,

@@ -449,27 +449,29 @@ test("the Business API's calls, named by their call alone, are svc-pay's and mov
   );
 });
 
-test('a record file that already binds a name to another declaration keeps the record that reads it out; a match goes on', async () => {
-  const { importClash, wantedNames } = await import('./import-clash.mjs');
-  const old = [
+test('a name imported from a contracts subpath is read from that file, though another contracts file exports the name too', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  // asset-id sorts first and exports a looser assetIdSchema under the same name (svc-pay's merchant.balances).
+  put('packages/contracts/src/asset-id.ts', ["import { z } from 'zod';", 'export const assetIdSchema = z.string().brand();']);
+  put('packages/contracts/src/pay-call-schemas.ts', [
     "import { z } from 'zod';",
-    "import { assetIdSchema } from './asset-id.js';",
-    "import { amountSchema } from './pay-call-schemas.js';",
-    'export const PAY_MERCHANT_ME = 1;',
-  ].join('\n');
-  const file = '/repo/packages/contracts/src/pay-merchant-procedures.ts';
-  const shared = '/repo/packages/contracts/src/pay-call-schemas.ts';
-  const closure = (names) => ({
-    fromContracts: new Map(names.map((n) => [n, { file: shared, imported: n }])),
-    fromPackages: new Map([['zod', new Set(['z'])]]),
-    moved: [],
-  });
-  assert.deepEqual(importClash(old, wantedNames(closure(['assetIdSchema', 'amountSchema']), shared), file), {
-    name: 'assetIdSchema',
-    has: './asset-id.js#assetIdSchema',
-    wants: './pay-call-schemas.js#assetIdSchema',
-  });
-  assert.equal(importClash(old, wantedNames(closure(['amountSchema']), shared), file), undefined);
+    "import { assetIdSchema as branded } from './asset-id.js';",
+    'export const assetIdSchema = z.string().min(1).max(16);',
+  ]);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { assetIdSchema } from '@intafaced/contracts/pay-call-schemas';",
+    "import { assetIdSchema as root } from '@intafaced/contracts';",
+    'const a = z.object({ assetId: assetIdSchema });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const c = closureOf(repo, [{ p, node: p.program.body[3].declarations[0].init, where: 'r' }]);
+  assert.deepEqual(c.problems, []);
+  assert.equal(c.fromContracts.get('assetIdSchema').file, join(repo, 'packages/contracts/src/pay-call-schemas.ts'));
 });
 
 test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
