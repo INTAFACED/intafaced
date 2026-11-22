@@ -69,7 +69,7 @@ const VOLT_RULE =
 const APP_SRC = resolve(dirname(new URL(import.meta.url).pathname), '..');
 
 /** The marker line a screen file carries for each room it draws in its template. */
-export const VOLT_ROOM_MARK = /^[ \t]*\/\/ volt-room: (\S+)[ \t]*$/gm;
+const VOLT_ROOM_MARK = /^[ \t]*\/\/ volt-room: (\S+)[ \t]*$/gm;
 
 /** Every source file under `dir` but tests, as paths relative to `root`. */
 function sources(root: string, dir = root): string[] {
