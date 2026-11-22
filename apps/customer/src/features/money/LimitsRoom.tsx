@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { defineCopy } from '../../shared/i18n';
-import { useBankRead, useBankRecord } from './components';
+import { useBankRecord } from './components';
 import { DepthPanel } from './DepthParts';
 import { useHoldings } from './holdings';
 import './bank-depth.css';
 import { BANK_FEES_PARTNER, BANK_FEES_SCHEDULE_GET, BANK_FEES_ACCOUNT } from '@intafaced/contracts/bank-fees-procedures';
 import { BANK_PLANS_LIST } from '@intafaced/contracts/bank-plans-procedures';
+import { BANK_TRANSFERS_QUOTE } from '@intafaced/contracts/bank-transfers-procedures';
 
 /** Words for the limits, fees and plan room (BK-acct-04, J-bank-16 #6). No limit, fee or price is written here. */
 export const limitsCopy = defineCopy('bank-limits', {
@@ -52,7 +53,7 @@ export function LimitsRoom() {
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   const [chosen, setChosen] = useState('');
   const assetId = chosen || assets[0]?.assetId || '';
-  const quote = useBankRead('transfers.quote', { assetId, amount: '0' }, Boolean(assetId));
+  const quote = useBankRecord(BANK_TRANSFERS_QUOTE, { assetId, amount: '0' }, Boolean(assetId));
   const partner = useBankRecord(BANK_FEES_PARTNER, { assetId }, Boolean(assetId));
   const heldAtPartner = partner.resource.status === 'ready' && partner.resource.data.held ? partner.resource.data : null;
   const sendFees = useBankRecord(BANK_FEES_SCHEDULE_GET, undefined);

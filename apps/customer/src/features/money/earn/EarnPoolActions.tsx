@@ -1,16 +1,25 @@
 import { useState } from 'react';
-import type { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { parseAmount } from '../../shared/money';
-import { useSession } from '../session';
-import { amount, bps, date, funds, positiveMoney, useBankRead, type ActionSpec, useBankRecord } from './components';
-import { bankReads, bankWrites, type earnPoolPageSchema, type positionSchema } from './contracts';
-import { CALCULATOR_MAX_DAYS, earnCalculation } from './earn-calculator';
-import { earnCopy } from './earn-copy';
-import { utcDay } from './earn-rate-history';
-import { earnPoolActionsCopy } from './earn-pool-actions-copy';
-import { BANK_EARN_POOL, BANK_EARN_POSITIONS, BANK_EARN_INTEREST_HISTORY } from '@intafaced/contracts/bank-earn-procedures';
+import { z } from 'zod';
+import { Button, Field } from '@intafaced/ui/lit';
+import type { ApiResult } from '../../../shared/api';
+import { ReadFailure, ReadLoading } from '../../../shared/read-state';
+import { parseAmount } from '../../../shared/money';
+import { useSession } from '../../session';
+import { amount, bps, date, funds, positiveMoney, useBankRead, useBankRecord, usePageLimit, type ActionSpec } from '../components';
+import { t as copyText } from '../copy';
+import { availableRow, earnFormFacts, earnLiveRows } from '../form-preview';
+import { useHoldings } from '../holdings';
+import { bankReads, bankWrites, type earnPoolPageSchema, type poolSchema, type positionSchema } from '../contracts';
+import { CALCULATOR_MAX_DAYS, earnCalculation } from '../earn-calculator';
+import { earnCopy } from '../earn-copy';
+import { utcDay } from '../earn-rate-history';
+import { earnPoolActionsCopy } from '../earn-pool-actions-copy';
+import {
+  BANK_EARN_INTEREST_HISTORY,
+  BANK_EARN_POOLS,
+  BANK_EARN_POSITIONS,
+  BANK_EARN_POOL,
+} from '@intafaced/contracts/bank-earn-procedures';
 import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
 
 type Pool = z.infer<typeof earnPoolPageSchema>;
@@ -39,10 +48,10 @@ export function EarnCalculator({ pool }: { pool: Pool }) {
   const result = earnCalculation({ amount: principal, aprBps: pool.aprBps, days: Number(days) });
   const typed = principal.trim() !== '';
   return (
-    <section className="money-earn-calculator" data-testid="earn-calculator" aria-label={t('calculatorTitle')}>
+    <section data-testid="earn-calculator" aria-label={t('calculatorTitle')}>
       <h3>{t('calculatorTitle')}</h3>
-      <p className="money-caption">{t('calculatorLead')}</p>
-      <div className="money-earn-calculator__fields">
+      <p className="lt-hint">{t('calculatorLead')}</p>
+      <div className="lt-actions">
         <Field
           label={t('calculatorAmount', { asset: pool.assetId })}
           name="calculatorAmount"
@@ -61,27 +70,27 @@ export function EarnCalculator({ pool }: { pool: Pool }) {
         />
       </div>
       {result ? (
-        <dl className="money-earn-facts" data-testid="earn-calculator-result" data-per-day={result.perDay} data-total={result.total}>
+        <dl className="lt-kv" data-testid="earn-calculator-result" data-per-day={result.perDay} data-total={result.total}>
           <div>
             <dt>{t('calculatorPerDay')}</dt>
-            <dd className="numeric">{amount(result.perDay, pool.assetId)}</dd>
+            <dd>{amount(result.perDay, pool.assetId)}</dd>
           </div>
           <div>
             <dt>{t('calculatorTotal', { days: result.days })}</dt>
-            <dd className="numeric">{amount(result.total, pool.assetId)}</dd>
+            <dd>{amount(result.total, pool.assetId)}</dd>
           </div>
         </dl>
       ) : (
         typed && (
-          <p className="money-caption" role="status" data-testid="earn-calculator-invalid">
+          <p className="lt-hint" role="status" data-testid="earn-calculator-invalid">
             {t('calculatorInvalid', { max: CALCULATOR_MAX_DAYS })}
           </p>
         )
       )}
-      <p className="money-caption" data-testid="earn-calculator-formula">
+      <p className="lt-hint" data-testid="earn-calculator-formula">
         {t('calculatorFormula', { rate: bps(pool.aprBps) })}
       </p>
-      <p className="money-caption">{t('calculatorIllustration')}</p>
+      <p className="lt-hint">{t('calculatorIllustration')}</p>
     </section>
   );
 }
@@ -98,14 +107,15 @@ export function PoolDeposit({ pool, open }: { pool: Pool; open: Open }) {
   const term = pool.termDays === null ? t('flexible') : t('termDays', { days: pool.termDays });
   if (pool.status !== 'open') {
     return (
-      <p className="notice" data-testid="earn-pool-deposit" data-state="closed">
+      <p className="lt-hint" data-testid="earn-pool-deposit" data-state="closed">
         {t('closedToDeposits')}
       </p>
     );
   }
   return (
-    <div className="actions" data-testid="earn-pool-deposit" data-state="open">
+    <div className="lt-actions" data-testid="earn-pool-deposit" data-state="open">
       <Button
+        tone="primary"
         onClick={() =>
           open({
             title: t('depositTitle'),
@@ -160,7 +170,7 @@ export function AccrualState({ position }: { position: Position }) {
     }
   };
   return (
-    <p className="money-caption" data-testid="earn-pool-accrual" data-state={position.accrual} data-from={position.accruesFrom}>
+    <p className="lt-hint" data-testid="earn-pool-accrual" data-state={position.accrual} data-from={position.accruesFrom}>
       {line()}
     </p>
   );
@@ -178,7 +188,7 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
   const lockedUntil = position.maturesAt !== null && Date.parse(position.maturesAt) > Date.now() ? position.maturesAt : null;
   if (lockedUntil) {
     return (
-      <p className="money-earn-lock" data-testid="earn-withdraw" data-state="locked">
+      <p className="lt-hint" data-testid="earn-withdraw" data-state="locked">
         {t('locked', { date: date(lockedUntil) })}
       </p>
     );
@@ -187,7 +197,7 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
   // The bank's clock says whether the unbonding has ended, so a device clock that runs fast or slow changes nothing.
   if (unbondsAt !== null && position.staking === 'unbonding') {
     return (
-      <p className="money-earn-lock" data-testid="earn-withdraw" data-state="unbonding" data-until={unbondsAt}>
+      <p className="lt-hint" data-testid="earn-withdraw" data-state="unbonding" data-until={unbondsAt}>
         {t('unbondingUntil', { date: date(unbondsAt) })}
       </p>
     );
@@ -210,7 +220,7 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
     const estimate = new Date(Date.now() + unbondingDays * 24 * 60 * 60 * 1000).toISOString();
     return (
       <Button
-        variant="secondary"
+        tone="secondary"
         data-testid="earn-withdraw"
         data-state="staked"
         onClick={() =>
@@ -264,15 +274,15 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
   if (unbondsAt !== null) {
     return (
       <div data-testid="earn-withdraw" data-state="unbonded" data-until={unbondsAt}>
-        <p className="money-caption">{t('unbondEnded', { date: date(unbondsAt) })}</p>
-        <Button variant="secondary" onClick={takeBack}>
+        <p className="lt-hint">{t('unbondEnded', { date: date(unbondsAt) })}</p>
+        <Button tone="secondary" onClick={takeBack}>
           {t('withdraw')}
         </Button>
       </div>
     );
   }
   return (
-    <Button variant="secondary" data-testid="earn-withdraw" data-state="open" onClick={takeBack}>
+    <Button tone="secondary" data-testid="earn-withdraw" data-state="open" onClick={takeBack}>
       {t('withdraw')}
     </Button>
   );
@@ -323,20 +333,18 @@ export function FixedTerm({ pool, position, open }: { pool: Pool; position: Posi
     return ended ? t('renewOffEnded') : t('renewOff', { date: date(maturesAt) });
   };
   return (
-    <div className="money-earn-term" data-testid="earn-fixed-term" data-matures={maturesAt} data-renewals={position.renewals}>
-      <p className="money-caption">
-        {ended ? t('fixedEnded', { date: date(maturesAt) }) : t('fixedTerm', { days, date: date(maturesAt) })}
-      </p>
-      {position.renewals > 0 && <p className="money-caption">{t('renewedCount', { count: position.renewals })}</p>}
+    <div data-testid="earn-fixed-term" data-matures={maturesAt} data-renewals={position.renewals}>
+      <p className="lt-hint">{ended ? t('fixedEnded', { date: date(maturesAt) }) : t('fixedTerm', { days, date: date(maturesAt) })}</p>
+      {position.renewals > 0 && <p className="lt-hint">{t('renewedCount', { count: position.renewals })}</p>}
       <div data-testid="earn-auto-renew" data-on={String(position.autoRenew)}>
-        <p className="money-caption">{renewLine()}</p>
+        <p className="lt-hint">{renewLine()}</p>
         {position.autoRenew ? (
-          <Button variant="ghost" onClick={() => choose(false)}>
+          <Button tone="quiet" onClick={() => choose(false)}>
             {t('renewTurnOff')}
           </Button>
         ) : (
           canTurnOn && (
-            <Button variant="secondary" onClick={() => choose(true)}>
+            <Button tone="secondary" onClick={() => choose(true)}>
               {t('renewTurnOn')}
             </Button>
           )
@@ -353,14 +361,14 @@ export function FixedTerm({ pool, position, open }: { pool: Pool; position: Posi
 export function PayoutSchedule({ pool, position }: { pool: Pool; position: Position }) {
   const { t } = earnPoolActionsCopy.useCopy();
   return (
-    <div className="money-earn-schedule" data-testid="earn-payout-schedule" data-next={position.nextPayoutOn ?? ''}>
+    <div data-testid="earn-payout-schedule" data-next={position.nextPayoutOn ?? ''}>
       <h4>{t('scheduleTitle')}</h4>
-      <p className="money-caption">{t('scheduleDaily', { asset: position.assetId })}</p>
-      {pool.termDays !== null && <p className="money-caption">{t('scheduleThroughTerm')}</p>}
-      <p className="money-caption" data-testid="earn-payout-next">
+      <p className="lt-hint">{t('scheduleDaily', { asset: position.assetId })}</p>
+      {pool.termDays !== null && <p className="lt-hint">{t('scheduleThroughTerm')}</p>}
+      <p className="lt-hint" data-testid="earn-payout-next">
         <strong>{position.nextPayoutOn ? t('scheduleNext', { date: utcDay(position.nextPayoutOn) }) : t('scheduleNone')}</strong>
       </p>
-      <p className="money-caption" data-testid="earn-compounding" data-compounding="none">
+      <p className="lt-hint" data-testid="earn-compounding" data-compounding="none">
         {t('compounding')}
       </p>
     </div>
@@ -371,24 +379,24 @@ export function PayoutSchedule({ pool, position }: { pool: Pool; position: Posit
 export function PoolEarned({ pool }: { pool: Pool }) {
   const { t } = earnPoolActionsCopy.useCopy();
   const history = useBankRecord(BANK_EARN_INTEREST_HISTORY, { poolId: pool.id, limit: DAYS_SHOWN });
-  if (history.resource.status === 'loading') return <Loading />;
-  if (history.resource.status === 'failed') return <Failure result={history.resource.failure} retry={history.reload} />;
+  if (history.resource.status === 'loading') return <ReadLoading />;
+  if (history.resource.status === 'failed') return <ReadFailure result={history.resource.failure} retry={history.reload} />;
   const earned = history.resource.data;
   return (
     <section data-testid="earn-pool-earned" data-total={earned.total} aria-label={t('earnedTitle')}>
       <h4>{t('earnedTitle')}</h4>
       {earned.days.length ? (
         <>
-          <p className="money-caption">
-            {t('earnedTotal')}: <span className="numeric">{funds(earned.total, pool.assetId)}</span>
+          <p className="lt-hint">
+            {t('earnedTotal')}: <span>{funds(earned.total, pool.assetId)}</span>
           </p>
           <EarnedDays pool={pool} days={earned.days} />
         </>
       ) : (
-        earned.unitemisedDays === 0 && <p className="money-caption">{t('earnedNone')}</p>
+        earned.unitemisedDays === 0 && <p className="lt-hint">{t('earnedNone')}</p>
       )}
       {earned.unitemisedDays > 0 && (
-        <p className="money-caption" data-testid="earn-pool-earned-unitemised">
+        <p className="lt-hint" data-testid="earn-pool-earned-unitemised">
           {t('earnedUnitemised', { count: earned.unitemisedDays })}
         </p>
       )}
@@ -404,7 +412,7 @@ function EarnedDays({ pool, days }: { pool: Pool; days: PaidDay[] }) {
   const [earlier, setEarlier] = useState(false);
   return (
     <>
-      <ul className="money-list">
+      <ul>
         {days.map((day) => (
           <li key={day.date} data-testid="earn-pool-earned-day" data-date={day.date} data-amount={day.amount} data-bps={day.rateBps}>
             {t('earnedDay', { date: utcDay(day.date), amount: funds(day.amount, pool.assetId), rate: bps(day.rateBps) })}
@@ -416,8 +424,8 @@ function EarnedDays({ pool, days }: { pool: Pool; days: PaidDay[] }) {
           <EarlierDays pool={pool} before={days[days.length - 1]!.date} />
         ) : (
           <>
-            <p className="money-caption">{t('earnedLatest', { count: days.length })}</p>
-            <Button variant="ghost" onClick={() => setEarlier(true)}>
+            <p className="lt-hint">{t('earnedLatest', { count: days.length })}</p>
+            <Button tone="quiet" onClick={() => setEarlier(true)}>
               {t('earnedEarlier')}
             </Button>
           </>
@@ -429,12 +437,12 @@ function EarnedDays({ pool, days }: { pool: Pool; days: PaidDay[] }) {
 function EarlierDays({ pool, before }: { pool: Pool; before: string }) {
   const { t } = earnPoolActionsCopy.useCopy();
   const page = useBankRecord(BANK_EARN_INTEREST_HISTORY, { poolId: pool.id, limit: DAYS_SHOWN, before });
-  if (page.resource.status === 'loading') return <Loading />;
-  if (page.resource.status === 'failed') return <Failure result={page.resource.failure} retry={page.reload} />;
+  if (page.resource.status === 'loading') return <ReadLoading />;
+  if (page.resource.status === 'failed') return <ReadFailure result={page.resource.failure} retry={page.reload} />;
   return page.resource.data.days.length ? (
     <EarnedDays pool={pool} days={page.resource.data.days} />
   ) : (
-    <p className="money-caption">{t('earnedNoEarlier')}</p>
+    <p className="lt-hint">{t('earnedNoEarlier')}</p>
   );
 }
 
@@ -464,31 +472,31 @@ export function AutoEarn({ pool, open }: { pool: Pool; open: Open }) {
         )
       : [];
   const body = () => {
-    if (policy.resource.status === 'loading') return <Loading />;
-    if (policy.resource.status === 'failed') return <Failure result={policy.resource.failure} retry={policy.reload} />;
+    if (policy.resource.status === 'loading') return <ReadLoading />;
+    if (policy.resource.status === 'failed') return <ReadFailure result={policy.resource.failure} retry={policy.reload} />;
     if (!policy.resource.data.enabled) {
       return (
-        <p className="notice" data-state="off">
+        <p className="lt-hint" data-state="off">
           {t('autoOff')}
         </p>
       );
     }
     return (
       <>
-        {rules.resource.status === 'failed' && <Failure result={rules.resource.failure} retry={rules.reload} />}
+        {rules.resource.status === 'failed' && <ReadFailure result={rules.resource.failure} retry={rules.reload} />}
         {mine.map((rule) => (
-          <p key={rule.id} className="money-caption" data-testid="earn-auto-earn-rule" data-rule={rule.id} data-status={rule.status}>
+          <p key={rule.id} className="lt-hint" data-testid="earn-auto-earn-rule" data-rule={rule.id} data-status={rule.status}>
             {t(rule.status === 'active' ? 'autoSaved' : 'autoPaused', { threshold: amount(rule.threshold, rule.assetId) })}{' '}
-            <a className="text-link" href="/bank/earn">
+            <a className="lt-link" href="/bank/earn">
               {t('autoManage')}
             </a>
           </p>
         ))}
         {/* One rule per pool here: a saved one is paused or stopped on the Earn page, where every rule is listed. */}
         {pool.status === 'open' && rules.resource.status === 'ready' && mine.length === 0 && (
-          <div className="actions">
+          <div className="lt-actions">
             <Button
-              variant="secondary"
+              tone="secondary"
               onClick={() =>
                 open({
                   title: t('autoTitleDialog'),
@@ -515,8 +523,149 @@ export function AutoEarn({ pool, open }: { pool: Pool; open: Open }) {
   };
   return (
     <section data-testid="earn-auto-earn" aria-label={t('autoTitle')}>
-      <p className="money-caption">{t('autoLead', { asset: pool.assetId })}</p>
+      <p className="lt-hint">{t('autoLead', { asset: pool.assetId })}</p>
       {body()}
     </section>
   );
+}
+
+/**
+ * What the Earn room (`/bank/earn`, EarnRooms.tsx) reads and the reviews it opens: the pools and the person's savings, the
+ * automation policy, the checks a review runs again before it is sent, and each review's terms as the bank states them.
+ */
+export function useEarnRoom() {
+  const { api } = useSession();
+  const [limit, setLimit] = usePageLimit();
+  const fail = (subject: string): ApiResult<null> => ({
+    ok: false,
+    reason: 'error',
+    code: 'money.review_read_unavailable',
+    message: earnCopy.t('readFailed', { subject }),
+  });
+  const changed = (): ApiResult<null> => ({ ok: false, reason: 'error', code: 'money.review_changed', message: earnCopy.t('changed') });
+  const validMaturity = (at: string) => z.string().datetime({ offset: true }).safeParse(at).success;
+  const maturityAllowsReview = (at: string | null) => at === null || (validMaturity(at) && Date.parse(at) <= Date.now());
+  async function checkPool(pool: z.infer<typeof poolSchema>, automation = false): Promise<ApiResult<null>> {
+    const fresh = await api.call(BANK_EARN_POOLS, { limit });
+    if (!fresh.ok) return fail(earnCopy.t('subjectPool'));
+    const current = fresh.data.find((row) => row.id === pool.id);
+    if (!current || JSON.stringify(current) !== JSON.stringify(pool)) return changed();
+    if (automation) {
+      const policy = await api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']);
+      if (!policy.ok) return fail(earnCopy.t('subjectPolicy'));
+      if (!policy.data.enabled) return changed();
+    }
+    return { ok: true, data: null };
+  }
+  async function checkPosition(position: z.infer<typeof positionSchema>): Promise<ApiResult<null>> {
+    const fresh = await api.call(BANK_EARN_POSITIONS, { limit });
+    if (!fresh.ok) return fail(earnCopy.t('subjectPosition'));
+    const current = fresh.data.find((row) => row.id === position.id);
+    if (!current || JSON.stringify(current) !== JSON.stringify(position) || !maturityAllowsReview(current.maturesAt)) return changed();
+    return { ok: true, data: null };
+  }
+  const pools = useBankRecord(BANK_EARN_POOLS, { limit });
+  const positions = useBankRecord(BANK_EARN_POSITIONS, { limit });
+  const held = useHoldings();
+  const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
+  const automation = useBankRead('autoInvest.policy', undefined);
+  return {
+    limit,
+    setLimit,
+    pools,
+    positions,
+    automation,
+    validMaturity,
+    maturityAllowsReview,
+    review: {
+      withdraw: (position: z.infer<typeof positionSchema>): ActionSpec => ({
+        title: copyText('rooms.withdraw.earn.principal'),
+        unit: position.assetId,
+        procedure: 'earn.withdraw',
+
+        preflight: () => checkPosition(position),
+        verifyOutcome: (data) => {
+          const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
+          return (
+            returned.positionId === position.id &&
+            returned.status === 'closed' &&
+            parseAmount(returned.principal) === parseAmount(position.principal)
+          );
+        },
+        facts: [
+          [copyText('rooms.position'), position.id],
+          [copyText('rooms.principal.2'), amount(position.principal, position.assetId)],
+          [copyText('rooms.matures.2'), date(position.maturesAt)],
+        ],
+        notes: [copyText('rooms.the.service.checks.maturity.and.reconciles.ledger'), earnCopy.t('withdrawalOutcome')],
+        input: () => ({ positionId: position.id }),
+      }),
+      deposit: (pool: z.infer<typeof poolSchema>): ActionSpec => ({
+        title: copyText('rooms.deposit.into.earn'),
+        procedure: 'earn.deposit',
+
+        preflight: () => checkPool(pool),
+        verifyOutcome: (data, input) => {
+          const returned = data as z.infer<(typeof bankWrites)['earn.deposit']>;
+          const fixed = pool.kind === 'fixed' && pool.termDays !== null;
+          return (
+            returned.positionId === input.positionId &&
+            (fixed ? z.string().datetime({ offset: true }).safeParse(returned.maturesAt).success : returned.maturesAt === null)
+          );
+        },
+        fields: [positiveMoney(pool.assetId)],
+        formFacts: earnFormFacts(pool, availableRow(pool.assetId, heldRows, funds), new Date(), bps),
+        liveRows: (values) => earnLiveRows(pool, values, funds),
+        facts: [
+          [copyText('rooms.pool'), pool.name],
+          [copyText('rooms.apr.2'), bps(pool.aprBps)],
+          [
+            copyText('rooms.term'),
+            pool.termDays === null ? copyText('rooms.flexible.term') : copyText('rooms.days', { value1: pool.termDays }),
+          ],
+          [copyText('rooms.minimum'), amount(pool.minDeposit, pool.assetId)],
+        ],
+        notes: [
+          copyText('rooms.principal.moves.from.your.user.available.account'),
+          copyText('rooms.the.service.verifies.the.pool.is.open'),
+        ],
+        validate: (input) =>
+          parseAmount(String(input.amount)) >= parseAmount(pool.minDeposit)
+            ? null
+            : copyText('rooms.the.amount.is.below.the.configured.minimum'),
+        input: (values, requestId) => ({ poolId: pool.id, positionId: requestId, amount: values.amount }),
+      }),
+      sweep: (pool: z.infer<typeof poolSchema>): ActionSpec => ({
+        title: copyText('rooms.create.threshold.sweep'),
+        procedure: 'autoInvest.createThresholdSweep',
+        unit: pool.assetId,
+        preflight: () => checkPool(pool, true),
+        fields: [
+          {
+            ...positiveMoney(pool.assetId, 'threshold', earnCopy.t('keepAvailable')),
+            hint: earnCopy.t('thresholdHint'),
+          },
+        ],
+        facts: [
+          [copyText('rooms.pool'), pool.name],
+          [copyText('rooms.asset'), pool.assetId],
+        ],
+        notes: [copyText('rooms.keep.this.exact.quantity.in.the.primary'), copyText('rooms.no.cross.asset.rate.is.assumed.the')],
+        input: (values) => ({ assetId: pool.assetId, targetPoolId: pool.id, threshold: values.threshold }),
+      }),
+      roundUp: (pool: z.infer<typeof poolSchema>): ActionSpec => ({
+        title: copyText('rooms.create.card.round.up'),
+        procedure: 'autoInvest.createRoundUp',
+        unit: pool.assetId,
+        preflight: () => checkPool(pool, true),
+        fields: [positiveMoney(pool.assetId, 'granularity', copyText('rooms.round.up.increment'))],
+        facts: [
+          [copyText('rooms.pool'), pool.name],
+          [copyText('rooms.asset'), pool.assetId],
+        ],
+        notes: [copyText('rooms.same.asset.spare.change.goes.to.this'), copyText('rooms.this.instruction.does.not.connect.an.issuer')],
+        input: (values) => ({ assetId: pool.assetId, targetPoolId: pool.id, granularity: values.granularity }),
+      }),
+    },
+  };
 }

@@ -8,10 +8,10 @@ import { useSession, useApi } from '../session';
 import { createMoneyClient } from './client';
 import { bankReads, ruleSchema } from './contracts';
 import { t } from './repeat-buy-copy';
+import { AutoInvestRules } from './earn/AutoInvestRules';
 import {
   funds,
   cadenceField,
-  Continuation,
   date,
   iso,
   NoRows,
@@ -36,7 +36,11 @@ const readRefusal = (subject: string): ApiResult<null> => ({
   message: t('readCheckFailed', { subject }),
 });
 
-export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: ActionSpec) => void }) {
+/**
+ * What the automatic investing rules (earn/AutoInvestRules.tsx) read, and each rule's pause, resume and cancel review,
+ * checked again against the bank's list (and, to resume, its policy) before it is sent.
+ */
+export function useAutoInvestRules() {
   const api = useApi();
   const [limit, setLimit] = usePageLimit();
   const { resource, reload } = useBankRecord(BANK_AUTO_INVEST_LIST, { limit });
@@ -91,85 +95,7 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
       },
     };
   }
-  return (
-    <Section
-      title={asset ? t('buyingRules', { asset }) : t('allRules')}
-      description={asset ? t('buyingRulesDetail', { asset }) : t('allRulesDetail')}
-      actions={
-        <Button variant="ghost" onClick={reload}>
-          {t('refresh')}
-        </Button>
-      }
-    >
-      <ResourceView resource={resource} reload={reload}>
-        {(all) => {
-          const rows = asset ? all.filter((rule) => rule.kind === 'dca' && rule.buyAssetId === asset) : all;
-          return (
-            <>
-              {rows.length ? (
-                rows.map((rule) => (
-                  <article className="money-record money-repeat-rule" key={rule.id}>
-                    <header>
-                      <div>
-                        <h3>
-                          {rule.kind === 'dca'
-                            ? t('pair', { amount: funds(rule.amount, rule.assetId), asset: rule.buyAssetId ?? t('buyUnavailable') })
-                            : rule.kind === 'threshold_sweep'
-                              ? t('sweep')
-                              : t('roundup')}
-                        </h3>
-                        <p className={rule.status === 'active' ? 'money-repeat-active' : undefined}>
-                          {rule.status} · {rule.cadence ?? t('eventDriven')}
-                        </p>
-                      </div>
-                      {rule.kind === 'dca' ? (
-                        <span className="muted">{t('budget')}</span>
-                      ) : (
-                        <span className="numeric">{funds(rule.threshold ?? rule.amount, rule.assetId)}</span>
-                      )}
-                    </header>
-                    <dl className="detail-list">
-                      <div>
-                        <dt>{t('nextRun')}</dt>
-                        <dd>{date(rule.nextRunAt)}</dd>
-                      </div>
-                      <div>
-                        <dt>{t('reference')}</dt>
-                        <dd>{rule.id}</dd>
-                      </div>
-                    </dl>
-                    {rule.status === 'paused' && <p className="muted">{t('pausedNote')}</p>}
-                    {rule.status !== 'cancelled' && (
-                      <div className="actions">
-                        <Button variant="secondary" onClick={() => open(lifecycle(rule, rule.status === 'paused' ? 'resume' : 'pause'))}>
-                          {t(rule.status === 'paused' ? 'resume' : 'pause')}
-                        </Button>
-                        <Button variant="ghost" onClick={() => open(lifecycle(rule, 'cancel'))}>
-                          {t('cancel')}
-                        </Button>
-                      </div>
-                    )}
-                  </article>
-                ))
-              ) : (
-                <NoRows title={asset ? t('noRules', { asset }) : t('noAutomation')}>{t('noRulesDetail')}</NoRows>
-              )}
-              {asset && (
-                <p className="muted money-repeat-coverage">{t('matching', { count: String(rows.length), total: String(all.length) })}</p>
-              )}
-              <Continuation count={all.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-              <p className="muted money-repeat-coverage">{t('historyMissing')}</p>
-              {asset && (
-                <a className="text-link" href="/bank/earn">
-                  {t('otherAutomation')}
-                </a>
-              )}
-            </>
-          );
-        }}
-      </ResourceView>
-    </Section>
-  );
+  return { limit, setLimit, resource, reload, lifecycle };
 }
 
 function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpec) => void }) {

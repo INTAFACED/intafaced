@@ -1,17 +1,19 @@
 import type { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import type { Resource } from '../../shared/resource';
 import { parseAmount } from '../../shared/money';
-import { Button } from '../../shared/ui';
-import type { loanSchema } from './contracts';
-import { amount, bps, type ActionSpec } from './components';
-import { loanCopy } from './loan-copy';
+import { useSession } from '../session';
+import { type loanSchema } from './contracts';
+import { amount, bps, funds, positiveMoney, useBankRecord, usePageLimit, type ActionSpec } from './components';
+import { t as copyText } from './copy';
+import { availableRow, loanFormFacts, loanLiveRows } from './form-preview';
+import { useHoldings } from './holdings';
+import { loanCopy, loanStatusLabel } from './loan-copy';
 import './loan.css';
-import { BANK_LOANS_LIST, BANK_LOANS_RELEASABLE, type BANK_LOANS_HEALTH } from '@intafaced/contracts/bank-loans-procedures';
+import { BANK_LOANS_PRODUCTS, BANK_LOANS_LIST, BANK_LOANS_HEALTH, BANK_LOANS_RELEASABLE } from '@intafaced/contracts/bank-loans-procedures';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type Loan = z.infer<typeof loanSchema>;
-type Health = ProcedureOutput<typeof BANK_LOANS_HEALTH>;
+type Product = ProcedureOutput<typeof BANK_LOANS_PRODUCTS>[number];
 type LoanAction = 'repay' | 'addCollateral' | 'releaseExcess' | 'close';
 const statuses = ['pending', 'active', 'margin_call', 'liquidating', 'repaid', 'liquidated'];
 
@@ -35,7 +37,7 @@ export function loanStatusNote(status: string): string | null {
   return status === 'active' ? null : loanCopy.t('unsupported');
 }
 
-export function currentLoanPreflight(api: ApiClient, loan: Loan, action: LoanAction, limit: number): NonNullable<ActionSpec['preflight']> {
+function currentLoanPreflight(api: ApiClient, loan: Loan, action: LoanAction, limit: number): NonNullable<ActionSpec['preflight']> {
   return async (input): Promise<ApiResult<null>> => {
     const latest = await api.call(BANK_LOANS_LIST, { limit });
     if (!latest.ok)
@@ -54,7 +56,7 @@ export function currentLoanPreflight(api: ApiClient, loan: Loan, action: LoanAct
  * The release review's terms (BK-loan-05): the bank's own answer to how much collateral it would release now. The amount
  * asked for above that, or any amount when it would release none, holds Confirm with the reason; nothing is worked out here.
  */
-export async function readReleasable(
+async function readReleasable(
   api: ApiClient,
   loanId: string,
   assetId: string,
@@ -75,28 +77,131 @@ export async function readReleasable(
   return { rows, blocked: null };
 }
 
-export function LoanHealth({ loan, resource, reload }: { loan: Loan; resource: Resource<Health>; reload: () => void }) {
-  const { t } = loanCopy.useCopy();
-  const matches = resource.status === 'ready' ? resource.data.loans.filter((row) => row.loanId === loan.id) : [];
-  const ratio = matches.length === 1 ? matches[0]!.ltvBps : undefined;
-  const valid = ratio !== undefined && Number.isSafeInteger(ratio) && ratio >= 0;
-  const ranged = ratio === Number.MAX_SAFE_INTEGER;
-  return (
-    <section className="money-loan-risk" aria-label={t('riskFor', { loanId: loan.id })}>
-      <div className="money-loan-risk-value">
-        <h4>{t('riskLabel')}</h4>
-        <strong className={valid && !ranged ? 'numeric' : 'money-loan-risk-message'}>
-          {resource.status === 'loading' ? t('riskLoading') : valid ? (ranged ? t('riskRange') : bps(ratio)) : t('riskUnavailable')}
-        </strong>
-      </div>
-      <div className="money-loan-risk-detail">
-        <p className="muted">{valid ? t('riskNote') : t('riskUnavailableNote')}</p>
-        {resource.status === 'failed' && (
-          <Button variant="ghost" onClick={reload}>
-            {t('riskRefresh')}
-          </Button>
-        )}
-      </div>
-    </section>
-  );
+/**
+ * What the Loans room (`/bank/loans`, loans/LoansRoom.tsx) reads and the reviews it opens: the products, the person's loans
+ * and their health, and each borrowing, repayment and collateral review with the checks it runs again before it is sent.
+ */
+export function useLoansRoom() {
+  const { api } = useSession();
+  const [limit, setLimit] = usePageLimit();
+  const products = useBankRecord(BANK_LOANS_PRODUCTS, { limit });
+  const loans = useBankRecord(BANK_LOANS_LIST, { limit });
+  const health = useBankRecord(BANK_LOANS_HEALTH, undefined);
+  const held = useHoldings();
+  const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
+  return {
+    limit,
+    setLimit,
+    products,
+    loans,
+    health,
+    review: {
+      open: (product: Product): ActionSpec => ({
+        title: copyText('rooms.open.loan'),
+        procedure: 'loans.open',
+        fields: [
+          positiveMoney(product.debtAssetId, 'principal', copyText('rooms.principal.to.borrow')),
+          positiveMoney(product.collateralAssetId, 'collateralAmount', copyText('rooms.collateral.to.pledge')),
+        ],
+        formFacts: loanFormFacts(product, availableRow(product.collateralAssetId, heldRows, funds), bps),
+        liveRows: (values) => loanLiveRows(product, values, funds),
+        facts: [
+          [copyText('rooms.product'), product.name],
+          [copyText('rooms.apr.2'), bps(product.aprBps)],
+          [copyText('rooms.maximum.ltv'), bps(product.maxLtvBps)],
+          [copyText('rooms.margin.call'), bps(product.marginCallLtvBps)],
+          [copyText('rooms.liquidation'), bps(product.liquidationLtvBps)],
+        ],
+        notes: [
+          copyText('rooms.collateral.moves.from.your.user.available.account'),
+          copyText('rooms.the.service.obtains.acceptable.current.marks.and'),
+        ],
+        validate: (input) =>
+          parseAmount(String(input.principal)) >= parseAmount(product.minPrincipal)
+            ? null
+            : copyText('rooms.principal.is.below.the.product.minimum'),
+        input: (values, requestId) => ({
+          loanId: requestId,
+          productId: product.id,
+          principal: values.principal,
+          collateralAmount: values.collateralAmount,
+        }),
+        submit: copyText('rooms.confirm.loan.request'),
+      }),
+      repay: (loan: Loan): ActionSpec => ({
+        title: copyText('rooms.repay.loan'),
+        procedure: 'loans.repay',
+        preflight: currentLoanPreflight(api, loan, 'repay', limit),
+        fields: [positiveMoney(loan.debtAssetId)],
+        facts: [
+          [loanCopy.t('loan'), loan.id],
+          [loanCopy.t('status'), loanStatusLabel(loan.status)],
+          [loanCopy.t('debtAsset'), loan.debtAssetId],
+          [loanCopy.t('collateralAsset'), loan.collateralAssetId],
+          [copyText('rooms.principal.at.last.read'), amount(loan.outstandingPrincipal, loan.debtAssetId)],
+          [copyText('rooms.interest.at.last.read'), amount(loan.outstandingInterest, loan.debtAssetId)],
+        ],
+        notes: [loanCopy.t('repaymentOffer'), copyText('rooms.your.request.reference.remains.stable.an.uncertain')],
+        input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
+        // svc-bank `loans.repay` answers a repeated eventId with the first repayment, never a second one.
+        resendSame: true,
+      }),
+      addCollateral: (loan: Loan): ActionSpec => ({
+        title: copyText('rooms.add.collateral'),
+        procedure: 'loans.addCollateral',
+        preflight: currentLoanPreflight(api, loan, 'addCollateral', limit),
+        fields: [positiveMoney(loan.collateralAssetId)],
+        facts: [
+          [loanCopy.t('loan'), loan.id],
+          [loanCopy.t('status'), loanStatusLabel(loan.status)],
+          [loanCopy.t('debtAsset'), loan.debtAssetId],
+          [loanCopy.t('collateralAsset'), loan.collateralAssetId],
+        ],
+        notes: [copyText('rooms.additional.collateral.is.locked.from.your.user')],
+        input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
+      }),
+      releaseExcess: (loan: Loan): ActionSpec => ({
+        title: copyText('rooms.release.excess.collateral'),
+        procedure: 'loans.releaseExcess',
+        preflight: currentLoanPreflight(api, loan, 'releaseExcess', limit),
+        validate: (input) =>
+          typeof input.amount === 'string' && parseAmount(input.amount) <= parseAmount(loan.collateral)
+            ? null
+            : loanCopy.t('releaseTooLarge'),
+        fields: [positiveMoney(loan.collateralAssetId)],
+        facts: [
+          [loanCopy.t('loan'), loan.id],
+          [loanCopy.t('status'), loanStatusLabel(loan.status)],
+          [loanCopy.t('debtAsset'), loan.debtAssetId],
+          [loanCopy.t('collateralAsset'), loan.collateralAssetId],
+          [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
+        ],
+        notes: [
+          copyText('rooms.the.service.obtains.current.marks.before.releasing'),
+          copyText('rooms.no.available.amount.is.optimistically.increased.refresh'),
+        ],
+        reviewTerms: {
+          checking: loanCopy.t('releasableChecking'),
+          read: (input, signal) => readReleasable(api, loan.id, loan.collateralAssetId, input.amount, signal),
+        },
+        // svc-bank `loans.releaseExcess` keys the release by this eventId, so a retry never releases twice.
+        input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
+      }),
+      close: (loan: Loan): ActionSpec => ({
+        title: copyText('rooms.release.settled.collateral'),
+        unit: loan.collateralAssetId,
+        procedure: 'loans.close',
+        preflight: currentLoanPreflight(api, loan, 'close', limit),
+        facts: [
+          [loanCopy.t('loan'), loan.id],
+          [loanCopy.t('status'), loanStatusLabel(loan.status)],
+          [loanCopy.t('debtAsset'), loan.debtAssetId],
+          [loanCopy.t('collateralAsset'), loan.collateralAssetId],
+          [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
+        ],
+        notes: [copyText('rooms.the.service.releases.collateral.only.after.verifying')],
+        input: () => ({ loanId: loan.id }),
+      }),
+    },
+  };
 }
