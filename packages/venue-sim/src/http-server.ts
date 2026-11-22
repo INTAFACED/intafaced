@@ -686,6 +686,13 @@ function readLimit(body: Record<string, unknown>): number {
   return limit;
 }
 
+/** A decoded wire amount (the request's `amount` fields arrive as bigints): required. */
+function amountIn(body: Record<string, unknown>): Amount {
+  const v = body.amount;
+  if (typeof v !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
+  return v;
+}
+
 function str(body: Record<string, unknown>, key: string): string {
   const v = body[key];
   if (typeof v !== 'string' || v.trim() === '') throw new VenueWireError(`${key} is required`);
@@ -1250,7 +1257,7 @@ async function route(
           ? {
               reward: {
                 validator: str(reward, 'validator'),
-                amount: parseAmount(str(reward, 'amount')),
+                amount: amountIn(reward),
                 rewardRef: str(reward, 'rewardRef'),
               },
             }

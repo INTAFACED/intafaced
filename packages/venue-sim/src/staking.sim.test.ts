@@ -4,7 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { VenueRefusalError, type PreparedVenueAction, type UserVenueAccount, type VenueIntent } from '@intafaced/venue-contracts';
 import { TEST_STAKING, TestVenueSimulator } from './simulator.js';
-import { TEST_VENUE_MARKETS } from './http-server.js';
+import { TEST_VENUE_MARKETS, answerTestVenue } from './http-server.js';
 import type { TestVenueTypedData } from './signing.js';
 
 /**
@@ -135,6 +135,21 @@ describe('J-cex-spot-21 staking on the TEST venue', () => {
     const early = await refusal(sim.prepare(account, signer, delegate(ONE!.address, 'undelegate', '100')));
     expect(early).toMatchObject({ code: 'venue_rejected' });
     expect(early.detail).toContain(ends.toISOString());
+  });
+
+  it('pays a TEST reward through its HTTP door, the amount sent as a decimal string as every amount on the wire is', async () => {
+    const { sim, account, transfer, delegate, run, mine } = await world();
+    await run(transfer('to_staking', '200'));
+    await run(delegate(TWO!.address, 'delegate', '100'));
+    const [status, out] = await answerTestVenue(
+      sim,
+      'POST',
+      '/test/staking',
+      JSON.stringify({ account, reward: { validator: TWO!.address, amount: '1.5', rewardRef: 'js21:reward:1' } }),
+    );
+    expect(status, JSON.stringify(out)).toBe(200);
+    expect(out).toMatchObject({ label: 'TEST' });
+    expect(formatAmount((await mine()).rewards.total)).toBe('1.5');
   });
 
   it('after the lock-up undelegates; to spot waits in the queue, then arrives', async () => {
