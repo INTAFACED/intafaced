@@ -6,7 +6,7 @@ import { accountScreenCopy } from '../../../screens/account/copy';
 export function Panel({ title, lead, children, id }: { title: ReactNode; lead?: ReactNode; children: ReactNode; id?: string }) {
   const heading = useId();
   return (
-    <section className="lt-stack" aria-labelledby={heading} id={id}>
+    <section className="lt-region lt-stack" aria-labelledby={heading} id={id}>
       <h3 id={heading}>{title}</h3>
       {lead && <p className="lt-hint">{lead}</p>}
       {children}
