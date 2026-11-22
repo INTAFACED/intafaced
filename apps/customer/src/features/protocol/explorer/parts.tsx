@@ -2,7 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { useApi } from '../../session';
 import { useResource } from '../../../shared/resource';
 import type { ApiResult } from '../../../shared/api';
-import { EmptyState } from '../../../shared/ui';
+import { EmptyState } from '../volt/parts';
 import { isServiceNotConnected } from '../blockers';
 import { createProtocolApi } from '../api';
 import type { ChainRef } from '../NetworkPanels';

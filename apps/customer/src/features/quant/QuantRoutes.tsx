@@ -8,7 +8,8 @@ import { SharedRoom, SharedStrategy } from './SharedRooms';
 import { teamCopy } from './team-copy';
 import { LibraryRoom, ListingRoom } from './LibraryRooms';
 import { libraryCopy } from './library-copy';
-import { LiveRun, LiveRuns } from './LiveRun';
+import { LiveRun } from './LiveRun';
+import { LiveRunsRoom } from './live-runs/LiveRunsRoom';
 import { liveRunCopy } from './live-run-copy';
 import { EditorRoom, OptimiseRoom, TesterRoom } from './PreviewRooms';
 import { previewCopy } from './preview-copy';
@@ -20,13 +21,14 @@ import { researchCopy } from './research-copy';
 
 /**
  * The Algo dev rooms under `/quant`; `MoreRoutes` hands the whole prefix here. Null for a path that is not one of them,
- * and for studio, backtest and sandbox, which More's own `quantModeRoute` serves beside their room.
+ * and for studio, backtest and sandbox, which More's own `quantModeRoute` serves beside their room. `bare`: the room is on
+ * its Volt template, which draws its own title row, so More mounts it without the old page frame.
  */
 export function quantRoute(
   pathname: string,
   paper: boolean,
   userId: string | null,
-): { title: ReactNode; description: ReactNode; content: ReactNode } | null {
+): { title: ReactNode; description: ReactNode; content: ReactNode; bare?: true } | null {
   if (pathname === '/quant') {
     return {
       title: algoCopy.t('title'),
@@ -97,7 +99,8 @@ export function quantRoute(
     return {
       title: liveRunCopy.t('listTitle'),
       description: liveRunCopy.t('description'),
-      content: <LiveRuns key={userId ?? 'anonymous'} />,
+      content: <LiveRunsRoom key={userId ?? 'anonymous'} />,
+      bare: true,
     };
   }
   const live = /^\/quant\/live\/([0-9a-fA-F-]{36})$/.exec(pathname);
@@ -132,6 +135,7 @@ export function quantRoute(
       title: limitsCopy.t('title'),
       description: limitsCopy.t('description'),
       content: <LimitsRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   if (pathname === '/quant/strategies') {
