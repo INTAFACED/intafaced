@@ -946,7 +946,7 @@ export default function AlertsPage() {
                             {copy.t(alert.kind === 'price' ? 'stoppedBurst' : 'stoppedBurstNoResume')}
                           </span>
                         ) : null}
-                        <span className="nf-muted">
+                        <span className="nf-muted" data-testid="alert-dates">
                           {copy.t('created', { when: stamp(alert.createdAt, timeZone) }) +
                             // An open alert's last change (an edit, a stop or a resume); a finished one's is its end, already named.
                             ((alert.status === 'active' || alert.status === 'stopped') &&
@@ -961,7 +961,9 @@ export default function AlertsPage() {
                         </span>
                       </div>
                       <div className="nf-alertside">
-                        <span className={`nf-pill${alert.status === 'active' ? ' nf-pill--ok' : ''}`}>{copy.t(STATUS[alert.status])}</span>
+                        <span className={`nf-pill${alert.status === 'active' ? ' nf-pill--ok' : ''}`} data-testid="alert-status">
+                          {copy.t(STATUS[alert.status])}
+                        </span>
                         <div className="nf-alertbuttons">
                           {alert.kind === 'price' && (alert.status === 'active' || alert.status === 'stopped') ? (
                             <Button

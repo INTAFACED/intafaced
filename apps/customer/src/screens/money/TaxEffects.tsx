@@ -1,15 +1,14 @@
 import { useRef, useState } from 'react';
-import { z } from 'zod';
 import { ACTIVITY_KINDS, Button, refusalCopy, StateBlock, type ActivityKind } from './deps';
 import { moneyCopy } from './copy';
 import { titleOf } from './activity-view';
 import { groupKindsByEffect, type KnownEffect } from './tax-effects';
 import { useSession } from '../../features/session/session';
+import { BANK_ACTIVITY_TAX_EFFECTS } from '@intafaced/contracts/bank-activity-procedures';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
 // hand-declared-ok: svc-bank activity.taxEffects declares its answer in its own router; packages/contracts has no schema for it
-const effectsShape = z.object({ effects: z.record(z.string(), z.string()), label: z.literal('TEST').nullable().optional() });
 
 const EFFECT_WORD: Record<KnownEffect, 'Tax effect income' | 'Tax effect disposal' | 'Tax effect neutral'> = {
   income: 'Tax effect income',
@@ -62,7 +61,7 @@ export function TaxEffects() {
   async function load() {
     const ask = ++asked.current;
     setState({ kind: 'loading' });
-    const result = await api.query('bank', 'activity.taxEffects', {}, effectsShape);
+    const result = await api.call(BANK_ACTIVITY_TAX_EFFECTS, {});
     if (ask !== asked.current) return;
     if (result.ok) setState({ kind: 'ready', effects: result.data.effects, test: result.data.label === 'TEST' });
     // A refusal names its code; an unreachable bank or a broken answer has none and is offered again.

@@ -72,7 +72,7 @@ export interface VenueBalanceRow {
   locked: string;
   total: string;
   /** The venue's own split of `locked`: resting orders, posted margin (collateral) and stake. Absent: not reported. */
-  lockedBy?: { inOrders: string; margin: string; staked: string };
+  lockedBy?: { inOrders: string; margin: string; staked: string; delegated?: string; unstaking?: string };
 }
 export interface VenueOrderLock {
   venueOrderId: string | null;
@@ -89,7 +89,7 @@ export interface VenueRow extends VenueBalanceRow {
   withdrawable: string;
   orders: Array<{ id: string; symbol: string; side: 'buy' | 'sell'; locked: string }>;
   /** The venue's split of the lock, or null when the venue reports none: then the parts are "not reported", never guessed. */
-  split: { inOrders: string; collateral: string; stake: string } | null;
+  split: { inOrders: string; collateral: string; stake: string; delegated?: string; unstaking?: string } | null;
 }
 
 const isZero = (decimal: string) => !/[1-9]/.test(decimal);
@@ -101,7 +101,16 @@ export function venueRows(balances: VenueBalanceRow[], orders: VenueOrderLock[])
     .map(({ lockedBy, ...row }) => ({
       ...row,
       withdrawable: row.free,
-      split: lockedBy ? { inOrders: lockedBy.inOrders, collateral: lockedBy.margin, stake: lockedBy.staked } : null,
+      split: lockedBy
+        ? {
+            inOrders: lockedBy.inOrders,
+            collateral: lockedBy.margin,
+            stake: lockedBy.staked,
+            // J-cex-spot-21 #8: delegated and unstaking coins, named apart where the venue names them.
+            ...(lockedBy.delegated !== undefined ? { delegated: lockedBy.delegated } : {}),
+            ...(lockedBy.unstaking !== undefined ? { unstaking: lockedBy.unstaking } : {}),
+          }
+        : null,
       orders: orders
         .filter((order) => order.lockedAsset === row.asset && !isZero(order.locked))
         .map((order) => ({

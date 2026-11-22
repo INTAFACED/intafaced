@@ -10,13 +10,12 @@ let book: Resource<Destination[]> = { status: 'loading' };
 let networks: Resource<WithdrawAsset[]> = { status: 'loading' };
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
-  return {
-    ...real,
-    useBankRead: (procedure: string) => ({
-      resource: procedure === 'ramps.destinations.networks' ? networks : book,
-      reload: () => undefined,
-    }),
-  };
+  // The room reads by its records now: each record's read is served from the same answers, by its path.
+  const useBankRead = (procedure: string) => ({
+    resource: procedure === 'ramps.destinations.networks' ? networks : book,
+    reload: () => undefined,
+  });
+  return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
 vi.mock('../session', async (original) => ({
   ...(await original<typeof import('../session')>()),

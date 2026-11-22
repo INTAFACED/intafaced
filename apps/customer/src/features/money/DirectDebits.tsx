@@ -1,11 +1,17 @@
 import { useState, type FormEvent } from 'react';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session';
-import { amount, date, useBankRead } from './components';
-import { directDebitWrites, type DirectDebitCollection, type DirectDebitMandate, type DirectDebitsView } from './contracts';
+import { amount, date, useBankRecord } from './components';
+import { type DirectDebitCollection, type DirectDebitMandate, type DirectDebitsView } from './contracts';
 import { DepthPanel, DisabledActions } from './DepthParts';
 import { directDebitsCopy } from './direct-debits-copy';
 import './bank-depth.css';
+import {
+  BANK_DIRECT_DEBITS_BLOCK,
+  BANK_DIRECT_DEBITS_UNBLOCK,
+  BANK_DIRECT_DEBITS_REQUEST_REFUND,
+  BANK_DIRECT_DEBITS_LIST,
+} from '@intafaced/contracts/bank-direct-debits-procedures';
 
 /**
  * `/bank/direct-debits` (J-bank-06 #4, BK-xfer-11): the companies that may collect from the person's main balance, what
@@ -214,7 +220,7 @@ function ToggleDialog({ row, onDone, onCancel }: { row: DirectDebitMandate; onDo
     setError(null);
     const input = { mandateId: row.id };
     if (blocking) {
-      const answer = await api.mutate('bank', 'directDebits.block', input, directDebitWrites.block);
+      const answer = await api.call(BANK_DIRECT_DEBITS_BLOCK, input);
       setBusy(false);
       if (!answer.ok) return setError(refusal(t, answer));
       const late = answer.data.tooLate.map((one) => t('tooLate', { id: one.collectionId })).join(' ');
@@ -223,7 +229,7 @@ function ToggleDialog({ row, onDone, onCancel }: { row: DirectDebitMandate; onDo
         `${sent}${t('blocked', { creditor: row.creditorName, count: String(answer.data.rejected.length) })}${late ? ` ${late}` : ''}`,
       );
     }
-    const answer = await api.mutate('bank', 'directDebits.unblock', input, directDebitWrites.unblock);
+    const answer = await api.call(BANK_DIRECT_DEBITS_UNBLOCK, input);
     setBusy(false);
     if (!answer.ok) return setError(refusal(t, answer));
     return onDone(t('unblocked', { creditor: row.creditorName }));
@@ -262,12 +268,7 @@ function RefundDialog({ row, onDone, onCancel }: { row: DirectDebitCollection; o
     if (bad) return;
     setBusy(true);
     setError(null);
-    const answer = await api.mutate(
-      'bank',
-      'directDebits.requestRefund',
-      { collectionId: row.id, reason: reason.trim() },
-      directDebitWrites.requestRefund,
-    );
+    const answer = await api.call(BANK_DIRECT_DEBITS_REQUEST_REFUND, { collectionId: row.id, reason: reason.trim() });
     setBusy(false);
     if (!answer.ok) return setError(refusal(t, answer));
     onDone(answer.data.created ? t('refundSent', { amount: amount(row.amount, row.assetId) }) : t('refundAgain'));
@@ -326,7 +327,7 @@ function SchemeNotice({ scheme }: { scheme: DirectDebitsView['scheme'] }) {
 
 export function DirectDebits() {
   const { t } = directDebitsCopy.useCopy();
-  const list = useBankRead('directDebits.list', undefined);
+  const list = useBankRecord(BANK_DIRECT_DEBITS_LIST, undefined);
   const [toggling, setToggling] = useState<DirectDebitMandate | null>(null);
   const [refunding, setRefunding] = useState<DirectDebitCollection | null>(null);
   const [done, setDone] = useState<string | null>(null);

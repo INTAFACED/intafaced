@@ -1,8 +1,16 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
-import { payMerchantFailureSchema, payPaymentAttemptSchema, payPaymentConfirmationsSchema } from './pay-merchant-reads.js';
+import {
+  payMerchantFailureSchema,
+  payPaymentAttemptSchema,
+  payPaymentConfirmationsSchema,
+  payPaymentListInputSchema,
+  payPageSchema,
+  payPaymentListSummarySchema,
+} from './pay-merchant-reads.js';
 import { amountSchema, assetIdSchema, paymentView } from './pay-call-schemas.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
+import { paymentListPrivacySchema } from './pay-payment-views.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-pay `payment.*`, one record per call: svc-pay mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -65,6 +73,52 @@ export const PAY_PAYMENT_HISTORY = defineProcedure({
         .strict(),
     ]),
   ),
+  samples: [
+    { verdict: 'accept', input: { paymentId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Durable status list for the merchant — projection of `payments.status`. */
+export const PAY_PAYMENT_LIST = defineProcedure({
+  ...base,
+  name: 'pay.payment.list',
+  kind: 'query',
+  path: 'payment.list',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: payPaymentListInputSchema,
+  output: payPageSchema(paymentView.extend(paymentListPrivacySchema.shape)).extend({ summary: payPaymentListSummarySchema }),
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_PAYMENT_AUTHORIZE = defineProcedure({
+  ...base,
+  name: 'pay.payment.authorize',
+  kind: 'mutation',
+  path: 'payment.authorize',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: z.object({ paymentId: z.string().guid() }),
+  output: paymentView,
+  samples: [
+    { verdict: 'accept', input: { paymentId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_PAYMENT_CAPTURE = defineProcedure({
+  ...base,
+  name: 'pay.payment.capture',
+  kind: 'mutation',
+  path: 'payment.capture',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: z.object({ paymentId: z.string().guid(), amount: amountSchema.optional() }),
+  output: paymentView,
   samples: [
     { verdict: 'accept', input: { paymentId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
