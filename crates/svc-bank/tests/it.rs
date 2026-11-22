@@ -14,6 +14,8 @@ mod env_parity;
 mod guard_grid;
 #[path = "input_parity.rs"]
 mod input_parity;
+#[path = "ops_desk_db.rs"]
+mod ops_desk_db;
 #[path = "partner_db.rs"]
 mod partner_db;
 #[path = "partner_probe.rs"]

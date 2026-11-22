@@ -5,23 +5,19 @@
 //! The operator's pool calls consume an identity-issued approval bound to every term (`consumeBankOpsApproval`,
 //! founder-audience), and only after the terms pass the checks, so a wrong form never spends the second person.
 
-use service_kit::approvals::{ConsumeError, ConsumeInput, founder_verdict};
 use service_kit::json::Json;
 use service_kit::money::{format_amount, js_trim, parse_amount};
 use service_kit::schema::Value;
 use service_kit::time::{Instant, js_date};
-use service_kit::trpc::TrpcError;
 
 use super::interest::{DAYS_PER_YEAR, accrual_boundary, accrual_date};
-use super::service::{self, Approved, DepositAsk, NewPool};
+use super::service::{self, DepositAsk, NewPool};
 use super::{Deps, Position, rates};
 use crate::errors::Refusal;
+use crate::ops_approval;
 use crate::partner::refuse;
 use crate::spaces::space::with;
 use crate::transfers::schedules::assert_self;
-use crate::transfers::step_up::payload_hash;
-
-const UNWIRED: &str = "IDENTITY_URL is unpublished; bank ops do not invent a second person";
 
 fn text<'v>(v: &'v Value, key: &str) -> &'v str {
     v.get(key).as_str().unwrap_or_default()
@@ -56,82 +52,6 @@ fn amount_of(s: &str) -> Result<service_kit::money::Amount, Refusal> {
 
 fn time_of(s: &str) -> Result<Instant, Refusal> {
     js_date(s).ok_or_else(|| Refusal::Other(format!("{s} is no date")))
-}
-
-/// `ActionApprovalConsumeError`: the guard's 412 with the error's own words, its code as the cause.
-fn approval_refused(message: impl Into<String>, code: &str) -> Refusal {
-    Refusal::Trpc(TrpcError::caused(
-        "PRECONDITION_FAILED",
-        message.into(),
-        code.to_owned(),
-    ))
-}
-
-/// `consumeBankOpsApprovalPair`: the approval and operation ids are required; identity consumes the approval bound to
-/// the action and its fields; the founder pair is attested; the approver is named.
-pub fn consume_ops(
-    d: &Deps<'_>,
-    input: &Value,
-    action: &str,
-    fields: &[(String, String)],
-) -> Result<Approved, Refusal> {
-    let approval_id = js_trim(opt_text(input, "approvalId").unwrap_or_default());
-    let operation_id = js_trim(opt_text(input, "operationId").unwrap_or_default());
-    if approval_id.is_empty() || operation_id.is_empty() {
-        return Err(approval_refused(
-            "approvalId and operationId are required; a typed-in second name is not approval",
-            "action_approval.missing",
-        ));
-    }
-    let hash = payload_hash(action, fields);
-    let consumed = d
-        .approvals
-        .consume(
-            &ConsumeInput {
-                approval_id,
-                operation_id,
-                payload_hash: &hash,
-                target_service: "svc-bank",
-                target_id: action,
-                expected_version: "1",
-                replay: None,
-            },
-            None,
-        )
-        .map(|(c, _)| c)
-        .map_err(|e| match e {
-            ConsumeError::Refused(m) if m == UNWIRED => {
-                approval_refused(m, "action_approval.identity_unwired")
-            }
-            ConsumeError::Refused(m) => approval_refused(m, "action_approval.consume_failed"),
-            ConsumeError::Thrown(m) => Refusal::Other(m),
-        })?;
-    match founder_verdict(&consumed, action, "svc-bank", action) {
-        None => {}
-        Some("missing") => {
-            return Err(approval_refused(
-                "a founder-audience action needs identity to attest that the proposer and the approver are both founders",
-                "action_approval.not_founders",
-            ));
-        }
-        Some(_) => {
-            return Err(approval_refused(
-                "the founder attestation does not match a distinct founder pair for this action",
-                "action_approval.not_founders",
-            ));
-        }
-    }
-    let Some(approver_id) = consumed.approver_id.filter(|a| !a.is_empty()) else {
-        return Err(approval_refused(
-            "consumed approval has no approver; a typed-in name is not approval",
-            "action_approval.consume_failed",
-        ));
-    };
-    Ok(Approved {
-        approval_id: approval_id.to_owned(),
-        requester_id: consumed.requester_id,
-        approver_id,
-    })
 }
 
 fn f(k: &str, v: impl Into<String>) -> (String, String) {
@@ -343,7 +263,8 @@ fn ops(d: &Deps<'_>, path: &str, input: &Value) -> Option<Result<Json, Refusal>>
                 ));
             }
             let fields = create_fields(input)?;
-            let approved = consume_ops(d, input, "bank.ops.createEarnPool", &fields)?;
+            let approved =
+                ops_approval::consume(d.approvals, input, "bank.ops.createEarnPool", &fields)?;
             let p = service::create_pool(
                 d,
                 &NewPool {
@@ -388,7 +309,8 @@ fn ops(d: &Deps<'_>, path: &str, input: &Value) -> Option<Result<Json, Refusal>>
                 f("rateBps", rate.to_string()),
                 f("reason", reason.clone()),
             ];
-            let approved = consume_ops(d, input, "bank.ops.setEarnPoolRate", &fields)?;
+            let approved =
+                ops_approval::consume(d.approvals, input, "bank.ops.setEarnPoolRate", &fields)?;
             let approval_id = opt_text(input, "approvalId").unwrap_or_default();
             let set = crate::spaces::space::in_tx(d.store, |tx| {
                 rates::set_pool_rate(tx, pool_id, rate, &reason, approval_id, None)
@@ -413,7 +335,7 @@ fn ops(d: &Deps<'_>, path: &str, input: &Value) -> Option<Result<Json, Refusal>>
                 f("revision", revision.to_string()),
             ];
             let change = service::set_pool_status(d, pool_id, status, &reason, revision, &|| {
-                consume_ops(d, input, "bank.ops.setEarnPoolStatus", &fields)
+                ops_approval::consume(d.approvals, input, "bank.ops.setEarnPoolStatus", &fields)
             })?;
             Ok(Json::obj([
                 ("poolId", Json::str(change.pool_id)),
@@ -432,7 +354,7 @@ fn ops(d: &Deps<'_>, path: &str, input: &Value) -> Option<Result<Json, Refusal>>
                 f("fundingId", funding_id),
                 f("amount", amount),
             ];
-            let approved = consume_ops(d, input, "bank.fund_pool", &fields)?;
+            let approved = ops_approval::consume(d.approvals, input, "bank.fund_pool", &fields)?;
             let tx = service::fund_pool(d, pool_id, funding_id, amount_of(amount)?)?;
             Ok(Json::obj([
                 ("ledgerTxId", Json::str(tx)),
