@@ -387,7 +387,7 @@ export function Invitation() {
     </div>
   );
   const body = (
-    <div className="lt-stack">
+    <div className="lt-stack lt-wrap">
       {tag && visit.status === 'loading' && (
         <section data-testid="invitation__card" className="lt-stack" aria-busy="true">
           <h2>{t('tagChecking')}</h2>
