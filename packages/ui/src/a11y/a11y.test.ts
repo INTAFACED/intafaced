@@ -8,6 +8,7 @@ import {
   SURFACES_ATTRIBUTE,
   SURFACES_STORAGE_KEY,
   applySurfaces,
+  barReach,
   composite,
   contrastRatio,
   isLargeText,
@@ -216,6 +217,15 @@ describe('focus not obscured', () => {
     ).toEqual({ top: 117.5, bottom: 88 });
     expect(OBSCURED_TOP_VAR).toBe('--a11y-obscured-top');
     expect(OBSCURED_BOTTOM_VAR).toBe('--a11y-obscured-bottom');
+  });
+
+  it('counts the gap under a bottom bar that floats above the screen edge', () => {
+    // Volt's phone dock: 70px tall, 14px above the bottom of an 844px screen, so it hides the last 84px.
+    expect(barReach('bottom', { top: 760, height: 70 }, 844)).toBe(84);
+    expect(barReach('bottom', { top: 774, height: 70 }, 844)).toBe(70);
+    expect(barReach('top', { top: 0, height: 56 }, 844)).toBe(56);
+    // A bar not drawn (the dock on a computer) covers nothing.
+    expect(barReach('bottom', { top: 0, height: 0 }, 844)).toBe(0);
   });
 });
 

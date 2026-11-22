@@ -30,6 +30,17 @@ export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: numb
 }
 
 /**
+ * How far a bar covers from its own edge of the screen. A bar that floats above the bottom edge (Volt's phone dock sits
+ * 0.875rem up) hides the gap under it too, so a bottom bar covers from its top to the screen's bottom, never less than
+ * its own height. A bar that is not drawn (no height) covers nothing.
+ */
+export function barReach(edge: string | null, rect: { top: number; height: number }, viewportHeight: number): number {
+  if (!(rect.height > 0)) return 0;
+  if (edge === 'bottom') return Math.max(rect.height, viewportHeight - rect.top);
+  return rect.height;
+}
+
+/**
  * Keep the two custom properties on `root` equal to the bars' real heights, as bars come, go and
  * resize. Returns the function that stops it. Does nothing where there is no DOM.
  */
@@ -40,7 +51,10 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   let last = '';
   const measure = (): void => {
     const { top, bottom } = obscuredInsets(
-      bars.map((el) => ({ edge: el.getAttribute(OBSCURES_ATTRIBUTE), height: el.getBoundingClientRect().height })),
+      bars.map((el) => {
+        const edge = el.getAttribute(OBSCURES_ATTRIBUTE);
+        return { edge, height: barReach(edge, el.getBoundingClientRect(), window.innerHeight) };
+      }),
     );
     const next = `${top}|${bottom}`;
     if (next === last) return;
