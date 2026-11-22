@@ -3,6 +3,12 @@ import { NotFoundRoute, PendingRoute } from './PendingRoute';
 import { ADDRESS_SHAPE, matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
 import { WalletRoom } from './wallet/WalletRoom';
+import { AccountsRoom } from './wallet/AccountsRoom';
+import { ActivityRoom } from './wallet/ActivityRoom';
+import { AddressBookRoom } from './wallet/AddressBookRoom';
+import { ApprovalsRoom } from './wallet/ApprovalsRoom';
+import { SessionKeysRoom } from './wallet/SessionKeysRoom';
+import { WalletGroupRoom } from './wallet/WalletGroupRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
 import { ClaimPage } from './wallet/ClaimPage';
@@ -47,6 +53,12 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.wallet === 'venue') return <VenueWalletRoom />;
   // The person's own embedded wallet is its own room on the flow template too (J-wallet-22).
   if (route.wallet === 'embedded') return <EmbeddedWalletRoom />;
+  // The wallet sections that are lists of records are rooms of their own on the record-list template.
+  if (route.wallet === 'activity') return <ActivityRoom />;
+  if (route.wallet === 'accounts') return <AccountsRoom />;
+  if (route.wallet === 'addressBook') return <AddressBookRoom />;
+  if (route.wallet === 'approvals') return <ApprovalsRoom />;
+  if (route.wallet === 'sessionKeys') return <SessionKeysRoom />;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;
@@ -87,7 +99,7 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
     return <HoldingPage token={token} />;
   }
   if (route.walletConvention) return <ConventionPage id={safeDecode(params.convention) ?? ''} />;
-  if (route.walletGroup) return <WalletRoom section="addressBook" groupId={safeDecode(params.groupId) ?? ''} />;
+  if (route.walletGroup) return <WalletGroupRoom groupId={safeDecode(params.groupId) ?? ''} />;
   if (route.pending) {
     const { param } = route.pending;
     const value = param ? params[param.name] : undefined;

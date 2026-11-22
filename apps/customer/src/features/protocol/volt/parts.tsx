@@ -1,10 +1,11 @@
-import { type HTMLAttributes, type ReactNode } from 'react';
+import { useId, useRef, type HTMLAttributes, type ReactNode } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { SectionTabs } from '@intafaced/ui/lit/templates';
 import { isServiceNotConnected, type ApiResult } from '../../../shared/api';
 import { uiCopy, uiMessage } from '../../../shared/ui-copy';
 import { refusalCopy } from '../../../data/refusals';
 import { canTryAgain, rawRefusalCode } from '../../../shared/try-again';
+import { useModalDialog } from '../../../shared/modal-dialog';
 
 export { Field };
 
@@ -91,6 +92,38 @@ export function Tabs({
 }) {
   return (
     <SectionTabs label={label} value={value} onChange={onChange} items={items.map((id) => ({ value: id, label: labels?.[id] ?? id }))} />
+  );
+}
+
+/** A modal dialog on the native element: focus stays inside, Escape and the backdrop close it, focus returns after. */
+export function Dialog({ title, children, onClose }: { title: ReactNode; children: ReactNode; onClose: () => void }) {
+  const { t, languageFor } = uiCopy.useCopy();
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useModalDialog(ref);
+  return (
+    <dialog
+      className="lt-sheet"
+      ref={ref}
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <header className="lt-sheet-head">
+        <h2 id={titleId} className="lt-sheet-title">
+          {title}
+        </h2>
+        <Button tone="quiet" aria-label={t('closeDialog')} lang={languageFor('closeDialog')} onClick={onClose}>
+          ×
+        </Button>
+      </header>
+      <div className="lt-sheet-body">{children}</div>
+    </dialog>
   );
 }
 
