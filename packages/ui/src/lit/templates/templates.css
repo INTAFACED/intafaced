@@ -304,41 +304,43 @@
   }
 }
 
-/* A chart desk (the charts workbench) is a working surface: it is drawn at the pro density whatever the person's mode,
-   and each field's label sits beside its control, so the plot opens on the first screen as it did before Volt. */
-.lt-room[data-template='desk']:has(> .lt-body > .lt-desk[data-desk='pro'] > [data-region='pairs']):not(
-    :has(> .lt-body > .lt-desk > :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
-  ) {
-  --lit-gap-section: 1rem;
-  --lit-gap-item: 0.5rem;
-  --lit-pad-panel: 0.875rem;
-  --lit-row-h: 2.5rem;
-  --lit-control-h: 2.25rem;
-}
-.lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
-    :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
-  )
-  :is(.lt-toolbar, .lt-row)
-  > .lt-field:not(:has(> input:is([type='checkbox'], [type='radio']))) {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--lit-gap-item);
-}
-.lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
-    :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
-  )
-  > [data-region='chart']
-  .lt-button {
-  min-block-size: var(--lit-control-h);
-}
-/* Its plot keeps the workbench's working height from before Volt (260 px), so a study pane under the price pane never
-   squeezes the price pane to a sliver, and the drawings dock under it stays near the first screen. */
-.lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
-    :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
-  )
-  > [data-region='chart']
-  .lt-chart-stage {
-  min-block-size: 18.75rem;
+/* A chart desk (the charts workbench) on a computer is a working surface, as it was before Volt: drawn at the pro
+   density whatever the person's mode, each field's label beside its control, and its plot at the workbench's working
+   height (260 px), so the plot opens on the first screen and a study pane never squeezes the price pane to a sliver. On
+   a phone it keeps the kit's stacked fields. */
+@container room (min-width: 1024px) {
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    ) {
+    --lit-gap-section: 1rem;
+    --lit-gap-item: 0.5rem;
+    --lit-pad-panel: 0.875rem;
+    --lit-row-h: 2.5rem;
+    --lit-control-h: 2.25rem;
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    :is(.lt-toolbar, .lt-row)
+    > .lt-field:not(:has(> input:is([type='checkbox'], [type='radio']))) {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--lit-gap-item);
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    > [data-region='chart']
+    .lt-button {
+    min-block-size: var(--lit-control-h);
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    > [data-region='chart']
+    .lt-chart-stage {
+    min-block-size: 18.75rem;
+  }
 }
 
 /* ---- stepper ---- */
