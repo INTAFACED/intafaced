@@ -180,16 +180,6 @@ export function SectionTabs<T extends string>({
   );
 }
 
-/** A tick with its words, one row: the box, then the label. Every other attribute goes to the native checkbox. */
-export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: React.ReactNode }) {
-  return (
-    <label className="lt-field">
-      <input {...input} type="checkbox" />
-      <span>{label}</span>
-    </label>
-  );
-}
-
 /**
  * A bottom sheet on a phone, a side sheet on a computer: one of the two layers allowed glass. It is a modal
  * dialog (focus stays inside, Escape closes), built on the native <dialog> element.

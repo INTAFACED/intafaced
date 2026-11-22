@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Checkbox } from '@intafaced/ui/lit/templates';
+import { Checkbox } from '@intafaced/ui/lit';
 import type { z } from 'zod';
 import { amount, bps } from '../components';
 import type { earnPoolSchema } from '../contracts';
@@ -89,13 +89,12 @@ export function EarnCompare({ pools }: { pools: EarnPool[] }) {
                 disabled={!on && full}
                 aria-label={t('comparePick', { name: pool.name })}
                 data-pool={pool.id}
-                onChange={() => setPicked((current) => togglePick(current, pool.id))}
-                label={
-                  <span lang="und" dir="auto">
-                    {pool.name}
-                  </span>
-                }
-              />
+                onCheckedChange={() => setPicked((current) => togglePick(current, pool.id))}
+              >
+                <span lang="und" dir="auto">
+                  {pool.name}
+                </span>
+              </Checkbox>
             );
           })}
         </fieldset>
