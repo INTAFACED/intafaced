@@ -7,10 +7,8 @@
 //! (none is published), so loans contribute nothing and say so. Read only: the calendar posts nothing and writes
 //! nothing. Each source is read on its own, so a source that fails names itself and the others still show.
 //!
-//! Standing orders (`transfers`), earn and loans are ported slices and are read through their own functions. Bills and
-//! direct debits are not ported: their reads are the SQL `BillPayService.listRecurring` and `DirectDebitService.dated`
-//! run, on svc-bank's own tables. `index.ts` never hands the bills area a bill partner, so the bill rail is always
-//! `unset` there; [`Wiring::bill_rail_live`] holds that.
+//! Standing orders (`transfers`), recurring bills (`bills`), earn and loans are ported slices and are read through their
+//! own functions. Direct debits are read with the SQL `DirectDebitService.dated` runs, on svc-bank's own tables.
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
@@ -37,25 +35,6 @@ pub const MAX_DAYS: i64 = 62;
 
 const DAY_MS: i64 = 86_400_000;
 const OPEN_LOANS: [&str; 3] = ["active", "margin_call", "liquidating"];
-
-/// What the door holds for this part, built once at start-up.
-#[derive(Default)]
-pub struct Wiring {
-    /// `bills.railStatus() === 'live'`: whether a bill partner is wired. `index.ts` passes the bills area no ports, so
-    /// it is `emptyBillPorts()` and never live.
-    pub bill_rail_live: bool,
-}
-
-impl Wiring {
-    pub fn none() -> Wiring {
-        Wiring::default()
-    }
-}
-
-/// This part's wiring from the environment: nothing of it is read from the environment (`compose.ts`).
-pub fn wiring(_b: &super::Build<'_>) -> Result<Wiring, String> {
-    Ok(Wiring::none())
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 // The records each source gives.
@@ -640,8 +619,8 @@ fn as_page(limit: i64) -> f64 {
     limit as f64
 }
 
-/// The sources as the door reads them: the ported slices through their own functions, bills and direct debits with
-/// the TypeScript services' own SQL.
+/// The sources as the door reads them: the ported slices through their own functions, direct debits with the
+/// TypeScript service's own SQL.
 pub struct DoorSources<'a> {
     pub d: &'a Deps<'a>,
 }
@@ -684,46 +663,29 @@ impl Sources for DoorSources<'_> {
     }
 
     fn recurring_bills(&self, user_id: &str, limit: i64) -> Result<Vec<RecurringBill>, Refusal> {
-        with(self.d.store(), |c| {
-            c.query(
-                &format!(
-                    "SELECT id::text, reference, amount, asset_id, cadence, status, {}, {}, {} \
-                       FROM bank.bill_recurring \
-                      WHERE user_id = $1 \
-                      ORDER BY created_at DESC, id DESC \
-                      LIMIT $2",
-                    ms("starts_at"),
-                    ms("ends_at"),
-                    ms("next_run_at")
-                ),
-                &[&user_id, &limit],
-            )
-            .map_err(|e| pg(&e))?
-            .iter()
+        let rows = self.d.door.bills_deps(self.d.now, |b| {
+            crate::bills::pay::list_recurring(b, user_id, limit)
+        })?;
+        rows.into_iter()
             .map(|r| {
-                let cadence: String = r.try_get(4).map_err(|e| pg(&e))?;
                 Ok(RecurringBill {
-                    id: r.try_get(0).map_err(|e| pg(&e))?,
-                    reference: r.try_get(1).map_err(|e| pg(&e))?,
-                    amount: r.try_get(2).map_err(|e| pg(&e))?,
-                    asset_id: r.try_get(3).map_err(|e| pg(&e))?,
-                    cadence: Cadence::parse(&cadence)
-                        .ok_or_else(|| Refusal::Other(format!("cadence {cadence}")))?,
-                    status: r.try_get(5).map_err(|e| pg(&e))?,
-                    starts_at: Instant(r.try_get(6).map_err(|e| pg(&e))?),
-                    ends_at: r
-                        .try_get::<_, Option<i64>>(7)
-                        .map_err(|e| pg(&e))?
-                        .map(Instant),
-                    next_run_at: Instant(r.try_get(8).map_err(|e| pg(&e))?),
+                    cadence: Cadence::parse(&r.cadence)
+                        .ok_or_else(|| Refusal::Other(format!("cadence {}", r.cadence)))?,
+                    id: r.id,
+                    reference: r.reference,
+                    amount: r.amount,
+                    asset_id: r.asset_id,
+                    status: r.status,
+                    starts_at: r.starts_at,
+                    ends_at: r.ends_at,
+                    next_run_at: r.next_run_at,
                 })
             })
             .collect()
-        })
     }
 
     fn bill_rail_live(&self) -> bool {
-        self.d.w.calendar.bill_rail_live
+        self.d.door.bills_deps(self.d.now, |b| b.w.pay.rail_live())
     }
 
     fn collections(
