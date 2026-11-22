@@ -253,7 +253,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
 }
 
 /** Returned timestamps share the app's one look ("18 Oct, 01:05") in the viewer's zone, with a picked zone named. */
-export function ReportedTime({ value }: { value: string }) {
+function ReportedTime({ value }: { value: string }) {
   const { timeZone } = usePreferences();
   return Number.isFinite(Date.parse(value)) ? (
     <time dateTime={value} lang="en-GB" dir="auto">

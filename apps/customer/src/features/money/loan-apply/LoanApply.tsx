@@ -18,7 +18,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const DECIMAL = /^\d+(\.\d{1,18})?$/;
 
 /** What a refused application read says, by the bank's code, with the code as a reference. */
-export function applyRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message'>): string {
+function applyRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message'>): string {
   const words: Record<string, string> = {
     'bank.loans_disabled': t('disabled'),
     'bank.mark_missing': t('markMissing'),

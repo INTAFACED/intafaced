@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { depositCopy } from '../deposit-copy';
 
 /** Case-blind match on the asset id, in the order given. An empty query keeps everything. */
-export function filterAssets(assets: readonly string[], query: string): string[] {
+function filterAssets(assets: readonly string[], query: string): string[] {
   const needle = query.trim().toLowerCase();
   return needle ? assets.filter((id) => id.toLowerCase().includes(needle)) : [...assets];
 }

@@ -80,7 +80,6 @@
     "apps/customer/src/features/money/safety/ComplaintRoom.tsx": 3,
     "apps/customer/src/features/money/safety/ScamReportRoom.tsx": 6,
     "apps/customer/src/features/money/SpaceInflows.tsx": 2,
-    "apps/customer/src/features/money/StatementExtras.tsx": 1,
     "apps/customer/src/features/money/statements/StatementCentre.tsx": 6,
     "apps/customer/src/features/money/statements/StatementPanels.tsx": 1,
     "apps/customer/src/features/money/transfers/BankRailSend.tsx": 3,

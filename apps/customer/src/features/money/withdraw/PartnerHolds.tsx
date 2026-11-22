@@ -5,7 +5,7 @@ import type { PartnerHolds as Holds } from '../contracts';
 import { Fact } from './parts';
 
 /** Words for what the partner holds back on Withdraw (J-wallet-01 #3). Every figure here is the partner's own. */
-export const partnerHoldsCopy = defineCopy('partner-holds', {
+const partnerHoldsCopy = defineCopy('partner-holds', {
   title: 'Held by {partner}',
   lead: '{partner} holds your money. What it still holds back of a purchase can be withdrawn once it releases it.',
   balance: 'Balance at {partner}',

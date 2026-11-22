@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { Button } from '../../shared/ui';
-
-import { ServiceOffNotice, NOT_CONNECTED_CODES, type NotConnectedCode } from '../../shared/service-off';
+import { NOT_CONNECTED_CODES, type NotConnectedCode } from '../../shared/service-off';
 
 import { useSession } from '../session';
 
 import { letterRequestSchema, taxStatementsSchema, type LineTotal } from './contracts';
-
-import { DepthPanel } from './DepthParts';
 
 import { statementExtrasCopy } from './statement-extras-copy';
 
@@ -63,33 +59,6 @@ export function useStatementLetters() {
   return { t, busy, said, ask };
 }
 
-export function StatementLetters() {
-  const { t, busy, said, ask } = useStatementLetters();
-  return (
-    <DepthPanel title={t('lettersTitle')} lead={t('lettersLead')}>
-      <section className="bd-stack" data-testid="statement-letters" aria-label={t('lettersTitle')}>
-        <div className="actions">
-          <Button type="button" variant="secondary" disabled={busy} onClick={() => void ask('ownership')}>
-            {t('letterOwnership')}
-          </Button>
-          <Button type="button" variant="ghost" disabled={busy} onClick={() => void ask('balance')}>
-            {t('letterBalance')}
-          </Button>
-        </div>
-        <p role="status" aria-live="polite">
-          {busy ? t('letterAsking') : ''}
-        </p>
-        {said?.kind === 'off' && <ServiceOffNotice code={said.code} action={t('letterAction')} role="status" />}
-        {said?.kind === 'refused' && (
-          <p role="alert" className="error-text" data-code={said.code ?? undefined}>
-            {said.words}
-          </p>
-        )}
-      </section>
-    </DepthPanel>
-  );
-}
-
 type Tax = { kind: 'loading' } | { kind: 'list'; count: number } | Exclude<Said, null>;
 
 /**
@@ -123,32 +92,4 @@ export function useTaxStatements() {
   }, [api, year]);
 
   return { t, thisYear, year, setYear, tax };
-}
-
-export function TaxStatements() {
-  const { t, thisYear, year, setYear, tax } = useTaxStatements();
-  return (
-    <DepthPanel title={t('taxTitle')} lead={t('taxLead')}>
-      <section className="bd-stack" data-testid="tax-statements" aria-label={t('taxTitle')}>
-        <label className="field">
-          <span>{t('taxYear')}</span>
-          <select value={year} onChange={(event) => setYear(Number(event.target.value))}>
-            {Array.from({ length: 6 }, (_, back) => thisYear - back).map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </label>
-        {tax.kind === 'loading' && <p role="status">{t('taxLoading')}</p>}
-        {tax.kind === 'list' && tax.count === 0 && <p role="status">{t('taxEmpty')}</p>}
-        {tax.kind === 'off' && <ServiceOffNotice code={tax.code} action={t('taxAction')} role="status" />}
-        {tax.kind === 'refused' && (
-          <p role="alert" className="error-text" data-code={tax.code ?? undefined}>
-            {tax.words}
-          </p>
-        )}
-      </section>
-    </DepthPanel>
-  );
 }

@@ -18,12 +18,12 @@ import {
 } from '../deposit-reads';
 
 /** The networks custody published for one asset. Empty when the asset is not published at all. */
-export function networksFor(catalogue: DepositCatalogue | null, asset: string): readonly DepositNetworkView[] {
+function networksFor(catalogue: DepositCatalogue | null, asset: string): readonly DepositNetworkView[] {
   return catalogue?.assets.find((row) => row.assetId === asset)?.networks ?? [];
 }
 
 /** The networks of one asset the owner switched off. */
-export function haltedFor(catalogue: DepositCatalogue | null, asset: string): readonly DepositHaltedView[] {
+function haltedFor(catalogue: DepositCatalogue | null, asset: string): readonly DepositHaltedView[] {
   return catalogue?.halted?.filter((row) => row.assetId === asset) ?? [];
 }
 
@@ -192,7 +192,7 @@ function VerifyFirst({ code }: { code: string }) {
 }
 
 /** What the service published about one network, as written, plus the standard wrong-network line. Empty lists add nothing. */
-export function NetworkNotes({ asset, network }: { asset: string; network: DepositNetworkView }) {
+function NetworkNotes({ asset, network }: { asset: string; network: DepositNetworkView }) {
   const { t } = depositCopy.useCopy();
   const groups = [
     { key: 'requirements', title: t('notesRequirements'), items: network.requirements ?? [] },
@@ -218,7 +218,7 @@ export function NetworkNotes({ asset, network }: { asset: string; network: Depos
 
 type Issue = { kind: 'idle' } | { kind: 'loading' } | { kind: 'failed' } | { kind: 'issued'; value: DepositAddressView };
 
-export function IssuedAddress({
+function IssuedAddress({
   asset,
   network,
   issue,

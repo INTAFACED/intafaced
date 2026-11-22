@@ -21,57 +21,11 @@ import type { scheduleSchema } from './contracts';
 
 import { standingCopy } from './standing-copy';
 
-import { ReportedTime, currentOwnerRecord, useBankView } from './bank-context';
+import { currentOwnerRecord, useBankView } from './bank-context';
 
 export type StandingInstruction = z.infer<typeof scheduleSchema>;
 
 export const currentInstruction = currentOwnerRecord<StandingInstruction>;
-
-export function StandingFacts({ instruction }: { instruction: StandingInstruction }) {
-  const { Copy } = standingCopy.useCopy();
-  return (
-    <dl data-testid="money-standing-facts" className="money-standing-facts">
-      <div>
-        <dt>
-          <Copy k="amount" />
-        </dt>
-        <dd className="numeric" lang="zxx" dir="ltr">
-          {funds(instruction.amount, instruction.assetId)}
-        </dd>
-      </div>
-      <div>
-        <dt>
-          <Copy k="cadenceStatus" />
-        </dt>
-        <dd lang="und" dir="auto">
-          {instruction.cadence} · {instruction.status}
-        </dd>
-      </div>
-      <div>
-        <dt>
-          <Copy k="nextRun" />
-        </dt>
-        <dd>
-          <ReportedTime value={instruction.nextRunAt} />
-        </dd>
-      </div>
-      <div>
-        <dt>
-          <Copy k="endsAt" />
-        </dt>
-        <dd>{instruction.endsAt ? <ReportedTime value={instruction.endsAt} /> : <Copy k="noEnd" />}</dd>
-      </div>
-      <div>
-        <dt>
-          <Copy k="revision" />
-        </dt>
-        <dd lang="zxx" dir="ltr">
-          {instruction.revision}
-        </dd>
-      </div>
-    </dl>
-  );
-}
 
 export function ScheduleExecutions({ id, asset }: { id: string; asset: string }) {
   const { Copy } = standingCopy.useCopy();
@@ -90,7 +44,7 @@ export function ScheduleExecutions({ id, asset }: { id: string; asset: string })
   );
 }
 
-export function ExecutionHistory({ id, asset, refreshInstructions }: { id: string; asset: string; refreshInstructions?: () => void }) {
+function ExecutionHistory({ id, asset, refreshInstructions }: { id: string; asset: string; refreshInstructions?: () => void }) {
   const { Copy } = standingCopy.useCopy();
   return z.string().guid().safeParse(id).success ? (
     <ExecutionRead key={JSON.stringify([id, asset])} id={id} asset={asset} refreshInstructions={refreshInstructions} />
@@ -285,7 +239,7 @@ export function useSchedulesRead(limit: number) {
 }
 
 /** A stored instant as the minutes a datetime-local field shows. */
-export function localInput(at: string): string {
+function localInput(at: string): string {
   const d = new Date(at);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
