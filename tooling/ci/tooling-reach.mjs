@@ -4,7 +4,9 @@
  * pull request's head. The journeys planner (journey-touch.mjs) scans its checkout of the head; the merge seal
  * (journey-seal.mjs, ci-jobs-seal.mjs) runs in the default branch's checkout and scans the head commit's files, read
  * through git (commitTree), so both run the default branch's scanner over the same tree. Nothing is committed, so no
- * answer goes stale and no builder runs a command: a reach main gained after a branch point is in the merged head.
+ * answer goes stale and no builder runs a command. The seal reads the head commit, not the head merged onto main as
+ * ci.yml's `changes` job does, so it can ask for fewer unit tests than the job ran when main gained a reader after the
+ * branch point; a test job that ran red still fails the seal whatever it asks (ci-affected.mjs sealNeeded).
  * (Failure it prevents: on 22 Nov 2026 #9552, a change to tooling/design/RECIPE.md and three new tooling/design files,
  * ran 64 journey files on 18 shards, about 23 minutes a push, and all sixteen unit-test shards: tooling/design was "a
  * path no rule places", and `tooling/` ran every unit test.)

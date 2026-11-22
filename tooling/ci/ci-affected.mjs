@@ -333,15 +333,25 @@ export function sealNeeded(flags, results) {
     if (r !== 'success') problems.push(`${name} was ${r || 'missing'} (required)`);
   }
   // A skipped test job counts as a failure unless the classifier said there was nothing to test.
-  if (flags.full || flags.affected) {
-    if (results['tests-full'] !== 'success') {
-      problems.push(`tests-full was ${results['tests-full'] || 'missing'} (${flags.full ? 'full run' : 'affected run'} required)`);
-    }
+  const testsNeeded = flags.full || flags.affected;
+  if (testsNeeded && results['tests-full'] !== 'success') {
+    problems.push(`tests-full was ${results['tests-full'] || 'missing'} (${flags.full ? 'full run' : 'affected run'} required)`);
   }
   // The Rust job, when the change reaches Rust: skipped or missing is a failure then, as for the tests.
   if (flags.rust && results.rust !== 'success') problems.push(`rust was ${results.rust || 'missing'} (the change reaches Rust)`);
   // The look gate, when a pull request changes what a Customer room draws: skipped or missing is a failure then.
   if (flags.look && results.look !== 'success') problems.push(`look was ${results.look || 'missing'} (the change draws a Customer room)`);
+  // A job that ran and did not succeed is red whatever this classification says. The run's own `changes` job may judge
+  // a different tree (the pull request merged onto main) and ask for tests this one doesn't; a red there must never
+  // pass. (The CI review on 21b74e6e, 22 Nov 2026: a reader main gained after the branch point.)
+  const ranRed = (r) => r !== undefined && r !== 'success' && r !== 'skipped';
+  for (const [name, needed] of [
+    ['tests-full', testsNeeded],
+    ['rust', flags.rust],
+    ['look', flags.look],
+  ]) {
+    if (!needed && ranRed(results[name])) problems.push(`${name} ran and was ${results[name]} (a job that ran red stays red)`);
+  }
   return problems;
 }
 

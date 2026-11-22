@@ -50,7 +50,9 @@ export function jobResults(jobs) {
   const out = {};
   for (const [key, name] of Object.entries(CI_JOBS)) out[key] = result(newest.get(name));
   const tests = [...newest.values()].filter((j) => TEST_JOB.test(j?.name ?? ''));
-  const bad = tests.map(result).find((r) => r !== 'success');
+  // A red shard outranks a skipped one, so a failure beside skipped shards is never read as skipped.
+  const results = tests.map(result);
+  const bad = results.find((r) => r !== 'success' && r !== 'skipped') ?? results.find((r) => r !== 'success');
   out['tests-full'] = tests.length ? (bad ?? 'success') : undefined;
   return out;
 }

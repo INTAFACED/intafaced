@@ -222,6 +222,12 @@ test('seal: the required jobs a classification needs', () => {
     'a skipped look gate is a failure when the change draws a room',
   );
   assert(sealNeeded(none, { ...ok, look: 'skipped' }).length === 0, 'a change that draws no room needs no look gate');
+  // Planted: the run's changes job judged the merge with main and ran tests this classification doesn't ask for.
+  assert(sealNeeded(none, { ...ok, 'tests-full': 'failure' }).length === 1, 'a test job that ran red is red when no tests were asked');
+  assert(sealNeeded(none, { ...ok, 'tests-full': 'cancelled' }).length === 1, 'a cancelled test job is red when no tests were asked');
+  assert(sealNeeded(none, { ...ok, rust: 'failure' }).length === 1, 'a Rust job that ran red is red when no Rust was asked');
+  assert(sealNeeded(none, { ...ok, look: 'failure' }).length === 1, 'a look gate that ran red is red when no look was asked');
+  assert(sealNeeded(none, { ...ok, 'tests-full': 'success', rust: 'success' }).length === 0, 'extra green jobs are fine');
 });
 
 test('reachesLook: a change a Customer room or the kit draws, or the gate itself (#9325)', () => {
