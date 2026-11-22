@@ -7,13 +7,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
 import { recoverMessageAddress, type Hex } from 'viem';
-import {
-  WALLET_SIGNATURE_VERIFY_PATH,
-  walletSignatureVerifyRequestSchema,
-  type ServiceBodyBindMode,
-  type WalletSignatureVerify,
-  type WalletSignatureVerifyRequest,
-} from '@intafaced/contracts';
+import type { ServiceBodyBindMode, WalletSignatureVerify, WalletSignatureVerifyRequest } from '@intafaced/contracts';
+import { WALLET_SIGNATURE_VERIFY_PATH, walletSignatureVerifyRequestSchema } from '@intafaced/contracts/identity';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { securityLockHolds } from './security-lock.js';
 

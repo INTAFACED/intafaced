@@ -4,7 +4,7 @@
  */
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { AlertRules } from './rules.js';
 import type { AlertStateStore } from './state-store.js';
 import { fingerprintOf, missingRequirements, previewTemplate, type AlertDeskStore, type HeartbeatRow } from './desk-store.js';

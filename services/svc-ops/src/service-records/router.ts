@@ -4,14 +4,13 @@ import {
   SERVICE_RECORD_INVALID,
   SERVICE_RECORD_STALE,
   SERVICE_STORAGE_UNCONFIGURED,
-  router,
-  scopedProcedure,
   serviceGetInputSchema,
   serviceGetOutputSchema,
   serviceListOutputSchema,
   serviceRecordValues,
   serviceSetInputSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-console-services';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { isModuleId, type ModuleId } from '@intafaced/config';
 import { OpsError } from '../codes.js';
 import type { ServiceRecordStore } from './store.js';

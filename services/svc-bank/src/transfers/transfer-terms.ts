@@ -10,7 +10,7 @@
  * a posted transfer is never edited, and the daily window counts what was already
  * sent today against the new figure.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { z } from 'zod';

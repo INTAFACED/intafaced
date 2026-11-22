@@ -1,5 +1,7 @@
 import { feeSaverAnswerSchema, type FeeSaverAnswer } from '@intafaced/contracts/campaigns-catalogue';
-import { serviceCallSigner, unwrapTrpcData, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { unwrapTrpcData } from '@intafaced/contracts/action-approval-client';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 /**
  * svc-campaigns' fee-saver coupons (`service.feeSaver`; J-campaigns-09 #2 #3, CM-vouchers-coupons-02), asked when the

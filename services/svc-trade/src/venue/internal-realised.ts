@@ -16,7 +16,8 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { add, formatAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
-import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { VenueRefusalError, type UserVenueAccount, type UserVenueFill } from '@intafaced/venue-contracts';
 import type { PreparedActionStore } from './prepared-action-store.js';
 

@@ -2,14 +2,16 @@
 //! optional part written only when the order carries it, in `toWire`'s key order, so a record reads back as the order it
 //! was.
 //!
-//! A journalled order that names a part only a later slice's module reads (options and combos, spreads, client order
-//! ids) does not read here: [`from_wire`] names the slice that owes it, and
+//! A journalled order this crate cannot read is malformed: [`from_wire`] refuses it, and
 //! replay stops rather than rebuild a book without it.
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
 
-use super::types::{EngineAmend, EngineOrder, Opt, OrderType, Side, Tif, TriggerBy, TriggerRole};
+use super::types::{
+    ComboLeg, EngineAmend, EngineOrder, Instrument, Opt, OrderType, Side, SpreadInstrument,
+    SpreadKind, SpreadLegDefinition, SpreadTerms, Tif, TriggerBy, TriggerRole,
+};
 use crate::door::Slice;
 use crate::journal::record::truthy;
 
@@ -37,17 +39,6 @@ impl std::fmt::Display for WireError {
 
 impl std::error::Error for WireError {}
 
-/// The parts of a wire order a later slice reads, and the slice.
-const OWED: [(&str, Slice); 7] = [
-    ("strike", Slice::Spreads),
-    ("expiry", Slice::Spreads),
-    ("exercise", Slice::Spreads),
-    ("combo", Slice::Spreads),
-    ("legs", Slice::Spreads),
-    ("spread", Slice::Spreads),
-    ("clientOrderId", Slice::Spreads),
-];
-
 fn amount_json(a: Amount) -> Json {
     Json::str(format_amount(a))
 }
@@ -74,8 +65,8 @@ pub fn to_wire(order: &EngineOrder, lifecycle_proof: Option<&Json>) -> Json {
     if let Some(by) = order.trigger_by {
         f.push(("triggerBy".into(), Json::str(by.as_str())));
     }
-    if order.option_instrument {
-        f.push(("instrument".into(), Json::str("option")));
+    if let Some(i) = order.instrument {
+        f.push(("instrument".into(), Json::str(i.as_str())));
     }
     if let Some(p) = order.position_qty {
         f.push(("positionQty".into(), amount_json(p)));
@@ -116,6 +107,12 @@ pub fn to_wire(order: &EngineOrder, lifecycle_proof: Option<&Json>) -> Json {
     if let Some(s) = order.session_id.as_ref().filter(|s| !s.is_empty()) {
         f.push(("sessionId".into(), Json::str(s.clone())));
     }
+    if let Some(s) = order.client_order_id.as_ref().filter(|s| !s.is_empty()) {
+        f.push(("clientOrderId".into(), Json::str(s.clone())));
+    }
+    if let Some(s) = order.environment.as_ref().filter(|s| !s.is_empty()) {
+        f.push(("environment".into(), Json::str(s.clone())));
+    }
     if order.reduce_only {
         f.push(("reduceOnly".into(), Json::Bool(true)));
     }
@@ -141,6 +138,19 @@ pub fn to_wire(order: &EngineOrder, lifecycle_proof: Option<&Json>) -> Json {
             f.push((key.into(), Json::Bool(v.get() == Some(true))));
         }
     };
+    amount(&mut f, "strike", &order.strike);
+    if order.expiry.present() {
+        f.push((
+            "expiry".into(),
+            order
+                .expiry
+                .value()
+                .map_or(Json::Null, |e| Json::str(e.clone())),
+        ));
+    }
+    if order.exercise {
+        f.push(("exercise".into(), Json::Bool(true)));
+    }
     amount(&mut f, "minQty", &order.min_qty);
     flag(&mut f, "aon", &order.aon);
     flag(&mut f, "peg", &order.peg);
@@ -154,10 +164,107 @@ pub fn to_wire(order: &EngineOrder, lifecycle_proof: Option<&Json>) -> Json {
     amount(&mut f, "min", &order.min);
     amount(&mut f, "max", &order.max);
     amount(&mut f, "minNotional", &order.min_notional);
+    flag(&mut f, "combo", &order.combo);
+    match &order.legs {
+        Opt::Absent => {}
+        Opt::Null => f.push(("legs".into(), Json::Null)),
+        Opt::Some(legs) => f.push((
+            "legs".into(),
+            Json::Array(legs.iter().map(leg_json).collect()),
+        )),
+    }
+    if let Some(terms) = &order.spread {
+        f.push((
+            "spread".into(),
+            Json::obj([
+                ("instrument", spread_json(&terms.instrument)),
+                ("anchorReference", opt_amount_json(terms.anchor_reference)),
+            ]),
+        ));
+    }
     if let Some(proof) = lifecycle_proof {
         f.push(("lifecycleProof".into(), proof.clone()));
     }
     Json::Object(f)
+}
+
+fn leg_json(leg: &ComboLeg) -> Json {
+    Json::obj([
+        ("name", leg.name.clone().map_or(Json::Null, Json::str)),
+        ("ratio", opt_amount_json(leg.ratio)),
+        ("strike", opt_amount_json(leg.strike)),
+        ("expiry", leg.expiry.clone().map_or(Json::Null, Json::str)),
+    ])
+}
+
+/// `toWireSpread`: the listing as decimal strings.
+pub fn spread_json(i: &SpreadInstrument) -> Json {
+    Json::obj([
+        ("spreadId", Json::str(i.spread_id.clone())),
+        ("kind", Json::str(i.kind.as_str())),
+        (
+            "legs",
+            Json::Array(
+                i.legs
+                    .iter()
+                    .map(|l| {
+                        Json::obj([
+                            ("symbol", Json::str(l.symbol.clone())),
+                            ("side", Json::str(l.side.as_str())),
+                            ("ratio", amount_json(l.ratio)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        ("tick", amount_json(i.tick)),
+        ("lot", amount_json(i.lot)),
+    ])
+}
+
+/// `fromWireSpread`: a journalled listing.
+pub fn spread_from_json(w: &Json) -> Result<SpreadInstrument, WireError> {
+    let kind = SpreadKind::parse(&text(w, "kind")?).ok_or_else(|| malformed("spread kind"))?;
+    let Some(Json::Array(legs)) = w.get("legs") else {
+        return Err(malformed("spread legs are not a list"));
+    };
+    let legs = legs
+        .iter()
+        .map(|l| {
+            Ok(SpreadLegDefinition {
+                symbol: text(l, "symbol")?,
+                side: Side::parse(&text(l, "side")?).ok_or_else(|| malformed("spread leg side"))?,
+                ratio: amount(l, "ratio")?,
+            })
+        })
+        .collect::<Result<Vec<_>, WireError>>()?;
+    let legs: [SpreadLegDefinition; 2] = legs
+        .try_into()
+        .map_err(|_| malformed("a spread lists exactly two legs"))?;
+    Ok(SpreadInstrument {
+        spread_id: text(w, "spreadId")?,
+        kind,
+        legs,
+        tick: amount(w, "tick")?,
+        lot: amount(w, "lot")?,
+    })
+}
+
+/// `value == null ? null : parseAmount(value)`.
+fn nullish_amount(o: &Json, key: &str) -> Result<Option<Amount>, WireError> {
+    match o.get(key) {
+        None | Some(Json::Null) => Ok(None),
+        _ => amount(o, key).map(Some),
+    }
+}
+
+/// `value ?? null` for text.
+fn nullish_text(o: &Json, key: &str) -> Result<Option<String>, WireError> {
+    match o.get(key) {
+        None | Some(Json::Null) => Ok(None),
+        Some(Json::String(s)) => Ok(Some(s.clone())),
+        Some(_) => Err(malformed(format!("{key} is not text"))),
+    }
 }
 
 /// `Some(value)` for a present field (`None` inside for `null`), `None` when absent.
@@ -230,23 +337,8 @@ pub fn from_wire(order: &Json) -> Result<EngineOrder, WireError> {
     if !matches!(order, Json::Object(_)) {
         return Err(malformed("not an object"));
     }
-    if let Some((field, slice)) = OWED.iter().find(|(key, _)| order.get(key).is_some()) {
-        return Err(WireError::Owed {
-            field: (*field).to_owned(),
-            slice: *slice,
-        });
-    }
     let order_type = OrderType::parse(&text(order, "type")?)
         .ok_or_else(|| malformed("type is not an order type this slice reads"))?;
-    if !matches!(
-        order_type,
-        OrderType::Limit | OrderType::Market | OrderType::Stop | OrderType::StopLimit
-    ) {
-        return Err(WireError::Owed {
-            field: "type".to_owned(),
-            slice: Slice::Spreads,
-        });
-    }
     let side = Side::parse(&text(order, "side")?).ok_or_else(|| malformed("side"))?;
     let tif = Tif::parse(&text(order, "tif")?).ok_or_else(|| malformed("tif"))?;
     let mut out = EngineOrder::new(
@@ -270,7 +362,10 @@ pub fn from_wire(order: &Json) -> Result<EngineOrder, WireError> {
         Some(Json::String(s)) if s == "last" => Some(TriggerBy::Last),
         _ => None,
     };
-    out.option_instrument = matches!(order.get("instrument"), Some(Json::String(s)) if s == "option" || s == "option_combo");
+    out.instrument = match order.get("instrument") {
+        Some(Json::String(s)) => Instrument::parse(s),
+        _ => None,
+    };
     out.position_qty = match order.get("positionQty") {
         None => None,
         Some(_) => Some(amount(order, "positionQty")?),
@@ -285,6 +380,8 @@ pub fn from_wire(order: &Json) -> Result<EngineOrder, WireError> {
     out.exits.stop_loss_order_id = opt_text(order, "stopLossOrderId");
     out.expire_at = truthy_text(order, "expireAt");
     out.session_id = truthy_text(order, "sessionId");
+    out.client_order_id = truthy_text(order, "clientOrderId");
+    out.environment = truthy_text(order, "environment");
     out.reduce_only = truthy(order.get("reduceOnly"));
     if matches!(order.get("iceberg"), Some(Json::Bool(true))) || order.get("displayQty").is_some() {
         out.iceberg = true;
@@ -310,6 +407,43 @@ pub fn from_wire(order: &Json) -> Result<EngineOrder, WireError> {
     out.min = opt_amount(order, "min")?;
     out.max = opt_amount(order, "max")?;
     out.min_notional = opt_amount(order, "minNotional")?;
+    out.strike = opt_amount(order, "strike")?;
+    out.expiry = match order.get("expiry") {
+        None => Opt::Absent,
+        Some(Json::Null) => Opt::Null,
+        Some(Json::String(s)) => Opt::Some(s.clone()),
+        Some(_) => return Err(malformed("expiry is not text")),
+    };
+    out.exercise = matches!(order.get("exercise"), Some(Json::Bool(true)));
+    out.combo = opt_flag(order, "combo");
+    out.legs = match order.get("legs") {
+        None => Opt::Absent,
+        Some(Json::Null) => Opt::Null,
+        Some(Json::Array(legs)) => Opt::Some(
+            legs.iter()
+                .map(|l| {
+                    Ok(ComboLeg {
+                        name: nullish_text(l, "name")?,
+                        ratio: nullish_amount(l, "ratio")?,
+                        strike: nullish_amount(l, "strike")?,
+                        expiry: nullish_text(l, "expiry")?,
+                    })
+                })
+                .collect::<Result<Vec<_>, WireError>>()?,
+        ),
+        Some(_) => return Err(malformed("legs is not a list")),
+    };
+    out.spread = match order.get("spread") {
+        None | Some(Json::Null) => None,
+        Some(terms) => Some(SpreadTerms {
+            instrument: spread_from_json(
+                terms
+                    .get("instrument")
+                    .ok_or_else(|| malformed("spread has no instrument"))?,
+            )?,
+            anchor_reference: nullish_amount(terms, "anchorReference")?,
+        }),
+    };
     Ok(out)
 }
 
@@ -331,6 +465,16 @@ pub fn to_wire_amend(cmd: &EngineAmend) -> Json {
     if let Some(e) = &cmd.expire_at {
         f.push(("expireAt".into(), Json::str(e.clone())));
     }
+    match cmd.strike {
+        Opt::Absent => {}
+        Opt::Null => f.push(("strike".into(), Json::Null)),
+        Opt::Some(s) => f.push(("strike".into(), amount_json(s))),
+    }
+    match &cmd.expiry {
+        Opt::Absent => {}
+        Opt::Null => f.push(("expiry".into(), Json::Null)),
+        Opt::Some(e) => f.push(("expiry".into(), Json::str(e.clone()))),
+    }
     Json::Object(f)
 }
 
@@ -340,14 +484,6 @@ pub fn from_wire_amend(
     expected_version: u64,
     patch: &Json,
 ) -> Result<EngineAmend, WireError> {
-    for (key, slice) in [("strike", Slice::Spreads), ("expiry", Slice::Spreads)] {
-        if patch.get(key).is_some() {
-            return Err(WireError::Owed {
-                field: format!("amend {key}"),
-                slice,
-            });
-        }
-    }
     let opt = |key: &str| -> Result<Option<Amount>, WireError> {
         match patch.get(key) {
             None => Ok(None),
@@ -369,6 +505,13 @@ pub fn from_wire_amend(
             None => None,
             Some(Json::String(s)) => Some(s.clone()),
             Some(_) => return Err(malformed("amend expireAt")),
+        },
+        strike: opt_amount(patch, "strike")?,
+        expiry: match patch.get("expiry") {
+            None => Opt::Absent,
+            Some(Json::Null) => Opt::Null,
+            Some(Json::String(s)) => Opt::Some(s.clone()),
+            Some(_) => return Err(malformed("amend expiry")),
         },
     })
 }

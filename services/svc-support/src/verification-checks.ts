@@ -1,19 +1,21 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type {
+  SupportDisclosureKind,
+  SupportRecordVerificationCheckInput,
+  SupportTicket,
+  SupportVerificationCheck,
+  SupportVerificationCheckKind,
+  SupportVerificationChecks,
+  SupportVerificationErrorCode,
+} from '@intafaced/contracts';
 import {
   matchedVerificationCount,
   SUPPORT_DISCLOSURE_OWNER,
   SUPPORT_VERIFICATION_CHECK_OWNER,
   SUPPORT_VERIFICATION_CHECKS_REQUIRED,
   supportVerificationCheckSchema,
-  type SupportDisclosureKind,
-  type SupportRecordVerificationCheckInput,
-  type SupportTicket,
-  type SupportVerificationCheck,
-  type SupportVerificationCheckKind,
-  type SupportVerificationChecks,
-  type SupportVerificationErrorCode,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-verification-checks';
 import { SupportError } from './support-service.js';
 
 /**

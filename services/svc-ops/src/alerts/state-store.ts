@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import type { OpsAlertHealth, OpsAlertState } from '@intafaced/contracts';
-import { opsAlertBusinessKey } from '@intafaced/contracts';
+import { opsAlertBusinessKey } from '@intafaced/contracts/ops-alert-rules';
 import type { InstanceState, StepResult } from './evaluate.js';
 
 export type AlertEventName = 'coreOpsAlertRuleUpdated' | 'coreOpsAlertOpened' | 'coreOpsAlertResolved' | 'coreOpsAlertPolicyUpdated';

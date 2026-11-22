@@ -7,17 +7,15 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
-import {
-  SUPPORT_VIEW_PERSONAL_CAP_KEY,
-  SUPPORT_VIEW_SHARED_CAP_KEY,
-  supportTicketCategorySchema,
-  type SupportTicket,
-  type SupportTicketPriority,
-  type SupportTicketType,
-  type SupportView,
-  type SupportViewSort,
-  type SupportWaitingOn,
+import type {
+  SupportTicket,
+  SupportTicketPriority,
+  SupportTicketType,
+  SupportView,
+  SupportViewSort,
+  SupportWaitingOn,
 } from '@intafaced/contracts';
+import { SUPPORT_VIEW_PERSONAL_CAP_KEY, SUPPORT_VIEW_SHARED_CAP_KEY, supportTicketCategorySchema } from '@intafaced/contracts/support';
 import { ticketQueueScore } from './operator-queue.js';
 
 export const VIEW_CAP_UNSET = 'support.view_cap_unset' as const;

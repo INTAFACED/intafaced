@@ -4,13 +4,8 @@
  * `notify.notice_publish_approval_unavailable` rather than inventing a second person.
  */
 
-import {
-  createIdentityApprovalClient,
-  type ActionApproval,
-  type ActionApprovalConsumeInput,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { createIdentityApprovalClient } from '@intafaced/contracts/action-approval-client';
 import type { NoticeApprovalConsumer } from './board.js';
 
 type S2sKey = { signer: ServiceSigner; mode: ServiceAuthMode };

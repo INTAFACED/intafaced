@@ -9,14 +9,9 @@
  * "trusted".
  */
 
-import {
-  serviceCallSigner,
-  trustedDeviceReadPath,
-  trustedDeviceStateSchema,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type TrustedDeviceState,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner, TrustedDeviceState } from '@intafaced/contracts';
+import { trustedDeviceReadPath, trustedDeviceStateSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { BankError } from '../errors.js';
 
 export interface TrustedDevicePort {

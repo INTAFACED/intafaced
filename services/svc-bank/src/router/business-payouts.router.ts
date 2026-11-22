@@ -1,7 +1,5 @@
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
   businessBulkRunSchema,
   businessContractorBatchSchema,
   businessContractorInviteInfoSchema,
@@ -11,7 +9,8 @@ import {
   businessCryptoPayrollSchema,
   businessPayrollWalletOfferSchema,
   businessPayrollWalletSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-business-payouts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   MAX_BATCH_INVOICES,

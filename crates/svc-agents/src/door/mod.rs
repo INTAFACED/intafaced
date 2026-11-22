@@ -396,6 +396,11 @@ impl AgentsDoor {
         self.background
     }
 
+    /// The own agents' templates and owner values.
+    pub fn own(&self) -> &Own {
+        &self.own
+    }
+
     /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
@@ -442,6 +447,26 @@ impl AgentsDoor {
             Slice::OwnBuilder => crate::own::slice::handle(
                 ctx,
                 &crate::own::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
+            Slice::OwnRuns => crate::own::runs::handle(
+                ctx,
+                &crate::own::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
+            Slice::OwnControls => crate::own::controls::slice::handle(
+                ctx,
+                &crate::own::controls::slice::Deps {
                     store: &self.store,
                     gateway: &self.gateway,
                     m: &self.metering,

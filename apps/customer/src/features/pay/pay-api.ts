@@ -100,6 +100,8 @@ import {
   type JournalStorage,
   type JournalLocks,
 } from '../../shared/minimal-original-journal';
+import { P2P_DISPUTES_GET, P2P_DISPUTES_OPEN, P2P_DISPUTES_APPEND_EVIDENCE } from '@intafaced/contracts/p2p-disputes-procedures';
+import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
 
 /** Future session integration seam, not a claim inferred from a JWT mode or merchant KYB.
  * Only supply this from an authoritative verified company membership/merchant association.
@@ -800,7 +802,7 @@ export function createPersonalPayApi(
       guard.run(`${userId}:p2p-programme`, () => api.call(P2P_MERCHANTS_SUBMIT_APPLICATION, undefined), undefined, p2pCurrent),
     withdrawProgramme: (reason: string) =>
       guard.run(`${userId}:p2p-programme`, () => api.call(P2P_MERCHANTS_WITHDRAW, { reason }), undefined, p2pCurrent),
-    dispute: (tradeId: string, signal?: AbortSignal) => api.query('p2p', 'disputes.get', { tradeId }, s.disputeSchema, { signal }),
+    dispute: (tradeId: string, signal?: AbortSignal) => api.call(P2P_DISPUTES_GET, { tradeId }, { signal }),
     async manageOffer(
       offerId: string,
       action: 'pause' | 'resume' | 'close',
@@ -1163,12 +1165,7 @@ export function createPersonalPayApi(
       );
     },
     openDispute: (tradeId: string, reason: string) =>
-      guard.run(
-        `${userId}:dispute:${tradeId}`,
-        () => api.mutate('p2p', 'disputes.open', { tradeId, reason }, s.disputeOpenedSchema),
-        undefined,
-        p2pCurrent,
-      ),
+      guard.run(`${userId}:dispute:${tradeId}`, () => api.call(P2P_DISPUTES_OPEN, { tradeId, reason }), undefined, p2pCurrent),
     /** P-trade-orders-15: the buyer of a paid order reminds the seller to release. Moves nothing; svc-p2p decides when. */
     remindSeller: (tradeId: string) =>
       guard.run(`${userId}:remind:${tradeId}`, () => api.call(P2P_TRADES_REMIND, { tradeId }), undefined, p2pCurrent),
@@ -1210,13 +1207,7 @@ export function createPersonalPayApi(
     appendEvidence: (tradeId: string, evidence: string) =>
       guard.run(
         `${userId}:evidence:${tradeId}`,
-        () =>
-          api.mutate(
-            'p2p',
-            'disputes.appendEvidence',
-            { tradeId, evidence: [evidence] },
-            z.object({ disputeId: s.id, tradeId: s.id, evidence: s.disputeSchema.shape.evidence }),
-          ),
+        () => api.call(P2P_DISPUTES_APPEND_EVIDENCE, { tradeId, evidence: [evidence] }),
         undefined,
         p2pCurrent,
       ),
@@ -1561,21 +1552,12 @@ export function createBusinessPayApi(
         return payRefusal('chooseOnlyPayPermissionsHeldByThis', { code: 'pay.key_permission_invalid' });
       const checked = await merchant();
       if (!checked.ok) return checked;
-      return guard.run(`${userId}:sandbox-key-create`, () =>
-        api.mutate(
-          'identity',
-          'apiKeys.create',
-          { name, scopes, mode: 'sandbox' },
-          z.object({ id: z.string(), key: z.string(), prefix: z.string(), mode: z.literal('sandbox') }),
-        ),
-      );
+      return guard.run(`${userId}:sandbox-key-create`, () => api.call(IDENTITY_API_KEYS_CREATE, { name, scopes, mode: 'sandbox' }));
     },
     async revokeKey(keyId: string) {
       const checked = await merchant();
       if (!checked.ok) return checked;
-      return guard.run(`${userId}:key:${keyId}`, () =>
-        api.mutate('identity', 'apiKeys.revoke', { keyId }, z.object({ revoked: z.boolean() })),
-      );
+      return guard.run(`${userId}:key:${keyId}`, () => api.call(IDENTITY_API_KEYS_REVOKE, { keyId }));
     },
     async webhookEndpoints(signal?: AbortSignal) {
       const checked = await merchant(signal);

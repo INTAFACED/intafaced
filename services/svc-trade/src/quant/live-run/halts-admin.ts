@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { TradeOpsError } from '../../admin/common.js';
 import type { StrategyHaltDesk } from './halts.js';
 
