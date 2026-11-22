@@ -760,6 +760,9 @@ export default function Portfolio() {
           title={t('Money')}
           state={loading ? { kind: 'loading' } : { kind: 'ready' }}
           hero={hero}
+          // The label row, the figure and three lines under it (the split, the day's change, a note): one height
+          // while loading and once loaded.
+          heroReserve={3}
           actions={loading ? null : <ActionPills mode={mode} layout={layout} />}
           sections={
             loading ? null : (

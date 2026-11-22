@@ -467,7 +467,7 @@ test('account paused: the refusal has words and a reference, never the raw code'
   expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
 });
 
-test('loading shows the kit skeletons in the final places and nothing above the total moves when data arrives', async ({ page }) => {
+test('loading shows final-size skeletons and nothing moves when data arrives', async ({ page }) => {
   const api = await mock(page, { bank: { 'portfolio.summary': null, 'spaces.list': null } });
   await open(page);
   const room = page.locator('.lt-room');
@@ -491,6 +491,7 @@ test('loading shows the kit skeletons in the final places and nothing above the 
   await expect(room).not.toHaveAttribute('aria-busy', 'true');
   const after = await page.locator('[data-region="hero"]').boundingBox();
   expect(Math.round(after.y)).toBe(Math.round(before.y));
+  expect(Math.round(after.height)).toBe(Math.round(before.height));
   expect(Math.round(after.x)).toBe(Math.round(before.x));
   expect(Math.round(after.width)).toBe(Math.round(before.width));
 });

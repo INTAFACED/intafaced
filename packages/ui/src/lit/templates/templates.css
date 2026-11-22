@@ -352,6 +352,15 @@
   block-size: 3.5rem;
 }
 
+/* A hero region that reserves its height (Region's `reserve`): its content, the loading ghost or the loaded figure,
+   keeps room for the label row, the figure's ghost and the given hint lines, so nothing below it moves. */
+.lt-region[data-reserve] > * {
+  min-block-size: calc(
+    var(--lit-control-h) + var(--lit-type-hero-size) * 1.6 + var(--lt-reserve) * var(--lit-type-body-line) + (var(--lt-reserve) + 1) *
+      var(--lit-gap-item)
+  );
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .lt-ghost[data-busy] .lt-ghost-item {
     animation: lt-pulse 1.4s var(--lit-ease) infinite alternate;
