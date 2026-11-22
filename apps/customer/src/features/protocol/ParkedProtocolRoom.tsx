@@ -13,7 +13,6 @@ import { protocolCopy as copy } from './copy';
 import { type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
 import { ChainHome } from './explorer/ChainHome';
 import { TokensNav } from './tokens/TokensRoom';
-import { PoolsList } from './pools/PoolsList';
 import { BridgeRoutes } from './rails/BridgeRoutes';
 import { AuditProducts } from './AuditProducts';
 import { VenueFunds } from './venue/VenueFunds';
@@ -269,17 +268,6 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </>
     );
   else if (slug === 'dex' && tab === 'swap') body = <SwapForm />;
-  else if (slug === 'dex' && tab === 'pools')
-    body = (
-      <>
-        <PoolsList />
-        <Panel title={t('poolsTitle')}>
-          <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
-            {(d) => <Rows t={t} rows={[[t('ammWired'), flag(t, d.ammVenueWired)]]} />}
-          </Answer>
-        </Panel>
-      </>
-    );
   else if (slug === 'dex' && tab === 'positions')
     body = (
       <Panel title={t('positionsTitle')}>
