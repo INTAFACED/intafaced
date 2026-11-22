@@ -595,6 +595,27 @@
   unicode-bidi: isolate;
 }
 
+/* A block of code a person reads or copies (a request recipe, a sample, a schema): mono, kept as written, and scrolled
+   sideways inside its own box so a long line never widens the page. */
+.lt-code {
+  margin: 0;
+  padding: var(--lit-gap-item);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-label-size);
+  white-space: pre;
+  overflow-x: auto;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* A long unbroken value (a hash, a signature, a body) breaks anywhere rather than run off a phone's edge. */
+.lt-wrap {
+  overflow-wrap: anywhere;
+}
+
 .lt-receipt,
 .lt-review {
   display: flex;
