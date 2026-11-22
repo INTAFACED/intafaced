@@ -380,9 +380,19 @@ import {
   AGENTS_OWN_SCHEDULES_LIST,
   AGENTS_OWN_SCHEDULES_CANCEL,
   AGENTS_OWN_TRIGGERS_LIST,
+  AGENTS_OWN_INBOX,
+  AGENTS_OWN_APPROVAL_APPROVE,
+  AGENTS_OWN_APPROVAL_REJECT,
+  AGENTS_OWN_APPROVALS,
 } from './agents-own-procedures.js';
 
-import { AGENTS_ROUTES_DESK, AGENTS_ROUTES_PROPOSE, AGENTS_ROUTES_LIST } from './agents-routes-procedures.js';
+import {
+  AGENTS_ROUTES_DESK,
+  AGENTS_ROUTES_PROPOSE,
+  AGENTS_ROUTES_WITHDRAW,
+  AGENTS_ROUTES_CONFIRM,
+  AGENTS_ROUTES_LIST,
+} from './agents-routes-procedures.js';
 
 import {
   AGENTS_RUN_BACKGROUND_GET,
@@ -2335,9 +2345,19 @@ const part_agents_own_procedures: readonly ProcedureRecord[] = [
   AGENTS_OWN_SCHEDULES_LIST,
   AGENTS_OWN_SCHEDULES_CANCEL,
   AGENTS_OWN_TRIGGERS_LIST,
+  AGENTS_OWN_INBOX,
+  AGENTS_OWN_APPROVAL_APPROVE,
+  AGENTS_OWN_APPROVAL_REJECT,
+  AGENTS_OWN_APPROVALS,
 ];
 
-const part_agents_routes_procedures: readonly ProcedureRecord[] = [AGENTS_ROUTES_DESK, AGENTS_ROUTES_PROPOSE, AGENTS_ROUTES_LIST];
+const part_agents_routes_procedures: readonly ProcedureRecord[] = [
+  AGENTS_ROUTES_DESK,
+  AGENTS_ROUTES_PROPOSE,
+  AGENTS_ROUTES_WITHDRAW,
+  AGENTS_ROUTES_CONFIRM,
+  AGENTS_ROUTES_LIST,
+];
 
 const part_agents_run_procedures: readonly ProcedureRecord[] = [
   AGENTS_RUN_BACKGROUND_GET,
