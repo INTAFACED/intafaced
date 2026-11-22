@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
-import { AccountDirectoryError, HANDLES_CAP, accountCounts, accountHandles, searchAccounts } from './account-directory.js';
+import { AccountDirectoryError, accountCounts, accountHandles, searchAccounts } from './account-directory.js';
 import { OperatorApiKeyError, revokeApiKeyForUser } from './operator-api-keys.js';
 import { OperatorSessionError, listSessionsForUser, revokeSessionsForUser } from './operator-sessions.js';
+import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from '@intafaced/contracts/identity-account-directory-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
+import { IDENTITY_API_KEY_OPS_REVOKE } from '@intafaced/contracts/identity-api-key-ops-procedures';
 
 const directoryRow = z
   .object({
@@ -70,16 +74,17 @@ export function createOperatorOpsRouter(sql: Sql) {
           }
         }),
       /** The handle of each account id a desk shows (an owner column): id and handle only, audited like a search. */
-      handles: scopedProcedure('admin:compliance')
-        .input(z.object({ ids: z.array(z.string().guid()).min(1).max(HANDLES_CAP) }).strict())
-        .output(z.object({ rows: z.array(z.object({ id: z.string().guid(), handle: z.string() }).strict()) }).strict())
-        .query(async ({ ctx, input }) => {
+      handles: mountRecord(
+        IDENTITY_ACCOUNT_DIRECTORY_HANDLES,
+        async ({ ctx, input }) => {
           try {
             return { rows: await accountHandles(sql, ctx, input.ids) };
           } catch (error) {
             directoryError(error);
           }
-        }),
+        },
+        codedRefusal,
+      ),
       counts: scopedProcedure('admin:read')
         .input(z.object({}).strict())
         .output(
@@ -154,37 +159,17 @@ export function createOperatorOpsRouter(sql: Sql) {
     }),
     /** Support-agent and founder-ops revoke of one customer key (DV-keys-04, ENGINE KS-11). Never returns a secret. */
     apiKeyOps: router({
-      revoke: scopedProcedure('admin:write')
-        .input(
-          z
-            .object({
-              userId: z.string().guid(),
-              keyId: z.string().guid(),
-              reason: z.string().max(500),
-              clientRequestId: z.string().max(128),
-            })
-            .strict(),
-        )
-        .output(
-          z
-            .object({
-              userId: z.string().guid(),
-              keyId: z.string().guid(),
-              changed: z.boolean(),
-              revocation: z
-                .object({ actorId: z.string().guid(), reason: z.string(), revokedAt: z.string().datetime({ offset: true }) })
-                .strict()
-                .nullable(),
-            })
-            .strict(),
-        )
-        .mutation(async ({ ctx, input }) => {
+      revoke: mountRecord(
+        IDENTITY_API_KEY_OPS_REVOKE,
+        async ({ ctx, input }) => {
           try {
             return await revokeApiKeyForUser(sql, ctx, input);
           } catch (error) {
             apiKeyError(error);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

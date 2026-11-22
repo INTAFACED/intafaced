@@ -1,8 +1,10 @@
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { SelfFreezeLiftError, type SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
 import { userCopy } from './user-copy.js';
+import { IDENTITY_SELF_FREEZE_MANAGE_LIFT } from '@intafaced/contracts/identity-self-freeze-manage-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 function mapError(err: unknown): never {
   if (err instanceof SelfFreezeLiftError) {
@@ -30,10 +32,9 @@ function mapError(err: unknown): never {
 export function createSelfFreezeLiftRouter(lift: SelfFreezeLift, stepUp: SecurityStepUp) {
   return router({
     selfFreezeManage: router({
-      lift: scopedProcedure('identity:write')
-        .input(z.object({ clientRequestId: z.string().min(1).max(128), stepUpApprovalId: z.string().min(1).max(128).nullish() }).strict())
-        .output(z.object({ frozen: z.literal(false), changed: z.boolean(), liftedAt: z.string().nullable() }))
-        .mutation(async ({ ctx, input }) => {
+      lift: mountRecord(
+        IDENTITY_SELF_FREEZE_MANAGE_LIFT,
+        async ({ ctx, input }) => {
           try {
             lift.assertConfigured();
             await lift.assertDue(ctx.principal.userId);
@@ -48,7 +49,9 @@ export function createSelfFreezeLiftRouter(lift: SelfFreezeLift, stepUp: Securit
           } catch (err) {
             return mapError(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }
