@@ -1,0 +1,19 @@
+[
+  "/bank/business/bill",
+  "/bank/business/bills",
+  "/bank/business/cards",
+  "/bank/business/contractor-join",
+  "/bank/business/join",
+  "/bank/business/loan",
+  "/bank/business/payment",
+  "/bank/business/payouts",
+  "/bank/business/spend",
+  "/bank/business/team",
+  "/bank/cards/credit",
+  "/bank/cards/credit-card",
+  "/bank/loans/overdraft",
+  "/bank/loans/personal",
+  "/bank/loans/schedule",
+  "/bank/safety/lost-phone",
+  "/trade/analytics/:pair"
+]

@@ -21,7 +21,7 @@ row already on their template. One PR per batch.
    - `outside-component`: a part from outside the room's folder that draws off the kit. Redraw it from the kit where it
      lives, once, for every room that shares it (volt-count judges it by the same rule); a generic part goes into the kit.
    - `stylesheet`, `inline-style`: delete; the template and the kit's classes carry the layout.
-5. **Prove it:** `node tooling/design/volt-count.mjs --write` drops the batch's rooms from `volt-off-kit.json`;
+5. **Prove it:** `node tooling/design/volt-count.mjs --write` moves the batch's rooms from `volt-off-kit.json` to `volt-on-kit.json`;
    `pnpm --filter @intafaced/customer exec vitest run src/app/volt-count.test.ts` shows n rose by the batch and nothing
    fell. Typecheck, the customer unit tests and the Look gate's pictures pass in CI on the batch's head; the journeys
    the rooms reach pass on the layer's PR into main, where the CI review judges the before and after pictures. A journey test changes only when the PR names its step and proves

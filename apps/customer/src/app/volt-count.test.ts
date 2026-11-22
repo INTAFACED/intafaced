@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { offKitFindings, voltCount } from './volt-count';
 import allowedOffKit from './volt-off-kit.json';
+import onKit from './volt-on-kit.json';
 
 const count = voltCount();
 
@@ -29,6 +30,16 @@ describe('customer rooms in Volt', () => {
     const off = new Set(count.rooms.filter((r) => r.state !== 'volt').map((r) => r.key));
     const stale = allowedOffKit.filter((key) => !off.has(key));
     expect(stale, 'in Volt now, or no longer a room: run `node tooling/design/volt-count.mjs --write`').toEqual([]);
+  });
+
+  // A reader without a build takes n of N from the two lists: n = volt-on-kit.json's length, N = n + volt-off-kit.json's.
+  it('lists every room in Volt, and only those, in volt-on-kit.json', () => {
+    const on = count.rooms
+      .filter((r) => r.state === 'volt')
+      .map((r) => r.key)
+      .sort();
+    expect(onKit, 'run `node tooling/design/volt-count.mjs --write`').toEqual(on);
+    expect(onKit.length + allowedOffKit.length, 'n + the rooms off the kit is N').toBe(count.N);
   });
 
   it('names every reason a room is out', () => {
