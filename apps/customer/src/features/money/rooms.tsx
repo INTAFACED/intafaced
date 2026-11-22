@@ -45,6 +45,7 @@ import {
   useSpaces,
   usePageLimit,
   type ActionSpec,
+  useBankRecord,
 } from './components';
 import { AutoInvestRules } from './repeat-buy';
 import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
@@ -116,6 +117,11 @@ import { SalaryRoom } from './Salary';
 import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
+import { BANK_EARN_POOLS, BANK_EARN_POSITIONS } from '@intafaced/contracts/bank-earn-procedures';
+import { BANK_LOANS_PRODUCTS, BANK_LOANS_LIST, BANK_LOANS_HEALTH } from '@intafaced/contracts/bank-loans-procedures';
+import { BANK_ANALYTICS_SPEND } from '@intafaced/contracts/bank-analytics-procedures';
+import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_SPACES_UNNAMED } from '@intafaced/contracts/bank-spaces-procedures';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
 const bankLabels = {
@@ -222,7 +228,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
   const context = spaceContext(search, 'space');
   const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
   const spaces = useSpaces(limit);
-  const unnamed = useBankRead('spaces.unnamed', undefined);
+  const unnamed = useBankRecord(BANK_SPACES_UNNAMED, undefined);
   const held = useHoldings();
   const heldAssets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   const depthCopy = transferDepthCopy.useCopy();
@@ -492,7 +498,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
   const serial = useRef(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const listHeading = useRef<HTMLSpanElement>(null);
-  const query = useBankRead('transfers.listSchedules', { limit });
+  const query = useBankRecord(BANK_TRANSFERS_LIST_SCHEDULES, { limit });
   const rows = query.resource.status === 'ready' ? query.resource.data : [];
   const instruction = selected ? currentInstruction(rows, selected.id) : undefined;
   const other = instruction ? rows.filter((row) => row.id !== instruction.id) : rows;
@@ -897,7 +903,7 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
   const validMaturity = (at: string) => z.string().datetime({ offset: true }).safeParse(at).success;
   const maturityAllowsReview = (at: string | null) => at === null || (validMaturity(at) && Date.parse(at) <= Date.now());
   async function checkPool(pool: z.infer<typeof poolSchema>, automation = false): Promise<ApiResult<null>> {
-    const fresh = await api.query('bank', 'earn.pools', { limit }, bankReads['earn.pools']);
+    const fresh = await api.call(BANK_EARN_POOLS, { limit });
     if (!fresh.ok) return fail(earnCopy.t('subjectPool'));
     const current = fresh.data.find((row) => row.id === pool.id);
     if (!current || JSON.stringify(current) !== JSON.stringify(pool)) return changed();
@@ -909,14 +915,14 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
     return { ok: true, data: null };
   }
   async function checkPosition(position: z.infer<typeof positionSchema>): Promise<ApiResult<null>> {
-    const fresh = await api.query('bank', 'earn.positions', { limit }, bankReads['earn.positions']);
+    const fresh = await api.call(BANK_EARN_POSITIONS, { limit });
     if (!fresh.ok) return fail(earnCopy.t('subjectPosition'));
     const current = fresh.data.find((row) => row.id === position.id);
     if (!current || JSON.stringify(current) !== JSON.stringify(position) || !maturityAllowsReview(current.maturesAt)) return changed();
     return { ok: true, data: null };
   }
-  const pools = useBankRead('earn.pools', { limit });
-  const positions = useBankRead('earn.positions', { limit });
+  const pools = useBankRecord(BANK_EARN_POOLS, { limit });
+  const positions = useBankRecord(BANK_EARN_POSITIONS, { limit });
   const held = useHoldings();
   const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
   const automation = useBankRead('autoInvest.policy', undefined);
@@ -1187,9 +1193,9 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
 function Loans({ open }: { open: (spec: ActionSpec) => void }) {
   const { api } = useSession();
   const [limit, setLimit] = usePageLimit();
-  const products = useBankRead('loans.products', { limit });
-  const loans = useBankRead('loans.list', { limit });
-  const health = useBankRead('loans.health', undefined);
+  const products = useBankRecord(BANK_LOANS_PRODUCTS, { limit });
+  const loans = useBankRecord(BANK_LOANS_LIST, { limit });
+  const health = useBankRecord(BANK_LOANS_HEALTH, undefined);
   const held = useHoldings();
   const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
   return (
@@ -1764,7 +1770,7 @@ function Analytics() {
     }
     return { assetId, ...periodRange(preset, new Date(Math.floor(Date.now() / 60_000) * 60_000)) };
   }, [assetId, preset, useCustom, custom.from, custom.to]);
-  const query = useBankRead('analytics.spend', range, Boolean(range));
+  const query = useBankRecord(BANK_ANALYTICS_SPEND, range, Boolean(range));
   const presetLabel = (value: PeriodPreset) =>
     depth.t(value === '7d' ? 'period7d' : value === '30d' ? 'period30d' : value === 'month' ? 'periodMonth' : 'periodLastMonth');
   return (

@@ -2,10 +2,11 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
 import { Button } from '../../shared/ui';
 import { bankReads } from './contracts';
-import { Continuation, funds, ResourceView, Section, useBankRead, usePageLimit } from './components';
+import { Continuation, funds, ResourceView, Section, useBankRead, usePageLimit, useBankRecord } from './components';
 import { currentOwnerRecord, ReportedTime, useBankView } from './bank-context';
 import { railCopy } from './rail-copy';
 import { Text, t as copyText } from './copy';
+import { BANK_RAMPS_PROGRAMME, BANK_RAMPS_FIAT_SETTLE } from '@intafaced/contracts/bank-ramps-procedures';
 
 type Direction = 'in' | 'out';
 type RailRecord = z.infer<(typeof bankReads)['ramps.onramps']>[number] | z.infer<(typeof bankReads)['ramps.offramps']>[number];
@@ -263,8 +264,8 @@ function RailWindow({ direction }: { direction: Direction }) {
 function ConnectionDetails() {
   const { Copy } = railCopy.useCopy();
   const current = useBankView();
-  const programme = useBankRead('ramps.programme', undefined),
-    fiat = useBankRead('ramps.fiatSettle', undefined);
+  const programme = useBankRecord(BANK_RAMPS_PROGRAMME, undefined),
+    fiat = useBankRecord(BANK_RAMPS_FIAT_SETTLE, undefined);
   return (
     <details className="money-ramp-connections">
       <summary>

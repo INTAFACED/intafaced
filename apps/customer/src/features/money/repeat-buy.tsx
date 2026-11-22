@@ -22,7 +22,9 @@ import {
   useBankRead,
   usePageLimit,
   type ActionSpec,
+  useBankRecord,
 } from './components';
+import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
 
 type Rule = z.infer<typeof ruleSchema>;
 const validAsset = (asset: string) => asset.trim().length > 0 && asset === asset.trim() && asset.length <= 16;
@@ -37,7 +39,7 @@ const readRefusal = (subject: string): ApiResult<null> => ({
 export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: ActionSpec) => void }) {
   const api = useApi();
   const [limit, setLimit] = usePageLimit();
-  const { resource, reload } = useBankRead('autoInvest.list', { limit });
+  const { resource, reload } = useBankRecord(BANK_AUTO_INVEST_LIST, { limit });
   function lifecycle(rule: Rule, action: 'pause' | 'resume' | 'cancel'): ActionSpec {
     const facts: [string, string][] = [
       [t('reference'), rule.id],
@@ -75,7 +77,7 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
             },
       unit: rule.assetId,
       preflight: async () => {
-        const latest = await api.query('bank', 'autoInvest.list', { limit }, bankReads['autoInvest.list']);
+        const latest = await api.call(BANK_AUTO_INVEST_LIST, { limit });
         if (!latest.ok) return readRefusal(t('rulesSubject'));
         const current = latest.data.find((row) => row.id === rule.id);
         // Missing from this bounded read cannot establish cancellation or an outcome.

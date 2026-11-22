@@ -8,6 +8,8 @@ import {
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
+import { BANK_ASSETS_LIST } from '@intafaced/contracts/bank-assets-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 /** svc-bank `assets.list` (W-balances-05), read with the schema in `@intafaced/contracts/bank-money-room`. */
 export {
@@ -19,12 +21,11 @@ export {
 export type SupportedAsset = z.infer<typeof bankSupportedAssetSchema>;
 export type SupportedAssetAction = (typeof BANK_SUPPORTED_ASSET_ACTIONS)[number];
 export type SupportedAssetState = (typeof BANK_SUPPORTED_ASSET_STATES)[number];
-export type SupportedAssets = z.infer<typeof bankSupportedAssetsSchema>;
+export type SupportedAssets = ProcedureOutput<typeof BANK_ASSETS_LIST>;
 
 export function createSupportedAssetReads(api: ApiClient) {
   return {
-    list: (signal?: AbortSignal): Promise<ApiResult<SupportedAssets>> =>
-      api.query('bank', 'assets.list', undefined, bankSupportedAssetsSchema, { signal }),
+    list: (signal?: AbortSignal): Promise<ApiResult<SupportedAssets>> => api.call(BANK_ASSETS_LIST, undefined, { signal }),
   };
 }
 

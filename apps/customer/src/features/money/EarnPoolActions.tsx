@@ -4,12 +4,14 @@ import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { parseAmount } from '../../shared/money';
 import { useSession } from '../session';
-import { amount, bps, date, funds, positiveMoney, useBankRead, type ActionSpec } from './components';
+import { amount, bps, date, funds, positiveMoney, useBankRead, type ActionSpec, useBankRecord } from './components';
 import { bankReads, bankWrites, type earnPoolPageSchema, type positionSchema } from './contracts';
 import { CALCULATOR_MAX_DAYS, earnCalculation } from './earn-calculator';
 import { earnCopy } from './earn-copy';
 import { utcDay } from './earn-rate-history';
 import { earnPoolActionsCopy } from './earn-pool-actions-copy';
+import { BANK_EARN_POOL, BANK_EARN_POSITIONS, BANK_EARN_INTEREST_HISTORY } from '@intafaced/contracts/bank-earn-procedures';
+import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
 
 type Pool = z.infer<typeof earnPoolPageSchema>;
 type Position = z.infer<typeof positionSchema>;
@@ -89,7 +91,7 @@ export function PoolDeposit({ pool, open }: { pool: Pool; open: Open }) {
   const { t } = earnPoolActionsCopy.useCopy();
   const { api } = useSession();
   const preflight = async (): Promise<ApiResult<null>> => {
-    const fresh = await api.query('bank', 'earn.pool', { poolId: pool.id }, bankReads['earn.pool']);
+    const fresh = await api.call(BANK_EARN_POOL, { poolId: pool.id });
     if (!fresh.ok) return readFailed(t('subjectPool'));
     return JSON.stringify(fresh.data) === JSON.stringify(pool) ? { ok: true, data: null } : changed();
   };
@@ -192,7 +194,7 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
   }
   const unbondingDays = unbondsAt === null ? position.unbondingDays : null;
   const preflight = async (): Promise<ApiResult<null>> => {
-    const fresh = await api.query('bank', 'earn.positions', { limit: POSITIONS, poolId: pool.id }, bankReads['earn.positions']);
+    const fresh = await api.call(BANK_EARN_POSITIONS, { limit: POSITIONS, poolId: pool.id });
     if (!fresh.ok) return readFailed(t('subjectPosition'));
     const current = fresh.data.find((row) => row.id === position.id);
     // Missing from this read proves nothing about an earlier send: it is a change, never an outcome.
@@ -289,7 +291,7 @@ export function FixedTerm({ pool, position, open }: { pool: Pool; position: Posi
   const ended = Date.parse(maturesAt) <= Date.now();
   const days = pool.termDays ?? 0;
   const preflight = async (): Promise<ApiResult<null>> => {
-    const fresh = await api.query('bank', 'earn.positions', { limit: POSITIONS, poolId: pool.id }, bankReads['earn.positions']);
+    const fresh = await api.call(BANK_EARN_POSITIONS, { limit: POSITIONS, poolId: pool.id });
     if (!fresh.ok) return readFailed(t('subjectRenew'));
     const current = fresh.data.find((row) => row.id === position.id);
     return current && current.maturesAt === maturesAt && current.autoRenew === position.autoRenew ? { ok: true, data: null } : changed();
@@ -368,7 +370,7 @@ export function PayoutSchedule({ pool, position }: { pool: Pool; position: Posit
 /** The interest this pool has paid the person, day by day, from the bank's own record (`earn.interestHistory`). */
 export function PoolEarned({ pool }: { pool: Pool }) {
   const { t } = earnPoolActionsCopy.useCopy();
-  const history = useBankRead('earn.interestHistory', { poolId: pool.id, limit: DAYS_SHOWN });
+  const history = useBankRecord(BANK_EARN_INTEREST_HISTORY, { poolId: pool.id, limit: DAYS_SHOWN });
   if (history.resource.status === 'loading') return <Loading />;
   if (history.resource.status === 'failed') return <Failure result={history.resource.failure} retry={history.reload} />;
   const earned = history.resource.data;
@@ -426,7 +428,7 @@ function EarnedDays({ pool, days }: { pool: Pool; days: PaidDay[] }) {
 
 function EarlierDays({ pool, before }: { pool: Pool; before: string }) {
   const { t } = earnPoolActionsCopy.useCopy();
-  const page = useBankRead('earn.interestHistory', { poolId: pool.id, limit: DAYS_SHOWN, before });
+  const page = useBankRecord(BANK_EARN_INTEREST_HISTORY, { poolId: pool.id, limit: DAYS_SHOWN, before });
   if (page.resource.status === 'loading') return <Loading />;
   if (page.resource.status === 'failed') return <Failure result={page.resource.failure} retry={page.reload} />;
   return page.resource.data.days.length ? (
@@ -445,10 +447,10 @@ export function AutoEarn({ pool, open }: { pool: Pool; open: Open }) {
   const { t } = earnPoolActionsCopy.useCopy();
   const { api } = useSession();
   const policy = useBankRead('autoInvest.policy', undefined);
-  const rules = useBankRead('autoInvest.list', { limit: RULES });
+  const rules = useBankRecord(BANK_AUTO_INVEST_LIST, { limit: RULES });
   const preflight = async (): Promise<ApiResult<null>> => {
     const [freshPool, freshPolicy] = await Promise.all([
-      api.query('bank', 'earn.pool', { poolId: pool.id }, bankReads['earn.pool']),
+      api.call(BANK_EARN_POOL, { poolId: pool.id }),
       api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']),
     ]);
     if (!freshPool.ok) return readFailed(t('subjectPool'));
