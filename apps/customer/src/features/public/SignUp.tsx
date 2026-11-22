@@ -1,3 +1,4 @@
+// volt-room: /register
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Button, ChoiceGroup, Field, RefusalBox, Select } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';

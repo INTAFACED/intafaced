@@ -1,3 +1,4 @@
+// volt-room: /bank/recovery
 import { FlowTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { useBankNav } from '../bank-nav';
 import { recoveryClaimCopy } from '../recovery-claim-copy';

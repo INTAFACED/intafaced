@@ -9,6 +9,10 @@
 //   5. procedures:write regenerates the registry and procedures/<service>.schema.json;
 //   with --door (a service the Rust door serves, its router read --from-rev), door-check.mjs holds each record to it;
 //   6. doubles.mjs gives every test's API client double that reaches a record caller a `call` (its own query or mutate).
+// With --callers-only (a service whose Rust port is in flight) the service and its crate are never touched: step 1 mounts
+// nothing and moves no declaration out of the service, step 3 is skipped (its fixes would change a record away from the
+// router it copies, or the service's replay test), so a refused record is left by name; and the run fails if anything
+// under services/svc-* or crates/svc-* changed.
 // It starts only on a clean tree (nothing uncommitted under apps/, services/ or packages/contracts/), so step 3 can put
 // back exactly what step 1 wrote.
 //
@@ -49,6 +53,7 @@ export function run(argv) {
   }
 
   const door = pass.includes('--door') ? ['--door', pass[pass.indexOf('--door') + 1]] : [];
+  const callersOnly = pass.includes('--callers-only');
   const summary = join(tmpdir(), `call-records-${process.pid}.json`);
   const unportable = join(tmpdir(), `call-records-unportable-${process.pid}.json`);
   const step1 = (extra = []) => {
@@ -87,7 +92,7 @@ export function run(argv) {
       }
       sh('node', [here('samples.mjs'), '--unportable', unportable, ...door, ...files]);
       skipped = JSON.parse(readFileSync(unportable, 'utf8'));
-      if (!Object.keys(skipped).length) break;
+      if (!Object.keys(skipped).length || callersOnly) break;
       const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...door, ...files]));
       if (!fixed.fixed) break;
       for (const f of fixed.files) if (tracked.has(f)) kept.add(f);
@@ -116,6 +121,13 @@ export function run(argv) {
   sh('pnpm', ['procedures:write'], { cwd: join(REPO, 'packages/contracts'), stdio: ['ignore', 'ignore', 'inherit'] });
   sh('node', [here('doubles.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
   for (const f of [summary, unportable, patchFile, skipFile]) if (existsSync(f)) rmSync(f);
+  if (callersOnly) {
+    const touched = out('git', ['status', '--porcelain', '--', 'services', 'crates']).trim();
+    if (touched) {
+      console.error(`--callers-only touched a service mid-port, which it never may:\n${touched}`);
+      process.exit(1);
+    }
+  }
   console.log(JSON.stringify({ service, records: result.records.length, rewritten: result.rewritten, hand: result.hand }, null, 2));
 }
 

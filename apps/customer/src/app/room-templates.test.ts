@@ -13,6 +13,7 @@ import type { PortalApi } from '../features/pay/portal/api';
 import { rooms } from './navigation';
 import { renderPart } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
+import { voltMarks } from './volt-count';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -26,6 +27,8 @@ const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
 /** A route's pattern as a person opens it: a `:pair` is a real market. */
 const opened = (route: string) => route.replace(':pair', 'BTC-USDT');
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
+/** The screen file whose `// volt-room:` line says the room has moved onto its template (volt-count.ts). */
+const marks = voltMarks();
 
 describe('room templates registry', () => {
   it('names only routes that exist, and no alias', () => {
@@ -50,8 +53,11 @@ describe('room templates registry', () => {
   });
 
   it('reports how many rooms are on their template', () => {
-    const all = [...Object.values(ROUTE_TEMPLATES).filter(isRoom), ...Object.values(PORTAL_TEMPLATES)];
-    const migrated = all.filter((e) => e.migrated).length;
+    const all = [
+      ...Object.entries(ROUTE_TEMPLATES).flatMap(([route, e]) => (isRoom(e) ? [route] : [])),
+      ...Object.keys(PORTAL_TEMPLATES).map((page) => `portal:${page}`),
+    ];
+    const migrated = all.filter((key) => marks.has(key)).length;
     expect(migrated).toBeLessThanOrEqual(all.length);
     console.info(`Rooms on their template: ${migrated} of ${all.length}`);
   });
@@ -60,11 +66,12 @@ describe('room templates registry', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
       for (const [room, entry] of Object.entries(ROUTE_TEMPLATES)) {
-        if (!isRoom(entry) || !entry.migrated) continue;
+        const file = marks.get(room)?.[0];
+        if (!isRoom(entry) || !file) continue;
         const html = await renderPart({ name: room, route: opened(room) });
         expect(html.startsWith('<!-- never settled -->'), `${room} settles`).toBe(false);
         const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
-        expect(drawn, `${room} (${entry.migrated.file}) draws the ${entry.template} template`).toContain(entry.template);
+        expect(drawn, `${room} (${file}) draws the ${entry.template} template`).toContain(entry.template);
       }
     } finally {
       vi.useRealTimers();
@@ -103,14 +110,15 @@ describe('room templates registry', () => {
     const pending = new Promise<never>(() => undefined);
     const portal = new Proxy({}, { get: () => () => pending }) as PortalApi;
     for (const [room, entry] of Object.entries(PORTAL_TEMPLATES)) {
-      if (!entry.migrated) continue;
+      const file = marks.get(`portal:${room}`)?.[0];
+      if (!file) continue;
       const page = portalRooms[room as PortalRoom].render(
         { room: room as PortalRoom },
         { portal, authority: null, access: value, starterFee: null },
       );
       const html = renderToStaticMarkup(createElement(MerchantAccessContext.Provider, { value }, page));
       const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
-      expect(drawn, `portal:${room} (${entry.migrated.file}) draws the ${entry.template} template`).toContain(entry.template);
+      expect(drawn, `portal:${room} (${file}) draws the ${entry.template} template`).toContain(entry.template);
     }
   });
 });

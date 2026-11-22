@@ -1,3 +1,4 @@
+// volt-room: /oauth/authorize
 import { useMemo, useRef, useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate, type Refusal, type RoomState } from '@intafaced/ui/lit/templates';

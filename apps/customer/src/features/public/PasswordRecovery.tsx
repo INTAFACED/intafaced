@@ -1,3 +1,5 @@
+// volt-room: /findPwd
+// volt-room: /completePasswordReset
 import { useEffect, useId, useReducer, useRef, useState, type FormEvent } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
