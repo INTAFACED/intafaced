@@ -4,8 +4,8 @@ import type { DeskStatus, OtcMakers } from '../rooms/api';
 import { roomWords } from '../rooms/refusals';
 import type { RoomApi } from '../rooms/api';
 import type { RoomWriter } from '../rooms/write';
-import { Button, Checkbox, DecimalField, Segmented, Select } from '@intafaced/ui/lit';
-import { Skeleton } from '@intafaced/ui/lit/templates';
+import { Button, Segmented } from '@intafaced/ui/lit';
+import { Checkbox, DecimalInput, Select, Skeleton } from '@intafaced/ui/lit/templates';
 import type { Loadable } from '../rooms/ui';
 import { Refusal } from '../options/notices';
 import type { PairOption } from './data';
@@ -108,7 +108,15 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
       {pairs.status === 'empty' || (pairs.status === 'ready' && options.length === 0) ? <p className="lt-hint">{t('No pairs')}</p> : null}
       {options.length > 0 ? (
         <>
-          <Select label={t('Pair')} value={pair} onChange={setPair} options={options.map((p) => ({ value: p.symbol, label: p.symbol }))} />
+          <div className="lt-field">
+            <span aria-hidden="true">{t('Pair')}</span>
+            <Select
+              label={t('Pair')}
+              value={pair}
+              onChange={setPair}
+              options={options.map((p) => ({ value: p.symbol, label: p.symbol }))}
+            />
+          </div>
           <Segmented
             label={t('Side')}
             value={side}
@@ -118,7 +126,7 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
               { value: 'sell', label: t('Sell') },
             ]}
           />
-          <DecimalField
+          <DecimalInput
             label={t('Quantity')}
             hint={chosen ? t('Quantity hint', { asset: chosen.base }) : undefined}
             value={qty}

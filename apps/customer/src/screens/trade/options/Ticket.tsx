@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Button, DecimalField, Dialog, Segmented, Select, Switch } from '@intafaced/ui/lit';
-import { KeyValue } from '@intafaced/ui/lit/templates';
+import { Button, Segmented, Switch } from '@intafaced/ui/lit';
+import { DecimalInput, KeyValue, Select, Sheet } from '@intafaced/ui/lit/templates';
 import { dec, fmtAmount, formatAsOf, type Loadable } from '../rooms/ui';
 import type { ListedMarket, OptionsPolicy } from '../rooms/api';
 import { roomWords, type Words } from '../rooms/refusals';
@@ -191,7 +191,7 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
       />
       <p className="lt-hint">{t('Limit only')}</p>
 
-      <DecimalField
+      <DecimalInput
         label={t('Size in contracts')}
         hint={market ? t('Step {step}', { step: market.precision.amount }) : undefined}
         precision={market ? placesOf(market.precision.amount) : 8}
@@ -199,7 +199,7 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
         onValueChange={setSize}
         disabled={!market}
       />
-      <DecimalField
+      <DecimalInput
         label={t('Limit price')}
         hint={market ? t('Step {step}', { step: market.precision.price }) : undefined}
         precision={market ? placesOf(market.precision.price) : 8}
@@ -208,16 +208,19 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
         unit={quote || undefined}
         disabled={!market}
       />
-      <Select
-        label={t('Time in force')}
-        value={tif}
-        onChange={(v) => setTif(v as Tif)}
-        options={[
-          { value: 'GTC', label: t('Good till cancelled') },
-          { value: 'IOC', label: t('Fill now or cancel') },
-          { value: 'FOK', label: t('Fill all or cancel') },
-        ]}
-      />
+      <div className="lt-field">
+        <span aria-hidden="true">{t('Time in force')}</span>
+        <Select
+          label={t('Time in force')}
+          value={tif}
+          onChange={(v) => setTif(v as Tif)}
+          options={[
+            { value: 'GTC', label: t('Good till cancelled') },
+            { value: 'IOC', label: t('Fill now or cancel') },
+            { value: 'FOK', label: t('Fill all or cancel') },
+          ]}
+        />
+      </div>
       <div className="lt-stack">
         <div className="lt-toolbar">
           <span>{t('Post only')}</span>
@@ -264,13 +267,13 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
         </Button>
       )}
 
-      <Dialog
-        alert
+      <Sheet
+        role="alertdialog"
         open={open}
         onClose={() => setOpen(false)}
         title={t('Confirm order title')}
         description={
-          review && reviewCost
+          open && review && reviewCost
             ? t(paperNothingHeld ? 'Confirm paper body' : 'Confirm order body', {
                 side: side === 'buy' ? t('Buy') : t('Sell'),
                 size: fmtAmount(review.draft.amount, { places: 8 }),
@@ -279,27 +282,29 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
                 total: money(reviewCost.total),
                 kind: market?.paper ? t('Paper') : t('Live'),
               })
-            : ''
+            : undefined
         }
       >
-        <form
-          className="lt-stack"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void place();
-          }}
-        >
-          <KeyValue rows={rows} />
-          <div className="lt-actions">
-            <Button size="lg" onClick={() => setOpen(false)}>
-              {t('Go back')}
-            </Button>
-            <Button type="submit" size="lg" tone="primary" data-autofocus="">
-              {t('Place order')}
-            </Button>
-          </div>
-        </form>
-      </Dialog>
+        {open ? (
+          <form
+            className="lt-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void place();
+            }}
+          >
+            <KeyValue rows={rows} />
+            <div className="lt-actions">
+              <Button size="lg" onClick={() => setOpen(false)}>
+                {t('Go back')}
+              </Button>
+              <Button type="submit" size="lg" tone="primary" data-autofocus="">
+                {t('Place order')}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </Sheet>
     </section>
   );
 }

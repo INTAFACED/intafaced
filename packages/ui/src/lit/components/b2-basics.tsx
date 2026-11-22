@@ -271,10 +271,12 @@ export function TabPanel({ id, value, current, children }: { id: string; value: 
  * dialog (focus stays inside, Escape closes), built on the native <dialog> element. As an `alertdialog` it asks for
  * an answer: it draws no Close button of its own (its own buttons answer it), Escape asks `onClose` and the sheet
  * stays open until `open` turns false. An element inside marked `data-autofocus` takes the focus when it opens.
+ * A `description` (what the answer does) is drawn under the title and describes the sheet.
  */
 export function Sheet({
   open,
   title,
+  description,
   onClose,
   role = 'dialog',
   closeButton = role !== 'alertdialog',
@@ -282,6 +284,8 @@ export function Sheet({
 }: {
   open: boolean;
   title: string;
+  /** What the sheet asks or does, read out with its name (`aria-describedby`). */
+  description?: React.ReactNode;
   onClose: () => void;
   role?: 'dialog' | 'alertdialog';
   /** The sheet's own Close button; off for a sheet whose own buttons answer it (a form with Not now). */
@@ -289,6 +293,7 @@ export function Sheet({
   children: React.ReactNode;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
+  const descriptionId = React.useId();
   const alert = role === 'alertdialog';
   React.useEffect(() => {
     const d = ref.current;
@@ -306,6 +311,7 @@ export function Sheet({
       role={alert ? 'alertdialog' : undefined}
       aria-modal={alert || undefined}
       aria-label={title}
+      aria-describedby={description ? descriptionId : undefined}
       onClose={alert ? undefined : onClose}
       onCancel={(e) => {
         if (alert) e.preventDefault();
@@ -320,7 +326,14 @@ export function Sheet({
           </button>
         ) : null}
       </header>
-      <div className="lt-sheet-body">{children}</div>
+      <div className="lt-sheet-body">
+        {description ? (
+          <p id={descriptionId} className="lt-description">
+            {description}
+          </p>
+        ) : null}
+        {children}
+      </div>
     </dialog>
   );
 }
@@ -441,9 +454,49 @@ export function nextOptionIndex(index: number, step: 'next' | 'previous' | 'firs
 /**
  * A text box for an amount or a quantity: the value is a decimal string ("0.1", never a number). A keystroke that
  * would make it invalid or longer than `precision` decimals is refused, a paste is cleaned and cut down to it, and an
- * unfinished "." is dropped on blur. Put it in an `lt-field` with its label.
+ * unfinished "." is dropped on blur. Put it in an `lt-field` with its label, or give it a `label` and it draws its own
+ * field: the label names the box, the `unit` sits after it (not part of its name), the hint and the error describe it.
  */
 export function DecimalInput({
+  label,
+  hint,
+  error,
+  unit,
+  ...props
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'inputMode'> & {
+  value: string;
+  onValueChange: (value: string) => void;
+  precision: number;
+  /** Draws the field around the box, this its label. */
+  label?: string;
+  hint?: string;
+  error?: string;
+  /** The unit after the value ("USDT"). */
+  unit?: string;
+}) {
+  const auto = React.useId();
+  if (label === undefined) return <DecimalBox {...props} />;
+  const id = props.id ?? auto;
+  const describedBy =
+    [props['aria-describedby'], hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(' ') || undefined;
+  return (
+    <div className="lt-field" data-unit={unit ? '' : undefined}>
+      <label htmlFor={id}>{label}</label>
+      <div className="lt-field-row">
+        <DecimalBox {...props} id={id} dir="ltr" aria-invalid={error ? true : props['aria-invalid']} aria-describedby={describedBy} />
+        {unit ? <span className="lt-field-unit">{unit}</span> : null}
+      </div>
+      {hint ? <small id={`${id}-hint`}>{hint}</small> : null}
+      {error ? (
+        <small id={`${id}-error`} role="alert">
+          {error}
+        </small>
+      ) : null}
+    </div>
+  );
+}
+
+function DecimalBox({
   value,
   onValueChange,
   precision,

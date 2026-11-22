@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Tag, TabSet } from '@intafaced/ui/lit';
-import { DeskTemplate } from '@intafaced/ui/lit/templates';
+import { Tag } from '@intafaced/ui/lit';
+import { DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import type { ScreenProps } from '../../../app/screen-types';
 import { asOfOf } from '../rooms/read';
 import { useRoomWriter } from '../rooms/write';
@@ -73,27 +73,40 @@ export default function Screen(_props: ScreenProps) {
         </div>
       }
       chart={
-        <TabSet
-          label={t('Options')}
-          value={tab}
-          onChange={setTab}
-          tabs={[
-            {
-              value: 'chain',
-              label: t('Tab chain'),
-              panel: <ChainTab markets={markets} policy={policy} selected={symbol} onSelect={setSymbol} />,
-            },
-            { value: 'strategy', label: t('Tab strategy'), panel: <StrategyTab selected={selected} onGreeksLinked={setGreeksLinked} /> },
-            {
-              value: 'orders',
-              label: t('Tab orders'),
-              panel: <OrdersTab open={orders.open} closed={orders.closed} markets={bySymbol} writer={writer} />,
-            },
-            { value: 'positions', label: t('Tab positions'), panel: <PositionsTab /> },
-            { value: 'settlement', label: t('Tab settlement'), panel: <SettlementTab policy={policy} /> },
-            { value: 'rules', label: t('Tab rules'), panel: <RulesTab /> },
-          ]}
-        />
+        <div className="lt-stack">
+          <Tabs
+            id="options"
+            label={t('Options')}
+            value={tab}
+            onChange={(next) => setTab(next as TabId)}
+            items={[
+              { value: 'chain', label: t('Tab chain') },
+              { value: 'strategy', label: t('Tab strategy') },
+              { value: 'orders', label: t('Tab orders') },
+              { value: 'positions', label: t('Tab positions') },
+              { value: 'settlement', label: t('Tab settlement') },
+              { value: 'rules', label: t('Tab rules') },
+            ]}
+          />
+          <TabPanel id="options" value="chain" current={tab}>
+            <ChainTab markets={markets} policy={policy} selected={symbol} onSelect={setSymbol} />
+          </TabPanel>
+          <TabPanel id="options" value="strategy" current={tab}>
+            <StrategyTab selected={selected} onGreeksLinked={setGreeksLinked} />
+          </TabPanel>
+          <TabPanel id="options" value="orders" current={tab}>
+            <OrdersTab open={orders.open} closed={orders.closed} markets={bySymbol} writer={writer} />
+          </TabPanel>
+          <TabPanel id="options" value="positions" current={tab}>
+            <PositionsTab />
+          </TabPanel>
+          <TabPanel id="options" value="settlement" current={tab}>
+            <SettlementTab policy={policy} />
+          </TabPanel>
+          <TabPanel id="options" value="rules" current={tab}>
+            <RulesTab />
+          </TabPanel>
+        </div>
       }
       ticket={<Ticket market={selected} policy={policy} writer={writer} />}
     />

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Button, Dialog, EmptyState, Tag } from '@intafaced/ui/lit';
-import { Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
+import { Button, EmptyState, Tag } from '@intafaced/ui/lit';
+import { Sheet, Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
 import { dec, fmtAmount, fmtPrice, formatAsOf, type Loadable } from '../rooms/ui';
 import type { Order } from '../../../features/trade/trade-api';
 import type { ListedMarket } from '../rooms/api';
@@ -206,8 +206,8 @@ export function OrdersTab({
       ) : null}
       <Section title={t('Open orders')} load={open} rows={rowsOf(open)} columns={openColumns} emptyText={t('No open option orders')} />
       <Section title={t('Order history')} load={closed} rows={rowsOf(closed)} columns={base} emptyText={t('No closed option orders')} />
-      <Dialog
-        alert
+      <Sheet
+        role="alertdialog"
         open={cancelling !== null}
         onClose={() => setCancelling(null)}
         title={t('Cancel this order')}
@@ -219,40 +219,44 @@ export function OrdersTab({
                 contract: cancelling.symbol,
                 price: fmtPrice(cancelling.price, markets.get(cancelling.symbol)?.precision.price),
               })
-            : ''
+            : undefined
         }
       >
-        <form
-          className="lt-actions"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (cancelling) void cancel(cancelling);
-          }}
-        >
-          <Button size="lg" onClick={() => setCancelling(null)}>
-            {t('Keep order')}
-          </Button>
-          <Button type="submit" size="lg" tone="primary" data-autofocus="">
-            {t('Cancel order')}
-          </Button>
-        </form>
-      </Dialog>
-      <Dialog
-        alert
+        {cancelling === null ? null : (
+          <form
+            className="lt-actions"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (cancelling) void cancel(cancelling);
+            }}
+          >
+            <Button size="lg" onClick={() => setCancelling(null)}>
+              {t('Keep order')}
+            </Button>
+            <Button type="submit" size="lg" tone="primary" data-autofocus="">
+              {t('Cancel order')}
+            </Button>
+          </form>
+        )}
+      </Sheet>
+      <Sheet
+        role="alertdialog"
         open={cancellingAll}
         onClose={() => setCancellingAll(false)}
         title={t('Cancel all title')}
-        description={t('Cancel all body', { count: String(open.status === 'ready' ? open.data.length : 0) })}
+        description={cancellingAll ? t('Cancel all body', { count: String(open.status === 'ready' ? open.data.length : 0) }) : undefined}
       >
-        <div className="lt-actions">
-          <Button size="lg" onClick={() => setCancellingAll(false)}>
-            {t('Keep order')}
-          </Button>
-          <Button size="lg" tone="primary" onClick={() => void cancelAll()}>
-            {t('Cancel all go', { count: String(open.status === 'ready' ? open.data.length : 0) })}
-          </Button>
-        </div>
-      </Dialog>
+        {cancellingAll ? (
+          <div className="lt-actions">
+            <Button size="lg" onClick={() => setCancellingAll(false)}>
+              {t('Keep order')}
+            </Button>
+            <Button size="lg" tone="primary" onClick={() => void cancelAll()}>
+              {t('Cancel all go', { count: String(open.status === 'ready' ? open.data.length : 0) })}
+            </Button>
+          </div>
+        ) : null}
+      </Sheet>
     </div>
   );
 }

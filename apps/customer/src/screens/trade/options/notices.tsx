@@ -5,8 +5,8 @@
  */
 import type { ReactNode } from 'react';
 import type { KeyValueRow } from '@intafaced/ui/lit/templates';
-import { Button, FreshnessChip } from '@intafaced/ui/lit';
-import { RefusalBox, Tabs } from '@intafaced/ui/lit/templates';
+import { Button } from '@intafaced/ui/lit';
+import { FreshnessChip, RefusalBox, Tabs } from '@intafaced/ui/lit/templates';
 import type { Words } from '../rooms/refusals';
 import { STALE_AFTER_MS } from '../rooms/read';
 import { BLOCK_WORDS, type RoomWriter } from '../rooms/write';

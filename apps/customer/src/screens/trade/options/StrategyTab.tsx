@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Button, DecimalField, Segmented, Select } from '@intafaced/ui/lit';
-import { KeyValue, Table, type Column } from '@intafaced/ui/lit/templates';
+import { Button, Segmented } from '@intafaced/ui/lit';
+import { DecimalInput, KeyValue, Select, Table, type Column } from '@intafaced/ui/lit/templates';
 import { fmtAmount, dec } from '../rooms/ui';
 import type { ListedMarket } from '../rooms/api';
 import { useRoomApi } from '../rooms/read';
@@ -120,7 +120,7 @@ export function StrategyTab({
   const money = (value: string) => fmtAmount(value, { places });
 
   const decimal = (label: string, value: string, onValueChange: (v: string) => void, extra?: { hint?: string; error?: string }) => (
-    <DecimalField label={label} value={value} onValueChange={onValueChange} precision={8} hint={extra?.hint} error={extra?.error} />
+    <DecimalInput label={label} value={value} onValueChange={onValueChange} precision={8} hint={extra?.hint} error={extra?.error} />
   );
 
   return (
@@ -128,12 +128,15 @@ export function StrategyTab({
       <p className="lt-hint">{t('Strategy intro')}</p>
 
       <section aria-label={t('Presets')} className="lt-toolbar">
-        <Select
-          label={t('Preset')}
-          value={preset}
-          onChange={(v) => setPreset(v as PresetId)}
-          options={PRESET_IDS.map((id) => ({ value: id, label: t(`Preset ${id}`) }))}
-        />
+        <div className="lt-field">
+          <span aria-hidden="true">{t('Preset')}</span>
+          <Select
+            label={t('Preset')}
+            value={preset}
+            onChange={(v) => setPreset(v as PresetId)}
+            options={PRESET_IDS.map((id) => ({ value: id, label: t(`Preset ${id}`) }))}
+          />
+        </div>
         {decimal(t('Centre strike'), centre, setCentre)}
         {decimal(t('Strike step'), step, setStep, { error: presetError ? t('Preset needs numbers') : undefined })}
         <Button onClick={applyPreset}>{t('Fill legs')}</Button>

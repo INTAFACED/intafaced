@@ -1,6 +1,6 @@
 import type { RfqQuote } from '../rooms/api';
-import { Button, Dialog } from '@intafaced/ui/lit';
-import { KeyValue } from '@intafaced/ui/lit/templates';
+import { Button } from '@intafaced/ui/lit';
+import { KeyValue, Sheet } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from '../rooms/ui';
 import { kvRow } from '../options/notices';
 import { otcCopy } from './copy';
@@ -48,34 +48,38 @@ export function ConfirmDialog({
     ...(action === 'accept' ? [kvRow(t('Firm until'), `${expiresText} · ${countdown.text}`)] : []),
   ];
   return (
-    <Dialog
-      alert
+    <Sheet
+      role="alertdialog"
       open={action !== null}
       onClose={() => !sending && onClose()}
       title={action ? t(`Confirm ${action} title`) : ''}
-      description={action ? t(`Confirm ${action} body`) : ''}
+      description={action ? t(`Confirm ${action} body`) : undefined}
     >
-      <KeyValue rows={items} />
-      {blockedWhy ? (
-        <p role="alert" className="lt-alert">
-          {blockedWhy}
-        </p>
-      ) : null}
-      <div className="lt-actions">
-        <Button size="lg" disabled={sending} onClick={onClose}>
-          {t('Keep as is')}
-        </Button>
-        <Button
-          size="lg"
-          tone="primary"
-          data-autofocus=""
-          aria-busy={sending || undefined}
-          disabled={blockedWhy !== null || sending}
-          onClick={onConfirm}
-        >
-          {action ? t(`Confirm ${action} button`) : ''}
-        </Button>
-      </div>
-    </Dialog>
+      {action === null ? null : (
+        <>
+          <KeyValue rows={items} />
+          {blockedWhy ? (
+            <p role="alert" className="lt-alert">
+              {blockedWhy}
+            </p>
+          ) : null}
+          <div className="lt-actions">
+            <Button size="lg" disabled={sending} onClick={onClose}>
+              {t('Keep as is')}
+            </Button>
+            <Button
+              size="lg"
+              tone="primary"
+              data-autofocus=""
+              aria-busy={sending || undefined}
+              disabled={blockedWhy !== null || sending}
+              onClick={onConfirm}
+            >
+              {action ? t(`Confirm ${action} button`) : ''}
+            </Button>
+          </div>
+        </>
+      )}
+    </Sheet>
   );
 }

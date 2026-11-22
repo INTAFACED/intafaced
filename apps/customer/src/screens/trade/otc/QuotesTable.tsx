@@ -177,7 +177,7 @@ export function QuotesTable({
             rowKey={(r) => r.id}
             sort={sort}
             onSort={setSort}
-            onRowSelect={(r) => onSelect(r.id)}
+            onSelect={onSelect}
             selected={selected ?? undefined}
             empty={<p className="lt-hint">{t('No quotes')}</p>}
           />

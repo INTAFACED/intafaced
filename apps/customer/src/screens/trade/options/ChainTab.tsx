@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { EmptyState, Segmented, Select, Tag } from '@intafaced/ui/lit';
-import { RefusalBox, Skeleton, Table, sortRows, type Column, type SortState } from '@intafaced/ui/lit/templates';
+import { EmptyState, Segmented, Tag } from '@intafaced/ui/lit';
+import { RefusalBox, Select, Skeleton, sortRows, Table, type Column, type SortState } from '@intafaced/ui/lit/templates';
 import { fmtAmount, formatAsOf, type Loadable } from '../rooms/ui';
 import type { ListedMarket, OptionsPolicy } from '../rooms/api';
 import { asOfOf, useNow } from '../rooms/read';
@@ -136,14 +136,12 @@ export function ChainTab({
     <div className="lt-stack">
       <div className="lt-toolbar">
         <Select
-          hideLabel
           label={t('Underlying')}
           value={underlying}
           onChange={setUnderlying}
           options={[{ value: ALL, label: t('All underlyings') }, ...underlyings.map((u) => ({ value: u, label: u }))]}
         />
         <Select
-          hideLabel
           label={t('Expiry')}
           value={expiry}
           onChange={setExpiry}
@@ -178,7 +176,7 @@ export function ChainTab({
             rowKey={(m) => m.symbol}
             sort={sort}
             onSort={setSort}
-            onRowSelect={(m) => onSelect(m.symbol)}
+            onSelect={onSelect}
             selected={selected ?? undefined}
           />
         </div>
