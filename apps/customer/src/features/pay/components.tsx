@@ -1,6 +1,7 @@
+import { useAmountOverflow } from '../../shared/amount-overflow';
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { payCopy, PayCopy, payAuthoredMessage } from './copy';
-import { isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { isValidElement, useId, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
@@ -183,24 +184,10 @@ export function PayDetails({ values }: { values: [string, ReactNode, string?][] 
   );
 }
 export function PayAmount({ value, unit, label }: { value: string; unit: string; label: string }) {
-  const viewport = useRef<HTMLSpanElement>(null);
-  const digits = useRef<HTMLSpanElement>(null);
-  const [overflows, setOverflows] = useState(false);
+  const { viewport, digits, overflows } = useAmountOverflow(value);
   const hintId = useId();
   const { requestedLocale } = payCopy.useCopy();
   const displayed = displayAmount(value);
-  useEffect(() => {
-    const region = viewport.current;
-    const token = digits.current;
-    if (!region || !token) return;
-    const measure = () => setOverflows(region.scrollWidth > region.clientWidth);
-    const observer = new ResizeObserver(measure);
-    observer.observe(region);
-    observer.observe(token);
-    region.scrollLeft = 0;
-    measure();
-    return () => observer.disconnect();
-  }, [value]);
   return (
     <span className="pay-exact-amount">
       <span className="pay-amount-value">

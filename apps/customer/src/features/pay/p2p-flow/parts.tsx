@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useAmountOverflow } from '../../../shared/amount-overflow';
+import { useId, type ReactNode } from 'react';
 import { Button, EmptyState, RefusalBox } from '@intafaced/ui/lit';
 import { KeyValue, Sheet, Skeleton, StatusChip, Tabs } from '@intafaced/ui/lit/templates';
 import type { MoneyStatus } from '@intafaced/ui/lit';
@@ -164,24 +165,10 @@ export function Details({ values, label }: { values: [string, ReactNode, string?
 
 /** `PayAmount`: an exact decimal with its unit; copying the shown figure copies the exact one. */
 export function Amount({ value, unit, label }: { value: string; unit: string; label: string }) {
-  const viewport = useRef<HTMLSpanElement>(null);
-  const digits = useRef<HTMLSpanElement>(null);
-  const [overflows, setOverflows] = useState(false);
+  const { viewport, digits, overflows } = useAmountOverflow(value);
   const hintId = useId();
   const { requestedLocale } = payCopy.useCopy();
   const displayed = displayAmount(value);
-  useEffect(() => {
-    const region = viewport.current;
-    const token = digits.current;
-    if (!region || !token) return;
-    const measure = () => setOverflows(region.scrollWidth > region.clientWidth);
-    const observer = new ResizeObserver(measure);
-    observer.observe(region);
-    observer.observe(token);
-    region.scrollLeft = 0;
-    measure();
-    return () => observer.disconnect();
-  }, [value]);
   return (
     <span>
       <span
