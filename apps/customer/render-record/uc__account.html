@@ -118,63 +118,87 @@
 </nav>
 <div data-testid="acct-body" class="acct-body legacy-room">
 <div lang="en" style="display: contents;">
-<div class="subaccounts" lang="en">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div lang="en">
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Account</h1>
-<p class="muted">Your handle, account ID and rank.</p>
+<h1 class="lt-title">Account</h1>
+<p class="lt-description">Your handle, account ID and rank.</p>
 </div>
 </header>
-<section class="account-status" aria-labelledby="account-status-title" data-testid="account-status">
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="Account sections">
+<ul>
+<li>
+<a class="lt-link" href="#account-id">Account ID</a>
+</li>
+<li>
+<a class="lt-link" href="#account-status">Account status</a>
+</li>
+<li>
+<a class="lt-link" href="#rank-perks">Rank and perks</a>
+</li>
+<li>
+<a class="lt-link" href="#membership">Membership</a>
+</li>
+<li>
+<a class="lt-link" href="#subaccounts">Strategy subaccounts</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section id="account-status" aria-labelledby="account-status-title" data-testid="account-status">
 <h2 id="account-status-title">
 <span lang="en" dir="ltr" data-i18n="account.status.title">Account status</span>
 </h2>
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.status.failedTitle">Account status could not be read</span>
 </h3>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
-<section class="subaccounts__identity" aria-label="Handle">
+<section class="lt-title-row" aria-label="Handle">
 <div>
-<span class="muted">Handle</span>
-<p data-testid="subaccounts__ref" class="subaccounts__ref" lang="zxx">@test_friend</p>
+<span class="lt-hint">Handle</span>
+<p data-testid="subaccounts__ref" class="lt-mono" lang="zxx">@test_friend</p>
 </div>
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Copy handle" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Copy</button>
-<span class="acct-sr" role="status">
+<button aria-label="Copy handle" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Copy</button>
+<span class="lt-sr" role="status">
 </span>
 </section>
-<section class="subaccounts__identity" aria-label="Account ID">
+<section id="account-id" class="lt-title-row" aria-label="Account ID">
 <div>
-<span class="muted">Account ID</span>
-<p data-testid="subaccounts__ref" class="subaccounts__ref" lang="zxx">00000000-0000-4000-8000-000000000001</p>
+<span class="lt-hint">Account ID</span>
+<p data-testid="subaccounts__ref" class="lt-mono" lang="zxx">00000000-0000-4000-8000-000000000001</p>
 </div>
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Copy account ID" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Copy</button>
-<span class="acct-sr" role="status">
+<button aria-label="Copy account ID" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Copy</button>
+<span class="lt-sr" role="status">
 </span>
 </section>
-<section data-testid="rank-perks" class="rank-perks" aria-label="Rank and perks">
-<section class="rank-perks__rank" aria-labelledby="_r_3_-rank">
-<header class="rank-perks__heading">
+<section id="rank-perks" data-testid="rank-perks" aria-label="Rank and perks">
+<section aria-labelledby="_r_3_-rank">
+<header class="lt-title-row">
 <h2 id="_r_3_-rank">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.rank">Current rank</span>
 </h2>
-<button type="button" class="button button--secondary ">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.refreshRank">Refresh rank</span>
 </button>
 </header>
 <p class="rank-perks__number">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.rankValue">Rank 2</span>
 </p>
-<dl class="rank-perks__counts">
+<dl>
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.xp">Lifetime XP</span>
@@ -194,20 +218,20 @@
 <dd lang="en">1,500</dd>
 </div>
 </dl>
-<p class="rank-perks__updated">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.updated">Rank updated</span> <time datetime="2026-10-10T08:00:00.000Z" lang="en">10 Oct, 08:00</time>
 </p>
 </section>
-<section class="rank-perks__perks" aria-labelledby="_r_3_-perks">
-<header class="rank-perks__heading">
+<section aria-labelledby="_r_3_-perks">
+<header class="lt-title-row">
 <h2 id="_r_3_-perks">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.perks">Current perks</span>
 </h2>
-<button type="button" class="button button--secondary ">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.refreshPerks">Refresh perks</span>
 </button>
 </header>
-<p class="rank-perks__boundary">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.separate">Rank and perks load separately and may update at different times.</span>
 </p>
 <dl class="rank-perks__rows">
@@ -220,14 +244,14 @@
 </dd>
 </div>
 </dl>
-<p class="rank-perks__boundary">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.rankPerks.boundary">Each feature still checks your eligibility when you use it.</span>
 </p>
 </section>
 </section>
-<section class="bd-panel" aria-labelledby="_r_4_" id="membership">
+<section aria-labelledby="_r_4_" id="membership">
 <h3 id="_r_4_">Membership</h3>
-<p class="money-caption">The membership tiers this platform publishes, and yours.</p>
+<p class="lt-hint">The membership tiers this platform publishes, and yours.</p>
 <div data-testid="failure" class="failure" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
@@ -259,44 +283,49 @@
 <button type="submit" class="button button--secondary " disabled="">Check</button>
 </form>
 </section>
-<div class="subaccounts__columns">
-<section data-testid="subaccounts__list" class="subaccounts__list" aria-labelledby="subaccount-list-heading">
-<header class="subaccounts__heading">
+<div>
+<section id="subaccounts" data-testid="subaccounts__list" aria-labelledby="subaccount-list-heading">
+<header class="lt-title-row">
 <h2 id="subaccount-list-heading">Strategy subaccounts</h2>
-<button type="button" class="button button--primary subaccounts__jump">New subaccount</button>
-<button type="button" class="button button--secondary subaccounts__refresh">Refresh subaccounts</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">New subaccount</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Refresh subaccounts</button>
 </header>
-<div class="subaccounts__boundary">
+<div class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.subaccounts.boundary">A strategy subaccount belongs to your personal account. It is separate from a business account.</span>
 <span lang="en" dir="ltr" data-i18n="account.subaccounts.window">Up to 50 recent subaccounts are shown, including revoked ones. Older entries may be outside this window.</span>
 </div>
-<div class="empty-state">
-<span class="empty-mark" aria-hidden="true">↗</span>
-<h3>No strategy subaccounts yet</h3>
-<p>Create a labelled subaccount for a strategy.</p>
+<div class="lit-empty">
+<div data-part="title">No strategy subaccounts yet</div>
+<div>Create a labelled subaccount for a strategy.</div>
 </div>
 </section>
-<section data-testid="subaccounts__create" class="subaccounts__create" aria-labelledby="subaccount-create-heading">
+<section data-testid="subaccounts__create" aria-labelledby="subaccount-create-heading">
 <header>
 <h2 id="subaccount-create-heading">Create a strategy subaccount</h2>
-<p class="muted">Create a labelled subaccount for a strategy. This does not move funds.</p>
+<p class="lt-hint">Create a labelled subaccount for a strategy. This does not move funds.</p>
 </header>
 <form>
-<label class="field" for="subaccount-label-_r_6_">
-<span id="subaccount-label-_r_6_-label">Label</span>
-<input required="" maxlength="64" lang="und" autocomplete="off" id="subaccount-label-_r_6_" aria-labelledby="subaccount-label-_r_6_-label" aria-invalid="false" value="" name="subaccount-label">
-</label>
-<label class="field" for="subaccount-purpose-_r_7_">
-<span id="subaccount-purpose-_r_7_-label">Purpose (optional)</span>
-<input maxlength="200" lang="und" autocomplete="off" id="subaccount-purpose-_r_7_" aria-labelledby="subaccount-purpose-_r_7_-label" aria-invalid="false" value="" name="subaccount-purpose">
-</label>
-<button type="submit" class="button button--primary ">Review subaccount</button>
-<p class="muted">Review the label and purpose before creating this subaccount.</p>
+<div class="lit-field-control">
+<label for="_r_6_">Label</label>
+<input required="" maxlength="64" lang="und" autocomplete="off" id="_r_6_" value="" name="subaccount-label">
+</div>
+<div class="lit-field-control">
+<label for="_r_7_">Purpose (optional)</label>
+<input maxlength="200" lang="und" autocomplete="off" id="_r_7_" value="" name="subaccount-purpose">
+</div>
+<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Review subaccount</button>
+<p class="lt-hint">Review the label and purpose before creating this subaccount.</p>
 </form>
 </section>
 </div>
-<p class="subaccounts__announcement" role="status" aria-live="polite" aria-atomic="true">
+<p role="status" aria-live="polite" aria-atomic="true">
 </p>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>Your account ID and handle are how support and other people find this account. Your perks come with your rank. A strategy subaccount belongs to your personal account and is separate from a business account.</p>
+</section>
+</div>
+</div>
 </div>
 </div>
 </div>
