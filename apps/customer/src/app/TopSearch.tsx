@@ -103,7 +103,17 @@ export function TopSearch({ compact, helpCap }: { compact?: boolean; helpCap?: n
   );
 
   return (
-    <div className={`tb-search ${compact ? 'tb-search--compact' : ''}`} ref={boxRef}>
+    <div
+      className={`tb-search ${compact ? 'tb-search--compact' : ''}`}
+      ref={boxRef}
+      // Focus that moves to a control outside the search (Tab, Shift+Tab) closes the results, as a pointer outside does:
+      // an open panel left behind covers the controls the keyboard moves on to (WCAG 2.4.11). Focus that goes nowhere
+      // (a press on a result row, which takes no focus) keeps it open, so the row's click still lands.
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Node && !event.currentTarget.contains(next)) setOpen(false);
+      }}
+    >
       <ShellIcon name="search" size={16} />
       <input
         ref={inputRef}
