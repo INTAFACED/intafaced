@@ -15,7 +15,7 @@ import { WaitingForYou } from './WaitingForYou';
 import { rooms, roomTitle } from '../../app/navigation';
 
 type Tab = 'send' | 'receive' | 'request' | 'bills' | 'global';
-export const ROUTES: Record<Tab, string> = {
+const ROUTES: Record<Tab, string> = {
   send: '/pay/send',
   receive: '/pay/receive',
   request: '/pay/request',

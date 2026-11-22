@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { CopyButton } from '../../screens/account/CopyButton';
@@ -109,39 +108,5 @@ export function AccountDetailsPanel() {
     <DepthPanel title={t('detailsTitle')} lead={t('detailsLead')}>
       <AccountDetailsBody resource={read.resource} reload={read.reload} />
     </DepthPanel>
-  );
-}
-
-/**
- * Receiving from abroad (J-bank-05 #5): pick one currency the account holds and see its details, or the bank's own reason
- * there are none. The rows are the bank's answer for the profile in view; nothing is listed that it did not send.
- */
-export function AccountDetailsByCurrency() {
-  const { t } = accountDetailsCopy.useCopy();
-  const { profiles } = useSession();
-  const read = useAccountDetailsRead();
-  const [currency, setCurrency] = useState('');
-  // Another profile has its own rows: the choice starts again.
-  useEffect(() => setCurrency(''), [profiles.active]);
-  if (read.resource.status !== 'ready' || read.resource.data.currencies.length === 0) {
-    return <AccountDetailsBody resource={read.resource} reload={read.reload} />;
-  }
-  const rows = read.resource.data.currencies;
-  const chosen = rows.find((row) => row.currency === currency);
-  return (
-    <div className="bd-stack" data-testid="receive-details">
-      <label>
-        {t('receiveCurrency')}{' '}
-        <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
-          <option value="">{t('receiveChoose')}</option>
-          {rows.map((row) => (
-            <option key={row.currency} value={row.currency}>
-              {row.currency}
-            </option>
-          ))}
-        </select>
-      </label>
-      {chosen && <AccountDetailsList rows={[chosen]} heading="h4" />}
-    </div>
   );
 }

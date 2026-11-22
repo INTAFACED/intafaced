@@ -17,11 +17,11 @@ import { p2pReturn, closeReturnedOffer, consumeMarketArrival } from './p2p-retur
 
 /** Board page size. Every further page continues the service's own keyset, so no row is missed or shown twice. */
 export const PAGE = 50;
-export const FIAT_AMOUNT = /^\d{1,18}(\.\d{1,18})?$/;
+const FIAT_AMOUNT = /^\d{1,18}(\.\d{1,18})?$/;
 
 /** Only the owner-key/reference names are enumerated. Opaque originals are
  * left intact and the shared journal separately validates every admission. */
-export function deviceOriginals(userId: string | null): { ids: string[]; failed: boolean } {
+function deviceOriginals(userId: string | null): { ids: string[]; failed: boolean } {
   if (!userId) return { ids: [], failed: false };
   try {
     const prefix = `pay.unresolved:${userId}:offer:`;
