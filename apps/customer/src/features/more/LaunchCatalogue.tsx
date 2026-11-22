@@ -1,9 +1,7 @@
 // hand-declared-ok: svc-token's launch outputs are declared in its launch router; packages/contracts has no token schemas yet
 import { useState, type ReactNode } from 'react';
-import { z } from 'zod';
 import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { decimalSchema } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { Button, Select, Tag } from '@intafaced/ui/lit';
@@ -14,6 +12,13 @@ import { launchCopy } from './launch-copy';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { SessionRetryNote, SignInNote } from './sign-in-note';
 import { EmptyNote, KitRead, Section } from './volt-parts';
+import {
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+} from '@intafaced/contracts/token-launch-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type T = ReturnType<typeof launchCatalogueCopy.forLocale>['t'];
@@ -22,53 +27,12 @@ const word = (t: T, key: string) => (t as unknown as (k: string) => string)(key)
 
 const TYPES = ['token_sale', 'whitelist_drop', 'primary_subscription'] as const;
 const STATES = ['upcoming', 'open', 'past'] as const;
-const STATUSES = ['announced', 'snapshot', 'open', 'closed', 'allocated', 'distributing', 'complete', 'cancelled'] as const;
-const ISSUER_STATES = ['applied', 'reviewing', 'onboarded', 'suspended'] as const;
-const METHODS = ['pro_rata', 'tickets', 'tiered'] as const;
-const REQUIREMENTS = ['identity_verification', 'region', 'account_active', 'main_account', 'issuer_onboarded', 'event_open'] as const;
 /** The first page of launches, and the most a reader may widen it to. The service refuses a blank page size. */
 const PAGE = 50;
 const PAGE_CAP = 200;
 
-const iso = z.string().datetime({ offset: true });
-const eventSchema = z.object({
-  id: z.string().min(1).max(128),
-  issuer: z.object({ id: z.string(), name: z.string(), state: z.enum(ISSUER_STATES) }),
-  type: z.enum(TYPES),
-  projectName: z.string(),
-  symbol: z.string(),
-  periods: z.object({ announceAt: iso, snapshotAt: iso, openAt: iso, closeAt: iso, distributionAt: iso }),
-  status: z.enum(STATUSES),
-  state: z.enum(STATES).nullable(),
-  allocation: z.object({
-    method: z.enum(METHODS).nullable(),
-    perUserCap: decimalSchema.nullable(),
-    ticketSize: decimalSchema.nullable(),
-    tierWeights: z.array(z.object({ minBasis: decimalSchema, weight: z.number().int() })).nullable(),
-  }),
-  terms: z.object({ price: decimalSchema.nullable(), paymentAsset: z.string().nullable(), rateSource: z.string().nullable() }),
-  snapshot: z.object({ count: z.number().int().nonnegative(), total: decimalSchema, takenAt: iso }).nullable(),
-  revision: z.number().int(),
-});
-type LaunchEvent = z.infer<typeof eventSchema>;
-const eligibilitySchema = z.object({
-  eventId: z.string(),
-  eligible: z.boolean(),
-  requirements: z.array(z.object({ id: z.enum(REQUIREMENTS), met: z.boolean(), required: z.string(), actual: z.string() })),
-});
-type Eligibility = z.infer<typeof eligibilitySchema>;
-const basisSchema = z.object({
-  eventId: z.string(),
-  method: z.enum(METHODS).nullable(),
-  perUserCap: decimalSchema.nullable(),
-  ticketSize: decimalSchema.nullable(),
-  tierWeights: z.array(z.object({ minBasis: decimalSchema, weight: z.number().int() })).nullable(),
-  basis: decimalSchema.nullable(),
-  reason: z.enum(['snapshot_not_taken', 'no_holdings_at_snapshot']).nullable(),
-  takenAt: iso.nullable(),
-  tickets: z.string().regex(/^\d+$/).nullable(),
-  tierWeight: z.number().int().nullable(),
-});
+type LaunchEvent = ProcedureOutput<typeof TOKEN_LAUNCH_EVENTS_GET>;
+type Eligibility = ProcedureOutput<typeof TOKEN_LAUNCH_ELIGIBILITY>;
 
 function useT(): T {
   const { language } = usePreferences();
@@ -109,9 +73,13 @@ export function LaunchCatalogue() {
   const [limit, setLimit] = useState(PAGE);
   const list = useResource(
     (signal) =>
-      api.query('token', 'launch.events.list', { limit, ...(type ? { type } : {}), ...(state ? { state } : {}) }, z.array(eventSchema), {
-        signal,
-      }),
+      api.call(
+        TOKEN_LAUNCH_EVENTS_LIST,
+        { limit, ...(type ? { type } : {}), ...(state ? { state } : {}) },
+        {
+          signal,
+        },
+      ),
     `launch-list:${type}:${state}:${limit}`,
   );
   const filtered = type !== '' || state !== '';
@@ -174,10 +142,7 @@ export function LaunchCatalogue() {
 export function LaunchDetail({ eventId }: { eventId: string }) {
   const api = useApi();
   const t = useT();
-  const read = useResource(
-    (signal) => api.query('token', 'launch.events.get', { id: eventId }, eventSchema, { signal }),
-    `launch:${eventId}`,
-  );
+  const read = useResource((signal) => api.call(TOKEN_LAUNCH_EVENTS_GET, { id: eventId }, { signal }), `launch:${eventId}`);
   const scope = launchCopy.useCopy().t('scope');
   const notFound = read.resource.status === 'failed' && read.resource.failure.code === 'launch.event_not_found';
   return (
@@ -291,7 +256,7 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
   const check = async () => {
     setBusy(true);
     try {
-      setResult(await api.query('token', 'launch.eligibility', { id: event.id }, eligibilitySchema));
+      setResult(await api.call(TOKEN_LAUNCH_ELIGIBILITY, { id: event.id }));
     } finally {
       setBusy(false);
     }
@@ -353,10 +318,7 @@ function YourBasis({ event }: { event: LaunchEvent }) {
 function BasisRead({ event, userId }: { event: LaunchEvent; userId: string }) {
   const api = useApi();
   const t = useT();
-  const read = useResource(
-    (signal) => api.query('token', 'launch.basis', { id: event.id }, basisSchema, { signal }),
-    `launch-basis:${event.id}:${userId}`,
-  );
+  const read = useResource((signal) => api.call(TOKEN_LAUNCH_BASIS, { id: event.id }, { signal }), `launch-basis:${event.id}:${userId}`);
   if (read.resource.status === 'failed') return <p role="alert">{refusalWords(read.resource.failure, t)}</p>;
   return (
     <KitRead resource={read.resource} retry={read.reload}>
