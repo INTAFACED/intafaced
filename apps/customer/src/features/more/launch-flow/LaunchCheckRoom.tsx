@@ -1,3 +1,4 @@
+// volt-room: /launch/check
 import { useState } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue } from '@intafaced/ui/lit/templates';

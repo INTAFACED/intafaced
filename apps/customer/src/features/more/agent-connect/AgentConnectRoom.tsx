@@ -1,3 +1,4 @@
+// volt-room: /agents/connect
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyCreateOutput, ApiKeyList } from '@intafaced/contracts/api-keys';
 import { Button, Checkbox, EmptyState, Field, Select, Tag } from '@intafaced/ui/lit';

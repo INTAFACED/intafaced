@@ -8,11 +8,18 @@ import { z } from 'zod';
 import { answerKeys } from '../answer-keys.js';
 import type { listOtcMakers } from './maker-directory.js';
 import type { OtcDeskService } from './otc-service.js';
+import {
+  otcMakersAnswer,
+  otcAcceptAnswer,
+  otcSettleAnswer,
+  otcConvertBoundsAnswer,
+  otcQuoteFields,
+  firmRfqFields,
+  firmRfqAnswer,
+} from '@intafaced/contracts/trade-call-schemas';
 
 type Answer<F extends (...args: never[]) => unknown> = Awaited<ReturnType<F>>;
 
-const otcSide = z.enum(['buy', 'sell']);
-const otcCounterparty = z.enum(['platform', 'maker']);
 const midFeedSocket = z.literal('socket.otc-mid-feed');
 
 /**
@@ -62,71 +69,13 @@ export const otcDeskStatusAnswer = z.object({
 });
 answerKeys<ReturnType<OtcDeskService['deskStatus']>>()(otcDeskStatusAnswer);
 
-const otcMaker = z.object({
-  id: z.string(),
-  name: z.string(),
-  route: z.enum(['platform', 'outside']),
-  spreadBps: z.number().optional(),
-});
-/** The two forms differ in their `published` literal, so neither can read as the other and the order is safe. */
-export const otcMakersAnswer = z.union([
-  z.object({ published: z.literal(false), makers: z.array(otcMaker), selectCap: z.null(), emptyLabel: z.string() }),
-  z.object({ published: z.literal(true), makers: z.array(otcMaker), selectCap: z.number(), emptyLabel: z.null() }),
-]);
 answerKeys<ReturnType<typeof listOtcMakers>>()(otcMakersAnswer);
 
-const boundOtcFillFields = {
-  quoteId: z.string(),
-  side: otcSide,
-  baseAsset: z.string(),
-  quoteAsset: z.string(),
-  qty: z.string(),
-  fillPrice: z.string(),
-  fillNotional: z.string(),
-  spreadBps: z.number(),
-  counterparty: otcCounterparty,
-  counterpartyId: z.string(),
-  acceptedAt: z.string(),
-};
-
-export const otcAcceptAnswer = z.object(boundOtcFillFields);
 answerKeys<Answer<OtcDeskService['accept']>>()(otcAcceptAnswer);
 
-export const otcSettleAnswer = z.object({
-  fillId: z.string(),
-  takerOrderId: z.string(),
-  makerOrderId: z.string(),
-  ...boundOtcFillFields,
-});
 answerKeys<Answer<OtcDeskService['settle']>>()(otcSettleAnswer);
 
-const convertFlowBounds = z.object({ minQty: z.string(), maxQty: z.string() }).nullable();
-export const otcConvertBoundsAnswer = z.object({ convert: convertFlowBounds, oneClickBuy: convertFlowBounds });
 answerKeys<ReturnType<OtcDeskService['convertBoundsStatus']>>()(otcConvertBoundsAnswer);
-
-/** `presentOtcQuote` (rfq.ts). */
-const otcQuoteFields = {
-  quoteId: z.string(),
-  side: otcSide,
-  baseAsset: z.string(),
-  quoteAsset: z.string(),
-  qty: z.string(),
-  midPrice: z.string(),
-  quotedPrice: z.string(),
-  midNotional: z.string(),
-  userNotional: z.string(),
-  spreadBps: z.number(),
-  spreadNotional: z.string(),
-  counterparty: otcCounterparty,
-  counterpartyId: z.string(),
-  createdAt: z.string(),
-  expiresAt: z.string(),
-  status: z.literal('open'),
-  rfqId: z.string(),
-  rfqSeq: z.number(),
-  makerId: z.string().nullable(),
-  test: z.boolean(),
-};
 
 export const otcConvertQuoteAnswer = z.object({
   flow: z.enum(['convert', 'oneClickBuy']),
@@ -135,19 +84,6 @@ export const otcConvertQuoteAnswer = z.object({
 });
 answerKeys<Answer<OtcDeskService['convertQuote']>>()(otcConvertQuoteAnswer);
 
-/** `presentFirmRfq` (rfq.ts). */
-const firmRfqFields = {
-  ...otcQuoteFields,
-  lifecycle: z.enum(['open', 'bound', 'expired', 'settled']),
-  acceptedAt: z.string().nullable(),
-  fillPrice: z.string().nullable(),
-  settleBy: z.string().nullable(),
-  settleWindowMs: z.number().nullable(),
-  bookFill: z.literal(false),
-  midInvented: z.literal(false),
-};
-
-export const firmRfqAnswer = z.object(firmRfqFields);
 answerKeys<Answer<OtcDeskService['rfqGet']>>()(firmRfqAnswer);
 answerKeys<Answer<OtcDeskService['rfqAccept']>>()(firmRfqAnswer);
 answerKeys<Answer<OtcDeskService['rfqExpire']>>()(firmRfqAnswer);

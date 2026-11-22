@@ -75,7 +75,7 @@ jobs:
   gates:
     name: Doctrine gates
     runs-on: ubuntu-24.04
-    timeout-minutes: 10 # healthy run: about 5 to 6 min, the tooling tests about 4 of it (22 Nov)
+    timeout-minutes: 10 # healthy run: about 4 min, the tooling tests (four files at once) about 3 of it (22 Nov)
     permissions:
       contents: read
       actions: read # the journey baseline guard downloads the journeys runs' reports on main
@@ -104,14 +104,26 @@ jobs:
       # by re-running this job alone, not by merging main, pushing and running everything again (the merge seal reads
       # this step by its name: ci-jobs-seal.mjs FRESH_MAIN_STEP; on 20 Nov 2026 #9170, #9171 and #9176 took 41 to 97
       # minutes from their first push that way). Before any of the pull request's code runs. A conflict stops it here.
+      # Into a Volt layer (`volt/*`), a head carrying main commits its layer lacks is refused: the squash into the layer
+      # keeps main's files but not main as a parent, so each later batch conflicts with main again (project-state#2548:
+      # volt/flow #9637, volt/catalogue #9628 and #9660). Main comes into a layer only by a merge pushed to it.
       - name: Judge on main as it is now
         if: github.event_name == 'pull_request'
         run: |
           head=$(git rev-parse --verify HEAD^2)
+          base=${GITHUB_BASE_REF:-main} sync="merge origin/main and push"
           git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          if [[ $base == volt/* ]]; then
+            git fetch --no-tags --quiet origin "+refs/heads/$base:refs/remotes/origin/$base"
+            sync="merge origin/$base and push (and if $base lacks main, merge main into $base and push that merge to it directly)"
+            if ! git merge-base --is-ancestor "$(git merge-base "$head" refs/remotes/origin/main)" "refs/remotes/origin/$base"; then
+              echo "::error title=Doctrine gates::$head carries main commits $base lacks, which its squash would bring in without main as a parent: push the merge of main to $base directly (git push origin <merge sha>:refs/heads/$base), close this pull request if that was all it did, else merge origin/$base into it and push"
+              exit 1
+            fi
+          fi
           git checkout --quiet --detach refs/remotes/origin/main
           if ! git -c user.name=ci -c user.email=ci@invalid merge --quiet --no-ff --no-edit "$head"; then
-            echo "::error title=Doctrine gates::$head no longer merges with main: merge origin/main and push"
+            echo "::error title=Doctrine gates::$head no longer merges with main: $sync"
             exit 1
           fi
           echo "judging $head merged onto main $(git rev-parse HEAD^1)"
@@ -297,7 +309,7 @@ jobs:
 
   fast-gates:
     # Every Doctrine gate but the tooling tests (and the three that plant files in the tree), all at once: a red one is
-    # named about two minutes after the push, not after the tooling tests' four. The pre-push hook ran these before each
+    # named about two minutes after the push, not after the tooling tests' three. The pre-push hook ran these before each
     # push until 22 Nov; on the box, under a dozen builders, that was 3 to 4 minutes of a 7-minute push (project-state
     # #3676). The Doctrine gates job above runs the whole list again and is the one the seal requires, so this job only
     # says it sooner.

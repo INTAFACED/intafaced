@@ -1,3 +1,4 @@
+// volt-room: /freeze/confirm
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';

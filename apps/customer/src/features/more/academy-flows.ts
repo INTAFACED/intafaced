@@ -5,6 +5,9 @@ import { publicCertCode, type AcademyPath } from './academy-lms';
 import type { academyLmsCopy } from './academy-lms-copy';
 import { ACADEMY_CERT_VERIFY } from '@intafaced/contracts/academy-cert-verify-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
+import { callAs } from '../../shared/api';
+import { ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS } from '@intafaced/contracts/academy-assessment-procedures';
+import { ACADEMY_MY_ENROLLMENTS } from '@intafaced/contracts/academy-my-enrollments-procedures';
 
 /**
  * The Academy procedures behind assessments, public certificate checks and programme enrolments, with the answers
@@ -41,15 +44,15 @@ export const attemptsFor = (slug: string) => z.array(attemptFor(slug));
 
 /** The published quiz for one lesson (AC-quizzes-03). The service never sends the answer key. */
 export const readQuiz = (api: ApiClient, slug: string, signal?: AbortSignal) =>
-  api.query(
-    'academy',
-    'assessment.get',
+  callAs(
+    api,
+    ACADEMY_ASSESSMENT_GET,
     { slug },
     academyQuizSchema.refine((quiz) => quiz.slug === slug && new Set(quiz.questions.map((q) => q.id)).size === quiz.questions.length),
     { signal },
   );
 export const readAttempts = (api: ApiClient, slug: string, signal?: AbortSignal) =>
-  api.query('academy', 'assessment.attempts', { slug }, attemptsFor(slug), { signal });
+  callAs(api, ACADEMY_ASSESSMENT_ATTEMPTS, { slug }, attemptsFor(slug), { signal });
 
 // ------------------------------------------------------------ certificate check
 
@@ -73,7 +76,7 @@ export const enrolmentsFor = (owner: string | null | undefined) =>
     .refine((rows) => rows.every((row) => row.userId === owner) && new Set(rows.map((row) => row.pathSlug)).size === rows.length);
 
 export const readEnrolments = (api: ApiClient, owner: string | null | undefined, signal?: AbortSignal) =>
-  api.query('academy', 'myEnrollments', undefined, enrolmentsFor(owner), { signal });
+  callAs(api, ACADEMY_MY_ENROLLMENTS, undefined, enrolmentsFor(owner), { signal });
 
 export const enrolReceipt = (owner: string | null | undefined, path: string) =>
   enrolmentRow.refine((row) => row.userId === owner && row.pathSlug === path);
