@@ -1,13 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { StaffAccessLink } from './StaffAccess';
 import { flushSync } from 'react-dom';
-import { z } from 'zod';
-import {
-  loggedOutEverywhereSchema,
-  passkeyRegisteredSchema,
-  passkeyRemovedSchema,
-  totpConfirmedSchema,
-} from '@intafaced/contracts/identity-account-room';
+import { loggedOutEverywhereSchema, passkeyRegisteredSchema, totpConfirmedSchema } from '@intafaced/contracts/identity-account-room';
 import { useSession } from '../session';
 import { currentReturnLocation, navigate } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
@@ -45,7 +39,6 @@ import {
   securityFamily,
   securityKey,
   securitySessionLock,
-  setupResponse,
   stepUpKind,
   type Passkey,
   type SecurityJournal,
@@ -58,6 +51,9 @@ import { usePreferences } from '../../shared/preferences';
 import './security.css';
 import { VerifyEmail } from './VerifyEmail';
 import { WithdrawStepUp } from '../money';
+import { IDENTITY_WEBAUTHN_REMOVE } from '@intafaced/contracts/identity-webauthn-procedures';
+import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
 type Original = {
@@ -73,7 +69,7 @@ type Original = {
 type Setup = {
   original: Original;
   record: SecurityRecord;
-  data: z.infer<typeof setupResponse>;
+  data: ProcedureOutput<typeof IDENTITY_TOTP_ENROL>;
   confirmed: boolean;
   /** The confirmation's answer was lost: the authenticator may be on, so its recovery codes show, labelled as such. */
   outcomeUnknown?: boolean;
@@ -391,11 +387,9 @@ export function Security() {
     }
     const record = makeRecord(intent, 'remove', intent.credential.credentialId);
     if (!save(intent, record)) return;
-    const answer = await intent.client.mutate(
-      'identity',
-      'webauthn.remove',
+    const answer = await intent.client.call(
+      IDENTITY_WEBAUTHN_REMOVE,
       { credentialId: intent.credential.credentialId },
-      passkeyRemovedSchema,
       sending(intent, abort.signal),
     );
     if (!same(intent)) {
@@ -412,7 +406,7 @@ export function Security() {
     setSetup(null);
     setCode('');
     setShowKey(false);
-    const answer = await intent.client.mutate('identity', 'totp.enrol', {}, setupResponse, sending(intent));
+    const answer = await intent.client.call(IDENTITY_TOTP_ENROL, undefined, sending(intent));
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
       return;

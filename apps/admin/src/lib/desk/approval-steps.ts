@@ -3,10 +3,16 @@ import { actionApprovalSchema, type ActionApproval } from '@intafaced/contracts'
 import { confirmPhrase, encodePacket, isApprovalId, needsStepUp, readDeskRequest, type DeskRequest } from './approval-packet';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 import { IDENTITY_ACTION_APPROVAL_LIST } from '@intafaced/contracts/identity-action-approval-procedures';
-import { founderCall, founderRecordCall, parseWith, type FounderCallContext, type FounderCallFailure } from './founder-call';
+import { founderRecordCall, parseWith, type FounderCallContext, type FounderCallFailure, founderRecordRead } from './founder-call';
 import { explainRefusal } from '../refusal-copy';
 import type { ApprovalView, ExecuteReply, StepName, StepReply } from '../approval-types';
 import { isRecord } from '@intafaced/contracts/guards';
+import {
+  IDENTITY_ACTION_APPROVAL_PROPOSE,
+  IDENTITY_ACTION_APPROVAL_APPROVE,
+  IDENTITY_ACTION_APPROVAL_REJECT,
+  IDENTITY_ACTION_APPROVAL_REVOKE,
+} from '@intafaced/contracts/identity-action-approval-records';
 
 export type { ApprovalView, ExecuteReply, StepName, StepReply } from '../approval-types';
 
@@ -192,7 +198,7 @@ export async function runStep(ctx: FounderCallContext, body: StepBody, execute: 
 
   if (step === 'propose' && request) {
     const askedAt = Date.now();
-    const proposed = await founderCall(ctx, 'identity', 'actionApproval.propose', 'POST', proposeInputFor(request), parseApproval);
+    const proposed = await founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_PROPOSE, proposeInputFor(request), parseApproval);
     let a: ActionApproval;
     if (proposed.kind === 'ok') a = proposed.data;
     else {
@@ -230,12 +236,9 @@ export async function runStep(ctx: FounderCallContext, body: StepBody, execute: 
   }
 
   if (step === 'approve' && request && body.approvalId) {
-    const approved = await founderCall(
+    const approved = await founderRecordRead(
       ctx,
-      'identity',
-      'actionApproval.approve',
-      'POST',
-      // The approver signs off on the payload THEY read, recomputed here from the decoded request.
+      IDENTITY_ACTION_APPROVAL_APPROVE,
       { approvalId: body.approvalId, expectedPayloadHash: payloadHashFor(request) },
       parseApproval,
     );
@@ -249,14 +252,9 @@ export async function runStep(ctx: FounderCallContext, body: StepBody, execute: 
   }
 
   if ((step === 'reject' || step === 'revoke') && body.approvalId) {
-    const done = await founderCall(
-      ctx,
-      'identity',
-      step === 'reject' ? 'actionApproval.reject' : 'actionApproval.revoke',
-      'POST',
-      { approvalId: body.approvalId },
-      parseApproval,
-    );
+    const done = await (step === 'reject'
+      ? founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_REJECT, { approvalId: body.approvalId }, parseApproval)
+      : founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_REVOKE, { approvalId: body.approvalId }, parseApproval));
     if (done.kind !== 'ok') return failureReply(step, done);
     return { ok: true, step, approval: viewOf(done.data) };
   }
