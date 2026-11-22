@@ -1,7 +1,8 @@
 import { useMerchantAccess, readyAccess } from '../../access/MerchantAccess';
 import { IdentitySessions } from '../../../../account';
 import { reason as notLive } from '../../chrome/copy';
-import { Chip, Facts, NotLive, Section } from '../../volt/parts';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { Chip, NotLive, Section } from '../../volt/parts';
 import { SettingsRoom } from '../../volt/SettingsRoom';
 import { accountCopy } from '../account/copy';
 import { portalCopy } from '../copy';
@@ -47,11 +48,15 @@ export function SecurityView({
   return (
     <>
       <Section id="security-protection" title={t('secProtectionTitle')} description={t('secProtectionBody')}>
-        <Facts
-          items={[
-            [t('secThisSession'), interactive === null ? t('secUnknown') : interactive ? t('secVerified') : t('secNotVerified')],
-            [t('secYourRole'), role ? p(`role_${role}` as 'role_owner') : t('secUnknown')],
-            [t('secBusinessVerified'), kybStatus === null ? t('secUnknown') : <Chip kind="kyb" value={kybStatus} />],
+        <KeyValue
+          label={t('secProtectionTitle')}
+          rows={[
+            {
+              label: t('secThisSession'),
+              value: interactive === null ? t('secUnknown') : interactive ? t('secVerified') : t('secNotVerified'),
+            },
+            { label: t('secYourRole'), value: role ? p(`role_${role}` as 'role_owner') : t('secUnknown') },
+            { label: t('secBusinessVerified'), value: kybStatus === null ? t('secUnknown') : <Chip kind="kyb" value={kybStatus} /> },
           ]}
         />
         {interactive === false && <p className="lt-hint">{t('secNeedsVerified')}</p>}
