@@ -181,8 +181,7 @@ export function AcademyDiscussionPage({ courseSlug }: { courseSlug: string }) {
                       {data.topics.map((topic) => (
                         <li key={topic.slug} data-discussion-topic={topic.slug} data-pinned={String(topic.pinned)}>
                           <Button
-                            tone="primary"
-                            variant={topic.slug === open.slug ? 'primary' : 'secondary'}
+                            tone={topic.slug === open.slug ? 'primary' : 'secondary'}
                             aria-pressed={topic.slug === open.slug}
                             onClick={() => setTopicSlug(topic.slug)}
                           >
