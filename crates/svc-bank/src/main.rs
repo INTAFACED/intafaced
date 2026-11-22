@@ -21,6 +21,7 @@ use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
 use svc_bank::earn;
@@ -446,6 +447,68 @@ fn earn_settings(env: &BankEnv) -> earn::Settings {
     }
 }
 
+/// One signer for svc-bank's calls to `audience`: the shared secret, and the keyring's key when one is published.
+fn call_signer(env: &BankEnv, audience: &str) -> Result<CallSigner, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default();
+    Ok(CallSigner::new("svc-bank", audience, secret, keyed))
+}
+
+/// Slice `cards`' wiring (`index.ts`'s `cardIssuerFor` and `cards` options): the issuer (`none` unless chosen; the
+/// simulator refused in a live posture), the TEST partner card's switches and the simulator's cashback (each refused at
+/// boot outside dev or test), and the owner's card values, blank where unset.
+fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let app_env = env.str("APP_ENV");
+    let node_env = raw("NODE_ENV");
+    let partner =
+        cards::terms::sim_partner_for(raw("BANK_CARD_SIM_PARTNER_JSON"), raw("APP_ENV"), node_env)?;
+    let live = node_env == Some("production") || matches!(app_env, Some("staging" | "prod"));
+    let simulator_pays = cards::terms::sim_cashback_for(
+        env.str("BANK_CARD_SIM_CASHBACK"),
+        raw("APP_ENV"),
+        node_env,
+    )?;
+    Ok(cards::Wiring {
+        issuer: cards::issuer::Issuer::for_setting(
+            env.str("BANK_CARD_ISSUER").unwrap_or("none"),
+            live,
+            partner,
+        ),
+        rank: match env.str("IDENTITY_URL") {
+            Some(url) => Box::new(cards::reads::IdentityRankTier::new(
+                url,
+                call_signer(env, "svc-identity")?,
+                Box::new(UreqFetch::new()),
+            )),
+            None => Box::new(cards::NoRankTier),
+        },
+        holds: Default::default(),
+        settings: cards::Settings {
+            module_enabled: env.flag("BANK_CARDS_ENABLED").unwrap_or(true),
+            programme: cards::terms::parse_programme(raw("BANK_CARD_PROGRAMME_JSON")),
+            cashback_rates: cards::terms::parse_cashback_rates(raw(
+                "BANK_CARD_CASHBACK_RATES_JSON",
+            )),
+            simulator_pays,
+            spend_assets: cards::terms::parse_spend_assets(raw("BANK_CARD_SPEND_ASSETS")),
+            pin_try_limit: cards::terms::parse_try_limit(raw("BANK_CARD_PIN_TRY_LIMIT")),
+            three_ds_try_limit: cards::terms::parse_try_limit(raw("BANK_CARD_3DS_TRY_LIMIT")),
+            dispute_cap: cards::terms::parse_dispute_cap(raw("BANK_CARD_DISPUTE_CAP_JSON"))?,
+        },
+    })
+}
+
 /// The door, built once from the environment, with the store.
 fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -454,6 +517,7 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     let partner = partner_wiring(env)?;
     let spaces = spaces_wiring(env)?;
     let transfers = transfers_wiring(env, bus)?;
+    let cards = cards_wiring(env)?;
     let door = BankDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         services: service_auth(env)?,
@@ -466,6 +530,7 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_spaces(spaces)
     .with_transfers(transfers)
     .with_earn(earn_settings(env))
+    .with_cards(cards)
     .with_loans(loans_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,

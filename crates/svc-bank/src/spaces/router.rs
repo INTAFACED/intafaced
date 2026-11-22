@@ -16,7 +16,7 @@ use super::home;
 use super::shared::{self, InviteAsk, Ports};
 use super::space::{self, Money, NewSpace, Space, with};
 use crate::db::Store;
-use crate::door::{Ctx, Slice, not_ported};
+use crate::door::Ctx;
 use crate::errors::{Refusal, to_trpc};
 use crate::partner::refuse;
 use crate::partner::router::Wiring as PartnerWiring;
@@ -27,6 +27,8 @@ fn feature_words(feature: &str) -> &'static str {
         "currencies" => "currency accounts",
         "spaces" => "spaces",
         "pots" => "pots",
+        "phone_wallet" => "adding a card to a phone wallet",
+        "cash_leg" => "cash through a coin in Convert",
         _ => "joint accounts and shared pots",
     }
 }
@@ -252,11 +254,14 @@ pub fn serves(path: &str) -> bool {
 }
 
 /// The answer of one of the slice's calls, by its path; `None` for a path outside it.
+/// `freeze_card` is slice `cards`' freeze of a pot's card by its holder (`bank.cards.setStatus(cardId, 'frozen', userId)`):
+/// the card id and the caller, answered with the pot's view of the card.
 pub fn answer(
     w: &Wiring,
     partner: &PartnerWiring,
     store: &Store,
     ctx: &Ctx<'_>,
+    freeze_card: &dyn Fn(&str, &str) -> Result<Json, Refusal>,
 ) -> Option<Result<Option<Json>, TrpcError>> {
     if !serves(ctx.call.path) {
         return None;
@@ -449,8 +454,8 @@ pub fn answer(
             shared::unlink_card(store, text(input, "spaceId"), user)
         }
         "sharedPots.freezeCard" => {
-            shared::card_to_freeze(store, &w.terms, text(input, "spaceId"), user)?;
-            Err(Refusal::Trpc(not_ported(Slice::Cards)))
+            let card_id = shared::card_to_freeze(store, &w.terms, text(input, "spaceId"), user)?;
+            freeze_card(&card_id, user)
         }
         "sharedPots.activity" => shared::activity(
             store,
