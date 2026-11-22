@@ -1,16 +1,17 @@
 import type { Sql } from 'postgres';
+import type {
+  PayCustodyDepositReason,
+  PayCustodyDepositStatus,
+  PayCustodyOpenItem,
+  PayCustodyOpenItemsInput,
+  PayCustodyOpenItemsReply,
+} from '@intafaced/contracts';
 import {
-  router,
-  TRPCError,
   PAY_CUSTODY_DEPOSIT_HELD_STATUSES,
   payCustodyOpenItemsInputSchema,
   payCustodyOpenItemsReplySchema,
-  type PayCustodyDepositReason,
-  type PayCustodyDepositStatus,
-  type PayCustodyOpenItem,
-  type PayCustodyOpenItemsInput,
-  type PayCustodyOpenItemsReply,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/pay-custody-deposit';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { founderProcedure } from '../../namespaces/founder-procedure.js';
 import type { FounderAuthority } from '../../founder-authority.js';

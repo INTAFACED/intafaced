@@ -1,15 +1,9 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import {
-  merchantCustomerSeriesInputSchema,
-  merchantCustomerSeriesSchema,
-  PAY_EXPORT_KINDS,
-  payExportJobSchema,
-  payPageSchema,
-  payPayoutListItemSchema,
-  router,
-  TRPCError,
-} from '@intafaced/contracts';
+import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema } from '@intafaced/contracts/merchant-portal';
+import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
+import { PAY_EXPORT_KINDS, payExportJobSchema, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { merchantActivationSchema } from '@intafaced/contracts/merchant-activation';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';

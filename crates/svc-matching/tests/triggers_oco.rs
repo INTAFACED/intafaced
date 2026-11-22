@@ -1015,14 +1015,18 @@ fn oco_cancel_does_not_invent_a_sibling_id_when_only_one_side_is_named() {
 /// order type): not ported.
 #[test]
 fn oco_cancel_read_helpers_treat_a_missing_pair_as_not_set() {
-    // wantsOcoCancel({ cancel: true }) === false: a bare cancel flag is a plain submit to the core book.
+    // wantsOcoCancel({ cancel: true }) === false: a bare cancel flag is not a linked OCO cancel. It passes on to the
+    // option layer under the trigger wrappers (`option.ts` is installed first), whose `wantsCancel` reads it as an
+    // option cancel and refuses the missing strike; nothing rests and nothing is pulled.
     let mut book = OrderBook::new(MARKET);
     let plain = submit(
         &mut book,
         &spec(PARENT, Side::Sell, "1").price("110").cancel(),
     );
-    assert!(plain.accepted);
-    assert_eq!(live_ids(&book), vec![PARENT.to_owned()]);
+    assert!(!plain.accepted);
+    assert_eq!(code(&plain), Some("missing_strike"));
+    assert!(plain.cancellations.is_empty());
+    assert_eq!(live_ids(&book), Vec::<String>::new());
 
     // wantsOcoCancel({ oco: true, cancel: true }) === true, and readOcoPair(book, { cancel: true }) with nothing named
     // or linked is null: the linked cancel refuses `order_not_found` (ocoCancelRefuse(0)) rather than read an OCO's

@@ -11,7 +11,9 @@
  */
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { PREVIEW_REFUSAL_CODE, previewRefusal, previewRefusalOf, scopedProcedure, type PreviewRefusal } from '@intafaced/contracts';
+import type { PreviewRefusal } from '@intafaced/contracts';
+import { PREVIEW_REFUSAL_CODE, previewRefusal } from '@intafaced/contracts/preview-refusal';
+import { previewRefusalOf, scopedProcedure } from '@intafaced/contracts/trpc';
 import { BANK_LOANS_CHANGE_REPAYMENT_DATE, BANK_LOANS_MISSED_PAYMENT_POLICY } from '@intafaced/contracts/bank-credit-preview-procedures';
 import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 

@@ -2,7 +2,8 @@ import type { Sql } from 'postgres';
 import { hasScope, requireScope } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
 import { TRPCError } from '@trpc/server';
-import { protectedProcedure, router, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { protectedProcedure, router } from '@intafaced/contracts/trpc';
 import { workItemsOutputSchema, type WorkItem, type WorkItemsOutput } from '@intafaced/contracts/home-work-items';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 

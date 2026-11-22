@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure, StepUpCheckError, TRPCError, type StepUpCheck } from '@intafaced/contracts';
+import type { StepUpCheck } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
+import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import {
   tokenAmountSchema as amountString,
   tokenBallotSchema as ballotWire,

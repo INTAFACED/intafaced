@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
-import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
+import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { EXECUTION_SPINE } from '@intafaced/contracts/execution-procedures';
 import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { OMS_WRITE_CALLER, requireOmsWriteService } from './oms-write-hmac.js';
