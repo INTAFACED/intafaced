@@ -11,11 +11,33 @@ vi.mock('../../../features/session/session', () => ({ useSession: () => ({ sessi
 
 import { MarketsTable } from './MarketsTable';
 
-const entry = (base: string, last: string, change: string): Entry =>
-  ({
-    market: { symbol: `${base}-USDT`, base, quote: 'USDT', tickSize: '0.01', orderable: true },
-    ticker: { last, changePct24h: change, low24h: '1', high24h: '200', volume24h: '10', windowStart: null },
-  }) as unknown as Entry;
+const entry = (base: string, last: string, change: string): Entry => ({
+  market: {
+    symbol: `${base}-USDT`,
+    base,
+    quote: 'USDT',
+    orderable: true,
+    tickSize: '0.01',
+    lotSize: '0.0001',
+    minAmount: null,
+    listedAt: null,
+  },
+  ticker: {
+    symbol: `${base}-USDT`,
+    last,
+    bid: null,
+    ask: null,
+    open24h: null,
+    high24h: '200',
+    low24h: '1',
+    change24h: null,
+    changePct24h: change,
+    baseVolume24h: '10',
+    quoteVolume24h: null,
+    windowStart: null,
+    source: 'server',
+  },
+});
 
 const rows = [entry('BTC', '100.5', '0.0123'), entry('ETH', '50.25', '-0.02')];
 
