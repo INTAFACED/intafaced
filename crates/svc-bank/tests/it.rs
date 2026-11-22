@@ -6,6 +6,8 @@
 mod cards_core_db;
 #[path = "cards_orders_db.rs"]
 mod cards_orders_db;
+#[path = "cards_reads_db.rs"]
+mod cards_reads_db;
 #[path = "cards_safety_db.rs"]
 mod cards_safety_db;
 #[path = "cards_secrets_db.rs"]
