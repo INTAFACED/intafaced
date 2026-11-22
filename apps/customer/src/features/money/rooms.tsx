@@ -81,7 +81,7 @@ import type { Payee } from './payees';
 import { transferDepthCopy } from './transfer-depth-copy';
 import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
-import { assetSelectField, useHoldings } from './holdings';
+import { assetSelectField } from './holdings';
 import { StatementCentre } from './StatementCentre';
 import { SalaryRoom } from './Salary';
 import { salaryCopy } from './salary-copy';
