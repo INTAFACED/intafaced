@@ -1274,9 +1274,13 @@ button.lt-tab {
     overflow: hidden;
     clip-path: inset(50%);
   }
-  /* The hidden header's names one under another, so its row never reaches past a phone's width. */
-  .lt-table thead th {
+  /* The hidden header's names one under another, each as wide as its own words, so its row never reaches past a
+     phone's width and no name spills out of its own box. */
+  .lt-table thead tr {
     display: block;
+  }
+  .lt-table thead th {
+    display: inline-block;
   }
   .lt-table,
   .lt-table tbody,
