@@ -1405,6 +1405,14 @@
   min-inline-size: 0;
 }
 
+/* An outline row set in by its owner-set depth (a course item under a sub-heading): 0 to 2 steps. */
+.lt-indent[data-indent='1'] {
+  margin-inline-start: 1.5rem;
+}
+.lt-indent[data-indent='2'] {
+  margin-inline-start: 3rem;
+}
+
 /* Text an owner wrote with its own line breaks (a rulebook section, a policy, a postmortem), shown escaped as typed. */
 .lt-pre {
   white-space: pre-wrap;
