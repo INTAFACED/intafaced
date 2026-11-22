@@ -17,9 +17,13 @@ type Status = { resource: Resource<MiningHealth>; reload: () => void };
 const TABS = ['Overview', 'Workers', 'Shares', 'Rewards', 'Status'] as const;
 export type MiningTab = (typeof TABS)[number];
 /** `tab`: the section an address such as /mining/workers opens on; Overview for /mining. */
-export function Mining({ tab: first = 'Overview' }: { tab?: MiningTab }) {
+/** The pool's public liveness read, shared by this room and the /mining room on the kit. */
+export function useMiningHealth(): Status {
   const api = useApi();
-  const status = useResource((signal) => api.plain('mining', '/health', miningHealth, { signal }), 'mining-health');
+  return useResource((signal) => api.plain('mining', '/health', miningHealth, { signal }), 'mining-health');
+}
+export function Mining({ tab: first = 'Overview' }: { tab?: MiningTab }) {
+  const status = useMiningHealth();
   const [tab, setTab] = useState<MiningTab>(first);
   const probe = usePoolProbe();
   const depth = miningDepthCopy.useCopy();

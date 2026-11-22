@@ -296,7 +296,16 @@ export const venueBalanceSchema = z.object({
   locked: decimalSchema,
   total: decimalSchema,
   /** What holds `locked`, as the venue splits it (J-portfolio-01 #4); absent when the venue reports no split. */
-  lockedBy: z.object({ inOrders: decimalSchema, margin: decimalSchema, staked: decimalSchema }).optional(),
+  // J-cex-spot-21 #8: delegated and unstaking are named apart where the account holds any.
+  lockedBy: z
+    .object({
+      inOrders: decimalSchema,
+      margin: decimalSchema,
+      staked: decimalSchema,
+      delegated: decimalSchema.optional(),
+      unstaking: decimalSchema.optional(),
+    })
+    .optional(),
 });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
 
@@ -512,6 +521,48 @@ export const venueVaultHoldingsSchema = z.object({
 });
 export type VenueVaultHoldings = z.infer<typeof venueVaultHoldingsSchema>;
 
+// ── J-cex-spot-21: staking on the venue, each figure the venue's own ──────────────────────────────────────────────
+
+/**
+ * The venue's staking terms (J-cex-spot-21 #1): its validators with their commission (basis points), stake and status, its
+ * yearly reward rate (basis points), discount tiers, delegation lock-up, unstaking queue and pending limit; each `null`
+ * where the venue does not publish it.
+ */
+export const venueStakingSchema = z.object({
+  asset: z.string(),
+  validators: z.array(
+    z.object({
+      address: z.string(),
+      name: z.string(),
+      commissionBps: z.number().int().nonnegative().max(10_000).nullable(),
+      totalStake: decimalSchema.nullable(),
+      status: z.enum(['active', 'jailed', 'inactive']),
+    }),
+  ),
+  rewardRateBps: z.number().int().nonnegative().nullable(),
+  discountTiers: z
+    .array(z.object({ name: z.string(), fromStaked: decimalSchema, discountBps: z.number().int().nonnegative().max(10_000) }))
+    .nullable(),
+  delegationLockUpSeconds: z.number().int().nonnegative().nullable(),
+  unstakingQueueSeconds: z.number().int().nonnegative().nullable(),
+  maxPendingWithdrawals: z.number().int().positive().nullable(),
+});
+export type VenueStaking = z.infer<typeof venueStakingSchema>;
+
+/** The account's staking (J-cex-spot-21 #2 #3 #6 #7 #8): balance, delegations, queued and arrived withdrawals, rewards. */
+export const venueStakingAccountSchema = z.object({
+  asset: z.string(),
+  staked: decimalSchema,
+  delegations: z.array(z.object({ validator: z.string(), name: z.string(), amount: decimalSchema, lockUpEndsAt: isoTime })),
+  pending: z.array(z.object({ amount: decimalSchema, requestedAt: isoTime, arrivesAt: isoTime, nonce: z.string() })),
+  arrived: z.array(z.object({ amount: decimalSchema, requestedAt: isoTime, arrivedAt: isoTime, nonce: z.string() })),
+  rewards: z.object({
+    total: decimalSchema,
+    recent: z.array(z.object({ validator: z.string(), amount: decimalSchema, rewardedAt: isoTime })),
+  }),
+});
+export type VenueStakingAccount = z.infer<typeof venueStakingAccountSchema>;
+
 // ── J-derivatives-07: a liquidation and its aftermath, each the venue's own figure ────────────────────────────────
 
 /** One part of a liquidation the venue carried out, with its own id, size, price and fee. */
@@ -647,6 +698,19 @@ export const venueFeeTierSchema = asOf(
         spot: feeRatesSchema,
         perpetual: feeRatesSchema,
         tierUpdatedAt: isoTime.nullable(),
+        // J-cex-spot-21 #4: the venue's staking discount on its own fee, with each market's venue rates before and after.
+        stakingDiscount: z
+          .object({
+            asset: z.string(),
+            countedStake: decimalSchema,
+            tierName: z.string().nullable(),
+            discountBps: z.number().int().nonnegative().max(10_000),
+            markets: z.array(
+              z.object({ symbol: z.string(), kind: z.enum(['spot', 'perpetual']), before: feeRatesSchema, after: feeRatesSchema }),
+            ),
+          })
+          .nullable()
+          .optional(),
       })
       .nullable(),
   }),

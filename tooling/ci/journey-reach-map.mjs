@@ -69,6 +69,7 @@ import { tmpdir } from 'node:os';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isMainRun, manifestsAt, moneyCodeDirs, rootInputs, stepOf, testPassed } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 /**
  * The off switch: 'full' sends every product change to the full suite, whatever the map says. 'reach' uses the map.
@@ -593,7 +594,7 @@ export function nodeTargets(text, file) {
       if (/^\.\.?\//.test(s)) out.add(posix.normalize(posix.join(posix.dirname(file), s)));
       else if (at >= 0) out.add(posix.normalize(s.slice(at)));
       else if (file.startsWith('apps/customer/') && /^\/?src\//.test(s)) out.add(posix.normalize(`apps/customer/${s.replace(/^\//, '')}`));
-      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
+      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling|crates)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
     }
   }
   return { targets: [...out].filter((p) => !p.startsWith('..')).map((p) => p.replace(/\/$/, '')), any };
@@ -1137,7 +1138,10 @@ export function reachSelect({ map, paths, behind, atHead, subscribes = () => fal
 
 // ---- The builder's I/O ----
 
-const gh = (args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
+const gh = (args) => {
+  countCall();
+  return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
+};
 
 /** The journey files at a commit, from git (the commit must be fetched). */
 export const filesAt = (sha, root = ROOT) =>

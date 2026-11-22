@@ -397,6 +397,104 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
   );
 });
 
+test("the Business API's calls, named by their call alone, are svc-pay's and move to its record form; a near shape stays", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const pay = 'apps/customer/src/features/pay';
+  put(`${pay}/pay-api.ts`, ['export function createBusinessPayApi() { return {}; }', 'export type BusinessPayApi = {};']);
+  put(`${pay}/Room.tsx`, [
+    "import { createBusinessPayApi, type BusinessPayApi } from './pay-api';",
+    'export function Balance({ pay }: { pay: BusinessPayApi }) {',
+    "  return pay.query('merchant.balances', { merchantId }, balanceSchema, signal);",
+    '}',
+    'export function Capture() {',
+    '  const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api]);',
+    "  return pay.mutate('payment.capture', { paymentId }, paymentSchema, 'pay:write', `payment:${paymentId}`, 'captured');",
+    '}',
+    // Near: a call that names its service first, and a query on something that is not the Business API.
+    "export const named = (api) => api.query('pay', 'merchant.me', undefined, meSchema);",
+    "export const other = (portal: PortalApi) => portal.query('merchant.listLinks', { merchantId }, linksSchema, signal);",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => s.shape !== 'keyed-schema');
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind]).sort(),
+    [
+      ['payMutate', 'pay', 'payment.capture', 'mutation'],
+      ['payQuery', 'pay', 'merchant.balances', 'query'],
+      ['query', 'merchant.listLinks', undefined, 'query'],
+      ['query', 'pay', 'merchant.me', 'query'],
+    ].sort(),
+  );
+  const of = (path) => sites.find((s) => s.path === path);
+  for (const path of ['merchant.balances', 'payment.capture']) assert.equal(of(path).problem, undefined);
+  assert.equal(text(load(of('merchant.balances').file), schemaArgOf(of('merchant.balances'))), 'balanceSchema');
+  const moved = (s, name) => {
+    const changes = new Changes();
+    rewriteSite(changes, s, name, '@intafaced/contracts/x');
+    return applyEdits(load(s.file).src, changes.of(s.file).edits);
+  };
+  assert.match(
+    moved(of('merchant.balances'), 'PAY_MERCHANT_BALANCES'),
+    /return pay\.queryRecord\(PAY_MERCHANT_BALANCES, \{ merchantId \}, signal\);$/m,
+  );
+  assert.match(
+    moved(of('payment.capture'), 'PAY_PAYMENT_CAPTURE'),
+    /return pay\.mutateRecord\(PAY_PAYMENT_CAPTURE, \{ paymentId \}, 'pay:write', `payment:\$\{paymentId\}`, 'captured'\);$/m,
+  );
+});
+
+test('a name imported from a contracts subpath is read from that file, though another contracts file exports the name too', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  // asset-id sorts first and exports a looser assetIdSchema under the same name (svc-pay's merchant.balances).
+  put('packages/contracts/src/asset-id.ts', ["import { z } from 'zod';", 'export const assetIdSchema = z.string().brand();']);
+  put('packages/contracts/src/pay-call-schemas.ts', [
+    "import { z } from 'zod';",
+    "import { assetIdSchema as branded } from './asset-id.js';",
+    'export const assetIdSchema = z.string().min(1).max(16);',
+  ]);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { assetIdSchema } from '@intafaced/contracts/pay-call-schemas';",
+    "import { assetIdSchema as root } from '@intafaced/contracts';",
+    'const a = z.object({ assetId: assetIdSchema });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const c = closureOf(repo, [{ p, node: p.program.body[3].declarations[0].init, where: 'r' }]);
+  assert.deepEqual(c.problems, []);
+  assert.equal(c.fromContracts.get('assetIdSchema').file, join(repo, 'packages/contracts/src/pay-call-schemas.ts'));
+});
+
+test('a Business API test double gets the record form of each method it has; an API client double does not', async () => {
+  const { businessDoubleEdits } = await import('./pay-business.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'a.test.ts');
+  writeFileSync(
+    file,
+    [
+      'const pay = { authority, query } as unknown as BusinessPayApi;',
+      'const both = { query, mutate, queryRecord } as unknown as BusinessPayApi;',
+      'const api = { query, mutate } as unknown as ApiClient;',
+      '',
+    ].join('\n'),
+  );
+  const p = load(file);
+  const out = applyEdits(p.src, businessDoubleEdits(p));
+  assert.match(out.split('\n')[0], /, query, queryRecord\( ?this: \{ query: .*\[record\.path, input, record\.output,/);
+  assert.doesNotMatch(out.split('\n')[0], /mutateRecord/);
+  assert.match(out.split('\n')[1], /, queryRecord, mutateRecord\(/);
+  assert.equal(out.split('\n')[2], 'const api = { query, mutate } as unknown as ApiClient;');
+});
+
 test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
   const { reasonOf } = await import('./report.mjs');
   assert.equal(
@@ -425,6 +523,62 @@ test('the report sorts each hand reason into the kind one script change or one d
     'answer or input schema from another package or generic',
   );
   assert.equal(reasonOf('something new'), 'other');
+});
+
+test('the report names what the export refused, construct by construct, as the run left it', async () => {
+  const { reasonOf } = await import('./report.mjs');
+  // The run's own words for svc-pay's and svc-ops' refusals, as run.mjs left them.
+  const refine =
+    "its record can't be exported as the router writes it: pay.payment.refund.input cannot be exported without losing meaning: input.refundId (.refine/.superRefine (a TypeScript predicate the export drops))";
+  const both =
+    "its record can't be exported as the router writes it: ops.x.output cannot be exported without losing meaning: ops.x.output (.refine/.superRefine (a TypeScript predicate the export drops)); ops.x.output.id (transform (a value computed in TypeScript))";
+  const regex =
+    "its record can't be exported as the router writes it: ops.i.output cannot be exported without losing meaning: ops.i.output.s|1 (regex /^(?!pending$)[a-z]$/ uses lookaround or backreferences (not in Rust regex))";
+  assert.equal(reasonOf(refine), "record can't be exported as written: .refine");
+  assert.equal(reasonOf(both), "record can't be exported as written: .refine + transform");
+  assert.equal(reasonOf(regex), "record can't be exported as written: regex lookaround");
+});
+
+test('the deep report counts what each service run moved, never what its plan would rewrite, and puts the checkout back after each', async () => {
+  const { deep } = await import('./report.mjs');
+  // svc-ops: the plan rewrote 20 calls, and the run moved none (each record refused by the export).
+  const why =
+    "its record can't be exported as the router writes it: ops.a.output cannot be exported without losing meaning: ops.a.output (.refine/.superRefine (a TypeScript predicate the export drops))";
+  const rows = [
+    { service: 'svc-ops', sites: 30, planned: 20, left: { other: 1 } },
+    { service: 'svc-trade', sites: 36, planned: 25, left: {} },
+    { service: 'svc-none', sites: 0, planned: 0, left: {} },
+  ];
+  const ran = [];
+  let restored = 0;
+  const runOne = (row) => {
+    ran.push(row.service);
+    if (row.service === 'svc-trade') throw new Error('build failed');
+    return { records: 0, rewritten: 0, hand: Array.from({ length: 20 }, () => ({ why })) };
+  };
+  assert.throws(
+    () =>
+      deep(
+        rows,
+        runOne,
+        () => ({ typeErrors: 0 }),
+        () => restored++,
+      ),
+    /build failed/,
+  );
+  assert.deepEqual(ran, ['svc-ops', 'svc-trade'], 'a service with nothing planned is not run');
+  assert.equal(restored, 2, 'the checkout is put back after every run, a failed one too');
+  assert.equal(rows[0].wouldMove, 0);
+  assert.deepEqual(rows[0].left, { "record can't be exported as written: .refine": 20 });
+  const errored = [{ service: 'svc-pay', sites: 67, planned: 6, left: { other: 2 } }];
+  deep(
+    errored,
+    () => ({ error: 'records still refused' }),
+    () => ({}),
+    () => {},
+  );
+  assert.equal(errored[0].wouldMove, 0, 'a run that fails moves nothing');
+  assert.equal(errored[0].runError, 'records still refused');
 });
 
 test('the router reader follows a builder member, an imported builder and both branches of a switch, and names a path two branches define', async () => {
@@ -651,7 +805,8 @@ test('a call named by a template over a closed set the code lists is one site pe
     'identity clock.now - moves',
     "trade ? - service or call named by a template: parameter `action`'s type is not a closed set of strings",
     'trade ? - service or call named by a template: parameter `action` is assigned again',
-    'bank ? - service or call named by a template: `spec.procedure` is not a name, a `? :` or a string',
+    // A spec's procedure is wrapper.mjs's: this one's type is written inline, not a type of its file.
+    'bank ? - call name passed through a wrapper: its spec is not typed by a type of its file',
     "trade algo.pause 0/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
     "trade algo.resume 1/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
   ]);
@@ -1472,4 +1627,128 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
   for (const kept of ['earn.pools', 'earn.byTest', 'autoInvest.cancel']) assert.match(after, new RegExp(kept.replace('.', '\\.')));
   forget(join(repo, `${money}/contracts-earn.ts`));
   assert.deepEqual(deadHandSchemas(repo), [], 'a second run finds nothing: safe to rerun');
+});
+
+test('a wrapper that sends the call name it is handed, or a spec whose procedure it sends, is a site per caller string, moved whole; a near shape stays, named', async () => {
+  const { callText } = await import('./index.mjs');
+  const { wrapperIn } = await import('./wrapper.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-wrapper-'));
+  mkdirSync(join(repo, 'apps/customer/src/shared'), { recursive: true });
+  writeFileSync(join(repo, 'apps/customer/src/shared/api.ts'), 'export const callAs = () => undefined;\n');
+  const file = join(repo, 'apps/customer/src/contacts.ts');
+  writeFileSync(
+    file,
+    [
+      // A parameter wrapper, its callers in its file and, exported, in another.
+      'async function change(api: any, procedure: string, input: unknown) {',
+      "  return api.mutate('identity', procedure, input, s);",
+      '}',
+      "export const add = (api: any) => change(api, 'contacts.add', { to: 'x' });",
+      "export const remove = (api: any) => change(api, 'contacts.remove', {});",
+      "export const read = (api: any, procedure: string) => api.query('identity', procedure, undefined, s, { signal });",
+      // A spec whose field one function sends, each object of it naming its call.
+      "type Change = { procedure: 'keys.add' | 'keys.revoke'; body: object };",
+      "const send = (api: any, change: Change) => api.mutate('identity', change.procedure, change.body, s);",
+      "export const addKey = (api: any) => send(api, { procedure: 'keys.add', body: {} });",
+      "export const revokeKey = (api: any) => send(api, { procedure: 'keys.revoke', body: {} });",
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(repo, 'apps/customer/src/page.ts'),
+    "import { read } from './contacts';\nexport const view = (api: any) => read(api, 'contacts.list');\n",
+  );
+  // The near cases, each in its own file.
+  const near = {
+    // compares its name: the record would not equal the string
+    'compares.ts':
+      "const w = (api: any, procedure: string) => (procedure === 'a.b' ? null : api.mutate('pay', procedure, {}, s));\nexport const c = (api: any) => w(api, 'a.c');",
+    // handed on in what it returns: its callers are not all here
+    'handed.ts':
+      "export function tools(api: any) { const query = (procedure: string) => api.query('pay', procedure, undefined, s); return { query }; }",
+    // a caller names the call by a variable
+    'variable.ts':
+      "const w = (api: any, procedure: string) => api.mutate('pay', procedure, {}, s);\nexport const c = (api: any, p: string) => w(api, p);",
+    // another read of a spec's procedure
+    'spec-read.ts':
+      "type S = { procedure: string };\nconst go = (api: any, x: S) => api.mutate('pay', x.procedure, {}, s);\nexport const c = (api: any) => { const x = { procedure: 'a.b' }; log(x.procedure); return go(api, x); };",
+  };
+  for (const [f, body] of Object.entries(near)) writeFileSync(join(repo, 'apps/customer/src', f), `${body}\n`);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo);
+  const row = (s) =>
+    `${s.file.slice(repo.length + 1)} ${s.shape} ${s.module} ${s.path ?? '?'} ${s.wrapper ? `${s.wrapper.at}/${s.wrapper.size}` : '-'} ${s.problem ?? 'moves'}`;
+  assert.deepEqual(sites.map(row).sort(), [
+    'apps/customer/src/compares.ts mutate pay ? - call name passed through a wrapper: its wrapper w reads its call name for more than sending it (apps/customer/src/compares.ts:1)',
+    'apps/customer/src/contacts.ts wrapper identity contacts.add 0/2 moves',
+    'apps/customer/src/contacts.ts wrapper identity contacts.remove 1/2 moves',
+    'apps/customer/src/contacts.ts wrapper identity keys.add 0/2 moves',
+    'apps/customer/src/contacts.ts wrapper identity keys.revoke 1/2 moves',
+    'apps/customer/src/handed.ts query pay ? - call name passed through a wrapper: its wrapper query takes its call name by a parameter, and apps/customer/src/handed.ts:1 hands query on rather than calling it',
+    'apps/customer/src/page.ts wrapper identity contacts.list 0/1 moves',
+    "apps/customer/src/spec-read.ts mutate pay ? - call name passed through a wrapper: apps/customer/src/spec-read.ts:3 reads a spec's procedure for more than sending it",
+    'apps/customer/src/spec-read.ts procedure-prop undefined a.b - `procedure:` names its call by a string',
+    'apps/customer/src/variable.ts mutate pay ? - call name passed through a wrapper: its wrapper w takes its call name by a parameter, and apps/customer/src/variable.ts:2 names its call by p, not a string',
+  ]);
+
+  // Every caller has its record: each string is its record, the name typed AppProcedure, the senders through callAs.
+  const moving = sites.filter((s) => s.shape === 'wrapper');
+  const name = (s) => s.path.toUpperCase().replace('.', '_');
+  const changes = new Changes();
+  for (const s of moving) rewriteSite(changes, s, name(s), '@intafaced/contracts/x', false);
+  const planned = { hand: [], existing: [] };
+  wrapperIn(changes, planned, [], () => undefined);
+  assert.deepEqual(planned.hand, []);
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(
+    out,
+    /^async function change\(api: any, procedure: AppProcedure, input: unknown\) \{\n  return callAs\(api, procedure, input, s\);/m,
+  );
+  assert.match(out, /change\(api, CONTACTS_ADD, \{ to: 'x' \}\);$/m);
+  assert.match(out, /change\(api, CONTACTS_REMOVE, \{\}\);$/m);
+  assert.match(out, /\(api: any, procedure: AppProcedure\) => callAs\(api, procedure, undefined, s, \{ signal \}\);$/m);
+  assert.match(out, /^type Change = \{ procedure: AppProcedure; body: object \};$/m);
+  assert.match(out, /=> callAs\(api, change\.procedure, change\.body, s\);$/m);
+  assert.match(out, /send\(api, \{ procedure: KEYS_ADD, body: \{\} \}\);$/m);
+  assert.deepEqual([...changes.of(file).imports.get('./shared/api')], ['callAs', 'type AppProcedure']);
+  const page = applyEdits(load(join(repo, 'apps/customer/src/page.ts')).src, changes.of(join(repo, 'apps/customer/src/page.ts')).edits);
+  assert.match(page, /read\(api, CONTACTS_LIST\);$/m);
+  assert.equal(typeof callText, 'function');
+
+  // One caller left: its wrapper moves none of them, each named; a record of the other kind is one left too.
+  for (const [left, kindOf, why] of [
+    [
+      moving.filter((s) => s.path !== 'contacts.remove'),
+      () => undefined,
+      'another caller of its wrapper change stays, and the wrapper sends them all',
+    ],
+    [moving, (n) => (n === 'CONTACTS_ADD' ? 'query' : undefined), 'CONTACTS_ADD is a query, but its wrapper change sends a mutation'],
+  ]) {
+    const some = new Changes();
+    for (const s of left) rewriteSite(some, s, name(s), '@intafaced/contracts/x', false);
+    const back = { hand: [], existing: [] };
+    wrapperIn(some, back, [], kindOf);
+    assert.deepEqual(
+      back.hand.filter((h) => h.site.wrapper.name === 'change').map((h) => `${h.site.path} ${h.why}`),
+      left.filter((s) => s.wrapper.name === 'change').map((s) => `${s.path} ${why}`),
+    );
+    assert.ok(!some.of(file).edits.some((e) => /CONTACTS_|callAs\(api, procedure, input/.test(e.text)));
+  }
+});
+
+// A wrapper that takes its call name is one site per caller, while the rule counts its sender once and a caller only
+// where it names the call in a `procedure:` property. On main at a67176909 the report counted 931 sites to the rule's 928:
+// RecoveryKeys.tsx (3 `procedure:` callers, +1), LostPhoneRoom.tsx and AgentAccess.tsx (3 plain-string callers each, -2).
+test("the report adds a wrapper's sender the rule counts and drops the callers it does not, so its totals meet the rule", async () => {
+  const { wrapperSenders } = await import('./report.mjs');
+  const caller = (key, type) => ({ shape: 'wrapper', node: { type }, wrapper: { key } });
+  const sites = [
+    { shape: 'query', node: { type: 'CallExpression' } },
+    ...['a', 'b', 'c'].map(() => caller('recovery:send', 'Property')),
+    ...['a', 'b', 'c'].map(() => caller('lost-phone:change', 'CallExpression')),
+    ...['a', 'b', 'c'].map(() => caller('agent-access:change', 'CallExpression')),
+  ];
+  assert.equal(wrapperSenders(sites), 1 - 2 - 2);
+  assert.equal(wrapperSenders(sites.slice(0, 1)), 0, 'no wrapper, nothing to add');
 });
