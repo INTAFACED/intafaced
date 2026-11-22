@@ -24,6 +24,7 @@
 pub mod approvals;
 pub mod assistant;
 pub mod catalog;
+pub mod controls;
 pub mod desk;
 pub mod evals;
 pub mod gates;
@@ -36,6 +37,8 @@ pub mod slice;
 pub mod store;
 pub mod test_runs;
 pub mod tool_try;
+
+use std::sync::Arc;
 
 use service_kit::trpc::TrpcError;
 
@@ -158,6 +161,10 @@ pub struct Own {
     /// svc-support's desk (`SUPPORT_URL`), also the owner's account read: absent, no door is wired and every account
     /// reads unread.
     pub support_desk: Option<Box<dyn desk::SupportDesk>>,
+    /// `AGENTS_RETENTION_*_DAYS`: a blank period reads "not set" and refuses a write that needs it.
+    pub retention: controls::memory::Retention,
+    /// Identity's list of the person's linked wallets (`IDENTITY_URL`): absent reads unread.
+    pub linked_wallets: Option<Arc<dyn crate::navigator::onchain::ports::LinkedWallets>>,
 }
 
 impl Own {
@@ -170,6 +177,8 @@ impl Own {
             reviewer_model: None,
             approval_ttl_seconds: None,
             support_desk: None,
+            retention: controls::memory::Retention::default(),
+            linked_wallets: None,
         }
     }
 }
