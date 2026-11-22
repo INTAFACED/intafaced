@@ -620,6 +620,10 @@ import { IDENTITY_API_RATE_TIERS } from './identity-api-rate-tiers-procedures.js
 
 import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from './identity-api-version-procedures.js';
 
+import { IDENTITY_APPROVAL_POLICY_ROWS, IDENTITY_APPROVAL_POLICY_SET } from './identity-approval-policy-procedures.js';
+
+import { IDENTITY_AUTH_KEYS_STATE } from './identity-auth-keys-procedures.js';
+
 import {
   IDENTITY_AUTH_CHALLENGE,
   IDENTITY_AUTH_DEVICE_APPROVE,
@@ -768,6 +772,8 @@ import { IDENTITY_SESSION_SETTINGS } from './identity-session-settings-procedure
 import { IDENTITY_SET_IDLE_SIGNOUT } from './identity-set-idle-signout-procedures.js';
 
 import { IDENTITY_SIGNIN_METHODS } from './identity-signin-methods-procedures.js';
+
+import { IDENTITY_STAFF_ACCEPT_INVITE, IDENTITY_STAFF_INVITATION, IDENTITY_STAFF_LIST } from './identity-staff-procedures.js';
 
 import {
   IDENTITY_SUB_ACCOUNTS_CREATE,
@@ -2275,6 +2281,10 @@ const part_identity_api_rate_tiers_procedures: readonly ProcedureRecord[] = [IDE
 
 const part_identity_api_version_procedures: readonly ProcedureRecord[] = [IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET];
 
+const part_identity_approval_policy_procedures: readonly ProcedureRecord[] = [IDENTITY_APPROVAL_POLICY_ROWS, IDENTITY_APPROVAL_POLICY_SET];
+
+const part_identity_auth_keys_procedures: readonly ProcedureRecord[] = [IDENTITY_AUTH_KEYS_STATE];
+
 const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_CHALLENGE,
   IDENTITY_AUTH_DEVICE_APPROVE,
@@ -2434,6 +2444,12 @@ const part_identity_session_settings_procedures: readonly ProcedureRecord[] = [I
 const part_identity_set_idle_signout_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_IDLE_SIGNOUT];
 
 const part_identity_signin_methods_procedures: readonly ProcedureRecord[] = [IDENTITY_SIGNIN_METHODS];
+
+const part_identity_staff_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_STAFF_ACCEPT_INVITE,
+  IDENTITY_STAFF_INVITATION,
+  IDENTITY_STAFF_LIST,
+];
 
 const part_identity_sub_accounts_procedures: readonly ProcedureRecord[] = [
   IDENTITY_SUB_ACCOUNTS_CREATE,
@@ -3455,6 +3471,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_api_keys_procedures,
   ...part_identity_api_rate_tiers_procedures,
   ...part_identity_api_version_procedures,
+  ...part_identity_approval_policy_procedures,
+  ...part_identity_auth_keys_procedures,
   ...part_identity_auth_procedures,
   ...part_identity_developer_keys_procedures,
   ...part_identity_developer_sandboxes_procedures,
@@ -3481,6 +3499,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_session_settings_procedures,
   ...part_identity_set_idle_signout_procedures,
   ...part_identity_signin_methods_procedures,
+  ...part_identity_staff_procedures,
   ...part_identity_sub_accounts_procedures,
   ...part_identity_support_recovery_procedures,
   ...part_identity_totp_manage_procedures,

@@ -2,14 +2,10 @@ import { z } from 'zod';
 import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { founderProcedure, type Founders } from './founder-procedure.js';
 import { AuthKeyError, type AuthKeyRing } from './auth/auth-key-ring.js';
-
-const stateOut = z.object({
-  activeKeyId: z.string(),
-  previousKeyIds: z.array(z.string()),
-  activatedAt: z.string().nullable(),
-  nextRemoval: z.array(z.string()).nullable(),
-  availableKeyIds: z.array(z.string()),
-});
+import { stateOut } from '@intafaced/contracts/identity-call-schemas';
+import { IDENTITY_AUTH_KEYS_STATE } from '@intafaced/contracts/identity-auth-keys-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 const approval = {
   approvalId: z.string().min(1).max(128),
@@ -35,7 +31,7 @@ export function createAuthKeysRouter(ring: AuthKeyRing, founders: Founders) {
 
   return router({
     authKeys: router({
-      state: founder.output(stateOut).query(() => ring.state()),
+      state: mountRecord(IDENTITY_AUTH_KEYS_STATE, () => ring.state(), { refusalOf: codedRefusal, founder }),
       rotate: founder
         .input(z.object({ keyId: z.string().min(1).max(32), ...approval }).strict())
         .output(stateOut)
