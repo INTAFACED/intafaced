@@ -179,7 +179,9 @@ describe('J-cex-spot-21 staking on the TEST venue', () => {
     // Prepared and signed: the limit is the venue's to apply on arrival.
     const sent = await run(transfer('to_spot', '1'));
     expect(sent.outcome).toMatchObject({ definite: true, accepted: false, refusal: { code: 'venue_rejected' } });
-    expect(sent.outcome.accepted ? '' : sent.outcome.refusal.detail).toContain('at most 5');
+    const o = sent.outcome;
+    if (!o.definite || o.accepted) throw new Error('expected a definite refusal');
+    expect(o.refusal.detail).toContain('at most 5');
     expect((await mine()).pending).toHaveLength(5);
     expect((await mine()).staked).toBe(a('95'));
   });
