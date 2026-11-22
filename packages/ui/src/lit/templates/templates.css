@@ -1353,6 +1353,40 @@ button.lt-tab:focus-visible {
   text-align: right; /* look-drift-allow: the page's start in RTL; plaintext would resolve start from the words */
 }
 
+/* ---- segmented switch (Buy or Sell) ---- */
+
+.lt-segmented {
+  display: flex;
+  padding: 0.25rem;
+  gap: 0.25rem;
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+}
+
+.lt-segment {
+  flex: 1 1 0;
+  min-block-size: var(--lit-control-h);
+  border: 1px solid transparent;
+  border-radius: calc(var(--lit-radius-control) - 0.25rem);
+  background: none;
+  color: var(--lit-text-2);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lt-segment[aria-checked='true'] {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-1);
+  border-color: var(--lit-line-strong);
+}
+
+.lt-segment:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
 .lt-field {
   display: flex;
   flex-direction: column;

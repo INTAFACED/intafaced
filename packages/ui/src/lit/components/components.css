@@ -271,6 +271,18 @@
   margin-inline-start: 10px;
   align-self: center;
 }
+.lit-change {
+  font-variant-numeric: tabular-nums;
+}
+.lit-change[data-dir='up'] {
+  color: var(--lit-up-text);
+}
+.lit-change[data-dir='down'] {
+  color: var(--lit-down-text);
+}
+.lit-change[data-dir='flat'] {
+  color: var(--lit-text-2);
+}
 
 /* Fine print, tags, brackets, scales */
 .lit-fine {

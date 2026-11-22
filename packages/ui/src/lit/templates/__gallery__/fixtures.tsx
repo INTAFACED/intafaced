@@ -5,8 +5,7 @@
  */
 import * as React from 'react';
 import { AreaChart, Bars, LineChart, Parts } from '../../components/b2-charts.js';
-import { EqualChoice, KeyValue, StatusChip, Tabs } from '../../components/b2-basics.js';
-import { Segmented } from '../../components/index.js';
+import { EqualChoice, KeyValue, Segmented, StatusChip, Tabs } from '../../components/b2-basics.js';
 import { Table } from '../../components/b2-table.js';
 import { Receipt } from '../frame.js';
 import { formatMoney } from '../money.js';
@@ -977,7 +976,6 @@ function Desk(c: Ctx) {
           <Segmented
             label={t('Side')}
             value="buy"
-            onChange={() => undefined}
             options={[
               { value: 'buy', label: t('Buy') },
               { value: 'sell', label: t('Sell') },

@@ -1,5 +1,5 @@
-import { Button, EmptyState, Stat, Tag } from '@intafaced/ui/lit';
-import { DeskTemplate, KeyValue, RefusalBox, Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
+import { Button, EmptyState, RefusalBox, Stat, Tag } from '@intafaced/ui/lit';
+import { DeskTemplate, KeyValue, Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useSession } from '../../../features/session/session';
