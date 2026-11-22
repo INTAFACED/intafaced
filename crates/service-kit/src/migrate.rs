@@ -67,20 +67,6 @@ impl Migrations {
         .map_err(db)?;
         tx.commit().map_err(db)?;
         let ups = self.ups();
-        if down {
-            for (up, _) in ups.iter().rev() {
-                let down_file = format!("{}.down.sql", up.strip_suffix(".sql").unwrap_or(up));
-                say(format!("↓ {down_file}"))?;
-                sql.batch_execute(self.file(&down_file)?).map_err(db)?;
-                sql.execute(
-                    &format!("DELETE FROM {schema}.__migrations WHERE name = $1"),
-                    &[up],
-                )
-                .map_err(db)?;
-            }
-            say("✓ reversed".to_owned())?;
-            return Ok(());
-        }
         let applied: Vec<String> = sql
             .query(&format!("SELECT name FROM {schema}.__migrations"), &[])
             .map_err(db)?
@@ -88,6 +74,25 @@ impl Migrations {
             .map(|r| r.try_get::<_, String>(0))
             .collect::<Result<_, _>>()
             .map_err(db)?;
+        if down {
+            // `reversalNames`: latest first, and only the names the record holds; a file never applied is not reversed.
+            // The reversal and the deletion of its record share one transaction (`applyMigrationDown`).
+            for (up, _) in reversal_names(&ups, &applied) {
+                let down_file = format!("{}.down.sql", up.strip_suffix(".sql").unwrap_or(up));
+                let body = self.file(&down_file)?;
+                say(format!("↓ {down_file}"))?;
+                let mut tx = sql.transaction().map_err(db)?;
+                tx.batch_execute(body).map_err(db)?;
+                tx.execute(
+                    &format!("DELETE FROM {schema}.__migrations WHERE name = $1"),
+                    &[&up],
+                )
+                .map_err(db)?;
+                tx.commit().map_err(db)?;
+            }
+            say("✓ reversed".to_owned())?;
+            return Ok(());
+        }
         for (name, body) in ups {
             if applied.iter().any(|a| a == name) {
                 say(format!("· {name} (already applied)"))?;
@@ -121,9 +126,35 @@ impl Migrations {
     }
 }
 
+/// `reversalNames(upFiles, appliedNames)`: the up files latest first, only those the record names.
+pub fn reversal_names<'a>(
+    ups: &[(&'a str, &'a str)],
+    applied: &[String],
+) -> Vec<(&'a str, &'a str)> {
+    ups.iter()
+        .rev()
+        .copied()
+        .filter(|(name, _)| applied.iter().any(|a| a == name))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reversal_runs_latest_first_and_skips_a_file_never_applied() {
+        let applied = vec!["0001_a.sql".to_owned()];
+        assert_eq!(
+            reversal_names(&SET.ups(), &applied),
+            vec![("0001_a.sql", "a")]
+        );
+        let both = vec!["0001_a.sql".to_owned(), "0002_b.sql".to_owned()];
+        assert_eq!(
+            reversal_names(&SET.ups(), &both),
+            vec![("0002_b.sql", "b"), ("0001_a.sql", "a")]
+        );
+    }
 
     const FILES: [(&str, &str); 4] = [
         ("0002_b.sql", "b"),

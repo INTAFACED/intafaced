@@ -51,7 +51,8 @@
       "dependsOn": ["^build", "@intafaced/db#build"],
       "outputs": ["coverage/**"],
       "cache": false,
-      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"],
+      "passThroughEnv": ["GITHUB_BASE_REF"]
     },
     "@intafaced/svc-matching#test": {
       "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
