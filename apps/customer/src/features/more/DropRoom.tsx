@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { z } from 'zod';
-import { dropClaimResultSchema, dropRoomSchema, type DropView, type TgeNetwork, type TgeView } from '@intafaced/contracts/campaigns-drops';
+import { type DropView, type TgeNetwork, type TgeView } from '@intafaced/contracts/campaigns-drops';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { StatRow } from './depth-kit';
 import { dropRoomCopy } from './drop-room-copy';
+import { CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM } from '@intafaced/contracts/campaigns-drops-procedures';
+import { CAMPAIGNS_TGE_CLAIM } from '@intafaced/contracts/campaigns-tge-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 /** identity `waitlist.mine`: the signed-in account's own place, or null when its email never joined. */
 const waitlistMineSchema = z
@@ -42,7 +45,7 @@ export function DropRoom() {
     (signal) => api.query('identity', 'waitlist.mine', undefined, waitlistMineSchema, { signal }),
     'drops-waitlist',
   );
-  const room = useResource((signal) => api.query('campaigns', 'drops.room', undefined, dropRoomSchema, { signal }), 'drops-room');
+  const room = useResource((signal) => api.call(CAMPAIGNS_DROPS_ROOM, undefined, { signal }), 'drops-room');
   // Kept here, not in the row: the room reads its state again after every claim, which remounts the rows.
   const [outcomes, setOutcomes] = useState<Readonly<Record<string, Outcome>>>({});
 
@@ -115,7 +118,7 @@ export function DropRoom() {
   );
 }
 
-function Season({ season }: { season: z.infer<typeof dropRoomSchema>['season'] }) {
+function Season({ season }: { season: ProcedureOutput<typeof CAMPAIGNS_DROPS_ROOM>['season'] }) {
   const { t } = dropRoomCopy.useCopy();
   return (
     <Panel title={t('seasonTitle')}>
@@ -167,7 +170,7 @@ function DropRow({ drop, outcome, settle }: { drop: DropView; outcome: Outcome |
   const [busy, setBusy] = useState(false);
   const claim = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'drops.claim', { dropId: drop.id }, dropClaimResultSchema);
+    const result = await api.call(CAMPAIGNS_DROPS_CLAIM, { dropId: drop.id });
     setBusy(false);
     settle(drop.id, result.ok ? { ok: true } : { ok: false, failure: result });
   };
@@ -233,7 +236,7 @@ function TgeClaim({ network, label }: { network: TgeNetwork; label: string }) {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const claim = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'tge.claim', { network }, z.never());
+    const result = await api.call(CAMPAIGNS_TGE_CLAIM, { network });
     setBusy(false);
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
   };
