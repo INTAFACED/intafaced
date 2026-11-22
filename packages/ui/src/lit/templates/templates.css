@@ -259,6 +259,15 @@
       'pairs chart tape ticket'
       'pairs orders orders orders';
   }
+  /* A pro desk with no markets list (a tool desk: execution, terminal) gives that column back to the rest. */
+  .lt-desk[data-desk='pro']:not(:has(> [data-region='pairs'])) {
+    grid-template-columns: minmax(0, 1fr) 16.25rem 18.75rem;
+    grid-template-areas:
+      'instrument instrument instrument'
+      'chart book ticket'
+      'chart tape ticket'
+      'orders orders orders';
+  }
   .lt-desk[data-desk='simple'] {
     grid-template-columns: minmax(0, 1fr) 21.25rem;
     grid-template-areas:
