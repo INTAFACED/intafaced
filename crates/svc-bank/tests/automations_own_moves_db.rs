@@ -81,9 +81,7 @@ fn personal_sign(message: &str, key_hex: &str) -> String {
         .map(|i| u8::from_str_radix(&key_hex[i..i + 2], 16).unwrap())
         .collect();
     let key = SigningKey::from_slice(&bytes).unwrap();
-    let (sig, id) = key
-        .sign_prehash_recoverable(&personal_message_hash(message))
-        .unwrap();
+    let (sig, id) = key.sign_prehash_recoverable(&personal_message_hash(message));
     let rs: [u8; 64] = sig.to_bytes().into();
     let hex: String = rs.iter().map(|b| format!("{b:02x}")).collect();
     format!("0x{hex}{:02x}", id.to_byte() + 27)

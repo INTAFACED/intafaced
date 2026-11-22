@@ -55,14 +55,15 @@ pub fn recover_personal_sign_address(message: &str, signature: &str) -> Option<S
     let mut y_odd = bit == 1;
     // The TypeScript recovers from a high `s` as it is; k256 checks the recovered key against a low `s`. The same key
     // signs (r, n - s) with the other parity of R, so the high form is turned to the low one first.
-    if let Some(low) = signature.normalize_s() {
+    let low = signature.normalize_s();
+    if low != signature {
         signature = low;
         y_odd = !y_odd;
     }
     let id = RecoveryId::new(y_odd, false);
     let key =
         VerifyingKey::recover_from_prehash(&personal_message_hash(message), &signature, id).ok()?;
-    let point = key.to_encoded_point(false);
+    let point = key.to_sec1_point(false);
     let full = point.as_bytes();
     let hash = Keccak256::digest(full.get(1..)?);
     let tail = hash.get(12..)?;
@@ -89,9 +90,7 @@ mod tests {
             .map(|p| hex_byte(p).unwrap())
             .collect();
         let key = SigningKey::from_slice(&bytes).unwrap();
-        let (sig, id) = key
-            .sign_prehash_recoverable(&personal_message_hash(message))
-            .unwrap();
+        let (sig, id) = key.sign_prehash_recoverable(&personal_message_hash(message));
         let rs: [u8; 64] = sig.to_bytes().into();
         let hex: String = rs.iter().map(|b| format!("{b:02x}")).collect();
         let v = id.to_byte() + v_base;
