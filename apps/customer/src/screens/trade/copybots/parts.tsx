@@ -11,7 +11,7 @@ import './copybots.css';
 
 /** The shared Trade sub-navigation, so every room stays one click away. */
 export function ModeNav({ active }: { active: 'copy' | 'bots' }) {
-  return <TradeSubNav active={active} className="px-0" />;
+  return <TradeSubNav active={active} />;
 }
 
 /** Where the data on this screen came from and how old it is. Turns Stale by itself; says Unknown before the first read. */

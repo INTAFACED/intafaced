@@ -63,9 +63,9 @@ import {
   ResourceView,
   Section,
   startsField,
+  useBankRecord,
   useSpaces,
   type ActionSpec,
-  useBankRecord,
 } from './components';
 import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
 import { EarnPoolRoom, EarnRoom } from './earn/EarnRooms';

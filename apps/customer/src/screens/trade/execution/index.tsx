@@ -5,7 +5,7 @@
  */
 import type { ScreenProps } from '../../../app/screen-types';
 import { Badge, EmptyState, Tabs, TabsList, TabsPanel, TabsTab, useSession } from '../rooms/ui';
-import { Freshness } from '../rooms/RoomNotices';
+import { Freshness } from '../rooms/RoomFreshness';
 import { RoomFrame } from '../rooms/RoomFrame';
 import { AlgoTab } from './AlgoTab';
 import { BlotterTab } from './BlotterTab';

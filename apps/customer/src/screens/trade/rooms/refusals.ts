@@ -3,8 +3,7 @@
  * names the real reason; the service code sits underneath as small support text. No promises of later availability, no service names.
  * Codes this file does not know fall through to the shared `refusalCopy`, so a new code never shows raw JSON.
  */
-import { classifyRefusal } from '../../../data';
-import { refusalCopy, refusalSupportCode } from './ui';
+import { classifyRefusal, refusalCopy, refusalSupportCode } from '../../../data';
 
 export interface Words {
   title: string;

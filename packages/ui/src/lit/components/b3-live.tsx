@@ -11,7 +11,7 @@ import { blurDecimalValue, displayDecimal, pastedDecimalValue, typedDecimalValue
 
 export type DecimalFieldProps = Omit<
   React.InputHTMLAttributes<HTMLInputElement>,
-  'value' | 'defaultValue' | 'onChange' | 'type' | 'inputMode'
+  'value' | 'defaultValue' | 'onChange' | 'type' | 'inputMode' | 'size'
 > & {
   label: string;
   hint?: string;
@@ -26,6 +26,15 @@ export type DecimalFieldProps = Omit<
    * with both marks is still refused. Default `dot`: a typed "," is refused, so "1,000" never becomes 1.000.
    */
   typedMark?: 'dot' | 'either';
+  /** The unit shown after the figure inside the box ("USD", "BTC"). */
+  unit?: string;
+  /** A Max button inside the box; shown only when given. */
+  onMax?: () => void;
+  maxLabel?: string;
+  /** The label names the input for assistive tech only (a hero amount whose meaning the room shows around it). */
+  labelHidden?: boolean;
+  /** `hero`: the figure face at figure size, for the one amount a buy or convert card asks for. */
+  size?: 'md' | 'hero';
 };
 
 /**
@@ -42,6 +51,11 @@ export function DecimalField({
   onValueChange,
   precision,
   typedMark = 'dot',
+  unit,
+  onMax,
+  maxLabel = 'Max',
+  labelHidden = false,
+  size = 'md',
   onPaste,
   onBlur,
   ...rest
@@ -51,38 +65,69 @@ export function DecimalField({
   const describedBy =
     [rest['aria-describedby'], hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
   const opts = { precision };
+  const input = (
+    <input
+      {...rest}
+      id={inputId}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      autoCorrect="off"
+      spellCheck={false}
+      data-kind="decimal"
+      value={displayDecimal(value)}
+      aria-invalid={error ? true : rest['aria-invalid']}
+      aria-describedby={describedBy}
+      onChange={(e) => {
+        const next = typedDecimalValue(value, e.currentTarget.value, { ...opts, typedMark });
+        if (next !== value) onValueChange(next);
+      }}
+      onPaste={(e) => {
+        onPaste?.(e);
+        if (e.defaultPrevented || rest.readOnly || rest.disabled) return;
+        e.preventDefault();
+        const next = pastedDecimalValue(value, e.clipboardData.getData('text'), opts);
+        if (next !== value) onValueChange(next);
+      }}
+      onBlur={(e) => {
+        const cleaned = blurDecimalValue(value);
+        if (cleaned !== value) onValueChange(cleaned);
+        onBlur?.(e);
+      }}
+    />
+  );
   return (
-    <div className={clsx('lit-field-control', className)}>
-      <label htmlFor={inputId}>{label}</label>
-      <input
-        {...rest}
-        id={inputId}
-        type="text"
-        inputMode="decimal"
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        data-kind="decimal"
-        value={displayDecimal(value)}
-        aria-invalid={error ? true : rest['aria-invalid']}
-        aria-describedby={describedBy}
-        onChange={(e) => {
-          const next = typedDecimalValue(value, e.currentTarget.value, { ...opts, typedMark });
-          if (next !== value) onValueChange(next);
-        }}
-        onPaste={(e) => {
-          onPaste?.(e);
-          if (e.defaultPrevented || rest.readOnly || rest.disabled) return;
-          e.preventDefault();
-          const next = pastedDecimalValue(value, e.clipboardData.getData('text'), opts);
-          if (next !== value) onValueChange(next);
-        }}
-        onBlur={(e) => {
-          const cleaned = blurDecimalValue(value);
-          if (cleaned !== value) onValueChange(cleaned);
-          onBlur?.(e);
-        }}
-      />
+    <div className={clsx('lit-field-control', className)} data-slot="decimal-field" data-size={size === 'hero' ? 'hero' : undefined}>
+      <label htmlFor={inputId} className={labelHidden ? 'lit-sr' : undefined}>
+        {label}
+      </label>
+      {unit || onMax ? (
+        <span className="lit-field-row">
+          {input}
+          {unit ? (
+            <span data-part="unit" aria-hidden="true">
+              {unit}
+            </span>
+          ) : null}
+          {onMax ? (
+            <button
+              type="button"
+              className="lit-button"
+              data-slot="button"
+              data-variant="ghost"
+              data-tone="quiet"
+              data-size="md"
+              data-part="max"
+              disabled={rest.disabled || rest.readOnly}
+              onClick={onMax}
+            >
+              {maxLabel}
+            </button>
+          ) : null}
+        </span>
+      ) : (
+        input
+      )}
       {hint && (
         <span id={`${inputId}-hint`} data-part="hint">
           {hint}

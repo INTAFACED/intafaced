@@ -6,7 +6,6 @@
  * can check it; this panel shows and checks only those notes, and leaves any other room's note to the Convert card.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CircleSlash } from 'lucide-react';
 import { fractionDigits } from '../../../data/decimal';
 import { usePreferences } from '../../../shared/preferences';
 import { dayTime } from '../desk/time';
@@ -15,23 +14,9 @@ import { compareDecimals } from '../rooms/math';
 import { ROOM_INTERVALS, useNow, usePrivateRead, useRoomApi } from '../rooms/read';
 import { Refusal, WriteNotice } from '../rooms/RoomNotices';
 import { roomWords } from '../rooms/refusals';
-import {
-  Badge,
-  Button,
-  Field,
-  Input,
-  KeyValue,
-  SegmentedControl,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-  fmtAmount,
-  fmtPrice,
-  type Loadable,
-} from '../rooms/ui';
+import { Button, DecimalField, Picker, PickerItem, PickerList, PickerTrigger, PickerValue, Tag } from '@intafaced/ui/lit';
+import { KeyValue, Segmented, Skeleton } from '@intafaced/ui/lit/templates';
+import { fmtAmount, fmtPrice, type Loadable } from '../../../data';
 import { useRoomWriter } from '../rooms/write';
 import { useDeskStatus, usePairs, type PairOption } from '../otc/data';
 import { otcCopy } from '../otc/copy';
@@ -191,123 +176,95 @@ export function OtcConvert() {
       : t('OTC settles within', { seconds: String(Math.round(q.settleWindowMs / 1000)) });
 
   return (
-    <section
-      id={OTC_DESK_ID}
-      tabIndex={-1}
-      aria-label={t('OTC title')}
-      className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3"
-    >
-      <h2 className="m-0 text-md font-medium text-fg">{t('OTC title')}</h2>
-      <p className="m-0 text-sm text-fg-2">{t('OTC lead')}</p>
-      <div data-testid="convert-otc-range" className="flex flex-wrap items-center gap-2 text-sm text-fg-2">
+    <section id={OTC_DESK_ID} tabIndex={-1} aria-label={t('OTC title')}>
+      <h2>{t('OTC title')}</h2>
+      <p className="lt-hint">{t('OTC lead')}</p>
+      <div data-testid="convert-otc-range" className="lt-toolbar">
         {t('OTC range')}
-        {bounds.status === 'loading' ? <Skeleton className="h-5 w-24" /> : null}
+        {bounds.status === 'loading' ? <Skeleton shape="text" count={1} /> : null}
         {bounds.status === 'refused' ? <Refusal words={roomWords({ code: bounds.code })} size="inline" /> : null}
         {bounds.status === 'error' || bounds.status === 'empty' ? <span>{t('OTC range unread')}</span> : null}
         {bounds.status === 'ready' && range ? (
-          <span className="text-fg tabular-nums">
-            {t('OTC range value', { min: fmtAmount(range.minQty), max: fmtAmount(range.maxQty), asset: chosen?.base ?? '' })}
-          </span>
+          <span>{t('OTC range value', { min: fmtAmount(range.minQty), max: fmtAmount(range.maxQty), asset: chosen?.base ?? '' })}</span>
         ) : null}
         {bounds.status === 'ready' && !range ? (
           <>
-            <Badge tone="warn" variant="outline" density="dense" icon={<CircleSlash size={12} />}>
-              {t('Not set')}
-            </Badge>
+            <Tag tone="neutral">{t('Not set')}</Tag>
             <span>{t('OTC range not set')}</span>
           </>
         ) : null}
       </div>
-      {bounds.status === 'ready' && !range ? (
-        <p data-testid="convert-otc-closed" className="m-0 text-sm text-fg">
-          {t('OTC closed')}
-        </p>
-      ) : null}
-      {pairs.status === 'loading' ? <Skeleton className="h-10 w-full" /> : null}
+      {bounds.status === 'ready' && !range ? <p data-testid="convert-otc-closed">{t('OTC closed')}</p> : null}
+      {pairs.status === 'loading' ? <Skeleton shape="form" count={1} /> : null}
       {pairs.status === 'refused' ? <Refusal words={roomWords({ code: pairs.code })} size="inline" /> : null}
       {pairs.status !== 'loading' && pairs.status !== 'refused' && options.length === 0 ? (
-        <p className="m-0 text-sm text-fg-2">{t('OTC no pairs')}</p>
+        <p className="lt-hint">{t('OTC no pairs')}</p>
       ) : null}
       {options.length > 0 ? (
-        <div className="flex flex-col gap-3">
-          <Field label={t('OTC pair')}>
-            <Select items={items} value={pair} onValueChange={(v) => setPair(String(v))}>
-              <SelectTrigger className="w-full" size={40} aria-label={t('OTC pair')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
+        <div>
+          <div className="lt-field">
+            <span>{t('OTC pair')}</span>
+            <Picker items={items} value={pair} onValueChange={(v) => setPair(String(v))}>
+              <PickerTrigger aria-label={t('OTC pair')}>
+                <PickerValue />
+              </PickerTrigger>
+              <PickerList>
                 {options.map((p) => (
-                  <SelectItem key={p.symbol} value={p.symbol}>
+                  <PickerItem key={p.symbol} value={p.symbol}>
                     {p.symbol}
-                  </SelectItem>
+                  </PickerItem>
                 ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <SegmentedControl
-            aria-label={t('OTC side')}
-            size={40}
-            fullWidth
+              </PickerList>
+            </Picker>
+          </div>
+          <Segmented
+            label={t('OTC side')}
             value={side}
-            onValueChange={(v) => setSide(v === 'sell' ? 'sell' : 'buy')}
-            items={[
-              { value: 'buy', label: t('OTC buy'), tone: 'up' },
-              { value: 'sell', label: t('OTC sell'), tone: 'down' },
+            onChange={(v) => setSide(v === 'sell' ? 'sell' : 'buy')}
+            options={[
+              { value: 'buy', label: t('OTC buy') },
+              { value: 'sell', label: t('OTC sell') },
             ]}
           />
-          <Field label={t('OTC quantity')} hint={chosen ? t('OTC quantity hint', { asset: chosen.base }) : undefined}>
-            <Input
-              kind="decimal"
-              value={qty}
-              onValueChange={setQty}
-              precision={fractionDigits(chosen?.lot) ?? 8}
-              trailing={chosen?.base}
-              placeholder="0"
-            />
-          </Field>
-          <Button variant="secondary" size={40} loading={writer.busy && !quote} disabled={!canAsk} onClick={() => void ask()}>
+          <DecimalField
+            label={t('OTC quantity')}
+            {...(chosen ? { hint: t('OTC quantity hint', { asset: chosen.base }), unit: chosen.base } : {})}
+            value={qty}
+            onValueChange={setQty}
+            precision={fractionDigits(chosen?.lot) ?? 8}
+            placeholder="0"
+          />
+          <Button disabled={!canAsk || (writer.busy && !quote)} aria-busy={(writer.busy && !quote) || undefined} onClick={() => void ask()}>
             {t('OTC ask')}
           </Button>
         </div>
       ) : null}
-      {mismatch ? (
-        <p role="alert" className="m-0 text-sm text-warn">
-          {t('OTC mismatch')}
-        </p>
-      ) : null}
+      {mismatch ? <p role="alert">{t('OTC mismatch')}</p> : null}
       {quote ? (
-        <div data-testid="convert-otc-price" className="flex flex-col gap-2 rounded-md border border-line p-3">
-          <p className="m-0 text-lg font-medium text-fg tabular-nums">
+        <div data-testid="convert-otc-price">
+          <p className="lt-figure">
             {t('OTC price')}:{' '}
             <span data-testid="convert-otc-quoted">
               {t('OTC price value', { price: fmtPrice(quote.quotedPrice, null), asset: quote.quoteAsset })}
             </span>
           </p>
-          <p className="m-0 text-sm text-fg" data-testid="convert-otc-settles">
-            {settleWords(quote)}
-          </p>
+          <p data-testid="convert-otc-settles">{settleWords(quote)}</p>
           <KeyValue
-            density="dense"
-            items={[
+            rows={[
               { label: t('OTC quantity'), value: `${fmtAmount(quote.qty)} ${quote.baseAsset}` },
               {
                 label: quote.side === 'buy' ? t('OTC you pay') : t('OTC you receive'),
                 value: `${fmtAmount(quote.userNotional)} ${quote.quoteAsset}`,
-                hint: t('OTC spread included', { bps: String(quote.spreadBps) }),
+                note: t('OTC spread included', { bps: String(quote.spreadBps) }),
               },
               { label: t('OTC firm until'), value: at(quote.expiresAt) ?? '—' },
-              { label: t('OTC quote id'), value: quote.quoteId, mono: true },
+              { label: t('OTC quote id'), value: quote.quoteId, ltr: true },
             ]}
           />
-          {expired ? (
-            <p role="alert" className="m-0 text-sm text-warn">
-              {t('OTC expired')}
-            </p>
-          ) : null}
+          {expired ? <p role="alert">{t('OTC expired')}</p> : null}
           <Button
-            variant="primary"
-            size={40}
-            loading={writer.busy}
+            tone="primary"
+            aria-busy={writer.busy || undefined}
             disabled={locked || writer.busy || expired}
             onClick={() => void confirm()}
           >
@@ -315,11 +272,7 @@ export function OtcConvert() {
           </Button>
         </div>
       ) : null}
-      {checkNote ? (
-        <p role="status" className="m-0 text-sm text-fg">
-          {checkNote}
-        </p>
-      ) : null}
+      {checkNote ? <p role="status">{checkNote}</p> : null}
       <WriteNotice
         writer={shown}
         onCheck={(id) => void check(id)}

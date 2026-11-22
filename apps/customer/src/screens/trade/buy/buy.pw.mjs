@@ -40,13 +40,12 @@ test('buy $10 of BTC: amount, estimate, review, confirm, receipt, new balance (1
   expect(Math.round((await box(page.getByTestId('if-buy'))).width)).toBe(1224);
   expect(Math.round((await box(page.getByTestId('buy-crumbs'))).height)).toBe(56);
   expect(Math.round((await box(card)).width)).toBe(450);
-  await expect(page.getByTestId('buy-hero').locator('h1')).toHaveText('Buy crypto in a few steps');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Buy crypto in a few steps');
   await expect(page.getByTestId('buy-crumbs')).toContainText('Trade');
   await expect(page.getByTestId('buy-crumbs__history')).toHaveAttribute('href', '/money/activity?tab=orders');
   expect(
     await page
-      .getByTestId('buy-hero')
-      .locator('h1')
+      .getByRole('heading', { level: 1 })
       .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
   ).toBe('48px/58px');
 
@@ -134,12 +133,12 @@ test('enter in coins: the toggle, lot validation and the minimum order value', a
   await expect(amountBox(page, 'BTC')).toHaveValue('0.00015');
   // 0.00007 BTC is under the 5 USDT minimum order value: said in coins, rounded up to a lot.
   await amountBox(page, 'BTC').fill('0.00007');
-  await expect(page.locator('[data-slot="amount-input"]')).toContainText('Minimum is 0.00008 BTC.');
+  await expect(page.locator('[data-slot="decimal-field"]')).toContainText('Minimum is 0.00008 BTC.');
   await expect(card(page).getByRole('button', { name: /Review/ })).toBeDisabled();
   // Dollars: 4 is under the minimum, said in dollars.
   await page.getByRole('button', { name: 'Enter in USD' }).click();
   await amountBox(page).fill('4');
-  await expect(page.locator('[data-slot="amount-input"]')).toContainText('Minimum is about $5.21.');
+  await expect(page.locator('[data-slot="decimal-field"]')).toContainText('Minimum is about $5.21.');
   await shot(page, 'buy-1440x900-minimum');
 });
 const card = (page) => page.getByTestId('buy-card');
@@ -148,7 +147,7 @@ test('not enough balance is said before anything is asked of the service', async
   const api = await mock(page);
   await open(page);
   await amountBox(page).fill('20000');
-  await expect(page.locator('[data-slot="amount-input"]')).toContainText('Not enough USDT. You have 9,993 USDT available.');
+  await expect(page.locator('[data-slot="decimal-field"]')).toContainText('Not enough USDT. You have 9,993 USDT available.');
   await expect(card(page).getByRole('button', { name: /Review/ })).toBeDisabled();
   await page.waitForTimeout(900);
   expect(api.of('preview')).toHaveLength(0);
@@ -177,7 +176,7 @@ test('not verified: plain words and the path to Verify', async ({ page }) => {
   await mock(page, { preview: () => refusal('tier.insufficient', 'tier insufficient', 403) });
   await open(page);
   await amountBox(page).fill('10');
-  const state = page.locator('[data-slot="state-block"][data-kind="refused"]');
+  const state = page.locator('[data-kind="refused"]');
   await expect(state).toContainText('Verify your identity first');
   await expect(state).toContainText('You need a verified account to do this.');
   await expect(state.locator('a', { hasText: 'Verify now' })).toHaveAttribute('href', '/verification');
@@ -201,7 +200,7 @@ test('a preview refusal below the minimum reads as "too small", never as a raw c
   });
   await open(page);
   await amountBox(page).fill('10');
-  const state = page.locator('[data-slot="state-block"][data-kind="refused"]');
+  const state = page.locator('[data-kind="refused"]');
   await expect(state).toContainText('Amount is too small');
   expect(await card(page).innerText()).not.toMatch(/below_min|notional|USDT is below/);
 });
@@ -358,7 +357,7 @@ test('loading, empty, error and refused states', async ({ page }) => {
 test('empty: no open market means a plain empty card with one way forward', async ({ page }) => {
   await mock(page, { markets: () => [] });
   await open(page);
-  const state = page.locator('[data-slot="state-block"][data-kind="empty"]');
+  const state = page.locator('[data-kind="empty"]');
   await expect(state).toContainText('No coins to buy right now');
   await expect(state.locator('a', { hasText: 'Go to Markets' })).toHaveAttribute('href', '/trade');
   await shot(page, 'buy-1440x900-empty-markets');
@@ -367,7 +366,7 @@ test('empty: no open market means a plain empty card with one way forward', asyn
 test('error: markets fail, the card says so inside itself and retries', async ({ page }) => {
   const api = await mock(page, { markets: 'error' });
   await open(page);
-  const state = page.locator('[data-slot="state-block"][data-kind="error"]');
+  const state = page.locator('[data-kind="error"]');
   await expect(state).toContainText('Couldn’t load coins.');
   await shot(page, 'buy-1440x900-error');
   api.set('markets', undefined);
@@ -427,12 +426,12 @@ test('the Sell tab says Sell in the headline and breadcrumb, and an empty amount
 }) => {
   await mock(page);
   await open(page);
-  await expect(page.getByTestId('buy-hero').locator('h1')).toHaveText('Buy crypto in a few steps');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Buy crypto in a few steps');
   await page.getByTestId('buy-form__top').getByText('Sell', { exact: true }).click();
-  await expect(page.getByTestId('buy-hero').locator('h1')).toHaveText('Sell crypto in a few steps');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sell crypto in a few steps');
   await expect(page.getByTestId('buy-crumbs').locator('[aria-current="page"]')).toHaveText('Sell crypto');
   await expect(page.getByTestId('approx')).toHaveText('—');
   expect(await page.getByTestId('approx').evaluate((node) => getComputedStyle(node).color)).not.toBe('rgb(37, 167, 80)');
   await open(page, '/trade/buy?side=sell');
-  await expect(page.getByTestId('buy-hero').locator('h1')).toHaveText('Sell crypto in a few steps');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sell crypto in a few steps');
 });

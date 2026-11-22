@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { ScreenProps } from '../../../app/screen-types';
 import { RoomFrame } from '../rooms/RoomFrame';
-import { Freshness, WriteNotice } from '../rooms/RoomNotices';
+import { WriteNotice } from '../rooms/RoomNotices';
+import { Freshness } from '../rooms/RoomFreshness';
 import { asOfOf } from '../rooms/read';
 import { useRoomWriter } from '../rooms/write';
 import { Badge, Tabs, TabsList, TabsPanel, TabsTab } from '../rooms/ui';

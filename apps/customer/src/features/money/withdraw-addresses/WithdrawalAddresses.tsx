@@ -12,15 +12,15 @@ import { withdrawalCopy } from '../withdrawal-copy';
 import { FailureNote } from './FailureNote';
 import { StepUpSheet } from './StepUpSheet';
 import {
+  BANK_RAMPS_DESTINATIONS_NETWORKS,
+  BANK_RAMPS_DESTINATIONS_LIST,
   BANK_RAMPS_DESTINATIONS_READINESS,
   BANK_RAMPS_DESTINATIONS_APPROVAL_ON_DEVICE,
   BANK_RAMPS_DESTINATIONS_APPROVAL_REQUEST_MAIL,
   BANK_RAMPS_DESTINATIONS_OWNERSHIP_START,
   BANK_RAMPS_DESTINATIONS_OWNERSHIP_VERIFY,
-  BANK_RAMPS_DESTINATIONS_NETWORKS,
   BANK_RAMPS_DESTINATIONS_CHECK,
   BANK_RAMPS_DESTINATIONS_SAVE,
-  BANK_RAMPS_DESTINATIONS_LIST,
   BANK_RAMPS_DESTINATIONS_REMOVE,
 } from '@intafaced/contracts/bank-ramps-procedures';
 
@@ -886,6 +886,7 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
               run={(token) =>
                 api.call(
                   BANK_RAMPS_DESTINATIONS_REMOVE,
+                  // One removal of one entry: a retry of it is the same request.
                   { destinationId: removing.destinationId, idempotencyKey: `destination-remove:${removing.destinationId}` },
                   { bearer: token },
                 )

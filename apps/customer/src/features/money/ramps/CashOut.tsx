@@ -8,13 +8,13 @@ import { cashOutCopy } from '../cash-out-copy';
 import { date, funds, useBankRead, useBankRecord } from '../components';
 import { type CashOutQuote, type CashOutReceipt, type CashOutRequest } from '../contracts';
 import { FailureNote, Panel, StepUpSheet } from './parts';
-import { BANK_LINKED_ACCOUNTS_LIST } from '@intafaced/contracts/bank-linked-accounts-procedures';
 import {
   BANK_CASH_OUT_REQUESTS,
   BANK_CASH_OUT_RECEIPT,
   BANK_CASH_OUT_QUOTE,
   BANK_CASH_OUT_START,
 } from '@intafaced/contracts/bank-cash-out-procedures';
+import { BANK_LINKED_ACCOUNTS_LIST } from '@intafaced/contracts/bank-linked-accounts-procedures';
 
 /**
  * Cash out to a linked bank account (J-bank-03): the amount, one of the person's linked accounts, and what the bank
