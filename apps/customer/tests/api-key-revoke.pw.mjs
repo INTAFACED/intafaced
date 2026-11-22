@@ -31,16 +31,16 @@ const original = (owner = ownerA, keyId = keyA) => ({
 });
 const originalRaw = ` \n${JSON.stringify(original())}\n `;
 const section = (page) => page.locator('.api-key-records');
-const readButton = (page) => section(page).locator('.api-key-records__controls').getByRole('button');
-const rows = (page) => section(page).locator('.api-key-records__row');
+const readButton = (page) => section(page).locator('[data-testid="api-key-records__controls"]').getByRole('button');
+const rows = (page) => section(page).locator('[data-testid="api-key-records__row"]');
 const row = (page, id = keyA) => rows(page).filter({ has: page.getByText(id, { exact: true }) });
-const reviewButton = (page, id = keyA) => row(page, id).locator('.api-key-revoke__row-action');
-const dialog = (page) => page.getByRole('dialog').filter({ has: page.locator('.api-key-revoke__review') });
-const confirmButton = (page) => dialog(page).locator('.api-key-revoke__actions').getByRole('button').first();
-const known = (page) => page.locator('.api-key-revoke--known');
-const unknown = (page) => page.locator('.api-key-revoke--unknown');
-const unavailable = (page) => page.locator('.api-key-revoke--unavailable');
-const currentRead = (page) => page.locator('.api-key-revoke__current').getByRole('button');
+const reviewButton = (page, id = keyA) => row(page, id).locator('[data-testid="api-key-revoke__row-action"]');
+const dialog = (page) => page.getByRole('dialog').filter({ has: page.locator('[data-testid="api-key-revoke__review"]') });
+const confirmButton = (page) => dialog(page).locator('[data-testid="api-key-revoke__actions"]').getByRole('button').first();
+const known = (page) => page.locator('[data-testid="api-key-revoke--known"]');
+const unknown = (page) => page.locator('[data-testid="api-key-revoke--unknown"]');
+const unavailable = (page) => page.locator('[data-testid="api-key-revoke--unavailable"]');
+const currentRead = (page) => page.locator('[data-testid="api-key-revoke__current"]').getByRole('button');
 const cleanupButton = (page) => known(page).getByRole('button');
 const pause = () => {
   let release;
@@ -763,7 +763,7 @@ test('actual View EN/ES/FR and Arabic fallback keep opaque review and known clea
         await expect(confirm).toBeFocused();
         await confirm.scrollIntoViewIfNeeded();
         const bounds = await dialog(page).evaluate((node) => {
-          const button = node.querySelector('.api-key-revoke__actions button');
+          const button = node.querySelector('[data-testid="api-key-revoke__actions"] button');
           const rect = button.getBoundingClientRect();
           const label = button.querySelector('[data-i18n]');
           return {
@@ -836,10 +836,10 @@ test('four-key320/1440 Close and Escape arrive at visible current outcomes; deli
         await review(page);
         await confirmButton(page).click();
         await expect(known(page)).toBeVisible();
-        await expect(dialog(page).locator('.api-key-revoke__actions').getByRole('button')).toHaveCount(1);
+        await expect(dialog(page).locator('[data-testid="api-key-revoke__actions"]').getByRole('button')).toHaveCount(1);
         await capture(dialog(page).locator('header').getByRole('button'), 'retiredDoneClose');
         await close(page, channel === 'escape');
-        const heading = known(page).locator('.api-key-revoke__outcome-heading');
+        const heading = known(page).locator('[data-testid="api-key-revoke__outcome-heading"]');
         // No test scroll/focus call supplies this arrival proof.
         await expect(heading).toBeFocused();
         const measure = async (locator) =>
@@ -865,8 +865,9 @@ test('four-key320/1440 Close and Escape arrive at visible current outcomes; deli
         expect(resultGeometry.left).toBeGreaterThanOrEqual(0);
         expect(resultGeometry.right).toBeLessThanOrEqual(width);
         await expect(known(page).getByText('Refresh records before reviewing another revoke.', { exact: true })).toBeVisible();
-        await expect(section(page).locator('.api-key-revoke__row-action')).toHaveCount(4);
-        for (const button of await section(page).locator('.api-key-revoke__row-action').all()) await expect(button).toBeDisabled();
+        await expect(section(page).locator('[data-testid="api-key-revoke__row-action"]')).toHaveCount(4);
+        for (const button of await section(page).locator('[data-testid="api-key-revoke__row-action"]').all())
+          await expect(button).toBeDisabled();
         expect(state.keyReads).toHaveLength(1);
         wire(state);
         expect(await raw(page)).toBeNull();
@@ -895,7 +896,7 @@ test('four-key320/1440 Close and Escape arrive at visible current outcomes; deli
         const marker = await raw(page);
         expect(JSON.parse(marker).keyId).toBe(keyB);
         await close(page, channel !== 'escape');
-        const unknownHeading = unknown(page).locator('.api-key-revoke__outcome-heading');
+        const unknownHeading = unknown(page).locator('[data-testid="api-key-revoke__outcome-heading"]');
         await expect(unknownHeading).toBeFocused();
         const unknownGeometry = await measure(unknownHeading);
         expect(unknownGeometry.top).toBeGreaterThanOrEqual(0);

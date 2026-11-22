@@ -15,7 +15,7 @@ import { AgentApprovalsRoom } from './agent-approvals/AgentApprovalsRoom';
 import { AgentConnect } from './AgentConnect';
 import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
-import { agentsTeamCopy } from './agents-team-copy';
+import { agentRunCopy } from './agent-run-copy';
 import { Blueprint } from './Blueprint';
 import { BlueprintSharedRoom } from './BlueprintSharedCard';
 import { Campaigns } from './Campaigns';
@@ -132,10 +132,6 @@ function MoreRooms({ path }: { path: string }) {
     content = <OwnAgentPage key={id} id={id} />;
   } else if (p === '/agents/approvals') {
     volt = <AgentApprovalsRoom />;
-  } else if (p === '/agents/team') {
-    title = <agentsTeamCopy.Copy k="title" />;
-    description = <agentsTeamCopy.Copy k="description" />;
-    content = <AgentsTeam />;
   } else if (p === '/blueprint') {
     room = 'blueprint';
     title = copyText('moreroutes.identity.blueprint');
@@ -241,6 +237,8 @@ function MoreRooms({ path }: { path: string }) {
     content = wrap(content);
     if (volt) volt = wrap(volt);
   }
+  // The Team room is on its settings template: it draws its own title, so it is not put inside the old page.
+  if (p === '/agents/team') return <AgentsTeam key={userId ?? 'anonymous'} />;
   if (volt) return <Fragment key={userId ?? 'anonymous'}>{volt}</Fragment>;
   return (
     <div className="more-feature">
