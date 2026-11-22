@@ -17,6 +17,7 @@ import {
   Rail,
   RefusalBox,
   EmptyState,
+  Select,
   RiskMoment,
   Surface,
   type DoorLink,
@@ -221,5 +222,27 @@ describe("refusal and empty parts carry the room's own attributes", () => {
     expect(out).toContain('<button type="button">Try again</button>');
     expect(html(<RefusalBox refusal={{ variant: 'refused', title: 'No', body: 'Why' }} />)).toContain('role="status"');
     expect(html(<EmptyState title="None" data-testid="empty" />)).toContain('data-testid="empty"');
+  });
+});
+
+describe('Select', () => {
+  it('labels its native select, lists the choices in order and names its hint', () => {
+    const out = html(
+      <Select
+        id="kind"
+        label="Type"
+        hint="What you sell"
+        value="b"
+        onChange={() => undefined}
+        options={[
+          ['a', 'Physical'],
+          ['b', 'Digital'],
+        ]}
+      />,
+    );
+    expect(out).toContain('<label for="kind">Type</label>');
+    expect(out).toMatch(/<select id="kind" aria-describedby="kind-hint">/);
+    expect(out.indexOf('Physical')).toBeLessThan(out.indexOf('Digital'));
+    expect(out).toContain('<span id="kind-hint" data-part="hint">What you sell</span>');
   });
 });

@@ -158,6 +158,37 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
+export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children'> & {
+  label: string;
+  hint?: string;
+  /** Each choice as its value and the words shown for it, in order. */
+  options: ReadonlyArray<readonly [string, string]>;
+};
+
+/** A choice from a short list: the native select, drawn as the kit's field (label above, hint below). */
+export function Select({ label, hint, options, id, className, ...rest }: SelectProps) {
+  const auto = React.useId();
+  const selectId = id ?? auto;
+  const describedBy = [rest['aria-describedby'], hint ? `${selectId}-hint` : null].filter(Boolean).join(' ') || undefined;
+  return (
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={selectId}>{label}</label>
+      <select {...rest} id={selectId} aria-describedby={describedBy}>
+        {options.map(([value, words]) => (
+          <option key={value} value={value}>
+            {words}
+          </option>
+        ))}
+      </select>
+      {hint && (
+        <span id={`${selectId}-hint`} data-part="hint">
+          {hint}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
 
