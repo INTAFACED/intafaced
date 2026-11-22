@@ -16,6 +16,7 @@
 
 pub mod book;
 pub mod liquidity;
+pub mod operator;
 pub mod rulebook;
 pub mod spreads;
 pub mod venue;
@@ -76,6 +77,7 @@ impl Slice {
                 | Slice::Liquidity
                 | Slice::Venue
                 | Slice::Spreads
+                | Slice::Operator
         )
     }
 
@@ -421,6 +423,8 @@ pub struct MatchingDoor {
     /// The scrape (`registerMetrics`): every reply the server sends is observed into it.
     metrics: Metrics,
     ids: RequestIds,
+    /// The founder brakes' idempotency keys (`founderIdem`), for the life of the process.
+    founder_keys: operator::FounderKeys,
 }
 
 /// The recorded input schemas and which part each door starts at.
@@ -680,6 +684,7 @@ impl MatchingDoor {
             latency: Mutex::new(OperationLatency::new(started)),
             metrics: Metrics::default(),
             ids: RequestIds::new(),
+            founder_keys: operator::FounderKeys::default(),
         })
     }
 
@@ -786,6 +791,14 @@ impl MatchingDoor {
                 spreads::serve(route, req, &param, &parsed, &mut engine, &approvals)
             }
             Slice::Venue => venue::serve(&self.cfg, route, req, &param, &parsed, &mut engine),
+            Slice::Operator => operator::serve(
+                &self.cfg,
+                &self.founder_keys,
+                route,
+                &user_id,
+                &parsed,
+                &mut engine,
+            ),
             _ => book::serve(route, req, &param, &parsed, &mut engine),
         }
     }
