@@ -214,6 +214,15 @@ describe('focus not obscured', () => {
         { edge: 'bottom', height: Number.NaN },
       ]),
     ).toEqual({ top: 117.5, bottom: 88 });
+    // A floating bar (the phone dock, 12.25px above the screen's bottom) hides the gap under it too; one gap per edge.
+    expect(
+      obscuredInsets([
+        { edge: 'top', height: 48, offset: 0 },
+        { edge: 'bottom', height: 58, offset: 12.25 },
+        { edge: 'bottom', height: 20, offset: 4 },
+        { edge: 'bottom', height: 10, offset: -30 },
+      ]),
+    ).toEqual({ top: 48, bottom: 100.25 });
     expect(OBSCURED_TOP_VAR).toBe('--a11y-obscured-top');
     expect(OBSCURED_BOTTOM_VAR).toBe('--a11y-obscured-bottom');
   });

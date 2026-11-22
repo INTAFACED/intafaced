@@ -15,18 +15,29 @@ export const OBSCURED_BOTTOM_VAR = '--a11y-obscured-bottom';
 export interface Bar {
   readonly edge: string | null;
   readonly height: number;
+  /** How far the bar floats off its edge (the phone dock sits above the screen's bottom); the gap is covered too. */
+  readonly offset?: number;
 }
 
-/** The space covered at each edge: bars stack, so their heights add up. */
+const size = (n: number | undefined): number => (n !== undefined && Number.isFinite(n) && n > 0 ? n : 0);
+
+/** The space covered at each edge: bars stack, so their heights add up, plus the widest gap a floating bar leaves. */
 export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: number } {
   let top = 0;
   let bottom = 0;
+  let topGap = 0;
+  let bottomGap = 0;
   for (const bar of bars) {
-    const height = Number.isFinite(bar.height) && bar.height > 0 ? bar.height : 0;
-    if (bar.edge === 'top') top += height;
-    else if (bar.edge === 'bottom') bottom += height;
+    const height = size(bar.height);
+    if (bar.edge === 'top') {
+      top += height;
+      topGap = Math.max(topGap, size(bar.offset));
+    } else if (bar.edge === 'bottom') {
+      bottom += height;
+      bottomGap = Math.max(bottomGap, size(bar.offset));
+    }
   }
-  return { top, bottom };
+  return { top: top + topGap, bottom: bottom + bottomGap };
 }
 
 /**
@@ -40,7 +51,14 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   let last = '';
   const measure = (): void => {
     const { top, bottom } = obscuredInsets(
-      bars.map((el) => ({ edge: el.getAttribute(OBSCURES_ATTRIBUTE), height: el.getBoundingClientRect().height })),
+      bars.map((el) => {
+        const edge = el.getAttribute(OBSCURES_ATTRIBUTE);
+        const rect = el.getBoundingClientRect();
+        // A bar that floats off its edge hides the gap under it as well: a control scrolled to the padding's end
+        // must clear the bar's far side, not just its height.
+        const offset = edge === 'top' ? rect.top : edge === 'bottom' ? window.innerHeight - rect.bottom : 0;
+        return { edge, height: rect.height, offset };
+      }),
     );
     const next = `${top}|${bottom}`;
     if (next === last) return;
