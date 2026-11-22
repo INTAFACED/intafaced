@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { IDENTITY_OAUTH_PROCEDURES, oauthRefusalStatus } from '@intafaced/contracts/identity-oauth-procedures';
 import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { OAuthError, type OAuthService } from './oauth.js';

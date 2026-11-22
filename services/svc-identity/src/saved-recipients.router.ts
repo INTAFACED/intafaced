@@ -1,4 +1,5 @@
-import { TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { IDENTITY_RECIPIENTS_PROCEDURES } from '@intafaced/contracts/identity-recipients-procedures';
 import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { RECIPIENT_CONFLICT, SavedRecipientError, SavedRecipientService } from './saved-recipients.js';

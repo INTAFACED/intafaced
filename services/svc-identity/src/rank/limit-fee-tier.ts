@@ -5,7 +5,8 @@
  * Missing rank row refuses — never inserts a ladder. Malformed perks refuse — never BASE_PERKS.
  */
 import type { Sql } from 'postgres';
-import { rankPerksSchema, type RankPerks } from '@intafaced/contracts';
+import type { RankPerks } from '@intafaced/contracts';
+import { rankPerksSchema } from '@intafaced/contracts/identity';
 import { type DualControlCmd } from '../auth/four-eyes.js';
 import {
   ACTION_APPROVAL_MISSING,

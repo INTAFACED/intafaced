@@ -1,6 +1,6 @@
 import { assertPartnerOffers } from '../partner/test-partner.js';
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount } from '@intafaced/ledger-client';
 import type { BankServices } from '../bank-service.js';
 import { SORTER_MAX_LEGS, type IncomeSorter, type SorterRun } from './income-sorter.js';

@@ -11,15 +11,9 @@
  * Nothing here moves value or holds a balance.
  */
 import type { Sql } from 'postgres';
-import {
-  LINKED_WALLETS_PATH,
-  linkedWalletsSchema,
-  serviceCallSigner,
-  type LinkedWallets,
-  type OwnAgentPaymentMethod,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { LinkedWallets, OwnAgentPaymentMethod, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { LINKED_WALLETS_PATH, linkedWalletsSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { Amount } from '@intafaced/ledger-client';
 import type { ChainBalancePort } from '../chain-balance.js';
 import { FundsUnreadError, type FundsMethod, type FundsPort, type FundsReading } from '../funds.js';

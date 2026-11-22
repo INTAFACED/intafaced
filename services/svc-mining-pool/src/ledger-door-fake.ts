@@ -4,7 +4,7 @@
  * signature verifier plugged in. See that file for what it enforces.
  */
 import { fakeLedgerDoor as sharedFakeLedgerDoor, type DoorCall } from '@intafaced/ledger-client/testing/ledger-door';
-import { verifyServiceHeaders } from '@intafaced/contracts';
+import { verifyServiceHeaders } from '@intafaced/contracts/service-auth';
 import type { MemoryLedger } from '@intafaced/ledger-client';
 
 export type { DoorCall };

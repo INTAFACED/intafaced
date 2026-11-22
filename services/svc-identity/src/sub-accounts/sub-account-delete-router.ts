@@ -3,7 +3,7 @@
  * The check reads the money services for this one sub-account; delete spends a step-up, re-reads, then revokes.
  */
 import { z } from 'zod';
-import { protectedProcedure, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
 import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-account-delete.js';
 

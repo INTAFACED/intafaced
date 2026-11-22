@@ -1,7 +1,7 @@
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
+import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   MARKET_APPLY_AS_VENDOR,
   MARKET_ARCHIVE_LISTING,

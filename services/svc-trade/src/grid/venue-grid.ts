@@ -5,7 +5,7 @@ import { keccak256, toHex, type TypedDataDefinition } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { add, compare, div, formatAmount, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, type Principal } from '@intafaced/auth';
-import { JurisdictionError } from '@intafaced/contracts';
+import { JurisdictionError } from '@intafaced/contracts/trpc';
 import {
   encodeVenueWire,
   isTestVenue,

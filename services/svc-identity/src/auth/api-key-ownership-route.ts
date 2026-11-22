@@ -4,14 +4,10 @@
  * No permission scopes flatten.
  */
 import type { FastifyInstance } from 'fastify';
-import {
-  rawBodyOf,
-  retainRawBody,
-  verifyServiceHeaders,
-  verifyServiceRequest,
-  SERVICE_HEADER,
-  type ServiceBodyBindMode,
-} from '@intafaced/contracts';
+import type { ServiceBodyBindMode } from '@intafaced/contracts';
+import { rawBodyOf, retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceHeaders, SERVICE_HEADER } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { identityAuthorityReadSecret } from '../controls/founder-context.js';
 import type { PlaceDoor } from './place-door.js';
 import type { IdentityS2s } from '../s2s-door.js';

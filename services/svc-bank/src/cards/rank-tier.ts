@@ -1,4 +1,6 @@
-import { rankPerksSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { rankPerksSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { BankError } from '../errors.js';
 import type { CardTier } from './card-programme.js';
 

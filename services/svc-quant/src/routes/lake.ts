@@ -1,6 +1,6 @@
 import { LAKE_KINDS, coverageOf } from '../lake/lake.js';
 import { QUANT_LAKE_RETENTION_UNSET, QUANT_LAKE_STORE_UNSET, QUANT_LAKE_SYMBOL_UNKNOWN, QuantError } from '../errors.js';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { toTrpc, type QuantCore, quantRefusal } from './core.js';
 import { QUANT_LAKE_CATALOGUE } from '@intafaced/contracts/quant-lake-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';

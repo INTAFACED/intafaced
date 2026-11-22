@@ -1,4 +1,5 @@
-import { forwardedPrincipalHeaders, router } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { CAMPAIGNS_COMPETITION_BOARD } from '@intafaced/contracts/campaigns-procedures';
 import { CampaignsError } from '../codes.js';

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import type { ComplianceCase, ComplianceEntityType, ComplianceInbox } from '@intafaced/contracts';
 import {
   COMPLIANCE_CASE_KINDS,
   COMPLIANCE_CASE_TYPES,
@@ -12,12 +13,8 @@ import {
   complianceInboxSchema,
   complianceQueueBusinessKey,
   complianceQueueDefineInputSchema,
-  router,
-  scopedProcedure,
-  type ComplianceCase,
-  type ComplianceEntityType,
-  type ComplianceInbox,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-compliance-cases';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   COMPLIANCE_CASE_ALREADY_OPEN,
   COMPLIANCE_CASE_NOT_FOUND,
