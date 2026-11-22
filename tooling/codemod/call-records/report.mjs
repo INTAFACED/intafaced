@@ -48,6 +48,7 @@ export function reasonOf(why) {
     [/clashes with another/, 'helper name clash (a rerun places it)'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],
+    [/which a record cannot name|does not map to a record's/, 'door access a record cannot name (Pre::CoachRun, Settle, ...)'],
     [/guard \S+ kept by hand/, 'guard kept by hand (named, with its reason)'],
     [/guard .*chained/, 'guard chained with .use()'],
     [/guard /, 'guard a record cannot name'],

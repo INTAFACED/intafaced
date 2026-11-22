@@ -583,6 +583,10 @@ test('the report sorts each hand reason into the kind one script change or one d
   );
   assert.equal(reasonOf('identity.x: no accepted input found; write its samples by hand'), 'no sample inputs');
   assert.equal(
+    reasonOf('crates/svc-agents serves coach.runSession to its own middleware Pre::CoachRun, which a record cannot name'),
+    'door access a record cannot name (Pre::CoachRun, Settle, ...)',
+  );
+  assert.equal(
     reasonOf("its `action` sends one input value to 3 records: each one's input type can't be kept"),
     'one input sent to each of a closed set of calls',
   );
