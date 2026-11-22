@@ -22,6 +22,7 @@ use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
 use svc_bank::activity;
+use svc_bank::automations;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
@@ -193,6 +194,8 @@ fn spaces_wiring(env: &BankEnv) -> Result<spaces::Wiring, String> {
 /// its approvals (none without `IDENTITY_URL`, so each refuses as unset), the bus for the slice's notices, and the owner's
 /// values as published.
 fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wiring, String> {
+    // `onCreditPosted: (credit) => made.sorter.sortCredit(credit)`.
+    let sorter = sorter_wiring(env);
     let s2s = s2s_from_env(
         env.str("S2S_AUTH_MODE").unwrap_or("off"),
         env.str("S2S_KEYRING"),
@@ -245,6 +248,7 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
             )),
             bus,
             settings,
+            credit_posted: Some(Box::new(sorter.hand_off())),
         },
         None => transfers::Wiring {
             recipients: Box::new(NoIdentity),
@@ -254,6 +258,7 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
             approvals: Box::new(transfers::NoApprovals),
             bus,
             settings,
+            credit_posted: Some(Box::new(sorter.hand_off())),
         },
     })
 }
@@ -542,6 +547,22 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Slice `automations`' wiring from the environment. Only the parts ported here; the others are `none()` until theirs.
+fn automations_wiring(env: &BankEnv) -> automations::Wiring {
+    let mut w = automations::Wiring::none();
+    // `scheduledNotices: eventScheduledNotices(bus)`: the notices go out on the bus the transfers slice holds.
+    w.rules = automations::rules::Wiring::on_the_bus();
+    w.sorter = sorter_wiring(env);
+    w
+}
+
+/// `incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT`, read by the sorter and by the send's hand-off to it.
+fn sorter_wiring(env: &BankEnv) -> automations::sorter::Wiring {
+    automations::sorter::Wiring {
+        min_credit: env.raw.get("BANK_INCOME_SORTER_MIN_CREDIT").cloned(),
+    }
+}
+
 /// The door, built once from the environment, with the store.
 fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -565,7 +586,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_earn(earn_settings(env))
     .with_cards(cards)
     .with_loans(loans_wiring(env)?)
-    .with_activity(activity_wiring(env)?);
+    .with_activity(activity_wiring(env)?)
+    .with_automations(automations_wiring(env));
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

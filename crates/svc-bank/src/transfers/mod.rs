@@ -115,6 +115,8 @@ pub struct Wiring {
     pub approvals: Box<dyn Approvals>,
     pub bus: Box<dyn Bus>,
     pub settings: Settings,
+    /// `onCreditPosted`: who a posted send is handed to (the income sorter); none hands it to nobody.
+    pub credit_posted: Option<Box<dyn ports::CreditPosted>>,
 }
 
 impl Wiring {
@@ -128,6 +130,7 @@ impl Wiring {
             approvals: Box::new(NoApprovals),
             bus: Box::new(NoBus),
             settings: Settings::default(),
+            credit_posted: None,
         }
     }
 }
