@@ -567,7 +567,7 @@ function ConnectAssistant({ open, keys, reload }: { open: AgentAccount[]; keys: 
             label={t('connectAccount')}
             name="accountId"
             defaultValue={open[0]!.accountId}
-            options={open.map((a) => ({ value: a.accountId, label: a.name }))}
+            options={open.map((a) => [a.accountId, a.name] as const)}
           />
           <Field label={t('keyName')} hint={t('keyNameHint')} name="name" autoComplete="off" maxLength={64} />
           <fieldset>

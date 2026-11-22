@@ -495,3 +495,23 @@ describe('gallery fixtures are shaped as the API sends them', () => {
     for (const h of HOLDINGS) expect(h.amount).toMatch(/^\d+(\.\d+)?$/);
   });
 });
+
+describe('a framed room', () => {
+  it('draws no title row of its own when the shell draws one, and keeps its body', () => {
+    const out = html(
+      <RoomFrame template="flow" title="Top up" description="Add money" framed state={{ kind: 'ready' }}>
+        <p>body</p>
+      </RoomFrame>,
+    );
+    expect(out).not.toContain('<h1');
+    expect(out).not.toContain('Add money');
+    expect(out).toContain('<p>body</p>');
+    expect(
+      html(
+        <RoomFrame template="flow" title="Top up" state={{ kind: 'ready' }}>
+          {null}
+        </RoomFrame>,
+      ),
+    ).toContain('<h1 class="lt-title">Top up</h1>');
+  });
+});

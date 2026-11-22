@@ -45,7 +45,14 @@ function Select({
   onChange: (value: string) => void;
   options: readonly { value: string; label: string }[];
 }) {
-  return <KitSelect label={label} value={value} onChange={(e) => onChange(e.target.value)} options={options} />;
+  return (
+    <KitSelect
+      label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      options={options.map((o) => [o.value, o.label] as const)}
+    />
+  );
 }
 
 export function TextArea({

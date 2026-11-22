@@ -12,13 +12,14 @@ import {
   Dock,
   Field,
   TextArea,
-  Select,
   Checkbox,
   Figure,
   LegalSlot,
   Logo,
   Rail,
   RefusalBox,
+  EmptyState,
+  Select,
   RiskMoment,
   Surface,
   type DoorLink,
@@ -150,7 +151,7 @@ describe('components', () => {
     expect(area).toContain('<label for="t">Your answer</label>');
     expect(area).toContain('aria-describedby="t-hint"');
     expect(area).toContain('rows="5"');
-    const pick = html(<Select label="Account" id="s" options={[{ value: 'a', label: 'One' }]} defaultValue="a" />);
+    const pick = html(<Select label="Account" id="s" options={[['a', 'One']]} defaultValue="a" />);
     expect(pick).toContain('<label for="s">Account</label>');
     expect(pick).toContain('<option value="a" selected="">One</option>');
     const box = html(<Checkbox label="I have saved the key" name="saved" />);
@@ -222,5 +223,41 @@ describe('components', () => {
     expect(fig).not.toMatch(/lit-figure__marks"[^>]*dir=/);
     const change = html(<Change text="+£45.53 (+0.37%)" dir="up" spoken="up" />);
     expect(change).toContain('<span dir="ltr" data-ltr="">+£45.53 (+0.37%)</span>');
+  });
+});
+
+describe("refusal and empty parts carry the room's own attributes", () => {
+  it('passes a test id and role through, and draws a control as the next step', () => {
+    const out = html(
+      <RefusalBox refusal={{ variant: 'refused', title: 'No', body: 'Why' }} data-testid="failure" role="alert">
+        <button type="button">Try again</button>
+      </RefusalBox>,
+    );
+    expect(out).toMatch(/^<div role="alert" data-testid="failure" class="lit-refusal" data-variant="refused">/);
+    expect(out).toContain('<button type="button">Try again</button>');
+    expect(html(<RefusalBox refusal={{ variant: 'refused', title: 'No', body: 'Why' }} />)).toContain('role="status"');
+    expect(html(<EmptyState title="None" data-testid="empty" />)).toContain('data-testid="empty"');
+  });
+});
+
+describe('Select', () => {
+  it('labels its native select, lists the choices in order and names its hint', () => {
+    const out = html(
+      <Select
+        id="kind"
+        label="Type"
+        hint="What you sell"
+        value="b"
+        onChange={() => undefined}
+        options={[
+          ['a', 'Physical'],
+          ['b', 'Digital'],
+        ]}
+      />,
+    );
+    expect(out).toContain('<label for="kind">Type</label>');
+    expect(out).toMatch(/<select id="kind" aria-describedby="kind-hint">/);
+    expect(out.indexOf('Physical')).toBeLessThan(out.indexOf('Digital'));
+    expect(out).toContain('<span id="kind-hint" data-part="hint">What you sell</span>');
   });
 });
