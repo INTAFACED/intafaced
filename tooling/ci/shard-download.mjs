@@ -22,6 +22,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { missingArtifact } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 export const PATTERN = 'real-app-journeys-shard-*';
 export const MAX_WAITS = 2;
@@ -124,6 +125,7 @@ export function downloadAll(repo, run, dir) {
   // A fresh folder each try: a half-finished download never mixes with the next.
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
+  countCall(); // the artifact list: one page holds a run's shards
   const list = execFileSync(
     'gh',
     ['api', '--paginate', `repos/${repo}/actions/runs/${run}/artifacts?per_page=100`, '--jq', '.artifacts[] | "\\(.id) \\(.name)"'],
@@ -134,6 +136,7 @@ export function downloadAll(repo, run, dir) {
   if (!wanted.length)
     throw Object.assign(new Error('no valid artifacts found to download'), { stderr: 'no valid artifacts found to download' });
   console.log(`${wanted.length} shard artifacts, ${PARALLEL} at a time`);
+  for (const _ of wanted) countCall();
   execFileSync('bash', ['-c', PARALLEL_SCRIPT, 'shard-download', repo, dir, String(PARALLEL)], {
     input: wanted.map((a) => `${a.id} ${a.name}`).join('\n'),
     stdio: ['pipe', 'inherit', 'pipe'],
