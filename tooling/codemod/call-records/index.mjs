@@ -37,6 +37,7 @@ import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
+import { toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -153,7 +154,9 @@ function plan(opts) {
       continue;
     }
     const arg = schemaArgOf(s);
-    const checks = s.schema ? answerChecks(s.schema.p, s.schema.node) : arg ? answerChecks(load(s.file), arg) : [];
+    // A portal list's item schema is one row of the answer: what it checks is lost with it all the same.
+    const checked = arg ?? (toolShape(s) ? toolChecked(s) : undefined);
+    const checks = s.schema ? answerChecks(s.schema.p, s.schema.node) : checked ? answerChecks(load(s.file), checked) : [];
     // A customer query or mutate whose schema only checks the answer (no transform) keeps that schema: the call goes to its
     // record through `callAs`, which holds the answer to it and returns what it parses (apps/customer/src/shared/api.ts).
     if (checks.length && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
@@ -281,7 +284,9 @@ const inputArg = (s) =>
       ? s.dispatchers[0].arguments[4]
       : s.shape === 'write-spec'
         ? undefined // the spec's `input` builds it from the form; the record's input type holds it at the typecheck
-        : s.node.arguments[INPUT_AT[s.shape] ?? 2];
+        : toolShape(s)
+          ? toolInput(s)
+          : s.node.arguments[INPUT_AT[s.shape] ?? 2];
 function noInput(s) {
   // A wrapper sends the input it sent before: its record only names the call.
   if (s.shape === 'wrapper') return true;
@@ -479,6 +484,7 @@ function build(opts, planned) {
   fanIn(changes, planned, done, callText);
   const kinds = new Map(planned.existing.map((e) => [e.name, recordKind(e.file, e.name)]));
   wrapperIn(changes, planned, done, (name) => kinds.get(name));
+  toolFormsIn(changes);
   return { changes, created, problems, done };
 }
 
@@ -528,6 +534,7 @@ export function schemaArgOf(s) {
   if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
   if (s.shape === 'payCall') return s.reader ? undefined : a[4]?.arguments?.[0];
   if (BUSINESS_FORMS[s.shape]) return a[2];
+  if (toolShape(s)) return toolSchema(s);
   // useBankRead's schema is `bankReads[path]` in its own file (`s.schema`); founderEdgeCall parses nothing.
   if (s.shape === 'useBankRead' || s.shape === 'founderEdgeCall') return undefined;
   return a[3];
@@ -620,6 +627,10 @@ export function callText(changes, s, name, takesNone) {
     return `${recv}.call(${name}, ${rest.join(', ')})`;
   }
   if (BUSINESS_FORMS[s.shape]) return businessCall(p, s, name, input);
+  if (toolShape(s)) {
+    const { fn, args: rest } = toolCall(changes, s, name, input);
+    return `${fn}(${rest.map((x) => (typeof x === 'string' ? x : text(p, x))).join(', ')})`;
+  }
   if (RECORD_FORMS[s.shape]) {
     const { fn, head, tail } = RECORD_FORMS[s.shape](s, a);
     if (s.wrapperFrom) changes.imp(s.file, s.wrapperFrom, fn);

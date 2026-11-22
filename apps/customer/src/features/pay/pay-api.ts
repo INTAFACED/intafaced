@@ -129,7 +129,7 @@ export type PayBusinessAuthority = {
 };
 
 /** A record the Business API sends to svc-pay. */
-type PayRecord = AppProcedure & { readonly module: 'pay' };
+export type PayRecord = AppProcedure & { readonly module: 'pay' };
 type PayScope = 'pay:write' | 'pay:refund' | 'pay:payout';
 
 type PayOriginal = { status: 'uncertain'; reference?: string; path?: string; priceId?: string };
