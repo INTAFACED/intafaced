@@ -21,6 +21,7 @@ use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_bank::automations;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
@@ -509,6 +510,40 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Slice `automations`' wiring (`index.ts`), one part each; parts not ported yet are handed nothing.
+///
+/// - `pay_yourself`: svc-trade's realised read (`createRealisedSource`), signed as svc-bank, five seconds a read.
+/// - `own_moves`: the pay-in partner's send to a wallet (`onrampPartnerFor`'s `deliver`: only the TEST stand-in on a dev
+///   or test stack with a loopback delivery address), the owner's destination sanctions list as published, and no
+///   deposit read (`index.ts` wires none).
+fn automations_wiring(env: &BankEnv) -> Result<automations::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let deliver = automations::own_moves::delivery::for_stack(
+        env.str("BANK_ONRAMP_PARTNER"),
+        env.str("BANK_PAYIN_SIM_DELIVER_URL"),
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+        Box::new(UreqFetch::new()),
+    )?;
+    let mut wiring = automations::Wiring::none();
+    wiring.pay_yourself = automations::pay_yourself::Wiring {
+        realised: Some(Box::new(
+            automations::pay_yourself::realised::TradeRealised::new(
+                env.str("TRADE_URL").unwrap_or_default(),
+                call_signer(env, "svc-trade")?,
+                Box::new(UreqFetch::new()),
+            ),
+        )),
+    };
+    wiring.own_moves = automations::own_moves::Wiring {
+        deliver: deliver
+            .map(|d| Box::new(d) as Box<dyn automations::own_moves::delivery::Delivery>),
+        sanctions: env.str("BANK_DESTINATION_SANCTIONS").map(str::to_owned),
+        deposits: None,
+    };
+    Ok(wiring)
+}
+
 /// The door, built once from the environment, with the store.
 fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -531,7 +566,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_transfers(transfers)
     .with_earn(earn_settings(env))
     .with_cards(cards)
-    .with_loans(loans_wiring(env)?);
+    .with_loans(loans_wiring(env)?)
+    .with_automations(automations_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

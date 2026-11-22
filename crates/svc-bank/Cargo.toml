@@ -20,6 +20,8 @@ signal-hook = "0.3"
 # Vendored with the pool fix of #9432 (crates/vendor/tiny_http/VENDORED.md).
 tiny_http = { path = "../vendor/tiny_http" }
 url = "2"
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+sha3 = { version = "0.10", default-features = false }
 
 [[test]]
 name = "it"
