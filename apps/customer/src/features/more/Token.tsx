@@ -60,7 +60,7 @@ const governanceProposal = proposalSchema.extend({ opensAt: iso, closesAt: iso, 
 const tierLabel = (tier: string): string => (tier === 'flex' || tier === 'm3' || tier === 'm12' ? copyText(`token.tier.${tier}`) : tier);
 const ballotKey = (actor: string) => `intafaced:token:ballot:${actor}`;
 const selectionKey = (actor: string) => `intafaced:token:proposal:${actor}`;
-function selectedFor(actor: string | null) {
+export function selectedFor(actor: string | null) {
   if (!actor) return '';
   try {
     const value = localStorage.getItem(selectionKey(actor));
@@ -189,17 +189,13 @@ function proposalDetailSchema(id: string) {
 const detailReads = (id: string) => (p: unknown) => proposalDetailSchema(id).safeParse(p).success;
 const powerReads = (p: unknown) => powerSchema.safeParse(p).success;
 export type TokenTab = 'Staking' | 'Governance' | 'Economy' | 'Burn';
-/** `tab`: the section an address such as /token/economy or /token/burn opens on. */
-export function Token({ tab: first }: { tab?: TokenTab } = {}) {
-  const { hideBalances } = usePreferences();
+/**
+ * The staking view's reads: my token access, my stakes by status within `limit`, and the recorded burned supply. Shared
+ * by this room and the /token room on the kit (`token-room/TokenRoom.tsx`).
+ */
+export function useTokenReads(status: string, limit: number) {
   const api = useApi(),
-    { userId } = useSession(),
-    action = useAction('token');
-  const selection = useOriginalProposal(userId);
-  const ballot = useSavedBallot(userId);
-  const [tab, setTab] = useState<TokenTab>(() => first ?? (selectedFor(userId) ? 'Governance' : 'Staking')),
-    [status, setStatus] = useState('all'),
-    [limit, setLimit] = useState(50);
+    { userId } = useSession();
   const access = useResource(
       (signal) => api.call(TOKEN_ACCESS_OF, undefined, { signal, accept: (access) => decimalSchema.safeParse(access.staked).success }),
       `token-access:${userId}`,
@@ -214,6 +210,20 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
       `token-stakes:${userId}:${status}:${limit}`,
     ),
     burned = useResource((signal) => api.call(TOKEN_BURNED_SUPPLY, undefined, { signal }), `token-burn:${userId}`);
+  return { access, stakes, burned };
+}
+
+/** `tab`: the section an address such as /token/economy or /token/burn opens on. */
+export function Token({ tab: first }: { tab?: TokenTab } = {}) {
+  const { hideBalances } = usePreferences();
+  const { userId } = useSession(),
+    action = useAction('token');
+  const selection = useOriginalProposal(userId);
+  const ballot = useSavedBallot(userId);
+  const [tab, setTab] = useState<TokenTab>(() => first ?? (selectedFor(userId) ? 'Governance' : 'Staking')),
+    [status, setStatus] = useState('all'),
+    [limit, setLimit] = useState(50);
+  const { access, stakes, burned } = useTokenReads(status, limit);
   return (
     <div className="more-grid">
       <Tabs
