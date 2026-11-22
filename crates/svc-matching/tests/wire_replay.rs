@@ -241,6 +241,7 @@ fn engine(setup: &str) -> MatchingEngine {
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: true,
     });
     engine.recover().unwrap();
     engine

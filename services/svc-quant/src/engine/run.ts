@@ -1,5 +1,14 @@
 import { QUANT_BACKTEST_HISTORY_PAGE_MAX } from '@intafaced/contracts/quant-backtest-procedures';
 import { createHash } from 'node:crypto';
+import type {
+  QuantAccountRules,
+  QuantBacktestInput,
+  QuantBacktestResult,
+  QuantCheckThresholds,
+  QuantSignalRules,
+  QuantSplitPreset,
+  QuantVerdictCriteria,
+} from '@intafaced/contracts';
 import {
   QUANT_BACKTEST_ASSUMPTIONS,
   QUANT_FEE_ROLES,
@@ -8,15 +17,8 @@ import {
   quantBacktestResultSchema,
   quantOutOfSampleFrom,
   quantCheckThresholdsSchema,
-  type QuantAccountRules,
   quantVerdictCriteriaSchema,
-  type QuantBacktestInput,
-  type QuantBacktestResult,
-  type QuantCheckThresholds,
-  type QuantSignalRules,
-  type QuantSplitPreset,
-  type QuantVerdictCriteria,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/quant-algo';
 import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import {
   QUANT_ACCOUNT_RULE_UNSET,

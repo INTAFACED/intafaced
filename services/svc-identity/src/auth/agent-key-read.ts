@@ -6,15 +6,13 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
+import type { AgentKeyCalls, AgentKeyRead, ServiceBodyBindMode } from '@intafaced/contracts';
 import {
   AGENT_KEY_CALLS_PATH,
   AGENT_KEY_READ_PATH,
   agentKeyCallsRequestSchema,
   agentKeyReadRequestSchema,
-  type AgentKeyCalls,
-  type AgentKeyRead,
-  type ServiceBodyBindMode,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/identity';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { apiKeyExpired } from './expire-api-key.js';
 import { ApiKeyCallsError, listApiKeyCalls } from './api-key-calls.js';

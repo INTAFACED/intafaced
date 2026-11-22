@@ -1,5 +1,6 @@
 import type { Sql, TransactionSql } from 'postgres';
-import { quantSignalRulesSchema, type QuantSignalRules } from '@intafaced/contracts';
+import type { QuantSignalRules } from '@intafaced/contracts';
+import { quantSignalRulesSchema } from '@intafaced/contracts/quant-algo';
 import { QUANT_STUDIO_NOT_FOUND, QuantError } from '../errors.js';
 import { accountCounts, utf8Bytes, versionCount } from '../quota/counts.js';
 import type { QuotaGate } from '../quota/quota.js';

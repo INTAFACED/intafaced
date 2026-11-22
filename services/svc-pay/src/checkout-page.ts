@@ -32,7 +32,9 @@
  */
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { CHECKOUT_METHODS, checkoutButtonTextColor, checkoutMethodOfferSchema, type CheckoutMethodOffer } from '@intafaced/contracts';
+import type { CheckoutMethodOffer } from '@intafaced/contracts';
+import { checkoutButtonTextColor } from '@intafaced/contracts/merchant-checkout-branding';
+import { CHECKOUT_METHODS, checkoutMethodOfferSchema } from '@intafaced/contracts/merchant-checkout-methods';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { formatMoney } from '@intafaced/i18n';
 import { PAYER_COPY_KEYS, payerTranslator, resolvePayerCopy } from './payer-copy.js';

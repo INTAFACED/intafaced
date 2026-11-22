@@ -1,5 +1,6 @@
 import type { Principal } from '@intafaced/auth';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { privateWrite } from '../route-inventory.js';
 

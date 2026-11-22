@@ -5,19 +5,11 @@ import { sbeCodec, type SbeCodec } from '@intafaced/sbe-codec';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { MATCHING_SUBMIT_ORDER } from '@intafaced/exchange-contract';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
-import {
-  DEFAULT_SERVICE_BODY_BIND_MODE,
-  retainRawBody,
-  assertEdgePrincipalLimits,
-  edgePrincipalPublicKey,
-  EdgeTrustError,
-  verifyForwardedPrincipal,
-  type EdgePrincipalLimits,
-  verifyServiceRequest,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-  type ServiceBodyBindMode,
-} from '@intafaced/contracts';
+import type { EdgePrincipalLimits, ServiceAuthMode, ServiceVerifier, ServiceBodyBindMode } from '@intafaced/contracts';
+import { assertEdgePrincipalLimits, edgePrincipalPublicKey, EdgeTrustError, verifyForwardedPrincipal } from '@intafaced/contracts/edge';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { DEFAULT_SERVICE_BODY_BIND_MODE } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import type { MatchingEngine } from './engine/engine.js';
 import type {
   AmendResult,

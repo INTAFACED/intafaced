@@ -9,13 +9,8 @@
  * non-OK identity response (including 401) as live.
  */
 
-import {
-  accountStateSchema,
-  apiKeyOwnershipSchema,
-  sessionOwnershipSchema,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { accountStateSchema, apiKeyOwnershipSchema, sessionOwnershipSchema } from '@intafaced/contracts/identity';
 import { apiKeyIpAllowed } from './caller-ip.js';
 import { apiKeyOriginAllowed } from './key-origin.js';
 import { apiKeyProductAllowed, STREAM_PRODUCT } from './key-product.js';

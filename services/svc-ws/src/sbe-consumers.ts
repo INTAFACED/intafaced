@@ -4,7 +4,8 @@
  * Greeks. The id is this process's own counter, so it names no customer and no address.
  */
 import type { FastifyInstance } from 'fastify';
-import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { WS_SBE_CONSUMERS } from '@intafaced/contracts/ws-procedures';
 
 export interface SbeConsumerRow {

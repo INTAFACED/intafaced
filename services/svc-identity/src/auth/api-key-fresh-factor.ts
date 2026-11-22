@@ -10,7 +10,7 @@
 import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError, type ApiKeyActionScope, type PayStepUpFactorProof } from './auth-service.js';
 import { userCopy } from '../user-copy.js';
 import { inTransaction } from './api-key-request-sign.js';

@@ -1,12 +1,13 @@
 //! The `triggers` slice's parts of a book: what `trailing-stop.ts`, `bracket.ts`, `oco-link.ts` and `oco-cancel.ts`
-//! wrap around the core book's submit and amend. The TypeScript installs each by replacing `OrderBook.prototype.submit`
-//! on import; here they are one fixed chain, outermost first, in the order the TypeScript's imports install them:
+//! wrap between the option layer and the combo and spread layers ([`OrderBook::submit`]). The TypeScript installs each
+//! by replacing `OrderBook.prototype.submit` on import; here they are one fixed chain, outermost first, in the order the
+//! TypeScript's imports install them:
 //!
 //! 1. a trailing stop (`trail` present) walks its first trigger from the mark and rests as a stop;
 //! 2. a bracket rests its entry and, once the entry trades, its take-profit and stop-loss exits;
 //! 3. a linked OCO cancel (`cancel: true`) pulls both siblings;
 //! 4. an OCO (`oco`, `takeProfit` or `stopLoss`) rests its stop-loss and take-profit legs, all or neither;
-//! 5. the core book.
+//! 5. the option layer (`option.ts`), then the core book.
 //!
 //! A mark walks the live trailing stops ([`OrderBook::apply_mark`]). The engine never invents a trigger, a mark or a
 //! distance: a missing one refuses.
@@ -187,13 +188,28 @@ impl OrderBook {
     /// Place one order through every wrapper, outermost first. `now` is the engine clock in milliseconds, when it has
     /// one.
     pub fn submit(&mut self, order: &EngineOrder, now: Option<i64>) -> SubmitResult {
+        self.spread_submit(order, now)
+    }
+
+    /// The trigger wrappers' submit, under the spread and combo layers and over the option layer: the TypeScript's
+    /// imports install `option.ts` before these, and `combo-book.ts` and `spread-book.ts` after them.
+    pub(super) fn triggers_submit(
+        &mut self,
+        order: &EngineOrder,
+        now: Option<i64>,
+    ) -> SubmitResult {
         self.submit_trailing(order, now)
     }
 
     /// Amend one order: the core book's amend, then any bracket entry it traded arms its exits (`installBracket`'s
     /// amend). The exits it rests take no clock, as the TypeScript passes none.
     pub fn amend(&mut self, cmd: &EngineAmend, now: Option<i64>) -> AmendResult {
-        let amended = self.amend_core(cmd, now);
+        self.spread_amend(cmd, now)
+    }
+
+    /// `installBracket`'s amend, under the spread layer and over the option layer.
+    pub(super) fn bracket_amend(&mut self, cmd: &EngineAmend, now: Option<i64>) -> AmendResult {
+        let amended = self.option_amend(cmd, now);
         if !amended.accepted {
             return amended;
         }
@@ -629,7 +645,7 @@ impl OrderBook {
         }
         let x = &order.exits;
         if !wants_oco(x) {
-            return self.submit_core(order, now);
+            return self.option_submit(order, now);
         }
         let Some(take_profit) = positive(&x.take_profit) else {
             return rejected(
@@ -757,7 +773,7 @@ impl OrderBook {
         if wants_oco_cancel(order) {
             return self.oco_cancel(order);
         }
-        self.submit_core(order, now)
+        self.option_submit(order, now)
     }
 
     /// `liveResting`: where an order still rests, as a resting reference.

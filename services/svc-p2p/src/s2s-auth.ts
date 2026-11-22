@@ -5,14 +5,10 @@
  * against the wire. GETs bind the empty body.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import {
-  DEFAULT_SERVICE_BODY_BIND_MODE,
-  retainRawBody,
-  verifyServiceRequest,
-  type ServiceAuthMode,
-  type ServiceBodyBindMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceBodyBindMode, ServiceVerifier } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { DEFAULT_SERVICE_BODY_BIND_MODE } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 
 export function installP2pS2sRawBody(app: FastifyInstance): void {
   retainRawBody(app);

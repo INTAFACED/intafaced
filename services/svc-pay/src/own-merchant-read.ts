@@ -1,4 +1,4 @@
-import { anyScopeProcedure } from '@intafaced/contracts';
+import { anyScopeProcedure } from '@intafaced/contracts/trpc';
 
 /**
  * A merchant's reads of its own account, for the portal (J-merchant-01, M-adv-phantom-order-02).

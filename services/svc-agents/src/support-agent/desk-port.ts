@@ -7,15 +7,10 @@
  * tests only — production `index.ts` constructs the HTTP port iff SUPPORT_URL is set.
  */
 
-import {
-  accountStateSchema,
-  serviceCallSigner,
-  supportCommentSchema,
-  supportKbArticleSchema,
-  supportTicketSchema,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { accountStateSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
+import { supportCommentSchema, supportKbArticleSchema, supportTicketSchema } from '@intafaced/contracts/support';
 import { AgentError, assertKbSearchPageLimit } from '../errors.js';
 import { accountProjectionHasInventMoney, type AccountProjectionFixture, type KbArticleFixture, type TicketFixture } from './data-tools.js';
 

@@ -1,4 +1,5 @@
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { ACADEMY_INTERNAL_CURRICULUM } from '@intafaced/contracts/academy-procedures';
 import { callHttpRecord } from '@intafaced/contracts/procedure-http';
 import type { CoachCatalogItem, CoachGrounding } from './grounded-session.js';

@@ -16,7 +16,8 @@ import {
   readStoredBacktest,
 } from '../engine/run.js';
 import { type BacktestLake, missingLake } from '../backtest/lake.js';
-import { type Context, type QuantBacktestResult, type QuantLifecycle, type QuantLiveCheck, TRPCError } from '@intafaced/contracts';
+import type { Context, QuantBacktestResult, QuantLifecycle, QuantLiveCheck } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { DEFAULT_FLOOR_POLICY } from '../risk/rules.js';
 import { type DisclosureRepository } from '../disclosure/repository.js';
 import { type FeePort, type HistoryPort, type VenuePricePort, missingFees, missingHistory, missingVenuePrices } from '../engine/ports.js';

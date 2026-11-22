@@ -8,7 +8,7 @@
  * line with the operator and the customer BEFORE any figure is read; if that line cannot be written the read refuses.
  * Nothing is inserted and there is no export.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { activityFailure } from '../activity/activity.router.js';

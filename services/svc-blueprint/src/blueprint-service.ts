@@ -2,6 +2,23 @@ import type { Sql } from 'postgres';
 import { isSerializationFailure, transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { z } from 'zod';
+import type {
+  BlueprintContract,
+  BlueprintExport,
+  BlueprintProfile,
+  BlueprintRecord,
+  CardOpener,
+  CardRender,
+  CardShare,
+  CardSize,
+  CrewRole,
+  EraseReceipt,
+  MentorMatch,
+  OnboardInput,
+  OnboardOutput,
+  Placement,
+  Visibility,
+} from '@intafaced/contracts';
 import {
   blueprintProfileSchema,
   CARD_DIMENSIONS,
@@ -14,22 +31,7 @@ import {
   openerKindSchema,
   riskTemperamentSchema,
   visibilitySchema,
-  type BlueprintContract,
-  type BlueprintExport,
-  type BlueprintProfile,
-  type BlueprintRecord,
-  type CardOpener,
-  type CardRender,
-  type CardShare,
-  type CardSize,
-  type CrewRole,
-  type EraseReceipt,
-  type MentorMatch,
-  type OnboardInput,
-  type OnboardOutput,
-  type Placement,
-  type Visibility,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/blueprint';
 import { composeCard } from './card/compose.js';
 import { assertZeroPiiSurface } from './attestations/zero-pii.js';
 import { mayViewCard } from './visibility.js';
