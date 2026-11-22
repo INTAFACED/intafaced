@@ -241,26 +241,37 @@ export function runRange(base, head) {
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
-/** The finished, uncancelled Real-app journeys runs on main numbered from..to, oldest first. Pages back from the newest. */
-export function listRuns(gh, repo, from, to, maxPages = 30) {
+/**
+ * The finished, uncancelled Real-app journeys runs on main numbered from..to, oldest first. Reads back one UTC day at a
+ * time (`created=<day>`), newest first, until a day holds run `from` or an older one: GitHub returns at most 1,000 runs
+ * for any filtered list, so one list over every day ended about 1,000 main runs back, and a baseline naming an older run
+ * failed closed on every change (run 1719 on 22 Nov 2026, project-state#3692). A day is far under 1,000 runs; one at the
+ * cap can't be read whole, so it fails closed.
+ */
+export function listRuns(gh, repo, from, to, { now = new Date(), maxDays = 90 } = {}) {
   const out = [];
-  for (let page = 1; page <= maxPages; page++) {
-    const got = ghJson(gh, [
-      'api',
-      `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=100&page=${page}`,
-    ]);
-    const runs = got.workflow_runs ?? [];
-    for (const r of runs) {
-      if (r.run_number < from || r.run_number > to || r.head_branch !== 'main' || r.event === 'pull_request') continue;
-      if (['cancelled', 'skipped'].includes(r.conclusion)) continue;
-      out.push({ number: r.run_number, id: r.id, head_sha: r.head_sha });
+  const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  for (let d = 0; d < maxDays; d++, day.setUTCDate(day.getUTCDate() - 1)) {
+    const date = day.toISOString().slice(0, 10);
+    let oldest = Infinity;
+    for (let page = 1; ; page++) {
+      const got = ghJson(gh, [
+        'api',
+        `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&created=${date}&per_page=100&page=${page}`,
+      ]);
+      const runs = got.workflow_runs ?? [];
+      for (const r of runs) {
+        oldest = Math.min(oldest, r.run_number);
+        if (r.run_number < from || r.run_number > to || r.head_branch !== 'main' || r.event === 'pull_request') continue;
+        if (['cancelled', 'skipped'].includes(r.conclusion)) continue;
+        out.push({ number: r.run_number, id: r.id, head_sha: r.head_sha });
+      }
+      if (runs.length < 100) break;
+      if (page === 10) throw new Error(`1,000 or more runs on main finished on ${date}; that day's list can't be read whole`);
     }
-    if (runs.length && runs.at(-1).run_number <= from) return out.sort((a, b) => a.number - b.number);
-    // An empty page before run `from` is a list cut short (GitHub returns at most 1,000 runs for a filtered list), never
-    // the whole range: fail closed.
-    if (!runs.length) throw new Error(`the runs list ended before run ${from}; it can't be read whole`);
+    if (oldest <= from) return out.sort((a, b) => a.number - b.number);
   }
-  throw new Error(`run ${from} is more than ${maxPages} pages of runs back; read fewer runs or raise maxPages`);
+  throw new Error(`run ${from} is more than ${maxDays} days of runs back; read fewer runs or raise maxDays`);
 }
 
 /** One run's step states from its `real-app-journeys` artifact, or null when the report is gone. */
