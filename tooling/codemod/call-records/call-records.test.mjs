@@ -28,7 +28,7 @@ import { applyEdits, forget, freeNames, load, resolveRelative, text } from './as
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
-import { armsOf, callsOf } from './door.mjs';
+import { accessText, armsOf, callsOf } from './door.mjs';
 import { canon, doorTree, treeOf } from './door-check.mjs';
 import { samplesFor } from './samples.mjs';
 import { createRequire } from 'node:module';
@@ -1367,7 +1367,7 @@ test("a door's match arms: a pattern over lines, each arm to the next, a literal
   );
 });
 
-test("a door's calls.rs rows read as kind, scope (null when public) and guarded; a row it can't read stops it", () => {
+test("a door's calls.rs rows read as kind, the record's access (or why none) and guarded; a row it can't read stops it", () => {
   const dir = mkdtempSync(join(tmpdir(), 'door-'));
   mkdirSync(join(dir, 'src/door'), { recursive: true });
   const row = (path, kind, access, guarded) =>
@@ -1376,12 +1376,52 @@ test("a door's calls.rs rows read as kind, scope (null when public) and guarded;
     join(dir, 'src/door/calls.rs'),
     [row('a', 'Query', 'Public', 'false'), row('b', 'Mutation', 'Scope("x:write")', 'true')].join('\n'),
   );
-  assert.deepEqual(Object.fromEntries(callsOf(dir)), {
-    a: { kind: 'query', scope: null, guarded: false },
-    b: { kind: 'mutation', scope: 'x:write', guarded: true },
+  assert.deepEqual(Object.fromEntries(callsOf(dir, 'x')), {
+    a: { kind: 'query', access: { caller: 'public' }, guarded: false },
+    b: { kind: 'mutation', access: { caller: 'scope', scope: 'x:write', module: 'x' }, guarded: true },
   });
-  writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, access: Access::Operator, guarded: true, }');
-  assert.throws(() => callsOf(dir), /can't read/);
+  // svc-agents' rows: a nested Scoped and Post, a Pre, no guarded flag. Before, the reader threw on the first of them.
+  const scoped = (path, scope, person, module, pre, access) =>
+    `    Call {
+        path: "${path}",
+        kind: Kind::Query,
+        access: ${access ?? `Access::Scope(Scoped {\n            scope: "${scope}",\n            person: ${person},\n            module: ${module},\n        })`},
+        pre: ${pre},
+        post: Post {
+            key: false,
+            sub_account: false,
+            lacks_identity_write: false,
+        },
+        slice: Slice::Runtime,
+        has_input: true,
+    },`;
+  writeFileSync(
+    join(dir, 'src/door/calls.rs'),
+    [
+      scoped('own.inbox', 'agents:read', true, true, 'Pre::None'),
+      scoped('own.tool.try', 'agents:execute', false, true, 'Pre::PersonOnly("agents.execute_person_only")'),
+      scoped('region.free', 'agents:read', false, false, 'Pre::None'),
+      scoped('coach.runSession', 'agents:read', false, true, 'Pre::CoachRun'),
+      scoped('settle', '', false, false, 'Pre::None', 'Access::Settle'),
+    ].join('\n'),
+  );
+  assert.deepEqual(Object.fromEntries(callsOf(dir, 'agents')), {
+    'own.inbox': { kind: 'query', access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true }, guarded: null },
+    'own.tool.try': {
+      kind: 'query',
+      access: { caller: 'scope', scope: 'agents:execute', module: 'agents', ownSession: 'agents.execute_person_only' },
+      guarded: null,
+    },
+    'region.free': { kind: 'query', access: { caller: 'scope', scope: 'agents:read' }, guarded: null },
+    'coach.runSession': { kind: 'query', access: null, why: 'its own middleware Pre::CoachRun, which a record cannot name', guarded: null },
+    settle: { kind: 'query', access: null, why: "access Access::Settle, which this reader does not map to a record's", guarded: null },
+  });
+  assert.equal(
+    accessText({ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }),
+    "{ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }",
+  );
+  writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, guarded: true, }');
+  assert.throws(() => callsOf(dir, 'x'), /can't read/);
 });
 
 test("a record's input is held to the door's tree: the same zod parts match, one changed bound does not", async () => {

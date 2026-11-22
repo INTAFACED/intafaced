@@ -300,6 +300,8 @@ function recordFile(opts, path) {
 }
 
 function build(opts, planned) {
+  // The router is read, never edited: mid-port (callers only), or a door's, read from the commit before its deletion.
+  const routerKept = Boolean(opts.callersOnly || opts.door);
   const changes = new Changes();
   const created = new Map();
   const groups = new Map();
@@ -338,12 +340,13 @@ function build(opts, planned) {
     // Two different declarations under one name (svc-bank's routers each keep their own `amountString`, some with a
     // message, some without) cannot land in one file. Keep the records whose helpers agree; the rest go back to their
     // router, named, and a rerun places them beside their own record, where the name is free.
-    // Mid-port the router is never edited, so two of its files declaring one helper the same way (svc-agents' `idInput`
-    // in own/routes.ts and own/automation-routes.ts) give contracts one copy; elsewhere each declaration is its file's.
+    // Mid-port, and for a door (its router read from the commit before its deletion), the router is never edited, so two
+    // of its files declaring one helper the same way (svc-agents' `idInput` in own/routes.ts and own/automation-routes.ts)
+    // give contracts one copy; elsewhere each declaration is its file's.
     const keyOfMoved = (m) =>
       !m.q
         ? `inline#${m.name}`
-        : opts.callersOnly && serviceFiles([m.q.file]).length
+        : routerKept && serviceFiles([m.q.file]).length
           ? `as written#${m.name}#${asWritten(m.text)}`
           : `${m.q.file}#${m.name}`;
     const clashing = (moved, seen = new Map()) =>
@@ -387,9 +390,9 @@ function build(opts, planned) {
       );
     const taken = schemaNames.get(shared);
     const keyOf = keyOfMoved;
-    // Mid-port, an earlier run already copied the router's helper into the shared file: the router still declares it, so
-    // the same text there is that copy. The record imports it; declaring it again beside the record would clash.
-    if (opts.callersOnly)
+    // Mid-port or for a door, an earlier run already copied the router's helper into the shared file: the router still
+    // declares it, so the same text there is that copy. The record imports it; declaring it again beside it would clash.
+    if (routerKept)
       for (const m of closure.moved) {
         const k = keyOf(m);
         if (!m.q || movedTo.has(k) || taken.get(m.name) !== 'existing' || !declaresSame(shared, m.name, m.text)) continue;
@@ -423,8 +426,8 @@ function build(opts, planned) {
     // Moved declarations: their old home imports them from contracts.
     for (const m of fresh) {
       if (m.inline || !m.q) continue;
-      // Mid-port, the service's own declaration stays where it is: contracts gets a copy, and the router reads its own.
-      if (opts.callersOnly && serviceFiles([m.q.file]).length) continue;
+      // Mid-port or for a door, the service's own declaration stays where it is: contracts gets a copy.
+      if (routerKept && serviceFiles([m.q.file]).length) continue;
       const b = m.binding;
       const stmt = b.statement;
       if (b.kind === 'var' && b.declaration.declarations.length > 1) {
