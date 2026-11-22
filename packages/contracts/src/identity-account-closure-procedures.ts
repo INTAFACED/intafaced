@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -18,7 +19,7 @@ export const view = z.object({
   blockers: z.array(blocker),
 });
 
-export const balance = z.object({ assetId: z.string(), amount: z.string() });
+export const balance = z.object({ assetId: assetIdSchema, amount: z.string() });
 
 export const IDENTITY_ACCOUNT_CLOSURE_STATUS = defineProcedure({
   ...base,

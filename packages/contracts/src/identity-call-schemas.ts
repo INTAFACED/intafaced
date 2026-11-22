@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { securityLockSchema } from './identity.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
 
@@ -123,7 +124,7 @@ export const SUB_ACCOUNT_KINDS = ['standard', 'managed', 'derivatives', 'spot'] 
 
 export const blocker = z.object({ code: z.string(), count: z.number().int() });
 
-export const balance = z.object({ assetId: z.string(), amount: z.string() });
+export const balance = z.object({ assetId: assetIdSchema, amount: z.string() });
 
 /**
  * The trading products svc-trade serves today: spot, convert, futures, algo (TWAP) and copy. Margin is not listed: the

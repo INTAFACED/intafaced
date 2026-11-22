@@ -31,7 +31,6 @@ import {
   methodsOutput,
   clientRequestId,
   stepUpApprovalId,
-  phone,
   walletAnswerFields,
   walletChallengeInput,
   walletChallengeOutput,
