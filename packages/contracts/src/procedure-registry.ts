@@ -1616,8 +1616,6 @@ const part3: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_V2_SETTINGS,
   PROTOCOL_AMM_APPROVAL_ROUTE,
   PROTOCOL_AMM_BUILD_PERMIT,
-];
-const part3: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_PATHS,
   PROTOCOL_AMM_BUILD_SWAP_V2,
   PROTOCOL_AMM_FEE_TIERS,
@@ -1820,8 +1818,6 @@ const part4: readonly ProcedureRecord[] = [
   SUPPORT_ATTACH,
   SUPPORT_TICKET_ATTACHMENTS,
   SUPPORT_ATTACHMENT_DOWNLOAD,
-];
-const part4: readonly ProcedureRecord[] = [
   SUPPORT_ATTACHMENT_LIMITS,
   SUPPORT_KB_FEEDBACK,
   SUPPORT_KB_RELATED,
