@@ -31,7 +31,7 @@ export const CANDLE_POLL_BUCKETS = 2;
  * covers three, so asking for exactly two turned a healthy read into `candles.unavailable` at the turn of a bucket.
  * The hub keeps only the newest two whatever comes back.
  */
-export const CANDLE_POLL_LIMIT = CANDLE_POLL_BUCKETS + 1;
+const CANDLE_POLL_LIMIT = CANDLE_POLL_BUCKETS + 1;
 
 export interface MuxPollerOptions {
   readonly tickerPollMs: number;
