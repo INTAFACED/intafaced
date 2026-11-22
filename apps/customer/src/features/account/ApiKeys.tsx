@@ -13,7 +13,7 @@ import './security.css';
 import './api-keys.css';
 
 /** What to do with a key, said once on the list and once on the create form. */
-export function KeySafety() {
+function KeySafety() {
   const { t } = copy.useCopy();
   return (
     <section data-testid="security__card" className="api-keys__safety security__card" aria-labelledby="api-keys-safety">
