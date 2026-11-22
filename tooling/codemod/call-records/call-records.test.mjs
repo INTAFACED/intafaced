@@ -155,6 +155,216 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   assert.match(record, /access: \{ caller: ["']scope["'], scope: ["']agents:read["'] \}/);
 });
 
+test('a helper the shared file names another way lands beside its record once: an earlier copy there with the same text is the one', () => {
+  // svc-pay's founderAdmin.ops.notes run: the router's `id` clashes with pay-call-schemas.ts's own `id`, so it goes to the
+  // record file, which an earlier run already gave the same `id`. Writing it again broke the contracts build.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-here-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const mark = '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.';
+  const files = {
+    'services/svc-notes/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-notes/src/router.ts': [
+      "import { z } from 'zod';",
+      'const id = z.string().guid();',
+      'const noteOut = z.object({ noteId: z.string() });',
+      'export function createNotesRouter() {',
+      "  return router({ own: router({ get: scopedProcedure('notes:read').input(z.object({ noteId: id })).output(noteOut).query(({ input }) => get(input)) }) });",
+      '}',
+      '',
+    ].join('\n'),
+    'apps/customer/src/features/notes/note.ts': [
+      "import { z } from 'zod';",
+      "export const a = (api) => api.query('notes', 'own.get', { noteId: 'x' }, z.object({ noteId: z.string() }));",
+      '',
+    ].join('\n'),
+    'packages/contracts/src/notes-call-schemas.ts': "import { z } from 'zod';\n\nexport const id = z.string().min(1);\n",
+    'packages/contracts/src/notes-own-procedures.ts': [
+      "import { z } from 'zod';",
+      "import { defineProcedure } from './procedure.js';",
+      '',
+      mark,
+      '',
+      'export const id = z.string().guid();',
+      '',
+    ].join('\n'),
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'before');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'notes', '--write', '--json', join(root, '.git/summary.json')], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.records, ['NOTES_OWN_GET']);
+  const record = readFileSync(join(root, 'packages/contracts/src/notes-own-procedures.ts'), 'utf8');
+  assert.equal(record.match(/export const id = z\.string\(\)\.guid\(\);/g)?.length, 1, 'the copy already there is the one');
+  assert.match(record, /export const NOTES_OWN_GET = defineProcedure/);
+  assert.doesNotMatch(
+    readFileSync(join(root, 'packages/contracts/src/notes-call-schemas.ts'), 'utf8'),
+    /guid/,
+    "the shared file keeps its own id and takes none of the router's",
+  );
+});
+
+test('a helper name taken in the record file or the shared file never lands twice: the record reuses its copy, takes the free file, or moves to its sub-area file', () => {
+  // svc-pay on main (weed project-state#3759): registries and deposit freezes each declare their own networkIdSchema under
+  // founderAdmin.*; deposit travel rules declare a userIdSchema the founder-admin record file already holds; mandateView
+  // reads pay-subscription-procedures' amountSchema, which the shared file declares otherwise.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-clash-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const files = {
+    'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-agents/src/router.ts': [
+      "import { z } from 'zod';",
+      "import { schedulesRouter } from './schedules.js';",
+      "import { feeProcedures } from './fees.js';",
+      "import { amountSchema } from '@intafaced/contracts/agents-amounts';",
+      'const idInput = z.object({ id: z.string().min(1) });',
+      'const tagInput = z.object({ tag: z.string() });',
+      'export function createAgentsRouter() {',
+      '  return router({ own: router({',
+      "    get: scopedProcedure('agents:read').input(idInput).output(z.string()).query(() => ''),",
+      "    tags: scopedProcedure('agents:read').input(tagInput).output(z.string()).query(() => ''),",
+      "    stats: scopedProcedure('agents:read').input(z.object({ amount: amountSchema })).output(z.string()).query(() => ''),",
+      '    schedules: schedulesRouter,',
+      '    ...feeProcedures(),',
+      '  }) });',
+      '}',
+      '',
+    ].join('\n'),
+    // The same name, declared otherwise, under the same area.
+    'services/svc-agents/src/schedules.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().uuid() });',
+      "export const schedulesRouter = router({ list: scopedProcedure('agents:read').input(idInput).output(z.string()).query(() => '') });",
+      '',
+    ].join('\n'),
+    // A third idInput, read by two calls with no sub-area (svc-bank's loans.* read their router's own amountString).
+    'services/svc-agents/src/fees.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().email() });',
+      'export function feeProcedures() {',
+      '  return {',
+      "    fee: scopedProcedure('agents:read').input(idInput).output(z.string()).query(() => ''),",
+      "    feeRefund: scopedProcedure('agents:write').input(idInput).output(z.string()).mutation(() => ''),",
+      '  };',
+      '}',
+      '',
+    ].join('\n'),
+    'crates/svc-agents/src/lib.rs': '// the port\n',
+    'apps/customer/src/features/agents/agent.ts': [
+      "import { z } from 'zod';",
+      "export const a = (api) => api.query('agents', 'own.get', { id: 'x' }, z.string());",
+      "export const b = (api) => api.query('agents', 'own.schedules.list', { id: 'x' }, z.string());",
+      "export const c = (api) => api.query('agents', 'own.tags', { tag: 'x' }, z.string());",
+      "export const d = (api) => api.query('agents', 'own.stats', { amount: '1' }, z.string());",
+      "export const e = (api) => api.query('agents', 'own.fee', { id: 'a@b.c' }, z.string());",
+      "export const f = (api) => api.mutate('agents', 'own.feeRefund', { id: 'a@b.c' }, z.string());",
+      '',
+    ].join('\n'),
+    // An earlier run's record file, already holding tagInput as the router writes it.
+    'packages/contracts/src/agents-own-procedures.ts': [
+      "import { z } from 'zod';",
+      '',
+      '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.',
+      'export const tagInput = z.object({ tag: z.string() });',
+      '',
+    ].join('\n'),
+    // The shared file declares its own amountSchema; the router reads another contracts file's.
+    'packages/contracts/src/agents-call-schemas.ts': "import { z } from 'zod';\n\nexport const amountSchema = z.string();\n",
+    'packages/contracts/src/agents-amounts.ts': "import { z } from 'zod';\n\nexport const amountSchema = z.string().regex(/^\\d+$/);\n",
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'agents', '--callers-only', '--write', '--json', join(root, '.git/summary.json')], {
+    cwd: root,
+    stdio: 'pipe',
+  });
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.hand, [], 'no call is left for a name clash');
+  assert.deepEqual(summary.records.sort(), [
+    'AGENTS_OWN_FEE',
+    'AGENTS_OWN_FEE_REFUND',
+    'AGENTS_OWN_GET',
+    'AGENTS_OWN_SCHEDULES_LIST',
+    'AGENTS_OWN_STATS',
+    'AGENTS_OWN_TAGS',
+  ]);
+  const read = (f) => readFileSync(join(root, 'packages/contracts/src', f), 'utf8');
+  // Each file binds each name once: never declared and imported, never declared twice.
+  for (const f of [
+    'agents-own-procedures.ts',
+    'agents-own-schedules-procedures.ts',
+    'agents-own-2-procedures.ts',
+    'agents-call-schemas.ts',
+  ]) {
+    const src = read(f);
+    const imported = [...src.matchAll(/^import (?:type )?\{([^}]*)\} from/gm)].flatMap((m) =>
+      m[1].split(',').map((x) => x.trim().split(/ as /).pop()),
+    );
+    const declared = [...src.matchAll(/^(?:export )?(?:const|function|type) (\w+)/gm)].map((m) => m[1]);
+    const all = [...imported, ...declared].filter(Boolean);
+    assert.deepEqual(
+      all.filter((n, i) => all.indexOf(n) !== i),
+      [],
+      `${f} binds a name twice:\n${src}`,
+    );
+  }
+  const own = read('agents-own-procedures.ts');
+  assert.match(own, /export const AGENTS_OWN_TAGS = [\s\S]*input: tagInput,/, 'the record reads the copy already in its file');
+  assert.match(own, /export const AGENTS_OWN_GET = /);
+  const sub = read('agents-own-schedules-procedures.ts');
+  assert.match(sub, /export const AGENTS_OWN_SCHEDULES_LIST = /);
+  // Each record reads its own router's idInput: declared in its file, or imported from the file that declares it.
+  const idInputOf = (f) => {
+    const src = read(f);
+    const from = /import \{[^}]*\bidInput\b[^}]*\} from ["']\.\/([\w-]+)\.js["']/.exec(src)?.[1];
+    return from ? idInputOf(`${from}.ts`) : /const idInput = z\.object\(\{ id: z\.string\(\)\.(\w+)\(/.exec(src)?.[1];
+  };
+  assert.equal(idInputOf('agents-own-schedules-procedures.ts'), 'uuid', 'the schedules record reads its own idInput');
+  assert.equal(idInputOf('agents-own-procedures.ts'), 'min', 'the get record reads its own idInput');
+  // Two calls with no sub-area whose router's idInput is taken in both files land together in their area's second file.
+  const second = read('agents-own-2-procedures.ts');
+  assert.match(second, /export const AGENTS_OWN_FEE = [\s\S]*export const AGENTS_OWN_FEE_REFUND = /);
+  assert.equal(idInputOf('agents-own-2-procedures.ts'), 'email', "the fee records read their own router's idInput");
+  assert.match(second, /svc-agents `own\.\*`/, 'its header names the area, not one call');
+  assert.doesNotMatch(
+    read('agents-call-schemas.ts'),
+    /agents-amounts/,
+    'the shared file keeps its own amountSchema, never imports the other',
+  );
+  const caller = readFileSync(join(root, 'apps/customer/src/features/agents/agent.ts'), 'utf8');
+  assert.match(caller, /api\.call\(AGENTS_OWN_SCHEDULES_LIST, /);
+  assert.match(caller, /from ["']@intafaced\/contracts\/agents-own-schedules-procedures["']/);
+  assert.match(caller, /api\.call\(AGENTS_OWN_FEE, /);
+  assert.match(caller, /from ["']@intafaced\/contracts\/agents-own-2-procedures["']/);
+});
+
 test('the report plans a door service from the commit before its TypeScript was deleted, refuses one in flight, and skips a name no service has', async () => {
   const { howToPlan } = await import('./report.mjs');
   const root = mkdtempSync(join(tmpdir(), 'call-records-how-'));
@@ -474,6 +684,112 @@ test("the Business API's calls, named by their call alone, are svc-pay's and mov
   );
 });
 
+test("the portal's tools and validatedMutation, each caller naming its call alone, move one by one to the record form beside them; near shapes stay", async () => {
+  const { toolFormsIn } = await import('./tool-forms.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const portal = 'apps/customer/src/features/pay/portal';
+  put(`${portal}/api-tools.ts`, [
+    'export function portalTools(api, userId) {',
+    "  async function query(procedure: string, input, schema, signal) { return api.query('pay', procedure, input, schema, { signal }); }",
+    '  return { userId, query };',
+    '}',
+    'export type PortalTools = ReturnType<typeof portalTools>;',
+  ]);
+  put(`${portal}/settings/b-client.ts`, ['export type SettingsBTools = {};']);
+  put('apps/customer/src/features/pay/BusinessPay.tsx', ['export async function validatedMutation() {}']);
+  put(`${portal}/money/api.ts`, [
+    "import type { PortalTools } from '../api-tools';",
+    'export const moneyApi = ({ query, mutate, list }: PortalTools) => ({',
+    "  balances: (merchantId: string, signal?: AbortSignal) => query('merchant.balances', { merchantId }, balanceSchema, signal),",
+    "  hold: (id: string) => mutate('merchant.payoutDestinations.cancelHold', { id }, holdSchema),",
+    "  rows: (cursor: string, signal?: AbortSignal) => list('settlement.lines', lineSchema, { cursor }, signal),",
+    "  again: () => query('merchant.me', undefined, meSchema),",
+    // Near: a template, and a tool kept by name in this function (its record form is added beside it).
+    '  tpl: (a: string) => mutate(`subscription.${a}`, {}, s),',
+    '});',
+  ]);
+  put(`${portal}/settings/developers/client.ts`, [
+    "import type { SettingsBTools } from '../b-client';",
+    'export const developersApi = ({ identityMutate }: SettingsBTools) => ({',
+    "  rotate: (keyId: string) => identityMutate('rotateSigningSecret', { keyId }, rotatedSchema),",
+    '});',
+  ]);
+  put(`${portal}/near.ts`, [
+    "import type { PortalTools } from './api-tools';",
+    // Near: a renamed tool, a tool reached as a member, and a bare query that is no tool.
+    "export const a = ({ query: q }: PortalTools) => q('merchant.x', {}, s);",
+    "export const b = (tools: PortalTools) => tools.query('merchant.y', {}, s);",
+    "export const c = (query) => query('merchant.z', {}, s);",
+  ]);
+  put('apps/customer/src/features/pay/Room.tsx', [
+    "import { validatedMutation } from './BusinessPay';",
+    "export const go = (pay) => validatedMutation(pay, 'payment.create', input, inputSchema, paymentSchema, 'pay:write', 'create');",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => String(s.shape).startsWith('tool:'));
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind, s.problem ?? null]).sort(),
+    [
+      ['tool:identityMutate', 'identity', 'rotateSigningSecret', 'mutation', null],
+      ['tool:list', 'pay', 'settlement.lines', 'query', null],
+      ['tool:mutate', 'pay', 'merchant.payoutDestinations.cancelHold', 'mutation', null],
+      ['tool:mutate', 'pay', undefined, 'mutation', "mutate's call named by a template"],
+      ['tool:query', 'pay', 'merchant.balances', 'query', null],
+      ['tool:query', 'pay', 'merchant.me', 'query', null],
+      ['tool:validatedMutation', 'pay', 'payment.create', 'mutation', null],
+    ].sort(),
+  );
+  const of = (path) => sites.find((s) => s.path === path);
+  // The answer schema goes with the call; a list's item schema is one row, so no answer is retyped from it.
+  assert.equal(text(load(of('merchant.balances').file), schemaArgOf(of('merchant.balances'))), 'balanceSchema');
+  assert.equal(schemaArgOf(of('settlement.lines')), undefined);
+
+  const changes = new Changes();
+  const money = of('merchant.balances').file;
+  for (const [path, name] of [
+    ['merchant.balances', 'PAY_MERCHANT_BALANCES'],
+    ['merchant.payoutDestinations.cancelHold', 'PAY_HOLD'],
+    ['settlement.lines', 'PAY_SETTLEMENT_LINES'],
+    ['merchant.me', 'PAY_MERCHANT_ME'],
+  ])
+    rewriteSite(changes, of(path), name, '@intafaced/contracts/x', path === 'merchant.me');
+  rewriteSite(changes, of('rotateSigningSecret'), 'IDENTITY_ROTATE', '@intafaced/contracts/y');
+  rewriteSite(changes, of('payment.create'), 'PAY_PAYMENT_CREATE', '@intafaced/contracts/x');
+  toolFormsIn(changes);
+  const out = applyEdits(load(money).src, changes.of(money).edits);
+  // query moved whole and goes from the parameter; mutate keeps its template caller, so it stays beside its record form.
+  assert.match(out, /^export const moneyApi = \(\{ mutate, queryRecord, mutateRecord, listRecord \}: PortalTools\) => \(\{$/m);
+  assert.match(out, /queryRecord\(PAY_MERCHANT_BALANCES, \{ merchantId \}, signal\)/);
+  assert.match(out, /mutateRecord\(PAY_HOLD, \{ id \}\)/);
+  assert.match(out, /listRecord\(PAY_SETTLEMENT_LINES, \{ cursor \}, signal\)/);
+  assert.match(out, /again: \(\) => queryRecord\(PAY_MERCHANT_ME, undefined\)/);
+  const dev = of('rotateSigningSecret').file;
+  assert.match(
+    applyEdits(load(dev).src, changes.of(dev).edits),
+    /\(\{ identityMutateRecord \}: SettingsBTools\)[\s\S]*identityMutateRecord\(IDENTITY_ROTATE, \{ keyId \}\)/,
+  );
+  const room = of('payment.create').file;
+  assert.match(
+    applyEdits(load(room).src, changes.of(room).edits),
+    /validatedRecordMutation\(pay, PAY_PAYMENT_CREATE, input, inputSchema, 'pay:write', 'create'\)/,
+  );
+  assert.ok(
+    [...changes.of(room).imports.entries()].some(([spec, names]) => spec === './BusinessPay' && names.has('validatedRecordMutation')),
+  );
+
+  // The tool's own sender is named as kept for its callers, a reason of its own.
+  const sender = findSites(repo).find((s) => s.file.endsWith('api-tools.ts'));
+  assert.match(sender.problem, /its tool query has a record form its callers move to one by one, and stays while a caller is left/);
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(reasonOf(sender.problem), 'tool kept while a caller is left (each caller named under its own reason)');
+});
+
 test('a name imported from a contracts subpath is read from that file, though another contracts file exports the name too', () => {
   const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
   const put = (path, lines) => {
@@ -536,8 +852,8 @@ test('the report sorts each hand reason into the kind one script change or one d
     'one input sent to each of a closed set of calls',
   );
   assert.equal(
-    reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
-    'helper name clash (a rerun places it)',
+    reasonOf("helper amountString clashes with another amountString in this record file and its sub-area's"),
+    'helper name clash (in its record file and its sub-area file)',
   );
   assert.equal(
     reasonOf("r: s comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it"),
@@ -1652,7 +1968,8 @@ test('a re-run whose records already exist (no record file changes) skips the fi
   const flagOut = (flag, json) => `const i = a.indexOf('${flag}'); if (i >= 0) writeFileSync(a[i + 1], '${json}');`;
   writeFileSync(join(dir, 'index.mjs'), stub(flagOut('--json', '{"records":[],"rewritten":1,"hand":[]}')));
   writeFileSync(join(dir, 'samples.mjs'), stub(flagOut('--unportable', '{}')));
-  for (const f of ['portable.mjs', 'refusals.mjs', 'door-check.mjs', 'doubles.mjs']) writeFileSync(join(dir, f), stub(''));
+  for (const f of ['portable.mjs', 'refusals.mjs', 'door-check.mjs', 'doubles.mjs', 'dead-hand-schemas.mjs'])
+    writeFileSync(join(dir, f), stub(''));
   // Like the real prettier: no paths is an error.
   writeFileSync(
     join(root, 'node_modules/.bin/prettier'),
@@ -1685,6 +2002,9 @@ test('a re-run whose records already exist (no record file changes) skips the fi
     calls.some((c) => c.startsWith('doubles.mjs --write')),
     calls.join('\n'),
   );
+  // Step 7, after the doubles: the hand schemas the moved callers were the last to name go in the same change.
+  const doubles = calls.findIndex((c) => c.startsWith('doubles.mjs --write'));
+  assert.ok(doubles >= 0 && calls.findIndex((c) => c.startsWith('dead-hand-schemas.mjs --write')) > doubles, calls.join('\n'));
 });
 
 test("a call whose router writes no answer schema takes its callers' one pure zod schema; callers that disagree, check or parse with none keep it", () => {
@@ -1792,13 +2112,21 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
   const repo = plantRepo('dead-hand-', {
     [`${money}/contracts-earn.ts`]: [
       "import { z } from 'zod';",
+      '/** A schema above the map, its comment closed before the code. */',
+      'const kept = z.string();',
       'export const earnReads = {',
       "  'earn.pools': z.array(z.string()),",
       '  /** Nobody reads this one. */',
       "  'earn.dead': z.object({ a: z.string() }),",
       "  'earn.byTest': z.string(),",
+      "  'earn.byType': z.string(),",
+      "  'earn.stubbed': z.string(),",
+      "  'eligibility.get': z.string(),",
       '} as const;',
       'export const earnWrites = {',
+      // Moved to its record: only a refusal copy's key and a check picked by the write's name still spell it (#3755).
+      "  'earn.deposit': z.object({ positionId: z.string() }),",
+      "  'earn.byCase': z.string(),",
       "  'autoInvest.cancel': z.object({ ok: z.literal(true) }),",
       "  'ramps.setWithdrawDestination': z.object({ kind: z.string() }),",
       '} as const;',
@@ -1808,18 +2136,40 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
       // A template that starts with a call's segment names what it can spell; one that starts with a value names nothing.
       'export const b = (action: string) => ({ procedure: `autoInvest.${action}` });',
       'export const c = (x: string, y: string) => `${x}.${y}`;',
+      // A copy key is words, never a call, though it starts like one.
+      'export const d = (state: string) => t(`eligibility.${state}`);',
+      "type E = z.infer<(typeof earnReads)['earn.byType']>;",
+      "export const f = (procedure: string) => (procedure === 'earn.deposit' ? 1 : 0);",
+      "export const g = (procedure: string) => { switch (procedure) { case 'earn.deposit': return 1; } };",
+      "export const h = { procedure: 'earn.byCase' };",
     ],
-    [`${money}/earn.test.ts`]: ["expect(bankReads['earn.byTest'].parse('x')).toBe('x');"],
+    // A file of words keys its sentences by the write's name; it calls nothing.
+    [`${money}/money-refusal-copy.ts`]: ["export const CHECKED = new Set(['earn.deposit']);"],
+    // A test names an entry only by reading it from its map; a stubbed answer keyed by the name is not a caller.
+    [`${money}/earn.test.ts`]: [
+      "expect(bankReads['earn.byTest'].parse('x')).toBe('x');",
+      "const reads = { 'earn.stubbed': { status: 'ready' } };",
+    ],
+    [`${money}/earn.mock.mjs`]: ["export const answers = { 'earn.stubbed': 'x' };"],
   });
   assert.deepEqual(
     deadHandSchemas(repo).map((h) => h.name),
-    ['earn.dead', 'ramps.setWithdrawDestination'],
+    ['earn.dead', 'earn.stubbed', 'eligibility.get', 'earn.deposit', 'ramps.setWithdrawDestination'],
   );
   const deleted = deleteDead(repo);
-  assert.equal(deleted.length, 2);
+  assert.equal(deleted.length, 5);
   const after = readFileSync(join(repo, `${money}/contracts-earn.ts`), 'utf8');
-  assert.doesNotMatch(after, /earn\.dead|Nobody reads|setWithdrawDestination/);
-  for (const kept of ['earn.pools', 'earn.byTest', 'autoInvest.cancel']) assert.match(after, new RegExp(kept.replace('.', '\\.')));
+  assert.doesNotMatch(after, /earn\.dead|Nobody reads|setWithdrawDestination|earn\.stubbed|eligibility\.get/);
+  for (const kept of [
+    'earn.pools',
+    'earn.byTest',
+    'earn.byType',
+    'earn.byCase',
+    'autoInvest.cancel',
+    'const kept = z.string();',
+    'A schema above the map',
+  ])
+    assert.ok(after.includes(kept), kept);
   forget(join(repo, `${money}/contracts-earn.ts`));
   assert.deepEqual(deadHandSchemas(repo), [], 'a second run finds nothing: safe to rerun');
 });
@@ -1964,4 +2314,19 @@ test('the shared schema file reads a declaration it already holds where it stand
   assert.doesNotMatch(out, /from '\.\/trade-call-schemas\.js'/);
   assert.match(out, /import \{ orderSideSchema \} from '\.\/order-enums\.js';/);
   assert.match(out, /export const decimal = z\.string\(\);/);
+});
+
+test('an assetId field the codemod appends to contracts starts from assetIdSchema; one the file already held stays', async () => {
+  // garden/asset-id-schema refused 29 fields svc-bank's callers-only run copied as `assetId: z.string()` (weed project-state#3755).
+  const { brandAssetIds, unbranded } = await import('./asset-id.mjs');
+  const before = ["import { z } from 'zod';", '', 'export const old = z.object({ assetId: z.string() });', ''].join('\n');
+  const after = `${before}export const fresh = z.object({ assetId: z.string().min(1).max(16), other: z.string() });\n`;
+  const out = brandAssetIds(after, unbranded(before).length);
+  assert.match(out, /^import \{ assetIdSchema \} from '\.\/asset-id\.js';$/m);
+  assert.match(out, /old = z\.object\(\{ assetId: z\.string\(\) \}\)/, 'what the file held is left as it was');
+  assert.match(out, /fresh = z\.object\(\{ assetId: assetIdSchema\.min\(1\)\.max\(16\), other: z\.string\(\) \}\)/);
+  assert.equal(brandAssetIds(out, unbranded(before).length), out, 'safe to rerun');
+  // A file whose own assetIdSchema is another schema keeps its fields.
+  const own = "import { z } from 'zod';\nconst assetIdSchema = z.string();\nexport const a = z.object({ assetId: z.string() });\n";
+  assert.equal(brandAssetIds(own), own);
 });

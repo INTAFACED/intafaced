@@ -7,7 +7,7 @@ import { MutationDialog, type ActionSpec, type BankActionContext } from './compo
 import { BankRoutes } from './rooms';
 import { RepeatBuy } from './repeat-buy';
 import { Withdrawal } from './Withdrawal';
-import { WithdrawalAllowlist } from './WithdrawalAllowlist';
+import { WithdrawalAllowlist } from './withdrawal-allowlist/WithdrawalAllowlist';
 import { WithdrawalApprovals } from './WithdrawalApprovals';
 import { WithdrawalAddresses } from './WithdrawalAddresses';
 import { ApproveAddress } from './ApproveAddress';

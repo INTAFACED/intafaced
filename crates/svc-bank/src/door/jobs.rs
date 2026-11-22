@@ -14,6 +14,7 @@
 
 use service_kit::json::Json;
 use service_kit::s2s_verify::BodyBind;
+use service_kit::schema::Value;
 use service_kit::server::{Request, Response};
 
 use super::rest::{fastify_error, read_body, reply};
@@ -90,6 +91,113 @@ fn not_ported(slice: Slice) -> Response {
     }
 }
 
+const RUN_DUE_TRANSFERS: &str = "/internal/jobs/run-due-transfers";
+
+/// A thrown error that is no `BankError`: Fastify's 500 with its message.
+fn thrown(message: &str) -> Response {
+    Response {
+        status: 500,
+        body: Json::obj([
+            ("statusCode", Json::int(500)),
+            ("error", Json::str("Internal Server Error")),
+            ("message", Json::str(message)),
+        ])
+        .compact(),
+    }
+}
+
+/// `POST /internal/jobs/run-due-transfers`: past the signature, 503 `bank.transfers_disabled` when standing orders are
+/// off (so the difference between 401 and 503 tells an unsigned caller nothing), else one pass of the owner's batch.
+fn run_due_transfers(door: &BankDoor) -> Response {
+    let w = &door.transfers;
+    if !w.settings.scheduled_transfers {
+        return reply(
+            503,
+            "scheduled transfers are disabled",
+            "bank.transfers_disabled",
+        );
+    }
+    #[allow(clippy::cast_precision_loss, reason = "a batch size of at most 10000")]
+    let limit = w.settings.batch_size.map(|b| b as f64);
+    match door.transfers_deps(|d| {
+        crate::transfers::schedules::run_due(
+            d,
+            limit,
+            crate::transfers::calendar::MAX_CATCH_UP_PER_PASS,
+        )
+    }) {
+        Ok(report) => Response {
+            status: 200,
+            body: report.json().compact(),
+        },
+        Err(crate::errors::Refusal::Bank(e)) => job_refuse(&e),
+        Err(crate::errors::Refusal::Trpc(e)) => thrown(&e.message),
+        Err(crate::errors::Refusal::Other(m)) => thrown(&m),
+    }
+}
+
+const ACCRUE_INTEREST: &str = "/internal/jobs/accrue-interest";
+const RESUME_PENDING_EARN: &str = "/internal/jobs/resume-pending-earn";
+
+/// A job's work failed as Fastify answers a throw: a `BankError` with its code (Fastify's 500 carries an error's
+/// `code`), anything else with its message alone.
+fn thrown_refusal(r: crate::errors::Refusal) -> Response {
+    match r {
+        crate::errors::Refusal::Bank(e) => {
+            fastify_error(500, e.row.code, "Internal Server Error", &e.message)
+        }
+        crate::errors::Refusal::Trpc(e) => thrown(&e.message),
+        crate::errors::Refusal::Other(m) => thrown(&m),
+    }
+}
+
+/// `POST /internal/jobs/accrue-interest`: past the signature, 503 `bank.interest_accrual_disabled` when the owner
+/// turned accrual off, else today's accrual for every pool (`accrueAll`), its rows without `paid`.
+fn accrue_interest(door: &BankDoor) -> Response {
+    if !door.earn.interest_accrual {
+        // Same code string as ops.accrueInterest: alerts key on one name.
+        return reply(
+            503,
+            "interest accrual is disabled",
+            "bank.interest_accrual_disabled",
+        );
+    }
+    let now = door.now();
+    match door.earn_deps(now, |d| crate::earn::service::accrue_all(d, now)) {
+        Ok(report) => Response {
+            status: 200,
+            body: report.json(false).compact(),
+        },
+        Err(r) => thrown_refusal(r),
+    }
+}
+
+/// `bodyLimit`: the body's `limit` when it is a number, else none.
+fn body_limit(body: &Value) -> Option<f64> {
+    body.get("limit").as_number()
+}
+
+/// `POST /internal/jobs/resume-pending-earn`: the body's batch (blank refuses, never 100), then one pass; a `BankError`
+/// is `sendBankJobRefuse`'s 400.
+fn resume_pending_earn(door: &BankDoor, body: &Value) -> Response {
+    let now = door.now();
+    match door.earn_deps(now, |d| {
+        crate::earn::service::resume_pending(d, body_limit(body))
+    }) {
+        Ok(rows) => Response {
+            status: 200,
+            body: Json::Array(
+                rows.iter()
+                    .map(crate::earn::service::Resumed::json)
+                    .collect(),
+            )
+            .compact(),
+        },
+        Err(crate::errors::Refusal::Bank(e)) => job_refuse(&e),
+        Err(r) => thrown_refusal(r),
+    }
+}
+
 /// `requireService`: the signing service, when it may call a job door (`jobCaller`: never svc-edge).
 fn job_caller(door: &BankDoor, req: &Request<'_>) -> Option<String> {
     door.service(req, BodyBind::Require)
@@ -107,13 +215,23 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
     if !ops_read && job.is_none() {
         return None;
     }
-    if let Err(res) = read_body(req) {
-        return Some(res);
-    }
+    let body = match read_body(req) {
+        Ok(b) => b,
+        Err(res) => return Some(res),
+    };
     let Some(caller) = job_caller(door, req) else {
         return Some(unauthenticated());
     };
     if let Some(j) = job {
+        if j.path == RUN_DUE_TRANSFERS {
+            return Some(run_due_transfers(door));
+        }
+        if j.path == ACCRUE_INTEREST {
+            return Some(accrue_interest(door));
+        }
+        if j.path == RESUME_PENDING_EARN {
+            return Some(resume_pending_earn(door, &body));
+        }
         return Some(not_ported(j.slice));
     }
     if caller != "svc-ops" {

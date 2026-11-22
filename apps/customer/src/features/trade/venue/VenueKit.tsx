@@ -1,21 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useRef, type ReactNode } from 'react';
 import { Badge, Button } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
-import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
 import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
-import { useSession } from '../../session';
 import { WalletProvider, usePolled, useWallet } from '../../protocol';
 import {
   keys,
-  venueApi,
   walletTypedData,
   type AsOf,
   type MaybeKnown,
   preparedStep,
   type KeptSignature,
   type PreparedAnswer,
-  type VenueApi,
   type VenueBalance,
   type VenueFill,
   type VenueIntent,
@@ -26,16 +22,12 @@ import {
 import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
 import { feeShown } from './fee-rates';
+import { VENUE_POLL_MS } from './poll';
+import { useAsOfText, useVenueApi, word } from './venue-words';
 
-type T = ReturnType<typeof venueCopy.useCopy>['t'];
-
-/** How often the venue's record is read while a desk shows it. */
-export const VENUE_POLL_MS = 2_000;
-
-export function useVenueApi(): VenueApi {
-  const { api } = useSession();
-  return useMemo(() => venueApi(api), [api]);
-}
+export { VENUE_POLL_MS };
+export { SETTLED_STATUSES, outcomeText, useAsOfText, useVenueApi, word } from './venue-words';
+export { OutcomeLine, ReadBack } from './volt/VoltVenue';
 
 /** The TEST label every venue figure carries while the venue is a TEST one. */
 export function TestMark({ test }: { test: boolean }) {
@@ -54,23 +46,6 @@ export function Known({ value, render = (v) => displayAmount(v) }: { value: Mayb
   return <>{value.known ? render(value.value) : t('Not known')}</>;
 }
 
-export function useAsOfText(): (iso: string) => string {
-  const { timeZone } = usePreferences();
-  const { t } = venueCopy.useCopy();
-  return useCallback(
-    (iso: string) => {
-      let text: string;
-      try {
-        text = new Intl.DateTimeFormat('en-GB', { timeZone, dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso));
-      } catch {
-        text = iso;
-      }
-      return t('As of', { time: text });
-    },
-    [timeZone, t],
-  );
-}
-
 export function AsOfLine({ asOf }: { asOf: string | null }) {
   const text = useAsOfText();
   if (!asOf) return null;
@@ -79,17 +54,6 @@ export function AsOfLine({ asOf }: { asOf: string | null }) {
       {text(asOf)}
     </p>
   );
-}
-
-/** A word from the copy for a venue enum value, or the value itself when the copy has none. */
-export function word(t: T, prefix: string, value: string): string {
-  const key = `${prefix}_${value}`;
-  try {
-    const out = (t as (k: string) => string)(key);
-    return out && out !== key ? out : value;
-  } catch {
-    return value;
-  }
 }
 
 /**
@@ -418,97 +382,12 @@ export function useVenueActions(owner: string | null) {
   return { run, resend, keptSignature };
 }
 
-/** The words for one action's result. An order's outcome names its status on the venue. */
-export function outcomeText(t: T, result: ActionResult): string {
-  switch (result.kind) {
-    case 'rejected':
-      return t('Outcome rejected wallet');
-    case 'waiting':
-      return t('Outcome waiting');
-    case 'wallet_failed':
-      return t('Outcome wallet failed', { message: result.message });
-    case 'unknown':
-      return t('Outcome unknown');
-    case 'refused':
-      return result.beforeWallet && /step_up/.test(result.code ?? '')
-        ? t('Outcome step up', { detail: result.message })
-        : t('Outcome refused', { detail: result.message });
-    case 'outcome': {
-      const o = result.outcome;
-      if (!o.accepted) return t('Outcome refused', { detail: o.refusal.detail });
-      const status = o.order?.status;
-      const main =
-        status === 'open'
-          ? t('Outcome open')
-          : status === 'filled'
-            ? t('Outcome filled')
-            : status === 'partially_filled'
-              ? t('Outcome partly')
-              : status === 'canceled'
-                ? t('Outcome cancelled')
-                : t('Outcome done');
-      return result.reused ? `${main} ${t('Outcome reused')}` : main;
-    }
-  }
-}
-
 /**
  * Whether a draft's id must be held for the next press: until the venue answers definitely, a press is the same action
  * (read back, or prompted again); after a definite answer a new press is a new action with a new id.
  */
 export function keepsDraft(result: ActionResult): boolean {
   return result.kind !== 'outcome';
-}
-
-/** The order statuses after which the venue does nothing more with an order. */
-export const SETTLED_STATUSES: readonly string[] = ['filled', 'canceled', 'rejected', 'expired'];
-
-/**
- * Reads an order back by its client id until the venue names it, for an answer that was not definite. An order not found
- * yet is only that: it keeps being read, and nothing is sent again. `onSettled` hears the venue's own settled record.
- */
-export function ReadBack({
-  owner,
-  clientOrderId,
-  onSettled,
-  venueId,
-}: {
-  owner: string;
-  clientOrderId: string;
-  onSettled?: (order: VenueOrder) => void;
-  /** The venue the order was sent to (J-derivatives-28 routing); none is the primary venue. */
-  venueId?: string;
-}) {
-  const { t } = venueCopy.useCopy();
-  const venue = useVenueApi();
-  const read = usePolled(
-    (signal) =>
-      venueId ? venue.ordersByClientIdOn(venueId, owner, clientOrderId, signal) : venue.orderByClientId(owner, clientOrderId, signal),
-    `rb:${venueId ?? ''}:${owner}:${clientOrderId}`,
-    VENUE_POLL_MS,
-  );
-  const order = read.data?.value ?? null;
-  const settled = order && SETTLED_STATUSES.includes(order.status) ? order : null;
-  useEffect(() => {
-    if (settled) onSettled?.(settled);
-  }, [settled, onSettled]);
-  if (!read.data) return <p className="lt-quiet">{t('Checking venue')}</p>;
-  return (
-    <p data-testid="venue-read-back">{order ? t('Read back', { status: word(t, 'status', order.status) }) : t('Read back missing')}</p>
-  );
-}
-
-export function OutcomeLine({ result, owner, venueId }: { result: ActionResult | null; owner: string | null; venueId?: string }) {
-  const { t } = venueCopy.useCopy();
-  if (!result) return null;
-  return (
-    <div role="status" data-testid="venue-outcome">
-      <p>{outcomeText(t, result)}</p>
-      {result.kind === 'unknown' && result.clientOrderId && owner ? (
-        <ReadBack owner={owner} clientOrderId={result.clientOrderId} {...(venueId ? { venueId } : {})} />
-      ) : null}
-    </div>
-  );
 }
 
 /** A venue read that failed, in the venue's words: down, refused or unreachable. */

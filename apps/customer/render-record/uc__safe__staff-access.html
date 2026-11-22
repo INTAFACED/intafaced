@@ -118,19 +118,31 @@
 </nav>
 <div data-testid="acct-body" class="acct-body legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Staff access</h1>
+<h1 class="lt-title">Staff access</h1>
 </div>
-<div class="actions">
-<a class="text-link" href="/uc/safe">Security</a>
+<div class="lt-room-action">
+<a class="lt-link" href="/uc/safe">Security</a>
 </div>
 </header>
-<section data-testid="staff-access" class="security__card" aria-labelledby="staff-access-title">
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="Staff access sections">
+<ul>
+<li>
+<a class="lt-link" href="#staff-access-title">Staff access</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section data-testid="staff-access" aria-labelledby="staff-access-title">
 <h2 id="staff-access-title">Staff access</h2>
-<p class="muted">Each time our staff looked at or acted on your trading account, with who did it and when. Nothing here is hidden from you.</p>
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<p class="lt-hint">Each time our staff looked at or acted on your trading account, with who did it and when. Nothing here is hidden from you.</p>
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -139,8 +151,14 @@
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
-<button type="button" class="button button--secondary ">Refresh</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Refresh</button>
 </section>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>Each row is one time our staff looked at or acted on your trading account, newest first, up to the latest 100.</p>
+</section>
+</div>
+</div>
 </div>
 </div>
 </div>

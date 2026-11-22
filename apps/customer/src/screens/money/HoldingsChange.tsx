@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { moneyCopy } from './copy';
 import { Amount, Skeleton, StateBlock, dec, fmtAmount, refusalCopy } from './deps';
 import { useValueText } from './display-unit';
-import { VALUE_REFUSAL } from './ValueOverTime';
+import { VALUE_REFUSAL } from './pnl/ValueOverTime';
 import { CHANGE_RANGES, useHoldingsChange, type BankHoldingsChange, type ChangeRangeKey } from './holdings-change-source';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
