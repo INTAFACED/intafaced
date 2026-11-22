@@ -26,8 +26,8 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { WithdrawForm } from './WithdrawForm';
-import { AddressBook, AddressTable, WithdrawalAddresses, readinessWords } from './WithdrawalAddresses';
+import { WithdrawForm } from './withdraw/WithdrawForm';
+import { AddressBook, AddressTable, WithdrawalAddresses, readinessWords } from './withdraw-addresses/WithdrawalAddresses';
 import { withdrawalCopy } from './withdrawal-copy';
 
 const ready = (...assets: Held['assets']): Resource<Held> => ({ status: 'ready', data: { assets, spaces: [], holdings: [] } });
@@ -266,7 +266,7 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
       failure: { ok: false, reason: 'error', status: 403, code: 'auth.forbidden', message: 'auth.forbidden' } as never,
     };
     const html = renderToStaticMarkup(<WithdrawalAddresses />);
-    expect(html).toContain('class="failure"');
+    expect(html).toContain('data-testid="failure"');
     expect(html).not.toContain('auth.forbidden</');
     expect(html).not.toContain('You have no saved withdrawal addresses.');
     expect(html).toContain('Add an address');
@@ -281,7 +281,7 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
         reload={() => undefined}
       />,
     );
-    expect(html).toContain('class="failure"');
+    expect(html).toContain('data-testid="failure"');
     expect(html).not.toContain('You have no saved withdrawal addresses.');
   });
 });

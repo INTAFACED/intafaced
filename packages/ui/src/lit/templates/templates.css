@@ -543,7 +543,9 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  min-block-size: 1.5rem;
+  /* SC 2.5.8 counts CSS pixels: 1.5rem is 22px at the look's root size. Takes effect where the link stands alone (a
+     flex item, as in .lt-actions); a link inside a sentence keeps the line's height. */
+  min-block-size: 24px; /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels, not a look value */
 }
 
 .lt-actions,
@@ -823,6 +825,23 @@
 }
 .lt-chip[data-status='unknown'] .lt-chip-mark {
   border-style: dashed;
+}
+
+/* A QR code (QrCode): page-coloured modules on a primary-text tile, with a quiet zone. */
+.lt-qr {
+  display: inline-block;
+  padding: var(--lit-gap-item);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+  line-height: 0;
+}
+.lt-qr svg {
+  inline-size: 10rem;
+  block-size: 10rem;
+}
+.lt-qr path {
+  fill: currentColor;
 }
 
 .lt-tabs {
