@@ -977,6 +977,8 @@
   text-decoration: none;
   white-space: nowrap;
   border: 1px solid var(--lit-line);
+  /* A tab keeps its width: a row longer than the screen scrolls (.lt-tabs) instead of squeezing tabs over each other. */
+  flex-shrink: 0;
 }
 
 button.lt-tab {
@@ -1201,6 +1203,27 @@ button.lt-tab {
 .lt-qr-failed {
   margin: 0;
   color: var(--lit-warn-text);
+}
+
+/* Candles: rise in the up role, fall in the down role; the wick keeps its width however the chart stretches. */
+.lt-candle line {
+  stroke-width: 1;
+}
+.lt-candle[data-rising='true'] {
+  stroke: var(--lit-up);
+  fill: var(--lit-up);
+}
+.lt-candle[data-rising='false'] {
+  stroke: var(--lit-down);
+  fill: var(--lit-down);
+}
+.lt-candle rect {
+  stroke: none;
+}
+.lt-candles figcaption,
+.lt-candles-empty {
+  margin: 0;
+  color: var(--lit-text-2);
 }
 
 .lt-chart-area {

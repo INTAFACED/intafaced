@@ -1,5 +1,5 @@
-import { Field } from '../../../ui-kit';
-import { SelectField } from '../../components';
+import { Field } from '@intafaced/ui/lit';
+import { SelectField } from '../../volt/parts';
 import { useUrlParam } from '../../hooks';
 import { analyticsCopy as c } from './copy';
 import { windowFor, type Preset } from './model';
@@ -33,8 +33,8 @@ export function AnalyticsControls({ state, assets }: { state: AnalyticsState; as
   const { t } = c.useCopy();
   const badCustom = state.preset === 'custom' && !state.window && (state.from || state.to);
   return (
-    <div className="pp-filterbar" role="search" aria-label={t('controls')}>
-      <div className="pp-filter-row">
+    <div className="lt-stack" role="search" aria-label={t('controls')}>
+      <div className="lt-toolbar">
         <SelectField
           label={t('range')}
           value={state.preset}
@@ -69,7 +69,7 @@ export function AnalyticsControls({ state, assets }: { state: AnalyticsState; as
         )}
       </div>
       {state.preset === 'custom' && (
-        <div className="pp-filter-row">
+        <div className="lt-toolbar">
           <Field label={t('from')} type="date" value={state.from} onChange={(e) => state.setFrom(e.target.value)} />
           <Field
             label={t('to')}

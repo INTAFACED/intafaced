@@ -173,6 +173,13 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     expect(codes[0]!.querySelector('svg[role="img"]')?.getAttribute('aria-label')).toBe('Scan to open the TEST payment link');
     expect(codes[1]!.querySelector('figcaption')?.textContent, 'the small one shows its text').toMatch(/^ethereum:0x/);
     expect(block('qr').querySelector('[role="alert"]')?.textContent, 'and a text too long draws its failure line').toMatch(/too long/);
+    const small = block('candles').querySelectorAll('figure.lt-candles');
+    expect(small, 'the small candle chart, drawn and empty').toHaveLength(2);
+    expect(
+      small[0]!.querySelectorAll('svg[role="img"] [data-testid="kit-candle"]'),
+      'its 32 TEST candles, eight left out as a gap',
+    ).toHaveLength(32);
+    expect(small[1]!.querySelector('[role="status"]')?.textContent, 'its honest empty line').toMatch(/^No trades/);
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
   });
 

@@ -8,21 +8,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * words, and each paid day of interest with the total the bank gives, never one the page adds up.
  */
 
-vi.mock('../../shared/preferences', async (original) => {
-  const real = await original<typeof import('../../shared/preferences')>();
+vi.mock('../../../shared/preferences', async (original) => {
+  const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 const POOL = '11111111-1111-4111-8111-111111111111';
 const OTHER_POOL = '22222222-2222-4222-8222-222222222222';
 let reads: Record<string, { status: 'ready'; data: unknown } | { status: 'failed'; failure: unknown }>;
-vi.mock('./components', async (original) => {
-  const real = await original<typeof import('./components')>();
+vi.mock('../components', async (original) => {
+  const real = await original<typeof import('../components')>();
   // The room reads by its records now: each record's read is served from the same answers, by its path.
   const useBankRead = (procedure: string) => ({ resource: reads[procedure] ?? { status: 'loading' }, reload: () => undefined });
   return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
-vi.mock('../session', async (original) => ({
-  ...(await original<typeof import('../session')>()),
+vi.mock('../../session', async (original) => ({
+  ...(await original<typeof import('../../session')>()),
   useSession: () => ({ api: { query: async () => ({ ok: false, reason: 'error', message: 'unused' }) } }),
 }));
 import { InstantSavings } from './InstantSavings';

@@ -16,7 +16,7 @@ import { TradeStatus } from './personal/P2PDepth';
 import { OrderSettlement } from './personal/Settlement';
 import { percentOf } from './portal/payments/payment-model';
 import { ContactActions } from './personal/ContactActions';
-import { CounterpartyName } from './P2PCounterparty';
+import { CounterpartyName } from './p2p-counterparty/CounterpartyRoom';
 import './p2p-order.css';
 
 /** The other side of the order by their handle (J-p2p-02 #2), never their account id. */
