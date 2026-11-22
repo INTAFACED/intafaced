@@ -87,7 +87,8 @@ async function mount() {
 }
 const button = (host: HTMLElement, name: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === name)!;
 const field = (host: HTMLElement, label: RegExp) =>
-  [...host.querySelectorAll('label')].find((l) => label.test(l.querySelector('span')?.textContent ?? ''))!.querySelector('input')!;
+  [...host.querySelectorAll('label')].find((l) => label.test((l.querySelector('span') ?? l).textContent ?? ''))!
+    .control as HTMLInputElement;
 async function type(input: HTMLInputElement, value: string) {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);

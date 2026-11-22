@@ -468,6 +468,7 @@ impl Ledger for Book {
             });
         }
         let tx = LedgerTx {
+            key: String::new(),
             id: format!("tx-{}", st.journal.len() + 1),
             posted_at: now(),
             entries,

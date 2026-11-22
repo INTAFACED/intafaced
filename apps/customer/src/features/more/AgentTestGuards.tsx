@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useApi } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Failure } from './agent-room/parts';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
 import { type OwnAgentTestRun } from '@intafaced/contracts/agents-own';
 import { AGENTS_OWN_TEST_APPROVE } from '@intafaced/contracts/agents-own-procedures';
@@ -83,7 +84,7 @@ export function GuardOutcome({ agentId, run, onDecided }: { agentId: string; run
           </dl>
           <p>{t('approvalOnly')}</p>
           {guard.outcome === 'awaiting_approval' ? (
-            <Button disabled={busy} onClick={() => void approve()}>
+            <Button tone="primary" disabled={busy} onClick={() => void approve()}>
               {t('approve')}
             </Button>
           ) : null}
