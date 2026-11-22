@@ -2645,17 +2645,3 @@ export const FEATURES = [
     note: 'S-A13 2026-08-08: zod schema + example artefact. Real chain rows + explorer verified:true wait on Nitro RPC funding.',
   }),
 ];
-
-export const PHASE_ORDER = ['0', '1', '2', '3', '3P', '4', '4P', '5', '5P'];
-
-export const PHASE_NAMES = {
-  0: 'Foundations',
-  1: 'THE CORE',
-  2: 'Trade',
-  3: 'Pay + P2P',
-  '3P': 'Protocol P0',
-  4: 'Blueprint',
-  '4P': 'INTACHAIN',
-  5: 'Surfaces',
-  '5P': 'Protocol P2–P3',
-};

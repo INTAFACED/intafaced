@@ -9,7 +9,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
@@ -100,7 +100,7 @@ describe('copy follow result, trail and export', () => {
       db = await createTestDatabase({ service: 'trade', url: envUrl, migrations });
       return;
     }
-    const container = await new PostgreSqlContainer('postgres:16-alpine')
+    const container = await testPostgres('postgres:16-alpine')
       .withDatabase('intafaced_copy_result')
       .withUsername('intafaced')
       .withPassword('intafaced')
