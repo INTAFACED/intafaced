@@ -44,7 +44,8 @@
 </svg>
 </span>
 <span class="pfo-business-text">
-<span class="pfo-business-name">Your business</span>
+<span class="pfo-business-name">TEST Merchant</span>
+<span data-slot="status-tag" data-status="working" class="inline-flex h-5 items-center whitespace-nowrap rounded-xs border border-current/40 px-1.5 text-2xs text-fg-2">Verified</span>
 </span>
 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevrons-up-down pfo-business-chevron" aria-hidden="true">
 <path d="m7 15 5 5 5-5">
@@ -132,10 +133,69 @@
 <p>Your business details, who changed them, and what is waiting for review.</p>
 </div>
 </header>
+<div class="stack">
+<section data-testid="pay-section" class="pay-section">
+<header>
+<div>
+<h2>Your business</h2>
+</div>
+</header>
+<dl class="pay-details">
+<div>
+<dt>Name</dt>
+<dd>TEST Merchant</dd>
+</div>
+<div>
+<dt>Account</dt>
+<dd>
+<span data-testid="pp-chip" class="pp-chip pp-chip--done" title="Your account is open." aria-label="Active (Your account is open.)">Active</span>
+</dd>
+</div>
+<div>
+<dt>Verification</dt>
+<dd>
+<span data-testid="pp-chip" class="pp-chip pp-chip--done" title="Your business is verified." aria-label="Approved (Your business is verified.)">Approved</span>
+</dd>
+</div>
+<div>
+<dt>Account ID</dt>
+<dd>
+<div class="pp-actions">
+<code class="pp-wrap">00000000-0000-4000-8000-00000000c0de</code>
+<button type="button" tabindex="0" data-slot="button" data-variant="ghost" aria-label="Copy Account ID" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-10 px-5 text-base rounded-pill">Copy</button>
+<span role="status">
+</span>
+</div>
+</dd>
+</div>
+</dl>
+<p class="muted">You can change these details.</p>
+</section>
 <div data-testid="failure" class="failure" role="status">
 <h3>We could not connect</h3>
 <p>We could not reach the service. Check your connection and try again.</p>
 <button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
+</div>
+<section data-testid="pay-section" class="pay-section">
+<header>
+<div>
+<h2>Second approval</h2>
+<p class="muted">When on, a legal-detail change also needs someone else on your team to confirm it before INTAFACED reviews it. When off, it goes straight to INTAFACED.</p>
+</div>
+</header>
+<p role="status">
+<strong>We can’t read this setting.</strong>
+</p>
+<p class="muted pp-note">It can’t be changed until we can read it.</p>
+</section>
+<section data-testid="pay-section" class="pay-section">
+<header>
+<div>
+<h2>Change history</h2>
+<p class="muted">Every change to your business details, newest first.</p>
+</div>
+</header>
+</section>
 </div>
 </div>
 </div>
