@@ -1,16 +1,132 @@
-import { useState } from 'react';
-import { Button } from '@intafaced/ui';
-import { Field } from '../../../ui-kit';
-import { PaySection } from '../../../components';
-import { Facts, Gate } from '../../components';
-import { useResource } from '../../../../../shared/resource';
+import { useState, type ReactNode } from 'react';
+import { Button, Field } from '@intafaced/ui/lit';
+import { KeyValue, RefusalBox } from '@intafaced/ui/lit/templates';
+import type { ApiResult } from '../../../../../shared/api';
+import { useResource, type Resource } from '../../../../../shared/resource';
+import { portalCopy } from '../../copy';
+import { reason } from '../../chrome/copy';
+import { isNotLive, notLiveReason, refusalText, refusalTitle } from '../../refusal';
 import type { SettingsBApi } from '../b-client';
 import type { Guide } from './schemas';
-import { NotLiveCard } from '../../chrome/NotLiveCard';
-import { reason } from '../../chrome/copy';
 import { developersCopy as c } from './copy';
-import { CodeTabs } from './Signing';
 import { signingSnippets, verifySnippets, type SnippetLanguage } from './model';
+
+type Failed = Extract<ApiResult<unknown>, { ok: false }>;
+
+/** One part of the guide: its heading, what it is for, and its content. */
+function Part({ id, title, description, children }: { id: string; title: string; description?: string; children: ReactNode }) {
+  return (
+    <section aria-labelledby={`docs-${id}`} data-testid="pay-section">
+      <h2 id={`docs-${id}`}>{title}</h2>
+      {description && <p className="lt-hint">{description}</p>}
+      {children}
+    </section>
+  );
+}
+
+/** A part that is not live: what it waits for, the allowlisted blocker's code, and its own words. Never a fake row. */
+function NotLive({
+  reason: why,
+  title,
+  needs,
+  code,
+  children,
+}: {
+  reason: string;
+  title?: string;
+  needs?: string;
+  code?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <section
+      className="lt-refusal"
+      data-refusal="parked"
+      data-testid="pfo-soon"
+      aria-label={title ?? why}
+      data-needs={needs}
+      data-code={code}
+    >
+      <p className="lt-refusal-title">{why}</p>
+      {code && (
+        <p className="lt-ref">
+          <code>{code}</code>
+        </p>
+      )}
+      {title && <h3>{title}</h3>}
+      {children && <p className="lt-refusal-body">{children}</p>}
+    </section>
+  );
+}
+
+/** A refused read in plain words, or the not-live card when the service has not switched the feature on. */
+function Refused({ result, retry }: { result: Failed; retry: () => void }) {
+  const { t } = portalCopy.useCopy();
+  if (isNotLive(result)) return <NotLive reason={notLiveReason(result)} />;
+  return (
+    <div data-testid="failure">
+      <RefusalBox
+        refusal={{
+          variant: result.reason === 'unreachable' ? 'unreachable' : 'refused',
+          title: refusalTitle(result),
+          body: refusalText(result),
+          reference: result.requestId,
+        }}
+      />
+      {result.reason === 'unauthorized' ? (
+        <a
+          className="lt-link"
+          href={`/login?redirect=${encodeURIComponent(typeof location === 'undefined' ? '/pay/merchant' : location.pathname + location.search)}`}
+        >
+          {t('signIn')}
+        </a>
+      ) : // Asking again never turns a "you may not" into a "yes", so a refusal for permission has no Try again.
+      result.reason !== 'uncertain' && result.reason !== 'forbidden' ? (
+        <Button onClick={retry}>{t('tryAgain')}</Button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Loading and refusal for one read that is not a list. */
+function Read<T>({ resource, retry, children }: { resource: Resource<T>; retry: () => void; children: (data: T) => ReactNode }) {
+  const { t } = portalCopy.useCopy();
+  if (resource.status === 'loading')
+    return (
+      <p className="lt-hint" role="status">
+        {t('loading')}
+      </p>
+    );
+  if (resource.status === 'failed') return <Refused result={resource.failure} retry={retry} />;
+  return <>{children(resource.data)}</>;
+}
+
+/** The same sample in each language a merchant may write, one picked at a time. */
+function CodeTabs({
+  lang,
+  setLang,
+  snippets,
+}: {
+  lang: SnippetLanguage;
+  setLang: (l: SnippetLanguage) => void;
+  snippets: Record<SnippetLanguage, string>;
+}) {
+  const { t } = c.useCopy();
+  return (
+    <div>
+      <div role="group" aria-label={t('language')} className="lt-actions">
+        {(['typescript', 'python'] as const).map((l) => (
+          <Button key={l} tone={lang === l ? 'secondary' : 'quiet'} aria-pressed={lang === l} onClick={() => setLang(l)}>
+            {l === 'typescript' ? 'TypeScript' : 'Python'}
+          </Button>
+        ))}
+      </div>
+      <pre className="lt-code" tabIndex={0} aria-label={t('codeSample', { language: lang === 'typescript' ? 'TypeScript' : 'Python' })}>
+        <code>{snippets[lang]}</code>
+      </pre>
+    </div>
+  );
+}
 
 /** Plain written guidance for the merchant's own integration. Nothing here is an operator or founder tool. */
 export function Docs({ api }: { api?: Pick<SettingsBApi, 'webhookCatalogue' | 'webhookGuide'> } = {}) {
@@ -18,60 +134,60 @@ export function Docs({ api }: { api?: Pick<SettingsBApi, 'webhookCatalogue' | 'w
   const [signLang, setSignLang] = useState<SnippetLanguage>('typescript');
   const [verifyLang, setVerifyLang] = useState<SnippetLanguage>('typescript');
   return (
-    <div className="stack">
-      <PaySection title={t('docsStartTitle')} description={t('docsStartBody')}>
-        <ol className="pp-steps-list">
+    <>
+      <Part id="start" title={t('docsStartTitle')} description={t('docsStartBody')}>
+        <ol>
           <li>
-            <a className="text-link" href="/pay/developer/keys#create">
+            <a className="lt-link" href="/pay/developer/keys#create">
               {t('docsStep1')}
             </a>
           </li>
           <li>{t('docsStep2')}</li>
           <li>
-            <a className="text-link" href="/pay/developer/webhooks#add">
+            <a className="lt-link" href="/pay/developer/webhooks#add">
               {t('docsStep3')}
             </a>
           </li>
           <li>{t('docsStep4')}</li>
         </ol>
-      </PaySection>
-      <PaySection title={t('docsKeysTitle')}>
+      </Part>
+      <Part id="keys" title={t('docsKeysTitle')}>
         <p>{t('docsKeysBody')}</p>
         <ul>
           <li>{t('docsKeysRead')}</li>
           <li>{t('docsKeysWrite')}</li>
           <li>{t('docsKeysRefund')}</li>
         </ul>
-      </PaySection>
-      <PaySection title={t('docsSignTitle')} description={t('docsSignBody')}>
-        <pre className="pp-code" aria-label={t('recipeCanonical')}>
+      </Part>
+      <Part id="sign" title={t('docsSignTitle')} description={t('docsSignBody')}>
+        <pre className="lt-code" aria-label={t('recipeCanonical')}>
           {'INTAFACED-REQ-V1\nMETHOD\n/path?query\ntimestamp\nnonce\nbody-sha256'}
         </pre>
-        <p className="muted">{t('recipeWindow')}</p>
+        <p className="lt-hint">{t('recipeWindow')}</p>
         <CodeTabs lang={signLang} setLang={setSignLang} snippets={signingSnippets} />
-        <a className="text-link" href="/pay/developer/signing">
+        <a className="lt-link" href="/pay/developer/signing">
           {t('docsSignLink')}
         </a>
-      </PaySection>
-      <PaySection title={t('docsEventsTitle')} description={t('docsEventsBody')}>
+      </Part>
+      <Part id="events" title={t('docsEventsTitle')} description={t('docsEventsBody')}>
         <ul>
           <li>{t('docsEventsOnce')}</li>
           <li>{t('docsEventsRetry')}</li>
           <li>{t('docsEventsSecret')}</li>
         </ul>
         <CodeTabs lang={verifyLang} setLang={setVerifyLang} snippets={verifySnippets} />
-        <a className="text-link" href="/pay/developer/webhooks">
+        <a className="lt-link" href="/pay/developer/webhooks">
           {t('docsEventsLink')}
         </a>
-      </PaySection>
+      </Part>
       {api && <EventCatalogue api={api} />}
       {api && <ReceiverGuide api={api} />}
-      <PaySection title={t('docsSdkTitle')}>
-        <NotLiveCard reason={reason('reasonDocs')} title={t('docsSdkCardTitle')} needs="SDK publishing decision" code="owner.decision">
+      <Part id="sdk" title={t('docsSdkTitle')}>
+        <NotLive reason={reason('reasonDocs')} title={t('docsSdkCardTitle')} needs="SDK publishing decision" code="owner.decision">
           {t('docsSdkBody')}
-        </NotLiveCard>
-      </PaySection>
-    </div>
+        </NotLive>
+      </Part>
+    </>
   );
 }
 
@@ -80,41 +196,31 @@ function EventCatalogue({ api }: { api: Pick<SettingsBApi, 'webhookCatalogue'> }
   const { t } = c.useCopy();
   const catalogue = useResource((signal) => api.webhookCatalogue(signal), 'dev:catalogue');
   return (
-    <PaySection title={t('catalogueTitle')} description={t('catalogueBody')}>
-      <Gate resource={catalogue.resource} retry={catalogue.reload}>
+    <Part id="catalogue" title={t('catalogueTitle')} description={t('catalogueBody')}>
+      <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(data) => (
-          <div className="stack" data-testid="webhook-catalogue">
+          <div data-testid="webhook-catalogue">
             {data.events.map((event) => (
               <article key={event.type} data-testid="webhook-catalogue-event" aria-label={event.type}>
                 <h4>
                   <code>{event.type}</code>
                 </h4>
                 <p>{event.summary}</p>
-                <pre className="pp-code" aria-label={t('catalogueSchema', { type: event.type })}>
+                <pre className="lt-code" aria-label={t('catalogueSchema', { type: event.type })}>
                   {JSON.stringify(event.payloadSchema, null, 2)}
                 </pre>
               </article>
             ))}
-            <Facts
-              items={[
-                [
-                  t('catalogueOrdering'),
-                  <span key="o" data-testid="webhook-catalogue-ordering">
-                    {data.ordering}
-                  </span>,
-                ],
-                [
-                  t('catalogueDuplicates'),
-                  <span key="d" data-testid="webhook-catalogue-duplicates">
-                    {data.duplicates}
-                  </span>,
-                ],
+            <KeyValue
+              rows={[
+                { label: t('catalogueOrdering'), value: <span data-testid="webhook-catalogue-ordering">{data.ordering}</span> },
+                { label: t('catalogueDuplicates'), value: <span data-testid="webhook-catalogue-duplicates">{data.duplicates}</span> },
               ]}
             />
           </div>
         )}
-      </Gate>
-    </PaySection>
+      </Read>
+    </Part>
   );
 }
 
@@ -123,61 +229,55 @@ function ReceiverGuide({ api }: { api: Pick<SettingsBApi, 'webhookGuide'> }) {
   const { t } = c.useCopy();
   const guide = useResource((signal) => api.webhookGuide(signal), 'dev:guide');
   return (
-    <PaySection title={t('guideTitle')} description={t('guideBody')}>
-      <Gate resource={guide.resource} retry={guide.reload}>
+    <Part id="guide" title={t('guideTitle')} description={t('guideBody')}>
+      <Read resource={guide.resource} retry={guide.reload}>
         {(g) => (
-          <div className="stack" data-testid="webhook-guide">
-            <Facts
-              items={[
-                [t('guideTimestamp'), t('guideTimestampBody', { header: g.headers.timestamp })],
-                [
-                  t('guideTolerance'),
-                  <span key="t" data-testid="webhook-guide-tolerance">
-                    {g.toleranceSeconds === null ? t('guideToleranceUnset') : t('guideToleranceBody', { n: g.toleranceSeconds })}
-                  </span>,
-                ],
-                [t('guideRawBody'), t('guideRawBodyBody')],
-                [
-                  t('guideSignature'),
-                  <span key="s">
-                    <code>{g.headers.signature}</code>: {g.algorithm}
-                  </span>,
-                ],
-                [
-                  t('guideSenderIps'),
-                  <span key="i" data-testid="webhook-guide-sender-ips">
-                    {g.senderIps ? g.senderIps.join(', ') : t('guideSenderIpsUnset')}
-                  </span>,
-                ],
+          <div data-testid="webhook-guide">
+            <KeyValue
+              rows={[
+                { label: t('guideTimestamp'), value: t('guideTimestampBody', { header: g.headers.timestamp }) },
+                {
+                  label: t('guideTolerance'),
+                  value: (
+                    <span data-testid="webhook-guide-tolerance">
+                      {g.toleranceSeconds === null ? t('guideToleranceUnset') : t('guideToleranceBody', { n: g.toleranceSeconds })}
+                    </span>
+                  ),
+                },
+                { label: t('guideRawBody'), value: t('guideRawBodyBody') },
+                {
+                  label: t('guideSignature'),
+                  value: (
+                    <span>
+                      <code>{g.headers.signature}</code>: {g.algorithm}
+                    </span>
+                  ),
+                },
+                {
+                  label: t('guideSenderIps'),
+                  value: (
+                    <span data-testid="webhook-guide-sender-ips">{g.senderIps ? g.senderIps.join(', ') : t('guideSenderIpsUnset')}</span>
+                  ),
+                },
               ]}
             />
             <section aria-label={t('guideVectorTitle')} data-testid="webhook-guide-vector">
               <h4>{t('guideVectorTitle')}</h4>
-              <p className="muted">{t('guideVectorBody')}</p>
-              <Facts
-                items={[
-                  [t('vectorSecret'), <code key="s">{g.vector.secret}</code>],
-                  [t('vectorTimestamp'), <code key="t">{g.vector.timestamp}</code>],
-                  [
-                    t('vectorBody'),
-                    <code key="b" className="pp-wrap">
-                      {g.vector.body}
-                    </code>,
-                  ],
-                  [
-                    t('vectorSignature'),
-                    <code key="g" className="pp-wrap">
-                      {g.vector.signature}
-                    </code>,
-                  ],
+              <p className="lt-hint">{t('guideVectorBody')}</p>
+              <KeyValue
+                rows={[
+                  { label: t('vectorSecret'), value: <code>{g.vector.secret}</code>, ltr: true },
+                  { label: t('vectorTimestamp'), value: <code>{g.vector.timestamp}</code>, ltr: true },
+                  { label: t('vectorBody'), value: <code className="lt-wrap">{g.vector.body}</code>, ltr: true },
+                  { label: t('vectorSignature'), value: <code className="lt-wrap">{g.vector.signature}</code>, ltr: true },
                 ]}
               />
             </section>
             <SignatureChecker vector={g.vector} />
           </div>
         )}
-      </Gate>
-    </PaySection>
+      </Read>
+    </Part>
   );
 }
 
@@ -207,48 +307,47 @@ function SignatureChecker({ vector }: { vector: Guide['vector'] }) {
   return (
     <section aria-label={t('checkerTitle')} data-testid="webhook-checker">
       <h4>{t('checkerTitle')}</h4>
-      <p className="muted">{t('checkerBody')}</p>
-      <div className="form-stack pp-form">
-        <Button
-          variant="secondary"
-          onClick={() => {
-            setSecret(vector.secret);
-            setTimestamp(vector.timestamp);
-            setBody(vector.body);
-            setSignature(vector.signature);
-            setVerdict(null);
-          }}
-        >
-          {t('checkerUseVector')}
-        </Button>
+      <p className="lt-hint">{t('checkerBody')}</p>
+      <form className="lt-reading-main" onSubmit={(event) => event.preventDefault()}>
+        <div className="lt-actions">
+          <Button
+            onClick={() => {
+              setSecret(vector.secret);
+              setTimestamp(vector.timestamp);
+              setBody(vector.body);
+              setSignature(vector.signature);
+              setVerdict(null);
+            }}
+          >
+            {t('checkerUseVector')}
+          </Button>
+        </div>
         <Field label={t('checkerSecret')} value={secret} onChange={edit(setSecret)} autoComplete="off" />
         <Field label={t('checkerTimestamp')} value={timestamp} onChange={edit(setTimestamp)} inputMode="numeric" />
-        <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium text-fg-2">
+        <label className="lt-field">
           <span>{t('checkerBodyLabel')}</span>
-          <textarea className="pp-code" rows={4} value={body} onChange={edit(setBody)} spellCheck={false} />
+          <textarea className="lt-mono" rows={4} value={body} onChange={edit(setBody)} spellCheck={false} />
         </label>
         <Field label={t('checkerSignature')} value={signature} onChange={edit(setSignature)} autoComplete="off" />
-        <Button
-          variant="primary"
-          disabled={!secret || !timestamp || !signature}
-          onClick={async () => {
-            const expected = await signInBrowser(secret, timestamp, body).catch(() => null);
-            if (expected === null) return setVerdict('unavailable');
-            setVerdict(signature.split(',').some((s) => s.trim().toLowerCase() === expected) ? 'valid' : 'invalid');
-          }}
-        >
-          {t('checkerRun')}
-        </Button>
-        {verdict && (
-          <p
-            role="status"
-            data-testid="webhook-checker-verdict"
-            className={verdict === 'valid' ? 'pay-confirmed' : 'pp-callout pp-callout--warn'}
+        <div className="lt-actions">
+          <Button
+            tone="primary"
+            disabled={!secret || !timestamp || !signature}
+            onClick={async () => {
+              const expected = await signInBrowser(secret, timestamp, body).catch(() => null);
+              if (expected === null) return setVerdict('unavailable');
+              setVerdict(signature.split(',').some((s) => s.trim().toLowerCase() === expected) ? 'valid' : 'invalid');
+            }}
           >
+            {t('checkerRun')}
+          </Button>
+        </div>
+        {verdict && (
+          <p role="status" data-testid="webhook-checker-verdict" data-verdict={verdict} data-dir={verdict === 'valid' ? 'up' : 'down'}>
             {verdict === 'valid' ? t('checkerValid') : verdict === 'invalid' ? t('checkerInvalid') : t('checkerUnavailable')}
           </p>
         )}
-      </div>
+      </form>
     </section>
   );
 }

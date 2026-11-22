@@ -1,4 +1,4 @@
-//! The `own-builder` slice (`PORT.md`): agents a person builds for themselves (`services/svc-agents/src/own/routes.ts`,
+//! The `own-builder` slice (`README.md`): agents a person builds for themselves (`services/svc-agents/src/own/routes.ts`,
 //! the drafts, publishing, the assistant, rules, the reviewer, reviews, evals, test runs and tools), answered as the
 //! TypeScript answers them, and the unpublished sweep.
 //!

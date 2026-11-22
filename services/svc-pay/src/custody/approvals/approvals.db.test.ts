@@ -1,3 +1,4 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,7 +91,7 @@ describe('custody approval tasks (real Postgres)', () => {
       await service.registerApprover('owner', { userId: id, label: id, role });
     }
   };
-  const start = (over: Partial<{ payload: Record<string, unknown>; clientRef: string }> = {}) =>
+  const start = (over: Partial<{ payload: Record<string, JsonValue>; clientRef: string }> = {}) =>
     service.initiate(FOUNDER, { title: 'Send 1 ETH', payload: PAYLOAD, clientRef: ref(), ...over });
 
   it('a blank quorum refuses, and nothing wired to run the task refuses too', async () => {

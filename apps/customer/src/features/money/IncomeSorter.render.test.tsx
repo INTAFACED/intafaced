@@ -20,13 +20,12 @@ let list: z.infer<typeof sorterListSchema>;
 let runs: z.infer<typeof sorterRunSchema>[] = [];
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
-  return {
-    ...real,
-    useBankRead: (procedure: string) => ({
-      resource: { status: 'ready', data: procedure === 'sorter.list' ? list : runs },
-      reload: () => undefined,
-    }),
-  };
+  // The room reads by its records now: each record's read is served from the same answers, by its path.
+  const useBankRead = (procedure: string) => ({
+    resource: { status: 'ready', data: procedure === 'sorter.list' ? list : runs },
+    reload: () => undefined,
+  });
+  return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
 import { IncomeSorter } from './IncomeSorter';
 

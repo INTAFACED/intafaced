@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { signInChallengeSchema } from './identity-signin-challenge.js';
+import { loggedOutEverywhereSchema } from './identity-account-room.js';
 import {
   ACCOUNT_TYPES,
   loginCodeAccepted,
@@ -456,5 +457,17 @@ export const IDENTITY_AUTH_STEP_UP_OPTIONS = defineProcedure({
   refusals: {},
   input: NO_INPUT,
   output: authenticationOptions,
+  samples: [{ verdict: 'accept' }],
+});
+
+export const IDENTITY_AUTH_LOGOUT_ALL = defineProcedure({
+  ...base,
+  name: 'identity.auth.logoutAll',
+  kind: 'mutation',
+  path: 'auth.logoutAll',
+  access: { caller: 'person' },
+  refusals: {},
+  input: NO_INPUT,
+  output: loggedOutEverywhereSchema,
   samples: [{ verdict: 'accept' }],
 });

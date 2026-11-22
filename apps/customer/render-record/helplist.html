@@ -19,67 +19,83 @@
 </a>
 </header>
 <main id="main">
-<div class="help" lang="en">
-<header class="help__heading">
-<h1 tabindex="-1" lang="en">How can we help?</h1>
-<p class="muted">Published answers, with a clear path to support when you need your account checked.</p>
-</header>
-<section class="help__card help__measure" aria-label="Action required" data-testid="action-required-unread">
-<p class="muted">We could not check whether a request is waiting for your reply.</p>
-<button type="button" class="button button--secondary ">Try again</button>
-</section>
-<form class="help__search">
-<label class="field" for="help-search-_r_1_">
-<span id="help-search-_r_1_-label">Search answers</span>
-<input placeholder="Account access, orders…" maxlength="200" id="help-search-_r_1_" aria-labelledby="help-search-_r_1_-label" aria-invalid="false" value="" name="help-search">
-</label>
-<button type="submit" class="button button--primary ">Search</button>
-</form>
-<div class="help__request">
-<a class="button button--secondary" href="/support">Open your support requests</a>
-</div>
-<nav class="help__card help__library" aria-label="Browse by topic" data-testid="help-library">
-<h2 lang="en">Browse by topic</h2>
-<p class="muted" lang="en">The topics could not be loaded. Every published answer is still listed below.</p>
-<button type="button" class="button button--secondary ">Try again</button>
-</nav>
-<p class="help__caption muted" role="status">Loading published answers…</p>
-<div class="help__browse">
+<div data-room="help" data-testid="help" lang="en">
 <div>
-<section class="help__card">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title" lang="en" tabindex="-1">How can we help?</h1>
+<p class="lt-description">Published answers, with a clear path to support when you need your account checked.</p>
+</div>
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<div class="lt-stack">
+<section class="lt-stack" aria-label="Action required" data-testid="action-required-unread">
+<p class="lt-hint">We could not check whether a request is waiting for your reply.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</section>
+<form class="lt-stack" data-testid="help-search">
+<div class="lt-field">
+<label for="_r_1_">Search answers</label>
+<input placeholder="Account access, orders…" maxlength="200" id="_r_1_" value="" name="help-search">
+</div>
+<div class="lt-actions">
+<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Search</button>
+</div>
+</form>
+<div class="lt-stack" data-testid="help-request">
+<a class="lt-button lt-button-secondary" href="/support">Open your support requests</a>
+</div>
+<nav class="lt-stack" aria-label="Browse by topic" data-testid="help-library">
+<h2 lang="en">Browse by topic</h2>
+<p class="lt-hint" lang="en">The topics could not be loaded. Every published answer is still listed below.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</nav>
+<p class="lt-hint" role="status">Loading published answers…</p>
+<div class="lt-stack">
 <div lang="und">
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
 <p class="lt-refusal-body">No services run in the look gate.</p>
 </div>
 </div>
-<p class="muted">Trying again reloads the same list of answers.</p>
-<button type="button" class="button button--primary ">Try again</button>
+<p class="lt-hint">Trying again reloads the same list of answers.</p>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Try again</button>
+</div>
+</div>
+</div>
 </section>
 </div>
-<div class="help__side">
-<aside data-testid="contact-card" class="contact-card" aria-labelledby="contact-title">
+</div>
+<section class="lt-region" data-region="contact">
+<div class="lt-stack">
+<aside data-testid="contact-card" class="lt-stack" aria-labelledby="contact-title">
 <h2 id="contact-title">You are signed in</h2>
-<p class="muted">Open the support desk to start a request, follow a reply or search the help articles.</p>
-<a class="button button--primary" href="/support">Open the support desk</a>
+<p class="lt-hint">Open the support desk to start a request, follow a reply or search the help articles.</p>
+<a class="lt-button lt-button-primary" href="/support">Open the support desk</a>
 </aside>
-<section class="help__card host-dispatch" data-testid="host-dispatch" aria-labelledby="host-dispatch-title">
-<h2 id="host-dispatch-title" class="host-dispatch__title">Where this app is served</h2>
-<p class="muted" role="status">This deployment has published no host check, so no host is shown as served.</p>
-<ul class="host-dispatch__rows">
+<section class="lt-stack" data-testid="host-dispatch" aria-labelledby="host-dispatch-title">
+<h2 id="host-dispatch-title">Where this app is served</h2>
+<p class="lt-hint" role="status">This deployment has published no host check, so no host is shown as served.</p>
+<ul class="lt-stack">
 <li data-testid="host-dispatch-apex" data-result="host.receipt_missing">
-<span>Apex host</span> <span lang="zxx" class="muted">not named</span> <strong lang="zxx">host.receipt_missing</strong>
+<span>Apex host</span> <span lang="zxx" class="lt-hint lt-wrap">not named</span> <strong lang="zxx">host.receipt_missing</strong>
 </li>
 <li data-testid="host-dispatch-app" data-result="host.receipt_missing">
-<span>App host</span> <span lang="zxx" class="muted">not named</span> <strong lang="zxx">host.receipt_missing</strong>
+<span>App host</span> <span lang="zxx" class="lt-hint lt-wrap">not named</span> <strong lang="zxx">host.receipt_missing</strong>
 </li>
 <li data-testid="host-dispatch-join" data-result="host.receipt_missing">
-<span>Join host</span> <span lang="zxx" class="muted">not named</span> <strong lang="zxx">host.receipt_missing</strong>
+<span>Join host</span> <span lang="zxx" class="lt-hint lt-wrap">not named</span> <strong lang="zxx">host.receipt_missing</strong>
 </li>
 </ul>
 </section>
+</div>
+</section>
+</div>
 </div>
 </div>
 </div>

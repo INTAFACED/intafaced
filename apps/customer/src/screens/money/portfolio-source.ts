@@ -9,7 +9,7 @@
  */
 import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { useEffect, useMemo } from 'react';
-import { breakdownSchema, summarySchema } from '@intafaced/contracts/bank-portfolio-reads';
+import { breakdownSchema } from '@intafaced/contracts/bank-portfolio-reads';
 import type { z } from 'zod';
 import { classOf, useDataEnv, useSource, type Decimal, type Holding, type Loadable, type PortfolioSummary } from '../../data';
 import { dec, decOrNull, ratio, str, sub, sumOf, type Scaled } from '../../data/decimal';
@@ -18,6 +18,8 @@ import { balancesFetcher } from '../../data/fetchers';
 import type { BalanceEntry } from '../../data/derive';
 import { constantSource, type Source } from '../../data/source';
 import type { Fetcher, Outcome } from '../../data/poll';
+import { BANK_PORTFOLIO_SUMMARY, BANK_PORTFOLIO_BALANCE_BREAKDOWN } from '@intafaced/contracts/bank-portfolio-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 export interface MoneyRow {
   asset: string;
@@ -64,7 +66,7 @@ export type MoneyUnit = 'USD' | 'BTC';
 
 // ── the server's answer ──────────────────────────────────────────────────────
 
-export type ServerSummary = z.infer<typeof summarySchema>;
+export type ServerSummary = ProcedureOutput<typeof BANK_PORTFOLIO_SUMMARY>;
 
 /** Coin amounts and dollar values in the order the screen shows them. */
 function byValue(a: MoneyRow, b: MoneyRow): number {
@@ -184,7 +186,7 @@ function summaryInput(scope: MoneyScope, unit: MoneyUnit): { scope?: string; dis
 
 export function summaryFetcher(env: DataEnv, scope: MoneyScope = 'combined', unit: MoneyUnit = 'USD'): Fetcher<ServerSummary> {
   return async (signal): Promise<Outcome<ServerSummary>> => {
-    const result = await env.api.query('bank', 'portfolio.summary', summaryInput(scope, unit), summarySchema, { signal });
+    const result = await env.api.call(BANK_PORTFOLIO_SUMMARY, summaryInput(scope, unit), { signal });
     if (result.ok) return result;
     // The bank says it cannot read prices: that is a typed refusal with words of its own (it arrives as a 503, which the
     // poller would otherwise read as a broken connection).
@@ -232,7 +234,7 @@ export function useDisplayRate(code: string): DisplayRate {
           ? env.poller.source(
               `${SERVER_SUMMARY_KEY}:${env.userId}:unit:${code}`,
               async (signal): Promise<Outcome<ServerSummary>> =>
-                env.api.query('bank', 'portfolio.summary', { displayCurrency: code }, summarySchema, { signal }),
+                env.api.call(BANK_PORTFOLIO_SUMMARY, { displayCurrency: code }, { signal }),
               { intervalMs: RATE_PROBE_INTERVAL },
             )
           : constantSource<ServerSummary>({ status: 'refused', code: 'auth.required' }),
@@ -420,7 +422,7 @@ export function lockSplits(answer: z.input<typeof breakdownSchema>): Record<stri
 
 export function breakdownFetcher(env: DataEnv): Fetcher<Record<string, LockSplit>> {
   return async (signal) => {
-    const result = await env.api.query('bank', 'portfolio.balanceBreakdown', { scope: 'main' }, breakdownSchema, { signal });
+    const result = await env.api.call(BANK_PORTFOLIO_BALANCE_BREAKDOWN, { scope: 'main' }, { signal });
     if (!result.ok) return result;
     const splits = lockSplits(result.data);
     return splits ? { ok: true, data: splits } : { ok: false, reason: 'invalid_response', code: 'money.breakdown_invalid' };

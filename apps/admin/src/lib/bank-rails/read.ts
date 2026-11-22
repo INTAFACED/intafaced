@@ -1,6 +1,7 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
+import { type FounderCallContext, partFrom, type Part, founderRecordRead } from '@/lib/desk';
 import { parseSalaryRails, type SalaryRails } from './model';
+import { BANK_OPS_SALARY_RAILS } from '@intafaced/contracts/bank-ops-procedures';
 
 export interface RailsDesk {
   readonly asOf: string;
@@ -14,6 +15,6 @@ const labels = {
 } as const;
 
 export async function readRailsDesk(ctx: FounderCallContext): Promise<RailsDesk> {
-  const salary = await founderCall(ctx, 'bank', 'ops.salaryRails', 'GET', undefined, parseSalaryRails);
+  const salary = await founderRecordRead(ctx, BANK_OPS_SALARY_RAILS, undefined, parseSalaryRails);
   return { asOf: new Date().toISOString(), salary: partFrom(salary, (d) => d.partner, labels) };
 }

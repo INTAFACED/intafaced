@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { parsesAs, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Checkbox, EmptyState, Field, Segmented } from '@intafaced/ui/lit';
-import { KitLoading, KitTable } from './kit-parts';
+import { KitFailure, KitLoading, KitTable } from './kit-parts';
 import { QuotaAwareFailure } from './quota-refusal';
 import { downloadCsv, utcInput, Read, Select } from '../more';
 import { useApi } from '../session';
@@ -320,7 +320,7 @@ export function BacktestRoom() {
                     {t('run')}
                   </Button>
                   {busy && <KitLoading label={t('running')} />}
-                  {failure && <QuotaAwareFailure result={failure} retry={() => strategy && void run(strategy)} />}
+                  {failure && <QuotaAwareFailure result={failure} retry={() => strategy && void run(strategy)} Fallback={KitFailure} />}
                 </form>
               );
             }}

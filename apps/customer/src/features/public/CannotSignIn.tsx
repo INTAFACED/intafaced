@@ -1,4 +1,4 @@
-import { ContactSupport } from './ContactSupport';
+import { ContactSupport } from './help/ContactSupport';
 import { supportRecoveryCopy } from './support-recovery-copy';
 import '../../shared/public-pages.css';
 

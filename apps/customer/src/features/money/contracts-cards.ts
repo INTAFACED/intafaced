@@ -234,85 +234,12 @@ export const cardsReads = {
   'cards.catalogue': cardCatalogueSchema,
   'cards.payFrom': payFromSchema,
   'cards.delivery': cardDeliverySchema,
-  'cards.cashback': z.object({
-    tier: z.enum(['none', 'standard', 'metal', 'obsidian']),
-    rateBps: z.number().int().nullable(),
-    assetId: z.string(),
-    rates: z.array(z.object({ tier: z.enum(['none', 'standard', 'metal', 'obsidian']), bps: z.number().int() })),
-    paid: money,
-    unpaid: money,
-    refused: money,
-    /** Owed by INTAFACED on partner-held spend and paid to the person's own wallet (My rewards); never spendable here. */
-    toWallet: money,
-    payments: z.array(
-      z.object({
-        authorizationId: z.string(),
-        cardId: z.string(),
-        amount: money,
-        status: z.string(),
-        rejectionCode: z.string().nullable(),
-        ledgerTxId: z.string().nullable(),
-        paidBy: z.enum(['ledger', 'wallet']),
-        announced: z.boolean(),
-      }),
-    ),
-    paying: z.boolean(),
-    simulated: z.boolean(),
-  }),
-  'cards.uses': z.object({ cardId: z.string(), usesAllowed: z.number().int().nullable(), usesMade: z.number().int() }),
-  'cards.list': z.array(cardSchema),
   'cards.controls.get': cardControlsSchema,
   'cards.secretsOffered': cardSecretsOfferedSchema,
   'cards.walletTokens': cardWalletTokensSchema,
-  'cards.threeDS.list': z.object({ challenges: z.array(cardThreeDSChallengeSchema) }),
-  'cards.fraud.list': z.object({ reports: z.array(cardFraudReportSchema) }),
   'cards.disputes.form': cardDisputeFormSchema,
   'cards.disputes.list': z.array(cardDisputeCaseSchema.omit({ events: true })),
   'cards.disputes.get': cardDisputeCaseSchema,
-  /** One row per merchant that charges the card on file (J-bank-14 #6), newest first. */
-  'cards.recurring': z.array(
-    z.object({
-      merchant: z.string().nullable(),
-      merchantCountry: z.string().nullable(),
-      payments: z.number().int(),
-      firstAt: z.string(),
-      lastAt: z.string(),
-      lastAmount: money,
-    }),
-  ),
-  'cards.authorizations': z.array(
-    z.object({
-      id: z.string(),
-      authorizationRef: z.string(),
-      amount: money,
-      merchantCategory: z.string().nullable(),
-      /** The merchant and its country as the issuer named them (J-bank-14 #1); null when it named none. */
-      merchant: z.string().nullable().default(null),
-      merchantCountry: z.string().nullable().default(null),
-      /** The issuer flagged a merchant charging the card on file on an agreed schedule (J-bank-14 #6). */
-      recurring: z.boolean().default(false),
-      decision: z.enum(['approved', 'declined']),
-      declineCode: z.string().nullable(),
-      status: z.string(),
-      decidedAt: z.string(),
-      /** The merchant's refund of this payment, as recorded; the partner moves it and our ledger posts nothing. */
-      refund: z
-        .object({ amount: money, status: z.enum(['pending', 'settled', 'rejected']), at: z.string() })
-        .nullable()
-        .default(null),
-      /**
-       * A payment taken by the pay-from order (J-bank-29 #3 to #7): the order the partner walked, the asset it held from
-       * once it held (`amount` is then in it; the rate and its time are `conversion`), and what it captured and returned.
-       */
-      payFrom: z
-        .object({ order: z.array(z.string()), assetId: z.string().nullable(), captured: money.nullable(), returned: money.nullable() })
-        .nullable()
-        .default(null),
-      conversion: z
-        .object({ settlementAssetId: z.string(), settlementAmount: money, rate: money, rateQuality: z.string(), rateAsOf: z.string() })
-        .nullable(),
-    }),
-  ),
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
@@ -320,7 +247,6 @@ export const cardsWrites = {
   'cards.setStatus': z.object({ id: z.string(), status: z.string() }),
   'cards.issue': cardSchema,
   'cards.order': cardSchema,
-  'cards.acceptTerms': z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }),
   'cards.updateShipping': cardDeliverySchema,
   'cards.setPayFromOrder': payFromSchema,
   'cards.activate': cardSchema,
@@ -331,8 +257,6 @@ export const cardsWrites = {
   'cards.controls.lift': cardControlsSchema,
   'cards.reveal': cardRevealSchema,
   'cards.pin.reveal': cardPinRevealSchema,
-  'cards.pin.set': z.object({ ok: z.literal(true) }),
-  'cards.walletProvision': z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }),
   'cards.threeDS.answer': cardThreeDSChallengeSchema,
   'cards.fraud.report': cardFraudReportSchema,
   'cards.disputes.open': cardDisputeCaseSchema,

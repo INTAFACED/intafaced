@@ -1,5 +1,6 @@
 import type { Amount } from '@intafaced/ledger-client';
 import type { OrderSide } from '../spot/types.js';
+import { type PovBasis, POV_BASES } from '@intafaced/contracts/trade-call-schemas';
 
 /**
  * ALGO PARENT (D-S-04) — a schedule, not an order.
@@ -48,13 +49,6 @@ export interface AlgoChildRef {
   /** Chase only: the limit price this child rests at. */
   readonly price?: Amount | null;
 }
-
-/**
- * What a POV participation rate is applied to: the taker volume traded in the last interval, or the resting
- * quantity on the opposite side of the book (the side the child would take from).
- */
-export type PovBasis = 'traded_volume' | 'opposite_liquidity';
-export const POV_BASES: readonly PovBasis[] = ['traded_volume', 'opposite_liquidity'];
 
 export interface AlgoMiss {
   readonly sliceIndex: number;
@@ -211,3 +205,4 @@ export interface AlgoQuotedMark {
   readonly asOf: Date;
   readonly quality: AlgoMarkQuality;
 }
+export { type PovBasis, POV_BASES };

@@ -1,9 +1,10 @@
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
-import { founderCall } from '@/lib/desk/founder-call';
+import { founderCall, founderRecordRead } from '@/lib/desk/founder-call';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { isSendId, readHoldAction, refusalWords } from '@/lib/bank-holds/model';
 import { moduleDisabledResponse } from '@/lib/modules';
+import { BANK_GLOBAL_OPS_PROOF } from '@intafaced/contracts/bank-global-records';
 
 /**
  * Global-send holds as the signed-in founder (svc-bank `global.ops.*`). POST places a hold, asks the customer for information,
@@ -101,7 +102,7 @@ export async function GET(request: Request) {
   if (session instanceof Response) return session;
   const sendId = new URL(request.url).searchParams.get('sendId');
   if (!isSendId(sendId)) return answer({ error: 'hold_request_invalid' }, 400);
-  const result = await founderCall(session, 'bank', 'global.ops.proof', 'GET', { sendId }, parseProof);
+  const result = await founderRecordRead(session, BANK_GLOBAL_OPS_PROOF, { sendId }, parseProof);
   if (result.kind !== 'ok') {
     const code = result.kind === 'refused' || result.kind === 'forbidden' ? result.refusal.code : null;
     return answer(

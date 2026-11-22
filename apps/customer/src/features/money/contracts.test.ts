@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bankReads, bankWrites, cardSchema } from './contracts';
+import { bankReads, bankWrites, cardSchema, myRoleSchema, pendingApprovalsSchema } from './contracts';
 
 const card = {
   id: '7d0a2cd4-6a46-4f6b-9d8f-0d5f27ec7b11',
@@ -79,14 +79,14 @@ describe('what the team reads return', () => {
       receiverOwnerHandleReason: null,
       receiverOwnerName: 'Zed Z',
     };
-    expect(bankReads['business.pending'].parse([waiting])[0]).toMatchObject({
+    expect(pendingApprovalsSchema.parse([waiting])[0]).toMatchObject({
       receiverOwnerHandle: 'zed',
       makerHandleReason: 'handle_unresolved',
     });
   });
   it('reads a role as one of the three the bank has', () => {
-    expect(bankReads['business.myRole'].parse({ role: 'maker' })).toEqual({ role: 'maker' });
-    expect(bankReads['business.myRole'].safeParse({ role: 'owner' }).success).toBe(false);
+    expect(myRoleSchema.parse({ role: 'maker' })).toEqual({ role: 'maker' });
+    expect(myRoleSchema.safeParse({ role: 'owner' }).success).toBe(false);
   });
 });
 

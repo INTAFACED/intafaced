@@ -1537,7 +1537,13 @@ export class UserVenueDoor {
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
     else if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') key = intent.changeKey;
-    else if (intent.kind === 'spot_perps_transfer' || intent.kind === 'vault_transfer') key = intent.moveKey;
+    else if (
+      intent.kind === 'spot_perps_transfer' ||
+      intent.kind === 'vault_transfer' ||
+      intent.kind === 'staking_transfer' ||
+      intent.kind === 'staking_delegate'
+    )
+      key = intent.moveKey;
     else key = actionKey;
     const k = (key ?? '').trim();
     if (k.length < 3 || k.length > 200 || UUID_RE.test(k) || !BUSINESS_KEY_RE.test(k)) {

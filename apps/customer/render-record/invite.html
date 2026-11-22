@@ -19,59 +19,69 @@
 </a>
 </header>
 <main id="main">
-<div class="invitation" lang="en">
-<section class="invitation__intro">
+<div data-testid="invitation" lang="en">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">ONE ACCOUNT. ONE REFERRAL RELATIONSHIP.</p>
-<h1>An invitation.
+<h1 class="lt-title">An invitation.
 Your decision.</h1>
+<p class="lt-description">Review this link with your personal account. The service checks the invitation and your existing referral relationship.</p>
 </div>
-<div>
-<p class="muted">Review this link with your personal account. The service checks the invitation and your existing referral relationship.</p>
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="meta" aria-label="Details">
+<div class="lt-stack">
+<p class="lt-hint">ONE ACCOUNT. ONE REFERRAL RELATIONSHIP.</p>
 <p>An existing relationship stays in place. No reward is promised by this link.</p>
-<a href="/help" class="invitation__link text-link">Read Help ↗</a>
+<a href="/help" class="lt-link lt-link-alone">Read Help <span class="lt-arrow lt-arrow-out" aria-hidden="true">
+</span>
+</a>
 </div>
 </section>
-<div class="invitation__content">
-<section data-testid="invitation__card" class="invitation__card">
+<section class="lt-region" data-region="body" aria-label="Article">
+<div class="lt-stack lt-wrap">
+<section data-testid="invitation__card" class="lt-stack">
 <h2>Create an invitation from your account</h2>
-<p class="muted">Your personal invitation tools are available after sign-in.</p>
-<a class="button button--primary" href="/uc/promotion">Open account invitations ↗</a>
+<p class="lt-hint">Your personal invitation tools are available after sign-in.</p>
+<a data-testid="invitation__primary" class="lt-button lt-button-primary" href="/uc/promotion">Open account invitations <span class="lt-arrow lt-arrow-out" aria-hidden="true">
+</span>
+</a>
 </section>
-<section data-testid="invitation__current" class="invitation__current" aria-labelledby="invitation-current-title">
+<section data-testid="invitation__current" class="lt-stack" aria-labelledby="invitation-current-title">
 <h2 id="invitation-current-title">Current relationship</h2>
-<p class="muted">Read status without repeating acceptance.</p>
-<button type="button" class="button button--primary ">Read current status</button>
-<div class="invitation__window" aria-label="Time to join through a link">
+<p class="lt-hint">Read status without repeating acceptance.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Read current status</button>
+<div class="lt-stack" aria-label="Time to join through a link">
 <h3>Time to join through a link</h3>
 <div lang="und">
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
 <p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </div>
-<section class="invitation__window invitation__change" aria-label="Referrer change review">
+<section class="lt-stack" aria-label="Referrer change review">
 <h3>Referrer change review</h3>
 <div lang="und">
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
 <p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<a href="/uc/promotion" class="invitation__link text-link">Open account invitations ↗</a>
+<a href="/uc/promotion" class="lt-link lt-link-alone">Open account invitations <span class="lt-arrow lt-arrow-out" aria-hidden="true">
+</span>
+</a>
 </section>
+</div>
+</section>
+</div>
+</div>
+</div>
 </div>
 </div>
 </main>

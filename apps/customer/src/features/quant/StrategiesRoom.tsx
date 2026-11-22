@@ -308,7 +308,7 @@ function RecycleBin({ onChanged }: { onChanged: (note: string) => void }) {
         if (!rows.length) return <EmptyState title={t('binNone')} body={t('binNoneBody')} />;
         return (
           <>
-            {failure && <QuotaAwareFailure result={failure} />}
+            {failure && <QuotaAwareFailure result={failure} Fallback={FailureBox} />}
             <RecordTable label={t('tabBin')} headers={[t('name'), t('folder'), t('version'), t('deleted'), t('actions')]}>
               {rows.map((row) => (
                 <tr key={row.id} data-testid="quant-bin-row" data-id={row.id} data-version={row.version}>

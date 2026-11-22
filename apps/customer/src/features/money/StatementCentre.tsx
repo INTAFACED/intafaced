@@ -2,9 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { Download } from 'lucide-react';
 import { Button } from '../../shared/ui';
 import { useSession } from '../session';
-import { refusalCopy } from '../../data';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
-import { statementFileSchema, statementJobSchema, type LineTotal } from './contracts';
+import { type LineTotal } from './contracts';
 import { LineTotals } from './StatementExtras';
 import { DepthPanel } from './DepthParts';
 import { dayIsOver, endedBy, dayRange, last30Days, STATEMENT_REPORTS, utcDay, type StatementReport } from './statement-centre-model';
@@ -13,6 +12,7 @@ import { statementDocumentsCopy } from './statement-documents-copy';
 import { refusedWords } from './statement-refusals';
 import { StatementDocuments } from './StatementDocuments';
 import './bank-depth.css';
+import { BANK_STATEMENTS_EXPORT, BANK_STATEMENTS_JOBS_CREATE } from '@intafaced/contracts/bank-statements-procedures';
 
 type Said =
   | { kind: 'done'; name: string; count: number; fingerprint: string; totals: readonly LineTotal[] | null }
@@ -74,7 +74,7 @@ export function StatementCentre() {
     if (busy || !range || problem) return;
     setBusy(true);
     setSaid(null);
-    const result = await api.query('bank', 'statements.export', { from: range.from, to: range.to, format, report }, statementFileSchema);
+    const result = await api.call(BANK_STATEMENTS_EXPORT, { from: range.from, to: range.to, format, report });
     setBusy(false);
     if (!result.ok) {
       const code = result.code ?? null;
@@ -98,13 +98,7 @@ export function StatementCentre() {
     if (busy || !range || problem) return;
     setBusy(true);
     setSaid(null);
-    const result = await api.mutate(
-      'bank',
-      'statements.jobs.create',
-      // A background export is of dates that have ended: a range running to the end of today stops now.
-      { from: range.from, to: endedBy(range.to, new Date()), format, report },
-      statementJobSchema,
-    );
+    const result = await api.call(BANK_STATEMENTS_JOBS_CREATE, { from: range.from, to: endedBy(range.to, new Date()), format, report });
     setBusy(false);
     if (!result.ok) {
       const code = result.code ?? null;

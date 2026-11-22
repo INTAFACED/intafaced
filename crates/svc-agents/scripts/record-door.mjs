@@ -86,7 +86,7 @@ if (JSON.stringify(golden.callers.map((c) => c.path)) !== JSON.stringify(paths))
 
 // ── Who owns each call ─────────────────────────────────────────────────────────────────────────────────────────────
 
-/** The slices (one Rust module each, `PORT.md`'s `## Slices`), and the calls each owns: exact paths, then `prefix*`. */
+/** The slices (one Rust module each, `README.md`'s `## Slices`), and the calls each owns: exact paths, then `prefix*`. */
 const SLICES = {
   door: ['health'],
   gateway: ['routes.*'],

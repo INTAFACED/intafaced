@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, Field, Loading } from '@intafaced/ui/lit';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
 import { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from '../account';
+import { LoadingLine } from '../../shared/record/record-parts';
 import { stepUpRefusalKeys, withdrawStepUpCopy } from './withdraw-step-up-copy';
 import { IDENTITY_FACTOR_STATUS } from '@intafaced/contracts/identity-factor-status-procedures';
 
@@ -65,23 +66,23 @@ export function StepUpConfirm({
     void confirm({ totpCode: code }, 'code');
   }
   const status = factors.resource;
-  if (status.status === 'loading') return <Loading label={t('checking')} />;
+  if (status.status === 'loading') return <LoadingLine label={t('checking')} />;
   // Unreadable factors still offer the confirmation: a refusal from it says what is missing.
   const none = status.status === 'ready' && !status.data.authenticator.on && status.data.passkeys.count === 0;
   return (
-    <section className="lt-stack" aria-label={t('title')} data-testid="step-up-confirm">
-      <h3 className="lt-panel-title">{t('title')}</h3>
+    <section className="lt-review" aria-label={t('title')} data-testid="step-up-confirm">
+      <h3 className="lt-sheet-title">{t('title')}</h3>
       {none ? (
         <>
-          <p className="lt-quiet">{words.noFactor}</p>
+          <p className="lt-hint">{words.noFactor}</p>
           <Button tone="primary" disabled={disabled} onClick={() => onApproved(null)}>
             {words.sendWithout}
           </Button>
         </>
       ) : (
         <>
-          <p className="lt-quiet">{words.why}</p>
-          <form className="lt-stack" onSubmit={withCode} noValidate>
+          <p className="lt-hint">{words.why}</p>
+          <form className="lt-review" onSubmit={withCode} noValidate>
             <Field
               label={words.code}
               hint={words.codeHint}
@@ -103,7 +104,7 @@ export function StepUpConfirm({
         </>
       )}
       {problem && (
-        <p data-testid="failure" className="lt-note lt-note-bad" role="alert">
+        <p data-testid="failure" className="lt-refusal" role="alert">
           {problem}
         </p>
       )}

@@ -1,10 +1,8 @@
 //! The svc-agents process: `svc-agents` serves; `svc-agents migrate [--down]` applies (or reverses) the agents schema's
 //! migrations.
 //!
-//! Serving starts as `services/svc-agents/src/index.ts` does, as far as the ported slices reach: the pool, the schema
-//! check, the bus, the boot upsert of the agents' guardrails, the door, then the port, then the timers. The TypeScript
-//! service stays the one that runs until the switch; until each slice is ported its calls answer "not ported" (500),
-//! and a timer whose work is not ported does not run.
+//! Serving starts as the TypeScript service's `index.ts` did: the pool, the schema check, the bus, the boot upsert of
+//! the agents' guardrails, the door, then the port, then the timers.
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
@@ -16,7 +14,9 @@ use service_kit::edge::{EdgeKey, MIN_SECRET_LENGTH};
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
 use service_kit::money::parse_amount;
-use service_kit::nats::{JetStream, stream_config};
+use service_kit::nats::{
+    Consumed, ConsumerSpec, Envelope, JetStream, NatsError, consume, stream_config,
+};
 use service_kit::s2s::{CallSigner, parse_keyring, s2s_from_env, system_seconds};
 use service_kit::s2s_verify::ServiceVerifier;
 use service_kit::server::{self, App};
@@ -27,6 +27,7 @@ use svc_agents::advisors::grounding::AcademyCurriculum;
 use svc_agents::advisors::portfolio::{self, LedgerBalancesHttp, TradeTickerPrices};
 use svc_agents::background;
 use svc_agents::boot;
+use svc_agents::bus::{SELF_FREEZE_APPLIED, TAKEN, on_fill_settled, on_self_freeze};
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
 use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
@@ -95,6 +96,61 @@ fn main() -> ExitCode {
             eprintln!("{e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The bus's lines (`jetstream-bus.ts`): `bus.delivered` for each message handed to its work, a failure that
+/// JetStream delivers again, and `bus.message_abandoned` once `max_deliver` is spent.
+fn bus_report(log: &Logger, spec: &ConsumerSpec, c: Consumed<'_>) {
+    let at = |attempt: u64| {
+        vec![
+            ("subject", Json::str(spec.filter_subject.clone())),
+            ("durable", Json::str(spec.durable.clone())),
+            (
+                "attempt",
+                Json::int(i64::try_from(attempt).unwrap_or(i64::MAX)),
+            ),
+        ]
+    };
+    match c {
+        Consumed::Delivered { attempt } => {
+            let mut fields = vec![("event", Json::str("bus.delivered"))];
+            fields.extend(at(attempt));
+            log.info(fields, "bus delivered");
+        }
+        Consumed::Failed {
+            attempt,
+            reason,
+            abandoned: false,
+        } => {
+            let mut fields = at(attempt);
+            fields.push(("reason", Json::str(reason)));
+            log.warn(
+                fields,
+                "svc-agents bus delivery failed; JetStream delivers it again",
+            );
+        }
+        Consumed::Failed {
+            attempt,
+            reason,
+            abandoned: true,
+        } => {
+            let mut fields = vec![("event", Json::str("bus.message_abandoned"))];
+            fields.extend(at(attempt));
+            fields.push(("reason", Json::str(reason)));
+            log.error(
+                fields,
+                "event bus gave up on this message: max_deliver is spent and JetStream will not redeliver it; the \
+                 stream retains it for 90 days, to be replayed by resetting this durable consumer once the cause is fixed",
+            );
+        }
+        Consumed::Bus(e) => log.warn(
+            vec![
+                ("durable", Json::str(spec.durable.clone())),
+                ("err", Json::str(e)),
+            ],
+            "svc-agents bus pull failed; the next pull dials again",
+        ),
     }
 }
 
@@ -809,6 +865,22 @@ fn serve(
     })
     .map_err(|e| e.0)?;
     let bus = Arc::new(bus);
+    // `subscribeSelfFreezeApplied` and the `fillSettled` trigger consumer: each durable is made, or reconciled, before
+    // the port opens, as `subscribe` awaits it; each pulls on its own connection, so a pull never holds up a publish.
+    let consumers = TAKEN
+        .iter()
+        .map(|taken| {
+            let spec = taken.spec(&str_of("NATS_STREAM_PREFIX"));
+            let js = JetStream::connect(
+                &str_of("NATS_URL"),
+                &str_of("SERVICE_NAME"),
+                Duration::from_secs(5),
+            )?;
+            js.ensure_consumer(&spec)?;
+            Ok((*taken, spec, js))
+        })
+        .collect::<Result<Vec<_>, NatsError>>()
+        .map_err(|e| e.0)?;
     // Before the listener opens: `openSession` binds from `agent_definitions`, so a process with no rows 404s every run.
     let boot_agents = boot::boot_agents()?;
     // The founders' confirmed changes over the configured table (J-agents-20), read before the port opens.
@@ -908,8 +980,44 @@ fn serve(
                 });
             });
         }
+        // The bus consumers: the owner's own freeze (J-wallet-13 #1), applied once under the freeze's id, and the own
+        // agents' fill triggers, run once under the fill's id. Each delivery is acked only once its work committed.
+        for (taken, spec, js) in &consumers {
+            let stop = &stop;
+            let door = &app.wire;
+            scope.spawn(move || {
+                let work = |env: &Envelope| -> Result<(), String> {
+                    let pool = door.store().pool().map_err(|e| e.to_string())?;
+                    if *taken == SELF_FREEZE_APPLIED {
+                        return on_self_freeze(pool, env);
+                    }
+                    let warn = |msg: &str, detail: &str| {
+                        log.warn(vec![("detail", Json::str(detail))], msg)
+                    };
+                    let runs = AutoRuns {
+                        x: Rt {
+                            rt: door.runtime(),
+                            pool,
+                            gateway: &door.gateway().gateway,
+                            m: door.metering(),
+                            now: system_now(),
+                        },
+                        cadence: door.own().cadence,
+                        log: Some(&warn),
+                        pause: None,
+                    };
+                    on_fill_settled(&runs, env)
+                };
+                consume(js, spec, Duration::from_secs(2), stop, &work, &|c| {
+                    bus_report(log, spec, c);
+                });
+            });
+        }
         server::serve(&server, &app, log, telemetry, &stop);
     });
+    for (_, _, js) in &consumers {
+        js.close();
+    }
     // Draining, not dropping: in-flight requests and timer runs finish before the bus and the pool close.
     drop(server);
     bus.close();
