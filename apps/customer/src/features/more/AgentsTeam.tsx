@@ -17,7 +17,7 @@ import {
 } from '@intafaced/contracts/agents-team';
 import { ownAgentSchema } from '@intafaced/contracts/agents-own';
 import type { ApiResult, RefusalReason } from '../../shared/api';
-import { Button, EmptyState, Field } from '@intafaced/ui/lit';
+import { Button, Checkbox, EmptyState, Field, Select } from '@intafaced/ui/lit';
 import { KeyValue, SettingsTemplate, Skeleton, type RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../shared/resource';
 import { businessListSchema, useApi, useSession } from '../session';
@@ -101,32 +101,6 @@ const NoteLine = ({ note }: { note: Note | null }) =>
     </p>
   );
 
-/** A native select in the kit's field. */
-function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: readonly (string | { value: string; label: string })[];
-}) {
-  return (
-    <label className="lt-field">
-      <span>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={typeof o === 'string' ? o : o.value} value={typeof o === 'string' ? o : o.value}>
-            {typeof o === 'string' ? o : o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 /** A table in the kit's look, named as a region so a reader (and a test) finds it by its name. */
 function Grid({ headers, children, label }: { headers: readonly string[]; children: ReactNode; label: string }) {
   return (
@@ -144,28 +118,6 @@ function Grid({ headers, children, label }: { headers: readonly string[]; childr
         <tbody>{children}</tbody>
       </table>
     </div>
-  );
-}
-
-/** A native tick box with its words, in the kit's field. */
-function Tick({
-  checked,
-  disabled,
-  label,
-  onChange,
-  children,
-}: {
-  checked: boolean;
-  disabled: boolean;
-  label?: string;
-  onChange: (on: boolean) => void;
-  children: ReactNode;
-}) {
-  return (
-    <label className="lt-field">
-      <input type="checkbox" checked={checked} disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.checked)} />
-      <span>{children}</span>
-    </label>
   );
 }
 
@@ -436,22 +388,22 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
                 };
                 return (
                   <td key={g.role}>
-                    <Tick
+                    <Checkbox
                       checked={allow}
                       disabled={locked}
-                      label={t('allowRole', { role: roleName(g.role) })}
-                      onChange={(on) => toggle('allow', on)}
+                      aria-label={t('allowRole', { role: roleName(g.role) })}
+                      onCheckedChange={(on) => toggle('allow', on)}
                     >
                       <Copy k="allowed" />
-                    </Tick>
-                    <Tick
+                    </Checkbox>
+                    <Checkbox
                       checked={deny}
                       disabled={locked}
-                      label={t('denyRole', { role: roleName(g.role) })}
-                      onChange={(on) => toggle('deny', on)}
+                      aria-label={t('denyRole', { role: roleName(g.role) })}
+                      onCheckedChange={(on) => toggle('deny', on)}
                     >
                       <Copy k="denied" />
-                    </Tick>
+                    </Checkbox>
                     <span className="lt-hint" data-testid={`effective-${g.role}`}>
                       {g.deny ? t('denied') : g.allow ? t('allowed') : t('notGranted')}
                     </span>
@@ -555,14 +507,14 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               <Copy k="projectMembers" />
             </legend>
             {team.members.map((m) => (
-              <Tick
+              <Checkbox
                 key={m.userId}
                 checked={projectMembers.includes(m.userId)}
                 disabled={locked}
-                onChange={(on) => setProjectMembers((list) => (on ? [...list, m.userId] : list.filter((id) => id !== m.userId)))}
+                onCheckedChange={(on) => setProjectMembers((list) => (on ? [...list, m.userId] : list.filter((id) => id !== m.userId)))}
               >
                 {name(m.userId)}
-              </Tick>
+              </Checkbox>
             ))}
           </fieldset>
           <NoteLine note={projectNote} />
