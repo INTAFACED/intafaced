@@ -166,17 +166,38 @@ export function ToggleChips<T extends string>({ options, value, onChange, label,
   );
 }
 
-export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string };
+export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  label: string;
+  hint?: string;
+  error?: string;
+  /** A mark inside the box before the text (the @ of a handle). Decorative: the label says what the box holds. */
+  before?: React.ReactNode;
+  /** A control inside the box after the text (a Paste key). */
+  after?: React.ReactNode;
+};
 
-export function Field({ label, hint, error, id, className, ...rest }: FieldProps) {
+export function Field({ label, hint, error, before, after, id, className, ...rest }: FieldProps) {
   const auto = React.useId();
   const inputId = id ?? auto;
   const describedBy =
     [rest['aria-describedby'], hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
+  const input = <input {...rest} id={inputId} aria-invalid={error ? true : rest['aria-invalid']} aria-describedby={describedBy} />;
   return (
     <div className={clsx('lit-field-control', className)}>
       <label htmlFor={inputId}>{label}</label>
-      <input {...rest} id={inputId} aria-invalid={error ? true : rest['aria-invalid']} aria-describedby={describedBy} />
+      {before || after ? (
+        <div data-part="box">
+          {before ? (
+            <span data-part="before" aria-hidden="true">
+              {before}
+            </span>
+          ) : null}
+          {input}
+          {after}
+        </div>
+      ) : (
+        input
+      )}
       {hint && (
         <span id={`${inputId}-hint`} data-part="hint">
           {hint}

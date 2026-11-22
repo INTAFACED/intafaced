@@ -41,6 +41,7 @@ import {
   MarketList,
   MoneyParts,
   Overlays,
+  PayParts,
   ScanCodes,
   SmallCandles,
   StepsAndSpark,
@@ -340,6 +341,14 @@ export default function VoltKit() {
         note="An asset's mark (a lettered disc when the kit has no art), the info tip, the hero figure shown, hidden and missing, the small-balances fold and the card stack."
       >
         <MoneyParts />
+      </Block>
+
+      <Block
+        id="pay-parts"
+        title="Pay parts"
+        note="The money box with its unit, what is available and Max, and a refusal; the handle box; the person found; where a send stands; a confirmation."
+      >
+        <PayParts />
       </Block>
 
       <Block id="buttons" title="Buttons" note="One primary per view. Every variant at rest, disabled and busy.">
