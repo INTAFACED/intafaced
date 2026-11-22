@@ -137,8 +137,11 @@ test(`${J} #2 moves TEST 600 USDC from spending into trading, with step-up: the 
   test.setTimeout(420_000);
   const { owner, userId, ledger } = state();
   await signInNow(page, state().who);
-  const { secret, step } = await addAuthenticator(page, totp);
-  run.write({ secret, step });
+  // A retry of this step finds the authenticator its first try added (signInNow then took a code from it): set up once.
+  if (!state().secret) {
+    const { secret, step } = await addAuthenticator(page, totp);
+    run.write({ secret, step });
+  }
   resetSession();
   const wallet = await openAccount(page, { signedIn: true });
   const route = (await testVenue('/venue')).body.deposit;
