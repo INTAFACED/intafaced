@@ -9,6 +9,7 @@ import type { AlgoPolicySummary } from '../algo/algo-policy.js';
 import type { RfqBoard } from '../otc/rfq-board.js';
 import type { OptionsPolicySummary } from '../spot/options-policy.js';
 import type { TradeService } from '../spot/trade-service.js';
+import { algoPolicyAnswer, algoListAnswer } from '@intafaced/contracts/trade-call-schemas';
 
 const rfqBoardStatus = z.enum(['open', 'accepted', 'settled', 'expired']);
 export const rfqBoardAnswer = z.object({
@@ -54,49 +55,8 @@ export const rfqBoardAnswer = z.object({
 });
 answerKeys<RfqBoard>()(rfqBoardAnswer);
 
-export const algoListAnswer = z.object({
-  rows: z.array(
-    z.object({
-      id: z.string(),
-      kind: z.string(),
-      market: z.string(),
-      side: z.string(),
-      totalQty: z.string(),
-      filledQty: z.string(),
-      status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
-      created: z.string(),
-      nextSliceAt: z.string().nullable(),
-      scheduler: z.object({
-        running: z.boolean().nullable(),
-        reason: z.enum(['jobs_disabled', 'heartbeat_unknown', 'heartbeat_stale', 'jobs_interval_unset']).nullable(),
-      }),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
-});
 answerKeys<Awaited<ReturnType<TradeService['algoList']>>>()(algoListAnswer);
 
-export const algoPolicyAnswer = z.object({
-  productKind: z.literal('twap'),
-  capability: z.object({
-    createEnabled: z.boolean(),
-    jobsEnabled: z.boolean(),
-    jobsDefault: z.literal(false),
-    icebergs: z.literal('out'),
-  }),
-  parentHoldsNoBalance: z.literal(true),
-  progressFromChildFillsOnly: z.literal(true),
-  cancelIncompleteHalt: z.literal('cancel_incomplete'),
-  cancelIncompleteCode: z.literal('trade.algo_cancel_incomplete'),
-  resumeRefusedOnCancelIncomplete: z.literal(true),
-  vwapPovImmatureRefused: z.literal(true),
-  volumeImmatureCode: z.literal('trade.algo_volume_immature'),
-  immatureKinds: z.tuple([z.literal('vwap'), z.literal('pov')]).readonly(),
-  inventsParentFill: z.literal(false),
-  inventsVwapCurve: z.literal(false),
-  inventsPovVolume: z.literal(false),
-  moneyViaLedgerClientOnly: z.literal(true),
-});
 answerKeys<AlgoPolicySummary>()(algoPolicyAnswer);
 
 export const optionsPolicyAnswer = z.object({

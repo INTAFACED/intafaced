@@ -5,7 +5,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { findRoom } from '../../app/navigation';
-import { ChangelogList, UpcomingView } from './ChangelogPages';
+import { ChangelogList, UpcomingView } from './changelog-list/ChangelogList';
 import { StatusView } from './StatusPage';
 import { developersRoute } from './developers-model';
 import { entrySchema, statusFeedSchema, type ChangelogEntry, type StatusFeed } from '../../shared/notify-reads';

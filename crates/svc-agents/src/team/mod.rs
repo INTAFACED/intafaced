@@ -1,4 +1,4 @@
-//! The `team` slice (`PORT.md`): a business team's agent roles, pool, project limits, runs on the pool, held actions
+//! The `team` slice (`README.md`): a business team's agent roles, pool, project limits, runs on the pool, held actions
 //! and usage (`team/routes.ts`, `team/store.ts`, `team/runs.ts`), answered as `teamRouter` answers them.
 //!
 //! - [`membership`]: svc-bank's team read (`team/membership.ts`), read again at every call and never stored.
@@ -226,25 +226,5 @@ mod tests {
             (t.code, t.message.as_str(), t.cause),
             ("INTERNAL_SERVER_ERROR", "socket hang up", None)
         );
-    }
-
-    #[test]
-    fn the_table_is_team_errors_ts_codes() {
-        let src = include_str!("../../../../services/svc-agents/src/team/errors.ts");
-        let declared: Vec<&str> = src
-            .split('\'')
-            .filter(|s| s.starts_with("agents."))
-            .collect();
-        let ours: Vec<&str> = TEAM_ERRORS.iter().map(|(c, _)| *c).collect();
-        assert_eq!(ours, declared);
-        let routes = include_str!("../../../../services/svc-agents/src/team/routes.ts");
-        for (code, status) in TEAM_ERRORS {
-            let line = format!("'{code}': '{status}'");
-            assert_eq!(
-                routes.contains(&line),
-                status != "BAD_REQUEST",
-                "{code} answers {status}"
-            );
-        }
     }
 }

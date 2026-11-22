@@ -39,7 +39,7 @@ Each step in the model names the code it stands for. A change to any of these is
 | ... for `expiry`                                                  | `ioc-place.ts`, `gtd-gtt-place.ts`, `option-place.ts`, their `settleOutcome` wrappers                                                                                                   |
 | ... for `sweep`                                                   | `trade-service/reconcile.ts` `reconcileOrder`, a live order the engine cancels                                                                                                          |
 | `FinPost`, `SettlePost` keys                                      | the release key `order.release:<id>:<seq>` and the fill key `trade.fill:<id>` (`packages/ledger-client/src/recipes/index.ts` `orderHoldRelease`, `tradeFill`)                           |
-| `Match`                                                           | the engine's book (`services/svc-matching/src/engine/book.ts` `match`), one serial book per market                                                                                      |
+| `Match`                                                           | the engine's book (`crates/svc-matching/src/book/order_book.rs` `match_order`), one serial book per market                                                                              |
 
 The same race on the real services, with a real Postgres: `src/spot/hold-release-race.pg.test.ts`, one test per closer.
 

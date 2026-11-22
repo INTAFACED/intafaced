@@ -3,11 +3,12 @@ import { recoveryClaimMessage } from '@intafaced/contracts/identity-recovery';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import { readRecoveryKey, signWithRecoveryKey } from '../account';
-import { date, funds, useBankRead } from './components';
+import { date, funds, useBankRecord } from './components';
 import { recoveryWrites, type RecoveryAccount, type RecoveryEstate, type RecoverySweep } from './contracts';
 import { DepthPanel, DisabledActions, Fact } from './DepthParts';
 import { recoveryClaimCopy, type recoveryClaimMessages } from './recovery-claim-copy';
 import './bank-depth.css';
+import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES } from '@intafaced/contracts/bank-recovery-procedures';
 
 /**
  * `/bank/recovery` (RC-identity-08, J-identity-05 #7): the heir's claim room. It lists the accounts whose owner named
@@ -166,7 +167,7 @@ function ClaimForm({ estate, onDone }: { estate: RecoveryEstate; onDone: (done: 
     );
     setBusy(true);
     try {
-      const opened = await api.mutate('bank', 'recovery.claims.open', { ownerUserId: estate.userId }, recoveryWrites.open);
+      const opened = await api.call(BANK_RECOVERY_CLAIMS_OPEN, { ownerUserId: estate.userId });
       if (!opened.ok) return setError(refusal(t, opened));
       const expected = recoveryClaimMessage({ userId: estate.userId, heirUserId: userId, claimId: opened.data.claimId });
       if (opened.data.message !== expected) return setError(t('messageMismatch'));
@@ -295,7 +296,7 @@ function Estate({ estate, done, onDone }: { estate: RecoveryEstate; done: Execut
 
 export function RecoveryClaim() {
   const { t } = recoveryClaimCopy.useCopy();
-  const list = useBankRead('recovery.estates', undefined);
+  const list = useBankRecord(BANK_RECOVERY_ESTATES, undefined);
   const [done, setDone] = useState<Record<string, Executed>>({});
   if (list.resource.status === 'loading') return <Loading />;
   if (list.resource.status === 'failed') return <Failure result={list.resource.failure} retry={list.reload} />;

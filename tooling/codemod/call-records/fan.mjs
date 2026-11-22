@@ -13,6 +13,8 @@ const ARG_AT = {
   founderEdgeCall: { module: 1, path: 2, input: 4 },
   payCall: { module: 5, path: 1, input: 3 },
   useBankRead: { path: 0, input: 1 },
+  payQuery: { path: 0, input: 1 },
+  payMutate: { path: 0, input: 1 },
 };
 
 const unwrap = (n) => {

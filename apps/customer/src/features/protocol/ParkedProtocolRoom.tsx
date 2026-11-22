@@ -14,11 +14,11 @@ import { type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPa
 import { ChainHome } from './explorer/ChainHome';
 import { TokensNav } from './tokens/TokensRoom';
 import { BridgeRoutes } from './rails/BridgeRoutes';
-import { AuditProducts } from './AuditProducts';
 import { VenueFunds } from './venue/VenueFunds';
 import { LendPanel } from './lend/LendPanel';
 import './explorer/explorer.css';
 import './protocol.css';
+import { AuditRoom } from './audit/AuditRoom';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
 
@@ -201,25 +201,6 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </Answer>
     </Panel>
   );
-  const auditPanel = (
-    <Panel title={t('auditTitle')}>
-      <Answer value={audit} source={t('src_audit')} t={t} shell={{ label: t('auditTitle'), headers: [t('hdr_field'), t('hdr_value')] }}>
-        {(a) => (
-          <Rows
-            t={t}
-            rows={[
-              [t('auditedFlag'), t('auditedFalse')],
-              [t('auditKind'), t('internalOnly')],
-              [t('auditPackage'), a.id],
-              [t('auditPath'), a.packagePath],
-              [t('auditHash'), a.artifactHash],
-              [t('auditSigned'), a.signedBy ?? t('unsigned')],
-            ]}
-          />
-        )}
-      </Answer>
-    </Panel>
-  );
   const venuePanel = (
     <Panel title={t('venueTitle')}>
       <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
@@ -258,13 +239,6 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         <ChainHome chain={chainRef} />
         {chainStatusPanel}
         <NetworkPanel chain={chainRef} t={t} />
-      </>
-    );
-  else if (tab === 'audit')
-    body = (
-      <>
-        <AuditProducts api={api} />
-        {auditPanel}
       </>
     );
   // The swap is drawn on the Volt desk template, which carries the room's title: the page draws none of its own there.
@@ -323,6 +297,8 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </>
     );
 
+  // The audit tab is drawn on its own reading template, its sections as links (features/protocol/audit/AuditRoom.tsx).
+  if (tab === 'audit' && slug !== 'dex') return <AuditRoom slug={slug} api={api} audit={audit} />;
   const swapDesk = slug === 'dex' && tab === 'swap';
   const eyebrow = (
     <>

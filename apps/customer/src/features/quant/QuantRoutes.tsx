@@ -4,9 +4,11 @@ import { StrategiesRoom } from './StrategiesRoom';
 import { LimitsRoom } from './LimitsRoom';
 import { limitsCopy } from './limits-copy';
 import { StrategyPage } from './StrategyPage';
-import { SharedRoom, SharedStrategy } from './SharedRooms';
+import { SharedRoom } from './SharedRooms';
+import { SharedStrategy } from './SharedStrategyRoom';
 import { teamCopy } from './team-copy';
-import { LibraryRoom, ListingRoom } from './LibraryRooms';
+import { LibraryRoom } from './LibraryRooms';
+import { ListingRoom } from './ListingRoom';
 import { libraryCopy } from './library-copy';
 import { LiveRun } from './LiveRun';
 import { LiveRunsRoom } from './live-runs/LiveRunsRoom';
@@ -20,15 +22,22 @@ import { LakeRoom } from './LakeRoom';
 import { researchCopy } from './research-copy';
 
 /**
+ * A room's title, the line under it and its content. `bare`: the content is a room on its kit template, which draws its own
+ * title, so it opens without the old page frame.
+ */
+export interface QuantRoute {
+  title: ReactNode;
+  description: ReactNode;
+  content: ReactNode;
+  bare?: true;
+}
+
+/**
  * The Algo dev rooms under `/quant`; `MoreRoutes` hands the whole prefix here. Null for a path that is not one of them,
  * and for studio, backtest and sandbox, which More's own `quantModeRoute` serves beside their room. `bare`: the room is on
  * its Volt template, which draws its own title row, so More mounts it without the old page frame.
  */
-export function quantRoute(
-  pathname: string,
-  paper: boolean,
-  userId: string | null,
-): { title: ReactNode; description: ReactNode; content: ReactNode; bare?: true } | null {
+export function quantRoute(pathname: string, paper: boolean, userId: string | null): QuantRoute | null {
   if (pathname === '/quant') {
     return {
       title: algoCopy.t('title'),
@@ -49,6 +58,7 @@ export function quantRoute(
       title: strategyPageCopy.t('roomTitle'),
       description: strategyPageCopy.t('description'),
       content: <StrategyPage key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+      bare: true,
     };
   }
   // Strategies other people shared with the caller, and one of them (J-algo-dev-08).
@@ -71,6 +81,7 @@ export function quantRoute(
       title: teamCopy.t('sharedTitle'),
       description: teamCopy.t('sharedIntro'),
       content: <SharedStrategy key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+      bare: true,
     };
   }
   // The strategy library (J-algo-dev-09): what people published, and one listing.
@@ -93,6 +104,7 @@ export function quantRoute(
       title: libraryCopy.t('libraryTitle'),
       description: libraryCopy.t('libraryIntro'),
       content: <ListingRoom key={`${userId ?? 'anonymous'}:${listingId}`} listingId={listingId} paper={paper} />,
+      bare: true,
     };
   }
   // A live strategy run on the person's own venue sub-account (J-algo-dev-07), and the list of them.

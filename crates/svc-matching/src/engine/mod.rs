@@ -37,7 +37,6 @@ use crate::book::types::{
 use crate::book::wire::{
     WireError, from_wire, from_wire_amend, spread_from_json, spread_json, to_wire, to_wire_amend,
 };
-use crate::door::Slice;
 use crate::journal::JournalError;
 use crate::journal::io::EngineJournal;
 use crate::journal::record::{JournalCommand, JournalRecord, js_string};
@@ -89,8 +88,6 @@ pub enum EngineError {
     /// A spread fill whose legs no longer price, though the rehearsal before the journal priced them: the book moved
     /// under it. The TypeScript throws here; nothing is announced, never half a spread.
     Invariant(String),
-    /// A cold start met state a later slice owns.
-    Owed { slice: Slice, why: String },
     /// A publish during the cold start kept timing out (`StartupPublishError`): the process exits before it listens.
     StartupPublish(String),
 }
@@ -102,9 +99,6 @@ impl std::fmt::Display for EngineError {
             EngineError::Publish(e) => write!(f, "event bus: {e}"),
             EngineError::Replay(e) => write!(f, "replay: {e}"),
             EngineError::Invariant(e) => write!(f, "{e}"),
-            EngineError::Owed { slice, why } => {
-                write!(f, "{why} (slice {} is not ported)", slice.name())
-            }
             EngineError::StartupPublish(message) => f.write_str(message),
         }
     }
@@ -1626,13 +1620,8 @@ impl MatchingEngine {
         let mut into = Rebuild::default();
         replay_journal(&records, &mut into).map_err(|e| EngineError::Replay(e.to_string()))?;
         if let Some(e) = into.error {
-            return Err(match e {
-                WireError::Owed { field, slice } => EngineError::Owed {
-                    slice,
-                    why: format!("the journal holds a {field}"),
-                },
-                WireError::Malformed(why) => EngineError::Replay(why),
-            });
+            let WireError::Malformed(why) = e;
+            return Err(EngineError::Replay(why));
         }
         self.books = into.books;
         self.modes = replay_modes(&records);

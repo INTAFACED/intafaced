@@ -51,8 +51,10 @@
 /* Phone: the doors float as one pill above the page, the open door a solid ink pill inside it. The pill's look is not
    inside the phone query, so the kit page can draw it at any width (app/kit); shell.css shows the bar on a phone only. */
 @media (max-width: 767px) {
+  /* The page ends clear of the doors however tall they grow (200% text): the doors' measured height
+     (--a11y-obscured-bottom, a11y trackObscuringBars), their 0.875rem float, and room for a focused control's outline. */
   :root .if-app {
-    padding-block-end: 7rem;
+    padding-block-end: max(7rem, calc(var(--a11y-obscured-bottom, 0rem) + 2.5rem));
   }
   :root .mobile-doors {
     inset-inline: 0.875rem;

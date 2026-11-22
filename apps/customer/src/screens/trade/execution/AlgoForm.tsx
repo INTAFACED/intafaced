@@ -171,7 +171,7 @@ export function AlgoForm({
   const clientAlgoId = algoClientId(nonce);
   const blockerKey = createBlocker(policy.status === 'ready' ? policy.data.capability : null, market?.open === true);
   const blocker = blockerKey ? t(blockerKey) : null;
-  const immature = policy.status === 'ready' && policy.data.immatureKinds.includes(form.kind);
+  const immature = policy.status === 'ready' && policy.data.immatureKinds.some((k) => k === form.kind);
   const problemWord = (p: PlanProblem) => t(`Plan problem ${p}`, { max: '500' });
   const general = problems.find((p) => p === 'tooManySlices' || p === 'sliceTooSmall' || p === 'sliceBelowMin');
   const twap = form.kind === 'twap';

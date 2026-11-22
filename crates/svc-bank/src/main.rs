@@ -25,8 +25,12 @@ use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
 use svc_bank::env::{self, BankEnv, DEFAULT_PORT};
 use svc_bank::migrate;
+use svc_bank::partner::custody::LedgerFreeze;
+use svc_bank::partner::router::Wiring;
+use svc_bank::partner::{TestPartner, cash_leg, pay_in};
 use svc_bank::ready;
 use svc_bank::recovery::{self, AdvisoryLock, RecoveryCounts};
+use svc_bank::test_age;
 use svc_bank::timers::{self, Timer};
 
 fn process_env() -> BTreeMap<String, String> {
@@ -61,8 +65,54 @@ type Job<'a> = Box<dyn Fn() -> Result<(), String> + Sync + 'a>;
 
 /// The work each timer runs. Each comes with its slice (`timers::timers` names it); until then the timer does not run,
 /// as it would not in a process without that work.
-fn jobs<'a>(_door: &'a BankDoor, _env: &'a BankEnv) -> Vec<(&'static str, Job<'a>)> {
-    Vec::new()
+fn jobs<'a>(door: &'a BankDoor, _env: &'a BankEnv) -> Vec<(&'static str, Job<'a>)> {
+    let mut out: Vec<(&'static str, Job<'a>)> = Vec::new();
+    // Slice `partner`: the TEST partner watches its TEST pay-in addresses, one pass at a time.
+    let wiring = door.partner();
+    if let (Some(partner), Some(rail)) = (wiring.partner.as_ref(), wiring.pay_in.as_ref()) {
+        out.push((
+            "TEST pay-in chain poll",
+            Box::new(move || rail.poll(partner, || door.now())),
+        ));
+    }
+    out
+}
+
+/// Slice `partner`'s wiring, in `index.ts`'s order: the TEST partner (`testPartnerFor`, the raw `APP_ENV` and
+/// `NODE_ENV`), its pay-in rail, svc-ledger's posting freeze and the TEST cash leg. Each refuses to start as the
+/// TypeScript does.
+fn partner_wiring(env: &BankEnv) -> Result<Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let partner = TestPartner::for_setting(
+        env.str("BANK_TEST_PARTNER").unwrap_or("off"),
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+    )?;
+    let pay_in = pay_in::for_stack(
+        partner.is_some(),
+        env.str("BANK_TEST_PAY_IN_RPC_URL"),
+        env.str("BANK_TEST_PAY_IN_CHAIN_ID"),
+        env.str("BANK_TEST_PAY_IN_TOKEN"),
+        Box::new(UreqFetch::new()),
+    )?;
+    let cash_legs = cash_leg::for_stack(
+        env.str("BANK_TEST_CASH_LEG_RATES"),
+        env.str("BANK_TEST_CASH_LEG_VENUE_URL"),
+        partner.is_some(),
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+        Box::new(UreqFetch::new()),
+    )?;
+    Ok(Wiring {
+        partner,
+        freeze: Box::new(LedgerFreeze {
+            url: env.str("LEDGER_URL").unwrap_or_default().to_owned(),
+            fetch: Box::new(UreqFetch::new()),
+        }),
+        custody_layer: env.str("LEDGER_CUSTODY_LAYER").unwrap_or("off").to_owned(),
+        cash_legs,
+        pay_in,
+    })
 }
 
 /// The recovery jobs whose work is ported, in `recovery::JOBS`' order. Each comes with its slice.
@@ -136,13 +186,18 @@ fn service_auth(env: &BankEnv) -> Result<ServiceAuth, String> {
 /// The door, built once from the environment, with the store.
 fn door(env: &BankEnv, store: Store) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let test_age = test_age::open(raw(test_age::ENV), raw("APP_ENV"), raw("NODE_ENV"))?;
+    let partner = partner_wiring(env)?;
     let door = BankDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         services: service_auth(env)?,
         env: env.raw.clone(),
         now: system_now,
         store,
-    })?;
+    })?
+    .with_test_age(test_age)
+    .with_partner(partner);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

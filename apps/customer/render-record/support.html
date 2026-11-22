@@ -97,33 +97,36 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Support</h1>
-<p class="muted">Help articles and your support requests.</p>
+<h1 class="lt-title">Support</h1>
+<p class="lt-description">Help articles and your support requests.</p>
 </div>
 </header>
-<div class="support-desk">
-<div class="tabs" role="group" aria-label="Support sections">
-<button type="button" class="selected" aria-pressed="true">Help articles</button>
-<button type="button" class="" aria-pressed="false">Your requests</button>
-<button type="button" class="" aria-pressed="false">New request</button>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<div class="lt-stack" data-room="support">
+<div class="lit-segmented" role="group" aria-label="Support sections">
+<button type="button" aria-pressed="true">Help articles</button>
+<button type="button" aria-pressed="false">Your requests</button>
+<button type="button" aria-pressed="false">New request</button>
 </div>
-<p class="muted" data-testid="support-chat-link">
-<a class="text-link" href="/support/chat">
+<p data-testid="support-chat-link">
+<a class="lt-link lt-link-alone" href="/support/chat">
 <span lang="en" dir="ltr" data-i18n="support-chat.openChat">Chat with a person on our support team</span>
 </a>
 </p>
-<section class="support-pane" aria-label="Help articles">
-<p class="muted">Search the answers we have published. Most questions about signing in, orders and security are covered here.</p>
-<form class="more-inline" role="search">
-<label class="field" for="field-_r_3_">
-<span id="field-_r_3_-label">Search help</span>
-<input maxlength="200" id="field-_r_3_" aria-labelledby="field-_r_3_-label" aria-invalid="false" value="">
-</label>
-<button type="submit" class="button button--secondary ">Search</button>
+<section class="lt-stack" aria-label="Help articles">
+<p class="lt-hint">Search the answers we have published. Most questions about signing in, orders and security are covered here.</p>
+<form class="lt-toolbar" role="search">
+<div class="lt-field">
+<label for="_r_3_">Search help</label>
+<input maxlength="200" id="_r_3_" value="">
+</div>
+<button type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Search</button>
 </form>
 <div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
@@ -133,6 +136,9 @@
 </div>
 </div>
 </section>
+</div>
+</section>
+</div>
 </div>
 </div>
 </div>

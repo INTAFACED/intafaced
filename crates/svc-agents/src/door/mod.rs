@@ -93,7 +93,7 @@ pub struct Post {
     pub lacks_identity_write: bool,
 }
 
-/// Which slice of the port owns a call's handler (`PORT.md`, `## Slices`). `Door` is answered here (`health`).
+/// Which slice of the port owns a call's handler (`README.md`, `## Slices`). `Door` is answered here (`health`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Slice {
     Door,
@@ -132,7 +132,7 @@ impl Slice {
         Slice::Webhooks,
     ];
 
-    /// The slice's name in `PORT.md`.
+    /// The slice's name in `README.md`.
     pub fn name(self) -> &'static str {
         match self {
             Slice::Door => "door",

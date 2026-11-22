@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, load, resolveRelative, walk } from './ast.mjs';
 import { boundParams, exportOf } from './defined.mjs';
+import { founderAccess } from './founder-guard.mjs';
 import { checkedUse, withCheck } from './guard-check.mjs';
 import { wrappedInScope, wrappedUse } from './wrapped-check.mjs';
 
@@ -242,7 +243,8 @@ export function chainOf(proc) {
     } else break;
     cur = cur.callee.object;
   }
-  const guard = guardOf(p, cur, problems);
+  // The service's founder guard is named on the record and handed to the mount where the procedure stood (founder-guard.mjs).
+  const guard = founderAccess(p, cur) ?? guardOf(p, cur, problems);
   // A wrapped check is written where the record mounts: it must read there what it read at its guard.
   if (guard?.check?.inline && !wrappedInScope(p, node, guard.check))
     problems.push('guard use() chained: its wrapped check reads a name that means something else where the record mounts');
@@ -259,19 +261,6 @@ const ACCESS_OPTS = new Set(['module', 'plane', 'tier', 'person', 'ownSession', 
  */
 const KEPT_GUARDS = new Map([
   ['coachRunProcedure', 'checks agents:execute with its own refusal codes before the person-only check; no record field says that'],
-  [
-    'jobProcedure',
-    "is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
-  ],
-  ['personProcedure', 'refuses anyone but the person with no scope to name; a record has no caller for it yet'],
-  [
-    'founderProcedure',
-    "is the service's founder guard: its record mounts behind ServiceParts.founder, which the codemod's mount does not hand over yet",
-  ],
-  [
-    'founder',
-    "is the service's founder guard: its record mounts behind ServiceParts.founder, which the codemod's mount does not hand over yet",
-  ],
 ]);
 
 /** What an expression stands for, through parentheses, `as const`, a guard function's bound parameters and local consts. */
@@ -444,11 +433,27 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
   }
   if (name === 'serviceProcedureFor') {
     const list = literals(args[0]);
-    if (!list) {
+    // `forbidden`: the door's own wording for an unlisted caller, which the record keeps.
+    const rest = opts(args[1], new Set(['forbidden']));
+    if (!list || rest === null) {
       problems.push('serviceProcedureFor arguments a record cannot copy');
       return undefined;
     }
-    return { text: `{ caller: 'service', callers: [${list.join(', ')}] }` };
+    return { text: `{ caller: 'service', callers: [${list.join(', ')}]${rest} }` };
+  }
+  if (name === 'personProcedure') {
+    // `personProcedure()` or `personProcedure(null, …)`: no scope; else the scope, then the guards a record copies.
+    const none = !args[0] || (args[0].type === 'Literal' && args[0].value === null);
+    const scope = none ? undefined : literalOf(p, args[0], env);
+    const rest = opts(args[1], new Set(['module', 'plane', 'tier']));
+    if ((!none && typeof scope !== 'string') || rest === null) {
+      problems.push('personProcedure with a scope or options a record cannot copy');
+      return undefined;
+    }
+    return {
+      text: `{ caller: 'person'${scope === undefined ? '' : `, scope: '${scope}'`}${rest} }`,
+      ...(scope === undefined ? {} : { scope }),
+    };
   }
   problems.push(`guard ${name}() is not one a record names`);
   return undefined;
@@ -461,6 +466,7 @@ const BUILDERS = new Set([
   'publicJurisdictionProcedure',
   'anyScopeProcedure',
   'serviceProcedureFor',
+  'personProcedure',
 ]);
 
 /** The name of a kept guard this expression is, or calls: `founder`, `opsProcedure`, `coachRunProcedure()`. */

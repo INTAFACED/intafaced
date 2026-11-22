@@ -14,6 +14,10 @@
 //     string is what every caller already reads (`z.string().datetime({ offset: true })`, as the hand records write it).
 //     A service that mounts its records checks its handler's Date against the answer, so there it stays, named.
 //
+//   - a `.refine(..., message)` stays as written and is named in the record, in its message's words: an answer's in
+//     `outputChecks`, an input's in `checks` with a placeholder sample per check, which samples.mjs replaces with an input
+//     that check alone refuses. A `.superRefine`, or a refine with no message written in its chain, has no words to name.
+//
 // Any other construct, or a path the walk can't follow, is left as it is and printed by name.
 //
 //   node tooling/codemod/call-records/portable.mjs --unportable <samples.mjs --unportable output> [--write] <record file.ts> ...
@@ -279,7 +283,7 @@ function refinementOf(target) {
   return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
 }
 
-/** `{ name: { at, says }, ... }`, one entry per refinement, at every place it sits. */
+/** `{ name: { at, says }, ... }`, one entry per refinement, at every place it sits, and the names it gave. */
 function checksText(named) {
   const used = new Set();
   const entries = [...named.values()].map((c) => {
@@ -289,7 +293,7 @@ function checksText(named) {
     const at = c.at.length === 1 ? JSON.stringify(c.at[0]) : `[${c.at.map((a) => JSON.stringify(a)).join(', ')}]`;
     return `${name}: { at: ${at}, says: ${JSON.stringify(c.says)} }`;
   });
-  return `{ ${entries.join(', ')} }`;
+  return { text: `{ ${entries.join(', ')} }`, names: [...used] };
 }
 
 /** Where a file imports `jsonValueSchema` from. */
@@ -318,12 +322,13 @@ export function plan(skipped, recordFiles, { door = false } = {}) {
       const steps = f.at.startsWith(root) ? stepsOf(f.at, root) : undefined;
       let target = start && steps ? { q: start.q, n: start.n } : undefined;
       for (const step of steps ?? []) target = target && down(target.q, target.n, step);
-      if (target && side === 'output' && f.construct === REFINEMENT) {
-        // An answer's refinement stays where it is and is named in the record's `outputChecks`, in its own words.
+      if (target && side && f.construct === REFINEMENT) {
+        // A refinement stays where it is and is named in the record, in its own words: an answer's in `outputChecks`, an
+        // input's in `checks` (samples.mjs then finds the input that check alone refuses).
         const r = refinementOf(target);
         if (r.why) left.push({ record: name, at: f.at, why: r.why });
         else {
-          const at = `output${f.at.slice(root.length)}`;
+          const at = `${side}${f.at.slice(root.length)}`;
           if (!named.has(r.key)) named.set(r.key, { name: r.name, says: r.says, at: [] });
           named.get(r.key).at.push(at);
         }
@@ -354,9 +359,24 @@ export function plan(skipped, recordFiles, { door = false } = {}) {
       else left.push({ record: name, at: f.at, why: r.why });
     }
     if (named.size) {
-      if (start.record.properties.some((pr) => pr.type === 'Property' && keyOf(pr) === 'outputChecks')) {
-        for (const c of named.values()) for (const at of c.at) left.push({ record: name, at, why: 'the record already has outputChecks' });
-      } else add(start.q, { start: start.prop.end, end: start.prop.end, text: `, outputChecks: ${checksText(named)}` });
+      const key = side === 'input' ? 'checks' : 'outputChecks';
+      const samples = start.record.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'samples')?.value;
+      if (start.record.properties.some((pr) => pr.type === 'Property' && keyOf(pr) === key)) {
+        for (const c of named.values()) for (const at of c.at) left.push({ record: name, at, why: `the record already has ${key}` });
+      } else if (side === 'input' && samples?.type !== 'ArrayExpression') {
+        for (const c of named.values())
+          for (const at of c.at) left.push({ record: name, at, why: 'its samples are not written as a list' });
+      } else {
+        const { text: checks, names } = checksText(named);
+        add(start.q, { start: start.prop.end, end: start.prop.end, text: `, ${key}: ${checks}` });
+        // An input check needs a sample it alone refuses, or the record does not load: a placeholder per check, which
+        // samples.mjs replaces with the real one.
+        if (side === 'input') {
+          const end = samples.elements.length ? samples.elements.at(-1).end : samples.start + 1;
+          const sep = samples.elements.length ? ', ' : '';
+          add(start.q, { start: end, end, text: `${sep}${names.map((n) => `{ verdict: 'refuse', input: 42, by: '${n}' }`).join(', ')}` });
+        }
+      }
     }
   }
   return { edits, left, replays };

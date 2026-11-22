@@ -5,11 +5,12 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useWallet } from '../protocol';
 import { useSession } from '../session';
 import { addMoneyCopy } from './add-money-copy';
-import { date, funds, useBankRead } from './components';
+import { date, funds, useBankRead, useBankRecord } from './components';
 import { addMoneyRequestSchema, type AddMoneyMethod, type AddMoneyOption, type AddMoneyRequest } from './contracts';
 import { DepthPanel, Fact } from './DepthParts';
 import { IncomingPayments } from './IncomingPayments';
 import './bank-depth.css';
+import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS } from '@intafaced/contracts/bank-add-money-procedures';
 
 /**
  * Add money (J-bank-02): the amount, every way to pay with the fee and arrival the bank quoted (a blank reads "not set"),
@@ -265,7 +266,7 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
     let reads = 0;
     let failures = 0;
     const read = async () => {
-      const result = await api.query('bank', 'addMoney.request', { requestId }, addMoneyRequestSchema);
+      const result = await api.call(BANK_ADD_MONEY_REQUEST, { requestId });
       if (stopped) return;
       reads += 1;
       if (result.ok) {
@@ -322,7 +323,7 @@ function StatusWord({ request }: { request: AddMoneyRequest }) {
 
 function Requests() {
   const { t } = addMoneyCopy.useCopy();
-  const read = useBankRead('addMoney.requests', { limit: 20 });
+  const read = useBankRecord(BANK_ADD_MONEY_REQUESTS, { limit: 20 });
   const { resource } = read;
   return (
     <DepthPanel title={t('requestsTitle')} lead={t('requestsLead')}>

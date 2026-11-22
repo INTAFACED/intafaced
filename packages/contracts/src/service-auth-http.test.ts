@@ -160,6 +160,30 @@ describe('serviceProcedureFor', () => {
     expect(await router.createCaller(ctx('svc-agents', 'shared')).ping()).toBe('ok');
     await expect(router.createCaller(ctx('svc-trade', 'shared')).ping()).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
+
+  it("keeps a door's own words for an unlisted caller when it names them, with no code; the list and the 401 are unchanged", async () => {
+    const own = t.router({
+      job: serviceProcedureFor(['svc-token'], { forbidden: 'token job is callable only as svc-token' }).query(() => 'ok'),
+    });
+    expect(await own.createCaller(ctx('svc-token', 'keypair')).job()).toBe('ok');
+    const refused = await own
+      .createCaller(ctx('svc-trade', 'keypair'))
+      .job()
+      .catch((err: unknown) => err);
+    expect(refused).toMatchObject({ code: 'FORBIDDEN', message: 'token job is callable only as svc-token' });
+    expect((refused as { cause?: unknown }).cause).toBeUndefined();
+    await expect(own.createCaller(ctx(null)).job()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    // Without it, the list's own refusal and code.
+    const plain = await router
+      .createCaller(ctx('svc-trade', 'keypair'))
+      .ping()
+      .catch((err: unknown) => err);
+    expect(plain).toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'This service is not allowed to call this procedure',
+      cause: { code: 's2s.caller_forbidden' },
+    });
+  });
 });
 
 describe('serviceCallSigner', () => {

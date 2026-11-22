@@ -19,32 +19,42 @@
 </a>
 </header>
 <main id="main">
-<div data-testid="mule-policy" class="help stack" lang="en">
-<header>
-<h1>Money mule policy</h1>
-<p class="muted">A money mule is someone who receives money and passes it on for someone else. This page holds our policy on it.</p>
-</header>
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<div data-testid="mule-policy" lang="en">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Money mule policy</h1>
+<p class="lt-description">A money mule is someone who receives money and passes it on for someone else. This page holds our policy on it.</p>
 </div>
-<section aria-labelledby="mule-report">
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</div>
+</section>
+<section class="lt-region" data-region="related" aria-label="Related">
+<section aria-labelledby="mule-report" class="lt-stack">
 <h2 id="mule-report">Report a suspected mule account</h2>
 <p>Tell us through a support request. If you sent money because of a scam, report the scam with the transfer it went out on.</p>
 <ul>
 <li>
-<a class="text-link" href="/bank/safety/scam">Report a scam</a>
+<a class="lt-link lt-link-alone" href="/bank/safety/scam">Report a scam</a>
 </li>
 <li>
-<a class="text-link" href="/support/new">Contact support</a>
+<a class="lt-link lt-link-alone" href="/support/new">Contact support</a>
 </li>
 </ul>
 </section>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">

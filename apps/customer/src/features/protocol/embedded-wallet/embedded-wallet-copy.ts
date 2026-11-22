@@ -44,6 +44,7 @@ const en = {
   sessionReadFailed: 'Your trading session could not be read: {reason}',
   sessionAbout:
     'Start a session to trade on {venue}. Your wallet signs one approval, after your passkey, for a new session key made on this device. The key can place and cancel orders and can never withdraw. It ends at its expiry, when you end the session, or when you sign out.',
+  sessionReading: 'Reading your trading session on the venue…',
   sessionStart: 'Start trading session',
   sessionStartNew: 'Start a new session',
   sessionLive: 'Session on. Your session key can trade on {venue} and can never withdraw.',
@@ -63,6 +64,7 @@ const en = {
   builderNote: 'Orders through INTAFACED carry our builder fee of {fee} basis points. Your wallet approves it once, after your passkey.',
   builderApprove: 'Approve the builder fee',
   builderApproved: 'Your wallet has approved our builder fee.',
+  builderReading: 'Reading whether your wallet has approved our builder fee…',
   builderUnset: 'Our builder fee is not published, so no order can be placed.',
   withdrawNever: 'The session key never signs a withdrawal or an approval. Those always need your wallet and your passkey.',
   orderTitle: 'Place an order',
