@@ -1,9 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
 import { BrandIris, Panel } from '@intafaced/ui';
-import { isServiceNotConnected, type ApiResult } from './api';
-import { uiCopy, uiMessage } from './ui-copy';
-import { refusalCopy } from '../data/refusals';
-import { canTryAgain, embeddedKey, RAW_CODE } from './failure-words';
+import { uiCopy } from './ui-copy';
+import { Failure as KitFailure, type FailureProps } from './failure';
 export { Panel };
 export { canTryAgain } from './failure-words';
 
@@ -80,67 +78,9 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
     </div>
   );
 }
-export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
-  const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
-  if (isServiceNotConnected(result.code)) {
-    // The gateway's own text is never shown for this answer: say plainly that the service is not connected here.
-    return (
-      <div data-testid="failure" className="failure" role="status">
-        <h3>
-          <Copy k="not_mounted" />
-        </h3>
-        <p>
-          <Copy k="serviceNotConnected" />
-        </p>
-      </div>
-    );
-  }
-  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
-  if (rawCode && !result.messageCopy) {
-    // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
-    const words = refusalCopy(result.code ?? rawCode);
-    // A write that may have gone through is never called refused or unchanged; the code only gives the support reference.
-    const uncertain = result.reason === 'uncertain';
-    return (
-      <div data-testid="failure" className="failure" role={uncertain ? 'alert' : 'status'}>
-        <h3>{uncertain ? <Copy k="uncertain" /> : words.title}</h3>
-        <p>{uncertain ? <Copy k="gatewayUncertain" /> : words.body}</p>
-        {!uncertain && words.action && (
-          <a className="text-link" href={words.action.href}>
-            {words.action.label}
-          </a>
-        )}
-        {words.reference && <small className="muted">{words.reference}</small>}
-        {retry && canTryAgain(result) && (
-          <Button variant="secondary" onClick={retry}>
-            <Copy k="retry" />
-          </Button>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
-      <h3>
-        <Copy k={result.reason} />
-      </h3>
-      <p lang={result.messageCopy ? languageFor(result.messageCopy.key) : undefined}>
-        {result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message}
-      </p>
-      {result.reason === 'unauthorized' ? (
-        <a className="text-link" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
-          <Copy k="signIn" />
-        </a>
-      ) : (
-        retry &&
-        canTryAgain(result) && (
-          <Button variant="secondary" onClick={retry}>
-            <Copy k="retry" />
-          </Button>
-        )
-      )}
-    </div>
-  );
+/** The kit-drawn error box (`./failure`); the `failure` class stays for the rooms and tests not in Volt yet. */
+export function Failure(props: Omit<FailureProps, 'className'>) {
+  return <KitFailure {...props} className="failure" />;
 }
 /** Data on its way. `room`: a room's code is still arriving, so the brand's iris turns instead of the dot. */
 export function Loading({ label, room }: { label?: ReactNode; room?: boolean }) {

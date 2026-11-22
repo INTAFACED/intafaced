@@ -1,6 +1,6 @@
 /**
  * How a failed call is worded, with no drawing: whether Try again can help, and a raw refusal code inside a message.
- * `shared/ui.tsx`'s Failure and the kit-drawn failure (`features/quant/kit-parts.tsx`) both read it.
+ * `shared/failure.tsx` (the kit-drawn error box) and the quant rooms' failure (`features/quant/kit-parts.tsx`) read it.
  */
 import { isServiceNotConnected, type ApiResult } from './api';
 import { classifyRefusal, type RefusalKind } from '../data/refusal-codes';

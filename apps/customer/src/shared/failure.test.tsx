@@ -6,7 +6,8 @@ vi.mock('./preferences', async (original) => {
   const real = await original<typeof import('./preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { canTryAgain, Failure } from './ui';
+import { canTryAgain, Failure } from './failure';
+import { canTryAgain as uiCanTryAgain, Failure as UiFailure } from './ui';
 import type { ApiResult } from './api';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -116,5 +117,16 @@ describe('Try again is for trouble that can clear, not for a missing setting', (
     if (result.ok) throw new Error('expected a refusal');
     expect(result.message).toBe('This service isn’t connected here.');
     expect(canTryAgain(result)).toBe(false);
+  });
+  it('is drawn from the kit, and shared/ui gives the same box with the old failure class', () => {
+    const result = refusal({ reason: 'unreachable', message: 'The service could not be reached.' });
+    const kit = renderToStaticMarkup(<Failure result={result} retry={() => undefined} />);
+    expect(kit).toContain('data-testid="failure"');
+    expect(kit).toContain('class="lt-refusal"');
+    expect(kit).not.toMatch(/class="[^"]*\bfailure\b/);
+    const old = renderToStaticMarkup(<UiFailure result={result} retry={() => undefined} />);
+    expect(old).toContain('class="lt-refusal failure"');
+    expect(old.replace(' failure"', '"')).toBe(kit);
+    expect(uiCanTryAgain).toBe(canTryAgain);
   });
 });
