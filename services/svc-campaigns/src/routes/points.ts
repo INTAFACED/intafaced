@@ -1,8 +1,12 @@
-import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
-import { pointsConvertInputSchema, pointsProgrammeSchema, pointsRedeemInputSchema } from '@intafaced/contracts/campaigns-catalogue';
+import { router } from '@intafaced/contracts/trpc';
 import { pointsProgramme, refusePoints } from '../points.js';
-import { guard, mapError } from './kit.js';
+import { mapError, refusalOf } from './kit.js';
+import {
+  CAMPAIGNS_POINTS_PROGRAMME,
+  CAMPAIGNS_POINTS_CONVERT,
+  CAMPAIGNS_POINTS_REDEEM,
+} from '@intafaced/contracts/campaigns-points-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 /** The points programme (J-campaigns-15): its layout, and conversion and redemption refused on the owner decision. */
 export function pointsRoutes() {
@@ -10,31 +14,31 @@ export function pointsRoutes() {
     customer: {
       points: router({
         /** The points programme: its full layout, with every number blank and the owner question named while it is open. */
-        programme: scopedProcedure('campaigns:read', guard)
-          .output(pointsProgrammeSchema)
-          .query(() => pointsProgramme()),
+        programme: mountRecord(CAMPAIGNS_POINTS_PROGRAMME, () => pointsProgramme(), refusalOf),
         /** Converting points to cash waits for the owner decision: always refuses, before anything is read or stored. */
-        convert: scopedProcedure('campaigns:write', guard)
-          .input(pointsConvertInputSchema)
-          .output(z.never())
-          .mutation(() => {
+        convert: mountRecord(
+          CAMPAIGNS_POINTS_CONVERT,
+          () => {
             try {
               refusePoints('convert');
             } catch (err) {
               mapError(err);
             }
-          }),
+          },
+          refusalOf,
+        ),
         /** Redeeming a catalogue reward waits for the owner decision: always refuses, before anything is read or stored. */
-        redeem: scopedProcedure('campaigns:write', guard)
-          .input(pointsRedeemInputSchema)
-          .output(z.never())
-          .mutation(() => {
+        redeem: mountRecord(
+          CAMPAIGNS_POINTS_REDEEM,
+          () => {
             try {
               refusePoints('redeem');
             } catch (err) {
               mapError(err);
             }
-          }),
+          },
+          refusalOf,
+        ),
       }),
     },
   };

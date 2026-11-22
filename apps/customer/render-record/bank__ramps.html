@@ -97,195 +97,151 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money / Bank</p>
-<h1>Ramps</h1>
-<p class="muted">Cash and crypto rail records</p>
+<h1 class="lt-title">Ramps</h1>
+<p class="lt-description">Cash and crypto rail records</p>
 </div>
 </header>
-<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
-<a href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
-</a>
-<a href="/bank/spaces">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
-</a>
-<a href="/bank/transfers">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
-</a>
-<a href="/bank/earn">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
-</a>
-<a href="/bank/loans">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
-</a>
-<a href="/bank/cards">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
-</a>
-<a href="/bank/ramps" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
-</a>
-<a href="/bank/analytics">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
-</a>
-<a href="/bank/business">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
-</a>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav class="lt-tabs" aria-label="Bank rooms">
+<a href="/bank" class="lt-tab">Overview</a>
+<a href="/bank/spaces" class="lt-tab">Spaces</a>
+<a href="/bank/transfers" class="lt-tab">Transfers</a>
+<a href="/bank/earn" class="lt-tab">Earn</a>
+<a href="/bank/loans" class="lt-tab">Loans</a>
+<a href="/bank/cards" class="lt-tab">Cards</a>
+<a href="/bank/ramps" class="lt-tab" aria-current="page">Ramps</a>
+<a href="/bank/analytics" class="lt-tab">Analytics</a>
+<a href="/bank/business" class="lt-tab">Business</a>
 </nav>
-<div class="bd-stack">
-<section class="bd-panel" aria-labelledby="_r_3_">
-<h3 id="_r_3_">Payment provider</h3>
-<p class="money-caption">Cash in and cash out run through a payment provider. This is what is connected right now.</p>
-<dl class="bd-facts">
-<div class="bd-fact">
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section aria-labelledby="_r_3_" id="ramps-provider">
+<h2 id="_r_3_">Payment provider</h2>
+<p class="lt-hint">Cash in and cash out run through a payment provider. This is what is connected right now.</p>
+<dl class="lt-kv">
+<div>
 <dt>Crypto cash-out</dt>
 <dd>
-<span class="badge" data-state="none">Not connected</span>
+<span class="lt-chip" data-state="none">Not connected</span>
 </dd>
 </div>
-<div class="bd-fact">
+<div>
 <dt>Bank and card payments</dt>
 <dd>
-<span class="badge" data-state="none">Not connected</span>
+<span class="lt-chip" data-state="none">Not connected</span>
 </dd>
 </div>
 </dl>
-<p class="money-caption">No payment provider is connected.</p>
-<p class="money-caption">No bank or card payment partner is connected.</p>
+<p class="lt-hint">No payment provider is connected.</p>
+<p class="lt-hint">No bank or card payment partner is connected.</p>
 </section>
-<div class="bd-grid">
-<section class="bd-panel" aria-labelledby="_r_4_">
-<h3 id="_r_4_">Add money</h3>
-<p class="money-caption">Top up your balance by card or bank transfer.</p>
-<div class="actions">
-<a class="button button--primary" href="/bank/ramps/new">Add money</a>
-<a class="button" href="/bank/ramps/accounts">Linked bank accounts</a>
+<section aria-labelledby="_r_4_" id="ramps-add">
+<h2 id="_r_4_">Add money</h2>
+<p class="lt-hint">Top up your balance by card or bank transfer.</p>
+<div class="lt-actions">
+<a class="lt-button lt-button-primary" href="/bank/ramps/new">Add money</a>
+<a class="lt-button lt-button-secondary" href="/bank/ramps/accounts">Linked bank accounts</a>
 </div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_5_">
-<h3 id="_r_5_">Cash out</h3>
-<p class="money-caption">Send crypto from your balance to a wallet you control.</p>
-<ol class="bd-steps">
-<li aria-current="step">
-<span class="bd-steps__n">1</span>Amount</li>
-<li data-off="true">
-<span class="bd-steps__n">2</span>Quote</li>
-<li>
-<span class="bd-steps__n">3</span>Review</li>
-<li>
-<span class="bd-steps__n">4</span>Status</li>
+<section aria-labelledby="_r_5_" id="ramps-out">
+<h2 id="_r_5_">Cash out</h2>
+<p class="lt-hint">Send crypto from your balance to a wallet you control.</p>
+<ol class="lt-stepper">
+<li aria-current="step" data-step="current">
+<span>1</span> Amount</li>
+<li data-step="todo" data-off="true">
+<span>2</span> Quote</li>
+<li data-step="todo">
+<span>3</span> Review</li>
+<li data-step="todo">
+<span>4</span> Status</li>
 </ol>
-<p class="money-caption">The service does not quote a fee in advance. The review shows the exact amount that will be held from your balance.</p>
-<div class="actions">
-<button type="button" class="button button--primary " disabled="" aria-describedby="ramp-out-why">Cash out to a wallet</button>
+<p class="lt-hint">The service does not quote a fee in advance. The review shows the exact amount that will be held from your balance.</p>
+<div class="lt-actions">
+<button disabled="" aria-describedby="ramp-out-why" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Cash out to a wallet</button>
 </div>
-<p id="ramp-out-why" class="money-caption" role="status">Cash-out is not available because no payment provider is connected.</p>
-<h4 class="bd-subhead">Cash out to a bank account</h4>
-<div class="actions">
-<a class="button" href="/bank/ramps/cash-out">Cash out to a bank account</a>
+<p id="ramp-out-why" class="lt-hint" role="status">Cash-out is not available because no payment provider is connected.</p>
+<h3>Cash out to a bank account</h3>
+<div class="lt-actions">
+<a class="lt-button lt-button-secondary" href="/bank/ramps/cash-out">Cash out to a bank account</a>
 </div>
-<p class="money-caption">Paying out to a bank account needs a bank payment partner, and none is connected.</p>
+<p class="lt-hint">Paying out to a bank account needs a bank payment partner, and none is connected.</p>
 </section>
-</div>
-</div>
-<section class="money-section">
-<header>
+<section aria-labelledby="_r_6_" id="ramps-history">
+<h2 id="_r_6_">Your cash-in and cash-out history</h2>
+<p class="lt-hint">Every request you have made, with its latest status.</p>
+<div lang="en" dir="ltr">
 <div>
-<h2>Your cash-in and cash-out history</h2>
-<p class="muted">Every request you have made, with its latest status.</p>
-</div>
-</header>
-<div class="money-owner-ramps" lang="en" dir="ltr">
-<div class="money-ramp-entry">
-<p class="money-caption">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.railRecords.fundingUnavailable">Live funding instructions unavailable here.</span>
 </p>
-<div class="actions">
-<a class="text-link" href="/uc/recharge">
+<div class="lt-actions">
+<a class="lt-link" href="/uc/recharge">
 <span lang="en" dir="ltr" data-i18n="customer.money.railRecords.depositShort">Deposit availability</span>
 </a>
-<a class="text-link" href="/uc/withdraw">
+<a class="lt-link" href="/uc/withdraw">
 <span lang="en" dir="ltr" data-i18n="customer.money.railRecords.withdrawalShort">Withdrawals</span>
 </a>
 </div>
 </div>
-<div class="money-ramp-direction" role="group" aria-label="Record direction">
-<button type="button" class="button button--ghost " aria-pressed="true">
-<span lang="en" dir="ltr" data-i18n="customer.money.railRecords.incoming">Incoming</span>
-</button>
-<button type="button" class="button button--ghost " aria-pressed="false">
-<span lang="en" dir="ltr" data-i18n="customer.money.railRecords.outgoing">Outgoing</span>
-</button>
+<div class="lit-segmented" role="group" aria-label="Record direction">
+<button type="button" aria-pressed="true">Incoming</button>
+<button type="button" aria-pressed="false">Outgoing</button>
 </div>
-<div class="money-rail-window" lang="en" dir="ltr">
-<section class="money-section">
-<header>
-<div>
-<h2>
+<div lang="en" dir="ltr">
+<section aria-labelledby="_r_7_">
+<h2 id="_r_7_">
 <span id="money-ramp-list-heading" tabindex="-1">
 <span lang="en" dir="ltr" data-i18n="customer.money.railRecords.recordsIn">Incoming records</span>
 </span>
 </h2>
-<p class="muted">Newest first · showing up to 50</p>
-</div>
-<div class="actions">
-<button type="button" class="button button--ghost " aria-label="Refresh records">
+<p class="lt-hint">Newest first · showing up to 50</p>
+<div class="lt-actions">
+<button aria-label="Refresh records" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.money.railRecords.refreshShort">Refresh</span>
 </button>
 </div>
-</header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
 </div>
-<details class="money-ramp-connections">
+<details>
 <summary>
 <span lang="en" dir="ltr" data-i18n="customer.money.railRecords.connections">Rail connection details</span>
 </summary>
-<section class="money-section">
-<header>
-<div>
-<h2>Rail programme</h2>
-</div>
-</header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<section aria-labelledby="_r_8_">
+<h3 id="_r_8_">Rail programme</h3>
+<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
-<section class="money-section">
-<header>
-<div>
-<h2>Fiat settlement capability</h2>
-</div>
-</header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<section aria-labelledby="_r_9_">
+<h3 id="_r_9_">Fiat settlement capability</h3>
+<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
 </details>
 </div>
 </section>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>Adding money and cashing out each need a partner: what is connected in this build is named above, and anything not connected stays on the screen with the reason. Your history lists every request you made, with the status the bank last reported.</p>
+</section>
+</div>
+</div>
 </div>
 </div>
 </div>

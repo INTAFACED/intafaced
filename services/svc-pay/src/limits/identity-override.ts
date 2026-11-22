@@ -1,4 +1,4 @@
-import { accountLimitOverrideReadSchema } from '@intafaced/contracts';
+import { accountLimitOverrideReadSchema } from '@intafaced/contracts/account-controls';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { createIdentityGet, type IdentityReadOptions } from './identity-get.js';
 

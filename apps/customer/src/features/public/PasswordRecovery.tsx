@@ -4,17 +4,14 @@ import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { MAX_INPUT_LENGTH, passwordIssue, passwordProblem, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
-import { ContactSupport } from './ContactSupport';
+import { ContactSupport } from './help/ContactSupport';
 import { HandleRecovery } from './HandleRecovery';
 import {
   RECOVERY_STEPS,
   clearsCode,
-  completedSchema,
   initialRecovery,
-  limitsSchema,
   linkRecovery,
   recoveryReducer,
-  requestedSchema,
   stepStates,
   validEmail,
   windowWords,
@@ -23,6 +20,11 @@ import {
 } from './password-recovery';
 import { recoveryCopy } from './password-recovery-copy';
 import '../../shared/public-pages.css';
+import {
+  IDENTITY_AUTH_PASSWORD_RESET_LIMITS,
+  IDENTITY_AUTH_REQUEST_PASSWORD_RESET,
+  IDENTITY_AUTH_COMPLETE_PASSWORD_RESET,
+} from '@intafaced/contracts/identity-auth-procedures';
 
 const TITLE = { request: 'step1', reset: 'step2', done: 'step3' } as const;
 const BODY = { request: 'step1Body', reset: 'step2Body', done: 'step3Body' } as const;
@@ -46,7 +48,7 @@ export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
   const [limits, setLimits] = useState<ResetLimits>(null);
   useEffect(() => {
     const controller = new AbortController();
-    void api.query('identity', 'auth.passwordResetLimits', undefined, limitsSchema, { signal: controller.signal }).then((result) => {
+    void api.call(IDENTITY_AUTH_PASSWORD_RESET_LIMITS, undefined, { signal: controller.signal }).then((result) => {
       if (!controller.signal.aborted && result.ok) setLimits(result.data);
     });
     return () => controller.abort();
@@ -90,7 +92,7 @@ export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
       dispatch({ type: 'askCode', email });
       const controller = new AbortController();
       abort.current = controller;
-      const result = await api.mutate('identity', 'auth.requestPasswordReset', { email }, requestedSchema, { signal: controller.signal });
+      const result = await api.call(IDENTITY_AUTH_REQUEST_PASSWORD_RESET, { email }, { signal: controller.signal });
       if (mounted.current) dispatch({ type: 'codeAnswered', result });
     });
   }
@@ -113,12 +115,9 @@ export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
       dispatch({ type: 'reset', issue: null });
       const controller = new AbortController();
       abort.current = controller;
-      const result = await api.mutate(
-        'identity',
-        'auth.completePasswordReset',
-        // From the mailed link the code alone names the reset; typed on the page, the address goes with it.
+      const result = await api.call(
+        IDENTITY_AUTH_COMPLETE_PASSWORD_RESET,
         state.fromLink ? { code, newPassword: password } : { email: state.email, code, newPassword: password },
-        completedSchema,
         { signal: controller.signal },
       );
       return result;

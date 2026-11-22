@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
-import { identityOperationIntentSchema, type IdentityOperationIntent, type IdentityOperationDecisionPort } from '@intafaced/contracts';
+import type { IdentityOperationIntent, IdentityOperationDecisionPort } from '@intafaced/contracts';
+import { identityOperationIntentSchema } from '@intafaced/contracts/operation-identity-decisions';
 import {
   PayoutAdmissionError,
   ownedIdentityIntent,

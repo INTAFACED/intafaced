@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { myRewardsSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { networkLabel as chainLabel } from '@intafaced/contracts/protocol-blockers';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
@@ -8,7 +7,7 @@ import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session';
 import { useWallet } from '../protocol';
-import { date, useBankRead } from './components';
+import { date, useBankRecord } from './components';
 import type { Destination } from './contracts';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
 import { useHoldings } from './holdings';
@@ -30,6 +29,8 @@ import { withdrawalCopy } from './withdrawal-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import { WALLET_NOT_CONNECTED, walletFill, walletGone, walletSavedNetwork, type WalletFill } from './withdraw-to-wallet';
 import './bank-depth.css';
+import { CAMPAIGNS_REWARDS_MINE } from '@intafaced/contracts/campaigns-rewards-procedures';
+import { BANK_RAMPS_DESTINATIONS_NETWORKS, BANK_RAMPS_DESTINATIONS_LIST } from '@intafaced/contracts/bank-ramps-procedures';
 
 const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 'fAmountTooMuch', unknown: 'fBalanceUnknown' } as const;
 // A person's ask has no business id before svc-pay records it, so its client reference is minted once per ask here and kept
@@ -209,8 +210,8 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   const { hideBalances } = usePreferences();
   const { api, userId } = useSession();
   const held = useHoldings();
-  const networks = useBankRead('ramps.destinations.networks', undefined);
-  const book = useBankRead('ramps.destinations.list', undefined);
+  const networks = useBankRecord(BANK_RAMPS_DESTINATIONS_NETWORKS, undefined);
+  const book = useBankRecord(BANK_RAMPS_DESTINATIONS_LIST, undefined);
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   // The send inside INTAFACED being confirmed: its terms and its client reference. Kept until svc-pay gives a final answer,
   // so a send whose answer was lost is finished by confirming again with the same reference and the same terms.
@@ -1053,7 +1054,7 @@ function WalletChip({
 function LockedRewards({ asset, hidden, shown }: { asset: string; hidden: boolean; shown: (value: string) => string }) {
   const { t } = withdrawalCopy.useCopy();
   const { api } = useSession();
-  const mine = useResource((signal) => api.query('campaigns', 'rewards.mine', {}, myRewardsSchema, { signal }), 'withdraw-locked-rewards');
+  const mine = useResource((signal) => api.call(CAMPAIGNS_REWARDS_MINE, {}, { signal }), 'withdraw-locked-rewards');
   const r = mine.resource;
   if (r.status === 'loading') return null;
   if (r.status === 'failed') {

@@ -410,8 +410,8 @@ async function ready(page, card, rows, locale = 'en', hidden = false) {
     const a = h.getByRole('article').nth(index);
     await expect(a.locator('h4')).toHaveText(row.decision);
     await expect(a.locator('.money-card-status dd')).toHaveText(row.status);
-    await expect(a.locator('.money-card-funding .numeric')).toHaveText(hidden ? '••••' : quantity(row.amount));
-    await expect(a.locator('.money-card-funding .money-caption')).toHaveText(card.assetId);
+    await expect(a.getByTestId('card-decision-amount').locator('.lt-mono')).toHaveText(hidden ? '••••' : quantity(row.amount));
+    await expect(a.getByTestId('card-decision-amount').locator('.lt-hint')).toHaveText(card.assetId);
     await expect(a.locator('.money-card-decision-time time')).toHaveAttribute('datetime', row.decidedAt);
     await expect(a.locator('.money-card-decision-time time')).toHaveAttribute('dir', 'auto');
     await expect(a.locator('.money-card-authorization dd')).toHaveText(row.authorizationRef);
@@ -439,7 +439,7 @@ async function snapshot(page, state, name) {
       const b = e?.getBoundingClientRect();
       return b ? { top: b.top, bottom: b.bottom, left: b.left, right: b.right, width: b.width, height: b.height } : null;
     };
-    const glyphs = [...(p?.querySelectorAll('.money-card-funding .numeric') ?? [])].slice(0, 1).map((e) => {
+    const glyphs = [...(p?.querySelectorAll('[data-testid="card-decision-amount"] .lt-mono') ?? [])].slice(0, 1).map((e) => {
       const range = document.createRange();
       range.selectNodeContents(e);
       return {

@@ -2,7 +2,8 @@ import { formatAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { PartnerAccountRef, PartnerMove } from './partner-bank.js';
 import type { PartnerDirectDebitRefund } from './partner-direct-debits.js';
-import { type TestPartnerDoors } from './test-partner.js';
+import { TEST_PARTNER_REQUIREMENTS } from './partner-compliance.js';
+import { testPartnerDetailSet, type TestPartnerDoors } from './test-partner.js';
 import { TEST_PARTNER_LABEL } from './test-partner-book.js';
 
 /**
@@ -15,7 +16,9 @@ import { TEST_PARTNER_LABEL } from './test-partner-book.js';
  * procedure. It answers in the shape the journeys' outside-record read speaks (apps/customer/tests/real-app/venue.mjs
  * `venueRecord`): `GET <base>/venue` names it, and `POST <base>/<path>` takes `{ account: { venueId, owner } }`, with
  * `owner` the person's user id and amounts as decimal strings. `POST <base>/direct-debits` answers its direct debit book
- * (J-bank-28 #4), and `POST <base>/dd-refund` with `{ owner, mandateId, collectionId }` is the stand-in giving a collected
+ * (J-bank-28 #4), `POST <base>/onboarding` its onboarding record of one person (J-bank-17 #1: its requirements, whether it
+ * accepts our identity case, and the information requests it opened), `POST <base>/account-details` with `currency` the
+ * account details it issued that person in that currency and the holder name it keeps the account in (J-bank-30 #2), and `POST <base>/dd-refund` with `{ owner, mandateId, collectionId }` is the stand-in giving a collected
  * debit back under the scheme's refund guarantee, once.
  *
  * Mounted only with the TEST partner (`BANK_TEST_PARTNER=test`, which refuses to start outside `dev`/`test`), and only
@@ -62,8 +65,37 @@ function directDebitLines(partner: TestPartnerDoors) {
   };
 }
 
+/**
+ * The stand-in's own onboarding record of one person (J-bank-17 #1): the requirements it states, whether it accepts our
+ * identity case from Verification in place of its own check, and every information request it opened, oldest first.
+ * Read from its switches and compliance book, never through `bankAccount.onboarding` or our identity tier.
+ */
+async function onboardingLines(partner: TestPartnerDoors, owner: string) {
+  const requests = [...(await partner.compliance.requests(owner))].reverse();
+  return {
+    requirements: [...TEST_PARTNER_REQUIREMENTS],
+    identityCaseAccepted: partner.switches(owner).identityCase === 'accepted',
+    requests: requests.map((r) => ({ id: r.id, title: r.title, status: r.status, dueAt: r.dueAt.toISOString() })),
+  };
+}
+
+/**
+ * The stand-in's own record of the account details it issued one person in one currency (J-bank-30 #2): the holder name
+ * it keeps the account in and its sets, none when it issued none. Read from its switches, never through `salary.details`.
+ */
+function accountDetailsLines(partner: TestPartnerDoors, owner: string, currency: string) {
+  const { accountDetails, holderName } = partner.switches(owner);
+  const issued = accountDetails === 'issued';
+  return { issued, holderName, sets: issued ? [testPartnerDetailSet(partner, owner, currency)] : [] };
+}
+
 /** One request's answer: `[status, body]`. `path` is below the base (`/venue`, `/balances`, `/moves`). */
-export function answerTestPartnerRecord(partner: TestPartnerDoors, method: string, path: string, body: unknown): [number, unknown] {
+export async function answerTestPartnerRecord(
+  partner: TestPartnerDoors,
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<[number, unknown]> {
   if (path === '/venue') {
     if (method !== 'GET') return [405, { error: 'GET only' }];
     return [200, { label: 'TEST', venue: { id: TEST_PARTNER_RECORD_ID, displayName: TEST_PARTNER_LABEL } }];
@@ -86,12 +118,20 @@ export function answerTestPartnerRecord(partner: TestPartnerDoors, method: strin
       throw err;
     }
   }
-  if (path !== '/balances' && path !== '/moves') return [404, { error: 'no such path' }];
+  if (path !== '/balances' && path !== '/moves' && path !== '/onboarding' && path !== '/account-details')
+    return [404, { error: 'no such path' }];
   if (method !== 'POST') return [405, { error: 'POST only' }];
   const account = (body as { account?: { venueId?: unknown; owner?: unknown; subAccount?: unknown } } | null)?.account;
   if (account?.venueId !== TEST_PARTNER_RECORD_ID) return [400, { error: `account.venueId must be ${TEST_PARTNER_RECORD_ID}` }];
   if (typeof account.owner !== 'string' || account.owner.length === 0) return [400, { error: 'account.owner (a user id) is required' }];
   if (account.subAccount !== null && account.subAccount !== undefined) return [400, { error: 'the partner keeps no sub-accounts' }];
+  if (path === '/onboarding') return [200, { label: 'TEST', value: await onboardingLines(partner, account.owner) }];
+  if (path === '/account-details') {
+    const currency = typeof body === 'object' && body !== null && 'currency' in body ? body.currency : undefined;
+    if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency))
+      return [400, { error: 'currency (three capital letters) is required' }];
+    return [200, { label: 'TEST', value: accountDetailsLines(partner, account.owner, currency) }];
+  }
   const book = partner.record(account.owner);
   if (path === '/moves') return [200, { label: 'TEST', value: book.moves.map(moveLine) }];
   // The person's main balance in each currency, in the venue read's row shape: nothing is locked at the partner.

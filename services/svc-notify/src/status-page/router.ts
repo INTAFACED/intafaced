@@ -1,14 +1,7 @@
 import { z } from 'zod';
-import {
-  router,
-  publicProcedure,
-  TRPCError,
-  statusPageSchema,
-  statusBadgeInputSchema,
-  statusBadgeSchema,
-  type StatusPage,
-  STATUS_UPTIME_DAYS_MAX,
-} from '@intafaced/contracts';
+import type { StatusPage } from '@intafaced/contracts';
+import { statusPageSchema, statusBadgeInputSchema, statusBadgeSchema, STATUS_UPTIME_DAYS_MAX } from '@intafaced/contracts/status-page';
+import { router, publicProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { NoticeBoard } from '../notices/board.js';
 import { StatusPageError, type StatusPageBook } from './book.js';
 import { statusBadge } from './badge.js';

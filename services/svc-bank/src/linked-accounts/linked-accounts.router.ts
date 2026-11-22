@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { BankServices } from '../bank-service.js';
 import { LINKED_ACCOUNT_BLOCKERS, LINKED_ACCOUNT_STATES } from './linked-accounts.js';
 

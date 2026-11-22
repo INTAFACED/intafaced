@@ -103,7 +103,7 @@ export type PostOfferInput = {
   /** The ad's own id, chosen once per form; the post's key names it too. */
   offerId?: string;
 };
-export const merchantSchema = z.object({
+const merchantSchema = z.object({
   id,
   userId: id,
   mode: z.enum(['gateway', 'psp', 'payfac']),
@@ -116,7 +116,6 @@ export const merchantSchema = z.object({
     .nullable()
     .optional(),
 });
-export const balanceSchema = z.object({ clearing: amount, available: amount });
 export const linkSchema = z.object({
   id,
   prefix: z.string(),
@@ -290,15 +289,6 @@ export const submerchantSchema = z.object({
   feeBps: z.number().int().nullable(),
   depth: z.number().int(),
   createdAt: z.string(),
-});
-export const grantSchema = z.object({
-  granteeMerchantId: id,
-  subjectMerchantId: id,
-  area: z.string(),
-  reason: z.string(),
-  actorId: z.string(),
-  actorMerchantId: id,
-  grantedAt: z.string(),
 });
 export const permissionEventSchema = z.object({
   id,

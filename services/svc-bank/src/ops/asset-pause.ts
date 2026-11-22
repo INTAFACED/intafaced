@@ -19,7 +19,7 @@
  * person: an identity approval bound to the asset and the new state, consumed
  * before the write.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';

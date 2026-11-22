@@ -146,6 +146,8 @@ export const SERVED_ROUTES: readonly string[] = [
   'GET /api/v1/venue/spot-agent private trade:read',
   'GET /api/v1/venue/spot-candles public trade:read',
   'GET /api/v1/venue/spot-orders private trade:read',
+  'GET /api/v1/venue/staking public trade:read',
+  'GET /api/v1/venue/staking-account private trade:read',
   'GET /api/v1/venue/statements/:id/file private trade:read',
   'GET /api/v1/venue/status private trade:read',
   'GET /api/v1/venue/sub-accounts private trade:read',

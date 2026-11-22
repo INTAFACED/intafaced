@@ -3,6 +3,18 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { compare, parseAmount } from '@intafaced/ledger-client';
+import type {
+  AccountLimitCeiling,
+  AccountLimitOverride,
+  AccountLimitOverrideClearInput,
+  AccountLimitOverrideRead,
+  AccountLimitOverrideSetInput,
+  AccountLimitPolicy,
+  AccountLimitRail,
+  AccountLimitResult,
+  AccountLimitsState,
+  Context,
+} from '@intafaced/contracts';
 import {
   accountLimitAmountSchema,
   accountLimitAssetIdSchema,
@@ -17,17 +29,7 @@ import {
   accountLimitsLookupInputSchema,
   accountLimitsStateSchema,
   ACCOUNT_LIMIT_RAILS,
-  type AccountLimitCeiling,
-  type AccountLimitOverride,
-  type AccountLimitOverrideClearInput,
-  type AccountLimitOverrideRead,
-  type AccountLimitOverrideSetInput,
-  type AccountLimitPolicy,
-  type AccountLimitRail,
-  type AccountLimitResult,
-  type AccountLimitsState,
-  type Context,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
 import { IDENTITY_LIMIT_CHANGE_ACTION_TYPE } from '../auth/action-approval-audience.js';
 import { identityActionPayloadHash } from '../auth/privileged-dual-control.js';
 import { FounderControlError, type FounderControls, type UserRow } from './founder-controls.js';

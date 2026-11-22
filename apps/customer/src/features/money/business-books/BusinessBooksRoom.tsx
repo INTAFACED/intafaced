@@ -1,15 +1,12 @@
+// volt-room: /bank/business/books
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { z, ZodType } from 'zod';
 import { Button } from '@intafaced/ui';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   BUSINESS_BOOK_FORMATS,
-  businessAccountingConnectionSchema,
   businessBookLinesSchema,
-  businessBookRuleMatchesSchema,
-  businessBookStatementSchema,
   businessBooksOverviewSchema,
-  businessCodingRuleSchema,
   type BusinessBookFormat,
   type BusinessBookLine,
   type BusinessBookStatement,
@@ -20,6 +17,13 @@ import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { StepUpConfirm } from '../StepUpConfirm';
 import { useHeldId } from '../business-team/held-id';
+import {
+  BANK_BUSINESS_BOOKS_CONNECT_ACCOUNTING,
+  BANK_BUSINESS_BOOKS_EXPORT_STATEMENT,
+  BANK_BUSINESS_BOOKS_SAVE_RULE,
+  BANK_BUSINESS_BOOKS_TEST_RULE,
+  BANK_BUSINESS_BOOKS_CODE_LINES,
+} from '@intafaced/contracts/bank-business-books-procedures';
 
 /**
  * A business keeps its books in order (J-bank-23; BK-bexp-03, BK-bexp-04, BK-bexp-05), on the flow template.
@@ -258,7 +262,7 @@ function Books({ overview: o, reloadTop, t }: { overview: z.infer<typeof busines
             disabled={busy}
             onClick={() =>
               void act(
-                () => api.mutate('bank', 'businessBooks.connectAccounting', { accountId }, businessAccountingConnectionSchema),
+                () => api.call(BANK_BUSINESS_BOOKS_CONNECT_ACCOUNTING, { accountId }),
                 () => {
                   refresh();
                   return t('switchedOff');
@@ -399,13 +403,7 @@ function FeedButton({ accountId, period, busy, act, t }: { accountId: string; pe
       disabled={busy}
       onClick={() =>
         void act(
-          () =>
-            api.mutate(
-              'bank',
-              'businessBooks.exportStatement',
-              { accountId, ...period, format: 'csv', exportId: crypto.randomUUID() },
-              businessBookStatementSchema,
-            ),
+          () => api.call(BANK_BUSINESS_BOOKS_EXPORT_STATEMENT, { accountId, ...period, format: 'csv', exportId: crypto.randomUUID() }),
           (file) => {
             save(file);
             return t('feedDone', { lines: String(file.lineCount) });
@@ -446,12 +444,13 @@ function RuleForm({
         e.preventDefault();
         void act(
           () =>
-            api.mutate(
-              'bank',
-              'businessBooks.saveRule',
-              { accountId, ruleId: held.id, payeeContains: text.trim(), category: category.trim(), glCode: gl.trim() || null },
-              businessCodingRuleSchema,
-            ),
+            api.call(BANK_BUSINESS_BOOKS_SAVE_RULE, {
+              accountId,
+              ruleId: held.id,
+              payeeContains: text.trim(),
+              category: category.trim(),
+              glCode: gl.trim() || null,
+            }),
           () => {
             held.settle({ ok: true });
             setTested(null);
@@ -478,13 +477,7 @@ function RuleForm({
         disabled={busy || !text.trim()}
         onClick={() =>
           void act(
-            () =>
-              api.query(
-                'bank',
-                'businessBooks.testRule',
-                { accountId, ...period, payeeContains: text.trim() },
-                businessBookRuleMatchesSchema,
-              ),
+            () => api.call(BANK_BUSINESS_BOOKS_TEST_RULE, { accountId, ...period, payeeContains: text.trim() }),
             (r) => {
               setTested(r.matches);
               return t('matches', { count: String(r.matches.length) });
@@ -537,12 +530,13 @@ function BulkForm({
         e.preventDefault();
         void act(
           () =>
-            api.mutate(
-              'bank',
-              'businessBooks.codeLines',
-              { accountId, ...period, lineIds: selected, category: category.trim() || null, glCode: gl.trim() || null },
-              businessBookLinesSchema,
-            ),
+            api.call(BANK_BUSINESS_BOOKS_CODE_LINES, {
+              accountId,
+              ...period,
+              lineIds: selected,
+              category: category.trim() || null,
+              glCode: gl.trim() || null,
+            }),
           (r) => {
             onDone();
             return t('coded', { count: String(r.items.length) });
@@ -624,12 +618,13 @@ function Statements({
             onClick={() =>
               void act(
                 () =>
-                  api.mutate(
-                    'bank',
-                    'businessBooks.exportStatement',
-                    { accountId, ...period, format, exportId, ...(approval ? { stepUpApprovalId: approval } : {}) },
-                    businessBookStatementSchema,
-                  ),
+                  api.call(BANK_BUSINESS_BOOKS_EXPORT_STATEMENT, {
+                    accountId,
+                    ...period,
+                    format,
+                    exportId,
+                    ...(approval ? { stepUpApprovalId: approval } : {}),
+                  }),
                 (file) => {
                   save(file);
                   setFiles((f) => [...f.filter((x) => x.format !== file.format), file]);

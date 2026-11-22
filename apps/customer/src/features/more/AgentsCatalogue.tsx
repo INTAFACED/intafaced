@@ -5,7 +5,6 @@ import { displayAmount } from '../../shared/money';
 import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
 import { Details, Read, Select } from './common';
 import { StatusPill } from './depth-kit';
-import { z } from 'zod';
 import {
   actionLogRows,
   ACTION_LOG_HEADER,
@@ -14,9 +13,7 @@ import {
   AGENT_CATALOGUE,
   catalogueFromStored,
   filterCatalogue,
-  guardrailSchema,
   sortCatalogue,
-  storedCatalogueSchema,
   type ActionRow,
   type AgentKind,
   type CatalogueAgent,
@@ -30,13 +27,15 @@ import { NavigatorOnChain } from './NavigatorOnChain';
 import { downloadCsv, toCsv } from './depth-csv';
 import { usePreferences } from '../../shared/preferences';
 import type { UiLocale } from '../../shared/i18n';
+import { AGENTS_ROUTES_LIST } from '@intafaced/contracts/agents-routes-procedures';
+import { AGENTS_AGENT_GET, AGENTS_AGENT_CATALOGUE } from '@intafaced/contracts/agents-agent-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 const KINDS: readonly (AgentKind | 'all')[] = ['all', 'session', 'room', 'staff', 'unwired'];
 const SORTS: readonly CatalogueSort[] = ['catalogue', 'name'];
-const routeAssetSchema = z.array(z.object({ task: z.string(), capability: z.string(), assetId: z.string().min(1) }));
 
 /** The fee asset an agent's spend cap is counted in: that of the completion routes its tasks run on, as the session panel reads it, when they agree. */
-function capAsset(guardrail: Guardrail, routes: readonly z.infer<typeof routeAssetSchema>[number][]): string | null {
+function capAsset(guardrail: Guardrail, routes: readonly ProcedureOutput<typeof AGENTS_ROUTES_LIST>[number][]): string | null {
   const assets = new Set(
     routes
       .filter((route) => route.capability === 'complete' && guardrail.limits.allowedTasks.includes(route.task))
@@ -64,10 +63,7 @@ export function AgentsCatalogue({
   const [comparing, setComparing] = useState<string[]>([]);
   const [compared, setCompared] = useState<string[] | null>(null);
   const api = useApi();
-  const stored = useResource(
-    (signal) => api.query('agents', 'agent.catalogue', undefined, storedCatalogueSchema, { signal }),
-    'agent-catalogue',
-  );
+  const stored = useResource((signal) => api.call(AGENTS_AGENT_CATALOGUE, undefined, { signal }), 'agent-catalogue');
   // The catalogue is the stored list and nothing else: until it is read there are no cards, and with none stored the
   // empty state says so (catalogueFromStored).
   const rows = stored.resource.status === 'ready' ? stored.resource.data : [];
@@ -202,7 +198,7 @@ function AgentDetail({
   const guardrail = useResource(
     (signal) =>
       agent.kind === 'session'
-        ? api.query('agents', 'agent.get', { agentId: agent.id }, guardrailSchema, { signal })
+        ? api.call(AGENTS_AGENT_GET, { agentId: agent.id }, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `agent-detail:${agent.id}`,
   );
@@ -335,8 +331,8 @@ function CompareAgents({ ids, label }: { ids: readonly string[]; label: (id: str
   const both = useResource(
     async (signal) => {
       const [routes, ...guards] = await Promise.all([
-        api.query('agents', 'routes.list', undefined, routeAssetSchema, { signal }),
-        ...ids.map((agentId) => api.query('agents', 'agent.get', { agentId }, guardrailSchema, { signal })),
+        api.call(AGENTS_ROUTES_LIST, undefined, { signal }),
+        ...ids.map((agentId) => api.call(AGENTS_AGENT_GET, { agentId }, { signal })),
       ]);
       if (!routes!.ok) return routes!;
       const rows: { id: string; guardrail: Guardrail | null }[] = [];

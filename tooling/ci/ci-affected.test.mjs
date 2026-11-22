@@ -5,6 +5,7 @@ import {
   buildFilters,
   classify,
   rustCrates,
+  reachesRust,
   diffBase,
   mergeEdges,
   readEdges,
@@ -15,6 +16,8 @@ import {
   testedPackages,
 } from './ci-affected.mjs';
 import { detectedEdges } from './cross-package-reads.mjs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, normalize, relative } from 'node:path';
 
 const assert = (cond, msg) => nodeAssert.ok(cond, msg);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -52,8 +55,10 @@ test('classify: each path lands in full, affected or neither', () => {
     { files: [], expected: none },
     { files: ['docs/x.md', 'services/svc-trade/src/a.ts'], expected: { full: false, affected: true } },
   ];
+  // Today's rules, which every change keeps beside a product, stack or journey path, and every change keeps when
+  // its tree can't be scanned (reach: null). What a change that reaches no journey runs: tooling-reach.test.mjs.
   for (const c of cases) {
-    const { full, affected } = classify(c.files);
+    const { full, affected } = classify(c.files, { reach: null });
     const got = { full, affected };
     assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
   }
@@ -81,7 +86,7 @@ test('classify: a lint rule or a baseline file runs only the product tests that 
     { files: ['tooling/brand-new/x.mjs'], edges: {}, expected: { full: true, affected: false } },
   ];
   for (const c of cases) {
-    const { full, affected } = classify(c.files, { edges: c.edges });
+    const { full, affected } = classify(c.files, { edges: c.edges, reach: null });
     assert(
       same({ full, affected }, c.expected),
       `classify(${JSON.stringify(c.files)}) => ${JSON.stringify({ full, affected })} expected ${JSON.stringify(c.expected)}`,
@@ -128,12 +133,17 @@ test('classify: a change that reaches Rust runs the Rust job, and Rust files alo
     { files: ['packages/ledger-client/src/recipes/deposit.ts'], expected: { full: true, affected: false, rust: true } },
     { files: ['packages/ledger-client/package.json'], expected: { full: true, affected: false, rust: false } },
     { files: ['packages/contracts/procedures/svc-taxes.schema.json'], expected: { full: false, affected: true, rust: false } },
+    // svc-matching's tests read the events catalog, the scrape config, the conformance ADR and exchange-contract's enums.
+    { files: ['packages/events/src/catalog.ts'], expected: { full: true, affected: false, rust: true } },
+    { files: ['tooling/infra/prometheus.yaml'], expected: { full: true, affected: false, rust: true } },
+    { files: ['docs/adr/2026-09-18-matching-shared-conformance.md'], expected: { full: false, affected: false, rust: true } },
+    { files: ['packages/exchange-contract/src/schemas.ts'], expected: { full: false, affected: true, rust: true } },
     { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false, rust: false } },
     { files: ['docs/x.md'], expected: { full: false, affected: false, rust: false } },
     { files: ['vendor/x/y.ts'], expected: { full: true, affected: false, rust: false } },
   ];
   for (const c of cases) {
-    const got = classify(c.files);
+    const got = classify(c.files, { reach: null });
     assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
   }
   assert(classify(['docs/x.md'], { forceFull: true }).rust === true, 'a run-everything run runs the Rust job');
@@ -220,6 +230,12 @@ test('seal: the required jobs a classification needs', () => {
     'a skipped look gate is a failure when the change draws a room',
   );
   assert(sealNeeded(none, { ...ok, look: 'skipped' }).length === 0, 'a change that draws no room needs no look gate');
+  // Planted: the run's changes job judged the merge with main and ran tests this classification doesn't ask for.
+  assert(sealNeeded(none, { ...ok, 'tests-full': 'failure' }).length === 1, 'a test job that ran red is red when no tests were asked');
+  assert(sealNeeded(none, { ...ok, 'tests-full': 'cancelled' }).length === 1, 'a cancelled test job is red when no tests were asked');
+  assert(sealNeeded(none, { ...ok, rust: 'failure' }).length === 1, 'a Rust job that ran red is red when no Rust was asked');
+  assert(sealNeeded(none, { ...ok, look: 'failure' }).length === 1, 'a look gate that ran red is red when no look was asked');
+  assert(sealNeeded(none, { ...ok, 'tests-full': 'success', rust: 'success' }).length === 0, 'extra green jobs are fine');
 });
 
 test('reachesLook: a change a Customer room or the kit draws, or the gate itself (#9325)', () => {
@@ -274,4 +290,32 @@ test('tested packages: what turbo says a filter tests', () => {
     'turbo failing is unknown, not narrow',
   );
   assert(same(testedPackages(['./services/svc-trade']), ['@intafaced/svc-trade']), 'the real turbo names what a filter tests');
+});
+
+test('reachesRust: every file outside crates/ that the crates read with include_str! runs the Rust job', () => {
+  const root = process.cwd();
+  const outside = [];
+  for (const crate of readdirSync(join(root, 'crates'), { withFileTypes: true }).filter((d) => d.isDirectory())) {
+    for (const sub of ['src', 'tests']) {
+      const dir = join(root, 'crates', crate.name, sub);
+      let files = [];
+      try {
+        files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.rs'));
+      } catch {
+        continue;
+      }
+      for (const f of files) {
+        const at = join(dir, f);
+        for (const m of readFileSync(at, 'utf8').matchAll(/include_str!\(\s*"([^"]+)"\s*\)/g)) {
+          const read = relative(root, normalize(join(at, '..', m[1])))
+            .split('\\')
+            .join('/');
+          if (!read.startsWith('crates/') && !read.startsWith('..')) outside.push([relative(root, at), read]);
+        }
+      }
+    }
+  }
+  assert(outside.length > 0, 'the scan finds the crates reading outside crates/ (docker-compose.apps.yml at least)');
+  for (const [by, read] of outside)
+    assert(reachesRust(read), `${by} reads ${read}, which is not in RUST_READS: a change to it would not run that test`);
 });

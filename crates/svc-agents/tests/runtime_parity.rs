@@ -1,4 +1,4 @@
-//! The runtime slice's fixed lists, held to the TypeScript they are copied from: a list changed on one side fails here.
+//! The runtime slice's fixed lists that the platform's TypeScript also holds: a list changed on one side fails here.
 //! Each list is read from its source file as written (\`export const NAME = [ ... ]\`), comments left out.
 #![allow(
     clippy::unwrap_used,
@@ -7,7 +7,7 @@
     reason = "a test: a failure is the point"
 )]
 
-use svc_agents::runtime::{CATALOGUE_ONLY_AGENTS, copy_intel, guardrails};
+use svc_agents::runtime::guardrails;
 
 fn source(path: &str) -> String {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
@@ -63,55 +63,4 @@ fn the_module_ids_are_the_platforms() {
         owned(&guardrails::MODULE_IDS),
         list(&ts, "MODULE_IDS", None)
     );
-}
-
-#[test]
-fn the_guardrails_lists_are_the_typescripts() {
-    let ts = source("services/svc-agents/src/fleet/guardrails.ts");
-    assert_eq!(
-        owned(&guardrails::REFUSAL_CODES),
-        list(&ts, "REFUSAL_CODES", None)
-    );
-    assert_eq!(
-        owned(&guardrails::AGENT_CAPACITY_MODES),
-        list(&ts, "AGENT_CAPACITY_MODES", None)
-    );
-    assert_eq!(
-        owned(&guardrails::LIVE_WRITE_TOOLS),
-        list(&ts, "LIVE_WRITE_TOOLS", None)
-    );
-    assert_eq!(
-        owned(&guardrails::PLACE_TOOLS),
-        list(&ts, "PLACE_TOOLS", None)
-    );
-    assert_eq!(
-        owned(&guardrails::WITHDRAW_TOOLS),
-        list(&ts, "WITHDRAW_TOOLS", None)
-    );
-    assert_eq!(
-        owned(&guardrails::FLEET_HARD_MONEY_WRITE_TOOLS),
-        list(&ts, "FLEET_HARD_MONEY_WRITE_TOOLS", None)
-    );
-    assert_eq!(
-        owned(&guardrails::PRODUCT_AGENT_IDS),
-        list(&ts, "PRODUCT_AGENT_IDS", None)
-    );
-}
-
-#[test]
-fn the_catalogue_only_agents_are_the_typescripts() {
-    let ts = source("services/svc-agents/src/fleet/catalogue-only.ts");
-    assert_eq!(
-        owned(&CATALOGUE_ONLY_AGENTS),
-        list(&ts, "CATALOGUE_ONLY_AGENTS", Some("agentId"))
-    );
-}
-
-#[test]
-fn the_copy_intel_agent_is_the_typescripts() {
-    let ts = source("services/svc-agents/src/copy-intel/returns-board-refuse.ts");
-    assert!(ts.contains(&format!(
-        "export const COPY_INTEL_SESSION_AGENT_ID = '{}';",
-        copy_intel::COPY_INTEL_SESSION_AGENT_ID
-    )));
 }

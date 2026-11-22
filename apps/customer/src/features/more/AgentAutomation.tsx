@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
 import { useApi } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
@@ -7,15 +6,19 @@ import { agentAutomationCopy, hasAutomationWords } from './agent-automation-copy
 import {
   OWN_AGENT_AUTOMATION_LIMITS,
   OWN_AGENT_TRIGGER_SUBJECTS,
-  ownAgentScheduleSchema,
-  ownAgentSchedulesSchema,
-  ownAgentTriggerSchema,
   type OwnAgent,
   type OwnAgentAutoRun,
   type OwnAgentSchedule,
   type OwnAgentSchedules,
   type OwnAgentTrigger,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_SCHEDULES_CREATE,
+  AGENTS_OWN_TRIGGERS_CREATE,
+  AGENTS_OWN_SCHEDULES_LIST,
+  AGENTS_OWN_SCHEDULES_CANCEL,
+  AGENTS_OWN_TRIGGERS_LIST,
+} from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Schedules and Triggers pages (AG-sessions-02). Every answer is svc-agents': a schedule's status, next
@@ -111,7 +114,7 @@ const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : nul
 export function SchedulesPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentAutomationCopy.useCopy();
-  const { data, failed, reload } = usePolled(() => api.query('agents', 'own.schedules.list', { id: agent.id }, ownAgentSchedulesSchema));
+  const { data, failed, reload } = usePolled(() => api.call(AGENTS_OWN_SCHEDULES_LIST, { id: agent.id }));
   return (
     <Panel title={t('schedulesTitle')}>
       <p className="muted">{t('schedulesIntro')}</p>
@@ -138,12 +141,14 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
   async function create() {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.schedules.create',
-      { id: agent.id, createKey: keys.next(), repeat, intervalMinutes: repeat === 'repeat' ? interval : '', perRunCap: cap, ask },
-      ownAgentScheduleSchema,
-    );
+    const res = await api.call(AGENTS_OWN_SCHEDULES_CREATE, {
+      id: agent.id,
+      createKey: keys.next(),
+      repeat,
+      intervalMinutes: repeat === 'repeat' ? interval : '',
+      perRunCap: cap,
+      ask,
+    });
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settle();
     if (!res.ok) return setRefused(res);
@@ -154,7 +159,7 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
   async function cancel(schedule: OwnAgentSchedule) {
     setBusy(true);
     setCancelRefused(null);
-    const res = await api.mutate('agents', 'own.schedules.cancel', { id: agent.id, scheduleId: schedule.id }, ownAgentScheduleSchema);
+    const res = await api.call(AGENTS_OWN_SCHEDULES_CANCEL, { id: agent.id, scheduleId: schedule.id });
     setBusy(false);
     if (!res.ok) return setCancelRefused(res);
     onChanged();
@@ -285,12 +290,10 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
   );
 }
 
-const triggersSchema = z.array(ownAgentTriggerSchema);
-
 export function TriggersPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentAutomationCopy.useCopy();
-  const { data, failed, reload } = usePolled(() => api.query('agents', 'own.triggers.list', { id: agent.id }, triggersSchema));
+  const { data, failed, reload } = usePolled(() => api.call(AGENTS_OWN_TRIGGERS_LIST, { id: agent.id }));
   return (
     <Panel title={t('triggersTitle')}>
       <p className="muted">{t('triggersIntro')}</p>
@@ -314,12 +317,7 @@ function Triggers({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgentT
   async function create() {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.triggers.create',
-      { id: agent.id, createKey: keys.next(), subject, perRunCap: cap, ask },
-      ownAgentTriggerSchema,
-    );
+    const res = await api.call(AGENTS_OWN_TRIGGERS_CREATE, { id: agent.id, createKey: keys.next(), subject, perRunCap: cap, ask });
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settle();
     if (!res.ok) return setRefused(res);

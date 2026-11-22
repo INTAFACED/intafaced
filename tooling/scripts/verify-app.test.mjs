@@ -1,6 +1,7 @@
 // pnpm local:stack verify (verify-app.mjs): the feature map, the drive plan, the doctor, the evidence and the stop rule.
 // Run: node --test tooling/scripts/verify-app.test.mjs
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -434,9 +435,92 @@ test('run.json: a drive, whole or of steps, records nothing; only `pnpm local:st
   const local = await import('./journey-local.mjs');
   // The one writer of .jr/run.json is private to journeyLocal, so no other command can import it.
   assert.equal('recordRun' in local, false, 'journey-local.mjs must not export recordRun: only `journey` records a run');
-  const src = fs.readFileSync(fileURLToPath(new URL('./verify-app.mjs', import.meta.url)), 'utf8');
-  assert.doesNotMatch(src, /\brecordRun\b|\.record\??\.?\(|\.jr\b[^\n]*run\.json[^\n]*write/, 'verify-app.mjs writes no run record');
+  // A whole drive, a drive of steps and a look, each run to its end in a planted checkout: no .jr/run.json is written.
+  const box = verifyCheckout();
+  for (const argv of [
+    ['drive', 'J-x-01'],
+    ['drive', 'J-x-01', '#1'],
+    ['look', '/'],
+  ]) {
+    const r = box.verify(argv);
+    assert.equal(r.status, 0, `${argv.join(' ')}\n${r.output}`);
+    assert.match(r.output, /verify: PASS\. Evidence: \.verify\/runs\//, `${argv.join(' ')} ran to its end\n${r.output}`);
+    assert.equal(fs.existsSync(box.runJson), false, `${argv.join(' ')} wrote ${box.runJson}`);
+  }
+  assert.equal(fs.readdirSync(path.join(box.root, '.verify', 'runs')).length, 3, 'each kept its evidence');
+  // Control: the one writer, journey-local's realIo().record, writes exactly the file watched above.
+  assert.equal(box.node(`(await import('./tooling/scripts/journey-local.mjs')).realIo().record({ code: 0 });`).status, 0);
+  assert.equal(fs.existsSync(box.runJson), true, 'the record lands where the drives were watched');
 });
+
+/**
+ * A checkout of verify-app.mjs and the modules it runs (copied to run, never read as text) with one journey file, its
+ * slot claimed live in a planted home, the stack's status and plan answered by a stand-in local-test-stack.mjs, its launch
+ * record readied for that very stack, and Playwright (pnpm) a stand-in that reports every test passed.
+ */
+function verifyCheckout() {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'verify-run-')));
+  const home = path.join(root, 'home');
+  const state = path.join(home, 'state');
+  const put = (rel, text, mode) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+    if (mode) fs.chmodSync(path.join(root, rel), mode);
+  };
+  for (const rel of [
+    'tooling/scripts/verify-app.mjs',
+    'tooling/scripts/journey-local.mjs',
+    'tooling/scripts/local-test-facts.mjs',
+    'tooling/scripts/journey-market-past.mjs',
+    'apps/customer/tests/real-app/world-line.mjs',
+  ]) {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.copyFileSync(new URL(`../../${rel}`, import.meta.url), path.join(root, rel));
+  }
+  put(
+    'apps/customer/tests/real-app/J-x-01.pw.mjs',
+    "test('J-x-01 #1 opens the room', async ({ page }) => {\n  await page.goto('/x');\n});\n",
+  );
+  put(
+    'tooling/scripts/local-test-stack.mjs',
+    `if (process.argv[2] === 'status') process.stdout.write('  SERVICE  PORT  PID  HEALTH\\n  svc-x  4001  123  ok\\n');
+if (process.argv[2] === 'plan') process.stdout.write(JSON.stringify({ services: [{ name: 'x', running: true, onCurrentBuild: true }], build: { backend: 'none', customer: false, head: 'abc' } }));
+`,
+  );
+  const report = {
+    suites: [
+      { file: 'J-x-01.pw.mjs', specs: [{ title: 'J-x-01 #1 opens the room', line: 1, tests: [{ status: 'expected', results: [{}] }] }] },
+    ],
+  };
+  put('bin/pnpm', `#!/bin/sh\nprintf '%s' '${JSON.stringify(report)}' > "$JOURNEY_REPORT"\n`, 0o755);
+  put('home/.intafaced/slots/0.json', JSON.stringify({ repo: root, pid: process.pid, state }));
+  put('home/state/data/postgres/postmaster.pid', '4242\n/x\n1700000000\n');
+  put(
+    '.verify/launch.json',
+    JSON.stringify({
+      checkout: root,
+      slot: 0,
+      stack: '4242@1700000000',
+      startedByUs: true,
+      readiedAt: '2026-11-22T00:00:00Z',
+      history: false,
+    }),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const env = { ...process.env, HOME: home, PATH: `${path.join(root, 'bin')}:${process.env.PATH}` };
+  delete env.LOCAL_STACK_SLOT;
+  delete env.LOCAL_STACK_STATE;
+  const node = (code) => {
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd: root, env, encoding: 'utf8', timeout: 60_000 });
+    return { status: r.status, output: `${r.stdout}${r.stderr}` };
+  };
+  return {
+    root,
+    runJson: path.join(root, '.jr', 'run.json'),
+    node,
+    verify: (argv) => node(`await (await import('./tooling/scripts/verify-app.mjs')).main(${JSON.stringify(argv)});`),
+  };
+}
 
 test('feature file: a room’s states, the keys its screen and the shell bind, who it acts as, each step’s own needs, the TEST stand-ins (project-state #3041)', () => {
   const src = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-map-'));

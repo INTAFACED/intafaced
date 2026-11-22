@@ -1,15 +1,11 @@
 import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
-import { isInteractiveFounderPrincipal } from './auth/action-approval-audience.js';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { founderProcedure, type Founders } from './founder-procedure.js';
 import { AuthKeyError, type AuthKeyRing } from './auth/auth-key-ring.js';
-
-const stateOut = z.object({
-  activeKeyId: z.string(),
-  previousKeyIds: z.array(z.string()),
-  activatedAt: z.string().nullable(),
-  nextRemoval: z.array(z.string()).nullable(),
-  availableKeyIds: z.array(z.string()),
-});
+import { stateOut } from '@intafaced/contracts/identity-call-schemas';
+import { IDENTITY_AUTH_KEYS_STATE } from '@intafaced/contracts/identity-auth-keys-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 const approval = {
   approvalId: z.string().min(1).max(128),
@@ -21,13 +17,8 @@ const approval = {
  * second-factor session may read or change it; rotate and remove-old also consume a four-eyes approval.
  * Key material is never returned or logged: only ids.
  */
-export function createAuthKeysRouter(ring: AuthKeyRing, founders: { isFounder(userId: string): Promise<boolean> }) {
-  const founder = protectedProcedure.use(async ({ ctx, next }) => {
-    const p = ctx.principal;
-    if (!isInteractiveFounderPrincipal(p) || !(await founders.isFounder(p.userId)))
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'operator.denied' });
-    return next();
-  });
+export function createAuthKeysRouter(ring: AuthKeyRing, founders: Founders) {
+  const founder = founderProcedure(founders);
   const map = (err: unknown): never => {
     if (err instanceof AuthKeyError)
       throw new TRPCError({
@@ -40,7 +31,7 @@ export function createAuthKeysRouter(ring: AuthKeyRing, founders: { isFounder(us
 
   return router({
     authKeys: router({
-      state: founder.output(stateOut).query(() => ring.state()),
+      state: mountRecord(IDENTITY_AUTH_KEYS_STATE, () => ring.state(), { refusalOf: codedRefusal, founder }),
       rotate: founder
         .input(z.object({ keyId: z.string().min(1).max(32), ...approval }).strict())
         .output(stateOut)

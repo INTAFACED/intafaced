@@ -1,22 +1,22 @@
-import { z } from 'zod';
 import {
   businessCategorySchema,
-  categoryPolicyEventSchema,
-  categoryPolicyHistoryInputSchema,
-  categoryPolicyListInputSchema,
   categoryPolicyPreviewInputSchema,
   categoryPolicyPreviewSchema,
   categoryPolicySetInputSchema,
-  categoryPolicyViewSchema,
-  router,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/business-category';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { ActionApprovalConsumeError, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { DualControlError } from '../dual-control.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure, type FounderContext } from '../namespaces/founder-procedure.js';
 import { CategoryPolicyError, CategoryPolicyService } from './category.js';
+import {
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_LIST,
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_HISTORY,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 const KIND: Record<string, TRPCError['code']> = {
   'pay.business_category_policy_unset': 'PRECONDITION_FAILED',
@@ -67,14 +67,11 @@ export function createCategoryPolicyRouter(deps: CategoryPolicyMountDeps & { fou
   const founder = founderProcedure(deps.founderAuthority);
   const service = new CategoryPolicyService(deps.sql, deps.approvals);
   return router({
-    list: founder
-      .input(categoryPolicyListInputSchema)
-      .output(categoryPolicyViewSchema)
-      .query(() => wrap(() => service.list())),
-    history: founder
-      .input(categoryPolicyHistoryInputSchema)
-      .output(z.array(categoryPolicyEventSchema))
-      .query(({ input }) => wrap(() => service.history(input.key, input.limit))),
+    list: mountRecord(PAY_FOUNDER_ADMIN_CATEGORY_POLICY_LIST, () => wrap(() => service.list()), { refusalOf: payRefusal, founder }),
+    history: mountRecord(PAY_FOUNDER_ADMIN_CATEGORY_POLICY_HISTORY, ({ input }) => wrap(() => service.history(input.key, input.limit)), {
+      refusalOf: payRefusal,
+      founder,
+    }),
     preview: founder
       .input(categoryPolicyPreviewInputSchema)
       .output(categoryPolicyPreviewSchema)

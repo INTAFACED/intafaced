@@ -2,11 +2,11 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { FEATURES } from '../../../../tooling/tracker/features.mjs';
 import { recipes, type RecipeName } from './index.js';
 import { FEE_REVENUE_PATHS, RECIPES_TOUCHING_HOUSE_FEES, type FeeRevenueClosure } from './fee-revenue-map.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = join(HERE, '..', '..', '..', '..');
 
 /** Recipe source files (not tests) under this directory. */
 function recipeSourceFiles(): string[] {
@@ -46,9 +46,7 @@ function recipesTouchingHouseFeesFromSource(): RecipeName[] {
 }
 
 function trackerIds(): Set<string> {
-  const featuresPath = join(REPO_ROOT, 'tooling', 'tracker', 'features.mjs');
-  const src = readFileSync(featuresPath, 'utf8');
-  return new Set([...src.matchAll(/\bf\(\s*'([^']+)'/g)].map((m) => m[1]!));
+  return new Set(FEATURES.map((feature) => feature.id));
 }
 
 describe('D26-P0-09 fee + revenue recipe map', () => {

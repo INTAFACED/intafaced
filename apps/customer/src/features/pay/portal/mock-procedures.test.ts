@@ -7,7 +7,8 @@ import { createPortalMock } from './portal.mock.mjs';
  * The stand-in must answer every procedure a page can call. A page that calls a procedure nothing answers shows a
  * "not available" error in the preview, and a read or write that the real service has but the stand-in lacks goes
  * unnoticed until someone clicks it (a refund and a new payment link did exactly that). This test reads the source of
- * every page, collects each procedure name it sends, and fails for any name the stand-in does not answer.
+ * every page, collects each procedure name it sends, by name or by the record it imports, and fails for any name the
+ * stand-in does not answer.
  */
 const here = new URL('.', import.meta.url).pathname;
 const payRoot = join(here, '..');
@@ -16,6 +17,8 @@ const NAMESPACES =
 const SINGLES =
   'railHealth|setApiKeyRequestSigning|rotateSigningSecret|bindApiKeyIpAllowlist|unbindApiKeyIpAllowlist|listSessions|revokeSession';
 const NAME = new RegExp(`'((?:${NAMESPACES})(?:\\.[A-Za-z0-9]+)+|${SINGLES})'`, 'g');
+/** The same calls, as a record's path. */
+const PATH = new RegExp(`^(?:(?:${NAMESPACES})(?:\\.[A-Za-z0-9]+)+|${SINGLES})$`);
 
 /** Quoted words that look like a procedure but are not one, each with the reason. */
 const NOT_PROCEDURES: Record<string, string> = {
@@ -36,8 +39,22 @@ function sources(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/** The svc-pay records a file imports from contracts (`PAY_MERCHANT_BALANCES`), each read as the path it calls. */
+async function recordPaths(text: string): Promise<string[]> {
+  const paths: string[] = [];
+  for (const match of text.matchAll(/^import \{([^}]*)\} from '@intafaced\/contracts\/([a-z0-9-]+)';/gm)) {
+    const mod: Record<string, unknown> = await import(`@intafaced/contracts/${match[2]!}`);
+    for (const name of match[1]!.split(',').map((x) => x.trim().replace(/^type /, ''))) {
+      const record = mod[name] as { module?: unknown; path?: unknown; kind?: unknown } | undefined;
+      if (record?.module === 'pay' && typeof record.path === 'string' && typeof record.kind === 'string' && PATH.test(record.path))
+        paths.push(record.path);
+    }
+  }
+  return paths;
+}
+
 /** Every procedure name the pages send, with the files that send it. */
-function calledProcedures(): Map<string, string[]> {
+async function calledProcedures(): Promise<Map<string, string[]>> {
   const files = [
     ...sources(here),
     join(payRoot, 'merchant-refund-api.ts'),
@@ -48,11 +65,8 @@ function calledProcedures(): Map<string, string[]> {
   const found = new Map<string, string[]>();
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
-    for (const match of text.matchAll(NAME)) {
-      const name = match[1]!;
-      if (name in NOT_PROCEDURES) continue;
-      found.set(name, [...(found.get(name) ?? []), relative(payRoot, file)]);
-    }
+    const names = [...text.matchAll(NAME)].map((match) => match[1]!).filter((name) => !(name in NOT_PROCEDURES));
+    for (const name of [...names, ...(await recordPaths(text))]) found.set(name, [...(found.get(name) ?? []), relative(payRoot, file)]);
   }
   return found;
 }
@@ -81,8 +95,8 @@ async function answered(procedure: string): Promise<boolean> {
   return !(status === 404 && /No procedure/.test(body));
 }
 
+const procedures = await calledProcedures();
 describe('the stand-in answers every procedure a page calls', () => {
-  const procedures = calledProcedures();
   it('finds the calls it is meant to guard', () => {
     // If the scan itself breaks, an empty list would make the real check below pass for the wrong reason.
     for (const known of ['payment.refund', 'merchant.createLink', 'merchant.deactivateLink', 'subscription.create', 'mandate.create'])

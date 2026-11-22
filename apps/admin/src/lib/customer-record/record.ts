@@ -5,6 +5,11 @@ import {
   IDENTITY_DEVELOPER_SUPPORT_KEYS,
 } from '@intafaced/contracts/identity-developer-support-procedures';
 import type { CustomerTab } from './tabs';
+import { IDENTITY_KYC_HISTORY_FOR, IDENTITY_KYC_SELFIE_LIST_FOR } from '@intafaced/contracts/identity-kyc-procedures';
+import {
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 export {
   CUSTOMER_TABS,
@@ -98,9 +103,8 @@ function depositAddresses(userId: string): ReadSpec {
     id: 'money.deposit-addresses',
     title: 'Deposit addresses',
     note: 'Every deposit address svc-pay issued to this account, and whether compliance froze it. A deposit to a frozen address that is not credited yet is on hold and is never credited until a second founder lifts the freeze. Open a row to freeze it, or to ask for the lift.',
-    module: 'pay',
     plainName: 'svc-pay’s deposit addresses',
-    procedure: 'founderAdmin.depositFreezes.addresses',
+    ...readOf(PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES),
     input: { userId },
     shape: 'list',
     idKey: 'id',
@@ -129,9 +133,8 @@ function depositFreezeHistory(userId: string): ReadSpec {
     id: 'money.deposit-freezes',
     title: 'Deposit address freezes',
     note: 'Every compliance freeze on this account’s deposit addresses, newest first: who placed it and why, and for a lifted one who lifted it, which founder approved, and why.',
-    module: 'pay',
     plainName: 'svc-pay’s deposit address freezes',
-    procedure: 'founderAdmin.depositFreezes.history',
+    ...readOf(PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY),
     input: { userId, limit: FREEZE_HISTORY_LIMIT },
     shape: 'list',
     idKey: 'id',
@@ -299,9 +302,8 @@ export function kycCasesRead(userId: string, caseId?: string): ReadSpec {
     id: caseId === undefined ? 'identity.kyc-cases' : 'identity.kyc-case',
     title: 'Verification cases',
     note: 'Each identity verification this person asked for, newest first, as identity holds it: the level, the state and when it was decided. Open a case to see its documents.',
-    module: 'identity',
     plainName: 'identity’s verification cases',
-    procedure: 'kyc.historyFor',
+    ...readOf(IDENTITY_KYC_HISTORY_FOR),
     input: { userId, limit: KYC_CASE_LIMIT },
     shape: 'list',
     rowsKey: 'cases',
@@ -498,9 +500,8 @@ export function tabPlan(tab: CustomerTab, userId: string, query: { readonly requ
             id: 'identity.selfies',
             title: 'Selfies',
             note: 'Every selfie this account sent for comparison with its ID photo, newest first: how it was taken, its status and when it was decided. No automatic liveness or face-match check runs on a selfie: a person compares it. The selfie’s photo is the document named in its row; open that document above to compare. A selfie that waits can be accepted or rejected here, with a second founder’s approval.',
-            module: 'identity',
             plainName: 'identity’s selfie step',
-            procedure: 'kyc.selfie.listFor',
+            ...readOf(IDENTITY_KYC_SELFIE_LIST_FOR),
             input: { userId, limit: SELFIE_LIMIT },
             shape: 'list',
             rowsKey: 'selfies',

@@ -1,0 +1,57 @@
+[
+  {
+    "file": "packages/config/src/modules.test.ts",
+    "target": "../../../tooling/ci/custody-scan.mjs",
+    "verdict": "rewrite",
+    "asserts": "The custody scan derives its Protocol Plane service list from modules.ts, so a Protocol Plane module added to the registry is scanned with no other edit (no hardcoded list can come back).",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/config/src/modules.test.ts#walks a protocol-only module added to the registry with no other edit (no hardcoded list)"
+    },
+    "why": "The test runs the real scan over a scratch tree holding the real modules.ts (copied in to run, never read) with one more module appended and a ledger write planted in it: protocol-only and non-custodial it must be flagged, custodial or on two planes it must not; a hardcoded list fails it."
+  },
+  {
+    "file": "packages/config/src/modules.test.ts",
+    "target": "../../../tooling/ci/custody-scan.mjs",
+    "verdict": "rewrite",
+    "asserts": "The custody scan fails closed: a registry it cannot read, or one in which it finds no Protocol Plane module, exits 1 instead of printing a green tick over an empty walk.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/config/src/modules.test.ts#fails closed when the derivation finds nothing"
+    },
+    "why": "The test runs the real scan with an empty modules.ts and with none, each beside a planted ledger write in every service, and asserts exit 1 with its 'found no Protocol Plane module' / 'cannot read the module registry' refusal and no clean line."
+  },
+  {
+    "file": "packages/config/src/modules.test.ts",
+    "target": "../../../tooling/ci/custody-scan.mjs",
+    "verdict": "rewrite",
+    "asserts": "The custody scan refuses a returned vendor/ tree as a vendored-tree-returned violation, keeps refusing Protocol Plane ledger writes (check 1), and reports nothing else (no call out to the deleted Java scan).",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/config/src/modules.test.ts#fails if the deleted vendor/ tree returns"
+    },
+    "why": "The test runs the real scan on a scratch tree: with no vendor/ and no write it reports only the missing inventory; with a vendor/ file it exits 1 reporting exactly [vendored-tree-returned] vendor/ beside it; with a planted ledger write it reports ledger-write-on-protocol-plane for that file."
+  },
+  {
+    "file": "packages/config/src/marketing-language.test.ts",
+    "target": "../../tooling/lint/oxlint-plugin-garden/copy-rules.js",
+    "verdict": "rewrite",
+    "asserts": "The copy lint rule garden/no-unsealed-claim refuses the same three words as the marketing-language law and is cleared by the same owner seal.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/config/src/marketing-language.test.ts#stays in lockstep with the copy lint rule that applies it (seal + words)"
+    },
+    "why": "The test imports the rule's exported CLAIM_WORDS and unsealedClaims, asserts the list equals MARKETING_BAN_WORDS, and for each word that the rule and findUnsealedMarketingClaims both refuse an unsealed claim and the rule accepts it with OWNER_SEAL_MARKER on the line or the one above."
+  },
+  {
+    "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+    "target": "tooling/ci/brand-scan.mjs",
+    "verdict": "rewrite",
+    "asserts": "The venue deposit room's words name nothing the brand scan forbids, judged by the scan's own list, and the check cannot pass by reading nothing.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs#opens the venue's deposit for a chain"
+    },
+    "why": "Importing brand-scan.mjs runs the whole repo scan at import, so the step now runs the scan itself over a scratch tree whose one apps/ file holds the room's words, and asserts exit 0 and its report 'brand-scan clean — 1 files' (it read them)."
+  }
+]

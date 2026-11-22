@@ -50,12 +50,14 @@
  *
  *   node tooling/ci/test-diff-guard.mjs                 uses origin/main, PR_BODY env
  */
+import { runJobs } from './run-jobs.mjs';
 import { autoRevertOf } from './exact-revert.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
+import { countCall } from './api-count.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
 const BROWSER_TEST = /\.pw\.mjs$/;
@@ -230,7 +232,7 @@ export async function earlierFailures({ repo, headRepo = repo, branch, headSha }
   const out = [];
   for (const run of runs) {
     if (run.head_sha === headSha || run.head_repository?.full_name !== headRepo) continue;
-    const jobs = (await api(`/repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`)).jobs ?? [];
+    const jobs = (await runJobs(`/repos/${repo}/actions/runs/${run.id}/jobs`, api)) ?? [];
     for (const job of jobs) {
       if (!/^Tests \(/.test(job.name) || job.conclusion !== 'failure') continue;
       const { packages, files } = failedInLog(await text(`/repos/${repo}/actions/jobs/${job.id}/logs`));
@@ -246,6 +248,7 @@ function restReader(token) {
     const res = await fetch(`https://api.github.com${path}`, {
       headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
     });
+    countCall(res);
     if (!res.ok) throw new Error(`GitHub ${res.status} ${res.statusText} on ${path}`);
     return res;
   };

@@ -237,6 +237,41 @@ function WalletSource({
   );
 }
 
+/**
+ * The venue's staking on /money (J-cex-spot-21 #8): the rewards it reports, and for its staking asset whether the parts
+ * it names (free, in orders, collateral, staked, delegated, unstaking) add to the total it reports. Shown only where the
+ * account holds any staking; nothing is derived beyond the sum.
+ */
+function StakingLines({ data, venue, t }: { data: VenueRead; venue: string; t: T }) {
+  if (!data.staking.read) return null;
+  const s = data.staking.account;
+  const row = data.rows.find((r) => r.asset === s.asset);
+  const has = row?.split?.delegated !== undefined || /[1-9]/.test(s.staked) || /[1-9]/.test(s.rewards.total);
+  if (!row || !has) return null;
+  const split = row.split;
+  const parts = split
+    ? [row.free, split.inOrders, split.collateral, split.stake, split.delegated ?? '0', split.unstaking ?? '0'].reduce(
+        (sum, x) => sum + parseAmount(x),
+        0n,
+      )
+    : null;
+  const addsUp = parts !== null && parts === parseAmount(row.total);
+  return (
+    <div data-testid="source-venue-staking" data-asset={s.asset}>
+      <p data-testid="source-venue-staking-rewards" data-value={s.rewards.total}>
+        {t('Staking rewards', { venue, amount: displayAmount(s.rewards.total), asset: s.asset })}
+      </p>
+      {parts !== null ? (
+        <p data-testid="source-venue-staking-parts" data-adds-up={addsUp ? 'true' : 'false'} data-total={row.total}>
+          {addsUp
+            ? t('Staking parts add up', { venue, amount: displayAmount(row.total), asset: s.asset })
+            : t('Staking parts differ', { venue, amount: displayAmount(row.total), asset: s.asset })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polled<VenueRead>; valued: ValuedPart | undefined; t: T }) {
   const data = read.data;
   const vaults = data?.vaults.read ? data.vaults.holdings.positions : [];
@@ -282,6 +317,16 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
                       <li data-part="stake" data-amount={row.split.stake}>
                         {t('Stake', { amount: displayAmount(row.split.stake) })}
                       </li>
+                      {row.split.delegated !== undefined ? (
+                        <li data-part="delegated" data-amount={row.split.delegated}>
+                          {t('Delegated', { amount: displayAmount(row.split.delegated) })}
+                        </li>
+                      ) : null}
+                      {row.split.unstaking !== undefined ? (
+                        <li data-part="unstaking" data-amount={row.split.unstaking}>
+                          {t('Unstaking', { amount: displayAmount(row.split.unstaking) })}
+                        </li>
+                      ) : null}
                     </ul>
                   ) : /[1-9]/.test(row.locked) ? (
                     <p data-testid="source-venue-split-unknown" className="muted">
@@ -340,6 +385,7 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
             </DataTable>
           </div>
         ) : null}
+        {data ? <StakingLines data={data} venue={venueName} t={t} /> : null}
         {data && !data.vaults.read ? (
           <p className="muted" data-testid="source-venue-vaults-unread">
             {t('Vaults unread', { venue: venueName, detail: data.vaults.detail })}

@@ -1,3 +1,4 @@
+// tooling-tests: alone. It runs `git fetch` into the checkout's own .git (FETCH_HEAD, objects/maintenance.lock).
 // The kit-look rules on planted room files, the ceilings' judge on planted counts, and the tree against its committed
 // ceilings and main's copy of them (intafaced issue 9326).
 import { test } from 'node:test';
@@ -7,7 +8,18 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { countPlanted } from './count-rule.mjs';
 import { mainRef } from '../ci/lint-ratchet.mjs';
-import { CEILINGS, ROOT, countTree, describe, judge, lowered, readCeilings } from './kit-ceilings.mjs';
+import {
+  CEILINGS,
+  ROOT,
+  countTree,
+  describe,
+  forkPoint,
+  intoVoltLayer,
+  judge,
+  lowered,
+  readCeilings,
+  renamesSince,
+} from './kit-ceilings.mjs';
 
 const skip = !existsSync(join(ROOT, 'node_modules', '.bin', 'oxlint')) && 'no node_modules';
 const ROOM = 'apps/customer/src/features/planted/Room.tsx';
@@ -74,22 +86,89 @@ test('judge: a count over its ceiling, a stale ceiling and a raised one each fai
     'an added file',
   );
   assert.match(describe({ kind: 'raised', rule: R, file: 'a.tsx', ceiling: 3, was: 2 }), /Never raise a ceiling/u);
+  assert.deepEqual(judge({ [R]: { 'a.tsx': 1 } }, base, base, {}, true), [], 'a batch into a Volt layer: a fallen count needs no edit');
+  assert.deepEqual(
+    judge({ [R]: { 'a.tsx': 3 } }, base, base, {}, true).map((p) => p.kind),
+    ['over'],
+    'a batch into a Volt layer: a risen count still fails',
+  );
   assert.deepEqual(lowered({ [R]: { 'a.tsx': 1 } }, base)[R], { 'a.tsx': 1 }, '--write lowers');
   assert.throws(() => lowered({ [R]: { 'a.tsx': 3 } }, base), /refused/u, '--write never raises');
 });
 
-test(`the tree holds ${CEILINGS}: no count over, none stale, none raised over main's`, { skip }, () => {
+test("judge and --write: a renamed or moved file is the same file, held to its old path's ceiling", () => {
+  const R = 'garden/no-raw-control';
+  const base = { [R]: { 'old/A.tsx': 2 } };
+  const renames = { 'new/A/A.tsx': 'old/A.tsx' };
+  const moved = { [R]: { 'new/A/A.tsx': 2 } };
+  assert.deepEqual(judge({ [R]: { 'new/A/A.tsx': 2 } }, moved, base, renames), [], 'moved at the same count');
+  assert.deepEqual(judge({ [R]: { 'new/A/A.tsx': 1 } }, { [R]: { 'new/A/A.tsx': 1 } }, base, renames), [], 'moved and lowered');
+  assert.deepEqual(
+    judge({ [R]: { 'new/A/A.tsx': 3 } }, moved, base, renames).map((p) => p.kind),
+    ['over'],
+    'moved at a higher count',
+  );
+  assert.deepEqual(
+    judge({ [R]: { 'new/A/A.tsx': 3 } }, { [R]: { 'new/A/A.tsx': 3 } }, base, renames).map((p) => [p.kind, p.was]),
+    [['raised', 2]],
+    "its entry moved by hand to a higher number: raised over its old path's 2",
+  );
+  assert.deepEqual(
+    judge({ [R]: { 'new/A/A.tsx': 2, 'new/B.tsx': 1 } }, moved, base, renames).map((p) => [p.kind, p.file]),
+    [['over', 'new/B.tsx']],
+    'a brand-new file holding a raw control beside the move',
+  );
+  assert.deepEqual(
+    judge({ [R]: { 'new/B.tsx': 1 } }, { [R]: { 'new/B.tsx': 1 } }, base, renames).map((p) => [p.kind, p.file]),
+    [['raised', 'new/B.tsx']],
+    'a brand-new file given an entry by hand: added',
+  );
+  assert.deepEqual(
+    judge({ [R]: { 'new/A/A.tsx': 2 } }, { [R]: { 'old/A.tsx': 2, 'new/A/A.tsx': 2 } }, base, renames).map((p) => [p.kind, p.file]),
+    [['stale', 'old/A.tsx']],
+    "the old path's entry kept beside the new one is stale",
+  );
+  assert.deepEqual(lowered({ [R]: { 'new/A/A.tsx': 2 } }, base, renames)[R], { 'new/A/A.tsx': 2 }, '--write moves the entry');
+  assert.deepEqual(lowered({ [R]: { 'new/A/A.tsx': 1 } }, base, renames)[R], { 'new/A/A.tsx': 1 }, '--write moves and lowers');
+  assert.throws(() => lowered({ [R]: { 'new/A/A.tsx': 3 } }, base, renames), /refused/u, '--write never raises a moved file');
+  assert.throws(() => lowered({ [R]: { 'new/B.tsx': 1 } }, base, renames), /refused/u, '--write never adds a new file');
+  const gone = { [R]: { 'old/A.tsx': 2, 'old/Gone.tsx': 4 } };
+  assert.deepEqual(
+    lowered({ [R]: { 'new/A/A.tsx': 2 } }, gone, renames)[R],
+    { 'new/A/A.tsx': 2 },
+    "--write drops a deleted file's ceiling beside a move",
+  );
+});
+
+test('two Volt batches that lower different files edit no common file, and each passes after the other', () => {
+  const R = 'garden/no-raw-control';
+  const ceilings = { [R]: { 'a/A.tsx': 2, 'b/B.tsx': 3 } };
+  const after = { A: { 'a/A.tsx': 0, 'b/B.tsx': 3 }, B: { 'a/A.tsx': 2, 'b/B.tsx': 1 }, both: { 'a/A.tsx': 0, 'b/B.tsx': 1 } };
+  for (const [label, counts] of Object.entries(after))
+    assert.deepEqual(judge({ [R]: counts }, ceilings, ceilings, {}, true), [], `${label}, on the layer, with ${CEILINGS} untouched`);
+  assert.deepEqual(
+    judge({ [R]: after.both }, ceilings, ceilings).map((p) => p.kind),
+    ['stale', 'stale'],
+    "the layer's PR into main is held exact",
+  );
+  assert.deepEqual(judge({ [R]: after.both }, lowered({ [R]: after.both }, ceilings), ceilings), [], 'after one --write on the layer');
+  assert.equal(intoVoltLayer({ GITHUB_BASE_REF: 'volt/flow' }), true);
+  assert.equal(intoVoltLayer({ GITHUB_BASE_REF: 'main' }), false);
+  assert.equal(intoVoltLayer({}), false);
+});
+
+test(`the tree holds ${CEILINGS}: no count over, none stale (but on a Volt batch), none raised over main's`, { skip }, () => {
   const ref = mainRef();
   assert.ok(ref, "cannot fetch main: main's ceilings are what a change's are judged against");
   let base = null;
   try {
     base = JSON.parse(
-      execFileSync('git', ['show', `${ref}:${CEILINGS}`], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      execFileSync('git', ['show', `${forkPoint(ref)}:${CEILINGS}`], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
     );
   } catch (e) {
     // Only the change that adds the file has no copy on main to compare with.
     assert.match(String(e.stderr), /does not exist|exists on disk, but not in/u, String(e.stderr));
   }
-  const problems = judge(countTree(), readCeilings(), base);
+  const problems = judge(countTree(), readCeilings(), base, renamesSince(ref), intoVoltLayer());
   assert.deepEqual(problems.map(describe), []);
 });

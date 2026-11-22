@@ -2,23 +2,23 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { selfFreezeCopy as copy } from './self-freeze-copy';
-import { StepUpConfirm } from '../money';
+import { StepUpInline } from '../money';
 import {
   FREEZE_REASONS,
   FREEZE_REFUSAL_KEYS,
   LIFT_REFUSAL_KEYS,
   REASON_KEYS,
-  freezeDone,
-  freezeStatus,
-  liftDone,
   liftRequestId,
   liftWaitWords,
   type FreezeReason,
 } from './self-freeze';
+import { IDENTITY_AUTH_SELF_FREEZE_STATUS, IDENTITY_AUTH_SELF_FREEZE } from '@intafaced/contracts/identity-auth-procedures';
+import { IDENTITY_SELF_FREEZE_MANAGE_LIFT } from '@intafaced/contracts/identity-self-freeze-manage-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -50,9 +50,7 @@ export function FreezeAccount() {
   }, []);
   const status = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'auth.selfFreezeStatus', undefined, freezeStatus, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_AUTH_SELF_FREEZE_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `self-freeze:${userId}`,
   );
 
@@ -61,7 +59,7 @@ export function FreezeAccount() {
     setBusy(true);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'auth.selfFreeze', { reason, password }, freezeDone);
+      const answer = await api.call(IDENTITY_AUTH_SELF_FREEZE, { reason, password });
       if (!mounted.current) return;
       if (!answer.ok) return setFailure(answer);
       setNote(t('frozenNote'));
@@ -76,12 +74,7 @@ export function FreezeAccount() {
     setLifting(true);
     setLiftFailure(null);
     try {
-      const answer = await api.mutate(
-        'identity',
-        'selfFreezeManage.lift',
-        { clientRequestId: liftRequestId(userId, since), stepUpApprovalId },
-        liftDone,
-      );
+      const answer = await api.call(IDENTITY_SELF_FREEZE_MANAGE_LIFT, { clientRequestId: liftRequestId(userId, since), stepUpApprovalId });
       if (!mounted.current) return;
       if (!answer.ok) {
         // The step-up is asked for only once the wait has passed: the service refuses too soon before it spends one.
@@ -123,22 +116,18 @@ export function FreezeAccount() {
     return (
       <section
         data-testid="security__card"
-        className="security__freeze security__card"
+
         aria-label={t('frozenTitle')}
         lang={languageFor('frozenTitle')}
       >
         <h2>{t('frozenTitle')}</h2>
-        {note && (
-          <p className="notice" role="status">
-            {note}
-          </p>
-        )}
+        {note && <p role="status">{note}</p>}
         <p>{t('frozenBody', { date: stamp(current.since, timeZone), reason: t(REASON_KEYS[current.reason] as 'reasonPersonal') })}</p>
         <h3>{t('liftTitle')}</h3>
         <p>{t('liftBody')}</p>
         {liftFailure && <LiftRefusal failure={liftFailure} />}
         {confirming ? (
-          <StepUpConfirm
+          <StepUpInline
             request={() => ({
               scope: 'identity.step_up.self_freeze_lift',
               purpose: 'account.selfFreeze.lift',
@@ -157,8 +146,8 @@ export function FreezeAccount() {
             onApproved={(approval) => void lift(since, approval)}
           />
         ) : (
-          <div className="actions">
-            <Button data-testid="freeze__lift" disabled={lifting} onClick={() => void lift(since, null)}>
+          <div className="lt-actions">
+            <Button tone="primary" data-testid="freeze__lift" disabled={lifting} onClick={() => void lift(since, null)}>
               {lifting ? t('working') : t('liftAsk')}
             </Button>
           </div>
@@ -169,28 +158,17 @@ export function FreezeAccount() {
 
   const refusal = failure && failure.code ? FREEZE_REFUSAL_KEYS[failure.code] : undefined;
   return (
-    <section data-testid="security__card" className="security__freeze security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
-      {note && (
-        <p className="notice" role="status">
-          {note}
-        </p>
-      )}
+      {note && <p role="status">{note}</p>}
       <p>{t('body')}</p>
       <p>{t('consequences')}</p>
-      {failure &&
-        (refusal ? (
-          <p className="notice" role="alert">
-            {t(refusal as 'refusedPassword')}
-          </p>
-        ) : (
-          <Failure result={failure} />
-        ))}
-      <form ref={form} method="post" className="stack" onSubmit={submit} noValidate>
+      {failure && (refusal ? <p role="alert">{t(refusal as 'refusedPassword')}</p> : <Failure result={failure} />)}
+      <form ref={form} method="post" onSubmit={submit} noValidate>
         <fieldset disabled={busy}>
           <legend>{t('reasonLabel')}</legend>
           {FREEZE_REASONS.map((value) => (
-            <label key={value} className="row">
+            <label key={value} className="lt-field">
               <input type="radio" name="freeze-reason" value={value} checked={reason === value} onChange={() => setReason(value)} />{' '}
               {t(REASON_KEYS[value] as 'reasonPersonal')}
             </label>
@@ -206,8 +184,8 @@ export function FreezeAccount() {
           error={problem ? t('passwordNeeded') : undefined}
           data-security-sensitive="true"
         />
-        <div className="actions">
-          <Button type="submit" variant="danger" disabled={busy}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={busy}>
             {busy ? t('working') : t('freezeAsk')}
           </Button>
         </div>
@@ -230,7 +208,7 @@ function LiftRefusal({ failure }: { failure: Failed }) {
   }
   if (words === null) return <Failure result={failure} />;
   return (
-    <p className="notice" role="alert" data-testid="freeze__lift-refusal">
+    <p role="alert" data-testid="freeze__lift-refusal">
       {words}
     </p>
   );

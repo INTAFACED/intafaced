@@ -139,7 +139,7 @@ jobs:
           set -euo pipefail
           down=0
           if [ "$RUN" = true ] && [ "$MODELS" = success ]; then
-            down=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" --paginate \
+            down=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=30" --paginate \
               --jq '.jobs[] | select(any(.steps[]?; .name == "Could not check" and .conclusion == "success")) | .name' | wc -l | tr -d ' ')
           fi
           echo "down=$down" >> "$GITHUB_OUTPUT"

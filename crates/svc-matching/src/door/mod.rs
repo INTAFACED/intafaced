@@ -11,13 +11,14 @@
 //!    lifecycle proof's binding to the route and the order, the post-only rule, a list's published window, the
 //!    position read's account, and the founder doors' idempotency key and market.
 //!
-//! Past those the call is its slice's: [`Outcome::Owed`] names which, or the slice's own doors answer it (`book`,
-//! `rulebook`). Nothing here reads or moves a book.
+//! Past those the call is its slice's module's (`book`, `liquidity`, `venue`, `spreads`, `rulebook`, `operator`), and
+//! the serve slice's own `/health` and `/ready`. Nothing here reads or moves a book.
 
 pub mod book;
 pub mod liquidity;
 pub mod operator;
 pub mod rulebook;
+pub mod spreads;
 pub mod venue;
 
 use std::sync::{LazyLock, Mutex, PoisonError};
@@ -37,7 +38,7 @@ use crate::errors;
 use crate::refines::MatchingRefines;
 use crate::status::{self, OperationLatency};
 
-/// The slices the port is cut into (`PORT.md`, `## Slices`): which one owes a call past the door.
+/// The slices the door's calls are cut into (`README.md`): which module serves a call past the door.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Slice {
     Journal,
@@ -63,21 +64,6 @@ impl Slice {
         Slice::Rulebook,
         Slice::Operator,
     ];
-
-    /// Whether the port serves this slice's doors past the input checks; every other slice's are owed. The wire replay
-    /// fails whenever a ported slice owes an answer.
-    pub fn is_ported(self) -> bool {
-        matches!(
-            self,
-            Slice::Journal
-                | Slice::Book
-                | Slice::Serve
-                | Slice::Triggers
-                | Slice::Liquidity
-                | Slice::Venue
-                | Slice::Operator
-        )
-    }
 
     /// The slice's name in `PORT.md`.
     pub fn name(self) -> &'static str {
@@ -378,7 +364,8 @@ pub const ROUTES: [Route; 46] = [
     ),
 ];
 
-/// The door's answer: decided here, or the named slice's to give.
+/// The door's answer, or the slice whose module the route table names but which serves no such call: a table and its
+/// module out of step, which the wire replay proves no recorded route reaches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     Answer(Response),
@@ -769,9 +756,6 @@ impl MatchingDoor {
         if route.slice == Slice::Serve {
             return answer(self.serve(route.path));
         }
-        if !route.slice.is_ported() {
-            return Outcome::Owed(route.slice);
-        }
         let param = |name: &str| {
             params
                 .iter()
@@ -781,6 +765,13 @@ impl MatchingDoor {
         let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
         match route.slice {
             Slice::Liquidity => liquidity::serve(route, &param, &parsed, &mut engine),
+            Slice::Spreads => {
+                let approvals = spreads::Approvals {
+                    consumer: self.cfg.approvals.as_ref(),
+                    operator_ids: &self.cfg.operator_ids,
+                };
+                spreads::serve(route, req, &param, &parsed, &mut engine, &approvals)
+            }
             Slice::Venue => venue::serve(&self.cfg, route, req, &param, &parsed, &mut engine),
             Slice::Operator => operator::serve(
                 &self.cfg,
@@ -1001,7 +992,7 @@ fn bound(parsed: &Value, rule: ProofRule, route_value: &str) -> Result<(), Respo
     }
 }
 
-/// The door as the server serves it: a call past the door that its slice still owes answers [`not_ported`].
+/// The door as the server serves it: a route its slice's module does not serve answers [`not_ported`].
 impl Door for MatchingDoor {
     fn next_request_id(&self) -> String {
         self.ids.next()
@@ -1024,13 +1015,13 @@ impl Door for MatchingDoor {
     }
 }
 
-/// What a call past the door answers until its slice is ported: 503, and which slice owes it.
+/// What a route its slice's module does not serve answers: 503, and which slice it names.
 pub fn not_ported(slice: Slice) -> Response {
     let body = Json::Object(vec![
         (
             "message".to_owned(),
             Json::str(format!(
-                "svc-matching's Rust port does not serve this yet (slice {})",
+                "svc-matching does not serve this call (slice {})",
                 slice.name()
             )),
         ),

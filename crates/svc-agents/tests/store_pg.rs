@@ -2,7 +2,7 @@
 //! database name ends in `_test`), each test in its own throwaway database. Without a URL it skips; with
 //! `REQUIRE_POSTGRES=1` it fails.
 //!
-//! The binary's `migrate` up, re-run and `--down` (`scripts/migrate.ts`'s three behaviours), every table `PORT.md`
+//! The binary's `migrate` up, re-run and `--down` (`scripts/migrate.ts`'s three behaviours), every table `README.md`
 //! names, the schema check, the boot upsert of the agents' guardrails (and an operator's switch surviving a reboot),
 //! each pooled connection's session settings, and `/health` and `/ready` through the kit's server routing.
 #![allow(
@@ -32,7 +32,7 @@ use svc_agents::migrate::MIGRATIONS;
 mod support;
 use support::TestDb;
 
-/// Every table `PORT.md` names, slice by slice.
+/// Every table `README.md` names, slice by slice.
 const TABLES: &[&str] = &[
     "route_overrides",
     "route_change_requests",
@@ -101,6 +101,8 @@ const TABLES: &[&str] = &[
     "own_agent_co_owners",
     "own_agent_tokens",
     "self_freezes_applied",
+    "run_webhook_endpoints",
+    "run_webhook_deliveries",
     "__migrations",
 ];
 
@@ -108,7 +110,7 @@ const TABLES: &[&str] = &[
 fn the_binary_applies_every_migration_once_then_skips_them_then_reverses_them() {
     let Some(db) = TestDb::new() else { return };
     let ups: Vec<&str> = MIGRATIONS.ups().into_iter().map(|(n, _)| n).collect();
-    assert_eq!(ups.len(), 43);
+    assert_eq!(ups.len(), 44);
 
     let (code, out) = db.binary(false);
     assert_eq!(code, 0, "{out}");
@@ -121,8 +123,8 @@ fn the_binary_applies_every_migration_once_then_skips_them_then_reverses_them() 
         ]
         .concat()
     );
-    assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 43);
-    assert_eq!(TABLES.len(), 68);
+    assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 44);
+    assert_eq!(TABLES.len(), 70);
     for table in TABLES {
         assert!(
             db.regclass(&format!("agents.{table}")).is_some(),
@@ -136,15 +138,15 @@ fn the_binary_applies_every_migration_once_then_skips_them_then_reverses_them() 
         out.lines()
             .filter(|l| l.ends_with("(already applied)"))
             .count(),
-        43
+        44
     );
-    assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 43);
+    assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 44);
 
     let (code, out) = db.binary(true);
     assert_eq!(code, 0, "{out}");
     assert_eq!(
         out.lines().next(),
-        Some("↓ 20261117220744_self_freeze_applied.down.sql")
+        Some("↓ 20261121224407_run_webhooks.down.sql")
     );
     assert_eq!(out.lines().last(), Some("✓ reversed"));
     assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 0);

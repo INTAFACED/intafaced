@@ -19,17 +19,15 @@ import {
   type VenueDepositRoute,
 } from '../../protocol';
 import { sleep as pause } from '@intafaced/contracts/sleep';
-import {
-  ownMoveMessageSchema,
-  ownMoveViewSchema,
-  tradingCardHeldSchema,
-  tradingCardRowSchema,
-} from '@intafaced/contracts/bank-trading-account-reads';
+import { ownMoveViewSchema } from '@intafaced/contracts/bank-trading-account-reads';
 import { useVenueMode } from '../use-venue-mode';
 import type { VenueUp } from '../venue-api';
 import { TestMark, VENUE_POLL_MS, VenueFrame, WalletBar, useOwner, useVenueApi } from '../venue/VenueKit';
 import { tradingAccountCopy } from './trading-account-copy';
 import { AccountModePanel } from './AccountMode';
+import { depositRoute, routeOf } from './move-route';
+import { BANK_CARDS_LIST, BANK_CARDS_PARTNER_HELD } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from '@intafaced/contracts/bank-own-moves-procedures';
 
 /**
  * The trading account (`/trade/account`, J-derivatives-25): two named groups, each with its own source and time. Trading
@@ -56,8 +54,6 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 const ownMoveSchema = ownMoveViewSchema;
 type OwnMove = z.infer<typeof ownMoveSchema>;
-const cardRowsSchema = z.array(tradingCardRowSchema);
-const cardHeldSchema = tradingCardHeldSchema;
 
 export function TradingAccountRoom() {
   const { t } = tradingAccountCopy.useCopy();
@@ -332,12 +328,12 @@ function SpendingGroup({ revision, spaces }: { revision: number; spaces: ReturnT
   const { api, userId } = useSession();
   const cards = usePolled(
     async (signal) => {
-      const listed = await api.query('bank', 'cards.list', { limit: 50 }, cardRowsSchema, { signal });
+      const listed = await api.call(BANK_CARDS_LIST, { limit: 50 }, { signal });
       if (!listed.ok) return listed;
       const open = listed.data.filter((c) => c.status !== 'closed');
       const held = await Promise.all(
         open.map(async (card) => {
-          const read = await api.query('bank', 'cards.partnerHeld', { cardId: card.id, limit: 1 }, cardHeldSchema, { signal });
+          const read = await api.call(BANK_CARDS_PARTNER_HELD, { cardId: card.id, limit: 1 }, { signal });
           return { card, held: read.ok ? read.data : null };
         }),
       );
@@ -409,13 +405,8 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
   const venueApi = useVenueApi();
   const account = useMemo(() => createVenueAccountApi(api), [api]);
   const door = usePolled((signal) => account.status(signal), `move:door:${userId}`, 30_000);
-  const route: VenueDepositRoute | null =
-    door.data && door.data.enabled && door.data.available ? ((door.data as { deposit?: VenueDepositRoute | null }).deposit ?? null) : null;
-  const moves = usePolled(
-    (signal) => api.query('bank', 'ownMoves.list', { limit: 20 }, z.array(ownMoveSchema), { signal }),
-    `moves:${userId}`,
-    READ_EVERY_MS,
-  );
+  const route: VenueDepositRoute | null = routeOf(door.data);
+  const moves = usePolled((signal) => api.call(BANK_OWN_MOVES_LIST, { limit: 20 }, { signal }), `moves:${userId}`, READ_EVERY_MS);
   const [amount, setAmount] = useState('');
   const [stage, setStage] = useState<Stage>({ at: 'idle' });
   const [refusal, setRefusal] = useState<{ body: string; code?: string } | null>(null);
@@ -451,8 +442,9 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
 
   /** Leg two: the wallet's own deposit to the venue, once per move; then the venue's credit is followed. */
   const deposit = async (move: OwnMove) => {
-    if (!route) return setRefusal({ body: t('moveNoRoute', { venue: venue.name, asset: ASSET }) });
     if (move.depositTx) return setStage({ at: 'done', move, again: false });
+    const route = await depositRoute(routeOf(door.data), () => account.status());
+    if (!route) return setRefusal({ body: t('moveNoRoute', { venue: venue.name, asset: ASSET }) });
     const units = toTokenUnits(move.amount, route.tokenDecimals);
     if (units === null || route.chainId !== APP_CHAIN_ID)
       return setRefusal({ body: t('moveNoRoute', { venue: venue.name, asset: ASSET }) });
@@ -492,12 +484,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
     const { moveId, amount: sent } = stage;
     setRefusal(null);
     setStage({ at: 'signing', moveId, amount: sent });
-    const message = await api.query(
-      'bank',
-      'ownMoves.message',
-      { moveId, assetId: ASSET, amount: sent, wallet: owner },
-      ownMoveMessageSchema,
-    );
+    const message = await api.call(BANK_OWN_MOVES_MESSAGE, { moveId, assetId: ASSET, amount: sent, wallet: owner });
     if (!message.ok) {
       setStage({ at: 'idle' });
       return refuseWith(message);

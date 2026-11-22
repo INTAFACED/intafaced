@@ -1,3 +1,4 @@
+// volt-room: /wallet/embedded
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@intafaced/ui';
 import { Tag } from '@intafaced/ui/lit';

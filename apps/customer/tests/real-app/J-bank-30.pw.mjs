@@ -117,6 +117,11 @@ async function partnerMoves(userId) {
 }
 const salaryMoves = (moves) => moves.filter((m) => m.key.startsWith('salary:'));
 
+/** The account details the TEST partner's own book says it issued the person in USD, and the holder name it keeps. */
+async function partnerDetails(userId) {
+  return (await venueRecord(userId, '/account-details', { currency: CURRENCY }, PARTNER_RECORD, null)).value;
+}
+
 /** The person's spaces as the bank shows them: the USD main balance and the Savings space, each the partner's figure. */
 async function usdSpaces(who) {
   const res = await (await bank(who)).query('spaces.list', { limit: 50 });
@@ -218,10 +223,15 @@ test(`${J} #2 with the TEST list back, Salary shows the partner's TEST account d
   const set = usd.sets[0];
   expect(set).toMatchObject({ id: `test-partner:${who.userId}:${CURRENCY}`, partnerBank: PARTNER_BANK });
   expect(set.accountNumber).toMatch(/^TEST-USD-/);
+  // The partner's own book: the details it issued and the name it holds the account in are exactly what the app gives.
+  const theirs = await partnerDetails(who.userId);
+  expect(theirs).toMatchObject({ issued: true, holderName: who.holderName });
+  expect(theirs.sets).toHaveLength(1);
+  expect(set).toEqual(theirs.sets[0]);
 
   const room = await salaryPage(page, who);
   const shown = room.getByTestId(`account-details-${CURRENCY}`);
-  await expect(shown.getByTestId('account-details-set')).toContainText(set.accountNumber);
+  await expect(shown.getByTestId('account-details-set')).toContainText(theirs.sets[0].accountNumber);
   // Labelled TEST: the number and the bank both say so.
   await expect(shown).toContainText(PARTNER_BANK);
   // Copy on each field the partner gave: one button per field, named for it, and each copies that field's value.
