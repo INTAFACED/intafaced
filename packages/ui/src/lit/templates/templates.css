@@ -1000,6 +1000,11 @@ button.lt-tab {
   block-size: 12.5rem;
 }
 
+/* Sparkline: a card's small trend line. */
+.lt-spark svg {
+  block-size: 3.5rem;
+}
+
 .lt-chart-line {
   fill: none;
   stroke: var(--lit-accent);
