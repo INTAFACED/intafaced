@@ -8,7 +8,7 @@
  * has a ceiling of zero), when a ceiling is above the file's count (stale: lower it), and when the file raises a ceiling or
  * adds a file that main's copy does not hold (main's copy where this change forked from it, so a layer behind main is
  * judged on its own edits). On a batch PR into a Volt layer (`volt/<template>`) a stale ceiling does not fail, so no batch
- * edits this shared file; the layer's PR into main holds it exact, after one `--write` on the layer (intafaced #9727). A file git sees as renamed or moved since main (`git diff -M`) is the same file:
+ * edits this shared file; the layer's PR into main holds it exact, after one `--write` on the layer. A file git sees as renamed or moved since main (`git diff -M`) is the same file:
  * its new path inherits its old path's ceiling, so a move that keeps or lowers its count passes. The lint ratchet separately
  * fails a change whose touched files gain a finding.
  *
@@ -137,7 +137,7 @@ export function lowered(counts, ceilings, renames = {}) {
 }
 
 /** Whether this run judges a batch PR into a Volt layer branch (`volt/<template>`), read from the PR's base branch. */
-export const intoVoltLayer = (env = process.env) => /^volt\//.test(env.GITHUB_BASE_REF ?? '');
+export const intoVoltLayer = (env = process.env) => (env.GITHUB_BASE_REF ?? '').startsWith('volt/');
 
 /** The commit this change forked from `ref` at (`git merge-base`), or `ref` itself when the history is too shallow to say. */
 export function forkPoint(ref, cwd = ROOT) {

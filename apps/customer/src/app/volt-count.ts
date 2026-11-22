@@ -6,7 +6,7 @@
  * A room's move onto its template is recorded in the screen file that draws it, by one line of its own per room:
  *     // volt-room: /bank/business/bill
  * (`// volt-room: portal:<page>` for a merchant portal page). Only that room's batch writes it, so two batches that move
- * different rooms change no common file (intafaced #9727). `room-templates.ts` keeps each room's template, which no batch edits.
+ * different rooms change no common file. `room-templates.ts` keeps each room's template, which no batch edits.
  *
  * The rule, which a reviewer can check by reading one room's files: a room is **in Volt** when
  *  1. a screen file carries its `volt-room` line, and that file imports the kit
@@ -256,7 +256,7 @@ export function voltCount(source: VoltSource = APP_SOURCE): VoltCount {
  * Volt still allowed off the kit) does not fail, so no batch has to edit the shared list. Everywhere else, the layer's PR into
  * main included, the list is held exact: one `node tooling/design/volt-count.mjs --write` on the layer tightens it.
  */
-export const intoVoltLayer = (env: Record<string, string | undefined> = process.env) => /^volt\//.test(env.GITHUB_BASE_REF ?? '');
+export const intoVoltLayer = (env: Record<string, string | undefined> = process.env) => (env.GITHUB_BASE_REF ?? '').startsWith('volt/');
 
 /**
  * What breaks the ratchet against `allowed` (the rooms volt-off-kit.json allows off the kit): a room not in Volt that the

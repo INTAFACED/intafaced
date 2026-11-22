@@ -1,7 +1,7 @@
 // The Volt ratchet: n never falls and no new room starts off the kit. `volt-off-kit.json` lists the rooms
 // allowed off the kit today; it only shrinks (`node tooling/design/volt-count.mjs --write` drops a room once it is in Volt;
 // tooling/design/volt-lists.test.mjs fails a list that gains a room). On a batch PR into a Volt layer a stale entry does
-// not fail, so no batch edits the list; the layer's PR into main holds it exact (intafaced #9727).
+// not fail, so no batch edits the list; the layer's PR into main holds it exact.
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -122,7 +122,7 @@ describe('the off-kit rule', () => {
   });
 });
 
-describe('batches side by side (intafaced #9727)', () => {
+describe('batches side by side', () => {
   const plantTree = (files: Record<string, string>) => {
     const dir = mkdtempSync(join(tmpdir(), 'volt-batches-'));
     for (const [name, text] of Object.entries(files)) {

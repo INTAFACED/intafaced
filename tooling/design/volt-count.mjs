@@ -2,7 +2,7 @@
 // Customer rooms in Volt, n of N: prints the count as JSON. The rule and the room list are in
 // apps/customer/src/app/volt-count.ts; the ratchet that keeps n from falling is apps/customer/src/app/volt-count.test.ts,
 // against the rooms still allowed off the kit in apps/customer/src/app/volt-off-kit.json. A room is recorded as moved by the
-// `// volt-room: <route>` line in its own screen file, so no batch edits a shared file (intafaced #9727); a batch into a Volt
+// `// volt-room: <route>` line in its own screen file, so no batch edits a shared file; a batch into a Volt
 // layer leaves the list stale, and one `--write` on the layer before its PR into main tightens it.
 // Needs the workspace packages built (`pnpm turbo run build --filter=@intafaced/customer^...`), as the customer tests do.
 //   node tooling/design/volt-count.mjs            the whole count: n, N, the rule, every room with its state and reason, the batches
