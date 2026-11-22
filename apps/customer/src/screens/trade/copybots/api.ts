@@ -105,7 +105,6 @@ export {
   copiedMarketSchema,
   leadEarningsSchema,
   leadLevelSchema,
-  myLeadSchema,
   copySkipSchema,
 } from '@intafaced/contracts/trade-copy-room';
 
