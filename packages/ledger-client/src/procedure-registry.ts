@@ -3,5 +3,7 @@ import { LEDGER_HISTORY_PAGE } from './history-page-record.js';
 import { LEDGER_POST_RECIPE } from './post-recipe-record.js';
 import type { ProcedureRecord } from '@intafaced/contracts/procedure';
 
+const part0: readonly ProcedureRecord[] = [LEDGER_HISTORY_PAGE, LEDGER_POST_RECIPE];
+
 /** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */
-export const LEDGER_PROCEDURES: readonly ProcedureRecord[] = [LEDGER_HISTORY_PAGE, LEDGER_POST_RECIPE];
+export const LEDGER_PROCEDURES: readonly ProcedureRecord[] = [...part0];
