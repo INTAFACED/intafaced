@@ -14,6 +14,7 @@ import { AgentRunPage, agentRunId } from './AgentRun';
 import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
+import { BlueprintSharedRoom } from './BlueprintSharedCard';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-catalogue';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
@@ -184,6 +185,7 @@ function MoreRooms({ path }: { path: string }) {
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
       if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
+      else if (hit.route.pattern === '/blueprint/shared/:cardId') volt = <BlueprintSharedRoom path={path} paper={paper} />;
       else if (hit.route.kind === 'detail' && room === 'token')
         volt = <TokenProposalRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
       content =

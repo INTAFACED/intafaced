@@ -324,7 +324,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/mining/status': { template: 'monitor' },
   '/mining/workers/:workerId': { template: 'monitor' },
   '/blueprint/crew': { template: 'record-list' },
-  '/blueprint/shared/:cardId': { template: 'reading' },
+  '/blueprint/shared/:cardId': { template: 'reading', migrated: { file: 'features/more/BlueprintSharedCard.tsx' } },
   '/predict/*': 'fallback',
   '/market/*': 'fallback',
   '/launch/*': 'fallback',
