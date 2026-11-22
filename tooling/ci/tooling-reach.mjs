@@ -202,6 +202,22 @@ export function follow(roots, { files, read, pnpm = {}, follows = () => true, sc
 
 const readRoot = (f) => readFileSync(join(ROOT, f), 'utf8');
 
+/** The tracked app, service and package files at `root` holding any of `words` (git grep, fixed strings). */
+function grepFiles(root, words) {
+  if (!words.length) return new Set();
+  try {
+    const out = execFileSync('git', ['grep', '-l', '-F', ...words.flatMap((w) => ['-e', w]), '--', 'apps', 'services', 'packages'], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 1e8,
+    });
+    return new Set(out.split('\n').filter(Boolean));
+  } catch (e) {
+    if (e.status === 1) return new Set(); // no match
+    throw e;
+  }
+}
+
 /** Every tracked file of the checkout at `root`. */
 export function trackedFiles(root = ROOT) {
   return new Set(execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8', maxBuffer: 1e8 }).split('\n').filter(Boolean));
@@ -226,7 +242,8 @@ export function journeyRoots(files) {
       (/^(apps|services|packages|crates)\//.test(f) && !unitTest(f)) ||
       /^(turbo\.json|package\.json|tsconfig[^/]*\.json|Cargo\.toml|docker-compose[^/]*\.ya?ml|Dockerfile[^/]*|\.env\.example)$/.test(f) ||
       /^tooling\/(profiles|infra)\//.test(f) ||
-      JOURNEY_CI.includes(f) ||
+      // The answer itself names every entry and reads none of them.
+      (JOURNEY_CI.includes(f) && f !== TOOLING_REACH_FILE) ||
       isSharedSetup(f),
   );
 }
@@ -296,9 +313,20 @@ const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export function readersOf(paths, { root = ROOT, files, read } = {}) {
   const list = [...new Set(paths)].filter(Boolean);
   if (!list.length) return {};
-  const all = files ?? trackedFiles(root);
   const text = read ?? ((f) => readFileSync(join(root, f), 'utf8'));
-  const pkgs = new Set([...all].filter((f) => /^(apps|services|packages)\/[^/]+\/package\.json$/.test(f)).map((f) => dirname(f)));
+  // Any reading names the file's own name, a folder holding it by its path (`tooling/codemod`, as a relative path from a
+  // package does too), or its top folder quoted alone (a path split over arguments).
+  const wordsOf = (p) => {
+    const parts = p.split('/');
+    const dirs = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'));
+    return [parts.at(-1), ...dirs.filter((d) => d.includes('/')), ...(parts.length > 1 ? [`'${parts[0]}'`, `"${parts[0]}"`] : [])];
+  };
+  const words = [...new Set(list.flatMap(wordsOf))];
+  // On a checkout, git grep finds the files that hold a word of a path at all (a second, not a read of every file).
+  const all = files ?? grepFiles(root, words);
+  const pkgs = new Set(
+    [...(files ?? trackedFiles(root))].filter((f) => /^(apps|services|packages)\/[^/]+\/package\.json$/.test(f)).map((f) => dirname(f)),
+  );
   // A folder counts when it is named as one (`tooling/codemod`, `tooling/codemod/`, `tooling/codemod/*`,
   // `` `tooling/codemod/${x}` ``), never as the start of another file's path (`tooling/ci/test-typecheck.mjs` reads no
   // other tooling/ci file).
@@ -311,7 +339,7 @@ export function readersOf(paths, { root = ROOT, files, read } = {}) {
     const named = new RegExp(
       `(?<![\\w.-])(?:${esc(p)}(?![\\w-])|(?:${dirs.map(esc).join('|') || '(?!)'})(?=/?(?:['"\`\\s),\\]]|$|\\*|\\$\\{)))`,
     );
-    return { p, dirs: new Set([p, ...dirs]), named, words: [...new Set(parts.filter((x) => !/^(tooling|\.github)$/.test(x)))] };
+    return { p, dirs: new Set([p, ...dirs]), named, words: wordsOf(p) };
   });
   const out = {};
   for (const f of all) {
