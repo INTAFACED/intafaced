@@ -1,94 +1,101 @@
 // volt-room: /portfolio/:asset/repeat-buy
-import { useState } from 'react';
-import { z } from 'zod';
+import { useState, type ReactNode } from 'react';
 import { Button, EmptyState, Select } from '@intafaced/ui/lit';
-import { FlowTemplate } from '@intafaced/ui/lit/templates';
+import { FlowTemplate, Skeleton } from '@intafaced/ui/lit/templates';
 import type { Resource } from '../../../shared/resource';
 import { useResource } from '../../../shared/resource';
-import { parseAmount } from '../../../shared/money';
 import type { ApiResult } from '../../../shared/api';
-import { useSession, useApi } from '../../session';
+import { useFailureWords } from '../../../shared/failure-words';
+import { useSession } from '../../session';
 import { createMoneyClient } from '../client';
-import { bankReads, ruleSchema } from '../contracts';
 import { t } from '../repeat-buy-copy';
-import { Lane, More, Read } from './parts';
-import { funds, cadenceField, date, iso, positiveMoney, startsField, useBankRead, usePageLimit, type ActionSpec } from '../components';
+import { t as copyText } from '../copy';
+import { funds, date, type ActionSpec } from '../components';
+import { repeatBuySetup, useAutoInvestPolicy, useAutoInvestRules } from '../repeat-buy';
 
-type Rule = z.infer<typeof ruleSchema>;
 const validAsset = (asset: string) => asset.trim().length > 0 && asset === asset.trim() && asset.length <= 16;
-const refusal = (message: string): ApiResult<null> => ({ ok: false, reason: 'error', code: 'money.review_changed', message });
-const readRefusal = (subject: string): ApiResult<null> => ({
-  ok: false,
-  reason: 'error',
-  code: 'money.review_read_unavailable',
-  message: t('readCheckFailed', { subject }),
-});
 
-/** The rules read and their pause, resume and cancel reviews; Repeat buy draws them here, Earn in earn/AutoInvestRules.tsx. */
-export interface AutoInvestRulesRead {
-  limit: number;
-  setLimit: (limit: number) => void;
-  resource: Resource<Rule[]>;
-  reload: () => void;
-  lifecycle: (rule: Rule, action: 'pause' | 'resume' | 'cancel') => ActionSpec;
+type Failed = Extract<ApiResult<unknown>, { ok: false }>;
+
+/** A failed read, in the words the shared failure line gives, with its try-again. */
+function FailureNote({ result, retry }: { result: Failed; retry?: () => void }) {
+  const w = useFailureWords(result, Boolean(retry));
+  return (
+    <div data-testid="failure" role={w.alert ? 'alert' : 'status'}>
+      <h3>{w.title}</h3>
+      <p lang={w.bodyLang}>{w.body}</p>
+      {w.action && (
+        <a className="lt-link" href={w.action.href}>
+          {w.action.label}
+        </a>
+      )}
+      {w.reference && <small>{w.reference}</small>}
+      {w.retry && retry && (
+        <Button tone="secondary" onClick={retry}>
+          {w.retry}
+        </Button>
+      )}
+    </div>
+  );
 }
 
-export function useAutoInvestRules(): AutoInvestRulesRead {
-  const api = useApi();
-  const [limit, setLimit] = usePageLimit();
-  const { resource, reload } = useBankRead('autoInvest.list', { limit });
-  function lifecycle(rule: Rule, action: 'pause' | 'resume' | 'cancel'): ActionSpec {
-    const facts: [string, string][] = [
-      [t('reference'), rule.id],
-      [t('from'), t('mainAsset', { asset: rule.assetId })],
-    ];
-    if (rule.kind === 'dca') {
-      facts.push([t('buy'), rule.buyAssetId ?? t('buyUnavailable')], [t('budget'), funds(rule.amount, rule.assetId)]);
-      facts.push([t('cadence'), rule.cadence ?? t('eventDriven')]);
-    } else facts.push([rule.kind === 'threshold_sweep' ? t('sweep') : t('roundup'), funds(rule.threshold ?? rule.amount, rule.assetId)]);
-    facts.push([t('nextRun'), date(rule.nextRunAt)]);
-    return {
-      title: t(action === 'pause' ? 'pauseTitle' : action === 'resume' ? 'resumeTitle' : 'cancelTitle'),
-      procedure: `autoInvest.${action}`,
-      facts,
-      notes: [t(action === 'pause' ? 'pauseNote' : action === 'resume' ? 'pausedNote' : 'cancelNote')],
-      input: () => ({ ruleId: rule.id }),
-      verifyOutcome:
-        action === 'cancel'
-          ? undefined
-          : (data) => {
-              const returned = data as z.infer<typeof ruleSchema>;
-              const sameQuantity = (a: string | null, b: string | null) =>
-                a === null || b === null ? a === b : parseAmount(a) === parseAmount(b);
-              return (
-                returned.kind === rule.kind &&
-                returned.assetId === rule.assetId &&
-                returned.buyAssetId === rule.buyAssetId &&
-                returned.targetPoolId === rule.targetPoolId &&
-                (returned.targetSpaceId ?? null) === (rule.targetSpaceId ?? null) &&
-                returned.cadence === rule.cadence &&
-                returned.createdAt === rule.createdAt &&
-                sameQuantity(returned.amount, rule.amount) &&
-                sameQuantity(returned.threshold, rule.threshold)
-              );
-            },
-      unit: rule.assetId,
-      preflight: async () => {
-        const latest = await api.query('bank', 'autoInvest.list', { limit }, bankReads['autoInvest.list']);
-        if (!latest.ok) return readRefusal(t('rulesSubject'));
-        const current = latest.data.find((row) => row.id === rule.id);
-        // Missing from this bounded read cannot establish cancellation or an outcome.
-        if (!current || JSON.stringify(current) !== JSON.stringify(rule)) return refusal(t('contextChanged'));
-        if (action === 'resume') {
-          const policy = await api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']);
-          if (!policy.ok) return readRefusal(t('policySubject'));
-          if (!policy.data.enabled || (rule.kind === 'dca' && !policy.data.convertWired)) return refusal(t('contextChanged'));
-        }
-        return { ok: true, data: null };
-      },
-    };
-  }
-  return { limit, setLimit, resource, reload, lifecycle };
+/** A read: the skeleton while it loads, the failure line if it failed, else what it read. */
+function Read<T>({ resource, reload, children }: { resource: Resource<T>; reload: () => void; children: (data: T) => ReactNode }) {
+  if (resource.status === 'loading') return <Skeleton shape="rows" count={3} />;
+  if (resource.status === 'failed') return <FailureNote result={resource.failure} retry={reload} />;
+  return <>{children(resource.data)}</>;
+}
+
+/** A titled part of the room with its own refresh. */
+function Lane({
+  lane,
+  title,
+  description,
+  actions,
+  children,
+}: {
+  /** Which of the room's two lanes: setting a rule up, or the rules already set. */
+  lane: 'setup' | 'rules';
+  title: ReactNode;
+  description?: string;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section data-repeat-lane={lane}>
+      <header>
+        <div>
+          <h2>{title}</h2>
+          {description && <p className="lt-hint">{description}</p>}
+        </div>
+        {actions && <div className="lt-actions">{actions}</div>}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+/** How many records a bounded read returned, and the way to ask for more. */
+function More({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
+  return (
+    <div>
+      <span>
+        {count}
+        {copyText('components.records.returned.requested.limit')}.{' '}
+        {count >= limit
+          ? limit < 200
+            ? copyText('components.more.records.may.exist')
+            : copyText('components.this.service.has.no.continuation.beyond.200')
+          : copyText('components.this.list.has.no.total.count.or')}
+      </span>
+      {count >= limit && limit < 200 && (
+        <Button tone="secondary" onClick={onMore}>
+          {copyText('components.load.up.to')}
+          {Math.min(200, limit + 50)}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: ActionSpec) => void }) {
@@ -184,42 +191,6 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
         const spendAsset = sources.some(([id]) => id === selected) ? selected : sources.length === 1 ? sources[0]![0] : '';
         const source = sources.find(([id]) => id === spendAsset);
         if (!sources.length) return <EmptyState title={t('noSource')} body={t('noSourceDetail')} />;
-        function setup(): ActionSpec {
-          return {
-            title: t('title', { asset }),
-            procedure: 'autoInvest.createDca',
-            fields: [positiveMoney(spendAsset, 'amount', t('budget')), cadenceField, startsField],
-            facts: [
-              [t('buy'), asset],
-              [t('from'), t('mainAsset', { asset: spendAsset })],
-            ],
-            notes: [t('executionNote'), t('refusalNote')],
-            submit: t('create'),
-            unit: spendAsset,
-            input: (values) => ({
-              spendAssetId: spendAsset,
-              buyAssetId: asset,
-              amount: values.amount,
-              cadence: values.cadence,
-              startsAt: iso(values.startsAt!),
-            }),
-            preflight: async (input) => {
-              if (!spendAsset || spendAsset === asset) return refusal(t('contextChanged'));
-              if (typeof input.startsAt !== 'string' || Date.parse(input.startsAt) <= Date.now()) return refusal(t('startExpired'));
-              const [policy, fresh] = await Promise.all([
-                api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']),
-                createMoneyClient(api).balances(),
-              ]);
-              if (!policy.ok) return readRefusal(t('policySubject'));
-              if (!fresh.ok) return readRefusal(t('sourceSubject'));
-              if (!policy.data.enabled || !policy.data.convertWired || !Object.hasOwn(fresh.data.balances, spendAsset))
-                return refusal(t('contextChanged'));
-              if (Date.parse(input.startsAt) <= Date.now()) return refusal(t('startExpired'));
-              // Scheduling reserves nothing. A zero balance does not prevent future funding.
-              return { ok: true, data: null };
-            },
-          };
-        }
         return (
           <div>
             <Select
@@ -230,7 +201,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
             />
             {source && <p className="lt-hint lt-mono">{t('available', { amount: funds(source[1].free, spendAsset) })}</p>}
             <p className="lt-hint">{t('unreserved')}</p>
-            <Button tone="primary" disabled={!source} onClick={() => open(setup())}>
+            <Button tone="primary" disabled={!source} onClick={() => open(repeatBuySetup(api, asset, spendAsset))}>
               {t('setup')}
             </Button>
             {source && <p className="lt-hint">{t('setupHint', { asset: spendAsset })}</p>}
@@ -242,7 +213,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
 }
 
 function PersonalRepeatBuy({ asset, open }: { asset: string; open: (spec: ActionSpec) => void }) {
-  const { resource, reload } = useBankRead('autoInvest.policy', undefined);
+  const { resource, reload } = useAutoInvestPolicy();
   return (
     <FlowTemplate
       title={t('title', { asset })}

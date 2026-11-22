@@ -1,11 +1,9 @@
 import { copy } from './copy';
-
 import { bankLabels, bankRoomHref, bankRooms } from './bank-frame/bank-rooms';
 
 /**
- * The bank's rooms, in the order the bank's room row shows them, with their labels (one list, in
- * bank-frame/bank-rooms.ts). `BankNavigation` in rooms.tsx draws them for the rooms not in Volt; a room in Volt draws
- * the same links with the kit's Tabs.
+ * The bank's rooms and labels have one home, `bank-frame/bank-rooms.ts`; this file adds the row the flow rooms draw
+ * with the kit's Tabs. `BankNavigation` in rooms.tsx draws the same links for the rooms not in Volt.
  */
 export { bankLabels, bankRoomHref, bankRooms };
 export type BankRoom = (typeof bankRooms)[number];

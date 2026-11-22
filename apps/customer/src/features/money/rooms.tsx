@@ -26,21 +26,32 @@ import {
   PersonalLoanPreviewRoom,
   RevolvingCreditPreviewRoom,
 } from './credit-previews/CreditPreviewRooms';
+
 import { BereavementRoom } from './safety/BereavementRoom';
+
 import { ScamReportRoom } from './safety/ScamReportRoom';
+
 import { LostPhoneRoom } from './lost-phone/LostPhoneRoom';
+
 import { BusinessJoinRoom, BusinessPaymentRoom, BusinessTeamRoom } from './business-team/BusinessTeamRoom';
+
 import { BusinessBillRoom, BusinessBillsRoom } from './business-bills/BusinessBillsRoom';
+
 import { BusinessPayoutsRoom, ContractorJoinRoom } from './business-payouts/BusinessPayoutsRoom';
+
 import { BusinessCardsRoom } from './business-cards/BusinessCardsRoom';
+
 import { BusinessBooksRoom } from './business-books/BusinessBooksRoom';
 import { CardOrderRoom } from './card-order/CardOrder';
 import { useMemo, useState } from 'react';
 import { Button, EmptyState, Failure, Field, Page } from '../../shared/ui';
 import { decimalSchema, displayAmount } from '../../shared/money';
 import { useSession } from '../session';
+
 import { usePreferences, savePreferences } from '../../shared/preferences';
+
 import { useResource } from '../../shared/resource';
+
 import { createMoneyClient, type MoneyOverview, type Space } from './client';
 import {
   amount,
@@ -60,42 +71,77 @@ import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
 import { EarnPoolRoom, EarnRoom } from './earn/EarnRooms';
 import { LoansRoom } from './loans/LoansRoom';
 import { MoneyActivity } from './activity';
+
 import { OwnerCards } from './Cards';
+
 import { OwnerRailRecords } from './RailRecords';
+
 import { railCopy } from './rail-copy';
+
 import { SelectedSpace } from './SelectedSpace';
+
 import { SpaceInflows } from './SpaceInflows';
+
 import { IncomeSorter } from './IncomeSorter';
+
 import { InstantSavings } from './InstantSavings';
+
 import { SharedPots } from './SharedPots';
+
 import { BillsPotActions } from './BillsPot';
+
 import { AccountHome } from './AccountHome';
+
 import { LinkedAccounts } from './LinkedAccounts';
+
 import { DirectDebits } from './DirectDebits';
+
 import { directDebitsCopy } from './direct-debits-copy';
+
 import { recoveryClaimCopy } from './recovery-claim-copy';
+
 import { MoneyCalendar } from './Calendar';
+
 import { calendarCopy } from './calendar-copy';
+
 import { Rules } from './Rules';
+
 import { rulesCopy } from './rules-copy';
+
 import { LoanDetail } from './LoanDetail';
+
 import { loanDetailCopy } from './loan-detail-copy';
+
 import { linkedAccountsCopy } from './linked-accounts-copy';
+
 import { spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
+
 import { categoryLabel } from './analytics-copy';
+
 import { splitAnalytics } from './analytics-model';
+
 import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
+
 import { LimitsRoom, limitsCopy } from './LimitsRoom';
+
 import { BankAccountRoom, OnboardingBanner, bankAccountCopy } from './BankAccountRoom';
+
 import { GoalProgress, MovementBars } from './GoalAndMovement';
 import { BusinessBank } from './BusinessBank';
+
 import { businessCopy } from './business-copy';
+
 import { RampJourneys } from './RampJourneys';
+
 import { rampDepthCopy } from './ramp-depth-copy';
+
 import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
+
 import { transferDepthCopy } from './transfer-depth-copy';
+
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
+
 import { statementCentreCopy } from './statement-centre-copy';
 
 export function BankNavigation({ current }: { current: string }) {
