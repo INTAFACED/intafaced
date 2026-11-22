@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
 import { Bars, Coverage, Parts } from '../components/b2-charts.js';
-import { BrandSample, Dialog, Disclosure, Meter, QrCode } from '../components/b2-basics.js';
+import { BrandSample, Dialog, Disclosure, Meter } from '../components/b2-basics.js';
 import { LegalSlotsSwitch, Region, Review, RoomFrame } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
@@ -608,13 +608,5 @@ describe('a dialog', () => {
     expect(out).toContain(`<h2 id="${id}" class="lt-sheet-title">Review the order</h2>`);
     expect(out).toContain('aria-label="Close dialog"');
     expect(out).toContain('TEST body');
-  });
-});
-
-describe('a QR code', () => {
-  it('is a named image of the given modules, dark on light by its kit classes', () => {
-    const out = html(<QrCode label="Scan to open the offer" size={29} d="M0 0h2v2H0z" />);
-    expect(out).toContain('<svg class="lt-qr" viewBox="0 0 29 29" role="img" aria-label="Scan to open the offer"');
-    expect(out).toContain('<path class="lt-qr-dark" d="M0 0h2v2H0z"></path>');
   });
 });

@@ -1,12 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import { QrCode } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import type { PersonalPayApi } from '../pay-api';
 import type { Offer } from '../schemas';
 import { PayFailure, PayState, PayTime } from '../volt/parts';
-import { encodeQr, qrPath } from '@intafaced/ui/lit/templates';
+import { QrCode, encodeQr } from '@intafaced/ui/lit/templates';
 import { shareCopy } from './p2p-share-copy';
 
 /** The longest life a person can type, in hours: a year, the most svc-p2p takes. The owner's own longest may be less. */
@@ -132,11 +131,13 @@ export function OfferSharing({ pay, offer, onChanged }: { pay: PersonalPayApi; o
 function MadeLink({ url, expiresAt }: { url: string; expiresAt: string }) {
   const { Copy, t } = shareCopy.useCopy();
   const [copied, setCopied] = useState(false);
-  const drawn = useMemo(() => {
+  // A link too long for any code draws no code: the link above is the way to share it.
+  const fits = useMemo(() => {
     try {
-      return qrPath(encodeQr(url, 'M'), 2);
+      encodeQr(url, 'M');
+      return true;
     } catch {
-      return null;
+      return false;
     }
   }, [url]);
   return (
@@ -163,7 +164,7 @@ function MadeLink({ url, expiresAt }: { url: string; expiresAt: string }) {
       >
         <Copy k={copied ? 'copied' : 'copyLink'} />
       </Button>
-      {drawn ? <QrCode label={t('qrLabel')} size={drawn.size} d={drawn.d} /> : null}
+      {fits ? <QrCode value={url} label={t('qrLabel')} failed={null} size="sm" /> : null}
     </div>
   );
 }
