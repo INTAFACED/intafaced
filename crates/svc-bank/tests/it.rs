@@ -4,6 +4,10 @@
 
 #[path = "activity_analytics_db.rs"]
 mod activity_analytics_db;
+#[path = "activity_calendar_db.rs"]
+mod activity_calendar_db;
+#[path = "activity_work_items_db.rs"]
+mod activity_work_items_db;
 #[path = "closure_body.rs"]
 mod closure_body;
 #[path = "credit_previews.rs"]
