@@ -104,6 +104,8 @@
   flex-direction: column;
   gap: var(--lit-gap-section);
   min-inline-size: 0;
+  /* Under the in-flight lane's order on a phone (below). */
+  order: 2;
 }
 
 .lt-region {
@@ -735,14 +737,8 @@
 
 /* ---- In-flight lane: under the body on a phone (the shell's dock sits below it), at the top on a computer ---- */
 
-.lt-body {
-  order: 2;
-}
 .lt-inflight {
   order: 3;
-}
-
-.lt-inflight {
   background: var(--lit-solid-bg-raised);
   border: 1px solid var(--lit-line);
   border-radius: var(--lit-radius-tile);
@@ -1558,13 +1554,14 @@ button.lt-tab:focus-visible {
   flex: 1 1 0;
   min-inline-size: 0;
 }
-.lt-cols-2,
-.lt-cols-3 {
+.lt-cols-2 {
   display: grid;
   gap: var(--lit-gap-item);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .lt-cols-3 {
+  display: grid;
+  gap: var(--lit-gap-item);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -1779,54 +1776,57 @@ button.lt-tab:focus-visible {
 .lt-level-head:hover {
   background: none;
 }
-.lt-level > .lt-meter {
+.lt-level > .lt-depth {
   position: absolute;
   inset: 0;
   z-index: 0;
 }
-.lt-level > :not(.lt-meter) {
+.lt-level > :not(.lt-depth) {
   position: relative;
   z-index: 1;
 }
-/* A native meter drawn as a flat bar from the end edge: depth behind a level, a share of a whole. */
-.lt-meter {
+/* A native meter drawn as a flat, rounded bar from the end edge: depth behind a level, a share of a whole. */
+.lt-depth {
   inline-size: 100%;
   block-size: 100%;
   appearance: none;
   border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
   background: none;
+  overflow: hidden;
   direction: rtl;
   pointer-events: none;
 }
-.lt-meter::-webkit-meter-bar {
+.lt-depth::-webkit-meter-bar {
   border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
   background: none;
 }
-.lt-meter::-webkit-meter-optimum-value,
-.lt-meter::-webkit-meter-suboptimum-value,
-.lt-meter::-webkit-meter-even-less-good-value {
+.lt-depth::-webkit-meter-optimum-value,
+.lt-depth::-webkit-meter-suboptimum-value,
+.lt-depth::-webkit-meter-even-less-good-value {
   background: var(--lit-solid-bg-sunken);
 }
-.lt-meter::-moz-meter-bar {
+.lt-depth::-moz-meter-bar {
   background: var(--lit-solid-bg-sunken);
 }
-.lt-meter-up::-webkit-meter-optimum-value,
-.lt-meter-up::-webkit-meter-suboptimum-value,
-.lt-meter-up::-webkit-meter-even-less-good-value {
+.lt-depth-up::-webkit-meter-optimum-value,
+.lt-depth-up::-webkit-meter-suboptimum-value,
+.lt-depth-up::-webkit-meter-even-less-good-value {
   background: color-mix(in srgb, var(--lit-up) 18%, transparent);
 }
-.lt-meter-up::-moz-meter-bar {
+.lt-depth-up::-moz-meter-bar {
   background: color-mix(in srgb, var(--lit-up) 18%, transparent);
 }
-.lt-meter-down::-webkit-meter-optimum-value,
-.lt-meter-down::-webkit-meter-suboptimum-value,
-.lt-meter-down::-webkit-meter-even-less-good-value {
+.lt-depth-down::-webkit-meter-optimum-value,
+.lt-depth-down::-webkit-meter-suboptimum-value,
+.lt-depth-down::-webkit-meter-even-less-good-value {
   background: color-mix(in srgb, var(--lit-down) 18%, transparent);
 }
-.lt-meter-down::-moz-meter-bar {
+.lt-depth-down::-moz-meter-bar {
   background: color-mix(in srgb, var(--lit-down) 18%, transparent);
 }
-.lt-meter-inline {
+.lt-depth-inline {
   block-size: 0.375rem;
   direction: ltr;
 }
@@ -2035,4 +2035,10 @@ button.lt-tab:focus-visible {
 .lt-field-key:disabled {
   color: var(--lit-text-disabled);
   cursor: not-allowed;
+}
+
+/* A dense desk select: the shorter control and the label type size. */
+.lt-select-button[data-size='sm'] {
+  min-block-size: 2rem;
+  font-size: var(--lit-type-label-size);
 }

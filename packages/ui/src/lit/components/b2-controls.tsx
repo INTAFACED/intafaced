@@ -1,17 +1,14 @@
 /**
- * Volt's overlays and dense controls: popover, menu, select, panel tabs, tooltip, dialogs and checkbox. Behaviour
- * (focus, Escape, positioning, roles) is Base UI's, as in the older kit; the look is `components.css` (`lt-pop`,
- * `lt-menu`, `lt-panel-tabs`, `lt-dialog`, `lt-check`), which reads only `--lit-*` roles. Rooms never restyle them.
+ * Volt's overlays: popover, menu and tooltip, and the marks over a drawn chart. Behaviour (focus, Escape, positioning,
+ * roles) is Base UI's, as in the older kit; the look is `components.css` (`lt-pop`, `lt-menu`, `lt-tip`), which reads
+ * only `--lit-*` roles. Rooms never restyle them. Select, tabs, the sheet, checkbox, the decimal field and the table are
+ * the templates' own (`b2-basics.tsx`, `b2-table.tsx`): one kit, one part per role.
  */
 import * as React from 'react';
 import { clsx } from 'clsx';
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { Menu as MenuPrimitive } from '@base-ui/react/menu';
-import { Select as SelectPrimitive } from '@base-ui/react/select';
-import { Tabs as TabsPrimitive } from '@base-ui/react/tabs';
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip';
-import { AlertDialog as AlertDialogPrimitive } from '@base-ui/react/alert-dialog';
-import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox';
 
 // ---- Popover -------------------------------------------------------------------------------------------------
 
@@ -144,85 +141,6 @@ export function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.P
   return <MenuPrimitive.Separator data-slot="menu-separator" className={clsx('lt-menu-rule', className)} {...props} />;
 }
 
-// ---- Select --------------------------------------------------------------------------------------------------
-
-/** Pass `items` (value to label) on the root so the closed trigger shows the label. */
-export const Select = SelectPrimitive.Root;
-
-export function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
-  return <SelectPrimitive.Value data-slot="select-value" className={clsx('lt-select-value', className)} {...props} />;
-}
-
-const Chevron = () => (
-  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-    <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-export function SelectTrigger({ className, size = 'md', children, ...props }: SelectPrimitive.Trigger.Props & { size?: 'sm' | 'md' }) {
-  return (
-    <SelectPrimitive.Trigger data-slot="select-trigger" data-size={size} className={clsx('lt-select', className)} {...props}>
-      {children}
-      <SelectPrimitive.Icon className="lt-select-icon">
-        <Chevron />
-      </SelectPrimitive.Icon>
-    </SelectPrimitive.Trigger>
-  );
-}
-
-export function SelectContent({
-  className,
-  children,
-  side = 'bottom',
-  sideOffset = 4,
-  align = 'start',
-  ...props
-}: SelectPrimitive.Popup.Props & Pick<SelectPrimitive.Positioner.Props, 'side' | 'sideOffset' | 'align'>) {
-  return (
-    <SelectPrimitive.Portal>
-      <SelectPrimitive.Positioner side={side} sideOffset={sideOffset} align={align} alignItemWithTrigger={false} className="lt-layer">
-        <SelectPrimitive.Popup data-slot="select-content" className={clsx('lt-pop lt-menu', className)} {...props}>
-          <SelectPrimitive.List>{children}</SelectPrimitive.List>
-        </SelectPrimitive.Popup>
-      </SelectPrimitive.Positioner>
-    </SelectPrimitive.Portal>
-  );
-}
-
-export function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Props) {
-  return (
-    <SelectPrimitive.Item data-slot="select-item" className={clsx('lt-menu-item', className)} {...props}>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-      <SelectPrimitive.ItemIndicator className="lt-menu-tick">
-        <Tick />
-      </SelectPrimitive.ItemIndicator>
-    </SelectPrimitive.Item>
-  );
-}
-
-// ---- Panel tabs: tabs that switch panels in place (Tabs, in b2-basics, are links between pages) ---------------
-
-export function TabSet({ className, ...props }: TabsPrimitive.Root.Props) {
-  return <TabsPrimitive.Root data-slot="tabs" className={clsx('lt-tabset', className)} {...props} />;
-}
-
-export function TabList({ className, children, ...props }: TabsPrimitive.List.Props) {
-  return (
-    <TabsPrimitive.List data-slot="tabs-list" className={clsx('lt-panel-tabs', className)} {...props}>
-      {children}
-      <TabsPrimitive.Indicator data-slot="tabs-indicator" className="lt-panel-tabs-mark" />
-    </TabsPrimitive.List>
-  );
-}
-
-export function Tab({ className, ...props }: TabsPrimitive.Tab.Props) {
-  return <TabsPrimitive.Tab data-slot="tabs-tab" className={clsx('lt-panel-tab', className)} {...props} />;
-}
-
-export function TabPanel({ className, ...props }: TabsPrimitive.Panel.Props) {
-  return <TabsPrimitive.Panel data-slot="tabs-panel" className={clsx('lt-tab-panel', className)} {...props} />;
-}
-
 // ---- Tooltip -------------------------------------------------------------------------------------------------
 
 export function TooltipProvider({ delay = 300, ...props }: TooltipPrimitive.Provider.Props) {
@@ -250,119 +168,6 @@ export function TooltipContent({
         <TooltipPrimitive.Popup data-slot="tooltip-content" className={clsx('lt-tip', className)} {...props} />
       </TooltipPrimitive.Positioner>
     </TooltipPrimitive.Portal>
-  );
-}
-
-// ---- Alert dialog: a confirmation that traps focus (review an order, cancel orders) ---------------------------
-
-export function AlertDialog(props: AlertDialogPrimitive.Root.Props) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
-}
-
-export function AlertDialogTrigger(props: AlertDialogPrimitive.Trigger.Props) {
-  return <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />;
-}
-
-export const AlertDialogClose = AlertDialogPrimitive.Close;
-
-export function AlertDialogContent({ className, children, ...props }: AlertDialogPrimitive.Popup.Props) {
-  return (
-    <AlertDialogPrimitive.Portal>
-      <AlertDialogPrimitive.Backdrop data-slot="alert-dialog-overlay" className="lt-scrim" />
-      <AlertDialogPrimitive.Popup data-slot="alert-dialog-content" className={clsx('lt-dialog', className)} {...props}>
-        {children}
-      </AlertDialogPrimitive.Popup>
-    </AlertDialogPrimitive.Portal>
-  );
-}
-
-export function AlertDialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="alert-dialog-header" className={clsx('lt-dialog-head', className)} {...props} />;
-}
-
-export function AlertDialogFooter({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="alert-dialog-footer" className={clsx('lt-dialog-foot', className)} {...props} />;
-}
-
-export function AlertDialogTitle({ className, ...props }: AlertDialogPrimitive.Title.Props) {
-  return <AlertDialogPrimitive.Title data-slot="alert-dialog-title" className={clsx('lt-dialog-title', className)} {...props} />;
-}
-
-export function AlertDialogDescription({ className, ...props }: AlertDialogPrimitive.Description.Props) {
-  return <AlertDialogPrimitive.Description data-slot="alert-dialog-description" className={clsx('lt-dialog-body', className)} {...props} />;
-}
-
-// ---- Dialog: a modal on the native <dialog>, closed by its button, Escape or a click outside -------------------
-
-export function Dialog({
-  title,
-  children,
-  onClose,
-  closeLabel,
-  closeLang,
-}: {
-  title: React.ReactNode;
-  children: React.ReactNode;
-  onClose: () => void;
-  /** The close button's name, from the room's copy ("Close"). */
-  closeLabel: string;
-  /** The close word's language, when the copy fell back to another one than the page's. */
-  closeLang?: string;
-}) {
-  const ref = React.useRef<HTMLDialogElement>(null);
-  const titleId = React.useId();
-  React.useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const dialog = ref.current;
-    dialog?.showModal?.();
-    return () => {
-      dialog?.close?.();
-      previous?.focus();
-    };
-  }, []);
-  return (
-    <dialog
-      className="lt-dialog lt-dialog-native"
-      ref={ref}
-      aria-labelledby={titleId}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <header className="lt-dialog-head lt-dialog-head-row">
-        <h2 id={titleId} className="lt-dialog-title">
-          {title}
-        </h2>
-        <button
-          type="button"
-          className="lit-button"
-          data-tone="quiet"
-          data-size="sm"
-          aria-label={closeLabel}
-          lang={closeLang}
-          onClick={onClose}
-        >
-          ×
-        </button>
-      </header>
-      {children}
-    </dialog>
-  );
-}
-
-// ---- Checkbox ------------------------------------------------------------------------------------------------
-
-export function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
-  return (
-    <CheckboxPrimitive.Root data-slot="checkbox" className={clsx('lt-check', className)} {...props}>
-      <CheckboxPrimitive.Indicator data-slot="checkbox-indicator" className="lt-check-mark">
-        <Tick />
-      </CheckboxPrimitive.Indicator>
-    </CheckboxPrimitive.Root>
   );
 }
 

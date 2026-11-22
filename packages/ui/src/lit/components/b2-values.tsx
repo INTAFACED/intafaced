@@ -1,6 +1,6 @@
 /**
  * Volt's dense value parts for desks and tables: a number in a row (amount, price, percent, change), a coin's mark,
- * an order's status word, a small tag, a whole-panel state, a plain data table and the loading line. The look is
+ * an order's status word, a small tag, a whole-panel state and the loading line. The look is
  * `components.css` (`lt-num`, `lt-coin`, `lt-status`, `lt-badge`, `lt-state`, `lt-table-scroll`), roles only.
  * Amounts and changes hide when the person hides balances (the same switch the older kit reads).
  */
@@ -242,26 +242,6 @@ export function StateBlock(props: StateBlockProps) {
       <p className="lt-state-body">{props.body}</p>
       {props.action ? <StateButton action={props.action} tone="secondary" /> : null}
       {props.code ? <p className="lt-ref">{props.code}</p> : null}
-    </div>
-  );
-}
-
-/** A plain table with a header row, in a scrolling, labelled region; rows are the room's own `<tr>`s. */
-export function DataTable({ headers, children, label }: { headers: readonly React.ReactNode[]; children: React.ReactNode; label: string }) {
-  return (
-    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={label}>
-      <table className="lt-table lt-table-dense">
-        <thead>
-          <tr>
-            {headers.map((head, index) => (
-              <th key={index} scope="col">
-                {head}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
     </div>
   );
 }

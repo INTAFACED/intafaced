@@ -7,6 +7,5 @@ export { flat, lit, litLight, solid, pro, litType, renderLitCss } from './tokens
 export * from './components/index.js';
 export * from './components/b2-controls.js';
 export * from './components/b2-values.js';
-export { AmountInput, type AmountInputProps } from './components/b2-amount.js';
 export { contrastRatio, deltaE2000, hue, luminance, parseColour, toHex } from './colour.js';
 export { formatAsOf } from '../components/freshness.js';

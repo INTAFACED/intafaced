@@ -56,9 +56,10 @@ describe('the component sheet reads only lit roles', () => {
 });
 
 describe('components', () => {
-  it('a panel tab never shrinks below its words, so longer copy stays inside it (the tab row scrolls instead)', () => {
-    expect(css).toMatch(/\.lt-panel-tabs \{[^}]*overflow-x: auto;/);
-    expect(css).toMatch(/\.lt-panel-tab \{[^}]*white-space: nowrap;[^}]*flex-shrink: 0;/);
+  it('a tab never shrinks below its words, so longer copy stays inside it (the tab row scrolls instead)', () => {
+    const templates = readFileSync(join(here, '../templates/templates.css'), 'utf8');
+    expect(templates).toMatch(/\n\.lt-tabs \{[^}]*overflow-x: auto;/);
+    expect(templates).toMatch(/\n\.lt-tab \{[^}]*flex: none;[^}]*white-space: nowrap;/);
   });
 
   it('Surface is solid on the content layer by default, and glass only on nav or sheet', () => {
