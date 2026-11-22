@@ -1,3 +1,4 @@
+// tooling-tests: alone. It takes the checkout's index.lock.
 // State isolation, including the detached market child; no stack, database or real funds started.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

@@ -1,0 +1,333 @@
+{
+  "callers": [
+    {
+      "path": "webhook.deliveries",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "webhook.list",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "webhook.register",
+      "type": "mutation",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "webhook.deliveries": {
+      "limit": 1
+    },
+    "webhook.list": {
+      "limit": 1
+    },
+    "webhook.register": {
+      "endpointId": "33333333-3333-4333-8333-333333333333",
+      "url": "x"
+    }
+  },
+  "answers": {
+    "webhook.deliveries valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries valid read": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries valid execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries valid admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries valid key": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.deliveries extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.deliveries\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list valid read": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list valid execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list valid admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list valid key": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.list extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register valid read": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register valid execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register valid admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register valid key": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.webhooks_unwired\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"endpointId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"url\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"endpointId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"url\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"endpointId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"url\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"endpointId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"url\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    },
+    "webhook.register extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"webhook.register\",\"requestId\":\"<request>\"}}}"
+    }
+  }
+}
