@@ -176,7 +176,7 @@ function ControlNotes({ id, hint, error }: { id: string; hint?: string; error?: 
   );
 }
 
-const describedBy = (id: string, own: string | undefined, hint?: string, error?: string) =>
+const describedBy = ({ id, own, hint, error }: { id: string; own?: string; hint?: string; error?: string }) =>
   [own, hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(' ') || undefined;
 
 export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & { label: string; hint?: string; error?: string };
@@ -192,7 +192,7 @@ export function Select({ label, hint, error, id, className, children, ...rest }:
         {...rest}
         id={selectId}
         aria-invalid={error ? true : rest['aria-invalid']}
-        aria-describedby={describedBy(selectId, rest['aria-describedby'], hint, error)}
+        aria-describedby={describedBy({ id: selectId, own: rest['aria-describedby'], hint, error })}
       >
         {children}
       </select>
@@ -214,7 +214,7 @@ export function TextArea({ label, hint, error, id, className, ...rest }: TextAre
         {...rest}
         id={areaId}
         aria-invalid={error ? true : rest['aria-invalid']}
-        aria-describedby={describedBy(areaId, rest['aria-describedby'], hint, error)}
+        aria-describedby={describedBy({ id: areaId, own: rest['aria-describedby'], hint, error })}
       />
       <ControlNotes id={areaId} hint={hint} error={error} />
     </div>
