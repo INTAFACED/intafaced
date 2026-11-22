@@ -16,6 +16,7 @@ import { miningPoolCopy } from './mining-pool-copy';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import type { MiningHealth } from './mining-journey';
+import { CONNECTION_UNSET, OVERVIEW_UNSET, PROBE_REFUSALS, SECTIONS } from './mining-pool-codes';
 
 /** `overview`: the owner's published pool sections. A blank section is null; a wholly blank overview refuses. */
 export type PoolOverview = ProcedureOutput<typeof MINING_OVERVIEW>;
@@ -28,23 +29,8 @@ export type IssuedMinerSecret = ProcedureOutput<typeof MINING_MINER_SECRET_ISSUE
 /** `probe`: one TCP connect from the pool's network to its own published address. Stores nothing. */
 export type PoolProbe = ProcedureOutput<typeof MINING_PROBE>;
 
-export const OVERVIEW_UNSET = 'mining.overview_unset';
-export const CONNECTION_UNSET = 'mining.connection_unset';
-const PROBE_REFUSALS: Readonly<Record<string, 'probeLimit' | 'probeLimitUnset' | 'probeTimeoutUnset' | 'probeTargetUnset'>> = {
-  'mining.probe_limit_reached': 'probeLimit',
-  'mining.probe_limit_unset': 'probeLimitUnset',
-  'mining.probe_timeout_unset': 'probeTimeoutUnset',
-  [CONNECTION_UNSET]: 'probeTargetUnset',
-};
-
 type Read<T> = { resource: Resource<T>; reload: () => void };
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-const SECTIONS = [
-  { key: 'coin', field: 'coin' },
-  { key: 'hardware', field: 'hardware' },
-  { key: 'revenueSplit', field: 'revenueSplit' },
-  { key: 'notSupported', field: 'notSupported' },
-] as const;
 
 /**
  * The pool worker name for a rig: the published pattern with `{worker}` filled in. Without a pattern there is none, and a
@@ -58,11 +44,7 @@ export function workerNameFor(pattern: string | null, rig: string): string | nul
 
 /** Overview tab: what the pool is, how to connect, and whether its address answers. */
 export function MiningPool({ probe }: { probe: Probe }) {
-  const api = useApi();
-  const overview = useResource((signal) => api.call(MINING_OVERVIEW, undefined, { signal }), 'mining-overview');
-  const connection = useResource((signal) => api.call(MINING_CONNECTION, undefined, { signal }), 'mining-connection');
-  const secret = useResource((signal) => api.call(MINING_MINER_SECRET_STATUS, undefined, { signal }), 'mining-miner-secret');
-  const issue = () => api.call(MINING_MINER_SECRET_ISSUE, undefined, { accept: (issued) => issued.secret.length > 0 });
+  const { overview, connection, secret, issue } = useMiningPool();
   return (
     <div className="more-columns">
       <div>
@@ -75,6 +57,16 @@ export function MiningPool({ probe }: { probe: Probe }) {
       </div>
     </div>
   );
+}
+
+/** The overview tab's reads: the published overview, the connection, the miner secret's status, and issuing a new one. */
+export function useMiningPool() {
+  const api = useApi();
+  const overview = useResource((signal) => api.call(MINING_OVERVIEW, undefined, { signal }), 'mining-overview');
+  const connection = useResource((signal) => api.call(MINING_CONNECTION, undefined, { signal }), 'mining-connection');
+  const secret = useResource((signal) => api.call(MINING_MINER_SECRET_STATUS, undefined, { signal }), 'mining-miner-secret');
+  const issue = () => api.call(MINING_MINER_SECRET_ISSUE, undefined, { accept: (issued) => issued.secret.length > 0 });
+  return { overview, connection, secret, issue };
 }
 
 export function PoolOverviewView({ read }: { read: Read<PoolOverview> }) {
@@ -218,6 +210,25 @@ export function MinerSecretView({
   );
 }
 
+/** Copying one value to the clipboard: done or failed for two seconds, then idle again. Nothing to copy does nothing. */
+export function useCopyValue(value: string | null) {
+  const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  async function copy() {
+    if (value === null) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setState('done');
+    } catch {
+      setState('failed');
+    }
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setState('idle'), 2000);
+  }
+  return { state, copy };
+}
+
 function CopyLine({
   id,
   label,
@@ -233,20 +244,7 @@ function CopyLine({
   empty?: string;
 }) {
   const { t } = miningPoolCopy.useCopy();
-  const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
-  const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  async function copy() {
-    if (value === null) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setState('done');
-    } catch {
-      setState('failed');
-    }
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setState('idle'), 2000);
-  }
+  const { state, copy } = useCopyValue(value);
   return (
     <div>
       <dt>{label}</dt>
@@ -266,7 +264,7 @@ function CopyLine({
 }
 
 /** `last`: the latest answered test, kept on screen while a later press is running or refused. */
-type ProbeState =
+export type ProbeState =
   | { status: 'idle' }
   | { status: 'busy'; last: PoolProbe | null }
   | { status: 'done'; probe: PoolProbe }
