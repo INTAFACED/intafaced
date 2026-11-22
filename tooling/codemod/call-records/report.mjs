@@ -29,6 +29,7 @@ export function reasonOf(why) {
     [/no accepted input found|no refused input/, 'no sample inputs'],
     [/can't be exported|cannot be exported/, "record can't be exported as written"],
     [/has no procedure/, 'procedure the codemod cannot find'],
+    [/two procedures under one path/, 'two procedures under one path (a switch router)'],
     [/clashes with another/, 'helper name clash (a rerun places it)'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],
