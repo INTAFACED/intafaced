@@ -63,11 +63,6 @@ export interface RegionProps {
   live?: boolean;
   /** How many skeleton items while loading, when the region's real count is known (flow has two buttons). */
   ghostCount?: number;
-  /**
-   * A hero's hint lines (a split, a change, a note) the region keeps room for under its label row and figure, loading
-   * and loaded alike, so nothing below it moves when its data arrives. Unset, the region takes its content's height.
-   */
-  reserve?: number;
   children?: React.ReactNode;
 }
 
@@ -77,17 +72,7 @@ const WHOLE_ROOM = new Set<RoomState['kind']>(['empty', 'refused', 'money-status
 export const WHOLE_ROOM_STATES: ReadonlySet<RoomState['kind']> = WHOLE_ROOM;
 
 /** One region of a template. Rooms never render these directly; templates do. */
-export function Region({
-  name,
-  data = false,
-  primary = false,
-  ghost = 'rows',
-  ghostCount,
-  label,
-  live = false,
-  reserve,
-  children,
-}: RegionProps) {
+export function Region({ name, data = false, primary = false, ghost = 'rows', ghostCount, label, live = false, children }: RegionProps) {
   const { state, gateArea } = React.useContext(RoomContext);
   if (live && state.kind === 'gated' && !gateArea) return null;
   // A live region with nothing in it (a reading index the room didn't pass) draws nothing behind a gate, never an
@@ -113,8 +98,6 @@ export function Region({
     );
   }
   if (data && WHOLE_ROOM.has(state.kind)) return null;
-  const reserveStyle: (React.CSSProperties & { '--lt-reserve'?: number }) | undefined =
-    reserve === undefined ? undefined : { '--lt-reserve': reserve };
   let body: React.ReactNode = children;
   let dimmed = false;
   if (held !== undefined) body = <p className="lt-held">{held}</p>;
@@ -130,8 +113,6 @@ export function Region({
       data-region={name}
       data-held={held !== undefined || undefined}
       data-dimmed={dimmed || undefined}
-      data-reserve={reserve === undefined ? undefined : ''}
-      style={reserveStyle}
       aria-label={label}
     >
       {body}

@@ -16,8 +16,6 @@ const isPro = (p: RoomProps) => p.mode === 'pro';
 export interface OverviewProps extends RoomProps {
   /** The balance on a money surface, with its breakdown grouped by protection. */
   hero: Slot;
-  /** The hint lines under the hero's figure it keeps room for while loading and once loaded (Region's `reserve`). */
-  heroReserve?: number;
   /** At most four action keys, on one line. */
   actions?: Slot;
   /** Tasks the person must act on. */
@@ -40,7 +38,7 @@ export function OverviewTemplate(p: OverviewProps) {
       </Region>
       <div className="lt-grid lt-grid-main-side">
         <div className="lt-col-main">
-          <Region name="hero" data primary ghost="figure" label="Balance" reserve={p.heroReserve}>
+          <Region name="hero" data primary ghost="figure" label="Balance">
             {p.hero}
           </Region>
           <Region name="actions" data label="Actions" ghost="keys">

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy } from 'lucide-react';
-import { Amount, Button, Skeleton, StateBlock } from './ui-deps';
-import { coinHref, fmtAmount, navigate, refusalCopy, useActivity, type ActivityItem } from './deps';
+import { Amount, Button, coinHref, fmtAmount, navigate, refusalCopy, Skeleton, StateBlock, useActivity, type ActivityItem } from './deps';
 import { moneyCopy } from './copy';
 import { ActivityNote } from './ActivityNote';
 import { stamp } from './time';

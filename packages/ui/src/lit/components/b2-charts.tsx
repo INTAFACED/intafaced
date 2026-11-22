@@ -350,39 +350,3 @@ export function Parts({
     </figure>
   );
 }
-
-export interface Share {
-  key: string;
-  label: string;
-  /** The part's share of the whole as a ratio string ("0.5433"), never a number. */
-  share: DecimalString;
-  /** The share in words as the room writes it ("54.33%", "<0.01%"). */
-  text: string;
-}
-
-/**
- * Shares of a whole the room already worked out (an allocation by coin, kind or place): the same bar and list as Parts,
- * with each share's own words instead of an amount. Up to six shares take their own colour; the room groups the rest.
- */
-export function Shares({ label, shares }: { label: string; shares: readonly Share[] }) {
-  return (
-    <figure className="lt-parts" aria-label={label}>
-      <div className="lt-parts-bar" aria-hidden="true">
-        {shares.map((s, i) => (
-          <span key={s.key} data-part={i} style={{ flexGrow: plot(s.share) }} />
-        ))}
-      </div>
-      <ul className="lt-parts-list">
-        {shares.map((s, i) => (
-          <li key={s.key} data-group={s.key}>
-            <span className="lt-parts-swatch" data-part={i} aria-hidden="true" />
-            <span>{s.label}</span>
-            <span className="lt-parts-value" dir="ltr" data-ltr="">
-              {s.text}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </figure>
-  );
-}

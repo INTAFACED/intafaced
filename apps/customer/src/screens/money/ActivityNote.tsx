@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { Button } from './ui-deps';
-import { refusalCopy, type ActivityItem } from './deps';
+import { Button, refusalCopy, type ActivityItem } from './deps';
 import { moneyCopy } from './copy';
 import { NOTE_MAX, noteProblem, type NoteProblem } from './note-model';
 import { useSession } from '../../features/session/session';

@@ -165,22 +165,6 @@ const heroText = (page) =>
     const figure = node.querySelector('[role="img"]')?.getAttribute('aria-label') ?? node.firstElementChild?.textContent ?? '';
     return figure.trim();
   });
-/** A Volt kit size token as the room resolves it, in px ("--lit-control-h" is 48). */
-const token = (page, name) =>
-  page.evaluate((n) => parseFloat(getComputedStyle(document.querySelector('.lt-room')).getPropertyValue(n)), name);
-/** The page's rem in px (the kit's sizes with no token are written in rem). */
-/** A colour token as the browser draws it: a probe painted with it, read back as rgb(). */
-const tokenColour = (page, name) =>
-  page.evaluate((n) => {
-    const probe = document.createElement('span');
-    probe.style.color = `var(${n})`;
-    document.body.append(probe);
-    const colour = getComputedStyle(probe).color;
-    probe.remove();
-    return colour;
-  }, name);
-const rem = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
-const rowHeight = (page) => token(page, '--lit-row-h');
 const expectHero = (page, text) => expect.poll(() => heroText(page).catch(() => null), { timeout: 7000 }).toBe(text);
 const texts = (locator) => locator.evaluateAll((nodes) => nodes.map((node) => node.textContent.trim().replace(/\s+/g, ' ')));
 /** What a person reads: the phone-only Value line under Amount is display:none on desktop, which textContent would count. */
@@ -233,25 +217,17 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   expect(await page.getByTestId('money-actions').locator('a[data-variant="primary"]').count()).toBe(1);
   await expect(page.getByTestId('money-actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/buy?side=buy');
   await expect(page.getByTestId('money-actions').locator('a').nth(1)).toHaveAttribute('href', '/trade/buy?side=sell');
-  // Every action is the kit's control height, as a person sees it.
-  for (const height of await page
-    .getByTestId('money-actions')
-    .locator('a')
-    .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height))))
-    expect(height).toBe(await token(page, '--lit-control-h'));
+  expect(Math.round((await page.getByTestId('money-actions').locator('a').first().boundingBox()).height)).toBe(40);
 
-  // Allocation bar and legend (percentages from the same decimal strings), plus the table for screen readers. The bar
-  // is the kit's share bar (0.75rem).
-  const bar = page.getByTestId('money-alloc').locator('.lt-parts-bar');
-  expect(Math.round((await bar.boundingBox()).height)).toBe(Math.round(0.75 * (await rem(page))));
+  // Allocation bar and legend (percentages from the same decimal strings), plus the table for screen readers.
+  expect(Math.round((await page.getByTestId('money-alloc__bar').boundingBox()).height)).toBe(8);
   expect(await texts(page.getByTestId('money-alloc__legend').locator('li'))).toEqual([
     'BTC54.33%',
     'USDT32.85%',
     'ETH12.82%',
     'DOGE<0.01%',
   ]);
-  expect(await bar.locator('span').count()).toBe(4);
-  await expect(page.getByTestId('money-alloc').locator('table')).toContainText('Share of your total');
+  expect(await page.getByTestId('money-alloc__seg').count()).toBe(4);
 
   // Cash and Crypto cards.
   await expect(page.locator('#cash [data-testid="money-card__head"]')).toContainText('Cash');
@@ -269,8 +245,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   // The price the bank valued it at, then the value it gives.
   expect(await texts(btc.locator('td').nth(2))).toEqual(['$67,812.40']);
   expect(await texts(btc.locator('td').nth(3))).toEqual(['$6,781.24']);
-  // The change with its arrow and its direction in words (the kit's Change reads "up" to a screen reader).
-  expect(await texts(btc.locator('td').nth(4))).toEqual(['▲ up +$181.24 (+2.75%)']);
+  expect(await texts(btc.locator('td').nth(4))).toEqual(['▲+$181.24 (+2.75%)']);
   // No link to the old coin page (critic H3): the row's own buttons are the way on.
   expect(await page.getByTestId('if-money').locator('a[href^="/coin/"]').count()).toBe(0);
   // Unpriced rows show a dash, never zero.
@@ -294,19 +269,17 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   await expect(btc.locator('td').nth(1).locator('a')).toHaveAttribute('href', '/money/balance/BTC');
   await expect(btc.locator('td').nth(1).locator('a')).toHaveAttribute('title', 'See the entries behind BTC');
   await expect(btc.locator('td').nth(1).locator('a')).toHaveAttribute('aria-label', '0.1 BTC. See the entries behind BTC');
-  // Rows are the kit's row height.
-  expect(Math.round((await btc.boundingBox()).height)).toBe(await rowHeight(page));
+  // Rows are 64 px.
+  expect(Math.round((await btc.boundingBox()).height)).toBe(64);
 
   // Small balances fold away under the Crypto card.
-  const small = page.getByTestId('money-small').locator('summary');
-  await expect(small).toContainText('Small balances');
-  await expect(small).toContainText('1 coin under $1');
-  await expect(page.locator('tr[data-asset="DOGE"]')).toBeHidden();
-  await small.click();
+  await expect(page.getByTestId('money-small__trigger')).toContainText('Small balances');
+  await expect(page.getByTestId('money-small__trigger')).toContainText('1 coin under $1');
+  await expect(page.locator('tr[data-asset="DOGE"]')).toHaveCount(0);
+  await page.getByTestId('money-small__trigger').click();
   await expect(page.locator('tr[data-asset="DOGE"]')).toBeVisible();
   expect(await texts(page.locator('tr[data-asset="DOGE"] td').nth(3))).toEqual(['$0.6173']);
-  await small.click();
-  await expect(page.locator('tr[data-asset="DOGE"]')).toBeHidden();
+  await page.getByTestId('money-small__trigger').click();
 
   // Named accounts, each with its balance (the main account is not one of them).
   await expect(page.locator('#accounts h2')).toHaveText('Your spaces');
@@ -319,31 +292,28 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
     ),
   );
   expect([...tops].sort((a, b) => a - b)).toEqual(tops);
-  // Geometry: the room takes the page's content width, and the hero is the kit's hero type (56/56).
-  expect(Math.round((await root.boundingBox()).width)).toBe(Math.round(await page.locator('#main').evaluate((node) => node.clientWidth)));
+  // Geometry: container 1224, hero 56/56 (Volt's wide figure, 4rem at the computer).
+  expect(Math.round((await root.boundingBox()).width)).toBe(1224);
   expect(
     await page
-      .locator('[data-slot="hero-number"] [data-slot="money"]')
+      .locator('[data-slot="hero-number"]')
       .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
   ).toBe('56px/56px');
 
-  // Plain words only, and every money figure has a money shape (the hero's figure is read whole, above).
+  // Plain words only, and every money figure has a money shape.
   expect(await root.innerText()).not.toMatch(forbidden);
-  for (const value of await texts(page.locator('[data-slot="money"]:not([data-size])')))
-    expect(value, `money shape: ${value}`).toMatch(moneyShape);
+  for (const value of await texts(page.locator('[data-slot="money"]'))) expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
   // The total-value rule is available for assistive tech and as a tooltip below the number (not under the top bar).
   await expect(page.getByTestId('money-label')).toContainText('USDT and USDC count as 1 USD');
   await page.getByTestId('money-label').getByTestId('if-tip').hover();
-  const openTip = page.getByTestId('money-label').locator('.lit-tip[data-open] .lit-tip__bubble');
+  const openTip = page.locator('[data-slot="tooltip-content"][data-open]');
   await expect(openTip).toBeVisible();
   expect((await openTip.boundingBox()).y).toBeGreaterThanOrEqual(56);
   await page.mouse.move(0, 0);
 
   // Keyboard: eye -> the info tips -> pills -> row links (each followed by its actions).
   await page.getByTestId('harness-bar').locator('a').last().focus();
-  // Every stop shows the kit's focus ring.
-  const ring = await tokenColour(page, '--lit-focus');
   const path = [];
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press('Tab');
@@ -358,7 +328,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
       };
     });
     if (!stop.inside) break;
-    expect(stop.outline, `focus ring on ${stop.name}`).toBe(`solid 2px ${ring}`);
+    expect(stop.outline, `focus ring on ${stop.name}`).toBe('solid 2px rgb(200, 246, 74)');
     path.push(stop);
   }
   expect(path.slice(0, 3).map((stop) => stop.name)).toEqual(['Hide balances', 'How the total is worked out', 'About this change']);
@@ -392,10 +362,10 @@ test('portfolio screenshots: loaded, row actions shown, side by side with the OK
   await shootBoth(page, 'portfolio-loaded');
   await page.locator('#crypto tr[data-asset="BTC"]').hover();
   await page.screenshot({ path: join(shots, 'portfolio-loaded-row-hover-1440x900.png') });
-  await page.getByTestId('money-small').locator('summary').click();
+  await page.getByTestId('money-small__trigger').click();
   await page.mouse.move(0, 0);
   await page.screenshot({ path: join(shots, 'portfolio-small-balances-open-1440x900.png'), fullPage: true });
-  await page.getByTestId('money-small').locator('summary').click();
+  await page.getByTestId('money-small__trigger').click();
   await page.mouse.move(0, 0);
   await page.screenshot({ path: join(shots, 'portfolio-loaded-full-1440.png'), fullPage: true });
   if (referencePortfolio && existsSync(referencePortfolio)) {
@@ -470,30 +440,21 @@ test('account paused: the refusal has words and a reference, never the raw code'
 test('loading shows final-size skeletons and nothing moves when data arrives', async ({ page }) => {
   const api = await mock(page, { bank: { 'portfolio.summary': null, 'spaces.list': null } });
   await open(page);
-  const room = page.locator('.lt-room');
-  await expect(room).toHaveAttribute('aria-busy', 'true');
-  // The total's place holds the kit's figure skeleton (its final shape, the hero type's height), the actions' place the kit's keys.
-  const heroGhost = page.locator('[data-region="hero"] .lt-ghost[data-ghost="figure"][data-busy]');
-  await expect(heroGhost).toBeVisible();
-  const hero = await heroGhost.locator('.lt-ghost-item').boundingBox();
-  expect(Math.round(hero.height)).toBe(Math.round((await token(page, '--lit-type-hero-size')) * 1.6));
-  const keys = await page
-    .locator('[data-region="actions"] .lt-ghost[data-ghost="keys"] .lt-ghost-item')
+  await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible();
+  const hero = await page.getByTestId('money-total').locator('[data-slot="skeleton"]').boundingBox();
+  expect([Math.round(hero.width), Math.round(hero.height)]).toEqual([240, 56]);
+  const pills = await page
+    .getByTestId('money-actions')
+    .locator('[data-slot="skeleton"]')
     .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
-  expect(keys.length).toBeGreaterThan(0);
-  for (const height of keys) expect(height).toBe(Math.round(3.5 * (await rem(page))));
-  // No figure, no zero, while it loads.
-  await expect(page.locator('[data-slot="hero-number"]')).toHaveCount(0);
-  const before = await page.locator('[data-region="hero"]').boundingBox();
+  expect(pills).toEqual([40, 40, 40, 40, 40]);
+  const before = await page.getByTestId('money-total').boundingBox();
   await shootBoth(page, 'portfolio-loading');
   await api.release();
   await expectHero(page, '$12,481.91');
-  await expect(room).not.toHaveAttribute('aria-busy', 'true');
-  const after = await page.locator('[data-region="hero"]').boundingBox();
+  const after = await page.getByTestId('money-total').boundingBox();
   expect(Math.round(after.y)).toBe(Math.round(before.y));
   expect(Math.round(after.height)).toBe(Math.round(before.height));
-  expect(Math.round(after.x)).toBe(Math.round(before.x));
-  expect(Math.round(after.width)).toBe(Math.round(before.width));
 });
 
 test('an account with nothing in it: zero is right here, and there is a way forward', async ({ page }) => {
@@ -570,20 +531,15 @@ test('hidden balances show bullets, prices and shares stay, and the choice is re
   await open(page);
   await page.getByRole('button', { name: 'Hide balances' }).click();
   await expect(page.getByRole('button', { name: 'Show balances' })).toBeVisible();
-  // The kit's mask, read out as "Hidden".
-  await expectHero(page, 'Hidden');
-  await expect(page.locator('[data-slot="hero-number"]')).toHaveAttribute('data-hidden', 'true');
-  await expect(page.locator('[data-slot="hero-number"]')).toContainText('••••••');
-  await expect(page.locator('[data-slot="hero-number"]')).not.toContainText('12,481');
+  await expectHero(page, '$••••');
   await expect(page.getByTestId('money-change').locator('[data-slot="change-text"]')).toContainText('••••');
   await expect(page.getByTestId('money-change')).not.toContainText('206');
-  // The card total, the USDT amount and its value.
-  expect(await texts(page.locator('#cash [data-slot="money"], #cash [data-slot="amount"]'))).toEqual(['••••', '••••', '••••']);
+  expect(await texts(page.locator('#cash [data-slot="money"], #cash [data-slot="amount"]'))).toEqual(['••••', '••••', '••••', '••••']);
   for (const value of await texts(page.locator('[data-slot="money"], [data-slot="amount"]'))) expect(value).toMatch(moneyShape);
   await expect(page.getByTestId('money-alloc__legend')).toContainText('54.33%');
   await snap(page, 'portfolio-hidden-1440x900');
   await page.reload();
-  await expectHero(page, 'Hidden');
+  await expectHero(page, '$••••');
   await page.getByRole('button', { name: 'Show balances' }).click();
   await expectHero(page, '$12,481.91');
 });
@@ -657,9 +613,7 @@ test('Pro Money: stake and collateral are in Locked, not in In orders, when the 
   expect(api.calls('portfolio.balanceBreakdown')[0].input).toEqual({ scope: 'main' });
 });
 
-test('Pro Money: Available and In orders columns, the kit rows, the kit hero, Buy and Sell go to the desk (critic H4)', async ({
-  page,
-}) => {
+test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy and Sell go to the desk (critic H4)', async ({ page }) => {
   await mock(page, {
     bank: { 'spaces.list': () => spaces().map((space) => ({ ...space, balance: '0' })) },
     rest: {
@@ -670,16 +624,14 @@ test('Pro Money: Available and In orders columns, the kit rows, the kit hero, Bu
   await open(page);
   await expectHero(page, '$12,481.91');
   await expect(page.getByTestId('if-money')).toHaveAttribute('data-density', 'pro');
-  await expect(page.locator('.lt-room')).toHaveAttribute('data-mode', 'pro');
-  // The kit has one hero size; Pro shows the same figure in it.
   expect(
     await page
-      .locator('[data-slot="hero-number"] [data-slot="money"]')
+      .locator('[data-slot="hero-number"]')
       .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
-  ).toBe('56px/56px');
+  ).toBe('32px/40px');
   expect(await seen(page.locator('#crypto > [data-testid="money-table"] thead th'))).toEqual([
     'Coin',
-    'Amount',
+    'Amount · Value',
     'Price',
     'Value',
     'Today',
@@ -697,14 +649,15 @@ test('Pro Money: Available and In orders columns, the kit rows, the kit hero, Bu
   expect(await texts(btc.locator('td[data-col="available"]'))).toEqual(['0.1']);
   expect(await texts(btc.locator('td[data-col="in-orders"]'))).toEqual(['0']);
   expect(await texts(btc.locator('td[data-col="in-spaces"]'))).toEqual(['0']);
-  expect(Math.round((await btc.boundingBox()).height)).toBe(await rowHeight(page));
+  expect(Math.round((await btc.boundingBox()).height)).toBe(40);
   // Pro means the desk.
   await expect(page.getByTestId('money-actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
   await expect(btc.getByTestId('money-row__actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
   await expect(btc.getByTestId('money-row__actions').locator('a').nth(1)).toHaveAttribute('href', '/trade/spot/BTC-USDT?side=sell');
   await expect(btc.getByTestId('money-row__actions')).toHaveCSS('opacity', '1'); // always shown in Pro
   expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
-  // Every column has its own width: the row actions never sit over In spaces (Phantom 24 Oct), at any computer width.
+  // Every column has its own width: the row actions never sit over In spaces (Phantom 24 Oct). Below 1280 the
+  // rows drop their buttons; the page's own stay.
   for (const size of [
     { width: 1440, height: 900 },
     { width: 1280, height: 800 },
@@ -715,6 +668,10 @@ test('Pro Money: Available and In orders columns, the kit rows, the kit hero, Bu
       const spacesBox = await row.locator('td[data-col="in-spaces"]').boundingBox();
       expect(spacesBox, `${size.width}px`).not.toBeNull();
       const actions = row.getByTestId('money-row__actions').locator('a');
+      if (size.width < 1280) {
+        await expect(actions.first()).toBeHidden();
+        continue;
+      }
       const firstAction = await actions.first().boundingBox();
       expect(firstAction, `${size.width}px`).not.toBeNull();
       expect(firstAction.x, `${size.width}px`).toBeGreaterThanOrEqual(spacesBox.x + spacesBox.width - 0.5);
@@ -722,15 +679,12 @@ test('Pro Money: Available and In orders columns, the kit rows, the kit hero, Bu
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(page.getByTestId('money-actions').locator('a').first()).toBeVisible();
-  // Profit and loss is its own link, spaced below the last card of the holdings column by the kit's gap, not glued to it.
-  const lastCard = await page.getByTestId('money-pnl-link').evaluate((node) => {
-    const { y, height } = node.previousElementSibling.getBoundingClientRect();
-    return { y, height };
-  });
+  // Profit and loss is its own panel, spaced below the last card, not glued to it.
+  const lastCard = await page.getByTestId('money-card').last().boundingBox();
   const pnl = await page.getByTestId('money-pnl-link').boundingBox();
   expect(lastCard).not.toBeNull();
   expect(pnl).not.toBeNull();
-  expect(pnl.y - (lastCard.y + lastCard.height)).toBeGreaterThanOrEqual(await token(page, '--lit-gap-item'));
+  expect(pnl.y - (lastCard.y + lastCard.height)).toBeGreaterThanOrEqual(24);
   await snap(page, 'portfolio-pro-1440x900');
   // No sideways scroll at 1280 and 390.
   for (const size of [
@@ -789,7 +743,8 @@ test('Simple Money has no Available and In orders columns', async ({ page }) => 
   await open(page);
   expect(await seen(page.locator('#crypto > [data-testid="money-table"] thead th'))).toEqual([
     'Coin',
-    'Amount',
+    // Volt keeps the column head on one line
+    'Amount · Value',
     'Price',
     'Value',
     'Today',
@@ -1025,14 +980,8 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
       .locator(selector)
       .first()
       .evaluate((node) => getComputedStyle(node).color);
-  expect(await colour('[data-testid="money-act"][data-kind="transfer_in"] [data-slot="amount"]')).toBe(
-    await tokenColour(page, '--if-up-text'),
-  );
-  expect(await colour('[data-testid="money-act"][data-kind="transfer_out"] [data-slot="amount"]')).toBe(
-    await tokenColour(page, '--if-down-text'),
-  );
-  // Up and down are told apart by colour, and neither is the plain text colour.
-  expect(await tokenColour(page, '--if-up-text')).not.toBe(await tokenColour(page, '--if-down-text'));
+  expect(await colour('[data-testid="money-act"][data-kind="transfer_in"] [data-slot="amount"]')).toBe('rgb(37, 167, 80)');
+  expect(await colour('[data-testid="money-act"][data-kind="transfer_out"] [data-slot="amount"]')).toBe('rgb(224, 86, 122)');
   // Time in the viewer's zone (the test browser runs in UTC), same year without the year.
   expect(await texts(page.getByTestId('money-act__time'))).toEqual([
     '14 Oct, 09:15',

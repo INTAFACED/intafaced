@@ -1,6 +1,5 @@
 import { ArrowLeft, Check } from 'lucide-react';
-import { Amount, Button, Skeleton, StateBlock } from './ui-deps';
-import { fmtAmount, navigate, refusalCopy } from './deps';
+import { Amount, Button, fmtAmount, navigate, refusalCopy, Skeleton, StateBlock } from './deps';
 import { moneyCopy } from './copy';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';

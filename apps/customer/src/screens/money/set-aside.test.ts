@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { lockSplits } from './portfolio-source';
-import { setAsideLines, setAsideRef, setAsideSum, setAsideWhat, shortId } from './set-aside';
+import { setAsideLines, setAsideSum, setAsideWhat, shortId } from './set-aside';
+import { setAsideRef } from './SetAside';
 
 /** W-balances-01 (J-wallet-01 #2): each lock on a coin, named as the bank names it, and the sum back to the balance. */
 

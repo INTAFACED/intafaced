@@ -5,7 +5,7 @@ import '../trade/desk/desk.css';
 import { deskCopy } from '../trade/desk/copy';
 import { useClosedOrders, useDeskMarkets, useFills, useOpenOrders, useRefreshPrivate } from '../trade/desk/data';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from '../trade/desk/OrderTables';
-import { StateBlock } from './ui-deps';
+import { StateBlock } from './deps';
 import { useResource } from '../../shared/resource';
 import type { Order } from '../../features/trade/trade-api';
 import { FILLS_PAGE, symbolHasAsset, tradesEmpty } from './activity-view';

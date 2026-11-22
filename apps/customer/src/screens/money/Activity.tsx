@@ -40,13 +40,19 @@ import {
 } from './activity-view';
 import { OrdersPanel, TradesPanel } from './TradeTabs';
 import { moneyCopy } from './copy';
-import { Amount, Button, Skeleton, StateBlock, Tabs, TabsList, TabsTab } from './ui-deps';
 import {
+  Amount,
+  Button,
   fmtAmount,
   isHiddenPath,
   navigate,
   quotePlaces,
   refusalCopy,
+  Skeleton,
+  StateBlock,
+  Tabs,
+  TabsList,
+  TabsTab,
   useActivity,
   type ActivityFeed,
   type ActivityKind,

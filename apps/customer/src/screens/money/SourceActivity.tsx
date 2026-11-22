@@ -12,8 +12,7 @@ import { venueConvertApi } from '../../features/trade/venue-convert-api';
 import { WalletBar, useAsOfText, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
-import { Amount, Button, StateBlock } from './ui-deps';
-import { coinHref, fmtAmount, useActivity } from './deps';
+import { Amount, Button, coinHref, fmtAmount, StateBlock, useActivity } from './deps';
 import { stamp } from './time';
 import type { ActivityFilters } from './activity-filter';
 import {
