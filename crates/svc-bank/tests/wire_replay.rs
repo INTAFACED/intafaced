@@ -231,6 +231,15 @@ fn mask(body: &str) -> String {
         }
         out = format!("{}<stack>{}", &out[..at + key.len()], &after[end..]);
     }
+    let reference = "(ref ";
+    if let Some(at) = out.find(reference) {
+        let start = at + reference.len();
+        if let Some(len) = out[start..].find(')')
+            && len == 36
+        {
+            out = format!("{}<ref>{}", &out[..start], &out[start + len..]);
+        }
+    }
     out
 }
 

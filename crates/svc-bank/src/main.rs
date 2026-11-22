@@ -117,10 +117,18 @@ fn partner_wiring(env: &BankEnv) -> Result<Wiring, String> {
 
 /// The recovery jobs whose work is ported, in `recovery::JOBS`' order. Each comes with its slice.
 fn recovery_jobs<'a>(
-    _door: &'a BankDoor,
+    door: &'a BankDoor,
     _env: &'a BankEnv,
 ) -> Vec<(&'static str, recovery::Job<'a>)> {
-    Vec::new()
+    let mut out: Vec<(&'static str, recovery::Job<'a>)> = Vec::new();
+    // Slice `partner-account`: cash-outs left before their hold or the partner's acceptance, driven on.
+    out.push((
+        "bank.recovery.redrive_cash_outs",
+        Box::new(move |batch| {
+            svc_bank::partner_account::cash_out::recovery(&door.partner_account(), batch)
+        }),
+    ));
+    out
 }
 
 /// The recovery timer's log lines, as `index.ts` writes them.
