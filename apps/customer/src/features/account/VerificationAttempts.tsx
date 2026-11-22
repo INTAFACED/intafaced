@@ -52,7 +52,7 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
         <Copy k="title" />
       </h3>
       {!limit ? (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="unset" />
         </p>
       ) : locked ? (
@@ -60,12 +60,12 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
           <p data-testid="verification__attempts-locked" data-locked-until={lockedUntil}>
             <Copy k="locked" params={{ seconds: String(seconds) }} />
           </p>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="lockedHelp" />
           </p>
         </>
       ) : (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy
             k="standing"
             params={{

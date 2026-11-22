@@ -19,7 +19,7 @@ function SignIn() {
   const { Copy } = copy.useCopy();
   const here = safeReturnTo(location.pathname + location.search);
   return (
-    <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(here)}`}>
+    <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(here)}`}>
       <Copy k="publicSignIn" />
     </a>
   );

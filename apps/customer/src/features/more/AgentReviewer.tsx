@@ -33,7 +33,7 @@ export function ReviewerPanel({ agent }: { agent: OwnAgent }) {
   return (
     <>
       <Panel title={t('title')} role="region" aria-label={t('title')}>
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
         <p>{t('valueAlwaysAsks')}</p>
         <Read resource={setting.resource} retry={setting.reload}>
           {(stored) => <ReviewerSwitch key={`${stored.on}:${stored.engine}:${stored.updatedAt}`} agent={agent} stored={stored} />}
@@ -102,7 +102,7 @@ function ReviewerSwitch({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRe
 function Decisions({ rows }: { rows: OwnAgentReviewRow[] }) {
   const { t } = agentReviewerCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
-  if (!rows.length) return <p className="muted">{t('decisionsEmpty')}</p>;
+  if (!rows.length) return <p className="lt-muted">{t('decisionsEmpty')}</p>;
   return (
     <DataTable label={t('decisionsTitle')} headers={[t('colWhen'), t('colTool'), t('colDecision'), t('colReason'), t('colInput')]}>
       {rows.map((row) => (
@@ -150,7 +150,7 @@ function ReviewerCheck({ agent }: { agent: OwnAgent }) {
   }
   return (
     <Panel title={t('checkTitle')} role="region" aria-label={t('checkTitle')}>
-      <p className="muted">{t('checkIntro')}</p>
+      <p className="lt-muted">{t('checkIntro')}</p>
       <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(offered) => {
           const chosen = tool || offered.tools[0]?.name || '';

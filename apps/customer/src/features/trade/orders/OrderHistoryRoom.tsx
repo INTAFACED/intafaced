@@ -139,7 +139,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
         <EmptyState
           title={t('signedOutTitle')}
           action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(`/trade/orders${search}`)}`}>
+            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(`/trade/orders${search}`)}`}>
               {t('signIn')}
             </a>
           }
@@ -221,14 +221,14 @@ export function OrderHistoryRoom({ path }: { path: string }) {
         </form>
         <p className="muted orders-note">
           {t('openOrders')}{' '}
-          <a className="text-link" href="/exchange">
+          <a className="lt-link" href="/exchange">
             {t('tradingDesk')}
           </a>
         </p>
         {state.status === 'loading' ? <Loading label={t('loading')} /> : null}
         {state.status === 'failed' ? <Failure result={state.failure} retry={() => setRevision((n) => n + 1)} /> : null}
         {state.status === 'refused' ? (
-          <div data-testid="failure" className="failure" role="alert">
+          <div data-testid="failure" className="lt-refusal" role="alert">
             <h3>{t('refusedTitle')}</h3>
             <p>{refusedWords[state.problem]}</p>
             <Button variant="secondary" size={40} onClick={() => setParams({ ...NO_PARAMS, size: params.size })}>

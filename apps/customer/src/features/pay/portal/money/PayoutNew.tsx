@@ -198,7 +198,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   };
   if (done)
     return (
-      <div className="stack">
+      <div className="lt-stack">
         <p className="pp-callout" role="status">
           {done.route === 'approval'
             ? t('pnDoneApproval')
@@ -208,7 +208,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                 ? t('pnDoneSent')
                 : t('pnDoneCheck')}
         </p>
-        <div className="pp-actions">
+        <div className="lt-actions">
           <LinkButton variant="primary" href={`/pay/payouts/${encodeURIComponent(picked || done.id)}`}>
             {t('pnOpenPayout')}
           </LinkButton>
@@ -217,7 +217,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
       </div>
     );
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <HaltBanner resource={halts.resource} scopes={['payout']} />
       <TestBanner />
       <PaySection title={t('partnerInstantTitle')} description={t('partnerInstantBody')}>
@@ -338,7 +338,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                         ]}
                       />
                     ) : (
-                      <p className="muted">{t('pnBlock_nothing')}</p>
+                      <p className="lt-muted">{t('pnBlock_nothing')}</p>
                     )}
                     {approved && !sending && dest && (
                       <p className="pp-callout" role="note">

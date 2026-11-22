@@ -19,7 +19,7 @@ export function PredictionTicket({ market, outcome }: { market: PublishedOutcome
       <p className="prediction-ticket__blocker" role="status" id={why}>
         {copy.t('chainReason')}
       </p>
-      <p className="muted">{copy.t('intro', { asset })}</p>
+      <p className="lt-muted">{copy.t('intro', { asset })}</p>
       <p>
         <strong>{copy.t('outcomeFor')}</strong> <span lang="und">{market.question}</span> · {outcome === 'yes' ? 'Yes' : 'No'}
       </p>
@@ -43,7 +43,7 @@ export function PredictionTicket({ market, outcome }: { market: PublishedOutcome
       </fieldset>
       <Field label={copy.t('quantity')} disabled aria-describedby={why} inputMode="decimal" />
       <Field label={copy.t('price', { asset })} disabled aria-describedby={why} inputMode="decimal" />
-      <p className="muted">
+      <p className="lt-muted">
         <strong>{copy.t('collateralLabel')}.</strong> {copy.t('collateralBody', { asset })}
       </p>
       <Button disabled aria-describedby={why}>

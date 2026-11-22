@@ -78,7 +78,7 @@ export function AgentsCatalogue({
   return (
     <div className="more-grid">
       <Panel title={t('catalogueTitle')}>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="catalogueIntro" />
         </p>
         <div className="depth-filters">
@@ -139,7 +139,7 @@ export function AgentsCatalogue({
                       <Copy k="openCoach" />
                     </Button>
                   ) : agent.href ? (
-                    <a className="button button--secondary" href={agent.href}>
+                    <a className="lt-button lt-button-secondary" href={agent.href}>
                       <Copy k="openRoom" />
                     </a>
                   ) : parked ? (
@@ -151,7 +151,7 @@ export function AgentsCatalogue({
                   ) : null}
                 </div>
                 {parked ? (
-                  <p className="muted" role="note" id={`agent-blocker-${agent.id}`}>
+                  <p className="lt-muted" role="note" id={`agent-blocker-${agent.id}`}>
                     <Copy k={agent.kind === 'unwired' ? 'blocker_unwired' : 'blocker_staff'} />
                   </p>
                 ) : null}
@@ -173,7 +173,7 @@ export function AgentsCatalogue({
         {chosen ? (
           <AgentDetail agent={chosen} name={label(chosen.id)} about={about(chosen.id)} onSession={onSession} />
         ) : (
-          <p className="muted">{t('pickAgent')}</p>
+          <p className="lt-muted">{t('pickAgent')}</p>
         )}
       </Panel>
       <MadeAgents />
@@ -207,7 +207,7 @@ function AgentDetail({
       <h3>{name}</h3>
       {about ? <p>{about}</p> : null}
       {agent.kind === 'unwired' || agent.kind === 'staff' ? (
-        <p className="muted" role="note">
+        <p className="lt-muted" role="note">
           <Copy k={agent.kind === 'unwired' ? 'blocker_unwired' : 'blocker_staff'} />
         </p>
       ) : null}
@@ -252,7 +252,7 @@ function AgentDetail({
                     </tr>
                   ))}
                 </DataTable>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="costOpenNotice" />
                 </p>
                 <Button disabled={!g.enabled} onClick={() => onSession(agent.id)}>
@@ -403,7 +403,7 @@ function MyAgents({ log, reload }: { log: Resource<ActionRow[]>; reload: () => v
     new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
   return (
     <Panel title={t('mineTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="mineIntro" />
       </p>
       {log.status === 'loading' ? <Loading /> : null}
@@ -429,7 +429,7 @@ function MyAgents({ log, reload }: { log: Resource<ActionRow[]>; reload: () => v
                   </tr>
                 ))}
               </DataTable>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="spendNote" />
               </p>
               <Button

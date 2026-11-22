@@ -18,7 +18,7 @@ function Counts({ programme }: { programme: AcademyProgramme }) {
   const { Copy } = copy.useCopy();
   if (programme.courses.length === 0)
     return (
-      <p className="muted" data-testid="programme-empty">
+      <p className="lt-muted" data-testid="programme-empty">
         <Copy k="programmeEmpty" />
       </p>
     );
@@ -46,14 +46,14 @@ export function ProgrammeCertificates() {
   if (any.resource.status !== 'ready' || mine.resource.status !== 'ready') return null;
   if (any.resource.data.length === 0)
     return (
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="programmesNone" />
       </p>
     );
   const started = mine.resource.data;
   if (started.length === 0)
     return (
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="programmesStartedNone" />
       </p>
     );
