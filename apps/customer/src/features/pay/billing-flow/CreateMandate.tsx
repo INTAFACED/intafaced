@@ -2,6 +2,7 @@ import { Button, Field, Select } from '@intafaced/ui/lit';
 import type { PortalApi } from '../portal/api';
 import type { BusinessPayApi } from '../pay-api';
 import { payCopy } from '../copy';
+import { uiCopy } from '../../../shared/ui-copy';
 import { cadenceWord } from '../MerchantBilling';
 import { useMandateForm } from '../mandate-form';
 import { ReviewedAction } from '../review/ReviewedAction';
@@ -113,6 +114,7 @@ export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; r
           />
           <Actions>
             <ReviewedAction
+              closeLabel={uiCopy.t('closeDialog')}
               title={payCopy.t('recordMandate')}
               description={payCopy.t('storeTheSuppliedAuthorizedTermsChangingAmount')}
               review={

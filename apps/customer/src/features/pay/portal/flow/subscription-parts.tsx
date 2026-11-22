@@ -15,7 +15,8 @@ import {
 import { cadenceLabel, pathLabel } from '../payments/Subscriptions';
 import { useSubscriptionCheck } from '../payments/subscription-check';
 import { extensionCopy as c } from '../payments/copy';
-import { DateTime, Failure, Loading, MoneyText, SelectField } from './parts';
+import { DateTime, Failure, Loading, SelectField } from './parts';
+import { ExactMoney } from './payments-parts';
 
 /**
  * The subscription create room's own parts, drawn from the kit: the kit views of `../catalog/SubscriptionPrice.tsx`'s
@@ -83,11 +84,11 @@ export function SubscriptionTerms({ mandate: m, path }: { mandate: Mandate; path
       values={[
         [c.t('customer'), m.customerId],
         [c.t('chargePath'), path ? pathLabel(path) : c.t('unavailable')],
-        [c.t('amount'), <MoneyText value={m.amount} asset={m.assetId} />],
+        [c.t('amount'), <ExactMoney value={m.amount} asset={m.assetId} />],
         [c.t('cadence'), cadenceLabel(m.cadence)],
         [c.t('mandateStart'), <DateTime value={m.startsAt} />],
         [c.t('mandateEnd'), m.endsAt ? <DateTime value={m.endsAt} /> : c.t('openEnded')],
-        [c.t('authorizedCeiling'), m.ceiling !== null ? <MoneyText value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
+        [c.t('authorizedCeiling'), m.ceiling !== null ? <ExactMoney value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
       ]}
     />
   );

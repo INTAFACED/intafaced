@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import { ReviewedAction } from '../../review/ReviewedAction';
 import { ExactMoneyScope } from '../ui/ExactMoneyScope';
 import { plainFailure } from '../refusal';
+import { uiCopy } from '../../../../shared/ui-copy';
 
 /**
  * The flow rooms' door for asking a merchant to confirm something: `ui/PortalReview.tsx`'s twin, drawn from the kit.
@@ -12,6 +13,7 @@ import { plainFailure } from '../refusal';
 export function PortalReview<T>({ review, perform, ...rest }: ComponentProps<typeof ReviewedAction<T>>) {
   return (
     <ReviewedAction<T>
+      closeLabel={uiCopy.t('closeDialog')}
       {...rest}
       perform={async (current) => plainFailure(await perform(current))}
       review={review === undefined ? undefined : <ExactMoneyScope>{review}</ExactMoneyScope>}

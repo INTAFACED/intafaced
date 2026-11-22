@@ -100,6 +100,7 @@ export function ReviewedAction<T>({
   stepUp,
   ready = true,
   notReadyReason,
+  closeLabel,
 }: {
   title: string;
   description: string;
@@ -113,6 +114,8 @@ export function ReviewedAction<T>({
   stepUp?: MoneyKind;
   ready?: boolean;
   notReadyReason?: string;
+  /** The review sheet's close button, in the room's language (the kit's own "Close" when not given). */
+  closeLabel?: string;
 }) {
   const { opened, busy, result, uncertain, open, close, confirm } = useReviewedAction({ perform, onConfirmed, disabled, ready, stepUp });
   const outcome = <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />;
@@ -135,6 +138,7 @@ export function ReviewedAction<T>({
       onConfirm={() => void confirm()}
       outcome={outcome}
       note={stepUp ? <StepUpNote kind={stepUp} /> : undefined}
+      closeLabel={closeLabel}
     >
       {review}
     </ReviewSheet>

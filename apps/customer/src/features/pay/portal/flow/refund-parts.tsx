@@ -238,7 +238,7 @@ export function MerchantRefundView({
         <Copy k="back" />
       </Button>
       {currentReview && (
-        <Sheet open title={t('review')} onClose={() => dismiss(currentReview, false)}>
+        <Sheet open title={t('review')} closeLabel={t('back')} onClose={() => dismiss(currentReview, false)}>
           <div data-testid="form-stack">
             <p className="lt-hint">
               <Copy k="reviewBody" />
