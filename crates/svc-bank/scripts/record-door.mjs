@@ -7,7 +7,8 @@
 // - `src/errors_table.rs`: every `BankErrorCode` with the tRPC code it answers, and the customer's sentence for the codes
 //   `user-copy.ts` lets a caller read.
 // - `tests/fixtures/input-parity/`: zod's own verdict on a few thousand inputs, made from each schema.
-// - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments.
+// - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments, and for each that loads,
+//   the `/ready` body `index.ts` builds from it.
 // - `tests/fixtures/guard-grid.golden.json`: what each guarded call's middlewares answer a grid of callers.
 //
 // Run from the repository root, with the workspace packages built (`pnpm --filter "@intafaced/svc-bank^..." build`):
@@ -982,7 +983,8 @@ const envCases = ENV_CASES.map((overrides) => {
     env: { PATH: process.env.PATH, TZ: 'UTC', BANK_ENV_PROBE: JSON.stringify(vars) },
     encoding: 'utf8',
   });
-  return { env: vars, answer: JSON.parse(out) };
+  const { ready, ...answer } = JSON.parse(out);
+  return { env: vars, answer, ...(ready ? { ready } : {}) };
 });
 
 /**

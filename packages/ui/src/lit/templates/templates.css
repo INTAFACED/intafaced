@@ -1408,3 +1408,50 @@ button.lt-tab {
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.25rem;
 }
+
+/* ---- a limit's use, and a sample of someone else's brand ---- */
+
+.lt-meter {
+  position: relative;
+  display: block;
+  block-size: calc(var(--lit-gap-item) / 1.5);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  overflow: hidden;
+}
+
+.lt-meter-fill {
+  display: block;
+  block-size: 100%;
+  background: var(--lit-accent);
+}
+
+.lt-meter[data-full] .lt-meter-fill {
+  background: var(--lit-warn-text);
+}
+
+.lt-brand {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding: var(--lit-pad-panel);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-tile);
+}
+
+.lt-brand-logo {
+  max-block-size: 3rem;
+  max-inline-size: 10rem;
+  object-fit: contain;
+}
+
+.lt-brand-button {
+  display: inline-block;
+  inline-size: fit-content;
+  padding-block: calc(var(--lit-gap-item) / 2);
+  padding-inline: var(--lit-gap-item);
+  border-radius: var(--lit-radius-control);
+  background: var(--lt-brand, var(--lit-accent));
+  color: var(--lt-on-brand, var(--lit-text-1));
+}
