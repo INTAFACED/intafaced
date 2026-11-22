@@ -190,6 +190,7 @@ import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
 import { credentialsFor, type PasskeyPurpose } from './passkey-purposes.js';
 import type { RankService } from '../rank/rank-service.js';
 import { effectiveIdleSeconds, endOldestBeyondLimit, type SessionLimits } from './session-limits.js';
+import { SELF_FREEZE_REASONS, SUB_ACCOUNT_KINDS } from '@intafaced/contracts/identity-call-schemas';
 
 /**
  * AUTH (§4.1, §9).
@@ -301,10 +302,7 @@ export class AuthError extends Error {
 /** Sign-in's `details` for a non-active account, once the person proved who they are. Only `closed` is final. */
 const accountStateOf = (status: string) => ({ accountState: status === 'closed' ? ('closed' as const) : ('frozen' as const) });
 
-/** Blank / non-integer / out of 1..200 KYC pending queue limit. Never invent 50. */
-export const SELF_FREEZE_REASONS = ['compromise', 'temporary', 'personal'] as const;
 export type SelfFreezeReason = (typeof SELF_FREEZE_REASONS)[number];
-export const SUB_ACCOUNT_KINDS = ['standard', 'managed', 'derivatives', 'spot'] as const;
 export type SubAccountKind = (typeof SUB_ACCOUNT_KINDS)[number];
 /** 5 to 20 letters or digits. */
 export const SUB_ACCOUNT_NICKNAME = /^[A-Za-z0-9]{5,20}$/;
@@ -4419,3 +4417,4 @@ export function signinPhone(identifier: string): string {
   if (!/^\+[0-9 ()-]+$/.test(trimmed)) return '';
   return `+${trimmed.replace(/\D/g, '')}`;
 }
+export { SUB_ACCOUNT_KINDS };
