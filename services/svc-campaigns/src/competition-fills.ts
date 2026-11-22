@@ -23,6 +23,7 @@ const fillsSchema = z.object({
         quoteAsset: z.string(),
         notional: decimal,
         builderFee: decimal,
+        feeAsset: z.string().min(1).optional(),
         filledAt: z.string(),
       })
       .passthrough(),

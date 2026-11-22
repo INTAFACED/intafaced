@@ -69,6 +69,7 @@ use svc_agents::self_freeze::IdentitySelfFreezeRead;
 use svc_agents::team::Team;
 use svc_agents::team::membership::TeamMembershipHttp;
 use svc_agents::timers::{self, Timer};
+use svc_agents::webhooks::RunWebhooks;
 
 fn process_env() -> BTreeMap<String, String> {
     std::env::vars_os()
@@ -157,6 +158,20 @@ fn jobs<'a>(
                 background::publish_completed(pool, m.bus.as_ref(), &m.producer, system_now(), 100)
                     .map_err(|e| format!("finished background runs not announced: {e:?}"))?;
                 advanced
+            }),
+        ),
+        // `runWebhooks.drain()`: every ended run's delivery, posted; one a crash left leased is posted when its lease ends.
+        (
+            "run webhooks",
+            Box::new(move || {
+                let Some(hooks) = door.webhooks() else {
+                    return Ok(());
+                };
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                hooks
+                    .drain(pool, svc_agents::webhooks::DRAIN_BATCH)
+                    .map(|_| ())
+                    .map_err(|e| format!("run webhooks not delivered: {e}"))
             }),
         ),
         (
@@ -822,7 +837,12 @@ fn serve(
         (advisors, team),
         &fetch,
     )?
-    .with_factories(factories(env, &fetch)?);
+    .with_factories(factories(env, &fetch)?)
+    // The run webhooks (J-agents-12 #5). Loopback over http is the URL guard's dev/test hatch only.
+    .with_webhooks(RunWebhooks::new(
+        matches!(env.str("APP_ENV"), Some("dev" | "test"))
+            && env.str("NODE_ENV") != Some("production"),
+    ));
 
     let app = App {
         wire: door,

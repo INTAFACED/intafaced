@@ -82,6 +82,13 @@ pub fn timers(env: &AgentsEnv) -> Vec<Timer> {
             every: session_runs.map(|s| Duration::from_millis(s.min(500))),
             at_boot: false,
         },
+        // `runWebhooks.drain()`: once a second.
+        Timer {
+            name: "run webhooks",
+            slice: Slice::Webhooks,
+            every: Some(Duration::from_secs(1)),
+            at_boot: false,
+        },
     ]
 }
 

@@ -112,8 +112,8 @@ describe('Web3 shell', () => {
     answers.chain = chain(84532);
     const html = page('/dex');
     const swap = /<li data-action="swap">([\s\S]*?)<\/li>/.exec(html)?.[1] ?? '';
-    expect(swap).toMatch(/<div class="protocol-actions__reason protocol-actions__gap" role="note"><div class="empty-state">/);
-    expect(swap).toMatch(/<h3>Blocked: [^<]+<\/h3>/);
+    expect(swap).toMatch(/<div class="lt-hint" role="note"><div class="lt-empty">/);
+    expect(swap).toMatch(/<h3 class="lt-empty-title">Blocked: [^<]+<\/h3>/);
     expect(swap).not.toContain('data-not-connected');
   });
   it('gives a block page its layout and names the indexer when it cannot be read, never a blank', () => {

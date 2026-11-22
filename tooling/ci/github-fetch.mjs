@@ -9,6 +9,7 @@
  */
 import { execFile } from 'node:child_process';
 import { BUDGET_TITLE, isBudgetResponse, resetWait, waitLine } from './api-budget.mjs';
+import { countCall } from './api-count.mjs';
 
 const API = 'https://api.github.com/';
 
@@ -42,6 +43,12 @@ export async function githubFetch(url, init = {}, { sleep = (ms) => new Promise(
 }
 
 async function fetchOnce(url, init) {
+  const res = await fetchVia(url, init);
+  countCall(res);
+  return res;
+}
+
+async function fetchVia(url, init) {
   if (hasToken() || tokenOf(init.headers)) return fetch(url, init);
   const href = String(url);
   if (!href.startsWith(API)) throw new Error(`githubFetch: ${href} is not a GitHub API address`);

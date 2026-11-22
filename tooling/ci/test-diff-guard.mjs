@@ -57,6 +57,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
+import { countCall } from './api-count.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
 const BROWSER_TEST = /\.pw\.mjs$/;
@@ -247,6 +248,7 @@ function restReader(token) {
     const res = await fetch(`https://api.github.com${path}`, {
       headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
     });
+    countCall(res);
     if (!res.ok) throw new Error(`GitHub ${res.status} ${res.statusText} on ${path}`);
     return res;
   };

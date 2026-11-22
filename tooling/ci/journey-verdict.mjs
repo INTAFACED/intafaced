@@ -74,6 +74,7 @@ import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUDGET_TITLE, ghResetWait, waitLine } from './api-budget.mjs';
+import { countCall } from './api-count.mjs';
 
 export const BASELINE_PATH = 'docs/runbooks/journey-baseline.json';
 export const JOURNEYS_FILE = 'real-app-journeys.yml';
@@ -730,11 +731,12 @@ const json = (f) => JSON.parse(readFileSync(f, 'utf8'));
 /** GET only. A refusal (403, 429) is thrown, never retried: the verdict is then red. A spent hourly budget is waited
  *  out once where the step allows it (budgetRetry), and its answer then stands. */
 const ghApi = (path) =>
-  budgetRetry(() =>
-    JSON.parse(
+  budgetRetry(() => {
+    countCall();
+    return JSON.parse(
       execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', path], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }),
-    ),
-  );
+    );
+  });
 /**
  * `call()`, and when it throws because the hourly budget is spent and the step allows a wait (api-budget.mjs
  * ghResetWait, API_BUDGET_WAIT_MIN): wait for the reset, then `call()` once more, whose answer or error stands.
@@ -789,7 +791,15 @@ export function ghDownload(args, { run = execFileSync, wait = pause, tries = 3, 
   for (let attempt = 1; ; attempt++) {
     try {
       // A spent hourly budget is waited out once where the step allows it (budgetRetry); then it is a refusal as before.
-      return budgetRetry(() => run('gh', args, { stdio: ['ignore', 'ignore', 'pipe'] }), { wait, waitFor });
+      return budgetRetry(
+        () => {
+          // `gh run download --name` lists the run's artifacts, then fetches the one: two calls.
+          countCall();
+          countCall();
+          return run('gh', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+        },
+        { wait, waitFor },
+      );
     } catch (e) {
       if (missingArtifact(e.stderr) || refusedDownload(e.stderr) || attempt >= tries) {
         const said = lastLine(e.stderr);

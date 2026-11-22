@@ -1,7 +1,10 @@
-import { EmptyState, Failure, Loading, Page } from '../../shared/ui';
+// volt-room: /uc/assets
+import { useId } from 'react';
+import { EmptyState } from '@intafaced/ui/lit';
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import type { Resource } from '../../shared/resource';
 import { balanceEntriesHref } from '../../screens/money/balance-entries-model';
-import { DepthPanel } from './DepthParts';
+import { FailureBox, LoadingLine } from '../../shared/record/record-parts';
 import { supportedAssetsCopy } from './supported-assets-copy';
 import {
   useSupportedAssets,
@@ -10,7 +13,6 @@ import {
   type SupportedAssetState,
   type SupportedAssets as SupportedAssetsData,
 } from './supported-assets-reads';
-import './bank-depth.css';
 
 const ACTION_KEY = {
   deposit: 'actionDeposit',
@@ -34,34 +36,38 @@ export function SupportedAssets() {
 
 export function SupportedAssetsView({ resource, reload }: { resource: Resource<SupportedAssetsData>; reload: () => void }) {
   const { t } = supportedAssetsCopy.useCopy();
+  const heading = useId();
   return (
-    <Page
-      eyebrow={t('eyebrow')}
+    <RecordListTemplate
       title={t('title')}
       description={t('lead')}
-      actions={
-        <>
-          <a className="button button--secondary" href="/uc/recharge">
+      state={{ kind: 'ready' }}
+      roomAction={
+        <div className="lt-actions">
+          <a className="lt-button lt-button-secondary" href="/uc/recharge">
             {t('toDeposit')}
           </a>
-          <a className="button button--secondary" href="/uc/withdraw">
+          <a className="lt-button lt-button-secondary" href="/uc/withdraw">
             {t('toWithdraw')}
           </a>
-        </>
+        </div>
       }
-    >
-      <DepthPanel title={t('title')}>
-        {resource.status === 'loading' ? (
-          <Loading />
-        ) : resource.status === 'failed' ? (
-          <Failure result={resource.failure} retry={reload} />
-        ) : resource.data.assets.length === 0 ? (
-          <EmptyState title={t('emptyTitle')}>{t('emptyBody')}</EmptyState>
-        ) : (
-          <AssetTable assets={resource.data.assets} />
-        )}
-      </DepthPanel>
-    </Page>
+      summary={<p className="lt-hint">{t('eyebrow')}</p>}
+      list={
+        <section aria-labelledby={heading}>
+          <h3 id={heading}>{t('title')}</h3>
+          {resource.status === 'loading' ? (
+            <LoadingLine />
+          ) : resource.status === 'failed' ? (
+            <FailureBox result={resource.failure} retry={reload} />
+          ) : resource.data.assets.length === 0 ? (
+            <EmptyState title={t('emptyTitle')} body={t('emptyBody')} />
+          ) : (
+            <AssetTable assets={resource.data.assets} />
+          )}
+        </section>
+      }
+    />
   );
 }
 
@@ -69,10 +75,10 @@ function AssetTable({ assets }: { assets: readonly SupportedAsset[] }) {
   const { t } = supportedAssetsCopy.useCopy();
   return (
     <>
-      <p className="money-caption" data-testid="supported-assets-count">
+      <p className="lt-hint" data-testid="supported-assets-count">
         {t('count', { count: assets.length, retired: assets.filter((a) => a.state === 'retired').length })}
       </p>
-      <table className="bd-table" data-testid="supported-assets">
+      <table className="lt-table" data-testid="supported-assets">
         <thead>
           <tr>
             <th scope="col">{t('colAsset')}</th>
@@ -87,14 +93,14 @@ function AssetTable({ assets }: { assets: readonly SupportedAsset[] }) {
           {assets.map((asset) => (
             <tr key={asset.assetId} data-asset={asset.assetId} data-state={asset.state}>
               <th scope="row">{asset.assetId}</th>
-              <td className="numeric" data-col="precision">
+              <td className="lt-mono" data-col="precision">
                 {asset.precision}
               </td>
               <td data-col="networks">
                 {asset.networks.length === 0 ? (
                   t('noNetwork')
                 ) : (
-                  <ul className="bd-list">
+                  <ul>
                     {asset.networks.map((network) => (
                       <li key={network.networkId} data-network={network.networkId}>
                         {network.networkId === asset.defaultNetworkId ? t('defaultNetwork', { network: network.label }) : network.label}
@@ -113,12 +119,12 @@ function AssetTable({ assets }: { assets: readonly SupportedAsset[] }) {
                 {asset.state !== 'active' && (
                   <>
                     <br />
-                    <span className="money-caption">{t(asset.state === 'retired' ? 'retiredNote' : 'haltedNote')}</span>
+                    <span className="lt-hint">{t(asset.state === 'retired' ? 'retiredNote' : 'haltedNote')}</span>
                   </>
                 )}
               </td>
               <td data-col="history">
-                <a className="text-link" href={balanceEntriesHref(asset.assetId)}>
+                <a className="lt-link" href={balanceEntriesHref(asset.assetId)}>
                   {t('history', { asset: asset.assetId })}
                 </a>
               </td>

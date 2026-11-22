@@ -1,13 +1,19 @@
+// volt-room: /dex/positions
+// volt-room: /dex/positions/:positionId
 import { useMemo, useState, type ReactNode } from 'react';
 import type { LiquidityPosition } from '@intafaced/contracts/protocol-liquidity';
 import { navigate } from '../../../app/location';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { ServiceOffNotice } from '../../../shared/service-off';
-import { Button, DataTable, Dialog, EmptyState, Field, Loading, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
+import { DataTable, Dialog, EmptyState, Field, Loading, Panel } from '../volt/parts';
 import { useApi } from '../../session';
 import { networkLabel } from '../blockers';
-import { WatchShell } from '../watch/AddressPage';
+import { protocolCopy } from '../copy';
+import { Banner } from '../volt/frame';
+import { watchCopy } from '../watch/copy';
 import { APP_CHAIN_ID, ADDRESS } from '../wallet/eip1193';
 import { useWallet } from '../wallet/WalletProvider';
 import { RepresentationPanel } from '../wallet/RepresentationPanel';
@@ -23,6 +29,61 @@ export const positionPath = (pool: string, account: string) => `/dex/positions/$
 export function parsePositionId(id: string): { pool: string; account: string } | null {
   const [pool, account, ...rest] = id.split(':');
   return rest.length === 0 && pool && account && ADDRESS.test(pool) && ADDRESS.test(account) ? { pool, account } : null;
+}
+
+/**
+ * The positions list and one position's page on the record-list template, under the parked line: the list in its list
+ * region, a position (`record`) as the record's own page.
+ */
+function PositionsFrame({
+  title,
+  description,
+  record,
+  children,
+}: {
+  title: string;
+  description?: string;
+  record?: boolean;
+  children: ReactNode;
+}) {
+  const { language } = usePreferences();
+  const body = (
+    <>
+      {record && <Banner />}
+      {children}
+    </>
+  );
+  return (
+    <div lang={watchCopy.forLocale(language).renderedLocale}>
+      <RecordListTemplate
+        title={title}
+        description={description}
+        state={{ kind: 'ready' }}
+        summary={record ? undefined : <Banner />}
+        detailOnly={record}
+        list={record ? null : body}
+        detail={record ? body : undefined}
+      />
+    </div>
+  );
+}
+
+/** A position id that is not one, from the address bar: answered not found without asking the service, with the way back. */
+export function PositionNotFound() {
+  const { language } = usePreferences();
+  const { t } = protocolCopy.forLocale(language);
+  return (
+    <PositionsFrame title={t('pendingNotFoundTitle')} description={t('pendingNote')} record>
+      <Panel title={t('pendingNotFoundTitle')}>
+        <div data-code="protocol.not_found" role="status">
+          <EmptyState title={t('notFoundPage')} />
+        </div>
+      </Panel>
+      <Button tone="secondary" onClick={() => navigate('/dex')}>
+        {t('pendingBack', { room: t('roomDex') })}
+      </Button>
+    </PositionsFrame>
+  );
 }
 
 /**
@@ -68,22 +129,22 @@ export function PositionsList() {
             {t('positionName', { token0: p.token0.name, token1: p.token1.name, fee: bpsPercent(p.feeBps) })}
           </a>
         </th>
-        <td className="numeric">{amountText(p.shares, SHARE_DECIMALS, SHARE_DECIMALS)}</td>
-        <td className="numeric">{`${bpsPercent(Number((BigInt(p.shares) * 10_000n) / BigInt(p.totalSupply || '1')))}%`}</td>
+        <td className="lt-mono">{amountText(p.shares, SHARE_DECIMALS, SHARE_DECIMALS)}</td>
+        <td className="lt-mono">{`${bpsPercent(Number((BigInt(p.shares) * 10_000n) / BigInt(p.totalSupply || '1')))}%`}</td>
       </tr>
     ));
   return (
-    <WatchShell title={t('positionsTitle')} description={t('network', { network })}>
+    <PositionsFrame title={t('positionsTitle')} description={t('network', { network })}>
       <Panel title={t('positionsTitle')}>
         {!account && <NoWalletNote t={t} />}
         <DataTable label={t('positionsTitle')} headers={headers}>
           {body}
         </DataTable>
       </Panel>
-      <Button variant="secondary" onClick={() => navigate('/dex/pools')}>
+      <Button tone="secondary" onClick={() => navigate('/dex/pools')}>
         {t('backToPools')}
       </Button>
-    </WatchShell>
+    </PositionsFrame>
   );
 }
 
@@ -196,55 +257,55 @@ export function PositionPage({ id }: { id: string }) {
     body = (
       <>
         {BigInt(p.shares) === 0n && <p role="status">{t('noShares')}</p>}
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <div>
             <dt>{t('lpShares')}</dt>
-            <dd className="numeric" data-testid="lp-shares">
+            <dd className="lt-mono" data-testid="lp-shares">
               {amountText(p.shares, SHARE_DECIMALS, SHARE_DECIMALS)}
             </dd>
           </div>
           <div>
             <dt>{t('shareOfPool')}</dt>
-            <dd className="numeric">{`${bpsPercent(p.shareOfPoolBps)}%`}</dd>
+            <dd className="lt-mono">{`${bpsPercent(p.shareOfPoolBps)}%`}</dd>
           </div>
           <div>
             <dt>{t('worthNow')}</dt>
-            <dd className="numeric">{tokenPair(p, p.amount0, p.amount1, t)}</dd>
+            <dd className="lt-mono">{tokenPair(p, p.amount0, p.amount1, t)}</dd>
           </div>
           <div>
             <dt>{t('feesEarned')}</dt>
-            <dd className="numeric" data-testid="fees-earned">
+            <dd className="lt-mono" data-testid="fees-earned">
               {p.feesEarned ? tokenPair(p, p.feesEarned.amount0, p.feesEarned.amount1, t) : t('entryUnknown')}
             </dd>
           </div>
         </dl>
-        <p className="muted">{p.feesEarned ? `${t('feesEstimate')} ${t('feesNote')}` : t('feesNote')}</p>
-        <section aria-label={t('ilTitle')} className="protocol-quote">
+        <p className="lt-hint">{p.feesEarned ? `${t('feesEstimate')} ${t('feesNote')}` : t('feesNote')}</p>
+        <section aria-label={t('ilTitle')}>
           <h3>{t('ilTitle')}</h3>
-          <p className="muted">{t('ilFormula')}</p>
+          <p className="lt-hint">{t('ilFormula')}</p>
           {il ? (
             <>
-              <dl className="protocol-facts">
+              <dl className="lt-kv">
                 <div>
                   <dt>{t('ifHeld')}</dt>
-                  <dd className="numeric" data-testid="il-held">
+                  <dd className="lt-mono" data-testid="il-held">
                     {tokenPair(p, il.held0, il.held1, t)}
                   </dd>
                 </div>
                 <div>
                   <dt>{t('inPool')}</dt>
-                  <dd className="numeric" data-testid="il-now">
+                  <dd className="lt-mono" data-testid="il-now">
                     {tokenPair(p, il.now0, il.now1, t)}
                   </dd>
                 </div>
                 <div>
                   <dt>{t('difference')}</dt>
-                  <dd className="numeric" data-testid="il-diff">
+                  <dd className="lt-mono" data-testid="il-diff">
                     {tokenPair(p, il.diff0, il.diff1, t)}
                   </dd>
                 </div>
               </dl>
-              <p className="numeric" data-testid="il-value">
+              <p className="lt-mono" data-testid="il-value">
                 {t('valued', {
                   symbol: p.token1.name,
                   held: amountText(il.valueHeld1, p.token1.decimals),
@@ -252,7 +313,7 @@ export function PositionPage({ id }: { id: string }) {
                   diff: bpsPercent(il.diffBps),
                 })}
               </p>
-              <p className="numeric" data-testid="il-closed-form">
+              <p className="lt-mono" data-testid="il-closed-form">
                 {t('closedForm', { percent: bpsPercent(il.closedFormBps) })}
               </p>
             </>
@@ -262,16 +323,16 @@ export function PositionPage({ id }: { id: string }) {
             </p>
           )}
         </section>
-        <p className="muted">{t('readAt', { block: p.blockNumber })}</p>
+        <p className="lt-hint">{t('readAt', { block: p.blockNumber })}</p>
         {mine && BigInt(p.shares) > 0n && (
-          <div className="protocol-actions">
-            <Button variant="secondary" onClick={() => setSending(true)}>
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => setSending(true)}>
               {t('sendShares')}
             </Button>
-            <Button variant="secondary" onClick={() => void collect()}>
+            <Button tone="secondary" onClick={() => void collect()}>
               {t('collectFees')}
             </Button>
-            <Button disabled={busy} onClick={() => void removeAll()}>
+            <Button tone="primary" disabled={busy} onClick={() => void removeAll()}>
               {t('removeAll')}
             </Button>
           </div>
@@ -284,7 +345,7 @@ export function PositionPage({ id }: { id: string }) {
   }
   const title = p ? t('positionName', { token0: p.token0.name, token1: p.token1.name, fee: bpsPercent(p.feeBps) }) : t('positionTitle');
   return (
-    <WatchShell title={title} description={t('network', { network })}>
+    <PositionsFrame title={title} description={t('network', { network })} record>
       {signing.representation && <RepresentationPanel {...signing.representation} />}
       <Panel title={t('positionTitle')} aria-label={t('positionTitle')}>
         {!wallet.address && <NoWalletNote t={t} />}
@@ -303,10 +364,10 @@ export function PositionPage({ id }: { id: string }) {
           }}
         />
       )}
-      <Button variant="secondary" onClick={() => navigate('/dex/positions')}>
+      <Button tone="secondary" onClick={() => navigate('/dex/positions')}>
         {t('backToPositions')}
       </Button>
-    </WatchShell>
+    </PositionsFrame>
   );
 }
 
@@ -369,7 +430,6 @@ function SendShares({
   return (
     <Dialog title={t('sendShares')} onClose={onClose}>
       <form
-        className="protocol-quote"
         onSubmit={(event) => {
           event.preventDefault();
           void send();
@@ -377,7 +437,7 @@ function SendShares({
       >
         <Field label={t('sendTo')} value={to} onChange={(event) => setTo(event.target.value)} />
         <Field label={t('sendAmount')} inputMode="decimal" value={shares} onChange={(event) => setShares(event.target.value)} />
-        <Button type="submit" disabled={busy || !valid}>
+        <Button tone="primary" type="submit" disabled={busy || !valid}>
           {t('send')}
         </Button>
         {problem && <p role="alert">{problem}</p>}
