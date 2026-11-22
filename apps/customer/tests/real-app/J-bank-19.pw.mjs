@@ -4,6 +4,8 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, api as ledgerApi, journeyState, json, signOutBrowser, signUpInBrowser } from './stack.mjs';
 import { signIn, verify } from './desk.mjs';
 import { agePast } from './test-age.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
 
 // J-bank-19, in the running app (docs/roadmap/journeys.json): I set up my business bank team and approval rules. Tests
 // titled "J-bank-19 #<n>" prove a step.
@@ -24,6 +26,25 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const PARTNER_BANK = 'TEST partner bank';
 const FUNDED = '10000';
 const INVITE_MS = 2 * 60_000;
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts), as J-bank-03 reads it. */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+
+/** The business's own account on the partner's book (svc-bank business-team.ts businessPartnerAccount). */
+const partnerOwner = (accountId) => `business:${accountId}`;
+
+/**
+ * What the partner's own book says the business holds in USDT, read straight from the TEST partner bank's record through
+ * the outside record read (venue.mjs venueBalance), never through the business's bank API.
+ */
+async function partnerHolds(accountId) {
+  return (await venueBalance(partnerOwner(accountId), 'USDT', PARTNER_RECORD)).total;
+}
+
+/** Every instruction the partner's own book lists as leaving the business's account, oldest first. */
+async function partnerSent(accountId) {
+  const moves = (await venueRecord(partnerOwner(accountId), '/moves', {}, PARTNER_RECORD, null)).value;
+  return moves.filter((m) => m.from.owner === partnerOwner(accountId));
+}
 
 test.describe.configure({ mode: 'default' });
 
@@ -494,6 +515,7 @@ test(`${J} #5 sets approval rules by amount, payee and payment type: two TEST ru
   }
 
   // The owner proposes TEST 6000.00: the over-5000 rule applies, two approvers, and nothing has been sent.
+  const heldBefore = await partnerHolds(w.accountId);
   const form = page.getByRole('form', { name: 'Propose payment' });
   await form.getByLabel('Payee').fill(PAYEE);
   await form.getByLabel('Payment type').selectOption({ label: PAY_TYPE });
@@ -511,6 +533,14 @@ test(`${J} #5 sets approval rules by amount, payee and payment type: two TEST ru
     partnerMoveId: null,
     status: 'pending',
   });
+  /** The partner's own book: no instruction under this payment's key, and the business's money there untouched. */
+  const nothingAtPartner = async () => {
+    expect((await partnerSent(w.accountId)).filter((m) => m.key === p.partnerKey)).toEqual([]);
+    const held = await partnerHolds(w.accountId);
+    expect(units(held)).toBe(units(heldBefore));
+    expect(units(ok(await own.query('businessTeam.overview', { accountId: w.accountId })).partner.amount)).toBe(units(held));
+  };
+  await nothingAtPartner();
 
   // Two distinct approvers: the same approver twice still counts once, and the 6000.00 payment keeps waiting, unsent.
   const checker = await bank(w.a1);
@@ -523,6 +553,7 @@ test(`${J} #5 sets approval rules by amount, payee and payment type: two TEST ru
   await expect(page.getByTestId('team-payment-approval')).toHaveCount(1);
   await expect(page.getByTestId('team-payment-result')).toHaveText('Waiting for 1 more approval(s)');
   expect(ok(await own.query('businessTeam.payment', { paymentId }))).toMatchObject({ status: 'pending', partnerMoveId: null });
+  await nothingAtPartner();
   // #6 starts from a payment nobody has approved yet: it proposes its own when this one has an approval.
   run.write({ paymentId });
 });
@@ -551,6 +582,11 @@ test(`${J} #6 opens the approval detail page and approves: the rule that applied
   }
   const ledgers = { owner: await ledgerOf(w.owner), a1: await ledgerOf(w.a1), a2: await ledgerOf(w.a2) };
   const balanceBefore = ok(await own.query('businessTeam.overview', { accountId: w.accountId })).partner.amount;
+  const heldBefore = await partnerHolds(w.accountId);
+  expect(units(balanceBefore)).toBe(units(heldBefore));
+  const { partnerKey } = ok(await own.query('businessTeam.payment', { paymentId }));
+  /** The partner's own lines under this payment's key. */
+  const atPartner = async () => (await partnerSent(w.accountId)).filter((m) => m.key === partnerKey);
   const path = `/bank/business/payment?id=${paymentId}`;
 
   // The page names the rule that applied. The owner proposed it and holds approve, and is refused.
@@ -573,6 +609,8 @@ test(`${J} #6 opens the approval detail page and approves: the rule that applied
     code: 'bank.business_already_approved',
   });
   expect(ok(await own.query('businessTeam.payment', { paymentId })).partnerMoveId).toBeNull();
+  expect(await atPartner()).toEqual([]);
+  expect(units(await partnerHolds(w.accountId))).toBe(units(heldBefore));
 
   // The second: sent to the partner, with the partner's own reference.
   await signedInAt(page, w.a2, path);
@@ -594,6 +632,15 @@ test(`${J} #6 opens the approval detail page and approves: the rule that applied
   expect(ok(await own.mutate('businessTeam.resend', { paymentId }))).toMatchObject({ status: 'sent', partnerMoveId: moveId });
   const after = ok(await own.query('businessTeam.overview', { accountId: w.accountId })).partner;
   expect(Number(balanceBefore) - Number(after.amount)).toBe(6000);
+  // The partner's own book: exactly one instruction under the payment's key, the one the page names, 6000 out of the
+  // business's account; and the business's money there is 6000 less, the figure the app shows.
+  const theirs = await atPartner();
+  expect(theirs).toHaveLength(1);
+  expect(theirs[0]).toMatchObject({ id: moveId, from: { owner: partnerOwner(w.accountId), assetId: 'USDT', spaceId: null } });
+  expect(units(theirs[0].amount)).toBe(units('6000'));
+  const heldAfter = await partnerHolds(w.accountId);
+  expect(units(heldBefore) - units(heldAfter)).toBe(units('6000'));
+  expect(units(after.amount)).toBe(units(heldAfter));
   const lines = ok(await own.query('businessTeam.spend', { accountId: w.accountId })).members.find((m) => m.handle === w.owner.handle);
   expect(lines.partnerLines).toBeGreaterThanOrEqual(1);
 
@@ -628,7 +675,8 @@ test(`${J} #7 opens team spend and departments: by-member totals equal the partn
   const ownerBefore = ok(await own.query('businessTeam.spend', { accountId: w.accountId })).members.find(
     (m) => m.handle === w.owner.handle,
   );
-  const partnerBefore = ok(await own.query('businessTeam.overview', { accountId: w.accountId })).partner.amount;
+  const partnerBefore = await partnerHolds(w.accountId);
+  expect(units(ok(await own.query('businessTeam.overview', { accountId: w.accountId })).partner.amount)).toBe(units(partnerBefore));
   const small = ok(
     await own.mutate('businessTeam.propose', {
       accountId: w.accountId,
@@ -644,8 +692,9 @@ test(`${J} #7 opens team spend and departments: by-member totals equal the partn
     rule: null,
     partnerMoveId: expect.stringMatching(/^test-partner-move-/),
   });
-  const partnerAfter = ok(await own.query('businessTeam.overview', { accountId: w.accountId })).partner.amount;
+  const partnerAfter = await partnerHolds(w.accountId);
   expect(units(partnerBefore) - units(partnerAfter)).toBe(units('12.50'));
+  expect(units(ok(await own.query('businessTeam.overview', { accountId: w.accountId })).partner.amount)).toBe(units(partnerAfter));
 
   await inBusiness(page, w.owner, w.name, '/bank/business/spend');
   const depName = `Operations TEST ${RUN}`;
@@ -681,6 +730,21 @@ test(`${J} #7 opens team spend and departments: by-member totals equal the partn
   );
   expect(sent.reduce((sum, p) => sum + units(p.amount), 0n)).toBe(units(ownerTotal));
   expect(sent.map((p) => p.id)).toContain(small.id);
+
+  // The partner's own lines: each member's total and count in the app equal the instructions the partner's book lists
+  // out of the business's account under that member's payments' keys, and every one of them is a payment the team sent.
+  const theirLines = await partnerSent(w.accountId);
+  const payments = ok(await own.query('businessTeam.payments', { accountId: w.accountId }));
+  const makerOf = new Map(payments.map((p) => [p.partnerKey, p.makerHandle]));
+  expect(theirLines.filter((m) => m.key === small.partnerKey)).toEqual([expect.objectContaining({ id: small.partnerMoveId })]);
+  for (const row of await rows.all()) {
+    const handle = await row.getAttribute('data-handle');
+    const mine = theirLines.filter((m) => makerOf.get(m.key) === handle);
+    await expect.poll(async () => units(await row.getAttribute('data-partner'))).toBe(mine.reduce((sum, m) => sum + units(m.amount), 0n));
+    await expect(row).toHaveAttribute('data-lines', String(mine.length));
+  }
+  const teamLines = theirLines.filter((m) => makerOf.has(m.key));
+  expect(spend.members.reduce((sum, m) => sum + units(m.partnerTotal), 0n)).toBe(teamLines.reduce((sum, m) => sum + units(m.amount), 0n));
 
   // The Bookkeeper has no team spend grant: only their own line, and no departments.
   await signedInAt(page, w.book, '/home');
