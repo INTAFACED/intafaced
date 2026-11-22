@@ -383,7 +383,7 @@ const noSubscribe = () => () => {};
  * text typed into the served HTML before React attaches is not in the forms' state, so Save would send an empty field
  * while the box still shows what was typed (the race behind J-academy-14 #1's "Write the note.", intafaced#9661).
  */
-export function useHydrated(): boolean {
+function useHydrated(): boolean {
   return useSyncExternalStore(
     noSubscribe,
     () => true,
