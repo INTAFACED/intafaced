@@ -30,6 +30,7 @@ import { runJobs } from './run-jobs.mjs';
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { VERDICT_STEPS, isJudgeDown, reviewRan } from './review-marker.mjs';
+import { countCall } from './api-count.mjs';
 
 export const CONTEXT = 'judge';
 export const ISSUE_REPO = 'INTAFACED/project-state';
@@ -139,6 +140,7 @@ async function call(token, method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(30_000),
   });
+  countCall(res);
   const text = await res.text();
   // A refusal or a limit stops this script: never retried here (AGENTS.md, GitHub and git).
   if ((res.status === 403 && !/already running/i.test(text)) || res.status === 429)
