@@ -68,7 +68,17 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { githubFetch, githubToken } from './github-fetch.mjs';
 import { runJobs } from './run-jobs.mjs';
-import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, moneyRule, readReport, rootInputs } from './journey-verdict.mjs';
+import {
+  BASELINE_PATH,
+  JOURNEYS_ARTIFACT,
+  fetchInputs,
+  isMainRun,
+  judge,
+  manifestsAt,
+  moneyRule,
+  readReport,
+  rootInputs,
+} from './journey-verdict.mjs';
 import {
   DISPATCH_GROUP_MAX,
   RUN_FILE,
@@ -756,7 +766,8 @@ export function makeIo(repo, token) {
       }
       return out;
     },
-    verdictOf: (report, run, { headMoney = null } = {}) => fullVerdict({ repo, report, run, inputs: baseInputs(), headMoney }),
+    verdictOf: (report, run, { headMoney = null, headBaseline = null } = {}) =>
+      fullVerdict({ repo, report, run, inputs: baseInputs(), headMoney, headBaseline }),
     // The money rule at a pull request's head (moneyAt), for a money-flag mismatch on its own run (sealPull).
     headMoney: (ref) => moneyVia(repo, token, ref),
   };
@@ -783,7 +794,7 @@ export function journeyFilesAt(root) {
 
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
-export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null }) {
+export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null, headBaseline = null }) {
   const { baseline, money, reports, memo } = inputs;
   const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
@@ -812,6 +823,8 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, hea
     issues: got.issues,
     target,
     headMoney,
+    // The baseline the merge would hold: the head's when the pull request changes it (sealPull), else main's.
+    headBaseline: headMoney ? (headBaseline ?? baseline) : null,
   });
   // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
   // when it passed there), or null when it never passed: the merge seal bounds an inherited red by the commits since.
@@ -903,6 +916,12 @@ function moneyVia(repo, token, ref) {
     text: (p) => makeIo(repo, token).text(p, ref),
   });
 }
+
+/** A path the money rule or the baseline is read from (rootInputs, moneyAt): changing one can change a step's money flag. */
+export const moneyInput = (path) =>
+  ['docs/roadmap/journeys.json', 'docs/roadmap/slices.json', BASELINE_PATH].includes(path) ||
+  /^(?:apps|services|packages|tooling)\/[^/]+\/package\.json$/.test(path) ||
+  /^crates\/[^/]+\/Cargo\.toml$/.test(path);
 
 /** A pull request's changed paths, whole: GitHub lists at most 3,000, so a longer list fails closed. */
 export async function pullFiles(get, repo, n) {
@@ -1613,18 +1632,33 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // This head's own runs: a step whose baseline money flag main's money rule disagrees with (`mismatch`) is judged again
   // with this head's money rule too, read once and only then (journey-verdict.mjs judge, headMoney). Main's runs keep
   // main's rule alone. The flag a pull request can change for itself is only ever read the stricter way.
+  // A pull request that changes a file the rule or the baseline is read from (moneyInput) is always judged with its head's
+  // rule and the baseline it would merge, so it can't make a baselined step money unseen (#9539); unreadable, it fails closed.
+  const changesMoney = paths.filter(moneyInput);
   let headMoney;
   const ownVerdictOf = async (rep, r) => {
     const v = await verdictOf(rep, r);
-    if (!io.headMoney || !(v?.red ?? []).some((x) => x?.mismatch)) return v;
-    let rule;
+    if (!io.headMoney || !(changesMoney.length || (v?.red ?? []).some((x) => x?.mismatch))) return v;
+    let got;
     try {
-      rule = await (headMoney ??= Promise.resolve().then(() => io.headMoney(head)));
+      got = await (headMoney ??= Promise.resolve().then(async () => {
+        const rule = await io.headMoney(head);
+        if (!paths.includes(BASELINE_PATH)) return { headMoney: rule };
+        const t = await text(BASELINE_PATH, head);
+        if (typeof t !== 'string') throw new Error(`${BASELINE_PATH} is not on this head`);
+        return { headMoney: rule, headBaseline: JSON.parse(t) };
+      }));
     } catch (e) {
       const why = `; this head's own money rule couldn't be read (${e.message}), so it stays red`;
-      return { ...v, red: v.red.map((x) => (x?.mismatch ? { ...x, why: x.why + why } : x)) };
+      const red = v.red.map((x) => (x?.mismatch ? { ...x, why: x.why + why } : x));
+      if (changesMoney.length)
+        red.push({
+          step: '(input)',
+          why: `this pull request changes ${changesMoney.slice(0, 3).join(', ')}${changesMoney.length > 3 ? `, ${changesMoney.length - 3} more` : ''}, which the money rule or the baseline is read from, and its head's couldn't be read (${e.message}), so the seal fails closed`,
+        });
+      return { ...v, red };
     }
-    return io.verdictOf(rep, r, { headMoney: rule });
+    return io.verdictOf(rep, r, got);
   };
   // The area of this pull request, for reds it inherited from main (splitInherited): the journeys it touches and its paths.
   const touches = {
