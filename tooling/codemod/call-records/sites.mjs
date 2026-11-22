@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, literal, load, resolveRelative, walk } from './ast.mjs';
+import { fanOut } from './fan.mjs';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
 const NAMED_AT = { query: [0, 1], mutate: [0, 1], founderCall: [1, 2], founderEdgeCall: [1, 2], payCall: [1], useBankRead: [0] };
@@ -75,27 +76,9 @@ export function findSites(repo) {
         }
         if (name === 'founderCall' && a[2]?.type === 'MemberExpression' && !a[2].computed && a[2].property.name === 'procedure')
           Object.assign(site, { shape: 'ops-dispatch', problem: 'sends the call its table entry names: it moves with the table' });
-        // `cond ? 'a.x' : 'a.y'`: one site per branch, both moved or neither (`pairs` in index.mjs).
-        const pathArg = name === 'founderCall' ? a[2] : name === 'query' || name === 'mutate' ? a[1] : undefined;
-        const unparen = (x) => (x?.type === 'ParenthesizedExpression' ? x.expression : x);
-        const cond = unparen(pathArg);
-        if (
-          !site.problem &&
-          site.module &&
-          cond?.type === 'ConditionalExpression' &&
-          literal(unparen(cond.consequent)) &&
-          literal(unparen(cond.alternate))
-        ) {
-          // Each branch's input is typed by its own record: only an input written out here (or none) can be.
-          const input = a[name === 'founderCall' ? 4 : 2];
-          const typed = !input || input.type === 'ObjectExpression' || (input.type === 'Identifier' && input.name === 'undefined');
-          const why = "its `? :` sends one input value to two records: each branch's input type can't be kept";
-          for (const branch of ['consequent', 'alternate'])
-            out.push({ ...site, path: literal(unparen(cond[branch])), branch, cond, ...(typed ? {} : { problem: why }) });
-          return;
-        }
-        if (!site.problem && (!site.module || !site.path)) site.problem = 'service or call named by a template';
-        out.push(site);
+        // A service or call not named by a string: one site per value the code lists, or the call named with why (fan.mjs).
+        if (!site.problem && (!site.module || !site.path)) out.push(...fanOut(p, site));
+        else out.push(site);
       }
       if (n.type === 'Property') {
         const key = keyOf(n);
