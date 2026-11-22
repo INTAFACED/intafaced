@@ -1,4 +1,5 @@
 import type postgres from 'postgres';
+import { z } from 'zod';
 import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
@@ -58,6 +59,8 @@ type VoucherCampaignRow = {
   face_amount: string;
   kind: MyVoucher['kind'];
   fee_discount_bps: number | null;
+  fee_rebate_bps: number | null;
+  fee_rebate_delay_seconds: number | null;
   used_amount: string;
   claim_by: Date | null;
   use_by: Date | null;
@@ -113,7 +116,7 @@ const USED = (sql: Queryable) => sql`
 
 const SELECT_VOUCHER = (sql: Queryable) => sql`
   SELECT v.id, v.campaign_id, v.code, v.code_last4, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.fee_discount_bps,
-    ${USED(sql)} AS used_amount, v.claim_by, v.use_by, v.claimed_by, v.claimed_at, v.expired_at,
+    v.fee_rebate_bps, v.fee_rebate_delay_seconds, ${USED(sql)} AS used_amount, v.claim_by, v.use_by, v.claimed_by, v.claimed_at, v.expired_at,
     c.name AS campaign_name, c.state AS campaign_state, c.starts_at, c.ends_at, c.participation
   FROM campaigns.vouchers v JOIN campaigns.campaigns c ON c.id = v.campaign_id`;
 
@@ -169,6 +172,7 @@ export class VoucherService {
         v.kind === 'fee_saver' && v.fee_discount_bps !== null
           ? { discountBps: v.fee_discount_bps, orders: Number(parseAmount(v.face_amount) / parseAmount('1')) }
           : null,
+      feeRebate: feeRebateOf(v),
     };
   }
 
@@ -229,11 +233,14 @@ export class VoucherService {
         SELECT v.id, v.campaign_id, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.use_by, v.claimed_by
         FROM campaigns.vouchers v WHERE v.id = ${input.voucherId} FOR UPDATE`;
       if (!v || v.claimed_by !== input.accountId) throw new CampaignsError('campaigns.voucher_invalid', INVALID);
-      // A fee-saver pays nothing out: it is taken on an order, when svc-trade prices our builder fee.
+      // A fee-saver pays nothing out: it is taken on an order, when svc-trade prices our builder fee. A fee rebate pays
+      // only what its fills accrue (fee-rebates.ts), never an amount the holder names.
       if (v.kind !== 'cash') {
         throw new CampaignsError(
           'campaigns.voucher_not_cash',
-          'This coupon lowers our builder fee on your orders; it is not redeemed for cash',
+          v.kind === 'fee_rebate'
+            ? 'This coupon pays part of our builder fee back after each fill; it is not redeemed for cash'
+            : 'This coupon lowers our builder fee on your orders; it is not redeemed for cash',
         );
       }
       // Read under the voucher's lock: every redemption of it takes that lock first, so the sum cannot move under us.
@@ -397,18 +404,25 @@ export class VoucherService {
   }
 
   /**
-   * The caller's vouchers, newest claim first, each with its redemptions. A read writes nothing: one past its use-by with
-   * something left reads expired before the sweep marks it, and `expiredAt` is set once the sweep has.
+   * The caller's vouchers, newest claim first, each with its redemptions. A read changes no voucher (it only notes the
+   * caller's connected wallet on their open USDC redemptions that have none): one past its use-by with something left
+   * reads expired before the sweep marks it, and `expiredAt` is set once the sweep has.
    */
-  async mine(input: { accountId: string }): Promise<MyVouchers> {
+  async mine(input: { accountId: string; forwarded?: Record<string, string> }): Promise<MyVouchers> {
+    // The person's own read: an open USDC redemption with no wallet yet (a fee rebate's accrual, made by a pass with no
+    // request of theirs) is given their connected wallet here, so the payer can pay it once its delay has passed.
+    if (this.payTo && input.forwarded) await this.payTo(input.accountId, input.forwarded).catch(() => false);
     const rows = await this.sql<VoucherCampaignRow[]>`
       ${SELECT_VOUCHER(this.sql)}
       WHERE v.claimed_by = ${input.accountId}
       ORDER BY v.claimed_at DESC, v.id LIMIT ${MY_VOUCHERS_LIMIT}`;
     const redemptions = await this.redemptionsOf(rows, input.accountId);
     const uses = await this.feeSaverUsesOf(rows);
+    const accruals = await this.feeRebateAccrualsOf(rows);
     const now = this.now();
-    return { vouchers: rows.map((r) => toMine(r, redemptions.get(r.id) ?? [], now, uses.get(r.id) ?? [])) };
+    return {
+      vouchers: rows.map((r) => toMine(r, redemptions.get(r.id) ?? [], now, uses.get(r.id) ?? [], accruals.get(r.id) ?? [])),
+    };
   }
 
   /**
@@ -505,7 +519,35 @@ export class VoucherService {
       ${SELECT_VOUCHER(this.sql)} WHERE v.id = ${voucherId} AND v.claimed_by = ${accountId}`;
     if (!row) return null;
     const uses = (await this.feeSaverUsesOf([row])).get(row.id) ?? [];
-    return toMine(row, (await this.redemptionsOf([row], accountId)).get(row.id) ?? [], this.now(), uses);
+    const accruals = (await this.feeRebateAccrualsOf([row])).get(row.id) ?? [];
+    return toMine(row, (await this.redemptionsOf([row], accountId)).get(row.id) ?? [], this.now(), uses, accruals);
+  }
+
+  /** Each fee rebate's accruals, oldest first, each paid at the earliest when it accrued plus the coupon's delay. */
+  private async feeRebateAccrualsOf(rows: readonly VoucherCampaignRow[]): Promise<Map<string, FeeRebateAccrual[]>> {
+    const out = new Map<string, FeeRebateAccrual[]>();
+    const ids = rows.filter((r) => r.kind === 'fee_rebate').map((r) => r.id);
+    if (ids.length === 0) return out;
+    const found = AccrualRow.array().parse(
+      await this.sql`
+      SELECT a.voucher_id, a.sequence, a.fill_id, a.builder_fee::text AS builder_fee, a.amount::text AS amount, a.filled_at,
+        i.hold_until AS payable_at, a.created_at
+      FROM campaigns.fee_rebate_accruals a JOIN campaigns.reward_intents i ON i.reward_key = a.reward_key
+      WHERE a.voucher_id IN ${this.sql(ids)} ORDER BY a.voucher_id, a.sequence`,
+    );
+    for (const a of found) {
+      const list = out.get(a.voucher_id) ?? [];
+      list.push({
+        sequence: a.sequence,
+        fillId: a.fill_id,
+        builderFee: decimalOf(a.builder_fee),
+        amount: decimalOf(a.amount),
+        filledAt: a.filled_at.toISOString(),
+        payableAt: (a.payable_at ?? a.created_at).toISOString(),
+      });
+      out.set(a.voucher_id, list);
+    }
+    return out;
   }
 
   /** Each fee-saver's orders it was taken on, oldest first. */
@@ -561,8 +603,30 @@ export class VoucherService {
 }
 
 type FeeSaverUse = { sequence: number; orderKey: string; at: string };
+type FeeRebateAccrual = NonNullable<MyVoucher['feeRebate']>['accruals'][number];
+const AccrualRow = z.object({
+  voucher_id: z.string(),
+  sequence: z.number().int(),
+  fill_id: z.string(),
+  builder_fee: z.string(),
+  amount: z.string(),
+  filled_at: z.date(),
+  payable_at: z.date().nullable(),
+  created_at: z.date(),
+});
 
-function toMine(v: VoucherCampaignRow, redemptions: VoucherRedemption[], now: Date, uses: FeeSaverUse[] = []): MyVoucher {
+const feeRebateOf = (v: Pick<VoucherCampaignRow, 'kind' | 'fee_rebate_bps' | 'fee_rebate_delay_seconds'>) =>
+  v.kind === 'fee_rebate' && v.fee_rebate_bps !== null && v.fee_rebate_delay_seconds !== null
+    ? { rebateBps: v.fee_rebate_bps, delaySeconds: v.fee_rebate_delay_seconds }
+    : null;
+
+function toMine(
+  v: VoucherCampaignRow,
+  redemptions: VoucherRedemption[],
+  now: Date,
+  uses: FeeSaverUse[] = [],
+  accruals: FeeRebateAccrual[] = [],
+): MyVoucher {
   const face = parseAmount(v.face_amount);
   const used = parseAmount(v.used_amount);
   const expired = v.state === 'expired' || (used < face && v.use_by !== null && v.use_by <= now);
@@ -587,5 +651,9 @@ function toMine(v: VoucherCampaignRow, redemptions: VoucherRedemption[], now: Da
       v.kind === 'fee_saver' && v.fee_discount_bps !== null
         ? { discountBps: v.fee_discount_bps, orders: Number(face / parseAmount('1')), uses }
         : null,
+    feeRebate: (() => {
+      const terms = feeRebateOf(v);
+      return terms ? { ...terms, accruals } : null;
+    })(),
   };
 }
