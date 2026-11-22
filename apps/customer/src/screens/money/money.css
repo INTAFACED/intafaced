@@ -663,6 +663,8 @@
     margin-top: var(--if-space-4);
     padding-bottom: 0;
     clip-path: inset(0 round var(--if-r-lg));
+    /* No wider than its column: the table scrolls inside, it does not stretch the page. */
+    min-inline-size: 0;
   }
   .money-table--activity td {
     height: 48px;
@@ -676,6 +678,7 @@
   }
   /* No scroller of its own: the kit's table scrolls inside it (`lt-table-scroll`), and a second one around it would cut what that one shows. */
   .money-trade-tab {
+    min-inline-size: 0;
     padding-bottom: var(--if-space-2);
   }
   .money-trade-tab > [aria-busy='true'] {
