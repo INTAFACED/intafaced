@@ -22,6 +22,7 @@ import {
   BANK_RAMPS_DESTINATIONS_SAVE,
   BANK_RAMPS_DESTINATIONS_REMOVE,
 } from '@intafaced/contracts/bank-ramps-procedures';
+import { BANK_RAMPS_DESTINATIONS_RENAME } from '@intafaced/contracts/bank-ramps-destinations-procedures';
 
 const OWNERSHIP_KEYS = { pending: 'aOwnPending', expired: 'aOwnExpired' } as const;
 
@@ -831,7 +832,7 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
     ? (row: Destination) =>
         open({
           title: t('aRenameTitle'),
-          procedure: 'ramps.destinations.rename',
+          record: BANK_RAMPS_DESTINATIONS_RENAME,
           facts: [[t('aRenameAddress'), shortenAddress(row.ref)]],
           initial: { label: row.label ?? '' },
           fields: [

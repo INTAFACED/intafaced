@@ -8,6 +8,7 @@ import { sorterCopy } from '../sorter-copy';
 import { bpToPercent, percentToBp, sorterLegs } from '../sorter-model';
 import type { z } from 'zod';
 import { BANK_SORTER_LIST, BANK_SORTER_RUNS } from '@intafaced/contracts/bank-sorter-procedures';
+import { BANK_SORTER_CREATE, BANK_SORTER_CANCEL } from '@intafaced/contracts/bank-sorter-2-procedures';
 
 type Sorter = z.infer<typeof sorterListSchema>['sorters'][number];
 const RUNS_SHOWN = 5;
@@ -32,7 +33,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
       sorterLegs(targets.map((space) => ({ spaceId: space.id, text: values[fieldName(space.id)] ?? '' })));
     open({
       title: t('createTitle', { asset: assetId }),
-      procedure: 'sorter.create',
+      record: BANK_SORTER_CREATE,
       fields: targets.map((space) => ({
         name: fieldName(space.id),
         label: t('field', { space: space.name }),
@@ -61,7 +62,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
   const stop = (sorter: Sorter) =>
     open({
       title: t('stopTitle', { asset: sorter.assetId }),
-      procedure: 'sorter.cancel',
+      record: BANK_SORTER_CANCEL,
       facts: sorter.legs.map((leg) => [leg.spaceName || nameOf(leg.spaceId), bpToPercent(leg.shareBp)]),
       notes: [t('stopNote')],
       input: () => ({ sorterId: sorter.id }),

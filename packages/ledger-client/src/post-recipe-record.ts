@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isRecord } from '@intafaced/contracts/guards';
 import { defineProcedure } from '@intafaced/contracts/procedure';
-import { MoneyError, parseAmount } from './money.js';
+import { MoneyError, parseAmount, sum } from './money.js';
 import { recipes, type RecipeName } from './recipes/index.js';
 import { BANK_TRANSFER_KEY_SPACES } from './recipes/bank.js';
 import { LedgerError, type PostRequest } from './types.js';
@@ -23,8 +23,8 @@ import { LedgerError, type PostRequest } from './types.js';
  * Adding a recipe to the door is one entry in `RECIPE_DOORS` (its inputs' wire shape and the conversion to its bigints),
  * its line in `postRecipeInput`, and its grant in the ledger gate's `gate/caller-allowlist.ts`. On the door now: svc-academy's two
  * recipes, svc-agents' usage charge (`feeCharge` in its asset mode, `chargeEarn`, `chargeCollect`), and svc-bank's
- * transfer (`bankTransfer`, every key space) and its holds on received funds (`payReceivedHold`, `payReceivedRelease`,
- * `payReceivedReturn`).
+ * transfer (`bankTransfer`, every key space), its holds on received funds (`payReceivedHold`, `payReceivedRelease`,
+ * `payReceivedReturn`) and its earn pools (`earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`).
  */
 
 /** A positive or zero decimal string, at most 18 places: the recipe refuses zero where it must. */
@@ -111,6 +111,14 @@ const BANK_ACCOUNT = z.discriminatedUnion('ownerType', [
   z.object({ ownerType: z.literal('treasury'), ownerId: RAIL_OWNER, assetId: ACCOUNT_ASSET, kind: z.literal('available') }).strict(),
 ]);
 
+/**
+ * A pool funding's own id (`earnPoolFund`'s `fundingId`: a treasury transfer reference, a window id), as svc-bank's
+ * operator door takes it. At most 128, so `bank.earn.fund:<poolId>:<fundingId>` stays within the ledger's 200.
+ */
+const FUNDING_ID = z.string().min(1).max(128);
+/** An accrual's day as it is written (`YYYY-MM-DD`); the recipe refuses a day the calendar does not have (2026-02-31). */
+const ACCRUAL_DATE = z.string().regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
+
 /** One recipe on the door: its inputs' wire shape, and how they become the registry recipe's own inputs. */
 interface RecipeDoor {
   readonly wire: z.ZodObject;
@@ -171,6 +179,22 @@ const payReceivedHoldWire = z.object(receivedHoldFields).strict();
 /** A release or a return moves the whole hold: the amount the hold was placed for is sent beside it (RH-2). */
 const payReceivedReleaseWire = z.object({ ...receivedHoldFields, heldAmount: AMOUNT }).strict();
 const payReceivedReturnWire = z.object({ ...receivedHoldFields, heldAmount: AMOUNT, payerUserId: UUID }).strict();
+/**
+ * `earnDeposit` and `earnWithdraw`: one position (`bank.earn_positions.id`) in one pool (`bank.earn_pools.id`), its
+ * owner and the principal. The stake pot `bank:earn:<positionId>` is the recipe's.
+ */
+const earnPositionWire = z.object({ positionId: UUID, poolId: UUID, userId: UUID, assetId: ACCOUNT_ASSET, amount: AMOUNT }).strict();
+/** `earnPoolFund` from the bank's own fee revenue: svc-bank never names another source, so `from` is not on the wire. */
+const earnPoolFundWire = z.object({ poolId: UUID, fundingId: FUNDING_ID, assetId: ACCOUNT_ASSET, amount: AMOUNT }).strict();
+/** `earnInterest`: one pool's day, one payout a person; the recipe refuses an empty list and a zero payout. */
+const earnInterestWire = z
+  .object({
+    poolId: UUID,
+    date: ACCRUAL_DATE,
+    assetId: ACCOUNT_ASSET,
+    payouts: z.array(z.object({ userId: UUID, amount: AMOUNT }).strict()),
+  })
+  .strict();
 
 /**
  * The recipes the door posts, one entry each, plus its line in `postRecipeInput` below. TypeScript checks each `build`
@@ -198,6 +222,15 @@ const RECIPE_DOORS = {
   payReceivedReturn: door(payReceivedReturnWire, (i) =>
     recipes.payReceivedReturn({ ...i, amount: parseAmount(i.amount), heldAmount: parseAmount(i.heldAmount) }),
   ),
+  earnDeposit: door(earnPositionWire, (i) => recipes.earnDeposit({ ...i, amount: parseAmount(i.amount) })),
+  earnWithdraw: door(earnPositionWire, (i) => recipes.earnWithdraw({ ...i, amount: parseAmount(i.amount) })),
+  earnPoolFund: door(earnPoolFundWire, (i) => recipes.earnPoolFund({ ...i, amount: parseAmount(i.amount) })),
+  earnInterest: door(earnInterestWire, (i) => {
+    const payouts = i.payouts.map((p) => ({ userId: p.userId, amount: parseAmount(p.amount) }));
+    // The day's total must fit the book, as every amount the door takes does.
+    parseAmount(sum(payouts.map((p) => p.amount)));
+    return recipes.earnInterest({ ...i, payouts });
+  }),
 } as const satisfies Partial<Record<RecipeName, RecipeDoor>>;
 
 export type PostRecipeName = keyof typeof RECIPE_DOORS;
@@ -224,6 +257,10 @@ const postRecipeInput = z.discriminatedUnion('recipe', [
   variant('payReceivedHold'),
   variant('payReceivedRelease'),
   variant('payReceivedReturn'),
+  variant('earnDeposit'),
+  variant('earnWithdraw'),
+  variant('earnPoolFund'),
+  variant('earnInterest'),
 ]);
 
 const postedEntry = z.object({
@@ -288,6 +325,18 @@ const sampleTransfer = {
   keySpace: 'p2p',
 };
 const sampleHold = { holdId: SAMPLE_BUSINESS, userId: SAMPLE_PAYEE, assetId: 'USDC', amount: '12.5' };
+const SAMPLE_POOL = '44444444-4444-4444-8444-444444444444';
+const samplePosition = { positionId: SAMPLE_BUSINESS, poolId: SAMPLE_POOL, userId: SAMPLE_USER, assetId: 'USDT', amount: '100' };
+const sampleFund = { poolId: SAMPLE_POOL, fundingId: 'treasury-2026-11', assetId: 'USDT', amount: '50' };
+const sampleInterest = {
+  poolId: SAMPLE_POOL,
+  date: '2026-11-22',
+  assetId: 'USDT',
+  payouts: [
+    { userId: SAMPLE_USER, amount: '0.013698630136986301' },
+    { userId: SAMPLE_PAYEE, amount: '0.5' },
+  ],
+};
 
 export const LEDGER_POST_RECIPE = defineProcedure({
   name: 'ledger.postRecipe',
@@ -346,7 +395,18 @@ export const LEDGER_POST_RECIPE = defineProcedure({
       verdict: 'accept',
       input: { recipe: 'payReceivedReturn', input: { ...sampleHold, heldAmount: '12.5', payerUserId: SAMPLE_USER } },
     },
+    { verdict: 'accept', input: { recipe: 'earnDeposit', input: samplePosition } },
+    { verdict: 'accept', input: { recipe: 'earnWithdraw', input: samplePosition } },
+    { verdict: 'accept', input: { recipe: 'earnPoolFund', input: sampleFund } },
+    { verdict: 'accept', input: { recipe: 'earnInterest', input: sampleInterest } },
     { verdict: 'refuse', input: { recipe: 'deposit', input: samplePurchase } },
+    { verdict: 'refuse', input: { recipe: 'earnDeposit', input: { ...samplePosition, amount: '-1' } } },
+    { verdict: 'refuse', input: { recipe: 'earnDeposit', input: { ...samplePosition, positionId: 'position-1' } } },
+    { verdict: 'refuse', input: { recipe: 'earnWithdraw', input: { ...samplePosition, poolId: undefined } } },
+    { verdict: 'refuse', input: { recipe: 'earnPoolFund', input: { ...sampleFund, from: { ownerType: 'house', ownerId: 'fees:bank' } } } },
+    { verdict: 'refuse', input: { recipe: 'earnPoolFund', input: { ...sampleFund, fundingId: 'f'.repeat(129) } } },
+    { verdict: 'refuse', input: { recipe: 'earnInterest', input: { ...sampleInterest, date: '2026-11-2' } } },
+    { verdict: 'refuse', input: { recipe: 'earnInterest', input: { ...sampleInterest, payouts: [{ userId: SAMPLE_USER, amount: 0.5 }] } } },
     { verdict: 'refuse', input: { recipe: 'bankTransfer', input: { ...sampleTransfer, keySpace: undefined } } },
     { verdict: 'refuse', input: { recipe: 'bankTransfer', input: { ...sampleTransfer, keySpace: 'legacy' } } },
     { verdict: 'refuse', input: { recipe: 'bankTransfer', input: { ...sampleTransfer, occurrence: -1 } } },

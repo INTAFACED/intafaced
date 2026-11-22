@@ -1,5 +1,5 @@
 import { Button } from '@intafaced/ui/lit';
-import { BANK_RAMPS_FIAT_SETTLE } from '@intafaced/contracts/bank-ramps-procedures';
+import { BANK_RAMPS_FIAT_SETTLE, BANK_RAMPS_OFFRAMP } from '@intafaced/contracts/bank-ramps-procedures';
 import { BANK_RAMPS_PROGRAMME } from '@intafaced/contracts/bank-ramps-procedures';
 import { displayAmount } from '../../../shared/money';
 import { Panel } from '../bank-settings/parts';
@@ -70,7 +70,7 @@ export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
     if (blocked !== null) return;
     open({
       title: t('outTitle'),
-      procedure: 'ramps.offramp',
+      record: BANK_RAMPS_OFFRAMP,
       fields: [
         assetSelectField(t('outAsset'), t('outAssetHint'), assets),
         { ...positiveMoney(undefined, 'amount', t('outAmount')), hint: undefined },

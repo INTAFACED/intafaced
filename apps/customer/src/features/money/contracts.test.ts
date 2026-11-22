@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE } from '@intafaced/contracts/bank-business-procedures';
+import { BANK_CARDS_ISSUE, BANK_CARDS_SET_CHANNELS, BANK_CARDS_SET_LIMITS } from '@intafaced/contracts/bank-cards-2-procedures';
 import { bankWrites, cardSchema, myRoleSchema, pendingApprovalsSchema, teamSchema } from './contracts';
 
 const card = {
@@ -36,8 +37,10 @@ describe('what the card service returns', () => {
     expect(cardSchema.safeParse({ ...card, dailyLimit: 1000 }).success).toBe(false);
   });
   it('uses the same card shape for an order, a limits change and a channels change', () => {
-    for (const procedure of ['cards.issue', 'cards.setLimits', 'cards.setChannels'] as const)
-      expect(bankWrites[procedure].safeParse(card).success, procedure).toBe(true);
+    // The bank's answer carries these beside the app's card view.
+    const answer = { ...card, usesAllowed: null, designId: null, deliverySpeed: null, replacesCardId: null, replacedByCardId: null };
+    for (const record of [BANK_CARDS_ISSUE, BANK_CARDS_SET_LIMITS, BANK_CARDS_SET_CHANNELS])
+      expect(record.output.safeParse(answer).success, record.path).toBe(true);
   });
 });
 

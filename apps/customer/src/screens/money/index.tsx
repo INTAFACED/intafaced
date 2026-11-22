@@ -4,7 +4,7 @@ import type { ScreenProps } from '../../app/screen-types';
 import BalanceEntries from './BalanceEntries';
 import Activity from './Activity';
 import ActivityDetail from './ActivityDetail';
-import Pnl from './Pnl';
+import Pnl from './pnl/Pnl';
 import Portfolio from './Portfolio';
 import { WhereItSits } from './WhereItSits';
 import { SourceEntries, asksForSourceRecords } from './SourceEntries';
