@@ -53,7 +53,7 @@ export function Loading({ rows = 3, label }: { rows?: number; label?: string }) 
 }
 
 /** A part that is not live yet: a calm card naming what it waits for (the portal's not-live card, on the kit). */
-export function NotLive({ reason, title, children }: { reason: string; title?: string; children?: ReactNode }) {
+function NotLive({ reason, title, children }: { reason: string; title?: string; children?: ReactNode }) {
   return (
     <RefusalBox
       data-testid="pfo-soon"
@@ -133,7 +133,7 @@ export function TestBanner() {
 }
 
 /** An ID the merchant may need to quote. Copying says it worked, or says it didn't, to everyone including screen readers. */
-export function CopyReference({ value, what }: { value: string; what?: string }) {
+function CopyReference({ value, what }: { value: string; what?: string }) {
   const { t } = uiCopy.useCopy();
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   return (
