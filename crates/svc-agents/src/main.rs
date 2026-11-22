@@ -50,6 +50,8 @@ use svc_agents::navigator::ports::{IdentitySessionHttp, TradeHttp};
 use svc_agents::navigator::research::{Research, parse_uncertainty_scale, research_environment};
 use svc_agents::ops::{Ops, alerts, log as oplog};
 use svc_agents::own::Own;
+use svc_agents::own::automation::{AutoRuns, Cadence, tick_schedules};
+use svc_agents::own::background::{self as own_background, Settings as OwnBackground};
 use svc_agents::own::catalog::parse_own_templates;
 use svc_agents::own::desk::{SupportDesk, SupportDeskHttp};
 use svc_agents::own::gates::parse_policy_baseline;
@@ -93,7 +95,11 @@ type Job<'a> = Box<dyn Fn() -> Result<(), String> + Sync + 'a>;
 
 /// The work each timer runs. Each comes with its slice (`timers::timers` names it); until then the timer does not run,
 /// as it would not in a process without that work.
-fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job<'a>)> {
+fn jobs<'a>(
+    door: &'a AgentsDoor,
+    env: &'a AgentsEnv,
+    log: &'a Logger,
+) -> Vec<(&'static str, Job<'a>)> {
     vec![
         (
             "route table sync",
@@ -149,6 +155,40 @@ fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job
         (
             "unpublished sweep",
             Box::new(move || svc_agents::own::notices::sweep_unpublished(door)),
+        ),
+        // `advanceBackgroundRuns(sql)`: each running background test run re-reads its agent's switches, then steps.
+        (
+            "own background test runs",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                own_background::advance(pool, 100)
+                    .map(|_| ())
+                    .map_err(|e| format!("background test runs did not advance: {}", e.message))
+            }),
+        ),
+        // `tickSchedules(autoRuns, AGENTS_SCHEDULE_WORKERS ?? 1)`: the due-run workers.
+        (
+            "schedule workers",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                let warn =
+                    |msg: &str, detail: &str| log.warn(vec![("detail", Json::str(detail))], msg);
+                let runs = AutoRuns {
+                    x: Rt {
+                        rt: door.runtime(),
+                        pool,
+                        gateway: &door.gateway().gateway,
+                        m: door.metering(),
+                        now: system_now(),
+                    },
+                    cadence: door.own().cadence,
+                    log: Some(&warn),
+                    pause: None,
+                };
+                tick_schedules(&runs, timers::schedule_workers(env))
+                    .map(|_| ())
+                    .map_err(|e| format!("own agent schedules did not tick: {e:?}"))
+            }),
         ),
     ]
 }
@@ -519,6 +559,14 @@ fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
         reviewer_model: env.str("AGENTS_REVIEWER_MODEL").map(str::to_owned),
         approval_ttl_seconds: env.int("AGENTS_APPROVAL_TTL_SECONDS"),
         support_desk,
+        cadence: Cadence {
+            min_interval_minutes: env.int("AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES"),
+            daily_limit: env.int("AGENTS_SCHEDULE_DAILY_LIMIT"),
+        },
+        background: OwnBackground {
+            steps: env.int("AGENTS_BACKGROUND_TEST_STEPS"),
+            step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),
+        },
     })
 }
 
@@ -709,7 +757,7 @@ fn serve(
         signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
     }
     let table = timers::timers(env);
-    let jobs = jobs(&app.wire, env);
+    let jobs = jobs(&app.wire, env, log);
     for t in table.iter().filter(|t| t.every.is_some()) {
         if !jobs.iter().any(|(name, _)| *name == t.name) {
             log.warn(
