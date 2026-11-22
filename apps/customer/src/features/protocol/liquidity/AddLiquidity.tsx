@@ -8,7 +8,7 @@ import { Button, Field, Loading, Panel } from '../../../shared/ui';
 import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { networkLabel } from '../blockers';
-import { WatchShell } from '../watch/AddressPage';
+import { WatchShell } from '../watch/WatchShell';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { liquidityCopy } from './copy';
 import { amountText, bpsPercent, toUnits } from './format';
