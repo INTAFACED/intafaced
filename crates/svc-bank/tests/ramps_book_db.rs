@@ -1958,3 +1958,1090 @@ fn same_ref_persist_still_bumps_updated_at() {
     assert!(second.updated_at.0 > first.updated_at.0);
     assert_eq!(store::require(&mut c, &u, "crypto").unwrap().updated_at, second.updated_at);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// ramps/address-book.router.test.ts: through the door (W-withdraw-08)
+
+const BOOK_ADDRESS: &str = "0xabCDeF0123456789AbcdEf0123456789aBCDEF01";
+
+/// The router suite's owner values: a book of two, no link lifetime.
+fn router_owner() -> Settings {
+    Settings {
+        address_book_cap: Some("2".to_owned()),
+        address_approval_link_minutes: None,
+        ..owner()
+    }
+}
+
+fn book_entry(r: &str, label: &str) -> Vec<(&'static str, Json)> {
+    vec![
+        ("assetId", s("USDT")),
+        ("network", s("erc20")),
+        ("ref", s(r)),
+        ("label", s(label)),
+    ]
+}
+
+fn with(mut fields: Vec<(&'static str, Json)>, more: &[(&'static str, Json)]) -> Json {
+    for (k, v) in more {
+        if let Some(slot) = fields.iter_mut().find(|(f, _)| f == k) {
+            slot.1 = v.clone();
+        } else {
+            fields.push((k, v.clone()));
+        }
+    }
+    obj(&fields)
+}
+
+fn save_as(door: &BankDoor, user: &str, scopes: &[&str], input: &Json) -> Answer {
+    call_as(door, person(user, scopes), "ramps.destinations.save", input)
+}
+
+fn list_as(door: &BankDoor, user: &str, scopes: &[&str]) -> Vec<Json> {
+    list_of(&call_as(door, person(user, scopes), "ramps.destinations.list", &Json::Null).ok())
+}
+
+#[test]
+fn refuses_a_plain_session_on_save_and_remove_and_saves_nothing() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    let plain = ["bank:read", "bank:write"];
+    assert_eq!(
+        save_as(&b.door, &u, &plain, &obj(&book_entry(BOOK_ADDRESS, "Cold wallet"))).trpc(),
+        "FORBIDDEN"
+    );
+    assert_eq!(
+        call_as(
+            &b.door,
+            person(&u, &plain),
+            "ramps.destinations.remove",
+            &obj(&[
+                ("destinationId", s("33333333-3333-4333-8333-333333333333")),
+                ("idempotencyKey", s("rm-1")),
+            ])
+        )
+        .trpc(),
+        "FORBIDDEN"
+    );
+    assert!(list_as(&b.door, &u, &plain).is_empty());
+}
+
+#[test]
+fn saves_with_the_step_up_scope_lists_the_row_masked_with_its_network_and_state_and_renames_with_bank_write() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    let saved = save_as(
+        &b.door,
+        &u,
+        STEPPED,
+        &with(book_entry(BOOK_ADDRESS, "Cold wallet"), &[("tag", s("777"))]),
+    )
+    .ok();
+    for (k, v) in [
+        ("assetId", "USDT"),
+        ("network", "erc20"),
+        ("tag", "777"),
+        ("origin", "customer"),
+        ("state", "pending"),
+        ("refMasked", "0xabCD…EF01"),
+    ] {
+        assert_eq!(text(&saved, k), v, "{k}");
+    }
+    let listed = list_as(&b.door, &u, &["bank:read"]);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(text(&listed[0], "destinationId"), text(&saved, "destinationId"));
+    assert_eq!(text(&listed[0], "coolingBlocker"), "bank.offramp_cooling_unset");
+    let renamed = call_as(
+        &b.door,
+        person(&u, &["bank:read", "bank:write"]),
+        "ramps.destinations.rename",
+        &obj(&[("destinationId", s(&text(&saved, "destinationId"))), ("label", s("Vault"))]),
+    )
+    .ok();
+    assert_eq!(text(&renamed, "label"), "Vault");
+}
+
+#[test]
+fn saves_a_new_address_waiting_for_approval_approving_by_link_needs_the_step_up_scope_asking_for_a_link_does_not() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    let saved = save_as(&b.door, &u, STEPPED, &obj(&book_entry(BOOK_ADDRESS, "Approve me"))).ok();
+    for k in ["coolingOffEndsAt", "approvedAt", "approvalLinkExpiresAt"] {
+        assert_eq!(text(&saved, k), "null", "{k}");
+    }
+    assert_eq!(text(&saved, "state"), "pending");
+    let plain = person(&u, &["bank:read", "bank:write"]);
+    assert_eq!(
+        call_as(
+            &b.door,
+            plain.clone(),
+            "ramps.destinations.approval.confirmLink",
+            &obj(&[("token", Json::str("A".repeat(43)))])
+        )
+        .trpc(),
+        "FORBIDDEN"
+    );
+    assert_eq!(
+        call_as(
+            &b.door,
+            plain,
+            "ramps.destinations.approval.requestMail",
+            &obj(&[("destinationId", s(&text(&saved, "destinationId")))])
+        )
+        .code(),
+        "bank.address_approval_link_unset"
+    );
+}
+
+#[test]
+fn approves_from_another_trusted_device_read_from_the_access_token_the_saving_one_is_refused_and_a_plain_session_may_not() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    let a = (SIGN_IN_A, DEVICE_A);
+    let bb = (SIGN_IN_B, PROVED_DEVICE);
+    let saved = call_as(
+        &b.door,
+        person_on(&u, STEPPED, Some(a.0), Some(a.1)),
+        "ramps.destinations.save",
+        &obj(&book_entry(BOOK_ADDRESS, "From A")),
+    )
+    .ok();
+    let id = text(&saved, "destinationId");
+    assert_eq!(
+        store::saved_on(&mut b.client(), &u, &id).unwrap(),
+        Some(SavedOn {
+            fam: Some(a.0.to_owned()),
+            dev: Some(a.1.to_owned())
+        })
+    );
+    let same = on_device(&b.door, &u, &id, Some(a.0), Some(a.1));
+    assert_eq!(
+        (same.trpc(), same.code()),
+        ("PRECONDITION_FAILED".to_owned(), "bank.address_approval_same_device".to_owned())
+    );
+    // A token that names no sign-in cannot be told apart, so it refuses rather than approving.
+    assert_eq!(
+        on_device(&b.door, &u, &id, None, None).code(),
+        "bank.address_approval_device_unknown"
+    );
+    assert_eq!(
+        call_as(
+            &b.door,
+            person_on(&u, &["bank:read", "bank:write"], Some(bb.0), Some(bb.1)),
+            "ramps.destinations.approval.onDevice",
+            &obj(&[("destinationId", s(&id))])
+        )
+        .trpc(),
+        "FORBIDDEN"
+    );
+    // The device is never taken from the request.
+    assert_eq!(
+        call_as(
+            &b.door,
+            person_on(&u, STEPPED, Some(a.0), Some(a.1)),
+            "ramps.destinations.approval.onDevice",
+            &obj(&[("destinationId", s(&id)), ("fam", s(bb.0))])
+        )
+        .trpc(),
+        "BAD_REQUEST"
+    );
+    let approved = on_device(&b.door, &u, &id, Some(bb.0), Some(bb.1)).ok();
+    assert_eq!(text(&approved, "destinationId"), id);
+    assert_eq!(text(&approved, "state"), "cooling");
+    assert_eq!(text(&approved, "approvedBy"), "device");
+    assert_ne!(text(&approved, "approvedAt"), "null");
+}
+
+#[test]
+fn names_the_typed_refusals_for_a_taken_label_and_a_full_book() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    save_as(&b.door, &u, STEPPED, &obj(&book_entry(BOOK_ADDRESS, "Vault"))).ok();
+    let taken = save_as(
+        &b.door,
+        &u,
+        STEPPED,
+        &obj(&book_entry("0x2222222222222222222222222222222222222222", "vault")),
+    );
+    assert_eq!(taken.trpc(), "PRECONDITION_FAILED");
+    assert!(taken.message().contains("already have a saved address"), "{}", taken.message());
+    save_as(
+        &b.door,
+        &u,
+        STEPPED,
+        &obj(&book_entry("0x3333333333333333333333333333333333333333", "Second")),
+    )
+    .ok();
+    let full = save_as(
+        &b.door,
+        &u,
+        STEPPED,
+        &obj(&book_entry("0x4444444444444444444444444444444444444444", "Third")),
+    );
+    assert!(full.message().contains("address book is full at 2 addresses"), "{}", full.message());
+}
+
+#[test]
+fn removes_a_saved_address_with_the_step_up_scope() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    save_as(&b.door, &u, STEPPED, &obj(&book_entry(BOOK_ADDRESS, "Vault"))).ok();
+    save_as(
+        &b.door,
+        &u,
+        STEPPED,
+        &obj(&book_entry("0x3333333333333333333333333333333333333333", "Second")),
+    )
+    .ok();
+    let first = text(&list_as(&b.door, &u, STEPPED)[0], "destinationId");
+    let removed = call(
+        &b.door,
+        &u,
+        "ramps.destinations.remove",
+        &obj(&[("destinationId", s(&first)), ("idempotencyKey", s("rm-book-1"))]),
+    )
+    .ok();
+    assert_eq!(
+        removed.compact(),
+        obj(&[("destinationId", s(&first)), ("removed", Json::Bool(true))]).compact()
+    );
+    assert_eq!(list_as(&b.door, &u, STEPPED).len(), 1);
+}
+
+#[test]
+fn lists_the_assets_an_address_may_be_saved_for_with_their_networks_from_the_registry() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    let networks = |door: &BankDoor| {
+        call_as(door, person(&u, &["bank:read"]), "ramps.destinations.networks", &Json::Null).ok()
+    };
+    assert_eq!(
+        networks(&b.door).compact(),
+        r#"[{"assetId":"USDT","precision":6,"networks":[{"networkId":"erc20","label":"TEST erc20"},{"networkId":"base","label":"TEST base"}],"defaultNetworkId":"erc20"}]"#
+    );
+    b.registry.set(Some(Vec::new()));
+    assert_eq!(networks(&b.door).compact(), "[]");
+}
+
+#[test]
+fn refuses_a_network_the_registry_does_not_list_for_the_asset_and_an_asset_that_cannot_be_withdrawn_saving_nothing() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    let before = list_as(&b.door, &u, STEPPED);
+    let tron = save_as(
+        &b.door,
+        &u,
+        STEPPED,
+        &with(book_entry(BOOK_ADDRESS, "Tron"), &[("network", s("tron"))]),
+    );
+    assert_eq!(tron.trpc(), "BAD_REQUEST");
+    assert!(tron.message().contains("USDT is not sent on tron"), "{}", tron.message());
+    assert_eq!(
+        save_as(
+            &b.door,
+            &u,
+            STEPPED,
+            &with(
+                book_entry(BOOK_ADDRESS, "Coins"),
+                &[("assetId", s("BTC")), ("network", s("bitcoin"))]
+            ),
+        )
+        .trpc(),
+        "BAD_REQUEST"
+    );
+    assert_eq!(
+        Json::Array(list_as(&b.door, &u, STEPPED)).compact(),
+        Json::Array(before).compact()
+    );
+}
+
+#[test]
+fn checks_the_registry_on_the_entry_as_it_is_stored_so_a_lower_case_asset_or_a_capitalised_network_is_the_same_entry() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    let saved = save_as(
+        &b.door,
+        &u,
+        STEPPED,
+        &with(
+            book_entry("0x5555555555555555555555555555555555555555", "Cased"),
+            &[("assetId", s("usdt")), ("network", s("Base"))],
+        ),
+    )
+    .ok();
+    assert_eq!((text(&saved, "assetId"), text(&saved, "network")), ("USDT".to_owned(), "base".to_owned()));
+    call(
+        &b.door,
+        &u,
+        "ramps.destinations.remove",
+        &obj(&[
+            ("destinationId", s(&text(&saved, "destinationId"))),
+            ("idempotencyKey", s("rm-cased")),
+        ]),
+    )
+    .ok();
+}
+
+#[test]
+fn refuses_to_save_while_the_registry_cannot_be_read_and_says_so_rather_than_accepting_any_network() {
+    let Some(b) = bank_with(router_owner()) else { return };
+    let u = fresh();
+    b.registry.set(None);
+    assert_eq!(
+        save_as(&b.door, &u, STEPPED, &obj(&book_entry(BOOK_ADDRESS, "Later"))).trpc(),
+        "SERVICE_UNAVAILABLE"
+    );
+    assert_eq!(
+        call_as(&b.door, person(&u, STEPPED), "ramps.destinations.networks", &Json::Null).trpc(),
+        "SERVICE_UNAVAILABLE"
+    );
+    assert_eq!(b.count("SELECT count(*) FROM bank.user_withdraw_destinations"), 0);
+}
+
+// a changed character and a look-alike address (W-withdraw-03)
+
+/// The same start and end as `BOOK_ADDRESS` as the book shows it (0xabCD…EF01), a different middle.
+fn lookalike() -> String {
+    format!("0xabcd{}ef01", "0".repeat(32))
+}
+/// `BOOK_ADDRESS` with the case of one letter flipped: its checksum no longer matches.
+const TAMPERED: &str = "0xAbCDeF0123456789AbcdEf0123456789aBCDEF01";
+
+fn check(door: &BankDoor, user: &str, r: &str) -> String {
+    call_as(door, person(user, &["bank:read"]), "ramps.destinations.check", &obj(&[("ref", s(r))]))
+        .ok()
+        .compact()
+}
+
+#[test]
+fn checks_an_address_before_the_confirmation_a_mismatched_checksum_not_an_address_and_the_saved_entry_it_shows_like() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let clean = r#"{"address":"ok","lookalike":null,"fraudListed":false}"#;
+    assert_eq!(check(&b.door, &u, BOOK_ADDRESS), clean);
+    let saved = save_as(&b.door, &u, &["bank:read", "trade:withdraw"], &obj(&book_entry(BOOK_ADDRESS, "Cold wallet"))).ok();
+    assert_eq!(check(&b.door, &u, &BOOK_ADDRESS.to_lowercase()), clean);
+    assert_eq!(
+        check(&b.door, &u, TAMPERED),
+        r#"{"address":"checksum_mismatch","lookalike":null,"fraudListed":false}"#
+    );
+    assert_eq!(
+        check(&b.door, &u, "0x1234"),
+        r#"{"address":"invalid","lookalike":null,"fraudListed":false}"#
+    );
+    assert_eq!(
+        check(&b.door, &u, &format!(" {} ", lookalike())),
+        format!(
+            r#"{{"address":"ok","lookalike":{{"destinationId":"{}","label":"Cold wallet","refMasked":"0xabCD…EF01"}},"fraudListed":false}}"#,
+            text(&saved, "destinationId")
+        )
+    );
+}
+
+#[test]
+fn refuses_to_save_a_mismatched_checksum_saving_nothing() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let refused = save_as(&b.door, &u, &["bank:read", "trade:withdraw"], &obj(&book_entry(TAMPERED, "Cold wallet")));
+    assert_eq!(refused.trpc(), "BAD_REQUEST");
+    assert!(refused.message().contains("do not match its checksum"), "{}", refused.message());
+    assert!(list_as(&b.door, &u, &["bank:read"]).is_empty());
+}
+
+#[test]
+fn refuses_a_look_alike_until_the_customer_confirms_they_checked_it_then_saves_it_as_its_own_entry() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let scopes = ["bank:read", "trade:withdraw"];
+    save_as(&b.door, &u, &scopes, &obj(&book_entry(BOOK_ADDRESS, "Cold wallet"))).ok();
+    let near = lookalike();
+    for confirm in [None, Some(false)] {
+        let mut fields = book_entry(&near, "Look-alike");
+        if let Some(c) = confirm {
+            fields.push(("confirmLookalike", Json::Bool(c)));
+        }
+        let refused = save_as(&b.door, &u, &scopes, &obj(&fields));
+        assert_eq!(refused.trpc(), "BAD_REQUEST");
+        assert!(
+            refused
+                .message()
+                .contains(r#"starts and ends like your saved address "Cold wallet""#),
+            "{}",
+            refused.message()
+        );
+    }
+    assert_eq!(list_as(&b.door, &u, &scopes).len(), 1);
+    let confirmed = save_as(
+        &b.door,
+        &u,
+        &scopes,
+        &with(book_entry(&near, "Look-alike"), &[("confirmLookalike", Json::Bool(true))]),
+    )
+    .ok();
+    // The confirmation is recorded on the new entry, not on the one it looks like.
+    assert_eq!(text(&confirmed, "label"), "Look-alike");
+    assert_eq!(text(&confirmed, "refMasked"), "0xabcd…ef01");
+    assert!(matches!(confirmed.get("lookalikeConfirmedAt"), Some(Json::String(_))));
+    let rows = list_as(&b.door, &u, &scopes);
+    let cold = rows.iter().find(|r| text(r, "label") == "Cold wallet").unwrap();
+    assert_eq!(text(cold, "lookalikeConfirmedAt"), "null");
+    assert_eq!(rows.len(), 2);
+    // Saved once after confirming, the same entry again is that entry, not a new warning.
+    let again = save_as(&b.door, &u, &scopes, &obj(&book_entry(&near, "Look-alike"))).ok();
+    assert_eq!(text(&again, "destinationId"), text(&confirmed, "destinationId"));
+    assert_eq!(check(&b.door, &u, &near), r#"{"address":"ok","lookalike":null,"fraudListed":false}"#);
+}
+
+#[test]
+fn records_a_look_alike_confirmation_only_from_its_own_check_never_from_what_a_caller_passes_in() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let st = b.db.store();
+    let settings = owner();
+    let book = customer::Book {
+        store: &st,
+        ledger: &b.registry,
+        lock: &b.lock,
+        settings: &settings,
+        now: clock(),
+    };
+    let mut input = entry(&u, BOOK_ADDRESS, "Cold wallet");
+    input.lookalike_of = Some("33333333-3333-4333-8333-333333333333".to_owned());
+    let plain = customer::save(&book, &input, false).unwrap();
+    assert_eq!(text(&plain, "lookalikeConfirmedAt"), "null");
+    // Through the door the field does not exist.
+    assert_eq!(
+        save_as(
+            &b.door,
+            &u,
+            STEPPED,
+            &with(
+                book_entry(ADDR_B, "Passed in"),
+                &[("lookalikeOf", s("33333333-3333-4333-8333-333333333333"))]
+            )
+        )
+        .trpc(),
+        "BAD_REQUEST"
+    );
+}
+
+#[test]
+fn does_not_call_the_same_address_in_another_case_or_saved_again_a_look_alike() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let scopes = ["bank:read", "trade:withdraw"];
+    let first = save_as(&b.door, &u, &scopes, &obj(&book_entry(BOOK_ADDRESS, "Cold wallet"))).ok();
+    let again = save_as(&b.door, &u, &scopes, &obj(&book_entry(BOOK_ADDRESS, "Cold wallet"))).ok();
+    assert_eq!(text(&again, "destinationId"), text(&first, "destinationId"));
+    let on_base = save_as(
+        &b.door,
+        &u,
+        &scopes,
+        &with(
+            book_entry(&BOOK_ADDRESS.to_lowercase(), "On Base"),
+            &[("network", s("base"))],
+        ),
+    )
+    .ok();
+    assert_eq!(text(&on_base, "network"), "base");
+}
+
+// ownership: prove a saved wallet (W-withdraw-17)
+
+/// A well-known public development key (the first account of common local EVM chains). Holds nothing; TEST only.
+const KEY: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const WALLET: &str = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+const STRANGER_KEY: &str = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+const STRANGER: &str = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
+
+fn unhex(h: &str) -> Vec<u8> {
+    (0..h.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+/// `personal_sign` of `message` by `key`: r, s and v (27 or 28), hex.
+fn sign_with(key: &str, message: &str) -> String {
+    let mut joined = format!("\x19Ethereum Signed Message:\n{}", message.len()).into_bytes();
+    joined.extend_from_slice(message.as_bytes());
+    let digest = Keccak256::digest(&joined);
+    let signer = SigningKey::from_slice(&unhex(key)).unwrap();
+    let (sig, rec) = signer.sign_prehash_recoverable(&digest).unwrap();
+    let mut out = sig.to_bytes().to_vec();
+    out.push(rec.to_byte() + 27);
+    format!(
+        "0x{}",
+        out.iter().map(|x| format!("{x:02x}")).collect::<String>()
+    )
+}
+
+fn sign(message: &str) -> String {
+    sign_with(KEY, message)
+}
+
+#[test]
+fn needs_bank_write_lists_the_entry_pending_then_verified_and_refuses_an_unknown_proof_as_not_found() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let saved = save_as(&b.door, &u, &["bank:read", "trade:withdraw"], &obj(&book_entry(WALLET, "TEST private"))).ok();
+    let id = text(&saved, "destinationId");
+    assert_eq!(
+        saved.get("ownership").unwrap().compact(),
+        r#"{"state":"none","verifiedAt":null,"validUntil":null,"offerExpiresAt":null}"#
+    );
+    assert_eq!(
+        call_as(
+            &b.door,
+            person(&u, &["bank:read"]),
+            "ramps.destinations.ownership.start",
+            &obj(&[("destinationId", s(&id))])
+        )
+        .trpc(),
+        "FORBIDDEN"
+    );
+    let writer = || person(&u, &["bank:read", "bank:write"]);
+    let started = call_as(
+        &b.door,
+        writer(),
+        "ramps.destinations.ownership.start",
+        &obj(&[("destinationId", s(&id))]),
+    )
+    .ok();
+    let list = list_as(&b.door, &u, &["bank:read"]);
+    assert_eq!(text(list[0].get("ownership").unwrap(), "state"), "pending");
+    let verify = |proof: &str, sig: &str| {
+        call_as(
+            &b.door,
+            writer(),
+            "ramps.destinations.ownership.verify",
+            &obj(&[("proofId", s(proof)), ("signature", s(sig))]),
+        )
+    };
+    let bad = verify(&text(&started, "proofId"), "nope");
+    assert_eq!(
+        (bad.trpc(), bad.code()),
+        ("BAD_REQUEST".to_owned(), "bank.wallet_proof_signature_invalid".to_owned())
+    );
+    assert_eq!(
+        verify("44444444-4444-4444-8444-444444444444", &sign(&text(&started, "message"))).trpc(),
+        "NOT_FOUND"
+    );
+    let done = verify(&text(&started, "proofId"), &sign(&text(&started, "message"))).ok();
+    assert_eq!(text(&done, "destinationId"), id);
+    assert_eq!(text(&done, "state"), "verified");
+    let row = list_as(&b.door, &u, &["bank:read"]).remove(0);
+    let own = row.get("ownership").unwrap();
+    assert_eq!(text(own, "state"), "verified");
+    assert_eq!(text(own, "verifiedAt"), text(&done, "verifiedAt"));
+    assert_eq!(text(own, "validUntil"), text(&done, "validUntil"));
+    // A rename keeps the proof on the row it answers with.
+    let renamed = call_as(
+        &b.door,
+        writer(),
+        "ramps.destinations.rename",
+        &obj(&[("destinationId", s(&id)), ("label", s("TEST renamed"))]),
+    )
+    .ok();
+    assert_eq!(text(renamed.get("ownership").unwrap(), "state"), "verified");
+}
+
+#[test]
+fn refuses_to_start_while_the_owner_proof_window_is_blank() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = b.store_save(Some("5"), &entry(&u, WALLET, "TEST private")).unwrap().destination_id;
+    let blank = b.reopened(Settings {
+        wallet_proof_window_minutes: Some(String::new()),
+        ..owner()
+    });
+    let refused = call_as(
+        &blank,
+        person(&u, &["bank:write"]),
+        "ramps.destinations.ownership.start",
+        &obj(&[("destinationId", s(&id))]),
+    );
+    assert_eq!(
+        (refused.trpc(), refused.code()),
+        ("PRECONDITION_FAILED".to_owned(), "bank.wallet_proof_window_unset".to_owned())
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// ramps/wallet-ownership.test.ts: the signed-message proof (W-withdraw-17)
+
+fn at(iso: &str) -> Instant {
+    service_kit::time::js_date(iso).unwrap()
+}
+
+/// The same signature with v written 0/1, as some wallets return it.
+fn with_low_v(sig: &str) -> String {
+    let v = u8::from_str_radix(&sig[130..], 16).unwrap() - 27;
+    format!("{}{v:02x}", &sig[..130])
+}
+
+#[test]
+fn recovers_the_signer_of_an_independent_test_vector_made_with_another_evm_library() {
+    let signature = "0x9b3af850907666f6c0672b1a2da3be092826caf4f4b7dc07e779717088a1bd5e43d05c9f345c22e271108a2b31edd49c1c81d6f7036f52d48dcf594961288de21b";
+    assert_eq!(
+        ownership::recover_personal_sign_address("INTAFACED wallet proof TEST vector", signature).as_deref(),
+        Some(WALLET)
+    );
+    assert_eq!(sign("INTAFACED wallet proof TEST vector"), signature);
+}
+
+#[test]
+fn takes_v_as_0_1_too_and_answers_another_address_for_another_message() {
+    let sig = sign("one");
+    assert_eq!(
+        ownership::recover_personal_sign_address("one", &with_low_v(&sig)).as_deref(),
+        Some(WALLET)
+    );
+    assert_ne!(ownership::recover_personal_sign_address("two", &sig).as_deref(), Some(WALLET));
+}
+
+#[test]
+fn answers_null_for_anything_that_is_not_a_65_byte_signature() {
+    let sig = sign("m");
+    for bad in [
+        String::new(),
+        "0x".to_owned(),
+        "hello".to_owned(),
+        format!("0x{}", "00".repeat(65)),
+        format!("0x{}", "ab".repeat(64)),
+        format!("{sig}00"),
+        format!("{}1d", &sig[..130]),
+    ] {
+        assert_eq!(ownership::recover_personal_sign_address("m", &bad), None, "{bad}");
+    }
+}
+
+fn proof(status: &str, expires: &str, verified_at: Option<&str>, valid_until: Option<&str>) -> ownership::Proof {
+    ownership::Proof {
+        id: "p".to_owned(),
+        user_id: "u".to_owned(),
+        destination_id: "d".to_owned(),
+        address: WALLET.to_owned(),
+        message: "m".to_owned(),
+        status: status.to_owned(),
+        expires_at: at(expires),
+        verified_at: verified_at.map(at),
+        valid_until: valid_until.map(at),
+        signature: (status == "verified").then(|| "0x".to_owned()),
+    }
+}
+
+fn pending_p() -> ownership::Proof {
+    proof("pending", "2026-10-23T10:30:00Z", None, None)
+}
+
+fn verified_p() -> ownership::Proof {
+    proof(
+        "verified",
+        "2026-10-23T10:30:00Z",
+        Some("2026-10-23T10:00:00Z"),
+        Some("2026-11-01T00:00:00Z"),
+    )
+}
+
+fn proofs(pending: Option<ownership::Proof>, verified: Option<ownership::Proof>) -> ownership::EntryProofs {
+    ownership::EntryProofs { pending, verified }
+}
+
+#[test]
+fn reads_none_pending_verified_and_expired() {
+    let state = |p: Option<&ownership::EntryProofs>, now: &str| ownership::ownership_of(p, at(now), None).state;
+    assert_eq!(state(None, "2026-10-23T10:00:00Z"), "none");
+    assert_eq!(state(Some(&proofs(Some(pending_p()), None)), "2026-10-23T10:10:00Z"), "pending");
+    assert_eq!(state(Some(&proofs(Some(pending_p()), None)), "2026-10-23T10:30:00Z"), "expired");
+    let held = ownership::ownership_of(Some(&proofs(None, Some(verified_p()))), at("2026-10-30T00:00:00Z"), None);
+    assert_eq!(held.state, "verified");
+    assert_eq!(held.valid_until.as_deref(), Some("2026-11-01T00:00:00.000Z"));
+    assert_eq!(state(Some(&proofs(None, Some(verified_p()))), "2026-11-01T00:00:00Z"), "expired");
+}
+
+#[test]
+fn ignores_a_proof_made_for_another_address_than_the_entry_holds_now() {
+    let now = at("2026-10-30T00:00:00Z");
+    let upper = format!("0x{}", WALLET[2..].to_uppercase());
+    assert_eq!(
+        ownership::ownership_of(Some(&proofs(None, Some(verified_p()))), now, Some(&upper)).state,
+        "verified"
+    );
+    assert_eq!(
+        ownership::ownership_of(Some(&proofs(Some(pending_p()), Some(verified_p()))), now, Some(ADDR_A)).state,
+        "none"
+    );
+}
+
+#[test]
+fn keeps_a_proof_that_still_holds_over_a_newer_offer_and_shows_the_offer_once_the_proof_lapses() {
+    let newer = proof("pending", "2026-11-01T00:30:00Z", None, None);
+    let both = proofs(Some(newer), Some(verified_p()));
+    assert_eq!(ownership::ownership_of(Some(&both), at("2026-10-30T00:00:00Z"), None).state, "verified");
+    let lapsed = ownership::ownership_of(Some(&both), at("2026-11-01T00:10:00Z"), None);
+    assert_eq!(lapsed.state, "pending");
+    assert_eq!(lapsed.valid_until.as_deref(), Some("2026-11-01T00:00:00.000Z"));
+    assert_eq!(ownership::ownership_of(Some(&both), at("2026-11-01T00:30:00Z"), None).state, "expired");
+}
+
+/// The proof flows' rig: the clock at 2026-10-23T10:00:00Z, the wallet saved for `user` (its id).
+fn proof_rig(b: &Bank, user: &str, r: &str) -> String {
+    set_now(at("2026-10-23T10:00:00.000Z").0);
+    let label = format!("TEST {}", &r[r.len() - 4..]);
+    b.store_save(Some("5"), &entry(user, r, &label)).unwrap().destination_id
+}
+
+fn start_proof(door: &BankDoor, user: &str, id: &str) -> Answer {
+    call_as(
+        door,
+        person(user, &["bank:read", "bank:write"]),
+        "ramps.destinations.ownership.start",
+        &obj(&[("destinationId", s(id))]),
+    )
+}
+
+fn verify_proof(door: &BankDoor, user: &str, proof: &str, sig: &str) -> Answer {
+    call_as(
+        door,
+        person(user, &["bank:read", "bank:write"]),
+        "ramps.destinations.ownership.verify",
+        &obj(&[("proofId", s(proof)), ("signature", s(sig))]),
+    )
+}
+
+fn latest_of(b: &Bank, user: &str, id: &str) -> Option<ownership::EntryProofs> {
+    let all = ownership::latest(&mut b.client(), user).unwrap();
+    ownership::of(&all, id).cloned()
+}
+
+fn advance(ms: i64) {
+    set_now(clock().0 + ms);
+}
+
+#[test]
+fn offers_a_message_naming_the_address_and_the_proof_then_verifies_the_saved_address_signing_it() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    let started = start_proof(&b.door, &u, &id).ok();
+    let (proof_id, message) = (text(&started, "proofId"), text(&started, "message"));
+    assert_eq!(message, ownership::proof_message(WALLET, &proof_id, at(&text(&started, "expiresAt"))));
+    assert!(message.contains(WALLET) && message.contains(&proof_id) && message.contains("moves no funds"));
+    assert_eq!(text(&started, "expiresAt"), "2026-10-23T10:30:00.000Z");
+    assert_eq!(latest_of(&b, &u, &id).unwrap().pending.unwrap().status, "pending");
+    advance(MINUTE);
+    let done = verify_proof(&b.door, &u, &proof_id, &sign(&message)).ok();
+    assert_eq!(text(&done, "state"), "verified");
+    assert_eq!(text(&done, "verifiedAt"), "2026-10-23T10:01:00.000Z");
+    assert_eq!(text(&done, "validUntil"), "2027-04-21T10:01:00.000Z");
+}
+
+#[test]
+fn refuses_another_signer_by_name_and_keeps_the_offer_open_so_the_right_wallet_can_still_sign() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    let started = start_proof(&b.door, &u, &id).ok();
+    let (proof_id, message) = (text(&started, "proofId"), text(&started, "message"));
+    let wrong = verify_proof(&b.door, &u, &proof_id, &sign_with(STRANGER_KEY, &message));
+    assert_eq!(wrong.code(), "bank.wallet_proof_wrong_signer");
+    let m = wrong.message();
+    let (stranger, wallet) = (m.find("0x7099…79c8").unwrap(), m.find("0xf39f…2266").unwrap());
+    assert!(stranger < wallet, "{m}");
+    assert_eq!(STRANGER, "0x70997970c51812dc3a010c7d01b50e0d17dc79c8");
+    assert_eq!(latest_of(&b, &u, &id).unwrap().pending.unwrap().status, "pending");
+    assert_eq!(text(&verify_proof(&b.door, &u, &proof_id, &sign(&message)).ok(), "state"), "verified");
+}
+
+#[test]
+fn refuses_a_signature_of_other_text_and_text_that_is_not_a_signature() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    let proof_id = text(&start_proof(&b.door, &u, &id).ok(), "proofId");
+    assert_eq!(
+        verify_proof(&b.door, &u, &proof_id, &sign("something else")).code(),
+        "bank.wallet_proof_wrong_signer"
+    );
+    assert_eq!(
+        verify_proof(&b.door, &u, &proof_id, "not a signature").code(),
+        "bank.wallet_proof_signature_invalid"
+    );
+}
+
+#[test]
+fn refuses_a_lapsed_offer_and_records_nothing() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    let started = start_proof(&b.door, &u, &id).ok();
+    advance(30 * MINUTE);
+    assert_eq!(
+        verify_proof(&b.door, &u, &text(&started, "proofId"), &sign(&text(&started, "message"))).code(),
+        "bank.wallet_proof_expired"
+    );
+    let latest = latest_of(&b, &u, &id);
+    assert_eq!(latest.as_ref().and_then(|l| l.verified.clone()), None);
+    assert_eq!(
+        ownership::ownership_of(latest.as_ref(), at("2026-10-23T10:30:00Z"), None).state,
+        "expired"
+    );
+    // A new start makes a new offer once the old one lapsed.
+    let again = start_proof(&b.door, &u, &id).ok();
+    assert_ne!(text(&again, "proofId"), text(&started, "proofId"));
+}
+
+#[test]
+fn answers_an_open_offer_again_instead_of_making_another_and_keeps_a_held_proof_while_a_new_offer_is_open() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    let first = start_proof(&b.door, &u, &id).ok();
+    advance(MINUTE);
+    assert_eq!(start_proof(&b.door, &u, &id).ok().compact(), first.compact());
+    verify_proof(&b.door, &u, &text(&first, "proofId"), &sign(&text(&first, "message"))).ok();
+    let reprove = start_proof(&b.door, &u, &id).ok();
+    assert_ne!(text(&reprove, "proofId"), text(&first, "proofId"));
+    assert_eq!(
+        ownership::ownership_of(latest_of(&b, &u, &id).as_ref(), at("2026-10-23T10:02:00Z"), None).state,
+        "verified"
+    );
+}
+
+#[test]
+fn refuses_a_signature_that_arrives_after_the_offer_lapsed_even_when_the_offer_was_open_when_the_check_began() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    let started = start_proof(&b.door, &u, &id).ok();
+    // The first clock read is inside the window; the read just before the proof is recorded is past it.
+    let reads = Cell::new(0);
+    let late = || {
+        reads.set(reads.get() + 1);
+        if reads.get() == 1 {
+            at("2026-10-23T10:29:59.990Z")
+        } else {
+            at("2026-10-23T10:30:00.400Z")
+        }
+    };
+    let refused = ownership::verify(
+        &b.db.store(),
+        Some("180"),
+        &u,
+        &text(&started, "proofId"),
+        &sign(&text(&started, "message")),
+        &late,
+    );
+    assert_eq!(code_of(refused), "bank.wallet_proof_expired");
+    assert_eq!(latest_of(&b, &u, &id).and_then(|l| l.verified), None);
+}
+
+#[test]
+fn does_not_find_another_customers_entry_or_proof() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let other = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    assert_eq!(start_proof(&b.door, &other, &id).code(), "bank.wallet_proof_not_found");
+    let started = start_proof(&b.door, &u, &id).ok();
+    assert_eq!(
+        verify_proof(&b.door, &other, &text(&started, "proofId"), &sign(&text(&started, "message"))).code(),
+        "bank.wallet_proof_not_found"
+    );
+}
+
+#[test]
+fn proves_only_a_saved_wallet_entry_not_the_legacy_bank_slot() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    set_now(at("2026-10-23T10:00:00.000Z").0);
+    let slot = store::persist(&mut b.client(), None, &u, "bank", IBAN, None).unwrap();
+    assert_eq!(
+        start_proof(&b.door, &u, &slot.destination_id).code(),
+        "bank.wallet_proof_not_found"
+    );
+}
+
+#[test]
+fn answers_the_same_signature_again_with_the_same_proof_and_refuses_a_different_one() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    let started = start_proof(&b.door, &u, &id).ok();
+    let proof_id = text(&started, "proofId");
+    let signature = sign(&text(&started, "message"));
+    let first = verify_proof(&b.door, &u, &proof_id, &signature).ok();
+    advance(31 * MINUTE);
+    let upper = format!("0x{}", signature[2..].to_uppercase());
+    assert_eq!(verify_proof(&b.door, &u, &proof_id, &upper).ok().compact(), first.compact());
+    assert_eq!(
+        verify_proof(&b.door, &u, &proof_id, &with_low_v(&signature)).code(),
+        "bank.wallet_proof_conflict"
+    );
+}
+
+#[test]
+fn refuses_to_offer_a_proof_while_the_owner_window_or_validity_is_blank_and_stores_nothing() {
+    let Some(b) = bank() else { return };
+    for (name, window, validity, code) in [
+        ("window", None, Some("180"), "bank.wallet_proof_window_unset"),
+        ("window as zero", Some("0"), Some("180"), "bank.wallet_proof_window_unset"),
+        ("validity", Some("30"), Some(" "), "bank.wallet_proof_validity_unset"),
+        ("validity as a fraction", Some("30"), Some("1.5"), "bank.wallet_proof_validity_unset"),
+    ] {
+        let u = fresh();
+        let id = proof_rig(&b, &u, WALLET);
+        let door = b.reopened(Settings {
+            wallet_proof_window_minutes: window.map(str::to_owned),
+            wallet_proof_valid_days: validity.map(str::to_owned),
+            ..owner()
+        });
+        assert_eq!(start_proof(&door, &u, &id).code(), code, "{name}");
+        assert!(ownership::latest(&mut b.client(), &u).unwrap().is_empty(), "{name}");
+    }
+}
+
+#[test]
+fn refuses_to_verify_when_the_validity_was_unpublished_after_the_offer_and_leaves_it_pending() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    let started = start_proof(&b.door, &u, &id).ok();
+    let unpublished = b.reopened(Settings {
+        wallet_proof_valid_days: None,
+        ..owner()
+    });
+    assert_eq!(
+        verify_proof(&unpublished, &u, &text(&started, "proofId"), &sign(&text(&started, "message"))).code(),
+        "bank.wallet_proof_validity_unset"
+    );
+    assert_eq!(latest_of(&b, &u, &id).unwrap().pending.unwrap().status, "pending");
+}
+
+#[test]
+fn refuses_a_proof_whose_entry_was_removed() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = proof_rig(&b, &u, WALLET);
+    let started = start_proof(&b.door, &u, &id).ok();
+    store::remove(&b.db.store(), &u, &id, "rm").unwrap();
+    assert_eq!(
+        verify_proof(&b.door, &u, &text(&started, "proofId"), &sign(&text(&started, "message"))).code(),
+        "bank.wallet_proof_not_found"
+    );
+}
+
+// ramps/wallet-ownership.db.test.ts: the proofs table
+
+#[test]
+fn stores_the_offer_pending_verifies_it_once_and_reads_the_latest_proof_per_entry() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let upper = format!("0x{}", WALLET[2..].to_uppercase());
+    let id = b.store_save(Some("5"), &entry(&u, &upper, "TEST")).unwrap().destination_id;
+    let first = start_proof(&b.door, &u, &id).ok();
+    assert!(text(&first, "message").contains(&format!("Address: {WALLET}")));
+    // While the offer is open, starting again answers the same offer.
+    assert_eq!(start_proof(&b.door, &u, &id).ok().compact(), first.compact());
+    assert_eq!(
+        latest_of(&b, &u, &id).unwrap().pending.unwrap().id,
+        text(&first, "proofId")
+    );
+    let done = verify_proof(&b.door, &u, &text(&first, "proofId"), &sign(&text(&first, "message"))).ok();
+    assert_eq!(text(&done, "state"), "verified");
+    let stored = latest_of(&b, &u, &id).unwrap();
+    assert_eq!(stored.pending, None);
+    let held = stored.verified.unwrap();
+    assert_eq!((held.id.as_str(), held.status.as_str(), held.address.as_str()), (text(&first, "proofId").as_str(), "verified", WALLET));
+    assert_eq!(held.valid_until.unwrap().0 - held.verified_at.unwrap().0, 180 * DAY);
+    // A second mark of the same proof finds nothing pending: another signature is a conflict, and the row is unchanged.
+    assert_eq!(
+        verify_proof(&b.door, &u, &text(&first, "proofId"), &with_low_v(&sign(&text(&first, "message")))).code(),
+        "bank.wallet_proof_conflict"
+    );
+    assert_eq!(latest_of(&b, &u, &id).unwrap().verified.unwrap(), held);
+    // Proving again opens a new offer beside the held proof.
+    let again = start_proof(&b.door, &u, &id).ok();
+    let both = latest_of(&b, &u, &id).unwrap();
+    assert_eq!(
+        (both.pending.unwrap().id, both.verified.unwrap().id),
+        (text(&again, "proofId"), text(&first, "proofId"))
+    );
+}
+
+#[test]
+fn orders_two_offers_made_in_the_same_instant_by_when_they_were_made_and_marks_none_once_lapsed() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let dest = "77777777-7777-4777-8777-777777777777";
+    let offer = |id: &str| {
+        b.client()
+            .execute(
+                "INSERT INTO bank.wallet_ownership_proofs (id, user_id, destination_id, address, message, status, created_at, expires_at) \
+                 VALUES ($1::text::uuid, $2, $3::text::uuid, $4, 'm', 'pending', '2026-10-23T10:00:00Z', '2026-10-23T10:01:00Z')",
+                &[&id, &u, &dest, &WALLET],
+            )
+            .unwrap();
+    };
+    // The later offer has the lower id, so only the order made can pick it.
+    offer("ffffffff-ffff-4fff-8fff-ffffffffffff");
+    offer("00000000-0000-4000-8000-00000000000a");
+    assert_eq!(
+        latest_of(&b, &u, dest).unwrap().pending.unwrap().id,
+        "00000000-0000-4000-8000-00000000000a"
+    );
+    set_now(at("2026-10-23T10:01:00Z").0);
+    assert_eq!(
+        verify_proof(&b.door, &u, "00000000-0000-4000-8000-00000000000a", &sign("m")).code(),
+        "bank.wallet_proof_expired"
+    );
+    assert_eq!(latest_of(&b, &u, dest).unwrap().verified, None);
+}
+
+#[test]
+fn never_answers_another_customers_proof_or_an_id_that_is_not_one() {
+    let Some(b) = bank() else { return };
+    let u = fresh();
+    let id = b.store_save(Some("5"), &entry(&u, WALLET, "TEST")).unwrap().destination_id;
+    let started = start_proof(&b.door, &u, &id).ok();
+    let other = fresh();
+    let sig = sign(&text(&started, "message"));
+    assert_eq!(verify_proof(&b.door, &other, &text(&started, "proofId"), &sig).code(), "bank.wallet_proof_not_found");
+    // The door's schema refuses an id that is not one; the store behind it finds nothing for one.
+    assert_eq!(verify_proof(&b.door, &u, "not-a-uuid", &sig).trpc(), "BAD_REQUEST");
+    assert_eq!(
+        code_of(ownership::verify(&b.db.store(), Some("180"), &u, "not-a-uuid", &sig, &clock)),
+        "bank.wallet_proof_not_found"
+    );
+    assert!(ownership::latest(&mut b.client(), &other).unwrap().is_empty());
+    assert_eq!(latest_of(&b, &u, &id).unwrap().verified, None);
+}
+
+#[test]
+fn refuses_a_verified_row_without_its_signature_and_an_offer_that_ends_before_it_starts() {
+    let Some(b) = bank() else { return };
+    let id = "33333333-3333-4333-8333-333333333333";
+    let constraint = |sql: &str| {
+        b.client()
+            .execute(sql, &[&id])
+            .unwrap_err()
+            .as_db_error()
+            .and_then(|d| d.constraint().map(str::to_owned))
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        constraint(
+            "INSERT INTO bank.wallet_ownership_proofs (id, user_id, destination_id, address, message, status, expires_at, verified_at, valid_until) \
+             VALUES ($1::text::uuid, 'u', $1::text::uuid, 'a', 'm', 'verified', now() + interval '1 minute', now(), now())"
+        ),
+        "wallet_ownership_proofs_verified_ck"
+    );
+    assert_eq!(
+        constraint(
+            "INSERT INTO bank.wallet_ownership_proofs (id, user_id, destination_id, address, message, expires_at) \
+             VALUES ($1::text::uuid, 'u', $1::text::uuid, 'a', 'm', now() - interval '1 minute')"
+        ),
+        "wallet_ownership_proofs_window_ck"
+    );
+}

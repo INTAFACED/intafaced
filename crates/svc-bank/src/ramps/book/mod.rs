@@ -219,7 +219,7 @@ fn call(d: &Deps<'_>, ctx: &Ctx<'_>) -> Option<Result<Json, Refusal>> {
             user,
             text(input, "proofId"),
             text(input, "signature"),
-            d.now,
+            &d.clock,
         )
         .map(|(p, own)| {
             let mut fields = vec![

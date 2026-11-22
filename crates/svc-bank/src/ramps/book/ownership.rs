@@ -414,7 +414,7 @@ pub fn verify(
     user_id: &str,
     proof_id: &str,
     signature: &str,
-    now: Instant,
+    clock: &dyn Fn() -> Instant,
 ) -> Result<(Proof, Ownership), Refusal> {
     let row = with(store, |c| get(c, user_id, proof_id))?.ok_or_else(not_found)?;
     let sent = js_trim(signature).to_lowercase();
@@ -425,7 +425,7 @@ pub fn verify(
                     pending: None,
                     verified: Some(row.clone()),
                 }),
-                now,
+                clock(),
                 None,
             );
             return Ok((row, own));
@@ -435,7 +435,7 @@ pub fn verify(
             "This proof is already complete. Start a new one to prove the address again",
         ));
     }
-    if row.expires_at.0 <= now.0 {
+    if row.expires_at.0 <= clock().0 {
         return Err(lapsed());
     }
     let entry = with(store, |c| store::list(c, user_id))?
@@ -461,6 +461,9 @@ pub fn verify(
         ));
     }
     let days = validity(validity_raw)?;
+    // The clock is read after the lookups, and the proof is marked only while the offer is still open at that time, so a
+    // signature never lands after the "Sign before" the message promised.
+    let now = clock();
     let valid_until = Instant(now.0 + days * 86_400_000);
     let done = with(store, |c| {
         c.query(
