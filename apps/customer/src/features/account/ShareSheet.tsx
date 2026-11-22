@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Loading } from './kit-parts';
 import { useSession } from '../session';
 import { type ShareSurface as Surface } from '../public';
 import { shareSheetCopy as copy } from './share-sheet-copy';
@@ -65,11 +66,11 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
   }
 
   return (
-    <section className="promotions__link" aria-label={t('title')}>
+    <section className="lt-stack" aria-label={t('title')}>
       <h2>
         <Copy k="title" />
       </h2>
-      <p className="lt-muted">
+      <p className="lt-hint">
         <Copy k="body" />
       </p>
       {noLink ? (
@@ -77,8 +78,8 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
           <Copy k="noLink" />
         </p>
       ) : (
-        <div className="promotions__actions">
-          <Button disabled={busy} onClick={() => void share()}>
+        <div className="lt-actions">
+          <Button tone="primary" disabled={busy} onClick={() => void share()}>
             <Copy k="share" />
           </Button>
         </div>
@@ -114,7 +115,7 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
       ) : resource.status === 'ready' ? (
         <dl aria-label={t('visits')}>
           {resource.data.surfaces.map((row) => (
-            <div className="promotions__visits" key={row.surface} data-testid={`share-visits-${row.surface}`}>
+            <div className="lt-actions" key={row.surface} data-testid={`share-visits-${row.surface}`}>
               <dt>{t(`surface_${row.surface}`)}</dt>
               <dd>
                 <strong lang="zxx">{row.visits}</strong>
@@ -127,7 +128,7 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
           <Copy k="statsFailed" /> {resource.failure.code && <span lang="zxx">{resource.failure.code}</span>}
         </p>
       )}
-      <Button variant="secondary" onClick={reload}>
+      <Button tone="secondary" onClick={reload}>
         <Copy k="refresh" />
       </Button>
     </section>

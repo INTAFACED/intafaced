@@ -1,4 +1,7 @@
+// volt-room: /uc/promotion/points
 import { createContext, useContext, useState } from 'react';
+import { Button, EmptyState } from '@intafaced/ui/lit';
+import { OverviewTemplate } from '@intafaced/ui/lit/templates';
 import {
   POINTS_OWNER_QUESTION,
   type PointsCatalogueItem,
@@ -7,8 +10,9 @@ import {
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, EmptyState, Failure, Loading, Page, Panel } from '../../shared/ui';
-import { PromotionTabs } from './Promotions';
+import { RecordTable } from '../../shared/record/record-parts';
+import { Failure, Loading } from './kit-parts';
+import { PromotionTabs } from './promotion-tabs';
 import { promotionsCopy } from './promotions-copy';
 import { pointsProgrammeCopy } from './points-programme-copy';
 import {
@@ -40,27 +44,28 @@ export function PromotionPoints() {
   const { userId } = useSession();
   const { t, Copy } = promotionsCopy.useCopy();
   return (
-    <div className="promotions">
-      <Page title={t('title')} description={t('description')}>
-        {userId ? (
-          <>
-            <PromotionTabs view="points" />
-            <PointsProgramme />
-          </>
+    <OverviewTemplate
+      title={t('title')}
+      description={t('description')}
+      state={{ kind: 'ready' }}
+      rooms={userId ? <PromotionTabs view="points" /> : undefined}
+      hero={null}
+      sections={
+        userId ? (
+          <PointsProgramme />
         ) : (
           <EmptyState
             title={t('signIn')}
+            body={t('guest')}
             action={
               <a className="lt-link" href="/login?redirect=%2Fuc%2Fpromotion%2Fpoints">
                 <Copy k="signIn" />
               </a>
             }
-          >
-            <Copy k="guest" />
-          </EmptyState>
-        )}
-      </Page>
-    </div>
+          />
+        )
+      }
+    />
   );
 }
 
@@ -79,9 +84,10 @@ export function PointsProgramme() {
     });
   return (
     <Refusals.Provider value={{ of: refusals, set }}>
-      <section className="points-programme" aria-label={t('title')} data-testid="points-programme" data-state={r.status}>
-        <Panel title={t('title')}>
-          <p className="lt-muted">{t('intro')}</p>
+      <section aria-label={t('title')} data-testid="points-programme" data-state={r.status}>
+        <div className="lt-stack">
+          <h2>{t('title')}</h2>
+          <p className="lt-hint">{t('intro')}</p>
           {r.status === 'loading' ? (
             <Loading label={t('loading')} />
           ) : r.status === 'failed' ? (
@@ -91,7 +97,7 @@ export function PointsProgramme() {
           ) : (
             <Layout data={r.data} reread={programme.reload} />
           )}
-        </Panel>
+        </div>
       </section>
     </Refusals.Provider>
   );
@@ -104,7 +110,7 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
   const question = data.blocker?.question ?? null;
   return (
     <>
-      <div role="note" className="points-programme__blocker" data-testid="points-blocker" data-code={data.blocker?.code ?? ''}>
+      <div role="note" className="lt-refusal" data-testid="points-blocker" data-code={data.blocker?.code ?? ''}>
         {question ? (
           <>
             <strong>{t('blockerTitle')}</strong> <span>{t('blockerLead')}</span> <span data-testid="points-question">{question}</span>
@@ -116,7 +122,7 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
 
       <section aria-label={t('walletTitle')} data-testid="points-wallet">
         <h3>{t('walletTitle')}</h3>
-        <dl>
+        <dl className="lt-kv">
           {(
             [
               ['available', t('walletAvailable'), data.wallet.available],
@@ -130,44 +136,44 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
             </div>
           ))}
         </dl>
-        {data.wallet.available === null && <p className="lt-muted">{t('notKeptNote')}</p>}
+        {data.wallet.available === null && <p className="lt-hint">{t('notKeptNote')}</p>}
       </section>
 
       <section aria-label={t('membersTitle')} data-testid="points-members">
         <h3>{t('membersTitle')}</h3>
-        <dl>
+        <dl className="lt-kv">
           <div>
             <dt>{t('membersCount')}</dt>
             <dd data-testid="points-members-count">{shown(data.members.count, t('notKept'))}</dd>
           </div>
         </dl>
-        {data.members.count === null && <p className="lt-muted">{t('membersNote')}</p>}
+        {data.members.count === null && <p className="lt-hint">{t('membersNote')}</p>}
       </section>
 
       <section aria-label={t('lifecycleTitle')} data-testid="points-lifecycle">
         <h3>{t('lifecycleTitle')}</h3>
-        <ol aria-label={t('lifecycleLabel')}>
+        <ol className="lt-rows" aria-label={t('lifecycleLabel')}>
           {data.lifecycle.stages.map((stage) => (
             <li key={stage} data-stage={stage} aria-current={data.lifecycle.current === stage ? 'step' : undefined}>
               {t(`stage_${stage}`)}
             </li>
           ))}
         </ol>
-        <p className="lt-muted" data-testid="points-lifecycle-current">
+        <p className="lt-hint" data-testid="points-lifecycle-current">
           {data.lifecycle.current ? `${t('stageCurrent')}: ${t(`stage_${data.lifecycle.current}`)}` : t('lifecycleNone')}
         </p>
       </section>
 
       <section aria-label={t('expiryTitle')} data-testid="points-expiry">
         <h3>{t('expiryTitle')}</h3>
-        <p className="lt-muted">{t('expiryIntro')}</p>
-        <dl>
+        <p className="lt-hint">{t('expiryIntro')}</p>
+        <dl className="lt-kv">
           <div>
             <dt>{t('expiryCurrent')}</dt>
             <dd data-testid="points-expiry-current">{data.expiry.current ? t(`mode_${data.expiry.current}`) : t('notSet')}</dd>
           </div>
         </dl>
-        <DataTable label={t('expiryModes')} headers={[t('colMode'), t('colHorizon')]}>
+        <RecordTable label={t('expiryModes')} headers={[t('colMode'), t('colHorizon')]}>
           {data.expiry.modes.map((m) => (
             <tr key={m.mode} data-testid="points-expiry-mode" data-mode={m.mode}>
               <td>{t(`mode_${m.mode}`)}</td>
@@ -176,41 +182,41 @@ function Layout({ data, reread }: { data: Programme; reread: () => void }) {
               </td>
             </tr>
           ))}
-        </DataTable>
+        </RecordTable>
       </section>
 
       <section aria-label={t('pendingTitle')} data-testid="points-pending">
         <h3>{t('pendingTitle')}</h3>
         {data.pending.length === 0 ? (
           <div data-testid="points-pending-empty">
-            <EmptyState title={t('pendingEmptyTitle')}>{t('pendingEmptyBody')}</EmptyState>
+            <EmptyState title={t('pendingEmptyTitle')} body={t('pendingEmptyBody')} />
           </div>
         ) : (
-          <DataTable label={t('pendingLabel')} headers={[t('colPoints'), t('colAvailableAt')]}>
+          <RecordTable label={t('pendingLabel')} headers={[t('colPoints'), t('colAvailableAt')]}>
             {data.pending.map((p) => (
               <tr key={p.id} data-testid="points-pending-row">
                 <td lang="zxx">{p.points}</td>
                 <td>{new Date(p.availableAt).toISOString().slice(0, 16).replace('T', ' ')} UTC</td>
               </tr>
             ))}
-          </DataTable>
+          </RecordTable>
         )}
       </section>
 
       <section aria-label={t('catalogueTitle')} data-testid="points-catalogue">
         <h3>{t('catalogueTitle')}</h3>
-        <p className="lt-muted">{t('catalogueIntro')}</p>
-        <DataTable label={t('catalogueLabel')} headers={[t('colBenefit'), t('colPrice'), t('colStock'), t('colLimit'), t('colAction')]}>
+        <p className="lt-hint">{t('catalogueIntro')}</p>
+        <RecordTable label={t('catalogueLabel')} headers={[t('colBenefit'), t('colPrice'), t('colStock'), t('colLimit'), t('colAction')]}>
           {data.catalogue.map((item) => (
             <CatalogueRow key={item.id} item={item} question={question} reread={reread} t={t} />
           ))}
-        </DataTable>
+        </RecordTable>
       </section>
 
       <section aria-label={t('convertTitle')} data-testid="points-convert">
         <h3>{t('convertTitle')}</h3>
-        <p className="lt-muted">{t('convertIntro')}</p>
-        <dl>
+        <p className="lt-hint">{t('convertIntro')}</p>
+        <dl className="lt-kv">
           <div>
             <dt>{t('convertRate')}</dt>
             <dd data-testid="points-convert-rate">
@@ -296,12 +302,12 @@ function Press({
   };
   return (
     <>
-      <Button variant="secondary" disabled={busy} aria-label={aria} onClick={() => void press()}>
+      <Button tone="secondary" disabled={busy} aria-label={aria} onClick={() => void press()}>
         {label}
       </Button>
       {refused ? (
         refused.code === 'owner.decision' ? (
-          <div role="status" className="lt-muted" data-testid={testId} data-code={refused.code}>
+          <div role="status" className="lt-hint" data-testid={testId} data-code={refused.code}>
             <strong>{t('refusedTitle')}</strong> <span>{question ?? POINTS_OWNER_QUESTION}</span> <span>{t('refusedNothing')}</span>{' '}
             <span lang="zxx">{t('refusedCode', { code: refused.code })}</span>
           </div>

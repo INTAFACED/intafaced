@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { useSession } from '../session';
 import { referralCodeCopy as copy } from './referral-code-copy';
 import { IDENTITY_AFFILIATES_MY_CODE, IDENTITY_AFFILIATES_CREATE_CODE } from '@intafaced/contracts/identity-affiliates-procedures';
@@ -45,7 +46,7 @@ function OwnerCode() {
 
   const shown = made ?? (resource.status === 'ready' ? resource.data : null);
   return (
-    <section className="promotions__link" aria-label={t('title')}>
+    <section className="lt-stack" aria-label={t('title')}>
       <h2>
         <Copy k="title" />
       </h2>
@@ -55,14 +56,14 @@ function OwnerCode() {
         <Failure result={resource.failure} retry={reload} />
       ) : shown ? (
         <>
-          <p className="lt-muted">
+          <p className="lt-hint">
             <Copy k="label" />
           </p>
-          <p className="promotions__ref" lang="zxx" data-testid="referral-code">
+          <p className="lt-mono" lang="zxx" data-testid="referral-code">
             {shown.code}
           </p>
-          <div className="promotions__actions">
-            <Button onClick={() => void copyCode(shown.code)}>
+          <div className="lt-actions">
+            <Button tone="primary" onClick={() => void copyCode(shown.code)}>
               <Copy k="copy" />
             </Button>
           </div>
@@ -71,7 +72,7 @@ function OwnerCode() {
               <Copy k={copied} />
             </p>
           )}
-          <p className="promotions__caption">
+          <p className="lt-hint">
             <Copy k="meaning" />
           </p>
         </>
@@ -80,10 +81,10 @@ function OwnerCode() {
           <h3>
             <Copy k="none" />
           </h3>
-          <p className="lt-muted">
+          <p className="lt-hint">
             <Copy k="noneBody" />
           </p>
-          <Button disabled={busy} onClick={() => void create()}>
+          <Button tone="primary" disabled={busy} onClick={() => void create()}>
             <Copy k="create" />
           </Button>
         </>

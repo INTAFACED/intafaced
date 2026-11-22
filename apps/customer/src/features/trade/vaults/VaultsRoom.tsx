@@ -1,20 +1,16 @@
+// volt-room: /trade/vaults
 import { useState, type ReactNode } from 'react';
-import { Button, DataTable, EmptyState, Field, Loading, Page } from '../../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { MonitorTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
+import { ScrollTable, Waiting } from '../../more';
 import { usePolled } from '../../protocol';
 import { useSession } from '../../session';
 import { useVenueMode } from '../use-venue-mode';
 import { draftId, keys, type VenueUp, type VenueVault, type VenueVaultHoldings } from '../venue-api';
-import {
-  TestMark,
-  VENUE_POLL_MS,
-  VenueFrame,
-  WalletBar,
-  useOwner,
-  useVenueActions,
-  useVenueApi,
-  type ActionResult,
-} from '../venue/VenueKit';
+import { VENUE_POLL_MS } from '../venue/poll';
+import { useOwner, useVenueActions, useVenueApi, type ActionResult } from '../venue/VenueKit';
+import { TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { vaultsCopy } from './vaults-copy';
 
 /**
@@ -33,43 +29,46 @@ export function VaultsRoom() {
   const { t } = vaultsCopy.useCopy();
   const mode = useVenueMode();
   const { userId } = useSession();
+  const off = (state: RoomState) => (
+    <MonitorTemplate title={t('title')} state={state} mode="pro" figures={[]} explain={<p className="lt-hint">{t('eyebrow')}</p>} />
+  );
   if (!userId)
-    return (
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <EmptyState
-          title={t('signedOutTitle')}
-          action={
-            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
-              {t('signIn')}
-            </a>
-          }
-        >
-          {t('signedOutBody')}
-        </EmptyState>
-      </Page>
-    );
-  if (mode.mode === 'checking')
-    return (
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <Loading label={t('title')} />
-      </Page>
-    );
+    return off({
+      kind: 'empty',
+      title: t('signedOutTitle'),
+      body: t('signedOutBody'),
+      action: { label: t('signIn'), href: `/login?redirect=${encodeURIComponent(location.pathname + location.search)}` },
+    });
+  if (mode.mode === 'checking') return off({ kind: 'loading' });
   if (mode.mode === 'off' || !mode.status.available)
-    return (
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <EmptyState title={t('title')}>{t('venueOff')}</EmptyState>
-      </Page>
-    );
+    return off({ kind: 'refused', refusal: { variant: 'parked', title: t('title'), body: t('venueOff') } });
   const status = mode.status;
   return (
     <VenueFrame mode={mode}>
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <TestMark test={status.test} />
-        <p className="lt-muted">{t('lead')}</p>
-        <WalletBar />
-        <Room status={status} />
-        <p className="lt-muted">{t('ledgerNote')}</p>
-      </Page>
+      <MonitorTemplate
+        title={t('title')}
+        description={t('lead')}
+        state={{ kind: 'ready' }}
+        mode="pro"
+        figures={[]}
+        actions={
+          <div className="lt-stack">
+            <TestMark test={status.test} />
+            <WalletBar />
+          </div>
+        }
+        panels={
+          <div className="lt-stack">
+            <Room status={status} />
+          </div>
+        }
+        explain={
+          <div className="lt-stack">
+            <p className="lt-hint">{t('eyebrow')}</p>
+            <p className="lt-hint">{t('ledgerNote')}</p>
+          </div>
+        }
+      />
     </VenueFrame>
   );
 }
@@ -115,10 +114,10 @@ function Room({ status }: { status: VenueUp }) {
   return (
     <>
       <section className="lt-stack" data-testid="vaults-list" aria-label={t('listTitle', { venue })}>
-        <h2 className="dk-tab-title">
+        <h2>
           {t('listTitle', { venue })} <TestMark test={status.test} />
         </h2>
-        <p className="lt-muted" data-testid="vaults-source">
+        <p className="lt-hint" data-testid="vaults-source">
           {t('source', { venue })} · <AsOf iso={list.data?.asOf} t={t} />
         </p>
         {list.failure && !list.data ? (
@@ -126,11 +125,11 @@ function Room({ status }: { status: VenueUp }) {
             {t('readFailed', { venue, detail: list.failure.message ?? '' })}
           </p>
         ) : !list.data ? (
-          <Loading label={t('listTitle', { venue })} />
+          <Waiting label={t('listTitle', { venue })} />
         ) : vaults.length === 0 ? (
-          <p className="lt-muted">{t('listEmpty', { venue })}</p>
+          <p className="lt-hint">{t('listEmpty', { venue })}</p>
         ) : (
-          <DataTable
+          <ScrollTable
             label={t('listTitle', { venue })}
             headers={[t('hVault'), t('hRunBy'), t('hLockUp'), t('hShare'), t('hValue'), t('hReturn'), '']}
           >
@@ -144,7 +143,7 @@ function Room({ status }: { status: VenueUp }) {
                 <td data-cell="share" data-value={v.profitShareBps ?? ''}>
                   {v.profitShareBps === null ? t('notPublished') : t('share', { percent: bpsPercent(v.profitShareBps) })}
                 </td>
-                <td className="lt-num" data-cell="value" data-value={v.vaultValue ?? ''}>
+                <td className="lt-mono" data-cell="value" data-value={v.vaultValue ?? ''}>
                   {v.vaultValue === null ? t('notPublished') : t('valueOf', { amount: displayAmount(v.vaultValue, 2), asset: v.asset })}
                 </td>
                 <td data-cell="return" data-value={v.pastReturn ? `${v.pastReturn.bps}/${v.pastReturn.days}` : ''}>
@@ -161,11 +160,11 @@ function Room({ status }: { status: VenueUp }) {
                 </td>
               </tr>
             ))}
-          </DataTable>
+          </ScrollTable>
         )}
       </section>
       {!owner ? (
-        <p className="lt-muted">{t('connectFirst')}</p>
+        <p className="lt-hint">{t('connectFirst')}</p>
       ) : (
         <Positions
           holdings={holdings}
@@ -207,26 +206,26 @@ function Positions({
   const positions = holdings.data?.value.positions ?? [];
   return (
     <section className="lt-stack" data-testid="vault-positions" aria-label={t('positionsTitle')}>
-      <h2 className="dk-tab-title">{t('positionsTitle')}</h2>
-      <p className="lt-muted">
+      <h2>{t('positionsTitle')}</h2>
+      <p className="lt-hint">
         {t('source', { venue })} · <AsOf iso={holdings.data?.asOf} t={t} />
       </p>
       {holdings.failure && !holdings.data ? (
         <p role="alert">{t('holdingsFailed', { venue, detail: holdings.failure.message ?? '' })}</p>
       ) : !holdings.data ? (
-        <Loading label={t('positionsTitle')} />
+        <Waiting label={t('positionsTitle')} />
       ) : positions.length === 0 ? (
-        <p className="lt-muted" data-empty="">
+        <p className="lt-hint" data-empty="">
           {t('positionsEmpty')}
         </p>
       ) : (
-        <DataTable label={t('positionsTitle')} headers={[t('hVault'), t('hPosition'), t('hEnds'), '']}>
+        <ScrollTable label={t('positionsTitle')} headers={[t('hVault'), t('hPosition'), t('hEnds'), '']}>
           {positions.map((p) => {
             const vault = byAddress.get(p.vault);
             return (
               <tr key={p.vault} data-position={p.vault}>
                 <td>{p.name}</td>
-                <td className="lt-num" data-cell="equity" data-value={p.equity}>
+                <td className="lt-mono" data-cell="equity" data-value={p.equity}>
                   {t('valueOf', { amount: displayAmount(p.equity, 2), asset: p.asset })}
                 </td>
                 <td data-cell="ends" data-value={p.lockUpEndsAt}>
@@ -242,7 +241,7 @@ function Positions({
               </tr>
             );
           })}
-        </DataTable>
+        </ScrollTable>
       )}
     </section>
   );
@@ -335,8 +334,8 @@ export function MoveForm({
   const title = direction === 'deposit' ? t('depositTitle', { vault: vault.name }) : t('withdrawTitle', { vault: vault.name });
   return (
     <section className="lt-stack" data-testid="vault-move" data-direction={direction} data-vault={vault.address} aria-label={title}>
-      <h3 className="dk-tab-title">{title}</h3>
-      <p className="lt-muted" data-testid="vault-free" data-value={free ?? ''}>
+      <h3>{title}</h3>
+      <p className="lt-hint" data-testid="vault-free" data-value={free ?? ''}>
         {free !== null
           ? t('freeLine', { free, venue })
           : balances.failure
@@ -369,7 +368,7 @@ export function MoveForm({
               ? t('reviewDeposit', { amount: stage.amount, vault: vault.name, lockUp: lockUpText(t, vault.lockUpSeconds), venue })
               : t('reviewWithdraw', { amount: stage.amount, vault: vault.name })}
           </p>
-          <Button variant="primary" data-testid="vault-sign" disabled={stage.at === 'sending'} onClick={() => void send(stage, false)}>
+          <Button tone="primary" data-testid="vault-sign" disabled={stage.at === 'sending'} onClick={() => void send(stage, false)}>
             {t('sign')}
           </Button>
         </div>

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Button, Field } from '../../shared/ui';
-import { defineCopy } from '../../shared/i18n';
-import { useSession } from '../session';
-import { useBankRead, useBankRecord } from './components';
-import { DepthPanel } from './DepthParts';
-import './bank-depth.css';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { Meter } from '@intafaced/ui/lit/templates';
+import { defineCopy } from '../../../shared/i18n';
+import { useSession } from '../../session';
+import { useBankRead, useBankRecord } from '../components';
+import { Panel } from '../bank-settings/parts';
 import {
   BANK_ANALYTICS_BUDGETS,
   BANK_ANALYTICS_LEFT_TO_SPEND,
@@ -14,7 +14,7 @@ import {
 } from '@intafaced/contracts/bank-analytics-procedures';
 
 /** Words for budgets and month comparison in Analytics (BK-acct-08, J-bank-16 #4, #5). */
-export const budgetsCopy = defineCopy('analytics-budgets', {
+const budgetsCopy = defineCopy('analytics-budgets', {
   budgetsTitle: 'Budgets',
   budgetsLead:
     'A monthly target for a kind of spending, and the share of it at which you want an alert. Spend is read from your ledger lines.',
@@ -102,19 +102,15 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
   }
 
   return (
-    <DepthPanel title={t('budgetsTitle')} lead={t('budgetsLead')}>
+    <Panel level={3} title={t('budgetsTitle')} lead={t('budgetsLead')}>
       <div className="lt-stack" data-testid="analytics-budgets">
         <form className="lt-stack" onSubmit={save} noValidate>
-          <label className="lt-field">
-            <span>{t('category')}</span>
-            <select value={category} onChange={(event) => setCategory(event.target.value as Category)}>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {t(c)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label={t('category')}
+            value={category}
+            onChange={(value) => setCategory(value as Category)}
+            options={CATEGORIES.map((c) => ({ value: c, label: t(c) }))}
+          />
           <Field
             label={t('target', { asset: assetId })}
             inputMode="decimal"
@@ -122,17 +118,17 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
             onChange={(event) => setTarget(event.target.value.trim())}
           />
           <Field label={t('alertAt')} inputMode="decimal" value={alertAt} onChange={(event) => setAlertAt(event.target.value.trim())} />
-          <Button type="submit" disabled={busy || !assetId}>
+          <Button type="submit" tone="primary" disabled={busy || !assetId}>
             {busy ? t('saving') : t('save')}
           </Button>
           {failure && (
-            <p role="alert" className="error-text">
+            <p role="alert" className="lt-refusal">
               {failure}
             </p>
           )}
         </form>
         {rows.length === 0 ? (
-          <p className="lt-muted">{t('none')}</p>
+          <p className="lt-hint">{t('none')}</p>
         ) : (
           <ul className="lt-stack">
             {rows.map((b) => {
@@ -140,13 +136,13 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
               return (
                 <li key={b.category} data-testid={`budget-${b.category}`} data-progress-bps={b.progressBps} data-alert={b.alert ?? ''}>
                   <p>{t('progress', { category: name(b.category), spent: b.spent, target: b.target, asset: assetId, percent })}</p>
-                  <progress max={10_000} value={Math.min(b.progressBps, 10_000)} aria-label={name(b.category)} />
+                  <Meter label={name(b.category)} value={Math.min(b.progressBps, 10_000)} max={10_000} text={`${percent}%`} />
                   {shownNow[b.category] !== undefined ? (
                     <p role="alert" data-testid="budget-alert">
                       {t('alert', { percent, category: name(b.category) })}
                     </p>
                   ) : b.alert === 'seen' && b.alertShownAt ? (
-                    <p className="lt-muted" data-testid="budget-alert-seen">
+                    <p className="lt-hint" data-testid="budget-alert-seen">
                       {t('alertSeen', { date: dateOf(b.alertShownAt) })}
                     </p>
                   ) : null}
@@ -156,7 +152,7 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
           </ul>
         )}
         {spend.resource.status === 'ready' && (
-          <p className="lt-muted" data-testid="analytics-money-in" data-inflow={spend.resource.data.totalInflow}>
+          <p className="lt-hint" data-testid="analytics-money-in" data-inflow={spend.resource.data.totalInflow}>
             {t('moneyIn', { amount: spend.resource.data.totalInflow, asset: assetId })}
           </p>
         )}
@@ -165,12 +161,12 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
             {t('left', { left: left.resource.data.left, target: left.resource.data.target, asset: assetId })}
           </p>
         ) : left.resource.status === 'failed' ? (
-          <p className="lt-muted" data-testid="left-to-spend" data-code={left.resource.failure.code ?? ''}>
+          <p className="lt-hint" data-testid="left-to-spend" data-code={left.resource.failure.code ?? ''}>
             {left.resource.failure.code === 'bank.budget_unset' ? t('leftUnset') : t('failed', { message: left.resource.failure.message })}
           </p>
         ) : null}
       </div>
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -183,17 +179,17 @@ export function AnalyticsCompare({ assetId }: { assetId: string }) {
   const valid = /^\d{4}-\d{2}$/.test(first) && /^\d{4}-\d{2}$/.test(second) && first !== second;
   const compare = useBankRead('analytics.compare', { assetId, months: [first, second] }, Boolean(assetId) && valid);
   return (
-    <DepthPanel title={t('compareTitle')} lead={t('compareLead')}>
+    <Panel level={3} title={t('compareTitle')} lead={t('compareLead')}>
       <div className="lt-stack" data-testid="analytics-compare">
         <Field label={t('firstMonth')} type="month" value={first} onChange={(event) => setFirst(event.target.value)} />
         <Field label={t('secondMonth')} type="month" value={second} onChange={(event) => setSecond(event.target.value)} />
         {compare.resource.status === 'failed' && valid && (
-          <p role="alert" className="error-text" data-code={compare.resource.failure.code ?? ''}>
+          <p role="alert" className="lt-refusal" data-code={compare.resource.failure.code ?? ''}>
             {compare.resource.failure.message}
           </p>
         )}
         {compare.resource.status === 'ready' && (
-          <table aria-label={t('compareTable')}>
+          <table className="lt-table" aria-label={t('compareTable')}>
             <thead>
               <tr>
                 <th scope="col">{t('category')}</th>
@@ -233,6 +229,6 @@ export function AnalyticsCompare({ assetId }: { assetId: string }) {
           </table>
         )}
       </div>
-    </DepthPanel>
+    </Panel>
   );
 }

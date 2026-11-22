@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 import { REWARD_STATUSES, type MyReward, type MyRewards } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Empty, Failure, Loading } from './kit-parts';
+import { RecordTable } from '../../shared/record/record-parts';
 import { rewardsHubCopy } from './rewards-hub-copy';
 import { timeLeft } from './time-left';
 import { CAMPAIGNS_REWARDS_MINE } from '@intafaced/contracts/campaigns-rewards-procedures';
@@ -40,9 +42,10 @@ export function RewardsHub() {
   const rewards = useResource((signal) => api.call(CAMPAIGNS_REWARDS_MINE, {}, { signal }), 'rewards-hub');
   const r = rewards.resource;
   return (
-    <section className="rewards-hub" aria-label={t('title')} data-testid="rewards-hub" data-state={r.status}>
-      <Panel title={t('title')}>
-        <p className="lt-muted">{t('intro')}</p>
+    <section className="lt-stack" aria-label={t('title')} data-testid="rewards-hub" data-state={r.status}>
+      <div className="lt-stack">
+        <h2>{t('title')}</h2>
+        <p className="lt-hint">{t('intro')}</p>
         {r.status === 'loading' ? (
           <Loading label={t('loading')} />
         ) : r.status === 'failed' ? (
@@ -51,7 +54,7 @@ export function RewardsHub() {
           </div>
         ) : r.data.rewards.length === 0 ? (
           <div data-testid="rewards-empty">
-            <EmptyState
+            <Empty
               title={t('emptyTitle')}
               action={
                 <a className="lt-link" href="/campaigns">
@@ -60,12 +63,12 @@ export function RewardsHub() {
               }
             >
               {t('emptyBody')}
-            </EmptyState>
+            </Empty>
           </div>
         ) : (
           <Rewards data={r.data} />
         )}
-      </Panel>
+      </div>
     </section>
   );
 }
@@ -75,7 +78,7 @@ function Rewards({ data }: { data: MyRewards }) {
   const totals = REWARD_STATUSES.flatMap((status) => data.totals.filter((line) => line.status === status));
   return (
     <>
-      <dl className="rewards-hub__totals" aria-label={t('totalsLabel')} data-testid="rewards-totals">
+      <dl className="lt-kv" aria-label={t('totalsLabel')} data-testid="rewards-totals">
         {totals.map((line) => (
           <div key={`${line.status}:${line.asset}`} data-testid="rewards-total" data-status={line.status} data-asset={line.asset}>
             <dt>{t(`total_${line.status}`)}</dt>
@@ -83,18 +86,18 @@ function Rewards({ data }: { data: MyRewards }) {
               <strong lang="zxx" data-testid="rewards-total-amount">
                 {line.amount} {line.asset}
               </strong>{' '}
-              <span className="lt-muted">{t('totalCount', { count: String(line.count) })}</span>
+              <span className="lt-hint">{t('totalCount', { count: String(line.count) })}</span>
             </dd>
           </div>
         ))}
       </dl>
-      <DataTable label={t('listLabel')} headers={[t('colCampaign'), t('colAmount'), t('colStatus'), t('colDetail')]}>
+      <RecordTable label={t('listLabel')} headers={[t('colCampaign'), t('colAmount'), t('colStatus'), t('colDetail')]}>
         {data.rewards.map((reward) => (
           <Row key={reward.rewardKey} reward={reward} />
         ))}
-      </DataTable>
+      </RecordTable>
       {data.more ? (
-        <p className="lt-muted" data-testid="rewards-more">
+        <p className="lt-hint" data-testid="rewards-more">
           {t('more', { count: String(data.rewards.length) })}
         </p>
       ) : null}
@@ -146,7 +149,7 @@ function Row({ reward: r }: { reward: MyReward }) {
         {r.lock && r.state !== 'posted' && r.state !== 'forfeited' ? (
           <>
             {' '}
-            <span className="lt-muted" data-testid="reward-lock-tx" data-tx={r.lock.txId} lang="zxx">
+            <span className="lt-hint" data-testid="reward-lock-tx" data-tx={r.lock.txId} lang="zxx">
               {t('lockTx', { tx: r.lock.txId })}
             </span>
           </>
@@ -154,11 +157,11 @@ function Row({ reward: r }: { reward: MyReward }) {
         {r.state === 'owed' ? (
           <>
             {' '}
-            <button type="button" className="lt-link" data-testid="reward-spend" onClick={() => setSpendTried(true)}>
+            <Button tone="quiet" data-testid="reward-spend" onClick={() => setSpendTried(true)}>
               {t('spendOwed')}
-            </button>
+            </Button>
             {spendTried ? (
-              <span role="status" className="lt-muted" data-testid="reward-spend-note">
+              <span role="status" className="lt-hint" data-testid="reward-spend-note">
                 {' '}
                 {t('spendOwedNote')}
               </span>

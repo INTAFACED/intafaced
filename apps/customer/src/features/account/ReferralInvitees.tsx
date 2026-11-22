@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import { type MyInvitee } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
+import { Empty, Failure, Loading } from './kit-parts';
+import { RecordTable } from '../../shared/record/record-parts';
 import { referralInviteesCopy } from './referral-invitees-copy';
 import { CAMPAIGNS_REFERRAL_INVITEES } from '@intafaced/contracts/campaigns-referral-procedures';
 
@@ -36,15 +37,16 @@ export function ReferralInvitees() {
   const list = useResource((signal) => api.call(CAMPAIGNS_REFERRAL_INVITEES, {}, { signal }), 'referral-invitees');
   const r = list.resource;
   return (
-    <section className="referral-block referral-section" aria-label={t('title')} data-testid="referral-invitees" data-state={r.status}>
-      <Panel title={t('title')}>
-        <p className="lt-muted">{t('intro')}</p>
+    <section className="lt-stack" aria-label={t('title')} data-testid="referral-invitees" data-state={r.status}>
+      <div className="lt-stack">
+        <h2>{t('title')}</h2>
+        <p className="lt-hint">{t('intro')}</p>
         {r.status === 'loading' ? (
           <Loading label={t('loading')} />
         ) : r.status === 'failed' ? (
           <div data-testid="referral-invitees-failed">
             {r.failure.code === 'campaigns.store_unwired' ? (
-              <p role="status" className="lt-muted">
+              <p role="status" className="lt-hint">
                 {t('refusal_campaigns_store_unwired')}
               </p>
             ) : (
@@ -53,23 +55,26 @@ export function ReferralInvitees() {
           </div>
         ) : r.data.invitees.length === 0 ? (
           <div data-testid="referral-invitees-empty">
-            <EmptyState title={t('emptyTitle')}>{t('emptyBody')}</EmptyState>
+            <Empty title={t('emptyTitle')}>{t('emptyBody')}</Empty>
           </div>
         ) : (
           <>
-            <DataTable label={t('listLabel')} headers={[t('colInvitee'), t('colJoined'), ...STEPS.map((s) => t(COLUMN[s])), t('colState')]}>
+            <RecordTable
+              label={t('listLabel')}
+              headers={[t('colInvitee'), t('colJoined'), ...STEPS.map((s) => t(COLUMN[s])), t('colState')]}
+            >
               {r.data.invitees.map((row) => (
                 <Row key={row.place} row={row} />
               ))}
-            </DataTable>
+            </RecordTable>
             {r.data.total > r.data.invitees.length ? (
-              <p className="lt-muted" data-testid="referral-invitees-more">
+              <p className="lt-hint" data-testid="referral-invitees-more">
                 {t('more', { shown: String(r.data.invitees.length), total: String(r.data.total) })}
               </p>
             ) : null}
           </>
         )}
-      </Panel>
+      </div>
     </section>
   );
 }
@@ -99,13 +104,13 @@ function Row({ row }: { row: MyInvitee }) {
       <td>
         <strong data-testid="invitee-state">{t(`state_${row.state}`)}</strong>
         {why ? (
-          <span className="lt-muted" data-testid="invitee-why">
+          <span className="lt-hint" data-testid="invitee-why">
             {' '}
             {why}
           </span>
         ) : null}
         {row.programme ? (
-          <span className="lt-muted" lang="und">
+          <span className="lt-hint" lang="und">
             {' '}
             {t('programme', { name: row.programme.name })}
           </span>

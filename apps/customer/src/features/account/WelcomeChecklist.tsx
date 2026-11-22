@@ -3,7 +3,9 @@ import { type TaskEvent, type WelcomeChecklist as Checklist } from '@intafaced/c
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Empty, Failure, Loading } from './kit-parts';
+import { RecordTable } from '../../shared/record/record-parts';
 import { welcomeChecklistCopy } from './welcome-checklist-copy';
 import { timeLeft } from './time-left';
 import { CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM } from '@intafaced/contracts/campaigns-tasks-procedures';
@@ -71,9 +73,10 @@ export function WelcomeChecklist() {
   };
   const r = list.resource;
   return (
-    <section className="rewards-hub" aria-label={t('title')} data-testid="welcome-checklist" data-state={r.status}>
-      <Panel title={t('title')}>
-        <p className="lt-muted">{t('intro')}</p>
+    <section className="lt-stack" aria-label={t('title')} data-testid="welcome-checklist" data-state={r.status}>
+      <div className="lt-stack">
+        <h2>{t('title')}</h2>
+        <p className="lt-hint">{t('intro')}</p>
         {r.status === 'loading' ? (
           <Loading label={t('loading')} />
         ) : r.status === 'failed' ? (
@@ -82,7 +85,7 @@ export function WelcomeChecklist() {
           </div>
         ) : !r.data.campaign ? (
           <div data-testid="welcome-empty">
-            <EmptyState
+            <Empty
               title={t('emptyTitle')}
               action={
                 <a className="lt-link" href="/campaigns">
@@ -91,12 +94,12 @@ export function WelcomeChecklist() {
               }
             >
               {t('emptyBody')}
-            </EmptyState>
+            </Empty>
           </div>
         ) : (
           <Tasks data={r.data} busy={busy} refusal={refusal} onClaim={(event) => void claim(event)} />
         )}
-      </Panel>
+      </div>
     </section>
   );
 }
@@ -137,7 +140,7 @@ function Tasks({
           {t('campaignNotRunning')}
         </p>
       )}
-      <DataTable label={t('listLabel')} headers={[t('colTask'), t('colReward'), t('colState'), t('colDetail')]}>
+      <RecordTable label={t('listLabel')} headers={[t('colTask'), t('colReward'), t('colState'), t('colDetail')]}>
         {data.tasks.map((task) => {
           const failed = refusal?.event === task.event ? refusal.result : null;
           const code = failed ? refusalOf(failed.code) : undefined;
@@ -208,14 +211,19 @@ function Tasks({
                 {claimable && (task.state === 'done' || task.record?.state === 'withheld') ? (
                   <>
                     {' '}
-                    <Button onClick={() => onClaim(task.event)} disabled={busy !== null} aria-label={t('claimTask', { task: task.title })}>
+                    <Button
+                      tone="primary"
+                      onClick={() => onClaim(task.event)}
+                      disabled={busy !== null}
+                      aria-label={t('claimTask', { task: task.title })}
+                    >
                       {busy === task.event ? t('claiming') : t('claim')}
                     </Button>
                   </>
                 ) : null}
                 {failed ? (
                   code ? (
-                    <p role="status" className="lt-muted" data-testid="welcome-refusal" data-code={code}>
+                    <p role="status" className="lt-hint" data-testid="welcome-refusal" data-code={code}>
                       {t(`refusal_${key(code)}` as 'refusal_campaigns_reward_unset')}
                     </p>
                   ) : (
@@ -226,7 +234,7 @@ function Tasks({
             </tr>
           );
         })}
-      </DataTable>
+      </RecordTable>
     </>
   );
 }

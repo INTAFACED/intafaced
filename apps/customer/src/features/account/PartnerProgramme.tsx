@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { useSession } from '../session';
 import { partnerProgrammeCopy as copy } from './partner-programme-copy';
 import {
@@ -93,11 +94,11 @@ function Programme() {
     !application || (application.state === 'rejected' && application.reapplyAt !== null && Date.now() >= Date.parse(application.reapplyAt));
 
   return (
-    <section className="promotions__link" aria-label={t('title')}>
+    <section className="lt-stack" aria-label={t('title')}>
       <h2>
         <Copy k="title" />
       </h2>
-      <p className="lt-muted">
+      <p className="lt-hint">
         <Copy k="intro" />
       </p>
       {resource.status === 'loading' && !filed ? (
@@ -108,13 +109,13 @@ function Programme() {
         <>
           {application && <Status application={application} />}
           {mayApply && !eligibility && (
-            <Button disabled={busy} onClick={() => void check()}>
+            <Button tone="primary" disabled={busy} onClick={() => void check()}>
               <Copy k="apply" />
             </Button>
           )}
           {mayApply && eligibility && (
             <div data-testid="partner-eligibility">
-              <div className="promotions__visits">
+              <div className="lt-actions">
                 <span>
                   <Copy k="qualified" />
                 </span>
@@ -122,7 +123,7 @@ function Programme() {
                   {eligibility.qualifiedCount}
                 </strong>
               </div>
-              <div className="promotions__visits">
+              <div className="lt-actions">
                 <span>
                   <Copy k="required" />
                 </span>
@@ -130,14 +131,14 @@ function Programme() {
                   {eligibility.requiredCount}
                 </strong>
               </div>
-              <p className="promotions__caption">
+              <p className="lt-hint">
                 <Copy k="qualifiedMeaning" />
               </p>
               <p role="status">
                 <Copy k={eligibility.eligible ? 'eligible' : 'notEligible'} />
               </p>
               {eligibility.eligible && (
-                <Button disabled={busy} onClick={() => void submit()}>
+                <Button tone="primary" disabled={busy} onClick={() => void submit()}>
                   <Copy k="submit" />
                 </Button>
               )}
@@ -154,7 +155,7 @@ function Status({ application }: { application: Application }) {
   const { Copy } = copy.useCopy();
   return (
     <div data-testid="partner-application">
-      <div className="promotions__visits">
+      <div className="lt-actions">
         <span>
           <Copy k="status" />
         </span>
@@ -163,13 +164,13 @@ function Status({ application }: { application: Application }) {
         </strong>
       </div>
       {application.state === 'submitted' && (
-        <p className="lt-muted">
+        <p className="lt-hint">
           <Copy k="submittedBody" />
         </p>
       )}
       {application.state === 'rejected' && (
         <>
-          <div className="promotions__visits">
+          <div className="lt-actions">
             <span>
               <Copy k="rejectCategory" />
             </span>
@@ -178,7 +179,7 @@ function Status({ application }: { application: Application }) {
             </strong>
           </div>
           {application.reapplyAt && (
-            <div className="promotions__visits">
+            <div className="lt-actions">
               <span>
                 <Copy k="reapplyAt" />
               </span>
@@ -214,19 +215,19 @@ function Portal({ application }: { application: Application }) {
   }
 
   return (
-    <section className="promotions__link" aria-label={t('portal')}>
+    <section className="lt-stack" aria-label={t('portal')}>
       <h3>
         <Copy k="portal" />
       </h3>
       {application.approvalReason && (
-        <div className="promotions__visits">
+        <div className="lt-actions">
           <span>
             <Copy k="approvalReason" />
           </span>
           <strong data-testid="partner-approval-reason">{application.approvalReason}</strong>
         </div>
       )}
-      <Button disabled={busy} onClick={() => void open()}>
+      <Button tone="primary" disabled={busy} onClick={() => void open()}>
         <Copy k="openTree" />
       </Button>
       {tree && (
@@ -234,7 +235,7 @@ function Portal({ application }: { application: Application }) {
           <h4>
             <Copy k="tree" />
           </h4>
-          <p className="lt-muted">
+          <p className="lt-hint">
             <Copy k="treeDepth" />{' '}
             <strong lang="zxx" data-testid="partner-tree-depth">
               {tree.depth}
@@ -242,11 +243,11 @@ function Portal({ application }: { application: Application }) {
             <Copy k="treeLevels" />
           </p>
           {tree.members.length === 0 ? (
-            <p className="lt-muted">
+            <p className="lt-hint">
               <Copy k="treeEmpty" />
             </p>
           ) : (
-            <table className="api-keys__table" data-testid="partner-tree">
+            <table className="lt-table" data-testid="partner-tree">
               <thead>
                 <tr>
                   <th>
@@ -271,7 +272,7 @@ function Portal({ application }: { application: Application }) {
               </tbody>
             </table>
           )}
-          <div className="promotions__visits">
+          <div className="lt-actions">
             <span>
               <Copy k="beyond" />
             </span>
