@@ -10,23 +10,22 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { z } from 'zod';
+import { AGENTS_TEAM_ROLES, type AgentsTeamRole, type AgentsTeamView } from '@intafaced/contracts/agents-team';
+import { AGENTS_OWN_LIST } from '@intafaced/contracts/agents-own-procedures';
 import {
-  AGENTS_TEAM_ROLES,
-  agentsTeamGrantResultSchema,
-  agentsTeamHeldActionResultSchema,
-  agentsTeamHeldActionSchema,
-  agentsTeamPoolResultSchema,
-  agentsTeamProjectResultSchema,
-  agentsTeamRunClosedSchema,
-  agentsTeamRunResultSchema,
-  agentsTeamRunSessionSchema,
-  agentsTeamUsageSchema,
-  agentsTeamViewSchema,
-  type AgentsTeamRole,
-  type AgentsTeamView,
-} from '@intafaced/contracts/agents-team';
-import { ownAgentSchema } from '@intafaced/contracts/agents-own';
+  AGENTS_TEAM_VIEW,
+  AGENTS_TEAM_GRANTS_SET,
+  AGENTS_TEAM_POOL_SET,
+  AGENTS_TEAM_PROJECTS_CREATE,
+  AGENTS_TEAM_RUNS_OPEN,
+  AGENTS_TEAM_RUNS_RUN,
+  AGENTS_TEAM_RUNS_CLOSE,
+  AGENTS_TEAM_ACTIONS_LIST,
+  AGENTS_TEAM_ACTIONS_HOLD,
+  AGENTS_TEAM_ACTIONS_APPROVE,
+  AGENTS_TEAM_USAGE,
+} from '@intafaced/contracts/agents-team-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 import type { ApiResult, RefusalReason } from '../../shared/api';
 import { Button, Checkbox, EmptyState, Field, Select } from '@intafaced/ui/lit';
 import { KeyValue, SettingsTemplate, Skeleton, type RoomState } from '@intafaced/ui/lit/templates';
@@ -248,10 +247,7 @@ function TeamOf({ businessId, picker }: { businessId: string; picker: ReactNode 
   const api = useApi();
   const { userId } = useSession();
   const { t } = agentsTeamCopy.useCopy();
-  const team = useResource(
-    (signal) => api.query('agents', 'team.view', { businessId }, agentsTeamViewSchema, { signal }),
-    `agents-team:${userId}:${businessId}`,
-  );
+  const team = useResource((signal) => api.call(AGENTS_TEAM_VIEW, { businessId }, { signal }), `agents-team:${userId}:${businessId}`);
   // The last team read stays on screen while it is read again, so a form keeps what was typed.
   const [shown, setShown] = useState<Team | null>(null);
   useEffect(() => {
@@ -305,12 +301,7 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   /** Saves one member's allow and deny for one role as that grant's next change. */
   async function saveGrant(memberUserId: string, role: Role, allow: boolean, deny: boolean, version: number) {
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.grants.set',
-      { businessId, memberUserId, role, allow, deny, revision: version + 1 },
-      agentsTeamGrantResultSchema,
-    );
+    const result = await api.call(AGENTS_TEAM_GRANTS_SET, { businessId, memberUserId, role, allow, deny, revision: version + 1 });
     if (!result.ok) setBusy(false);
     setRolesNote(result.ok ? { ok: true, text: t('saved') } : { ok: false, failed: result as Refusal });
     // A refused change shows the stored value again at once; a saved one keeps its tick until the reload lands.
@@ -336,17 +327,12 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   async function savePool(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.pool.set',
-      {
-        businessId,
-        limit: poolLimit,
-        allocations: team.members.map((m) => ({ memberUserId: m.userId, amount: allocations[m.userId] ?? '' })),
-        revision: (team.pool?.version ?? 0) + 1,
-      },
-      agentsTeamPoolResultSchema,
-    );
+    const result = await api.call(AGENTS_TEAM_POOL_SET, {
+      businessId,
+      limit: poolLimit,
+      allocations: team.members.map((m) => ({ memberUserId: m.userId, amount: allocations[m.userId] ?? '' })),
+      revision: (team.pool?.version ?? 0) + 1,
+    });
     setBusy(false);
     if (!result.ok) setPoolNote({ ok: false, failed: result as Refusal });
     else if (!result.data.ok) {
@@ -363,12 +349,13 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   async function createProject(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.projects.create',
-      { businessId, name: projectName, limit: projectLimit, memberUserIds: projectMembers, seq: team.nextProjectSeq },
-      agentsTeamProjectResultSchema,
-    );
+    const result = await api.call(AGENTS_TEAM_PROJECTS_CREATE, {
+      businessId,
+      name: projectName,
+      limit: projectLimit,
+      memberUserIds: projectMembers,
+      seq: team.nextProjectSeq,
+    });
     setBusy(false);
     if (result.ok) {
       setProjectNote({ ok: true, text: t('saved') });
@@ -576,19 +563,17 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   );
 }
 
-const ownAgentsSchema = z.array(ownAgentSchema);
-
 /** Runs of the person's own agent on the business pool: each checked against their allocation, projects and the pool. */
 function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void }) {
   const api = useApi();
   const { Copy, t } = agentsTeamCopy.useCopy();
-  const mine = useResource((signal) => api.query('agents', 'own.list', { limit: 50 }, ownAgentsSchema, { signal }), 'agents-team-own');
+  const mine = useResource((signal) => api.call(AGENTS_OWN_LIST, { limit: 50 }, { signal }), 'agents-team-own');
   const agents = mine.resource.status === 'ready' ? mine.resource.data : [];
   const [agentId, setAgentId] = useState('');
   const chosen = agents.some((a) => a.id === agentId) ? agentId : (agents[0]?.id ?? '');
   const [session, setSession] = useState<string | null>(null);
   const [ask, setAsk] = useState('');
-  const [reply, setReply] = useState<z.infer<typeof agentsTeamRunResultSchema> | null>(null);
+  const [reply, setReply] = useState<ProcedureOutput<typeof AGENTS_TEAM_RUNS_RUN> | null>(null);
   const [note, setNote] = useState<Note | null>(null);
   const [busy, setBusy] = useState(false);
   // Each run of a session is keyed by the session and its number there, a business key. A press after a lost or
@@ -598,7 +583,7 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
 
   async function open() {
     setBusy(true);
-    const result = await api.mutate('agents', 'team.runs.open', { businessId, agentId: chosen }, agentsTeamRunSessionSchema);
+    const result = await api.call(AGENTS_TEAM_RUNS_OPEN, { businessId, agentId: chosen });
     setBusy(false);
     setReply(null);
     if (result.ok) {
@@ -612,12 +597,7 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
     if (!session) return;
     const requestId = `run:${session}:${runCount.current + 1}`;
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.runs.run',
-      { businessId, sessionId: session, requestId, ask },
-      agentsTeamRunResultSchema,
-    );
+    const result = await api.call(AGENTS_TEAM_RUNS_RUN, { businessId, sessionId: session, requestId, ask });
     setBusy(false);
     if (result.ok || !ANSWER_UNKNOWN.has(result.reason)) runCount.current += 1;
     if (result.ok) {
@@ -632,7 +612,7 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
   async function close() {
     if (!session) return;
     setBusy(true);
-    const result = await api.mutate('agents', 'team.runs.close', { businessId, sessionId: session }, agentsTeamRunClosedSchema);
+    const result = await api.call(AGENTS_TEAM_RUNS_CLOSE, { businessId, sessionId: session });
     setBusy(false);
     if (result.ok) {
       setSession(null);
@@ -699,18 +679,16 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
   );
 }
 
-const heldListSchema = z.array(agentsTeamHeldActionSchema);
-
 /** Tool actions of members' agents that wait for an approver who is not the agent's creator (four eyes). */
 function HeldActions({ team, name }: { team: Team; name: (userId: string) => string }) {
   const api = useApi();
   const { Copy, t } = agentsTeamCopy.useCopy();
   const businessId = team.businessId;
   const held = useResource(
-    (signal) => api.query('agents', 'team.actions.list', { businessId, limit: 50 }, heldListSchema, { signal }),
+    (signal) => api.call(AGENTS_TEAM_ACTIONS_LIST, { businessId, limit: 50 }, { signal }),
     `agents-team-held:${businessId}`,
   );
-  const mine = useResource((signal) => api.query('agents', 'own.list', { limit: 50 }, ownAgentsSchema, { signal }), 'agents-team-own');
+  const mine = useResource((signal) => api.call(AGENTS_OWN_LIST, { limit: 50 }, { signal }), 'agents-team-own');
   const agents = mine.resource.status === 'ready' ? mine.resource.data : [];
   const [agentId, setAgentId] = useState('');
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
@@ -726,19 +704,14 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
     event.preventDefault();
     if (!agent) return;
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.actions.hold',
-      { businessId, agentId: agent.id, tool: chosenTool, seq: nextSeq },
-      agentsTeamHeldActionResultSchema,
-    );
+    const result = await api.call(AGENTS_TEAM_ACTIONS_HOLD, { businessId, agentId: agent.id, tool: chosenTool, seq: nextSeq });
     setBusy(false);
     setNote(result.ok ? { ok: true, text: t('heldSaved') } : { ok: false, failed: result as Refusal });
     held.reload();
   }
   async function approve(actionId: string) {
     setBusy(true);
-    const result = await api.mutate('agents', 'team.actions.approve', { businessId, actionId }, agentsTeamHeldActionResultSchema);
+    const result = await api.call(AGENTS_TEAM_ACTIONS_APPROVE, { businessId, actionId });
     setBusy(false);
     setNote(result.ok ? { ok: true, text: t('approvedSaved') } : { ok: false, failed: result as Refusal });
     held.reload();
@@ -810,7 +783,7 @@ function TeamUsage({ team, name }: { team: Team; name: (userId: string) => strin
   const api = useApi();
   const { Copy, t } = agentsTeamCopy.useCopy();
   const usage = useResource(
-    (signal) => api.query('agents', 'team.usage', { businessId: team.businessId }, agentsTeamUsageSchema, { signal }),
+    (signal) => api.call(AGENTS_TEAM_USAGE, { businessId: team.businessId }, { signal }),
     `agents-team-usage:${team.businessId}:${team.used}`,
   );
   return (
@@ -832,7 +805,7 @@ function TeamUsage({ team, name }: { team: Team; name: (userId: string) => strin
   );
 }
 
-function UsageTable({ data, name }: { data: z.infer<typeof agentsTeamUsageSchema>; name: (userId: string) => string }) {
+function UsageTable({ data, name }: { data: ProcedureOutput<typeof AGENTS_TEAM_USAGE>; name: (userId: string) => string }) {
   const { Copy, t } = agentsTeamCopy.useCopy();
   return (
     <>

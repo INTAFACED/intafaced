@@ -477,3 +477,36 @@ pub fn load(source: &BTreeMap<String, String>) -> Result<BankEnv, EnvError> {
         raw: source.clone(),
     })
 }
+
+/// A loaded environment for a unit test: the recorder's base (`scripts/record-door.mjs`, `ENV_BASE`) with `extra` over
+/// it.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "a test helper: a failure is the point")]
+pub(crate) fn test_env(extra: &[(&str, &str)]) -> BankEnv {
+    let mut source: BTreeMap<String, String> = [
+        (
+            "EDGE_PRINCIPAL_SECRET",
+            "placeholder-bank-env-parity-edge-secret-long",
+        ),
+        (
+            "INTERNAL_SERVICE_SECRET",
+            "placeholder-bank-env-parity-internal-secret",
+        ),
+        ("APP_ENV", "test"),
+        (
+            "DATABASE_URL",
+            "postgres://bank:bank@localhost:5432/bank_test",
+        ),
+        ("DATABASE_POOL_MAX", "4"),
+        ("TRANSFER_BATCH_SIZE", "200"),
+        ("LOAN_QUOTE_ASSET_ID", "USDC"),
+        ("LOAN_SWEEP_BATCH_SIZE", "100"),
+    ]
+    .iter()
+    .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+    .collect();
+    for (k, v) in extra {
+        source.insert((*k).to_owned(), (*v).to_owned());
+    }
+    load(&source).map_err(|e| e.message).unwrap()
+}

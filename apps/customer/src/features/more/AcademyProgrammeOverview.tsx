@@ -31,6 +31,8 @@ import { ACADEMY_ENROLL_CERT_PATH } from '@intafaced/contracts/academy-learner-p
 import { AcademyRefusal, GuardedButton, pathLabel } from './AcademyLmsParts';
 import { usePreferences } from '../../shared/preferences';
 import { ACADEMY_RESIDENCY_PAY_QUOTE } from '@intafaced/contracts/academy-residency-pay-quote-procedures';
+import { callAs } from '../../shared/api';
+import { ACADEMY_AMBASSADOR_BADGE } from '@intafaced/contracts/academy-ambassador-badge-procedures';
 
 const badge = z.object({
   userId: z.string().guid(),
@@ -355,9 +357,9 @@ function AmbassadorStatus() {
   const status = useResource(
     (signal) =>
       userId
-        ? api.query(
-            'academy',
-            'ambassadorBadge',
+        ? callAs(
+            api,
+            ACADEMY_AMBASSADOR_BADGE,
             { userId },
             badge.refine((b) => b.userId === userId),
             { signal },
