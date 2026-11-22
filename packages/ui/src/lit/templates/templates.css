@@ -1040,6 +1040,21 @@ button.lt-tab {
   fill: var(--lit-accent);
 }
 
+/* Coverage: a time window's track, its covered ranges lit and its gaps left dark. */
+.lt-coverage {
+  position: relative;
+  block-size: 0.75rem;
+  background: var(--lit-secondary-bg);
+  border-radius: calc(var(--lit-radius-control) / 3);
+  overflow: hidden;
+}
+
+.lt-coverage > span {
+  position: absolute;
+  inset-block: 0;
+  background: var(--lit-accent);
+}
+
 .lt-bar {
   fill: var(--lit-accent);
 }
