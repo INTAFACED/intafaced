@@ -605,8 +605,8 @@ describe('b2 parts carry what the spot desk needs, so it uses them and no second
   });
 
   it('Checkbox may keep its name for assistive tech only (a row’s pick box)', () => {
-    expect(html(<B2.Checkbox label="Select order a-1" hideLabel checked={false} onChange={() => undefined} />)).toBe(
-      '<label class="lt-field"><input type="checkbox"/><span class="lt-sr">Select order a-1</span></label>',
+    expect(html(<B2.Checkbox label={<span className="lt-sr">Select order a-1</span>} checked={false} onChange={() => undefined} />)).toBe(
+      '<label class="lt-field"><input type="checkbox"/><span><span class="lt-sr">Select order a-1</span></span></label>',
     );
   });
 
