@@ -1,21 +1,23 @@
-import { Button } from '@intafaced/ui';
-import { EmptyState } from '../../../ui-kit';
+// volt-room: /pay/network/:childId
+// volt-room: portal:network-child
+import { KeyValue } from '@intafaced/ui/lit/templates';
 import { useResource, type Resource } from '../../../../../shared/resource';
-import { PaySection } from '../../../components';
-import { Chip, Facts } from '../../components';
 import type { PortalApi } from '../../api';
 import { DateTime } from '../../ui/DateTime';
-import { DetailHeader } from '../../ui/DetailHeader';
-import { EntityList } from '../../ui/EntityList';
-import { MoneyText } from '../../ui/MoneyText';
-import { RelatedLinks } from '../../ui/RelatedLinks';
+import { uiCopy } from '../../ui/copy';
 import { reason as notLive } from '../../chrome/copy';
+import { Chip, Empty, EntityList, Facts, LinkButton, MoneyText, ReadGate, Section } from '../../volt/parts';
+import { MonitorRoom } from '../../volt/MonitorRoom';
 import { accountCopy } from '../account/copy';
 import { portalCopy } from '../copy';
 import { areaWords, bpsPercent, isPlatformAccount, nodeName } from '../account/model';
 import type { SubMerchant, SubSummary } from '../account/schemas';
-import { ReadGate } from '../account/ui';
-import { NotPlatform } from './Network';
+import { NotPlatform } from './NotPlatform';
+
+/** `/pay/network/:child` on the monitor template, for the account the access resolved. */
+export function NetworkChildRoom({ portal, childId, mode }: { portal: PortalApi; childId: string; mode: string | null }) {
+  return <MonitorRoom>{() => ({ panels: <NetworkChild portal={portal} childId={childId} mode={mode} /> })}</MonitorRoom>;
+}
 
 /** `/pay/network/:child`: one sub-merchant, its last 30 days, its newest payments and who holds permissions over it. */
 export function NetworkChild({ portal, childId, mode }: { portal: PortalApi; childId: string; mode: string | null }) {
@@ -44,6 +46,7 @@ export function NetworkChildView({
   reload: () => void;
 }) {
   const { t } = accountCopy.useCopy();
+  const { t: u } = uiCopy.useCopy();
   return (
     <ReadGate
       resource={node}
@@ -56,23 +59,24 @@ export function NetworkChildView({
         const name = nodeName(named, t('subWord'));
         const id = encodeURIComponent(base.id);
         return (
-          <div className="stack">
-            <DetailHeader
-              back={{ href: '/pay/network', label: t('netBack') }}
-              title={name}
-              status={<Chip kind="merchant" value={base.status} />}
-              subtitle={
-                <>
-                  {t('netAdded')} <DateTime value={base.createdAt} />
-                </>
-              }
-              action={
-                <Button variant="primary" nativeButton={false} role="link" render={<a href={`/pay/permissions?child=${id}`} />}>
+          <div className="lt-stack">
+            <header className="lt-stack">
+              <a className="lt-link" href="/pay/network">
+                {t('netBack')}
+              </a>
+              <h2>
+                {name} <Chip kind="merchant" value={base.status} />
+              </h2>
+              <p className="lt-hint">
+                {t('netAdded')} <DateTime value={base.createdAt} />
+              </p>
+              <div className="lt-actions">
+                <LinkButton href={`/pay/permissions?child=${id}`} tone="primary">
                   {t('netPermissionsAction')}
-                </Button>
-              }
-            />
-            <PaySection title={t('netFactsTitle')}>
+                </LinkButton>
+              </div>
+            </header>
+            <Section title={t('netFactsTitle')}>
               <Facts
                 items={[
                   [t('fVerification'), <Chip kind="kyb" value={base.kybStatus} />],
@@ -80,7 +84,7 @@ export function NetworkChildView({
                   [t('netDepth'), String(base.depth)],
                 ]}
               />
-            </PaySection>
+            </Section>
             <ReadGate
               resource={summary}
               retry={reload}
@@ -88,12 +92,21 @@ export function NetworkChildView({
             >
               {(data) => <Summary data={data} />}
             </ReadGate>
-            <RelatedLinks
-              links={[
-                { href: `/pay/permissions?child=${id}`, label: t('netPermissionsAction') },
-                { href: '/pay/network', label: t('netBack') },
-              ]}
-            />
+            <nav aria-label={u('related')}>
+              <h3>{u('related')}</h3>
+              <ul>
+                <li>
+                  <a className="lt-link" href={`/pay/permissions?child=${id}`}>
+                    {t('netPermissionsAction')}
+                  </a>
+                </li>
+                <li>
+                  <a className="lt-link" href="/pay/network">
+                    {t('netBack')}
+                  </a>
+                </li>
+              </ul>
+            </nav>
           </div>
         );
       }}
@@ -106,23 +119,23 @@ function Summary({ data }: { data: SubSummary }) {
   const { t: p } = portalCopy.useCopy();
   return (
     <>
-      <PaySection title={t('netVolumeTitle')} description={t('netVolumeBody')}>
+      <Section title={t('netVolumeTitle')} description={t('netVolumeBody')}>
         {data.volume === null ? (
-          <p className="muted">{t('netNoPaymentAccess')}</p>
+          <p className="lt-hint">{t('netNoPaymentAccess')}</p>
         ) : data.volume.items.length === 0 ? (
-          <EmptyState title={t('netNoVolume')}>{t('netNoVolumeBody')}</EmptyState>
+          <Empty title={t('netNoVolume')}>{t('netNoVolumeBody')}</Empty>
         ) : (
-          <ul className="sa-list" aria-label={t('netVolumeTitle')}>
-            {data.volume.items.map((v) => (
-              <li key={v.assetCode}>
-                <MoneyText value={v.volume} asset={v.assetCode} />{' '}
-                <span className="muted">· {v.count === 1 ? t('netPaymentsCountOne') : t('netPaymentsCount', { n: v.count })}</span>
-              </li>
-            ))}
-          </ul>
+          <KeyValue
+            label={t('netVolumeTitle')}
+            rows={data.volume.items.map((v) => ({
+              label: v.assetCode,
+              value: <MoneyText value={v.volume} asset={v.assetCode} />,
+              note: v.count === 1 ? t('netPaymentsCountOne') : t('netPaymentsCount', { n: v.count }),
+            }))}
+          />
         )}
-      </PaySection>
-      <PaySection
+      </Section>
+      <Section
         title={t('netRecentTitle')}
         description={
           data.recentPayments?.items.length === 1
@@ -131,9 +144,9 @@ function Summary({ data }: { data: SubSummary }) {
         }
       >
         {data.recentPayments === null ? (
-          <p className="muted">{t('netNoPaymentAccess')}</p>
+          <p className="lt-hint">{t('netNoPaymentAccess')}</p>
         ) : data.recentPayments.items.length === 0 ? (
-          <EmptyState title={t('netNoRecent')}>{t('netNoRecentBody')}</EmptyState>
+          <Empty title={t('netNoRecent')}>{t('netNoRecentBody')}</Empty>
         ) : (
           <EntityList
             label={t('netRecentTitle')}
@@ -144,27 +157,22 @@ function Summary({ data }: { data: SubSummary }) {
               { header: p('colAmount'), cell: (r) => <MoneyText value={r.amount} asset={r.assetId} /> },
               { header: p('colStatus'), cell: (r) => <Chip kind="payment" value={r.status} /> },
             ]}
-            card={(r) => ({
-              title: <MoneyText value={r.amount} asset={r.assetId} />,
-              time: <DateTime value={r.createdAt} />,
-              status: <Chip kind="payment" value={r.status} />,
-            })}
           />
         )}
-      </PaySection>
-      <PaySection title={t('netGrantsTitle')} description={t('netGrantsBody')}>
+      </Section>
+      <Section title={t('netGrantsTitle')} description={t('netGrantsBody')}>
         {data.grants === null ? (
-          <p className="muted">{t('netNoGrantAccess')}</p>
+          <p className="lt-hint">{t('netNoGrantAccess')}</p>
         ) : data.grants.items.length === 0 ? (
-          <EmptyState title={t('netNoGrants')}>{t('netNoGrantsBody')}</EmptyState>
+          <Empty title={t('netNoGrants')}>{t('netNoGrantsBody')}</Empty>
         ) : (
-          <ul className="sa-list" aria-label={t('netGrantsTitle')}>
+          <ul className="lt-rows" aria-label={t('netGrantsTitle')}>
             {data.grants.items.map((g) => (
               <li key={`${g.area}:${g.granteeMerchantId}`}>{areaWords(g.area)}</li>
             ))}
           </ul>
         )}
-      </PaySection>
+      </Section>
     </>
   );
 }

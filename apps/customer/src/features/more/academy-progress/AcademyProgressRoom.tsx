@@ -4,7 +4,7 @@ import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import { useApi, useSession } from '../../session';
 import { t as copyText } from '../copy';
-import { useKitAcademyAction } from '../academy-action-kit';
+import { useKitAcademyAction } from '../academy-reader/academy-action-kit';
 import { AcademyAccessGrants } from '../academy-access-grants';
 import { definitionsHold } from '../academy-learning-state';
 import { AcademyRefusal } from '../academy-refusal';
