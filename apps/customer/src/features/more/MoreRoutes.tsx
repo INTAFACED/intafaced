@@ -2,7 +2,12 @@ import { copy, t as copyText, Text } from './copy';
 import { Page, Panel, EmptyState } from '../../shared/ui';
 import { useSession } from '../session';
 import { AcademyRoom } from './Academy';
-import { academyRoute } from './academy-lms';
+import { academyRoute, academySectionRedirect } from './academy-lms';
+import { AcademyLearningRoom } from './academy-catalogue/AcademyLearningRoom';
+import { AcademyRoomsRoom } from './academy-catalogue/AcademyRoomsRoom';
+import { AcademyVideosRoom } from './academy-catalogue/AcademyVideosRoom';
+import { AcademyProgrammesRoom } from './academy-catalogue/AcademyProgrammesRoom';
+import { AcademyProgrammeRoom } from './academy-catalogue/AcademyProgrammeRoom';
 import { AcademyDiscussionThreadRoom } from './AcademyDiscussion';
 import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
 import { AcademyCourseRoom } from './AcademyCourseRoom';
@@ -18,6 +23,7 @@ import { AgentRunPage, agentRunId } from './AgentRun';
 import { agentRunCopy } from './agent-run-copy';
 import { Blueprint } from './Blueprint';
 import { BlueprintSharedRoom } from './BlueprintSharedCard';
+import { BlueprintRoom } from './blueprint-room/BlueprintRoom';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-detail/CampaignDetailRoom';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
@@ -97,19 +103,33 @@ function MoreRooms({ path }: { path: string }) {
     );
   } else if (academy?.kind === 'course') {
     volt = <AcademyCourseRoom key={`${p}:${url.search}`} slug={academy.slug} signedIn={Boolean(userId)} />;
-  } else if (academy) {
-    title = copyText('moreroutes.academy');
-    description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
-    content = (
-      <AcademyRoom
+  } else if (
+    academy &&
+    !academySectionRedirect(p, url.search) &&
+    ((academy.kind === 'tab' && academy.tab === 'Learning') || academy.kind === 'reader')
+  ) {
+    // The hub and Learning are on the catalogue template (issue 9566); an old `?slug=` address opens that lesson in place.
+    volt = (
+      <AcademyLearningRoom
         key={`${p}:${url.search}`}
-        pathname={p}
-        search={url.search}
-        route={academy}
-        slug={url.searchParams.get('slug') ?? undefined}
+        hub={academy.kind === 'tab' && Boolean(academy.hub)}
+        signedIn={Boolean(userId)}
+        slug={academy.kind === 'tab' ? (url.searchParams.get('slug') ?? undefined) : undefined}
         initialPath={url.searchParams.get('path') ?? undefined}
       />
     );
+  } else if (academy?.kind === 'tab' && academy.tab === 'Rooms') {
+    volt = <AcademyRoomsRoom key={`${p}:${url.search}`} signedIn={Boolean(userId)} />;
+  } else if (academy?.kind === 'tab' && academy.tab === 'Videos') {
+    volt = <AcademyVideosRoom key={`${p}:${url.search}`} signedIn={Boolean(userId)} />;
+  } else if (academy?.kind === 'tab' && academy.tab === 'Programmes') {
+    volt = <AcademyProgrammesRoom key={`${p}:${url.search}`} signedIn={Boolean(userId)} />;
+  } else if (academy?.kind === 'programme') {
+    volt = <AcademyProgrammeRoom key={`${p}:${url.search}`} slug={academy.slug} signedIn={Boolean(userId)} />;
+  } else if (academy) {
+    title = copyText('moreroutes.academy');
+    description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
+    content = <AcademyRoom key={`${p}:${url.search}`} pathname={p} search={url.search} route={academy} />;
     // The signed-in course-team inbox is on its Volt template; a signed-out visitor gets the public Academy.
     if (academy.kind === 'messages' && !academy.conversationId && userId) volt = content;
   } else if (p === '/agents') {
@@ -134,9 +154,7 @@ function MoreRooms({ path }: { path: string }) {
     volt = <AgentApprovalsRoom />;
   } else if (p === '/blueprint') {
     room = 'blueprint';
-    title = copyText('moreroutes.identity.blueprint');
-    description = copyText('moreroutes.a.profile.you.can.keep.private.share');
-    content = <Blueprint path={path} />;
+    volt = <BlueprintRoom path={path} />;
   } else if (p === '/campaigns') {
     title = copyText('moreroutes.campaigns');
     description = copyText('moreroutes.your.campaign.participation');
