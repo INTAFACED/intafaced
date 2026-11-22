@@ -10,9 +10,9 @@ import {
   positiveMoney,
   ResourceView,
   Section,
-  useBankRead,
   usePageLimit,
   type ActionSpec,
+  useBankRecord,
 } from './components';
 
 import { t as copyText } from './copy';
@@ -22,6 +22,7 @@ import type { scheduleSchema } from './contracts';
 import { standingCopy } from './standing-copy';
 
 import { currentOwnerRecord, useBankView } from './bank-context';
+import { BANK_TRANSFERS_EXECUTIONS, BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 
 export type StandingInstruction = z.infer<typeof scheduleSchema>;
 
@@ -230,12 +231,12 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
 
 /** One standing instruction's executions, newest first, as the bank reports them. Shared with the Transfers room. */
 export function useExecutionsRead(scheduleId: string, limit: number) {
-  return useBankRead('transfers.executions', { scheduleId, limit });
+  return useBankRecord(BANK_TRANSFERS_EXECUTIONS, { scheduleId, limit });
 }
 
 /** The person's standing instructions, newest first. */
 export function useSchedulesRead(limit: number) {
-  return useBankRead('transfers.listSchedules', { limit });
+  return useBankRecord(BANK_TRANSFERS_LIST_SCHEDULES, { limit });
 }
 
 /** A stored instant as the minutes a datetime-local field shows. */

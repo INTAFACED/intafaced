@@ -4,25 +4,25 @@ import { Button, EmptyState } from '@intafaced/ui/lit';
 import { FlowTemplate, Skeleton } from '@intafaced/ui/lit/templates';
 import type { Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
-import { date, useBankRead, type ActionSpec } from '../components';
-import {
-  approvalMailAskedSchema,
-  destinationCheckSchema,
-  destinationReadinessSchema,
-  destinationRemovedSchema,
-  destinationSchema,
-  type Destination,
-  type DestinationCheck,
-  type DestinationReadiness,
-  type WithdrawAsset,
-  walletProofStartedSchema,
-  walletProofVerifiedSchema,
-} from '../contracts';
+import { date, type ActionSpec, useBankRecord } from '../components';
+import { type Destination, type DestinationCheck, type DestinationReadiness, type WithdrawAsset } from '../contracts';
 import { moneyRefusalWords } from '../money-refusal-copy';
 import { SAVED_STATE_WORDS, checkAddress, checkLabel, checkTag, coolingOf, shortenAddress, shownState } from '../withdraw-model';
 import { withdrawalCopy } from '../withdrawal-copy';
 import { FailureNote } from './FailureNote';
 import { StepUpSheet } from './StepUpSheet';
+import {
+  BANK_RAMPS_DESTINATIONS_READINESS,
+  BANK_RAMPS_DESTINATIONS_APPROVAL_ON_DEVICE,
+  BANK_RAMPS_DESTINATIONS_APPROVAL_REQUEST_MAIL,
+  BANK_RAMPS_DESTINATIONS_OWNERSHIP_START,
+  BANK_RAMPS_DESTINATIONS_OWNERSHIP_VERIFY,
+  BANK_RAMPS_DESTINATIONS_NETWORKS,
+  BANK_RAMPS_DESTINATIONS_CHECK,
+  BANK_RAMPS_DESTINATIONS_SAVE,
+  BANK_RAMPS_DESTINATIONS_LIST,
+  BANK_RAMPS_DESTINATIONS_REMOVE,
+} from '@intafaced/contracts/bank-ramps-procedures';
 
 const OWNERSHIP_KEYS = { pending: 'aOwnPending', expired: 'aOwnExpired' } as const;
 
@@ -226,7 +226,7 @@ export function UseAddress({ row, onClose, onApproved }: { row: Destination; onC
   useEffect(() => {
     let live = true;
     api
-      .query('bank', 'ramps.destinations.readiness', { destinationId: row.destinationId }, destinationReadinessSchema)
+      .call(BANK_RAMPS_DESTINATIONS_READINESS, { destinationId: row.destinationId })
       .then((result) => {
         if (!live) return;
         if (result.ok) setAnswer(result.data);
@@ -330,13 +330,7 @@ export function ApproveHere({ row, onApproved }: { row: Destination; onApproved?
         <StepUpSheet
           why={t('aApproveWhy')}
           run={async (bearer) => {
-            const answer = await api.mutate(
-              'bank',
-              'ramps.destinations.approval.onDevice',
-              { destinationId: row.destinationId },
-              destinationSchema,
-              { bearer },
-            );
+            const answer = await api.call(BANK_RAMPS_DESTINATIONS_APPROVAL_ON_DEVICE, { destinationId: row.destinationId }, { bearer });
             if (answer.ok) {
               answered.current = answer.data;
               return answer;
@@ -397,7 +391,7 @@ export function ApprovalMail({ destinationId, openUntil }: { destinationId: stri
     setBusy(true);
     setProblem(null);
     try {
-      const answer = await api.mutate('bank', 'ramps.destinations.approval.requestMail', { destinationId }, approvalMailAskedSchema);
+      const answer = await api.call(BANK_RAMPS_DESTINATIONS_APPROVAL_REQUEST_MAIL, { destinationId });
       if (answer.ok) setAsked(answer.data.expiresAt);
       else setProblem(approvalMailWords(answer.code, t));
     } catch {
@@ -466,7 +460,7 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
     setOffer(null);
     setSignature('');
     void api
-      .mutate('bank', 'ramps.destinations.ownership.start', { destinationId: row.destinationId }, walletProofStartedSchema)
+      .call(BANK_RAMPS_DESTINATIONS_OWNERSHIP_START, { destinationId: row.destinationId })
       .then((answer) => (answer.ok ? setOffer(answer.data) : setProblem(words(answer.code))))
       .catch(() => setProblem(t('aProveFailed')));
   };
@@ -483,12 +477,7 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
     setBusy(true);
     setProblem(null);
     try {
-      const answer = await api.mutate(
-        'bank',
-        'ramps.destinations.ownership.verify',
-        { proofId: offer.proofId, signature: signature.trim() },
-        walletProofVerifiedSchema,
-      );
+      const answer = await api.call(BANK_RAMPS_DESTINATIONS_OWNERSHIP_VERIFY, { proofId: offer.proofId, signature: signature.trim() });
       if (!answer.ok) {
         setProblem(words(answer.code));
         // A lapsed offer can never be signed now: the form goes, and Start again asks for a new message.
@@ -597,7 +586,7 @@ export function draftProblems(draft: Draft, assets: readonly WithdrawAsset[]) {
 function AddForm({ onSaved }: { onSaved: () => void }) {
   const { t } = withdrawalCopy.useCopy();
   const { api } = useSession();
-  const networks = useBankRead('ramps.destinations.networks', undefined);
+  const networks = useBankRecord(BANK_RAMPS_DESTINATIONS_NETWORKS, undefined);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [tried, setTried] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -655,7 +644,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
     setChecking(true);
     setCheckProblem(null);
     try {
-      const answer = await api.query('bank', 'ramps.destinations.check', { ref, network: input.network }, destinationCheckSchema);
+      const answer = await api.call(BANK_RAMPS_DESTINATIONS_CHECK, { ref, network: input.network });
       if (typed.current !== asked) return;
       if (!answer.ok) {
         // The sanctions refusals before the confirmation code, in the same words as on save.
@@ -799,7 +788,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
         <StepUpSheet
           why={t('aSaveWhy')}
           run={async (token) => {
-            const answer = await api.mutate('bank', 'ramps.destinations.save', input, destinationSchema, { bearer: token });
+            const answer = await api.call(BANK_RAMPS_DESTINATIONS_SAVE, input, { bearer: token });
             // The address refusals in the customer's own words; the check above makes them rare.
             if (!answer.ok && answer.code === 'bank.address_lookalike') return { ...answer, message: t('aLookalikeRefused') };
             if (!answer.ok && answer.code === 'bank.address_checksum_mismatch') return { ...answer, message: t('aAddressChecksum') };
@@ -833,7 +822,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
 export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => void } = {}) {
   const { t } = withdrawalCopy.useCopy();
   const { api } = useSession();
-  const book = useBankRead('ramps.destinations.list', undefined);
+  const book = useBankRecord(BANK_RAMPS_DESTINATIONS_LIST, undefined);
   const [removing, setRemoving] = useState<Destination | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   const [proving, setProving] = useState<Destination | null>(null);
@@ -895,12 +884,9 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
             <StepUpSheet
               why={t('aRemoveWhy', { address: shortenAddress(removing.ref) })}
               run={(token) =>
-                api.mutate(
-                  'bank',
-                  'ramps.destinations.remove',
-                  // One removal of one entry: a retry of it is the same request.
+                api.call(
+                  BANK_RAMPS_DESTINATIONS_REMOVE,
                   { destinationId: removing.destinationId, idempotencyKey: `destination-remove:${removing.destinationId}` },
-                  destinationRemovedSchema,
                   { bearer: token },
                 )
               }

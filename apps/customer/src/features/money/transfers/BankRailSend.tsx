@@ -3,13 +3,20 @@ import { Button } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { decimalSchema, parseAmount } from '../../../shared/money';
 import { useSession } from '../../session';
-import { date, funds, useBankRead, useSpaces } from '../components';
-import { railPayeeSchema, railSendCheckSchema, railSendSchema, type RailPayee, type RailSend, type RegionNotice } from '../contracts';
+import { date, funds, useSpaces, useBankRecord } from '../components';
+import { railSendCheckSchema, railSendSchema, type RailPayee, type RailSend, type RegionNotice } from '../contracts';
 import { railSendCopy } from '../rail-send-copy';
 import { currentSpace } from '../space-context';
 import { RailForm, filled, type Key } from './rail-form';
 import { CoolingWords, PAYEE_PAGE, RecipientBook } from './RecipientBook';
 import { Failure, TextField as Field, StepUpSheet as WithdrawStepUp } from './TransferParts';
+import {
+  BANK_RAIL_SENDS_READ_PAYEE_WARNING,
+  BANK_RAIL_SENDS_REQUIREMENTS,
+  BANK_RAIL_SENDS_LIST,
+  BANK_RAIL_SENDS_PAYEES,
+} from '@intafaced/contracts/bank-rail-sends-procedures';
+import { BANK_SAFETY_REGION_NOTICE } from '@intafaced/contracts/bank-safety-procedures';
 
 const amountOk = (value: string) => decimalSchema.safeParse(value.trim()).success && parseAmount(value.trim()) > 0n;
 
@@ -81,7 +88,7 @@ function ScamWarning({ payee, onRead }: { payee: RailPayee; onRead: () => void }
   async function read() {
     setBusy(true);
     setProblem(null);
-    const answer = await api.mutate('bank', 'railSends.readPayeeWarning', { payeeId: payee.payeeId }, railPayeeSchema);
+    const answer = await api.call(BANK_RAIL_SENDS_READ_PAYEE_WARNING, { payeeId: payee.payeeId });
     setBusy(false);
     if (answer.ok) onRead();
     else setProblem(answer.message);
@@ -108,12 +115,12 @@ function ScamWarning({ payee, onRead }: { payee: RailPayee; onRead: () => void }
 export function BankRailSend() {
   const { t } = railSendCopy.useCopy();
   const { api, userId } = useSession();
-  const requirements = useBankRead('railSends.requirements', undefined);
-  const region = useBankRead('safety.regionNotice', undefined);
+  const requirements = useBankRecord(BANK_RAIL_SENDS_REQUIREMENTS, undefined);
+  const region = useBankRecord(BANK_SAFETY_REGION_NOTICE, undefined);
   const blocked = region.resource.status === 'ready' && region.resource.data.blocked ? region.resource.data : null;
   const spaces = useSpaces(200);
-  const sends = useBankRead('railSends.list', { limit: 20 });
-  const payees = useBankRead('railSends.payees', { limit: PAYEE_PAGE });
+  const sends = useBankRecord(BANK_RAIL_SENDS_LIST, { limit: 20 });
+  const payees = useBankRecord(BANK_RAIL_SENDS_PAYEES, { limit: PAYEE_PAGE });
   const [payeeId, setPayeeId] = useState('');
   const [railId, setRailId] = useState('');
   const [values, setValues] = useState<Record<string, string>>({});

@@ -6,7 +6,19 @@ import { useApi } from '../session';
 import { createMoneyClient } from './client';
 import { bankReads, ruleSchema } from './contracts';
 import { t } from './repeat-buy-copy';
-import { funds, cadenceField, date, iso, positiveMoney, startsField, useBankRead, usePageLimit, type ActionSpec } from './components';
+import {
+  funds,
+  cadenceField,
+  date,
+  iso,
+  positiveMoney,
+  startsField,
+  useBankRead,
+  usePageLimit,
+  type ActionSpec,
+  useBankRecord,
+} from './components';
+import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
 
 /**
  * What Repeat buy (repeat-buy/repeat-buy.tsx) and the automatic investing rules (earn/AutoInvestRules.tsx) read and
@@ -34,7 +46,7 @@ export interface AutoInvestRulesRead {
 export function useAutoInvestRules(): AutoInvestRulesRead {
   const api = useApi();
   const [limit, setLimit] = usePageLimit();
-  const { resource, reload } = useBankRead('autoInvest.list', { limit });
+  const { resource, reload } = useBankRecord(BANK_AUTO_INVEST_LIST, { limit });
   function lifecycle(rule: Rule, action: 'pause' | 'resume' | 'cancel'): ActionSpec {
     const facts: [string, string][] = [
       [t('reference'), rule.id],
@@ -72,7 +84,7 @@ export function useAutoInvestRules(): AutoInvestRulesRead {
             },
       unit: rule.assetId,
       preflight: async () => {
-        const latest = await api.query('bank', 'autoInvest.list', { limit }, bankReads['autoInvest.list']);
+        const latest = await api.call(BANK_AUTO_INVEST_LIST, { limit });
         if (!latest.ok) return readRefusal(t('rulesSubject'));
         const current = latest.data.find((row) => row.id === rule.id);
         // Missing from this bounded read cannot establish cancellation or an outcome.

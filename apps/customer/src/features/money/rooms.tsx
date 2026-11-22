@@ -63,9 +63,9 @@ import {
   ResourceView,
   Section,
   startsField,
-  useBankRead,
   useSpaces,
   type ActionSpec,
+  useBankRecord,
 } from './components';
 import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
 import { EarnPoolRoom, EarnRoom } from './earn/EarnRooms';
@@ -143,6 +143,8 @@ import { transferDepthCopy } from './transfer-depth-copy';
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
 
 import { statementCentreCopy } from './statement-centre-copy';
+import { BANK_ANALYTICS_SPEND } from '@intafaced/contracts/bank-analytics-procedures';
+import { BANK_SPACES_UNNAMED } from '@intafaced/contracts/bank-spaces-procedures';
 
 export function BankNavigation({ current }: { current: string }) {
   return (
@@ -225,7 +227,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
   const context = spaceContext(search, 'space');
   const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
   const spaces = useSpaces(limit);
-  const unnamed = useBankRead('spaces.unnamed', undefined);
+  const unnamed = useBankRecord(BANK_SPACES_UNNAMED, undefined);
   const held = useHoldings();
   const heldAssets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   const depthCopy = transferDepthCopy.useCopy();
@@ -491,6 +493,8 @@ function LinkedAccountsRoom() {
     </BankPage>
   );
 }
+/** A range is sent only while the read is on; this stands in for it while the read is off, and is never sent. */
+const NO_RANGE = { assetId: '', from: '', to: '' };
 function Analytics() {
   const depth = transferDepthCopy.useCopy();
   const held = useHoldings();
@@ -509,7 +513,7 @@ function Analytics() {
     }
     return { assetId, ...periodRange(preset, new Date(Math.floor(Date.now() / 60_000) * 60_000)) };
   }, [assetId, preset, useCustom, custom.from, custom.to]);
-  const query = useBankRead('analytics.spend', range, Boolean(range));
+  const query = useBankRecord(BANK_ANALYTICS_SPEND, range ?? NO_RANGE, range !== null);
   const presetLabel = (value: PeriodPreset) =>
     depth.t(value === '7d' ? 'period7d' : value === '30d' ? 'period30d' : value === 'month' ? 'periodMonth' : 'periodLastMonth');
   return (
