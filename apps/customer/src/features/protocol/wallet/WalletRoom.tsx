@@ -8,7 +8,6 @@ import { ClaimLinksPanel } from './ClaimLinksPanel';
 import { ConnectPanel } from './ConnectPanel';
 import { WalletHomeRoom } from './WalletHomeRoom';
 import { TrackerPanel } from './TrackerPanel';
-import { ReceivePanel } from './ReceivePanel';
 import { SafetyPanel } from './SafetyPanel';
 import { ScanPanel } from './ScanPanel';
 import { SendPanel } from './SendPanel';
@@ -37,8 +36,6 @@ export function WalletRoom({ section: initial }: { section: Section }) {
         {connectPanel}
         <SendPanel to={query.get('to') ?? ''} token={query.get('token') ?? ''} />
       </>
-    ) : section === 'receive' ? (
-      <ReceivePanel />
     ) : section === 'scan' ? (
       <ScanPanel />
     ) : section === 'claimLinks' ? (

@@ -14,7 +14,6 @@ export {
   Skeleton,
   StateBlock,
   StatusTag,
-  Switch,
   Tabs,
   TabsList,
   TabsTab,
