@@ -137,6 +137,23 @@ const heroText = (page) =>
     return figure.trim();
   });
 const expectHero = (page, text) => expect.poll(() => heroText(page).catch(() => null), { timeout: 7000 }).toBe(text);
+/** A Volt kit size token as the room resolves it, in px ("--lit-control-h" is 48). */
+const token = (page, name) =>
+  page.evaluate((n) => parseFloat(getComputedStyle(document.querySelector('.lt-room')).getPropertyValue(n)), name);
+/** A colour token as the browser draws it, read back from a probe painted with it (as text, or as a background). */
+const tokenColour = (page, name, property = 'color') =>
+  page.evaluate(
+    ([n, p]) => {
+      const probe = document.createElement('span');
+      probe.style[p] = `var(${n})`;
+      document.querySelector('.lt-room').append(probe);
+      const colour = getComputedStyle(probe)[p];
+      probe.remove();
+      return colour;
+    },
+    [name, property],
+  );
+const box = async (page, selector) => await page.locator(selector).first().boundingBox();
 const texts = (locator) => locator.evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()));
 
 test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ page }) => {
@@ -164,21 +181,23 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
 
   // Actions: only live ones, Buy is the one primary.
   expect(await texts(page.locator('[data-testid="home-actions"] > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);
-  await expect(page.getByTestId('home-actions').locator('a[data-variant="primary"]')).toHaveText('Buy');
-  expect(await page.getByTestId('home-actions').locator('a[data-variant="primary"]').count()).toBe(1);
+  await expect(page.getByTestId('home-actions').locator('a.lt-button-primary')).toHaveText('Buy');
+  expect(await page.getByTestId('home-actions').locator('a.lt-button-primary').count()).toBe(1);
   // Simple Buy and Sell open the Buy card (M2 critic H1); Pro Home goes to the desk.
   await expect(page.getByTestId('home-actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/buy');
   await expect(page.getByTestId('home-actions').locator('a').nth(1)).toHaveAttribute('href', '/trade/buy?side=sell');
   // Critic H1: the Buy label is dark on its light key (an unlayered rule once made it white, 1.25:1); in Volt the first
-  // key is ink with the page's black on it.
+  // key is the accent with the page's own dark on it.
   const color = (selector) =>
     page
       .locator(selector)
       .first()
       .evaluate((node) => getComputedStyle(node).color);
-  expect(await color('[data-testid="home-actions"] [data-slot="button"]:first-child')).toBe('rgb(10, 10, 9)');
-  // Critic H2: kit sizes are true px (the legacy 14 px root made every pill 35 tall).
-  expect(Math.round((await page.getByTestId('home-actions').locator('a').first().boundingBox()).height)).toBe(40);
+  expect(await color('[data-testid="home-actions"] a.lt-button-primary')).toBe(await tokenColour(page, '--lit-primary-fg'));
+  // Critic H2: kit sizes are true px (the legacy 14 px root made every pill 35 tall): the kit's control height.
+  expect(Math.round((await page.getByTestId('home-actions').locator('a').first().boundingBox()).height)).toBe(
+    await token(page, '--lit-control-h'),
+  );
 
   // Cash / Crypto card
   // Volt's money object: the cash card in front, the crypto card behind, each opening its part of Money
@@ -196,16 +215,16 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   await expect(cards.first()).toContainText('+2.75%');
   await expect(cards.nth(2)).toContainText('−2.14%');
   await expect(cards.first()).toHaveAttribute('href', '/coin/BTC');
-  expect(await page.getByTestId('home-card').locator('[data-slot="sparkline"] polyline').count()).toBe(4);
+  expect(await page.getByTestId('home-card').locator('.lt-spark .lt-chart-line').count()).toBe(4);
 
   // Top movers: up to 6, biggest move first, one per asset.
   expect(await texts(page.getByTestId('home-pill'))).toEqual([
-    'DOGE▼−4.94%',
-    'BTC▲+2.75%',
-    'XRP▲+2.15%',
-    'IFC▼−2.14%',
-    'SOL▲+1.75%',
-    'ETH▲+1.59%',
+    'DOGE▼ −4.94%',
+    'BTC▲ +2.75%',
+    'XRP▲ +2.15%',
+    'IFC▼ −2.14%',
+    'SOL▲ +1.75%',
+    'ETH▲ +1.59%',
   ]);
 
   const box = async (selector) => await page.locator(selector).first().boundingBox();
@@ -226,19 +245,29 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   await expect(page.getByTestId('home-watch').getByTestId('home-watch__head').locator('h2')).toHaveText('Popular');
   expect(await texts(page.getByTestId('home-watch').getByTestId('home-watch__ticker'))).toEqual(['XRP', 'DOGE']); // the cards' coins are not repeated (critic N3)
 
-  // Geometry: container 1224, main 792, side 408, card 186 x 176, hero text 63/63 (Volt's wide figure, 4.5rem).
-  expect(Math.round((await box('[data-testid="if-home"]')).width)).toBe(1224);
-  expect(Math.round((await box('[data-testid="home-main"]')).width)).toBe(792);
-  expect(Math.round((await box('[data-testid="home-side"]')).width)).toBe(408);
-  const card = await box('[data-testid="home-card"]');
-  expect([Math.round(card.width), Math.round(card.height)]).toEqual([186, 176]);
+  // Geometry: container 1224, main 726, side 342 (each inside its region's panel), the four market cards one row of
+  // equal tiles, hero text the kit's hero type (56/56).
+  expect(Math.round((await box('[data-testid="if-home"] .lt-room')).width)).toBe(1224);
+  expect(Math.round((await box('[data-testid="home-main"]')).width)).toBe(726);
+  expect(Math.round((await box('[data-testid="home-side"]')).width)).toBe(342);
+  const tiles = await page
+    .getByTestId('home-cards')
+    .locator(':scope > *')
+    .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()).map(({ x, y, width, height }) => ({ x, y, width, height })));
+  const row = await box('[data-testid="home-cards"]');
+  const gap = await token(page, '--lit-gap-item');
+  expect(tiles.map((tile) => Math.round(tile.width))).toEqual(Array(4).fill(Math.round((row.width - 3 * gap) / 4)));
+  expect(new Set(tiles.map((tile) => Math.round(tile.height))).size).toBe(1);
+  const card = tiles[0];
   expect((await box('[data-testid="home-side"]')).y).toBeCloseTo((await box('[data-testid="home-label"]')).y, 0);
   const heroStyle = await page
     .locator('[data-slot="hero-number"]')
     .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight);
-  expect(heroStyle).toBe('63px/63px');
-  // The Markets row is on the first screen (the real app adds a 28 px local-test banner above).
-  expect((await box('[data-testid="home-card"]')).y + card.height).toBeLessThanOrEqual(900 - 28);
+  const heroSize = await token(page, '--lit-type-hero-size');
+  expect(heroStyle).toBe(`${heroSize}px/${heroSize}px`);
+  // The Markets row is one row: every card starts on the first card's line and the row ends with them.
+  expect(tiles.every((tile) => Math.round(tile.y) === Math.round(card.y))).toBe(true);
+  expect(Math.round(row.y + row.height)).toBe(Math.round(card.y + card.height));
 
   // Order on the page: value -> change -> actions -> Cash/Crypto -> Markets.
   const ys = await page.evaluate(() =>
@@ -266,9 +295,11 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   for (const value of await texts(page.locator('[data-money], [data-slot="money"]')))
     expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
-  // Keyboard: Tab from the top bar reaches eye -> the total's info tip -> its Assets link -> today's info tip -> the derived-total tip -> actions -> Cash -> Crypto -> 4 cards (each
+  // Keyboard: Tab from the top bar reaches Customise -> the notices link -> eye -> the total's info tip -> its Assets link -> today's info tip -> the derived-total tip -> actions -> Crypto -> Cash -> 4 cards (each
   // followed by its star) -> movers -> Your crypto -> the watchlist rows (each followed by its star).
   await page.getByTestId('harness-bar').locator('a').last().focus();
+  // Every stop shows the kit's focus ring.
+  const ring = await tokenColour(page, '--lit-focus');
   const path = [];
   for (let step = 0; step < 70; step++) {
     await page.keyboard.press('Tab');
@@ -283,14 +314,17 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
       };
     });
     if (!stop.inside) break;
-    expect(stop.outline, `focus ring on ${stop.name}`).toBe('solid 2px rgb(200, 246, 74)');
+    expect(stop.outline, `focus ring on ${stop.name}`).toBe(`solid 2px ${ring}`);
     path.push(stop);
   }
-  expect(path.map((stop) => stop.name).slice(0, 11)).toEqual([
+  // The room's own key (Customise) and the notices strip's link come first, in the title row and the strip above the
+  // total; the money object's back card (Crypto) comes before its front card (Cash).
+  expect(path.map((stop) => stop.name).slice(0, 12)).toEqual([
+    'Customise Home',
+    'All notices',
     'Hide balances',
     'How the total is worked out',
     'Assets',
-    'Customise Home',
     'About this change',
     'Named spaces not included',
     'Buy',
@@ -299,9 +333,9 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     'Send',
     'Receive',
   ]);
-  expect(path[2].href).toBe('/money');
-  expect(path.slice(11, 13).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
-  const cardStops = path.slice(13, 21);
+  expect(path[4].href).toBe('/money');
+  expect(path.slice(12, 14).map((stop) => stop.href)).toEqual(['/money#crypto', '/money#cash']);
+  const cardStops = path.slice(14, 22);
   expect(cardStops.filter((stop) => stop.href).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH', '/coin/IFC', '/coin/SOL']);
   expect(cardStops.filter((stop) => !stop.href).map((stop) => stop.name)).toEqual([
     'Add BTC to watchlist',
@@ -309,8 +343,8 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     'Add IFC to watchlist',
     'Add SOL to watchlist',
   ]);
-  expect(path[21].name).toBe('About top movers');
-  expect(path.slice(22, 28).map((stop) => stop.href)).toEqual([
+  expect(path[22].name).toBe('About top movers');
+  expect(path.slice(23, 29).map((stop) => stop.href)).toEqual([
     '/coin/DOGE',
     '/coin/BTC',
     '/coin/XRP',
@@ -320,32 +354,32 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   ]);
   // Recent activity ("See all", then its three newest rows, each opening its record) and the Learn strip (the Academy,
   // four links) follow the movers.
-  expect(path.slice(28, 29).map((stop) => stop.href)).toEqual(['/money/activity']);
-  expect(path.slice(29, 32).every((stop) => stop.href?.startsWith('/money/activity/'))).toBe(true);
-  expect(path.slice(32, 36).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
-  expect(path.slice(36, 38).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
+  expect(path.slice(29, 30).map((stop) => stop.href)).toEqual(['/money/activity']);
+  expect(path.slice(30, 33).every((stop) => stop.href?.startsWith('/money/activity/'))).toBe(true);
+  expect(path.slice(33, 37).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
+  expect(path.slice(37, 39).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
   expect(
     path
-      .slice(38)
+      .slice(39)
       .filter((stop) => stop.href)
       .map((stop) => stop.href),
   ).toEqual(['/coin/XRP', '/coin/DOGE']);
-  expect(path.slice(38).filter((stop) => !stop.href).length).toBe(2); // one star per row
+  expect(path.slice(39).filter((stop) => !stop.href).length).toBe(2); // one star per row
 
   // The total-value rule is available in the page for assistive tech and as a tooltip that opens on hover AND
   // keyboard focus (critic M5), fully below the top bar (critic H7: it hid behind the banner when it opened upward).
   await expect(page.getByTestId('home-label')).toContainText('USDT and USDC count as 1 USD');
   await page.getByTestId('home-label').getByTestId('if-tip').hover();
   // The tip left open by the keyboard walk may still be fading out, so look at the open one only.
-  const openTip = page.locator('[data-slot="tooltip-content"][data-open]');
+  const openTip = page.getByTestId('home-label').locator('.lit-tip[data-open] .lit-tip__bubble');
   await expect(openTip).toBeVisible();
   expect((await openTip.boundingBox()).y).toBeGreaterThanOrEqual(56);
   await page.mouse.move(0, 0);
-  await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0);
+  await expect(page.locator('.lit-tip[data-open]')).toHaveCount(0);
   await page.getByTestId('home-label').getByTestId('if-tip').focus();
   await page.keyboard.press('Shift+Tab');
   await page.keyboard.press('Tab');
-  await expect(page.locator('[data-slot="tooltip-content"]')).toBeVisible();
+  await expect(page.getByTestId('home-label').locator('.lit-tip[data-open] .lit-tip__bubble')).toBeVisible();
 
   await page.mouse.move(0, 0);
   await page.screenshot({ path: join(shots, 'home-1440x900.png') });
@@ -413,34 +447,51 @@ test('hidden balances show bullets, prices stay, and the choice is remembered', 
 test('loading shows final-size skeletons and nothing moves when data arrives', async ({ page }) => {
   const api = await mock(page, { balance: null, markets: null, tickers: null, ohlcv: null });
   await open(page);
-  await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible();
-  expect(await page.getByTestId('home-cards').locator('[data-slot="skeleton"]').count()).toBe(4);
-  const hero = await page.getByTestId('home-total').locator('[data-slot="skeleton"]').boundingBox();
-  expect([Math.round(hero.width), Math.round(hero.height)]).toEqual([240, 56]);
+  await expect(page.locator('.lt-ghost[data-busy] .lt-ghost-item').first()).toBeVisible();
+  // The kit's placeholders: four grid tiles where the four cards go, the figure's bar where the total goes (the kit's
+  // figure ghost: 60% of the line, the hero type's height and a half), the stack's loading face where the money object goes.
+  expect(await page.getByTestId('home-cards').locator('.lt-ghost[data-ghost="grid"] .lt-ghost-item').count()).toBe(4);
+  const hero = await page.getByTestId('home-total').locator('.lt-ghost[data-ghost="figure"] .lt-ghost-item').boundingBox();
+  const heroLine = await box(page, '[data-testid="home-total"]');
+  expect([Math.round(hero.width), Math.round(hero.height)]).toEqual([
+    Math.round(heroLine.width * 0.6),
+    Math.round((await token(page, '--lit-type-hero-size')) * 1.6),
+  ]);
+  await expect(page.locator('.lit-stack[data-loading]')).toBeVisible();
   const layout = () =>
     page.evaluate(() =>
       [
         '[data-testid="home-actions"]',
-        '.volt-stack',
+        '.lit-stack',
         '[data-testid="home-cards"]',
         '[data-testid="home-pills"]',
         ':is([data-testid="home-watch"], [data-testid="home-yours"])',
       ].map((selector) => Math.round(document.querySelector(selector).getBoundingClientRect().top)),
     );
   const before = await layout();
-  // Critic M4: a skeleton inside a panel is not the panel's own colour (it was invisible); in Volt it is the ink at 9%.
-  expect(
-    await page
-      .locator(':is([data-testid="home-watch"], [data-testid="home-yours"]) [data-slot="skeleton"]')
-      .first()
-      .evaluate((node) => getComputedStyle(node).backgroundColor),
-  ).toBe('color(srgb 0.952941 0.94902 0.92549 / 0.09)');
+  // The hero and the Markets row keep their height too, so what follows them does not move.
+  const heights = () =>
+    page.evaluate(() =>
+      ['[data-region="hero"]', '[data-testid="home-cards"]'].map((selector) =>
+        Math.round(document.querySelector(selector).getBoundingClientRect().height),
+      ),
+    );
+  const beforeHeights = await heights();
+  // Critic M4: a skeleton inside a panel is not the panel's own colour (it was invisible); in Volt it is the kit's raised
+  // ground, never the panel's.
+  const ghostColour = await page
+    .locator(':is([data-testid="home-watch"], [data-testid="home-yours"]) .lt-ghost-item')
+    .first()
+    .evaluate((node) => getComputedStyle(node).backgroundColor);
+  expect(ghostColour).toBe(await tokenColour(page, '--lit-solid-bg-raised', 'backgroundColor'));
+  expect(ghostColour).not.toBe(await page.locator('[data-region="watching"]').evaluate((node) => getComputedStyle(node).backgroundColor));
   await page.screenshot({ path: join(shots, 'home-state-loading.png') });
   await api.release();
   await expectHero(page, '$12,481.29');
   await expect(page.getByTestId('home-card__price').first()).toBeVisible();
   expect(await layout()).toEqual(before);
-  expect(await page.locator('[data-slot="skeleton"]').count()).toBe(0);
+  expect(await heights()).toEqual(beforeHeights);
+  expect(await page.locator('.lt-ghost').count()).toBe(0);
 });
 
 test('empty portfolio: zero is shown once, with one plain line and a way to start', async ({ page }) => {
@@ -455,7 +506,7 @@ test('empty portfolio: zero is shown once, with one plain line and a way to star
   await expect(page.getByTestId('home-yours')).toContainText('Coins you hold show here.');
   // An empty account leads with Add money, then Receive; nothing to sell, send or convert.
   expect(await texts(page.locator('[data-testid="home-actions"] > *'))).toEqual(['Add money', 'Receive', 'Buy']);
-  await expect(page.getByTestId('home-actions').locator('a[data-variant="primary"]')).toContainText('Add money');
+  await expect(page.getByTestId('home-actions').locator('a.lt-button-primary')).toContainText('Add money');
   await expect(page.getByTestId('home-actions').locator('a').first()).toHaveAttribute('href', '/uc/recharge');
   await expect(page.getByTestId('home-card').first()).toBeVisible();
   await page.screenshot({ path: join(shots, 'home-state-empty.png') });
@@ -639,7 +690,7 @@ test('Get started shows final-size placeholders while the answers are on their w
   await open(page);
   const started = page.getByTestId('home-started');
   await expect(started).toBeVisible();
-  await expect(started.locator('[data-slot="skeleton"]').first()).toBeVisible();
+  await expect(started.locator('.lt-ghost[data-busy] .lt-ghost-item').first()).toBeVisible();
   // Waiting is never "done": only the session's own step is.
   await expect(started.locator('a[data-status="done"]')).toHaveCount(1);
   await expect(started.locator('[data-step="register"]')).toHaveAttribute('data-status', 'done');
