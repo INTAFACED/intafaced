@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link2, Share2 } from 'lucide-react';
-import { Button, EmptyState, Field, QrMark } from '@intafaced/ui/lit';
+import { Button, EmptyState, Field, QrMark, useToast } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import {
   addRequest,
@@ -17,7 +17,6 @@ import {
   requestPath,
   requestRoomHref,
   useSession,
-  useToast,
   type PaymentRequest,
   type RequestEntry,
 } from './deps';

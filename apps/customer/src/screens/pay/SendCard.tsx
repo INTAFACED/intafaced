@@ -3,18 +3,9 @@ import { useEventListener, useMounted } from '../../shared/outside';
 import { useResource, type Resource } from '../../shared/resource';
 import { Check, ClipboardPaste } from 'lucide-react';
 import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
   applyPrefill,
   bankPendingKey,
   cleanNote,
-  CoinIcon,
   contactLabel,
   contactsFrom,
   createPersonalPayApi,
@@ -38,17 +29,9 @@ import {
   cleanHandle,
   confirmWithStepUp,
   personSendStepUp,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   sendInput,
   str,
-  useHideBalances,
-  HIDDEN_MASK,
   useSession,
-  useToast,
   type ApiClient,
   type ApiResult,
   type Contact,
@@ -58,7 +41,27 @@ import {
   type SentEntry,
   type StepUpMethod,
 } from './deps';
-import { Button, EmptyState, Tag } from '@intafaced/ui/lit';
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  DecimalField,
+  EmptyState,
+  HIDDEN_MASK,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Tag,
+  useHideBalances,
+  useToast,
+} from '@intafaced/ui/lit';
 import { KeyValue, Skeleton } from '@intafaced/ui/lit/templates';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
@@ -926,7 +929,6 @@ function SendForm({
       </div>
 
       <div className="lt-field" data-testid="amount-field">
-        <span>{payCopy.t('Amount')}</span>
         <div className="lt-actions">
           <Select
             items={sourceItems}
@@ -939,7 +941,6 @@ function SendForm({
             }}
           >
             <SelectTrigger aria-label={payCopy.t('Asset to send')}>
-              {source ? <CoinIcon asset={source.asset} size={28} /> : null}
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -950,8 +951,8 @@ function SendForm({
               ))}
             </SelectContent>
           </Select>
-          <AmountInput
-            size="hero"
+          <DecimalField
+            label={payCopy.t('Amount')}
             aria-label={payCopy.t('Amount to send')}
             value={amount}
             onValueChange={setAmount}

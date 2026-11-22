@@ -2,7 +2,8 @@ import './pay-screen.css';
 import './personal.css';
 import '../trade/buy/buy.css';
 import type { ScreenProps } from '../../app/screen-types';
-import { PersonalRoom, personalRoomFor } from './deps';
+import { personalRoomFor } from './deps';
+import { PersonalRoom } from '../../features/pay/personal/rooms/PersonalRoom';
 import { PayTabs } from './PayTabs';
 
 export { payRooms, tabOf } from './PayTabs';

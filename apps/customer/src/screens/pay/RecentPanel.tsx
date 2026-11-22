@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Button, EmptyState, RefusalBox } from '@intafaced/ui/lit';
+import { Button, EmptyState, HIDDEN_MASK, RefusalBox, useHideBalances } from '@intafaced/ui/lit';
 import { Skeleton, StatusChip } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../money/time';
@@ -7,11 +7,9 @@ import {
   contactsFrom,
   createActivityFeed,
   fmtAmount,
-  HIDDEN_MASK,
   readSent,
   refusalCopy,
   requestPath,
-  useHideBalances,
   useSession,
   withDeviceHandles,
   type ActivityItem,

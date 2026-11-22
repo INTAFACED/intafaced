@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
-import { Button } from '@intafaced/ui/lit';
-import { answerWaitingPayment, fetchWaitingPayments, fmtAmount, HIDDEN_MASK, useHideBalances, useSession, type ReceivedHold } from './deps';
+import { Button, HIDDEN_MASK, useHideBalances } from '@intafaced/ui/lit';
+import { answerWaitingPayment, fetchWaitingPayments, fmtAmount, useSession, type ReceivedHold } from './deps';
 import { payCopy } from './copy';
 import { PAY_SENT_EVENT } from './recent-model';
 

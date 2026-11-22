@@ -1,38 +1,6 @@
-// The only file in the Pay screen that knows where the shared pieces come from: the kit in @intafaced/ui, the data
-// layer in ../../data, and the existing personal-pay client (its mutation guard is the safety layer; UI-SPEC principle 6).
-export {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
-  Button,
-  CoinIcon,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-  StateBlock,
-  Switch,
-  Tabs,
-  TabsList,
-  TabsTab,
-  useToast,
-  useHideBalances,
-  HIDDEN_MASK,
-} from '@intafaced/ui';
-
+// The only file in the Pay screen that knows where the shared pieces come from: the data layer in ../../data and the
+// existing personal-pay client (its mutation guard is the safety layer; UI-SPEC principle 6). Kit parts come from
+// @intafaced/ui/lit directly.
 export { createActivityFeed, fmtAmount, refusalCopy, withDeviceHandles } from '../../data';
 export type { ActivityFeed, ActivityItem, Loadable } from '../../data';
 export { dec, str } from '../../data/decimal';
@@ -86,7 +54,6 @@ export { useSession } from '../../features/session/session';
 export { createPersonalPayApi, type PersonalPayApi } from '../../features/pay/pay-api';
 export { sendInput } from '../../features/pay/schemas';
 export { pendingKey as bankPendingKey, pendingOutcomes } from '../../features/money/pending-outcomes';
-export { AccountDetailsByCurrency } from '../../features/money/AccountDetails';
 export type { ApiClient, ApiResult } from '../../shared/api';
 export { navigate } from '../../app/location';
 export { isHiddenPath } from '../../app/feature-registry';
@@ -114,7 +81,6 @@ export {
 } from '../../features/pay/personal/personal-model';
 export { encodeQr, qrPath } from '../../shared/qr';
 
-export { PersonalRoom } from '../../features/pay/personal/rooms/PersonalRoom';
 export { personalRoomFor, requestRoomHref } from '../../features/pay/personal/rooms/rooms';
 export { confirmWithStepUp, type StepUpMethod } from '../../features/account/security-step-up';
 // The confirmation request for exactly one send to a person: the fields svc-bank hashes for `transfers.toUser`.

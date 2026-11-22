@@ -1,12 +1,11 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
-import { Button, Field, Switch } from '@intafaced/ui/lit';
+import { Button, Field, Switch, useToast } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import {
   changeHandle,
   fetchHandleSettings,
   setHandleDiscoverable,
   useSession,
-  useToast,
   type HandleChangeCode,
   type HandleSettings as Settings,
 } from './deps';
