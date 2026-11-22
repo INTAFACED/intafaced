@@ -17,7 +17,9 @@ import {
   pruneSchemas,
   recordName,
   rewriteSite,
+  schemaArgOf,
 } from './index.mjs';
+import { answerFromCallers } from './answer.mjs';
 import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
@@ -1016,4 +1018,41 @@ test('a re-run whose records already exist (no record file changes) skips the fi
     calls.some((c) => c.startsWith('doubles.mjs --write')),
     calls.join('\n'),
   );
+});
+
+test("a call whose router writes no answer schema takes its callers' one pure zod schema; callers that disagree, check or parse with none keep it", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-answer-'));
+  const file = join(repo, 'apps/customer/src/features/session/passkey.ts');
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    [
+      "import { z } from 'zod';",
+      'const options = z.object({ challenge: z.string(), timeout: z.number().optional() });',
+      'const same = options;',
+      "export const a = (api) => api.mutate('identity', 'auth.stepUpOptions', {}, options);",
+      "export const b = (api) => api.mutate('identity', 'auth.stepUpOptions', {}, same, { signal });",
+      "export const c = (api) => api.mutate('identity', 'webauthn.registerOptions', {}, options);",
+      "export const d = (api) => api.mutate('identity', 'webauthn.registerOptions', {}, z.object({ challenge: z.string(), timeout: z.number().optional() }));",
+      "export const e = (api) => api.mutate('identity', 'webauthn.authOptions', {}, options.refine((o) => o.challenge !== ''));",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo).sort((x, y) => x.node.start - y.node.start);
+  const of = (path) =>
+    answerFromCallers(
+      repo,
+      sites.filter((s) => s.path === path),
+      { schemaOf: schemaArgOf, checksOf: answerChecks },
+    );
+  const moved = of('auth.stepUpOptions');
+  assert.ok(moved.output, moved.why);
+  assert.equal(text(moved.output.p, moved.output.node), 'options', "the record takes the caller's schema as the caller names it");
+  assert.match(of('webauthn.registerOptions').why ?? '', /passkey\.ts:6 and .*passkey\.ts:7 parse it with different schemas/);
+  assert.match(of('webauthn.authOptions').why ?? '', /not pure zod \(\.refine\(\)/);
+  const reader = { ...sites[0], node: sites[0].node, reader: true };
+  const none = answerFromCallers(repo, [reader], { schemaOf: () => undefined, checksOf: answerChecks });
+  assert.match(none.why ?? '', /with its own reader function, not a zod schema/);
 });
