@@ -319,6 +319,8 @@ export const components = {
   AreaChart: '(B2) Value over time with a lit fill',
   Bars: '(B2) Bars (volume, monthly totals)',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
+  CopyButton: "Copies a value and says so in a status line; the words are the room's",
+  QrCode: 'A QR code from a path the caller encoded, dark modules on a light tile, with a failed line',
 } as const;
 export type ComponentName = keyof typeof components;
 

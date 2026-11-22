@@ -1,9 +1,15 @@
 import { Button } from '../../shared/ui';
+
 import type { Space } from './client';
+
 import { amount, date, NoRows, ResourceView, Section, useBankRead, type ActionSpec } from './components';
+
 import type { sorterListSchema } from './contracts';
+
 import { sorterCopy } from './sorter-copy';
+
 import { bpToPercent, percentToBp, sorterLegs } from './sorter-model';
+
 import type { z } from 'zod';
 
 type Sorter = z.infer<typeof sorterListSchema>['sorters'][number];
@@ -16,7 +22,8 @@ const fieldName = (spaceId: string) => `share-${spaceId}`;
  * door to set one up per currency. Every amount is the bank's answer; the page only turns typed percents into basis
  * points.
  */
-export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: ActionSpec) => void }) {
+/** The sorter's read, its names and the two changes it offers (`open` specs), for this part and the Salary room's. */
+export function useIncomeSorter(spaces: Space[], open: (spec: ActionSpec) => void) {
   const { t } = sorterCopy.useCopy();
   const read = useBankRead('sorter.list', undefined);
   const named = spaces.filter((space) => space.kind === 'named');
@@ -65,6 +72,12 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
       submit: t('stop'),
     });
 
+  // `t` by its catalog's name, so the hook's type can be written out (TS5088: inferred, it is cyclic).
+  return { t: t as typeof sorterCopy.t, read, named, nameOf, assets, setUp, stop };
+}
+
+export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: ActionSpec) => void }) {
+  const { t, read, named, nameOf, assets, setUp, stop } = useIncomeSorter(spaces, open);
   return (
     <div data-testid="income-sorter">
       <Section title={t('title')} description={t('description')}>
@@ -111,7 +124,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
 
 function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId: string) => string; stop: () => void }) {
   const { t } = sorterCopy.useCopy();
-  const runs = useBankRead('sorter.runs', { sorterId: sorter.id, limit: RUNS_SHOWN });
+  const runs = useSorterRuns(sorter.id);
   // A share into a space archived since stays in the account, so it counts toward what stays.
   const total = sorter.legs.filter((leg) => !leg.archived).reduce((sum, leg) => sum + leg.shareBp, 0);
   // The bank names every target, archived ones too; the page's own list of spaces holds only live ones.
@@ -166,4 +179,9 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
       </ResourceView>
     </article>
   );
+}
+
+/** One sorter's recent sorts, as the bank reports them. */
+export function useSorterRuns(sorterId: string) {
+  return useBankRead('sorter.runs', { sorterId, limit: RUNS_SHOWN });
 }

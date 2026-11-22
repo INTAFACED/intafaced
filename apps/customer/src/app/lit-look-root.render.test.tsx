@@ -20,10 +20,16 @@ afterEach(() => {
 function mount() {
   host = document.createElement('div');
   host.innerHTML = '<header data-obscures="top"></header><nav data-obscures="bottom"></nav><div data-obscures="top"></div>';
-  // happy-dom lays nothing out: give the bars the heights the running app measured (top bar 48, banner 28, dock 61)
-  const heights = [48, 61, 28];
+  // happy-dom lays nothing out: give the bars the boxes the running app measured (top bar 48, banner 28 under it,
+  // dock 61 at the bottom edge)
+  const boxes = [
+    { top: 0, height: 48 },
+    { top: innerHeight - 61, height: 61 },
+    { top: 48, height: 28 },
+  ];
   host.querySelectorAll('[data-obscures]').forEach((bar, i) => {
-    bar.getBoundingClientRect = () => ({ height: heights[i] }) as DOMRect;
+    const { top, height } = boxes[i]!;
+    bar.getBoundingClientRect = () => ({ top, height, bottom: top + height }) as DOMRect;
   });
   document.body.append(host);
   root = createRoot(host.appendChild(document.createElement('div')));
@@ -35,7 +41,7 @@ describe('the Volt access hooks at the app root', () => {
     mount();
     const html = document.documentElement;
     expect(html.getAttribute('data-surfaces')).toBe('glass');
-    // bars at one edge add up
+    // each edge takes its farthest-reaching bar: the banner under the top bar reaches 76
     expect(html.style.getPropertyValue('--a11y-obscured-top')).toBe('76px');
     expect(html.style.getPropertyValue('--a11y-obscured-bottom')).toBe('61px');
 

@@ -1,5 +1,23 @@
 import { t as copyText, Text } from './copy';
-import { ComplaintRoom } from './complaint/ComplaintRoom';
+
+import { bankLabels, bankRoomHref, bankRooms } from './bank-nav';
+
+import { TransfersRoom } from './transfers/TransfersRoom';
+
+import { RecoveryClaimRoom } from './recovery/RecoveryClaimRoom';
+
+import { LoanApplyRoom } from './loan-apply/LoanApplyRoom';
+
+import { AddMoneyRoom } from './ramps/AddMoneyRoom';
+
+import { CashOutRoom } from './ramps/CashOutRoom';
+
+import { StatementsRoom } from './statements/StatementsRoom';
+
+import { SalaryPage } from './salary/SalaryPage';
+
+import { ComplaintRoom } from './safety/ComplaintRoom';
+
 import {
   BusinessLoanPreviewRoom,
   CreditCardPreviewRoom,
@@ -8,30 +26,45 @@ import {
   PersonalLoanPreviewRoom,
   RevolvingCreditPreviewRoom,
 } from './credit-previews/CreditPreviewRooms';
-import { BereavementRoom } from './bereavement/BereavementRoom';
-import { ScamReportRoom } from './scam/ScamReportRoom';
+
+import { BereavementRoom } from './safety/BereavementRoom';
+
+import { ScamReportRoom } from './safety/ScamReportRoom';
+
 import { LostPhoneRoom } from './lost-phone/LostPhoneRoom';
+
 import { BusinessJoinRoom, BusinessPaymentRoom, BusinessTeamRoom } from './business-team/BusinessTeamRoom';
+
 import { BusinessBillRoom, BusinessBillsRoom } from './business-bills/BusinessBillsRoom';
+
 import { BusinessPayoutsRoom, ContractorJoinRoom } from './business-payouts/BusinessPayoutsRoom';
+
 import { BusinessCardsRoom } from './business-cards/BusinessCardsRoom';
+
 import { BusinessBooksRoom } from './business-books/BusinessBooksRoom';
-import { CardOrderRoom } from './CardOrder';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+
+import { CardOrderRoom } from './card-order/CardOrder';
+
+import { useMemo, useState } from 'react';
 import { z } from 'zod';
+
 import { Button, EmptyState, Failure, Field, Page } from '../../shared/ui';
+
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
+
 import { dec } from '../../data/decimal';
+
 import { useSession } from '../session';
+
 import { usePreferences, savePreferences } from '../../shared/preferences';
+
 import { useResource } from '../../shared/resource';
-import { createMoneyClient, validateTransfer, type MoneyOverview, type Space } from './client';
+
+import { createMoneyClient, type MoneyOverview, type Space } from './client';
 import {
   amount,
   funds,
   bps,
-  endsField,
-  scheduleCadenceField,
   Continuation,
   date,
   iso,
@@ -39,105 +72,116 @@ import {
   positiveMoney,
   ResourceView,
   Section,
-  scheduleWindowIssue,
   startsField,
   useBankRead,
   useSpaces,
   usePageLimit,
   type ActionSpec,
 } from './components';
-import { AutoInvestRules } from './repeat-buy';
+import { AutoInvestRules } from './repeat-buy/repeat-buy';
+
 import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
+
 import { bankReads, bankWrites, type poolSchema, type positionSchema } from './contracts';
+
 import type { ApiResult } from '../../shared/api';
+
 import { earnCopy } from './earn-copy';
+
 import { earnPoolCopy } from './earn-pool-copy';
+
 import { EarnCompare, poolHref } from './EarnCompare';
+
 import { EarnPool } from './EarnPool';
+
 import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote, readReleasable } from './LoanHealth';
+
 import { loanCopy, loanStatusLabel } from './loan-copy';
+
 import { MoneyActivity } from './activity';
-import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstruction } from './ScheduleHistory';
-import { standingCopy } from './standing-copy';
-import { useBankView } from './bank-context';
+
 import { OwnerCards } from './Cards';
+
 import { OwnerRailRecords } from './RailRecords';
+
 import { railCopy } from './rail-copy';
+
 import { SelectedSpace } from './SelectedSpace';
+
 import { SpaceInflows } from './SpaceInflows';
+
 import { IncomeSorter } from './IncomeSorter';
+
 import { InstantSavings } from './InstantSavings';
+
 import { SharedPots } from './SharedPots';
+
 import { BillsPotActions } from './BillsPot';
+
 import { AccountHome } from './AccountHome';
-import { AddMoney } from './AddMoney';
-import { WalletProvider } from '../protocol';
-import { addMoneyCopy } from './add-money-copy';
+
 import { LinkedAccounts } from './LinkedAccounts';
+
 import { DirectDebits } from './DirectDebits';
+
 import { directDebitsCopy } from './direct-debits-copy';
-import { RecoveryClaim } from './RecoveryClaim';
+
 import { recoveryClaimCopy } from './recovery-claim-copy';
+
 import { MoneyCalendar } from './Calendar';
+
 import { calendarCopy } from './calendar-copy';
+
 import { Rules } from './Rules';
+
 import { rulesCopy } from './rules-copy';
+
 import { LoanDetail } from './LoanDetail';
-import { LoanApply } from './LoanApply';
+
 import { loanApplyCopy } from './loan-apply-copy';
+
 import { loanDetailCopy } from './loan-detail-copy';
+
 import { linkedAccountsCopy } from './linked-accounts-copy';
-import { cashOutCopy } from './cash-out-copy';
-import { CashOut } from './CashOut';
-import { BankRailSend } from './BankRailSend';
-import { PlanRule, overBalanceProblem, usePlanTerms } from './PlanRule';
-import { currentSpace, spaceContext } from './space-context';
+
+import { spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
+
 import { categoryLabel } from './analytics-copy';
+
 import { splitAnalytics } from './analytics-model';
+
 import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
+
 import { LimitsRoom, limitsCopy } from './LimitsRoom';
+
 import { BankAccountRoom, OnboardingBanner, bankAccountCopy } from './BankAccountRoom';
+
 import { GoalProgress, MovementBars } from './GoalAndMovement';
+
 import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
-import { RecipientPicker } from './RecipientPicker';
+
 import { BusinessBank } from './BusinessBank';
+
 import { businessCopy } from './business-copy';
+
 import { RampJourneys } from './RampJourneys';
+
 import { rampDepthCopy } from './ramp-depth-copy';
+
 import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
-import type { Payee } from './payees';
+
 import { transferDepthCopy } from './transfer-depth-copy';
-import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
-import { cleanText, noteProblem, referenceProblem } from './transfer-message';
+
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
-import { StatementCentre } from './StatementCentre';
-import { SalaryRoom } from './Salary';
-import { salaryCopy } from './salary-copy';
-import { StatementLetters, TaxStatements } from './StatementExtras';
+
 import { statementCentreCopy } from './statement-centre-copy';
 
-const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
-const bankLabels = {
-  Overview: 'nav.overview',
-  Spaces: 'nav.spaces',
-  Transfers: 'nav.transfers',
-  Earn: 'nav.earn',
-  Loans: 'nav.loans',
-  Cards: 'nav.cards',
-  Ramps: 'nav.ramps',
-  Analytics: 'nav.analytics',
-  Business: 'nav.business',
-} as const;
 export function BankNavigation({ current }: { current: string }) {
   return (
     <nav data-testid="money-bank-nav" className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
       {bankRooms.map((room) => (
-        <a
-          key={room}
-          href={room === 'Overview' ? '/bank' : `/bank/${room.toLowerCase()}`}
-          aria-current={current === room ? 'page' : undefined}
-        >
+        <a key={room} href={bankRoomHref(room)} aria-current={current === room ? 'page' : undefined}>
           <Text k={bankLabels[room]} />
         </a>
       ))}
@@ -175,14 +219,6 @@ function BankPage({
 }
 const moneyValue = (value: string) =>
   decimalSchema.safeParse(value).success ? null : copyText('rooms.enter.an.exact.nonnegative.decimal');
-function spaceName(space: Space) {
-  return copyText('rooms.available', {
-    value1: space.name,
-    value2: space.assetId,
-    value3: funds(space.balance, space.assetId),
-    value4: space.lockedUntil && Date.parse(space.lockedUntil) > Date.now() ? copyText('rooms.locked.suffix') : '',
-  });
-}
 function SpaceActions({ space, open }: { space: Space; open: (spec: ActionSpec) => void }) {
   return (
     <div className="actions">
@@ -377,510 +413,6 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
           }
         </ResourceView>
       </Section>
-    </BankPage>
-  );
-}
-/** An ISO instant as the local `datetime-local` value the form shows. */
-function localInput(at: string): string {
-  const d = new Date(at);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-function ScheduleActions({
-  row,
-  open,
-  disabled = false,
-}: {
-  row: StandingInstruction;
-  open: (spec: ActionSpec) => void;
-  disabled?: boolean;
-}) {
-  const current = useBankView();
-  const protectedOpen = (spec: ActionSpec) => {
-    if (!disabled && current()) open(spec);
-  };
-  return (
-    <div className="actions">
-      {' '}
-      {row.status !== 'cancelled' && (
-        <>
-          {(row.status === 'active' || row.status === 'paused') && (
-            <Button
-              variant="secondary"
-              disabled={disabled}
-              onClick={() =>
-                protectedOpen({
-                  title: copyText('rooms.edit.standing.order'),
-                  procedure: 'transfers.updateSchedule',
-                  fields: [positiveMoney(row.assetId), ...(row.cadence === 'once' ? [] : [endsField])],
-                  initial: { amount: row.amount, ...(row.endsAt ? { endsAt: localInput(row.endsAt) } : {}) },
-                  formFacts: [[copyText('rooms.revision'), String(row.revision)]],
-                  facts: [
-                    [copyText('rooms.schedule'), row.id],
-                    [copyText('rooms.revision'), String(row.revision)],
-                    [copyText('rooms.current.amount'), amount(row.amount, row.assetId)],
-                  ],
-                  notes: [copyText('rooms.edit.changes.future.runs'), copyText('rooms.edit.revision.note')],
-                  validate: (input) =>
-                    typeof input.endsAt === 'string' && Date.parse(input.endsAt) <= Math.max(Date.now(), Date.parse(row.startsAt))
-                      ? copyText('components.choose.an.end.after.first.run')
-                      : null,
-                  input: (values) => ({
-                    scheduleId: row.id,
-                    revision: row.revision,
-                    amount: values.amount,
-                    // The form shows minutes: an end left as it was keeps the stored instant, seconds included.
-                    endsAt: !values.endsAt
-                      ? null
-                      : row.endsAt && values.endsAt === localInput(row.endsAt)
-                        ? row.endsAt
-                        : iso(values.endsAt),
-                  }),
-                })
-              }
-            >
-              <Text k="rooms.edit" />
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            disabled={disabled}
-            onClick={() =>
-              protectedOpen({
-                title: row.status === 'paused' ? copyText('rooms.resume.standing.order') : copyText('rooms.pause.standing.order'),
-                procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
-                facts: [
-                  [copyText('rooms.schedule'), row.id],
-                  [copyText('rooms.amount'), amount(row.amount, row.assetId)],
-                ],
-                notes: [
-                  row.status === 'paused'
-                    ? copyText('rooms.occurrences.missed.while.paused.are.skipped.they')
-                    : copyText('rooms.pause.future.scheduled.transfers.past.posted.transfers'),
-                ],
-                input: () => ({ scheduleId: row.id }),
-              })
-            }
-          >
-            {row.status === 'paused' ? copyText('rooms.resume') : copyText('rooms.pause')}
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={disabled}
-            onClick={() =>
-              protectedOpen({
-                title: copyText('rooms.cancel.standing.order'),
-                procedure: 'transfers.cancel',
-                notes: [copyText('rooms.cancel.future.occurrences.this.does.not.reverse')],
-                facts: [[copyText('rooms.schedule'), row.id]],
-                input: () => ({ scheduleId: row.id }),
-              })
-            }
-          >
-            <Text k="rooms.cancel" />
-          </Button>
-        </>
-      )}
-    </div>
-  );
-}
-function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
-  const { Copy, t, languageFor, directionFor } = standingCopy.useCopy();
-  const current = useBankView();
-  const [limit, setLimit] = usePageLimit();
-  const [selected, setSelected] = useState<{ id: string; serial: number } | null>(null);
-  const serial = useRef(0);
-  const heading = useRef<HTMLHeadingElement>(null);
-  const listHeading = useRef<HTMLSpanElement>(null);
-  const query = useBankRead('transfers.listSchedules', { limit });
-  const rows = query.resource.status === 'ready' ? query.resource.data : [];
-  const instruction = selected ? currentInstruction(rows, selected.id) : undefined;
-  const other = instruction ? rows.filter((row) => row.id !== instruction.id) : rows;
-  const refresh = () => {
-    if (current()) query.reload();
-  };
-  const arrive = (element: HTMLElement | null) => {
-    if (!current() || document.querySelector('[role="dialog"]')) return;
-    element?.focus({ preventScroll: true });
-    element?.scrollIntoView({ block: 'start' });
-  };
-  useLayoutEffect(() => {
-    if (selected) arrive(heading.current);
-  }, [selected?.serial]);
-  return (
-    <div className="money-standing-orders" lang={languageFor('instructions')} dir={directionFor('instructions')}>
-      {selected && (
-        <section
-          data-testid="money-selected-instruction"
-          className="money-selected-instruction"
-          aria-labelledby="money-selected-instruction-heading"
-        >
-          <header>
-            <h2 id="money-selected-instruction-heading" ref={heading} tabIndex={-1}>
-              <Copy k="outcomes" />
-            </h2>
-            <dl className="money-standing-reference">
-              <dt>
-                <Copy k="instruction" />
-              </dt>
-              <dd lang="zxx" dir="ltr">
-                {instruction?.id ?? selected.id}
-              </dd>
-            </dl>
-          </header>
-          <ResourceView resource={query.resource} reload={refresh}>
-            {() =>
-              instruction ? (
-                <>
-                  <StandingFacts instruction={instruction} />
-                  <ScheduleActions row={instruction} open={open} />
-                  <ExecutionHistory id={instruction.id} asset={instruction.assetId} refreshInstructions={refresh} />
-                </>
-              ) : (
-                <div className="money-instruction-missing" role="status">
-                  <h3>
-                    <Copy k={rows.some((row) => row.id.toLowerCase() === selected.id.toLowerCase()) ? 'conflict' : 'missing'} />
-                  </h3>
-                  <p>
-                    <Copy k={rows.some((row) => row.id.toLowerCase() === selected.id.toLowerCase()) ? 'conflictNote' : 'missingNote'} />
-                  </p>
-                  <Button variant="secondary" onClick={refresh}>
-                    <Copy k="refresh" />
-                  </Button>
-                </div>
-              )
-            }
-          </ResourceView>
-          <Button variant="ghost" onClick={() => arrive(listHeading.current)}>
-            <Copy k="return" />
-          </Button>
-        </section>
-      )}
-      <Section
-        title={
-          <span id="money-standing-list-heading" ref={listHeading} tabIndex={-1}>
-            <Copy k={instruction ? 'other' : 'instructions'} />
-          </span>
-        }
-        actions={
-          <Button variant="ghost" onClick={refresh}>
-            <Copy k="refresh" />
-          </Button>
-        }
-      >
-        <ResourceView resource={query.resource} reload={refresh}>
-          {() => (
-            <>
-              {other.length ? (
-                other.map((row, index) => (
-                  <article data-testid="money-standing-record" className="money-record money-standing-record" key={`${row.id}:${index}`}>
-                    <header>
-                      <div>
-                        <h3 lang="und" dir="auto">
-                          {row.cadence} · {row.status}
-                        </h3>
-                        <p className="money-standing-row-reference">
-                          <span className="money-visually-hidden">
-                            <Copy k="reference" />
-                          </span>
-                          <bdi lang="zxx" dir="ltr">
-                            {row.id}
-                          </bdi>
-                        </p>
-                        <p>
-                          <Copy k="nextRun" /> ·{' '}
-                          <span lang="und" dir="auto">
-                            {date(row.nextRunAt)}
-                          </span>
-                        </p>
-                      </div>
-                      <strong className="numeric" lang="zxx" dir="ltr">
-                        {funds(row.amount, row.assetId)}
-                      </strong>
-                    </header>
-                    <div className="actions">
-                      <Button
-                        variant="secondary"
-                        aria-label={t('inspect', { reference: row.id })}
-                        lang={languageFor('inspect')}
-                        dir={directionFor('inspect')}
-                        disabled={!currentInstruction(rows, row.id)}
-                        aria-controls="money-selected-instruction-heading"
-                        onClick={() => {
-                          if (current() && currentInstruction(rows, row.id) === row && !document.querySelector('[role="dialog"]'))
-                            setSelected({ id: row.id, serial: ++serial.current });
-                        }}
-                      >
-                        <Text k="rooms.execution.history" />
-                      </Button>
-                      <ScheduleActions row={row} open={open} disabled={!currentInstruction(rows, row.id)} />
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <div className="money-instruction-missing" role="status">
-                  <h3>
-                    <Copy k={instruction ? 'noOther' : 'noInstructions'} />
-                  </h3>
-                  <p>
-                    <Copy k="listWindow" />
-                  </p>
-                </div>
-              )}
-              <Continuation
-                count={rows.length}
-                limit={limit}
-                onMore={() => {
-                  if (current()) setLimit(Math.min(200, limit + 50));
-                }}
-              />
-              <p className="money-caption">
-                <Copy k="listWindow" />
-              </p>
-            </>
-          )}
-        </ResourceView>
-      </Section>
-    </div>
-  );
-}
-/** The customer's other accounts in the same asset, the only places a space-to-space move can go. */
-function ownSpaces(spaces: Space[], from: Space | undefined, owner: string): Space[] {
-  if (!from) return [];
-  return spaces.filter((space) => space.id !== from.id && space.assetId === from.assetId && currentSpace(spaces, space.id, owner));
-}
-function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search: string }) {
-  const { api, userId } = useSession();
-  const context = spaceContext(search, 'from');
-  const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
-  const query = useSpaces(limit);
-  // The plan's rule for paying more than the balance holds (J-bank-02 #8): shown under the form and in the review.
-  const plan = usePlanTerms();
-  // Read at review time, not when the dialog opened: terms that arrive or reload later still reach the review.
-  const planTerms = useRef(plan.resource);
-  planTerms.current = plan.resource;
-  const [fromId, setFrom] = useState(context.status === 'valid' ? context.id : '');
-  const [destination, setDestination] = useState<'space' | 'user'>('space');
-  const [scheduled, setScheduled] = useState(false);
-  const [recipient, setRecipient] = useState<Payee | null>(null);
-  const [note, setNote] = useState('');
-  const [reference, setReference] = useState('');
-  const depth = transferDepthCopy.useCopy();
-  const noteIssue = noteProblem(note);
-  const referenceIssue = referenceProblem(reference);
-  const noteWords = noteIssue ? depth.t(noteIssue === 'tooLong' ? 'noteTooLong' : 'noteControl') : null;
-  const referenceWords = referenceIssue ? depth.t(referenceIssue === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters') : null;
-  return (
-    <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
-      <DirectDebitsLink />
-      <CalendarLink />
-      <RulesLink />
-      <Section title={copyText('rooms.new.transfer')}>
-        <ResourceView resource={query.resource} reload={query.reload}>
-          {(spaces) => {
-            const from = currentSpace(spaces, fromId, userId ?? '');
-            return spaces.length ? (
-              <>
-                {context.status === 'invalid' && !fromId && (
-                  <p className="money-caption">
-                    <spaceCopy.Copy k="fromInvalid" />
-                  </p>
-                )}
-                <div className="money-transfer-setup">
-                  <label className="field">
-                    <span id="bank-transfer-source-label">
-                      <Text k="rooms.from.your.space" />
-                    </span>
-                    <select
-                      aria-labelledby="bank-transfer-source-label"
-                      value={from?.id ?? ''}
-                      onChange={(event) => setFrom(event.target.value)}
-                    >
-                      <option value="">
-                        <Text k="rooms.choose.source" />
-                      </option>
-                      {spaces
-                        .filter((space) => currentSpace(spaces, space.id, userId ?? ''))
-                        .map((space) => (
-                          <option key={space.id} value={space.id}>
-                            {spaceName(space)}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>
-                      <Text k="rooms.destination" />
-                    </span>
-                    <select value={destination} onChange={(event) => setDestination(event.target.value as 'space' | 'user')}>
-                      <option value="space">{depth.t('toYourSpace')}</option>
-                      <option value="user">{depth.t('toPerson')}</option>
-                    </select>
-                  </label>
-                  {destination === 'user' && (
-                    <>
-                      <RecipientPicker value={recipient} onChange={setRecipient} />
-                      <p className="money-caption">{depth.t('personNote')}</p>
-                    </>
-                  )}
-                  {destination === 'space' && (
-                    <p className="money-caption">
-                      {from && ownSpaces(spaces, from, userId ?? '').length === 0 ? depth.t('noOtherSpace') : depth.t('spaceNote')}
-                    </p>
-                  )}
-                  <label className="field">
-                    <span>{depth.t('noteField')}</span>
-                    <input
-                      name="note"
-                      value={note}
-                      disabled={scheduled}
-                      autoComplete="off"
-                      onChange={(event) => setNote(event.target.value)}
-                      aria-invalid={Boolean(noteWords)}
-                      aria-describedby="transfer-note-help"
-                    />
-                    <small id="transfer-note-help" className={noteWords ? 'error-text' : ''}>
-                      {scheduled ? depth.t('messageScheduledReason') : (noteWords ?? depth.t('noteHint'))}
-                    </small>
-                  </label>
-                  <label className="field">
-                    <span>{depth.t('referenceField')}</span>
-                    <input
-                      name="reference"
-                      value={reference}
-                      disabled={scheduled}
-                      autoComplete="off"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                      onChange={(event) => setReference(event.target.value)}
-                      aria-invalid={Boolean(referenceWords)}
-                      aria-describedby="transfer-reference-help"
-                    />
-                    <small id="transfer-reference-help" className={referenceWords ? 'error-text' : ''}>
-                      {scheduled ? depth.t('messageScheduledReason') : (referenceWords ?? depth.t('referenceHint'))}
-                    </small>
-                  </label>
-                  <label className="money-check">
-                    <input type="checkbox" checked={scheduled} onChange={(event) => setScheduled(event.target.checked)} />
-                    <Text k="rooms.repeat.on.a.schedule" />
-                  </label>
-                  <Button
-                    disabled={
-                      !from ||
-                      (!scheduled && (noteIssue !== null || referenceIssue !== null)) ||
-                      (destination === 'user' && !recipient) ||
-                      (destination === 'space' && ownSpaces(spaces, from, userId ?? '').length === 0)
-                    }
-                    onClick={() => {
-                      if (!from) return;
-                      if (destination === 'user' && !recipient) return;
-                      open({
-                        title: scheduled ? copyText('rooms.schedule.transfer') : copyText('rooms.transfer'),
-                        procedure: scheduled
-                          ? destination === 'space'
-                            ? 'transfers.schedule'
-                            : 'transfers.scheduleToUser'
-                          : destination === 'space'
-                            ? 'transfers.create'
-                            : 'transfers.toUser',
-                        initial: { fromSpaceId: from.id },
-                        fields: [
-                          ...(destination === 'space'
-                            ? [
-                                {
-                                  name: 'toSpaceId',
-                                  label: depth.t('whichSpace'),
-                                  options: ownSpaces(spaces, from, userId ?? '').map((space) => ({
-                                    value: space.id,
-                                    label: `${space.name} · ${funds(space.balance, space.assetId)}`,
-                                  })),
-                                },
-                              ]
-                            : []),
-                          positiveMoney(from.assetId),
-                          ...(scheduled ? [scheduleCadenceField, startsField, endsField] : []),
-                        ],
-                        facts: [
-                          [depth.t('from'), from.name],
-                          ...(destination === 'user' && recipient
-                            ? [[depth.t('recipient'), `@${recipient.handle}`] as [string, string]]
-                            : []),
-                          [copyText('rooms.asset'), from.assetId],
-                          [copyText('rooms.available.at.last.read'), amount(from.balance, from.assetId)],
-                          ...(scheduled
-                            ? []
-                            : [
-                                [depth.t('factNote'), cleanText(note) ?? depth.t('factNone')] as [string, string],
-                                [depth.t('factReference'), cleanText(reference) ?? depth.t('factNone')] as [string, string],
-                              ]),
-                        ],
-                        notes: [
-                          destination === 'user' ? depth.t('personNote') : depth.t('spaceNote'),
-                          ...(!scheduled && (cleanText(note) || cleanText(reference)) ? [depth.t('messageSaved')] : []),
-                        ],
-                        validate: (input) =>
-                          scheduleWindowIssue(input) ??
-                          validateTransfer(
-                            spaces,
-                            { ...input, transferId: 'review-reference' } as Parameters<typeof validateTransfer>[1],
-                            (space, asked) => overBalanceProblem(planTerms.current, space, asked),
-                          ),
-                        ...(!scheduled ? { transferSpaces: spaces } : {}),
-                        ...(!scheduled && destination === 'user'
-                          ? {
-                              reviewTerms: {
-                                checking: depth.t('reviewChecking'),
-                                read: (input, signal) => readPersonSendTerms(api, from.assetId, String(input.amount), signal),
-                              },
-                              stepUp: {
-                                request: (input) => personSendStepUp(from.assetId, input),
-                                words: {
-                                  why: depth.t('stepUpWhy'),
-                                  code: depth.t('stepUpCode'),
-                                  codeHint: depth.t('stepUpCodeHint'),
-                                  codeShort: depth.t('stepUpCodeShort'),
-                                  noFactor: depth.t('stepUpNoFactor'),
-                                  sendWithout: depth.t('stepUpSendWithout'),
-                                },
-                              },
-                            }
-                          : {}),
-                        input: (values, requestId) => ({
-                          fromSpaceId: from.id,
-                          ...(destination === 'space' ? { toSpaceId: values.toSpaceId } : { toUserId: recipient!.userId }),
-                          amount: values.amount,
-                          ...(scheduled
-                            ? {
-                                scheduleId: requestId,
-                                cadence: values.cadence,
-                                startsAt: iso(values.startsAt!),
-                                ...(values.endsAt ? { endsAt: iso(values.endsAt) } : {}),
-                              }
-                            : {
-                                transferId: requestId,
-                                ...(cleanText(note) ? { note: cleanText(note) } : {}),
-                                ...(cleanText(reference) ? { reference: cleanText(reference) } : {}),
-                              }),
-                        }),
-                      });
-                    }}
-                  >
-                    <Text k="rooms.continue" />
-                  </Button>
-                </div>
-                <Continuation count={spaces.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-              </>
-            ) : (
-              <NoRows title={copyText('rooms.no.source.spaces.returned')}>
-                <Text k="rooms.create.a.space.or.name.an.existing" />
-              </NoRows>
-            );
-          }}
-        </ResourceView>
-        <PlanRule plan={plan} />
-      </Section>
-      <BankRailSend />
-      <Schedules open={open} />
     </BankPage>
   );
 }
@@ -1532,45 +1064,12 @@ function Ramps({ open }: { open: (spec: ActionSpec) => void }) {
     </BankPage>
   );
 }
-/** `/bank/ramps/new`: add money, inside the Ramps room. */
-function AddMoneyRoom() {
-  const { t } = addMoneyCopy.useCopy();
-  return (
-    <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      {/* The browser wallet's connection, so a purchase can be delivered straight to it (J-dex-protocol-05 #4). */}
-      <WalletProvider>
-        <AddMoney />
-      </WalletProvider>
-    </BankPage>
-  );
-}
-/** The way into the direct debits room from Transfers. */
-function DirectDebitsLink() {
-  const { t } = directDebitsCopy.useCopy();
-  return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/direct-debits">
-        {t('open')}
-      </a>{' '}
-      {t('openHint')}
-    </p>
-  );
-}
 /** `/bank/direct-debits`: Direct Debit mandates and collections, inside the Transfers room (J-bank-06 #4). */
 function DirectDebitsRoom() {
   const { t } = directDebitsCopy.useCopy();
   return (
     <BankPage room="Transfers" title={t('title')} description={t('description')}>
       <DirectDebits />
-    </BankPage>
-  );
-}
-/** `/bank/recovery` (RC-identity-08): where a person named to receive someone's account claims it with their keys. */
-function RecoveryClaimRoom() {
-  const { t } = recoveryClaimCopy.useCopy();
-  return (
-    <BankPage room="Recovery" title={t('title')} description={t('description')}>
-      <RecoveryClaim />
     </BankPage>
   );
 }
@@ -1585,30 +1084,6 @@ function RecoveryClaimLink() {
       </span>
       <span aria-hidden="true">↗</span>
     </a>
-  );
-}
-/** The way into the money calendar from Transfers. */
-function CalendarLink() {
-  const { t } = calendarCopy.useCopy();
-  return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/calendar">
-        {t('open')}
-      </a>{' '}
-      {t('openHint')}
-    </p>
-  );
-}
-/** The way into reminders, failure notices and notification choices from Transfers. */
-function RulesLink() {
-  const { t } = rulesCopy.useCopy();
-  return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/rules">
-        {t('open')}
-      </a>{' '}
-      {t('openHint')}
-    </p>
   );
 }
 /** `/bank/rules`: payment reminders, failure notices, notification choices and money rules, inside Transfers (J-bank-06 #6). */
@@ -1629,16 +1104,6 @@ function LoanDetailLink({ loanId }: { loanId: string }) {
         {t('open')}
       </a>
     </p>
-  );
-}
-/** `/bank/loans/apply?product=<id>`: choose a loan, work out its collateral, check what applies and open it (J-bank-09). */
-function LoanApplyRoom({ search, open }: { search: string; open: (spec: ActionSpec) => void }) {
-  const { t } = loanApplyCopy.useCopy();
-  const productId = new URLSearchParams(search).get('product');
-  return (
-    <BankPage room="Loans" title={t('title')} description={t('description')}>
-      <LoanApply productId={productId && productId.trim() !== '' ? productId : null} open={open} />
-    </BankPage>
   );
 }
 function LoanApplyLink({ productId }: { productId?: string }) {
@@ -1696,26 +1161,6 @@ function BankAccountPage() {
   );
 }
 
-/** `/bank/salary`: salary paid in by direct deposit, inside the Overview room (J-bank-30). */
-function SalaryPage({ open }: { open: (spec: ActionSpec) => void }) {
-  return (
-    <BankPage room="Overview" title={salaryCopy.t('title')} description={salaryCopy.t('description')}>
-      <SalaryRoom open={open} />
-    </BankPage>
-  );
-}
-
-/** `/bank/statements`: the statement and export centre, inside the Analytics room (J-portfolio-11, PF-statements-01). */
-function StatementsRoom() {
-  const { t } = statementCentreCopy.useCopy();
-  return (
-    <BankPage room="Analytics" title={t('title')} description={t('description')}>
-      <StatementCentre />
-      <StatementLetters />
-      <TaxStatements />
-    </BankPage>
-  );
-}
 /** The way into the statement and export centre from Analytics. */
 function StatementsLink() {
   const { t } = statementCentreCopy.useCopy();
@@ -1734,15 +1179,6 @@ function LinkedAccountsRoom() {
   return (
     <BankPage room="Ramps" title={t('title')} description={t('description')}>
       <LinkedAccounts />
-    </BankPage>
-  );
-}
-/** `/bank/ramps/cash-out`: cash out to a linked bank account, inside the Ramps room. */
-function CashOutRoom() {
-  const { t } = cashOutCopy.useCopy();
-  return (
-    <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      <CashOut />
     </BankPage>
   );
 }
@@ -2184,7 +1620,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/spaces':
       return <Spaces open={open} search={search} />;
     case '/bank/transfers':
-      return <Transfers open={open} search={search} />;
+      return <TransfersRoom open={open} search={search} />;
     case '/bank/direct-debits':
       return <DirectDebitsRoom />;
     case '/bank/calendar':

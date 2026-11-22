@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+
 import { Button, Field, Loading } from '../../shared/ui';
+
 import { useResource } from '../../shared/resource';
+
 import { useSession } from '../session';
+
 import { confirmWithStepUp, factorStatus, type StepUpBegin, type StepUpMethod } from '../account';
+
 import { stepUpRefusalKeys } from './WithdrawStepUp';
+
 import { withdrawStepUpCopy } from './withdraw-step-up-copy';
 
 const refusalKeys = { ...stepUpRefusalKeys, 'stepUp.no_passkey': 'noPasskey' } as const;
@@ -15,6 +21,23 @@ const refusalKeys = { ...stepUpRefusalKeys, 'stepUp.no_passkey': 'noPasskey' } a
  * A person with no authenticator app and no passkey cannot give one: the request then goes without it (null), and the
  * bank alone decides whether it needs one, refusing with nothing sent if it does.
  */
+/** The person's sign-in factors (authenticator, passkeys), as identity reports them. Shared with the Volt rooms' step-up. */
+export function useFactorStatus() {
+  const { api, userId } = useSession();
+  return useResource((signal) => api.query('identity', 'factorStatus', undefined, factorStatus, { signal }), `factors:${userId}`);
+}
+
+/** A controller aborted when the part unmounts: an answer that lands after that is dropped. */
+export function useAliveSignal() {
+  const alive = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    alive.current = controller;
+    return () => controller.abort();
+  }, []);
+  return alive;
+}
+
 export function StepUpConfirm({
   request,
   words,
@@ -26,18 +49,13 @@ export function StepUpConfirm({
   disabled: boolean;
   onApproved: (stepUpApprovalId: string | null) => void;
 }) {
-  const { api, userId } = useSession();
+  const { api } = useSession();
   const { t } = withdrawStepUpCopy.useCopy();
-  const factors = useResource((signal) => api.query('identity', 'factorStatus', undefined, factorStatus, { signal }), `factors:${userId}`);
+  const factors = useFactorStatus();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<'code' | 'passkey' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const alive = useRef<AbortController | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    alive.current = controller;
-    return () => controller.abort();
-  }, []);
+  const alive = useAliveSignal();
 
   async function confirm(method: StepUpMethod, how: 'code' | 'passkey') {
     if (busy || disabled) return;

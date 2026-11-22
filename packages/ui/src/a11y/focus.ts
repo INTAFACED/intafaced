@@ -14,23 +14,35 @@ export const OBSCURED_BOTTOM_VAR = '--a11y-obscured-bottom';
 
 export interface Bar {
   readonly edge: string | null;
-  readonly height: number;
+  /** How far into the page the bar covers, measured from its own edge: a dock floating above the bottom edge covers its gap too. */
+  readonly reach: number;
 }
 
-/** The space covered at each edge: bars stack, so their heights add up. */
+/**
+ * The band covered at each edge: the farthest reach of its bars. A bar stacked under another (the risk band under the
+ * top bar) already reaches past it, so reaches never add up.
+ */
 export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: number } {
   let top = 0;
   let bottom = 0;
   for (const bar of bars) {
-    const height = Number.isFinite(bar.height) && bar.height > 0 ? bar.height : 0;
-    if (bar.edge === 'top') top += height;
-    else if (bar.edge === 'bottom') bottom += height;
+    const reach = Number.isFinite(bar.reach) && bar.reach > 0 ? bar.reach : 0;
+    if (bar.edge === 'top') top = Math.max(top, reach);
+    else if (bar.edge === 'bottom') bottom = Math.max(bottom, reach);
   }
   return { top, bottom };
 }
 
+/** A bar's reach in the viewport; a bar not drawn (no height, as the phone dock on a computer) reaches nothing. */
+export function barReach(edge: string | null, box: Pick<DOMRect, 'top' | 'bottom' | 'height'>, viewportHeight: number): number {
+  if (!(box.height > 0)) return 0;
+  if (edge === 'top') return box.bottom;
+  if (edge === 'bottom') return viewportHeight - box.top;
+  return 0;
+}
+
 /**
- * Keep the two custom properties on `root` equal to the bars' real heights, as bars come, go and
+ * Keep the two custom properties on `root` equal to the bands the bars really cover, as bars come, go and
  * resize. Returns the function that stops it. Does nothing where there is no DOM.
  */
 export function trackObscuringBars(root: HTMLElement = document.documentElement): () => void {
@@ -40,7 +52,10 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   let last = '';
   const measure = (): void => {
     const { top, bottom } = obscuredInsets(
-      bars.map((el) => ({ edge: el.getAttribute(OBSCURES_ATTRIBUTE), height: el.getBoundingClientRect().height })),
+      bars.map((el) => {
+        const edge = el.getAttribute(OBSCURES_ATTRIBUTE);
+        return { edge, reach: barReach(edge, el.getBoundingClientRect(), window.innerHeight) };
+      }),
     );
     const next = `${top}|${bottom}`;
     if (next === last) return;
