@@ -1,6 +1,6 @@
-import { Button } from '../../shared/ui';
-import { displayAmount } from '../../shared/money';
-import { DepthPanel } from './DepthParts';
+import { Button } from '@intafaced/ui/lit';
+import { displayAmount } from '../../../shared/money';
+import { Panel } from '../bank-settings/parts';
 import {
   buildOfframpInput,
   cashOutBlock,
@@ -10,24 +10,27 @@ import {
   rampGate,
   RAMP_STEPS,
   type RampStep,
-} from './ramp-journey';
-import { rampDepthCopy } from './ramp-depth-copy';
-import { addMoneyCopy } from './add-money-copy';
-import { linkedAccountsCopy } from './linked-accounts-copy';
-import { positiveMoney, useBankRead, type ActionSpec } from './components';
-import { assetSelectField, useHoldings } from './holdings';
-import './bank-depth.css';
+} from '../ramp-journey';
+import { rampDepthCopy } from '../ramp-depth-copy';
+import { addMoneyCopy } from '../add-money-copy';
+import { linkedAccountsCopy } from '../linked-accounts-copy';
+import { positiveMoney, useBankRead, type ActionSpec } from '../components';
+import { assetSelectField, useHoldings } from '../holdings';
 
 const STEP_KEYS = { amount: 'stepAmount', quote: 'stepQuote', review: 'stepReview', status: 'stepStatus' } as const;
 
 function Steps({ active, off }: { active: RampStep; off: ReadonlySet<RampStep> }) {
   const { t } = rampDepthCopy.useCopy();
   return (
-    <ol className="bd-steps">
+    <ol className="lt-stepper">
       {RAMP_STEPS.map((step, index) => (
-        <li key={step} aria-current={step === active ? 'step' : undefined} data-off={off.has(step) ? 'true' : undefined}>
-          <span className="bd-steps__n">{index + 1}</span>
-          {t(STEP_KEYS[step])}
+        <li
+          key={step}
+          aria-current={step === active ? 'step' : undefined}
+          data-step={step === active ? 'current' : 'todo'}
+          data-off={off.has(step) ? 'true' : undefined}
+        >
+          <span>{index + 1}</span> {t(STEP_KEYS[step])}
         </li>
       ))}
     </ol>
@@ -89,63 +92,61 @@ export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
     });
   };
   return (
-    <div className="bd-stack">
-      <DepthPanel title={t('providerTitle')} lead={t('providerLead')}>
-        <dl className="bd-facts">
-          <div className="bd-fact">
+    <>
+      <Panel id="ramps-provider" title={t('providerTitle')} lead={t('providerLead')}>
+        <dl className="lt-kv">
+          <div>
             <dt>{t('providerCrypto')}</dt>
             <dd>
-              <span className="badge" data-state={gate}>
+              <span className="lt-chip" data-state={gate}>
                 {providerWord}
               </span>
             </dd>
           </div>
-          <div className="bd-fact">
+          <div>
             <dt>{t('providerFiat')}</dt>
             <dd>
-              <span className="badge" data-state={fiatReady ? 'live' : 'none'}>
+              <span className="lt-chip" data-state={fiatReady ? 'live' : 'none'}>
                 {fiatReady ? t('statusLive') : t('statusOff')}
               </span>
             </dd>
           </div>
         </dl>
-        <p className="money-caption">{gate === 'simulated' ? t('providerTestNote') : gate === 'none' ? t('providerOffNote') : ''}</p>
-        <p className="money-caption">{fiatReady ? t('fiatOnNote') : t('fiatOffNote')}</p>
-      </DepthPanel>
-      <div className="bd-grid">
-        <DepthPanel title={t('addTitle')} lead={t('addLead')}>
-          <div className="actions">
-            <a className="button button--primary" href="/bank/ramps/new">
-              {addMoney.t('open')}
-            </a>
-            <a className="button" href="/bank/ramps/accounts">
-              {linked.t('open')}
-            </a>
-          </div>
-        </DepthPanel>
-        <DepthPanel title={t('outTitle')} lead={t('outLead')}>
-          <Steps active="amount" off={new Set<RampStep>(['quote'])} />
-          <p className="money-caption">{t('outNoteQuote')}</p>
-          <div className="actions">
-            <Button onClick={cashOut} disabled={blocked !== null} aria-describedby={blocked ? 'ramp-out-why' : undefined}>
-              {t('outButton')}
-            </Button>
-          </div>
-          {blocked && (
-            <p id="ramp-out-why" className="money-caption" role="status">
-              {blocked}
-            </p>
-          )}
-          <h4 className="bd-subhead">{t('fiatOutTitle')}</h4>
-          {/* The room takes the ask and says why it cannot be paid out; nothing leaves the balance. */}
-          <div className="actions">
-            <a className="button" href="/bank/ramps/cash-out">
-              {t('fiatOutButton')}
-            </a>
-          </div>
-          <p className="money-caption">{t('fiatOutReason')}</p>
-        </DepthPanel>
-      </div>
-    </div>
+        <p className="lt-hint">{gate === 'simulated' ? t('providerTestNote') : gate === 'none' ? t('providerOffNote') : ''}</p>
+        <p className="lt-hint">{fiatReady ? t('fiatOnNote') : t('fiatOffNote')}</p>
+      </Panel>
+      <Panel id="ramps-add" title={t('addTitle')} lead={t('addLead')}>
+        <div className="lt-actions">
+          <a className="lt-button lt-button-primary" href="/bank/ramps/new">
+            {addMoney.t('open')}
+          </a>
+          <a className="lt-button lt-button-secondary" href="/bank/ramps/accounts">
+            {linked.t('open')}
+          </a>
+        </div>
+      </Panel>
+      <Panel id="ramps-out" title={t('outTitle')} lead={t('outLead')}>
+        <Steps active="amount" off={new Set<RampStep>(['quote'])} />
+        <p className="lt-hint">{t('outNoteQuote')}</p>
+        <div className="lt-actions">
+          <Button tone="primary" onClick={cashOut} disabled={blocked !== null} aria-describedby={blocked ? 'ramp-out-why' : undefined}>
+            {t('outButton')}
+          </Button>
+        </div>
+        {blocked && (
+          <p id="ramp-out-why" className="lt-hint" role="status">
+            {blocked}
+          </p>
+        )}
+        <h3>{t('fiatOutTitle')}</h3>
+        {/* The room takes the ask and says why it cannot be paid out; nothing leaves the balance. */}
+        <div className="lt-actions">
+          <a className="lt-button lt-button-secondary" href="/bank/ramps/cash-out">
+            {t('fiatOutButton')}
+          </a>
+        </div>
+        <p className="lt-hint">{t('fiatOutReason')}</p>
+      </Panel>
+    </>
   );
 }

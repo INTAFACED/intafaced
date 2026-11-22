@@ -1,11 +1,12 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
-import { Button } from '../../shared/ui';
-import { bankReads } from './contracts';
-import { Continuation, funds, ResourceView, Section, useBankRead, usePageLimit } from './components';
-import { currentOwnerRecord, ReportedTime, useBankView } from './bank-context';
-import { railCopy } from './rail-copy';
-import { Text, t as copyText } from './copy';
+import { Button, Segmented } from '@intafaced/ui/lit';
+import { bankReads } from '../contracts';
+import { funds, useBankRead, usePageLimit } from '../components';
+import { currentOwnerRecord, ReportedTime, useBankView } from '../bank-context';
+import { Continuation, Panel, ResourceView } from '../bank-settings/parts';
+import { railCopy } from '../rail-copy';
+import { Text, t as copyText } from '../copy';
 
 type Direction = 'in' | 'out';
 type RailRecord = z.infer<(typeof bankReads)['ramps.onramps']>[number] | z.infer<(typeof bankReads)['ramps.offramps']>[number];
@@ -21,9 +22,8 @@ function Reference({ value }: { value: string }) {
 function Quantity({ row }: { row: RailRecord }) {
   const { Copy } = railCopy.useCopy();
   return row.assetId.trim() ? (
-    <span className="money-ramp-quantity" lang="zxx" dir="ltr">
-      <strong className="numeric">{funds(row.amount, '').trimEnd()}</strong>
-      <span className="money-caption">{row.assetId}</span>
+    <span lang="zxx" dir="ltr">
+      <strong>{funds(row.amount, '').trimEnd()}</strong> <span className="lt-hint">{row.assetId}</span>
     </span>
   ) : (
     <Copy k="assetUnavailable" />
@@ -32,7 +32,7 @@ function Quantity({ row }: { row: RailRecord }) {
 function Identity({ row }: { row: RailRecord }) {
   const { Copy } = railCopy.useCopy();
   return (
-    <div className="money-ramp-identity">
+    <div>
       <h3>
         <Copy k={'railRef' in row ? 'incoming' : 'outgoing'} /> ·{' '}
         <bdi lang="und" dir="auto">
@@ -43,8 +43,8 @@ function Identity({ row }: { row: RailRecord }) {
           {row.status || <Copy k="emptyValue" />}
         </bdi>
       </h3>
-      <dl className="money-ramp-reference">
-        <dt className="money-visually-hidden">
+      <dl>
+        <dt className="lt-sr">
           <Copy k="reference" />
         </dt>
         <dd>
@@ -69,10 +69,10 @@ function RecordFacts({ row }: { row: RailRecord }) {
           ['settle', row.settleLedgerTxId],
         ];
   return (
-    <article className="money-ramp-facts">
+    <article>
       <Identity row={row} />
       <Quantity row={row} />
-      <dl className="money-ramp-metadata">
+      <dl className="lt-kv">
         <div>
           <dt>
             <Copy k="rail" />
@@ -90,7 +90,7 @@ function RecordFacts({ row }: { row: RailRecord }) {
           </dd>
         </div>
       </dl>
-      <dl className="money-ramp-references">
+      <dl className="lt-kv">
         {refs.map(([label, value]) => (
           <div key={label}>
             <dt>
@@ -100,18 +100,18 @@ function RecordFacts({ row }: { row: RailRecord }) {
           </div>
         ))}
       </dl>
-      <div className="money-ramp-notes">
+      <div>
         {row.simulated && (
-          <p className="money-caption">
+          <p className="lt-hint">
             <Copy k="simulated" />
           </p>
         )}
         {refs.some(([, value]) => value === null) && (
-          <p className="money-caption">
+          <p className="lt-hint">
             <Copy k="absentTransaction" />
           </p>
         )}
-        <p className="money-caption">
+        <p className="lt-hint">
           <Copy k="noDelivery" />
         </p>
       </div>
@@ -143,15 +143,15 @@ function RailWindow({ direction }: { direction: Direction }) {
     target?.scrollIntoView({ block: 'start' });
   }, [selected?.serial]);
   return (
-    <div className="money-rail-window" lang={languageFor('recordsIn')} dir={directionFor('recordsIn')}>
+    <div lang={languageFor('recordsIn')} dir={directionFor('recordsIn')}>
       {selected && (
-        <section className="money-selected-ramp" aria-labelledby="money-selected-ramp-heading">
+        <section aria-labelledby="money-selected-ramp-heading">
           <header>
             <h2 id="money-selected-ramp-heading" ref={heading} tabIndex={-1}>
               <Copy k="selected" />
             </h2>
             <Button
-              variant="ghost"
+              tone="quiet"
               onClick={() => {
                 if (current() && !document.querySelector('[role="dialog"]')) setSelected(null);
               }}
@@ -160,7 +160,7 @@ function RailWindow({ direction }: { direction: Direction }) {
             </Button>
           </header>
           {!record && (
-            <dl className="money-ramp-reference">
+            <dl>
               <dt>
                 <Copy k={direction === 'in' ? 'incoming' : 'outgoing'} /> · <Copy k="reference" />
               </dt>
@@ -174,14 +174,14 @@ function RailWindow({ direction }: { direction: Direction }) {
               record ? (
                 <RecordFacts row={record} />
               ) : (
-                <div className="money-ramp-missing" role="status">
+                <div role="status">
                   <h3>
                     <Copy k={rows.some((row) => row.id.toLowerCase() === selected.id.toLowerCase()) ? 'conflict' : 'missing'} />
                   </h3>
                   <p>
                     <Copy k="missingNote" />
                   </p>
-                  <Button variant="secondary" onClick={refresh}>
+                  <Button tone="secondary" onClick={refresh}>
                     <Copy k="refresh" />
                   </Button>
                 </div>
@@ -190,28 +190,28 @@ function RailWindow({ direction }: { direction: Direction }) {
           </ResourceView>
         </section>
       )}
-      <Section
+      <Panel
         title={
           <span id="money-ramp-list-heading" ref={listHeading} tabIndex={-1}>
             <Copy k={direction === 'in' ? (record ? 'otherIn' : 'recordsIn') : record ? 'otherOut' : 'recordsOut'} />
           </span>
         }
         actions={
-          <Button variant="ghost" onClick={refresh} aria-label={t('refresh')}>
+          <Button tone="quiet" onClick={refresh} aria-label={t('refresh')}>
             <Copy k="refreshShort" />
           </Button>
         }
-        description={t('newest', { limit })}
+        lead={t('newest', { limit })}
       >
         <ResourceView resource={query.resource} reload={refresh}>
           {() => (
             <>
               {other.length ? (
                 other.map((row, index) => (
-                  <article className="money-ramp-record" key={`${row.id}:${index}`}>
+                  <article key={`${row.id}:${index}`}>
                     <Identity row={row} />
                     <Quantity row={row} />
-                    <div className="money-ramp-preview">
+                    <div className="lt-toolbar">
                       <bdi lang="und" dir="auto">
                         {row.rail || <Copy k="emptyValue" />}
                       </bdi>
@@ -219,7 +219,7 @@ function RailWindow({ direction }: { direction: Direction }) {
                       {row.simulated && <Text k="rooms.simulation.record" />}
                     </div>
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       aria-label={t('inspect', { reference: row.id })}
                       lang={languageFor('inspect')}
                       dir={directionFor('inspect')}
@@ -234,7 +234,7 @@ function RailWindow({ direction }: { direction: Direction }) {
                   </article>
                 ))
               ) : (
-                <div className="money-ramp-missing" role="status">
+                <div role="status">
                   <h3>
                     <Copy k={record ? 'noOther' : 'empty'} />
                   </h3>
@@ -250,13 +250,13 @@ function RailWindow({ direction }: { direction: Direction }) {
                   if (current()) setLimit(Math.min(200, limit + 50));
                 }}
               />
-              <p className="money-caption">
+              <p className="lt-hint">
                 <Copy k="window" />
               </p>
             </>
           )}
         </ResourceView>
-      </Section>
+      </Panel>
     </div>
   );
 }
@@ -266,11 +266,11 @@ function ConnectionDetails() {
   const programme = useBankRead('ramps.programme', undefined),
     fiat = useBankRead('ramps.fiatSettle', undefined);
   return (
-    <details className="money-ramp-connections">
+    <details>
       <summary>
         <Copy k="connections" />
       </summary>
-      <Section title={copyText('rooms.rail.programme')}>
+      <Panel level={3} title={copyText('rooms.rail.programme')}>
         <ResourceView
           resource={programme.resource}
           reload={() => {
@@ -282,14 +282,14 @@ function ConnectionDetails() {
               <p lang="und" dir="auto">
                 {info.displayName}
               </p>
-              <p className="money-caption">
+              <p className="lt-hint">
                 {info.simulated ? (
                   <Text k="rooms.this.programme.is.simulated.ledger.entries.do" />
                 ) : (
                   <Text k="rooms.the.service.supplied.this.programme.identity" />
                 )}
               </p>
-              <dl className="detail-list">
+              <dl className="lt-kv">
                 <div>
                   <dt>
                     <Text k="rooms.crypto.rail" />
@@ -308,8 +308,8 @@ function ConnectionDetails() {
             </>
           )}
         </ResourceView>
-      </Section>
-      <Section title={copyText('rooms.fiat.settlement.capability')}>
+      </Panel>
+      <Panel level={3} title={copyText('rooms.fiat.settlement.capability')}>
         <ResourceView
           resource={fiat.resource}
           reload={() => {
@@ -317,7 +317,7 @@ function ConnectionDetails() {
           }}
         >
           {(info) => (
-            <p className="money-caption">
+            <p className="lt-hint">
               <Text k="rooms.the.adapter.can.settle.using" />
               <Reference value={info.onrampRailId} />
               <Text k="rooms.and" />
@@ -326,7 +326,7 @@ function ConnectionDetails() {
             </p>
           )}
         </ResourceView>
-      </Section>
+      </Panel>
     </details>
   );
 }
@@ -335,34 +335,31 @@ export function OwnerRailRecords() {
   const current = useBankView();
   const [direction, setDirection] = useState<Direction>('in');
   return (
-    <div className="money-owner-ramps" lang={languageFor('direction')} dir={directionFor('direction')}>
-      <div className="money-ramp-entry">
-        <p className="money-caption">
+    <div lang={languageFor('direction')} dir={directionFor('direction')}>
+      <div>
+        <p className="lt-hint">
           <Copy k="fundingUnavailable" />
         </p>
-        <div className="actions">
-          <a className="text-link" href="/uc/recharge">
+        <div className="lt-actions">
+          <a className="lt-link" href="/uc/recharge">
             <Copy k="depositShort" />
           </a>
-          <a className="text-link" href="/uc/withdraw">
+          <a className="lt-link" href="/uc/withdraw">
             <Copy k="withdrawalShort" />
           </a>
         </div>
       </div>
-      <div className="money-ramp-direction" role="group" aria-label={t('direction')}>
-        {(['in', 'out'] as const).map((value) => (
-          <Button
-            key={value}
-            variant="ghost"
-            aria-pressed={direction === value}
-            onClick={() => {
-              if (current() && !document.querySelector('[role="dialog"]')) setDirection(value);
-            }}
-          >
-            <Copy k={value === 'in' ? 'incoming' : 'outgoing'} />
-          </Button>
-        ))}
-      </div>
+      <Segmented
+        label={t('direction')}
+        value={direction}
+        options={[
+          { value: 'in', label: t('incoming') },
+          { value: 'out', label: t('outgoing') },
+        ]}
+        onChange={(value) => {
+          if (current() && !document.querySelector('[role="dialog"]')) setDirection(value);
+        }}
+      />
       <RailWindow key={direction} direction={direction} />
       <ConnectionDetails />
     </div>

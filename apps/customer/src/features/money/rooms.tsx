@@ -61,8 +61,6 @@ import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstr
 import { standingCopy } from './standing-copy';
 import { useBankView } from './bank-context';
 import { OwnerCards } from './Cards';
-import { OwnerRailRecords } from './RailRecords';
-import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
 import { SpaceInflows } from './SpaceInflows';
 import { IncomeSorter } from './IncomeSorter';
@@ -103,8 +101,7 @@ import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows 
 import { RecipientPicker } from './RecipientPicker';
 import { BusinessBank } from './BusinessBank';
 import { businessCopy } from './business-copy';
-import { RampJourneys } from './RampJourneys';
-import { rampDepthCopy } from './ramp-depth-copy';
+import { RampsRoom } from './ramps/RampsRoom';
 import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
 import type { Payee } from './payees';
 import { transferDepthCopy } from './transfer-depth-copy';
@@ -1505,18 +1502,6 @@ function Cards({ open }: { open: (spec: ActionSpec) => void }) {
     </BankPage>
   );
 }
-function Ramps({ open }: { open: (spec: ActionSpec) => void }) {
-  const { t } = railCopy.useCopy();
-  const depth = rampDepthCopy.useCopy();
-  return (
-    <BankPage room="Ramps" description={t('description')}>
-      <RampJourneys open={open} />
-      <Section title={depth.t('historyTitle')} description={depth.t('historyLead')}>
-        <OwnerRailRecords />
-      </Section>
-    </BankPage>
-  );
-}
 /** `/bank/ramps/new`: add money, inside the Ramps room. */
 function AddMoneyRoom() {
   const { t } = addMoneyCopy.useCopy();
@@ -2183,7 +2168,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/cards/new':
       return <CardOrderRoom />;
     case '/bank/ramps':
-      return <Ramps open={open} />;
+      return <RampsRoom open={open} />;
     case '/bank/ramps/new':
       return <AddMoneyRoom />;
     case '/bank/ramps/accounts':

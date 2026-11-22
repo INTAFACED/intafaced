@@ -107,7 +107,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/business/loan': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
   '/bank/cards': { template: 'settings' },
   '/bank/cards/new': { template: 'flow' },
-  '/bank/ramps': { template: 'settings' },
+  '/bank/ramps': { template: 'settings', migrated: { file: 'features/money/ramps/RampsRoom.tsx' } },
   '/bank/ramps/new': { template: 'flow' },
   '/bank/ramps/accounts': { template: 'settings', migrated: { file: 'features/money/linked-accounts/LinkedAccountsRoom.tsx' } },
   '/bank/ramps/cash-out': { template: 'flow' },
