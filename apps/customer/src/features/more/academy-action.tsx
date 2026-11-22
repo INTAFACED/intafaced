@@ -52,7 +52,7 @@ export function useAcademyAction() {
         </p>
       )}
       {snapshot.status === 'other' && !running && (
-        <div data-testid="failure" className="failure" role="alert">
+        <div data-testid="failure" className="lt-refusal" role="alert">
           <h3>
             <Text k="common.outcome.not.confirmed" />
           </h3>
@@ -68,7 +68,7 @@ export function useAcademyAction() {
         </div>
       )}
       {snapshot.known && !snapshot.known.grant && (
-        <div data-testid="failure" className="failure">
+        <div data-testid="failure" className="lt-refusal">
           <p lang={copy.forLocale(language).languageFor('actionCleanup')}>{copy.t('actionCleanup')}</p>
           <Button lang={copy.forLocale(language).languageFor('cleanupAction')} onClick={() => void cleanup(snapshot.known!)}>
             {copy.t('cleanupAction')}
@@ -76,7 +76,7 @@ export function useAcademyAction() {
         </div>
       )}
       {snapshot.status === 'unreadable' && !snapshot.known && (
-        <div data-testid="failure" className="failure" role="alert">
+        <div data-testid="failure" className="lt-refusal" role="alert">
           <h3 lang={copy.forLocale(language).languageFor('storageTitle')}>{copy.t('storageTitle')}</h3>
           <p lang={copy.forLocale(language).languageFor('storageBody')}>{copy.t('storageBody')}</p>
           <Button variant="secondary" lang={copy.forLocale(language).languageFor('retryStorage')} onClick={redraw}>
@@ -90,12 +90,12 @@ export function useAcademyAction() {
   const dialog = request ? (
     <Dialog title={<PresentedCopy value={request.title} />} onClose={() => dismiss(request)}>
       <PresentedCopy value={request.content} />
-      <p className="muted">
+      <p className="lt-muted">
         <Text k="common.acting.as.account" />
         <code lang="zxx">{userId}</code>
         <Text k="common.the.service.enforces.your.scope.and.jurisdiction" />
       </p>
-      <div className="actions">
+      <div className="lt-actions">
         <Button variant="secondary" onClick={() => dismiss(request)}>
           <Text k="common.back" />
         </Button>

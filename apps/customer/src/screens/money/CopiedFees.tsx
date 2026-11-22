@@ -22,7 +22,7 @@ export function CopiedFees() {
   if (read.status === 'ready' && read.data.rows.length === 0) return null;
   if (read.status === 'empty' || read.status === 'refused') return null;
   return (
-    <section aria-labelledby="money-copied-fees-title" data-testid="money-copied-fees" className="form-stack">
+    <section aria-labelledby="money-copied-fees-title" data-testid="money-copied-fees" className="lt-stack">
       <h2 id="money-copied-fees-title">
         {t('Title')}
         {read.status === 'ready' && read.data.venue?.test ? (
@@ -32,9 +32,9 @@ export function CopiedFees() {
           </>
         ) : null}
       </h2>
-      <p className="money-caption">{t('Lede')}</p>
-      {read.status === 'loading' ? <p className="money-caption">{t('Reading')}</p> : null}
-      {read.status === 'error' ? <p className="money-caption">{t('Unread')}</p> : null}
+      <p className="lt-muted">{t('Lede')}</p>
+      {read.status === 'loading' ? <p className="lt-muted">{t('Reading')}</p> : null}
+      {read.status === 'error' ? <p className="lt-muted">{t('Unread')}</p> : null}
       {read.status === 'ready' ? (
         <table aria-label={t('Title')} className="money-table money-table--activity">
           <thead>

@@ -294,7 +294,7 @@ test('retained review A Confirm and Close cannot dispatch or dismiss current B',
   const state = await network(context);
   await login(page);
   await grantReview(page);
-  await retain(page, 'oldConfirm', 'dialog .actions button:last-child');
+  await retain(page, 'oldConfirm', 'dialog :is(.actions, .lt-actions) button:last-child');
   await retain(page, 'oldClose', 'dialog > header button');
   await page.getByRole('dialog').getByRole('button', { name: 'Back', exact: true }).click();
   await grantReview(page);
@@ -311,7 +311,7 @@ test('observed full URL away-and-back retires retained grant Confirm in the same
   const state = await network(context);
   await login(page);
   await grantReview(page);
-  await retain(page, 'oldConfirm', 'dialog .actions button:last-child');
+  await retain(page, 'oldConfirm', 'dialog :is(.actions, .lt-actions) button:last-child');
   await page.evaluate(() => {
     const href = location.href;
     history.replaceState(null, '', href + '&departed=1#other');
@@ -330,7 +330,7 @@ test('same-task selected certificate ABA cannot revive retired A; current review
   const state = await network(context);
   await login(page);
   await grantReview(page);
-  await retain(page, 'oldConfirm', 'dialog .actions button:last-child');
+  await retain(page, 'oldConfirm', 'dialog :is(.actions, .lt-actions) button:last-child');
   await page.getByRole('dialog').getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByRole('button', { name: 'Learning', exact: true }).click();
   const selection = page.getByRole('combobox', { name: 'Published certificate', exact: true });
@@ -367,7 +367,7 @@ test('qualified mounted parent selection callback ABA retires held grant; curren
       window.currentCertificateSelection = fiber.memoizedProps.setSelected;
     }, certId);
   await grantReview(page);
-  await retain(page, 'oldConfirm', 'dialog .actions button:last-child');
+  await retain(page, 'oldConfirm', 'dialog :is(.actions, .lt-actions) button:last-child');
   let release;
   state.certProgress = async (_route, input, reply) => {
     await new Promise((done) => (release = done));
@@ -397,7 +397,7 @@ test('native grant lease prevents retained enrolment Confirm in another same-own
   const other = await context.newPage();
   await login(other);
   await other.getByRole('button', { name: 'Review enrolment', exact: true }).click();
-  await retain(other, 'enrolConfirm', 'dialog .actions button:last-child');
+  await retain(other, 'enrolConfirm', 'dialog :is(.actions, .lt-actions) button:last-child');
   await grantReview(page);
   let release;
   state.certProgress = async (_route, input, reply) => {

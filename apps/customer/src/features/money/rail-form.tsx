@@ -37,7 +37,7 @@ export function RailForm({
     <>
       {rail.fields.map((field) =>
         field.choices ? (
-          <label className="field" htmlFor={`${id}-${field.name}`} key={field.name}>
+          <label className="lt-field" htmlFor={`${id}-${field.name}`} key={field.name}>
             <span>{t(`field_${field.name}` as Key)}</span>
             <select
               id={`${id}-${field.name}`}

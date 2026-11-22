@@ -46,7 +46,7 @@ export function VenueVerifyDesk({ status, symbol }: { status: VenueUp; symbol: s
         <h2 className="dk-tab-title">
           {t('Venue account')} <TestMark test={status.test} />
         </h2>
-        <p className="muted">{t('Venue account verify')}</p>
+        <p className="lt-muted">{t('Venue account verify')}</p>
         <VenueWalletRow />
         <p>
           <KitButton disabled>{t('Deposit')}</KitButton>{' '}

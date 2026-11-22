@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { EmptyState, Failure, Loading, Page } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -53,7 +53,7 @@ export function OAuthConsent() {
         <EmptyState
           title={t('consentSignedOutTitle')}
           action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
               {t('signIn')}
             </a>
           }
@@ -111,12 +111,12 @@ export function OAuthConsent() {
                 <strong>{key ? t(key) : scope}</strong>
                 <br />
                 <code>{scope}</code>
-                {key ? null : <span className="muted"> · {t('consentNoDescription')}</span>}
+                {key ? null : <span className="lt-muted"> · {t('consentNoDescription')}</span>}
               </li>
             );
           })}
         </ul>
-        <p className="muted">{t('consentNote')}</p>
+        <p className="lt-muted">{t('consentNote')}</p>
         {stopped === 'done' ? <p role="status">{t('consentDone')}</p> : null}
         {stopped === 'no-redirect' ? (
           <p role="alert">
@@ -126,10 +126,10 @@ export function OAuthConsent() {
         {refused ? <Refused failure={refused} t={t} /> : null}
         {stopped ? null : (
           <div className="consent-actions">
-            <Button disabled={busy !== null} onClick={() => decide('allow')}>
+            <Button tone="primary" disabled={busy !== null} onClick={() => decide('allow')}>
               {busy === 'allow' ? t('sending') : t('allow')}
             </Button>
-            <Button variant="secondary" disabled={busy !== null} onClick={() => decide('deny')}>
+            <Button tone="secondary" disabled={busy !== null} onClick={() => decide('deny')}>
               {busy === 'deny' ? t('sending') : t('deny')}
             </Button>
           </div>
