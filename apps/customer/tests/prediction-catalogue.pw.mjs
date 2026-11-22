@@ -195,7 +195,7 @@ test('current loading and failed reads retire old listings, malformed or ambiguo
     await state.holds
       .shift()
       .fulfill({ status: 503, json: { error: 'isolated.catalogue_unavailable', message: 'Isolated catalogue unavailable' } });
-    await expect(page.locator('.prediction-catalogue .failure')).toContainText('Isolated catalogue unavailable');
+    await expect(page.locator('.prediction-catalogue :is(.failure, .lt-refusal)')).toContainText('Isolated catalogue unavailable');
     await expect(page.locator('.prediction-catalogue')).toContainText('does not establish');
     await expect(room(page).getByRole('heading', { name: 'No questions are listed', exact: true })).toHaveCount(0);
     await page.screenshot({ path: join(out, 'failed.png'), fullPage: true });
@@ -220,15 +220,15 @@ test('current loading and failed reads retire old listings, malformed or ambiguo
     arrays.push([listing(), listing()], [listing(), listing({ id: 'another-event' })]);
     for (const rows of arrays) {
       state.plan.push({ json: rows });
-      await page.locator('.prediction-catalogue .failure button').click();
-      await expect(page.locator('.prediction-catalogue .failure')).toContainText('verified');
+      await page.locator('.prediction-catalogue :is(.failure, .lt-refusal) button').click();
+      await expect(page.locator('.prediction-catalogue :is(.failure, .lt-refusal)')).toContainText('verified');
       await expect(page.locator('.prediction-catalogue-records')).toHaveCount(0);
     }
     state.plan.push({ abort: true });
-    await page.locator('.prediction-catalogue .failure button').click();
-    await expect(page.locator('.prediction-catalogue .failure')).toContainText('reach');
+    await page.locator('.prediction-catalogue :is(.failure, .lt-refusal) button').click();
+    await expect(page.locator('.prediction-catalogue :is(.failure, .lt-refusal)')).toContainText('reach');
     state.plan.push({ json: [] });
-    await page.locator('.prediction-catalogue .failure button').click();
+    await page.locator('.prediction-catalogue :is(.failure, .lt-refusal) button').click();
     await expect(room(page).getByRole('heading', { name: 'No questions are listed', exact: true })).toBeVisible();
     await page.screenshot({ path: join(out, 'recovered.png'), fullPage: true });
     expect(state.catalogueReads).toBe(9);

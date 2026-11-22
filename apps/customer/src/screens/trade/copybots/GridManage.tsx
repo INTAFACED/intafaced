@@ -86,7 +86,7 @@ export function GridTopUp({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="cb-form">
+          <div className="lt-stack">
             <label className="cb-selectfield">
               <span className="cb-label">{t('Asset')}</span>
               <select value={asset} onChange={(e) => setAsset(e.target.value)} disabled={busy}>
@@ -171,7 +171,7 @@ export function GridSettings({ bot, api }: { bot: GridBot; api: ReturnType<typeo
     );
   }
   return (
-    <section aria-label={t('Grid settings')} className="cb-form">
+    <section aria-label={t('Grid settings')} className="lt-stack">
       <label className="cb-selectfield">
         <span className="cb-label">{t('Trailing')}</span>
         <Switch checked={trailing} onCheckedChange={setTrailing} aria-label={t('Trailing')} disabled={busy} />
@@ -183,7 +183,7 @@ export function GridSettings({ bot, api }: { bot: GridBot; api: ReturnType<typeo
         <Input value={minCount} onValueChange={setMinCount} disabled={busy} />
       </Field>
       <p className="cb-note-body">{t('This grid has {count} grids.', { count: String(bot.gridCount) })}</p>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button disabled={busy} onClick={() => void save()}>
           {t('Save')}
         </Button>
@@ -233,7 +233,7 @@ export function GridExits({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
     );
   }
   return (
-    <section aria-label={t('Exits')} className="cb-form">
+    <section aria-label={t('Exits')} className="lt-stack">
       <Field label={t('Stop when the price falls to')}>
         <Input kind="decimal" value={below} onValueChange={setBelow} precision={8} trailing={bot.quoteAsset} disabled={busy} />
       </Field>
@@ -244,7 +244,7 @@ export function GridExits({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
         <Input value={t('Not set')} onValueChange={() => {}} disabled />
       </Field>
       <InfoNote>{t('No RSI source is connected, so an RSI exit can’t be saved.')}</InfoNote>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button disabled={busy} onClick={() => void save()}>
           {t('Save exits')}
         </Button>
@@ -281,7 +281,7 @@ export function GridIdleYield({ bot, api }: { bot: GridBot; api: ReturnType<type
   }
 
   return (
-    <section aria-label={t('Idle funds')} className="cb-form">
+    <section aria-label={t('Idle funds')} className="lt-stack">
       <label className="cb-selectfield">
         <span className="cb-label">{t('Earn on idle funds')}</span>
         <Switch

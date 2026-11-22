@@ -414,7 +414,7 @@ for (const operation of ['onboard', 'erase']) {
     await panel(page).getByRole('button', { name: 'Read again' }).click();
     await expect(panel(page)).toContainText('No recorded crew placement');
     expect(await page.evaluate((owner) => localStorage.getItem('intafaced:more:pending:' + owner + ':blueprint'), owner)).toBe(marker);
-    await expect(page.locator('.failure').filter({ hasText: 'Earlier request:' })).toBeVisible();
+    await expect(page.locator(':is(.failure, .lt-refusal)').filter({ hasText: 'Earlier request:' })).toBeVisible();
     expect(state.writes.filter((proc) => proc === operation).length).toBe(1);
     expect(state.external).toBe(0);
     expect(state.downloads).toBe(0);

@@ -570,7 +570,7 @@ function BotsHub({ path }: { path: string }) {
             ) : null}
             <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one by its ID.')}</InfoNote>
             {moreMine ? (
-              <div className="cb-action-row">
+              <div className="lt-actions">
                 {mineLimit < BOT_LIST_MAX ? (
                   <Button variant="secondary" onClick={showMoreMine}>
                     {t('Show more bots')}
@@ -595,7 +595,7 @@ function BotsHub({ path }: { path: string }) {
               </Button>
             </form>
             {open && openRefused && open.failure ? (
-              <div className="cb-action-row">
+              <div className="lt-actions">
                 <RefusalNote failure={open.failure} retry={opened.reload} />
                 <Button variant="ghost" size={28} onClick={() => setOpenId(null)}>
                   {t('Close')}
@@ -648,7 +648,7 @@ function BotsHub({ path }: { path: string }) {
                 { label: t('Where to write one'), value: t('Quant Studio') },
               ]}
             />
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button variant="secondary" render={<a href="/quant/studio" />} nativeButton={false}>
                 {t('Open Quant Studio')}
               </Button>

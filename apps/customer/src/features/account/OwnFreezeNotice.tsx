@@ -29,7 +29,7 @@ export function OwnFreezeNotice() {
       <h2>{t('walletTitle')}</h2>
       <p>{t('walletBody')}</p>
       <p>
-        <a className="text-link" href="/uc/safe">
+        <a className="lt-link" href="/uc/safe">
           {t('walletLift')}
         </a>
       </p>

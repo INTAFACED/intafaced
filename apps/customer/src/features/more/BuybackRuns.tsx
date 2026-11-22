@@ -37,7 +37,7 @@ export function BuybackRunsView({ read }: { read: { resource: Resource<BuybackRu
   const shown = (value: string) => (hideBalances ? '••••' : displayAmount(value));
   return (
     <Panel title={t('runsTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="runsBody" /> {t('latest', { limit: LIMIT })}
       </p>
       <Read resource={read.resource} retry={read.reload}>
@@ -53,9 +53,9 @@ export function BuybackRunsView({ read }: { read: { resource: Resource<BuybackRu
                     <time dateTime={r.executedAt}>{utc(r.executedAt)}</time>
                   </td>
                   <td>{t('windowRange', { from: utc(r.windowFrom), to: utc(r.windowTo) })}</td>
-                  <td className="numeric">{shown(r.bought)}</td>
-                  <td className="numeric">{shown(r.burned)}</td>
-                  <td className="numeric">{shown(r.toRewards)}</td>
+                  <td className="lt-num">{shown(r.bought)}</td>
+                  <td className="lt-num">{shown(r.burned)}</td>
+                  <td className="lt-num">{shown(r.toRewards)}</td>
                 </tr>
               ))}
             </DataTable>

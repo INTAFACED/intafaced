@@ -106,15 +106,15 @@ export function PortfolioPage({ agent }: { agent: OwnAgent }) {
   const mode = useVenueMode();
   return (
     <Panel title={t('title')} role="region" aria-label={t('title')}>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       {mode.mode === 'on' ? (
         <VenueFrame mode={mode}>
           <Planner agent={agent} />
         </VenueFrame>
       ) : mode.mode === 'checking' ? (
-        <p className="muted">{t('checking')}</p>
+        <p className="lt-muted">{t('checking')}</p>
       ) : (
-        <p className="muted">{t('venueOff')}</p>
+        <p className="lt-muted">{t('venueOff')}</p>
       )}
     </Panel>
   );
@@ -205,7 +205,7 @@ function Planner({ agent }: { agent: OwnAgent }) {
       {said ? <p role="status">{said}</p> : null}
       <section role="region" aria-label={t('proposals')}>
         <h3>{t('proposals')}</h3>
-        {shown && shown.length === 0 ? <p className="muted">{t('none')}</p> : null}
+        {shown && shown.length === 0 ? <p className="lt-muted">{t('none')}</p> : null}
         {(shown ?? []).map((p) => (
           <article key={p.proposalId} aria-label={`${t('proposal')} ${p.proposalId}`} data-proposal-id={p.proposalId}>
             <h4>
@@ -218,19 +218,19 @@ function Planner({ agent }: { agent: OwnAgent }) {
                 return (
                   <tr key={h.asset}>
                     <td>{h.asset}</td>
-                    <td className="numeric">{h.total}</td>
-                    <td className="numeric">
+                    <td className="lt-num">{h.total}</td>
+                    <td className="lt-num">
                       {h.price} {p.asset}
                     </td>
-                    <td className="numeric">
+                    <td className="lt-num">
                       {h.value} {p.asset}
                     </td>
-                    <td className="numeric">{target ? `${target.percent}%` : t('rest')}</td>
+                    <td className="lt-num">{target ? `${target.percent}%` : t('rest')}</td>
                   </tr>
                 );
               })}
             </DataTable>
-            <p className="muted numeric" data-testid="proposal-total">
+            <p className="lt-muted lt-num" data-testid="proposal-total">
               {t('total', { value: p.totalValue, asset: p.asset })}
             </p>
             <DataTable
@@ -241,11 +241,11 @@ function Planner({ agent }: { agent: OwnAgent }) {
                 <tr key={o.orderId} data-order-id={o.orderId}>
                   <td>{t(`side_${o.side}`)}</td>
                   <td>{o.symbol}</td>
-                  <td className="numeric">{o.size}</td>
-                  <td className="numeric">
+                  <td className="lt-num">{o.size}</td>
+                  <td className="lt-num">
                     {o.price} {p.asset}
                   </td>
-                  <td className="numeric">
+                  <td className="lt-num">
                     {o.notional} {p.asset}
                   </td>
                   <td data-testid="proposal-order-state">{t(`state_${states.get(o.orderId) ?? 'none'}`)}</td>

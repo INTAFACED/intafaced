@@ -74,8 +74,8 @@ export function Disputes({ portal }: { portal: PortalApi }) {
 export function DueChip({ dispute, now }: { dispute: Pick<Dispute, 'status' | 'responseDueAt'>; now: number }) {
   const { t } = portalCopy.useCopy();
   const c = countdown(dispute, now);
-  if (c.kind === 'closed') return <span className="muted">—</span>;
-  if (c.kind === 'none') return <span className="muted">{t('noDeadline')}</span>;
+  if (c.kind === 'closed') return <span className="lt-muted">—</span>;
+  if (c.kind === 'none') return <span className="lt-muted">{t('noDeadline')}</span>;
   const tone = c.kind === 'overdue' ? 'failed' : c.kind === 'today' || c.kind === 'soon' ? 'action' : 'progress';
   const label =
     c.kind === 'overdue' ? t('dueOverdue', { days: c.days }) : c.kind === 'today' ? t('dueToday') : t('dueIn', { days: c.days });
@@ -110,7 +110,7 @@ export function DisputesView({
   const filtered = Boolean(filters.status || filters.search || filters.date || due);
   const period = t('periodAllTime');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Gate resource={summary} retry={retry} rows={2}>
         {(s) => (
           <KpiStrip
@@ -182,7 +182,7 @@ export function DisputesView({
                   cell: (d) => (
                     <>
                       <strong>{d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven')}</strong>
-                      <small className="pay-cell-note">{shortId(d.disputeId)}</small>
+                      <small className="lt-hint">{shortId(d.disputeId)}</small>
                     </>
                   ),
                 },
@@ -202,7 +202,7 @@ export function DisputesView({
                 status: <StatusChip entity="dispute" value={d.status} />,
               })}
             />
-            <div className="pp-actions">
+            <div className="lt-actions">
               {list.hasMore && (
                 <Button variant="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
                   {list.more === 'loading' ? t('loadingMore') : t('loadMore')}
@@ -277,8 +277,10 @@ export function DisputeFundsView({ funds, retry, test }: { funds: Resource<Dispu
                 [t('colStatus'), <Chip kind="dispute" value={f.status} />],
               ]}
             />
-            {!f.openingBooked && <p className="muted">{t('fundsOpeningNotBooked')}</p>}
-            {f.openingBooked && f.status !== 'won' && !isZeroAmount(f.notYetTaken) && <p className="muted">{t('fundsNotYetTakenNote')}</p>}
+            {!f.openingBooked && <p className="lt-muted">{t('fundsOpeningNotBooked')}</p>}
+            {f.openingBooked && f.status !== 'won' && !isZeroAmount(f.notYetTaken) && (
+              <p className="lt-muted">{t('fundsNotYetTakenNote')}</p>
+            )}
             <p data-testid="dispute-funds-outcome">{t(FUNDS_OUTCOME[f.status])}</p>
           </>
         )}
@@ -312,7 +314,7 @@ export function DisputeDetailView({
 }) {
   const { t } = portalCopy.useCopy();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <BackLink href="/pay/disputes">{t('backToDisputes')}</BackLink>
       <Gate resource={dispute} retry={reload} rows={5}>
         {(d) => (
@@ -328,7 +330,7 @@ export function DisputeDetailView({
                   ],
                   [
                     t('colPayment'),
-                    <a className="text-link" href={`/pay/payments/${encodeURIComponent(d.paymentId)}`}>
+                    <a className="lt-link" href={`/pay/payments/${encodeURIComponent(d.paymentId)}`}>
                       {t('openPayment')}
                     </a>,
                   ],
@@ -381,7 +383,7 @@ export function DisputeDetailView({
                     [t('colOpened'), <DateTime value={d.payment.createdAt} />],
                   ]}
                 />
-                <a className="text-link" href={`/pay/payments/${encodeURIComponent(d.payment.paymentId)}`}>
+                <a className="lt-link" href={`/pay/payments/${encodeURIComponent(d.payment.paymentId)}`}>
                   {t('seePayments')}
                 </a>
               </PaySection>
@@ -481,9 +483,9 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
               <th scope="row">{t(`evidence_${e.kind}` as 'evidence_receipt')}</th>
               <td>
                 {e.fileName}
-                <small className="pay-cell-note">{e.contentType}</small>
+                <small className="lt-hint">{e.contentType}</small>
               </td>
-              <td className="numeric">{formatBytes(e.sizeBytes)}</td>
+              <td className="lt-num">{formatBytes(e.sizeBytes)}</td>
               <td data-testid="pp-mono" className="pp-mono" title={e.sha256}>
                 {e.sha256.slice(0, 12)}…
               </td>
@@ -504,7 +506,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
           <p className="pp-callout" role="note">
             {detailsOnly ? (problem ? t(`evProblem_${problem}`) + ' ' : '') + t('evidenceMetaOnly') : t('evUploadNote')}
           </p>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('fFile')} *</span>
             <input
               ref={input}
@@ -535,7 +537,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
             onChange={(v) => setKind(v as EvidenceKind)}
             options={evidenceKinds.map((k) => [k, t(`evidence_${k}` as 'evidence_receipt')] as const)}
           />
-          <label className="field">
+          <label className="lt-field">
             <span>{t('colNote')}</span>
             <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} rows={3} />
             <small>{t('hEvidenceNote')}</small>
@@ -617,12 +619,12 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
         </p>
       ) : (
         <div data-testid="form-stack" className="form-stack pp-form">
-          <label className="field">
+          <label className="lt-field">
             <span>{t('colNote')}</span>
             <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} rows={3} />
             <small>{t('hRespondNote')}</small>
           </label>
-          <div className="pp-actions">
+          <div className="lt-actions">
             <PortalReview
               title={t('contest')}
               variant="primary"

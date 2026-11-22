@@ -99,7 +99,7 @@ export function PaySection({
       <header>
         <div>
           <h2 lang={titleLanguage}>{title}</h2>
-          {description && <p className="muted">{description}</p>}
+          {description && <p className="lt-muted">{description}</p>}
         </div>
         {action}
       </header>
@@ -125,7 +125,7 @@ export function PayPagination({
   const full = fetched === limit;
   return (
     <div className="pay-pagination">
-      <p className="muted">
+      <p className="lt-muted">
         <PayCopy k="recordsWindow" params={{ count, limit }} />
         {full ? payCopy.t('moreRecordsMayExist') : ''}
       </p>
@@ -135,7 +135,7 @@ export function PayPagination({
         </Button>
       )}
       {full && limit === max && (
-        <p className="muted">
+        <p className="lt-muted">
           <PayCopy k="thisServiceHasNoContinuationCursorThis" />
         </p>
       )}
@@ -281,12 +281,12 @@ export function ReviewedAction<T>({
       <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
       {opened && (
         <Dialog closeLabel={uiCopy.t('closeDialog')} title={payCopy.t('review', { title: title })} onClose={close}>
-          <div data-testid="form-stack" className="form-stack">
-            <p className="muted">{description}</p>
+          <div data-testid="form-stack" className="lt-stack">
+            <p className="lt-muted">{description}</p>
             {review}
             {stepUp && <StepUpNote kind={stepUp} />}
             <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
-            {!ready && notReadyReason ? <p className="muted">{notReadyReason}</p> : null}
+            {!ready && notReadyReason ? <p className="lt-muted">{notReadyReason}</p> : null}
             <Button variant={variant} disabled={!ready || busy || unknown} onClick={() => void confirm()}>
               {busy ? payCopy.t('waitingForConfirmation') : title}
             </Button>

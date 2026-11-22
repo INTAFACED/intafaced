@@ -278,7 +278,7 @@ export function NewAgent() {
   return (
     <div className="more-grid">
       <Panel title={t('templatesTitle')} role="region" aria-label={t('templatesTitle')}>
-        <p className="muted">{t('templatesIntro')}</p>
+        <p className="lt-muted">{t('templatesIntro')}</p>
         <div className="depth-card-actions">
           {/* The starter shows once the service says it offers it; "Start blank" is always offered and needs no read. */}
           {catalogue.resource.status === 'ready' &&
@@ -355,7 +355,7 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
             void save();
           }}
         >
-          <p className="muted">
+          <p className="lt-muted">
             {t('draftLabel')}{' '}
             <code data-testid="draft-id" lang="zxx">
               {agent.id}
@@ -408,7 +408,7 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
               ))}
             </ul>
           ) : (
-            <p className="muted">{t('noTools')}</p>
+            <p className="lt-muted">{t('noTools')}</p>
           )}
           {tools.length ? (
             // Each attached tool's declared shape and refusals, as the service's registry holds them (AG-tools-01).
@@ -441,7 +441,7 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
                               </dd>
                             </dl>
                           ) : (
-                            <p className="muted">{t('shapeNotDeclared')}</p>
+                            <p className="lt-muted">{t('shapeNotDeclared')}</p>
                           )}
                         </article>
                       );
@@ -566,7 +566,7 @@ export function OwnAgentPage({ id }: { id: string }) {
     return (
       <Panel title={t('ownAgent')}>
         <Refusal code="agents.own.not_found" />
-        <a className="text-link" href="/agents">
+        <a className="lt-link" href="/agents">
           {t('backToAgents')}
         </a>
       </Panel>
@@ -585,7 +585,7 @@ export function OwnAgentPage({ id }: { id: string }) {
               label={t('pagesLabel')}
             />
             <AgentStatus id={agent.id} />
-            <p className="muted" data-testid="agent-version">
+            <p className="lt-muted" data-testid="agent-version">
               {t(agent.state === 'published' ? 'versionPublished' : 'versionDraft', { version: String(agent.version) })}
             </p>
             {page === 'Build' ? (
@@ -673,7 +673,7 @@ function AgentStatus({ id }: { id: string }) {
       <p data-testid="agent-status">{t(off ? 'status_disabled' : 'status_active')}</p>
       {off ? (
         <>
-          <p className="muted">{t('disabledNote')}</p>
+          <p className="lt-muted">{t('disabledNote')}</p>
           <Refusal code="agents.agent.disabled" />
           <Button disabled>{t('openSession')}</Button>
         </>
@@ -738,7 +738,7 @@ function LimitsForm({ agent, view }: { agent: OwnAgent; view: OwnAgentLimits }) 
           void save();
         }}
       >
-        <p className="muted">{t('limitsIntro', { asset: current.assetId })}</p>
+        <p className="lt-muted">{t('limitsIntro', { asset: current.assetId })}</p>
         <Field label={t('perCall')} inputMode="decimal" value={perCall} onChange={edit(setPerCall)} />
         <Field label={t('perSession')} inputMode="decimal" value={perSession} onChange={edit(setPerSession)} />
         <Field label={t('perMonth')} inputMode="decimal" value={perPeriod} onChange={edit(setPerPeriod)} />
@@ -830,7 +830,7 @@ function UsageLimitsForm({ agent, view, runs }: { agent: OwnAgent; view: OwnAgen
           void save();
         }}
       >
-        <p className="muted">{t('usageLimitsIntro', { asset: current.assetId })}</p>
+        <p className="lt-muted">{t('usageLimitsIntro', { asset: current.assetId })}</p>
         <Field label={t('alertAt')} inputMode="decimal" value={alertAt} onChange={edit(setAlertAt)} />
         <Field label={t('hardLimit')} inputMode="decimal" value={hardLimit} onChange={edit(setHardLimit)} />
         <Field
@@ -912,7 +912,7 @@ function PaymentMethodForm({ agent, view }: { agent: OwnAgent; view: OwnAgentPay
           void save();
         }}
       >
-        <p className="muted">{t('paymentIntro')}</p>
+        <p className="lt-muted">{t('paymentIntro')}</p>
         <p data-testid="payment-method">
           {current.method === null ? (
             t('paymentNone')
@@ -929,13 +929,13 @@ function PaymentMethodForm({ agent, view }: { agent: OwnAgent; view: OwnAgentPay
         ) : wallets.length === 0 ? (
           <p data-testid="payment-no-wallet">
             {t('paymentNoWallet')}{' '}
-            <a className="text-link" href="/uc/safe">
+            <a className="lt-link" href="/uc/safe">
               {t('paymentLinkWallets')}
             </a>
           </p>
         ) : (
           <>
-            <label className="field" htmlFor={pickId}>
+            <label className="lt-field" htmlFor={pickId}>
               <span>{t('paymentPick')}</span>
               <select
                 id={pickId}
@@ -1075,7 +1075,7 @@ function Sessions({
             {t('sessionOpen')} <code lang="zxx">{sessionId}</code>
           </p>
         ) : (
-          <p className="muted">{t('sessionNone')}</p>
+          <p className="lt-muted">{t('sessionNone')}</p>
         )}
         {closed ? <p role="status">{t('sessionClosed')}</p> : null}
         <Button
@@ -1187,7 +1187,7 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
                 ))}
               </tbody>
             </table>
-            {rows.length === 0 && backgroundRows.length === 0 ? <p className="muted">{t('runsEmpty')}</p> : null}
+            {rows.length === 0 && backgroundRows.length === 0 ? <p className="lt-muted">{t('runsEmpty')}</p> : null}
           </>
         )}
       </Read>
@@ -1244,7 +1244,7 @@ function Usage({ agent }: { agent: OwnAgent }) {
                   ))}
                 </tbody>
               </table>
-              {rows.length === 0 ? <p className="muted">{t('usageEmpty')}</p> : null}
+              {rows.length === 0 ? <p className="lt-muted">{t('usageEmpty')}</p> : null}
             </>
           )}
         </Read>
@@ -1264,7 +1264,7 @@ function UsageByDay() {
   const days = useResource((signal) => api.call(AGENTS_OWN_USAGE_BY_DAY, undefined, { signal }), 'own-usage-by-day');
   return (
     <Panel title={t('byDayTitle')} role="region" aria-label={t('byDayTitle')}>
-      <p className="muted">{t('byDayNote')}</p>
+      <p className="lt-muted">{t('byDayNote')}</p>
       <Read resource={days.resource} retry={days.reload}>
         {(rows) => (
           <>
@@ -1292,7 +1292,7 @@ function UsageByDay() {
                 ))}
               </tbody>
             </table>
-            {rows.length === 0 ? <p className="muted">{t('byDayEmpty')}</p> : null}
+            {rows.length === 0 ? <p className="lt-muted">{t('byDayEmpty')}</p> : null}
           </>
         )}
       </Read>
@@ -1414,11 +1414,11 @@ function PublishDialog({
                   />{' '}
                   {t(`surface_${surface.surface}`)}
                 </label>{' '}
-                <small className="muted">
+                <small className="lt-muted">
                   {surface.version === null ? t('surfaceNone') : t('surfaceCarries', { version: String(surface.version) })}
                 </small>
                 {!surface.allowed && surface.forbiddenCode ? (
-                  <p className="muted">
+                  <p className="lt-muted">
                     {t('surfaceForbidden', { reason: surfaceReason(t, surface.forbiddenCode) })}{' '}
                     <code lang="zxx">{surface.forbiddenCode}</code>
                   </p>
@@ -1460,7 +1460,7 @@ function PublicationView({ publication }: { publication: OwnAgentPublication }) 
       </section>
       <section role="region" aria-label={t('versionsTitle')}>
         <h3>{t('versionsTitle')}</h3>
-        <p className="muted">{t('versionsNote')}</p>
+        <p className="lt-muted">{t('versionsNote')}</p>
         {publication.versions.length ? (
           <ul aria-label={t('versionsTitle')}>
             {publication.versions.map((version) => (
@@ -1472,12 +1472,12 @@ function PublicationView({ publication }: { publication: OwnAgentPublication }) 
             ))}
           </ul>
         ) : (
-          <p className="muted">{t('versionsEmpty')}</p>
+          <p className="lt-muted">{t('versionsEmpty')}</p>
         )}
       </section>
       <section role="region" aria-label={t('openSessionsTitle')}>
         <h3>{t('openSessionsTitle')}</h3>
-        <p className="muted">{t('openSessionsNote')}</p>
+        <p className="lt-muted">{t('openSessionsNote')}</p>
         {publication.openSessions.length ? (
           <ul aria-label={t('openSessionsTitle')}>
             {publication.openSessions.map((session) => (
@@ -1487,7 +1487,7 @@ function PublicationView({ publication }: { publication: OwnAgentPublication }) 
             ))}
           </ul>
         ) : (
-          <p className="muted">{t('openSessionsEmpty')}</p>
+          <p className="lt-muted">{t('openSessionsEmpty')}</p>
         )}
       </section>
     </>
@@ -1535,7 +1535,7 @@ function SharingPage({ agent }: { agent: OwnAgent }) {
         ))}
       </ul>
     ) : (
-      <p className="muted">{t('coOwnersEmpty')}</p>
+      <p className="lt-muted">{t('coOwnersEmpty')}</p>
     );
   return (
     <Panel title={t('coOwnersTitle')}>
@@ -1546,7 +1546,7 @@ function SharingPage({ agent }: { agent: OwnAgent }) {
           void change('own.coOwners.add', coOwner);
         }}
       >
-        <p className="muted">{t('coOwnersIntro')}</p>
+        <p className="lt-muted">{t('coOwnersIntro')}</p>
         <Field
           label={t('addCoOwner')}
           hint={t('addCoOwnerHint')}
@@ -1632,7 +1632,7 @@ function MadeAgentOpen({ agent, children }: { agent: OwnAgent; children?: ReactN
         {opened ? (
           <p role="status">
             {t('sessionOpen')}{' '}
-            <a className="text-link" href={`/agents/${agent.id}`}>
+            <a className="lt-link" href={`/agents/${agent.id}`}>
               <code lang="zxx">{opened}</code>
             </a>
           </p>
@@ -1672,7 +1672,7 @@ export function MadeAgents() {
   return (
     <>
       <Panel title={t('madeTitle')}>
-        <a className="button button--secondary" href="/agents/new">
+        <a className="lt-button lt-button-secondary" href="/agents/new">
           {t('newAgent')}
         </a>
         <Read resource={mine.resource} retry={mine.reload} empty={t('madeEmpty')}>
@@ -1681,7 +1681,7 @@ export function MadeAgents() {
               {rows.map((row) => (
                 <tr key={row.id}>
                   <td>
-                    <a className="text-link" href={`/agents/${row.id}`}>
+                    <a className="lt-link" href={`/agents/${row.id}`}>
                       {row.name || t('untitled')}
                     </a>
                   </td>

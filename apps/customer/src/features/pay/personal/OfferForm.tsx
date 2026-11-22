@@ -18,7 +18,7 @@ import {
 } from './p2p-model';
 import { settlementCopy } from './settlement-copy';
 import { P2PReason } from './P2PDepth';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { AdvertiserTermsSheet, LevelLimits, OfferReceipt, OfferSummary, PostingChecklist, SellAvailability, postInput } from './p2p-post';
 import { postCopy } from './p2p-post-copy';
 import './p2p-depth.css';
@@ -50,7 +50,7 @@ export function OfferForm({
         <EmptyState
           title={t('editPickTitle')}
           action={
-            <a className="button button--primary" href="/uc/ad">
+            <a className="lt-button lt-button-primary" href="/uc/ad">
               {t('backToOffers')}
             </a>
           }
@@ -168,7 +168,7 @@ function CreateOffer({ pay, userId }: { pay: PersonalPayApi; userId: string | nu
       {stage.kind === 'form' ? (
         <div data-testid="offer-form">
           {keyOff ? <P2PReason title={t('keyOffTitle')}>{t('keyOff')}</P2PReason> : null}
-          {acceptedNote ? <p className="muted">{acceptedNote}</p> : null}
+          {acceptedNote ? <p className="lt-muted">{acceptedNote}</p> : null}
           <Fields
             pay={pay}
             baseline={values}
@@ -285,21 +285,21 @@ function EditSave({ pay, live }: { pay: PersonalPayApi; live: Offer }) {
   };
   return (
     <>
-      {live.status === 'closed' ? <p className="muted">{t('editClosed')}</p> : null}
+      {live.status === 'closed' ? <p className="lt-muted">{t('editClosed')}</p> : null}
       <Fields key={live.id} pay={pay} baseline={baseline} mode="edit" onReview={(values) => void save(values)} />
-      {saving ? <p className="muted">{myAds.t('editSaving')}</p> : null}
+      {saving ? <p className="lt-muted">{myAds.t('editSaving')}</p> : null}
       {result === 'pairFixed' ? (
         <p className="error-text" role="status">
           {myAds.t('editPairFixed')}
         </p>
       ) : result === 'unchanged' ? (
-        <p className="muted" role="status">
+        <p className="lt-muted" role="status">
           {t('noChanges')}
         </p>
       ) : result?.ok ? (
         <p role="status" data-testid="offer-edit-saved">
           {myAds.t('editSaved')}{' '}
-          <a className="text-link" href="/uc/ad">
+          <a className="lt-link" href="/uc/ad">
             {myAds.t('editBack')}
           </a>
         </p>
@@ -378,7 +378,7 @@ function Fields({
     label: string,
     extra?: { upper?: boolean; mode?: 'decimal' },
   ) => (
-    <label className="field" key={field}>
+    <label className="lt-field" key={field}>
       <span>{label}</span>
       <input
         value={values[field]}
@@ -393,7 +393,7 @@ function Fields({
   );
   return (
     <form
-      className="form-stack"
+      className="lt-stack"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
@@ -416,7 +416,7 @@ function Fields({
         </div>
         <div className="form-row">
           {text('asset', t('fieldAsset'), { upper: true })}
-          <label className="field">
+          <label className="lt-field">
             <span>{t('fieldFiat')}</span>
             {fiat.resource.status === 'ready' ? (
               <select
@@ -479,10 +479,10 @@ function Fields({
         {mode === 'create' ? <LevelLimits pay={pay} side={values.side} /> : null}
         <div>
           <span className="p2p-legend">{t('fieldMethods')}</span>
-          {methods.resource.status === 'loading' ? <p className="muted">{t('methodsLoading')}</p> : null}
+          {methods.resource.status === 'loading' ? <p className="lt-muted">{t('methodsLoading')}</p> : null}
           {methods.resource.status === 'failed' ? <PayFailure result={methods.resource.failure} retry={methods.reload} /> : null}
           {methods.resource.status === 'ready' && methods.resource.data.filter((method) => method.enabled).length === 0 ? (
-            <p className="muted">{t('methodsNone')}</p>
+            <p className="lt-muted">{t('methodsNone')}</p>
           ) : null}
           {methods.resource.status === 'ready' ? (
             <div className="p2p-check-list">
@@ -521,7 +521,7 @@ function Fields({
           ) : null}
           {shown('methods') ? <small className="error-text">{shown('methods')}</small> : null}
         </div>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('fieldTerms')}</span>
           <textarea
             value={values.terms}
@@ -544,7 +544,7 @@ function Fields({
           ]}
         />
       ) : null}
-      <Button type="submit" variant="primary" disabled={!complete || !onReview} data-testid="offer-submit">
+      <Button type="submit" tone="primary" disabled={!complete || !onReview} data-testid="offer-submit">
         {complete ? (mode === 'edit' ? t('formSave') : t('formReview')) : t('formIncomplete')}
       </Button>
     </form>
