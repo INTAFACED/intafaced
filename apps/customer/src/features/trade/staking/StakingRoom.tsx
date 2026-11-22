@@ -1,3 +1,4 @@
+// volt-room: /trade/staking
 import { useMemo, useState, type ReactNode } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { MonitorTemplate } from '@intafaced/ui/lit/templates';

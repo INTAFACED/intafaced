@@ -136,7 +136,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/trade/positions': { template: 'monitor' },
   '/trade/account': { template: 'monitor' },
   '/trade/vaults': { template: 'monitor' },
-  '/trade/staking': { template: 'monitor', migrated: { file: 'features/trade/staking/StakingRoom.tsx' } },
+  '/trade/staking': { template: 'monitor' },
   '/trade/orders': { template: 'record-list' },
   '/trade/orders/:id': { template: 'record-list' },
   '/trade/news': { template: 'reading' },
