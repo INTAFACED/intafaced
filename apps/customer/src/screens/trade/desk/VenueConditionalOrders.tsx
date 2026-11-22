@@ -14,7 +14,7 @@ import { VENUE_POLL_MS, outcomeText, useVenueApi } from '../../../features/trade
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { refusalOf, useSignPrepared, type Refusal } from '../futures/VenueProtect';
 import { canonical } from '../futures/venue-protect-logic';
-import { Button } from './deps';
+import { Button } from '@intafaced/ui/lit';
 import { spotConditionalCopy } from './spot-conditional-copy';
 import { SPOT_FIELDS, legsOutOfOrder, optionalField, spotClientId, type SpotField } from './spot-conditional-logic';
 
@@ -30,9 +30,9 @@ export function VenueConditionalOrders({ market, owner, venueName }: { market: V
   const { t } = spotConditionalCopy.useCopy();
   if (!owner) return null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('Title')} data-testid="spot-conditional">
-      <h2 className="dk-tab-title">{t('Title')}</h2>
-      <p className="muted">{t('Note')}</p>
+    <section className="lt-panel" aria-label={t('Title')} data-testid="spot-conditional">
+      <h2 className="lt-panel-title">{t('Title')}</h2>
+      <p className="lt-note">{t('Note')}</p>
       <ConditionalForm market={market} owner={owner} venueName={venueName} />
     </section>
   );
@@ -53,9 +53,9 @@ function RefusalAlert({ refusal }: { refusal: Refusal | null }) {
   const { t } = spotConditionalCopy.useCopy();
   if (!refusal) return null;
   return (
-    <div className="failure" role="alert" data-testid="spot-conditional-refusal">
+    <div className="lt-callout lt-callout-bad" role="alert" data-testid="spot-conditional-refusal">
       <p>{refusal.message}</p>
-      {refusal.code ? <p className="muted">{t('Code', { code: refusal.code })}</p> : null}
+      {refusal.code ? <p className="lt-note">{t('Code', { code: refusal.code })}</p> : null}
     </div>
   );
 }
@@ -165,13 +165,13 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
   }
 
   return (
-    <div className="form-stack" data-testid="spot-conditional-form" data-client-order-id={clientId}>
-      <div role="group" aria-label={t('Kind')} className="dk-order-opts">
+    <div className="lt-stack" data-testid="spot-conditional-form" data-client-order-id={clientId}>
+      <div role="group" aria-label={t('Kind')} className="lt-row">
         {SPOT_CONDITIONAL_KINDS.map((k) => (
           <Button
             key={k}
-            size={32}
-            variant={kind === k ? 'primary' : 'secondary'}
+            size="sm"
+            tone={kind === k ? 'primary' : 'secondary'}
             aria-pressed={kind === k}
             onClick={() => {
               setKind(k);
@@ -183,12 +183,12 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
           </Button>
         ))}
       </div>
-      <div role="group" aria-label={t('Side')} className="dk-order-opts">
+      <div role="group" aria-label={t('Side')} className="lt-row">
         {(['buy', 'sell'] as const).map((x) => (
           <Button
             key={x}
-            size={32}
-            variant={side === x ? 'primary' : 'secondary'}
+            size="sm"
+            tone={side === x ? 'primary' : 'secondary'}
             aria-pressed={side === x}
             onClick={() => {
               setSide(x);
@@ -202,7 +202,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
       <p data-testid="spot-conditional-where" data-where={engine}>
         {engine === 'engine' ? t('where_engine') : t('where_venue')}
       </p>
-      {engine === 'engine' ? <p className="muted">{t('where_engine_note', { venue: venueName })}</p> : null}
+      {engine === 'engine' ? <p className="lt-note">{t('where_engine_note', { venue: venueName })}</p> : null}
       {engine === 'engine' ? <AgentPermission owner={owner} /> : null}
       <NumberField
         label={t('Size', { base: market.baseAsset })}
@@ -224,19 +224,21 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
         />
       ))}
       {kind === 'bracket' || kind === 'oto' ? (
-        <div role="group" aria-label={t('Entry tif')} className="dk-order-opts">
+        <div role="group" aria-label={t('Entry tif')} className="lt-row">
           {(['GTC', 'IOC'] as const).map((x) => (
-            <Button key={x} size={32} variant={tif === x ? 'primary' : 'secondary'} aria-pressed={tif === x} onClick={() => setTif(x)}>
+            <Button key={x} size="sm" tone={tif === x ? 'primary' : 'secondary'} aria-pressed={tif === x} onClick={() => setTif(x)}>
               {t(`tif_${x}`)}
             </Button>
           ))}
         </div>
       ) : null}
-      <div className="dk-order-opts">
-        <Button variant="secondary" onClick={() => void doReview()}>
+      <div className="lt-row">
+        <Button tone="secondary" onClick={() => void doReview()}>
           {t('Review')}
         </Button>
-        <Button onClick={() => void place()}>{t('Place')}</Button>
+        <Button tone="primary" onClick={() => void place()}>
+          {t('Place')}
+        </Button>
       </div>
       {review ? <ReviewRows legs={review} /> : null}
       <RefusalAlert refusal={refusal} />
@@ -253,8 +255,8 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
 function ReviewRows({ legs }: { legs: SpotFeeLeg[] }) {
   const { t } = spotConditionalCopy.useCopy();
   return (
-    <section aria-label={t('Review title')} data-testid="spot-conditional-review" className="form-stack">
-      <h3 className="dk-tab-title">{t('Review title')}</h3>
+    <section aria-label={t('Review title')} data-testid="spot-conditional-review" className="lt-stack">
+      <h3 className="lt-label">{t('Review title')}</h3>
       <ul>
         {legs.map((leg) => {
           const base = {
@@ -285,7 +287,7 @@ function ReviewRows({ legs }: { legs: SpotFeeLeg[] }) {
 
 function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <label className="field">
+    <label className="lt-field">
       <span>{label}</span>
       <input inputMode="decimal" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
@@ -322,17 +324,19 @@ export function AgentPermission({ owner }: { owner: string }) {
 
   const approved = agent.data?.approved === true || accepted;
   return (
-    <section className="form-stack" aria-label={t('Agent permission')} data-testid="spot-agent">
-      <h3 className="dk-tab-title">{t('Agent permission')}</h3>
+    <section className="lt-stack" aria-label={t('Agent permission')} data-testid="spot-agent">
+      <h3 className="lt-label">{t('Agent permission')}</h3>
       <p>{t('Agent note')}</p>
       {approved ? (
         <p role="status">{t('Agent approved')}</p>
       ) : agent.failure ? (
         <RefusalAlert refusal={{ message: agent.failure.message, code: agent.failure.code ?? null }} />
       ) : agent.data ? (
-        <Button onClick={() => void approve()}>{t('Agent approve')}</Button>
+        <Button tone="primary" onClick={() => void approve()}>
+          {t('Agent approve')}
+        </Button>
       ) : (
-        <p className="muted">{t('Agent checking')}</p>
+        <p className="lt-note">{t('Agent checking')}</p>
       )}
       <RefusalAlert refusal={refusal} />
     </section>
@@ -352,16 +356,16 @@ function PendingList({
 }) {
   const { t } = spotConditionalCopy.useCopy();
   return (
-    <section aria-label={t('Pending title')} data-testid="spot-conditional-pending" className="form-stack">
-      <h3 className="dk-tab-title">{t('Pending title')}</h3>
+    <section aria-label={t('Pending title')} data-testid="spot-conditional-pending" className="lt-stack">
+      <h3 className="lt-label">{t('Pending title')}</h3>
       {failure ? (
-        <p className="failure">{failure}</p>
+        <p className="lt-note lt-note-bad">{failure}</p>
       ) : orders.length === 0 ? (
         loaded ? (
-          <p className="muted">{t('Pending empty')}</p>
+          <p className="lt-note">{t('Pending empty')}</p>
         ) : null
       ) : (
-        <table className="dk-table">
+        <table className="lt-table lt-table-dense">
           <thead>
             <tr>
               {(['kind', 'side', 'size', 'trigger', 'reference', 'status', 'where', 'legs', 'actions'] as const).map((c) => (
@@ -441,7 +445,7 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
       </td>
       <td data-cell="status">
         {t(`status_${o.status}`)}
-        {o.failure ? <span className="failure"> · {t('Failure', { failure: o.failure })}</span> : null}
+        {o.failure ? <span className="lt-note-bad"> · {t('Failure', { failure: o.failure })}</span> : null}
         {o.status === 'cancelled' && isReason(o.cancelReason) ? <span> · {t(`Cancel reason ${o.cancelReason}`)}</span> : null}
         {o.expireAt ? (
           <span data-expire-at={o.expireAt}>
@@ -462,23 +466,23 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
       </td>
       <td data-cell="actions">
         {modifiable && !editing ? (
-          <Button size={32} variant="secondary" aria-label={`${t('Modify')} ${o.clientOrderId}`} onClick={() => setEditing(true)}>
+          <Button size="sm" tone="secondary" aria-label={`${t('Modify')} ${o.clientOrderId}`} onClick={() => setEditing(true)}>
             {t('Modify')}
           </Button>
         ) : null}
         {editing ? (
-          <span className="form-stack">
+          <span className="lt-stack-tight lt-tight">
             <NumberField label={t('Modify trigger')} value={trigger} onChange={setTrigger} />
             {o.kind === 'stop_limit' || o.limitPrice !== null ? (
               <NumberField label={t('Modify limit')} value={limit} onChange={setLimit} />
             ) : null}
-            <Button size={32} onClick={() => void save()}>
+            <Button tone="primary" size="sm" onClick={() => void save()}>
               {t('Save')}
             </Button>
           </span>
         ) : null}
         {live || resting ? (
-          <Button size={32} variant="secondary" aria-label={`${t('Cancel')} ${o.clientOrderId}`} onClick={() => void cancel()}>
+          <Button size="sm" tone="secondary" aria-label={`${t('Cancel')} ${o.clientOrderId}`} onClick={() => void cancel()}>
             {t('Cancel')}
           </Button>
         ) : null}

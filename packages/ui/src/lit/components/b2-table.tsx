@@ -8,10 +8,15 @@ import { ariaSortOf, nextSort, sortRows, type SortState, type SortType } from '.
 
 export { nextSort, sortRows, type SortState, type SortType };
 
+/** A row's or a cell's own `data-*` marks (what the room's tests find it by). */
+export type DataMarks = Readonly<Record<`data-${string}`, string | undefined>>;
+
 export interface Column<Row> {
   key: string;
   label: string;
   cell: (row: Row) => React.ReactNode;
+  /** The cell's own marks (`data-cell`, `data-testid`). */
+  cellMarks?: (row: Row) => DataMarks;
   /** Figures align to the end. */
   align?: 'start' | 'end';
   /** Shown only in Pro (column chooser default). */
@@ -41,6 +46,12 @@ export interface TableProps<Row> {
   onSort?: (next: SortState) => void;
   /** Shown in the body when there are no rows (an honest empty line, never a blank table). */
   empty?: React.ReactNode;
+  /** The row's own marks (`data-testid`, the record's id). */
+  rowMarks?: (row: Row) => DataMarks;
+  /** Desk rows: the dense row height and type. */
+  dense?: boolean;
+  /** A wide table: it scrolls sideways in a labelled region of its own (a keyboard stop, so it can be scrolled). */
+  scroll?: boolean;
 }
 
 export function Table<Row>({
@@ -55,6 +66,9 @@ export function Table<Row>({
   sort,
   onSort,
   empty,
+  rowMarks,
+  dense = false,
+  scroll = false,
 }: TableProps<Row>) {
   const cols = columns.filter((c) => mode === 'pro' || !c.pro);
   const sorts = sort !== undefined && onSort !== undefined;
@@ -71,8 +85,8 @@ export function Table<Row>({
     if (step !== 'pick') focusRow(step);
     else if (key !== undefined) onSelect(key);
   };
-  return (
-    <table className="lt-table" data-mode={mode} role={onSelect ? 'grid' : undefined}>
+  const table = (
+    <table className={dense ? 'lt-table lt-table-dense' : 'lt-table'} data-mode={mode} role={onSelect ? 'grid' : undefined}>
       <caption className="lt-sr">{caption}</caption>
       <thead>
         <tr>
@@ -107,6 +121,7 @@ export function Table<Row>({
           const key = rowKey(row);
           return (
             <tr
+              {...rowMarks?.(row)}
               key={key}
               data-row=""
               data-selected={selected === key || undefined}
@@ -125,7 +140,7 @@ export function Table<Row>({
               {cols.map((c, i) => {
                 const content = c.cell(row);
                 return (
-                  <td key={c.key} data-label={c.label} data-align={c.align ?? 'start'}>
+                  <td {...c.cellMarks?.(row)} key={c.key} data-label={c.label} data-align={c.align ?? 'start'}>
                     {/* The cell lays out from the page's direction (its label mirrors); only the value is isolated, and only a
                         left-to-right value takes the mono face. */}
                     {i === 0 && rowHref ? (
@@ -147,6 +162,12 @@ export function Table<Row>({
         })}
       </tbody>
     </table>
+  );
+  if (!scroll) return table;
+  return (
+    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={caption}>
+      {table}
+    </div>
   );
 }
 

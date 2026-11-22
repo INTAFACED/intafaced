@@ -394,6 +394,27 @@ describe('states never contradict themselves', () => {
     expect(out).toContain('lt-locked');
   });
 
+  it('a chip that is a button or a link is 24 px tall to touch (WCAG 2.5.8)', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    expect(css).toMatch(/:is\(button, a\)\.lt-chip \{\s*min-block-size: 24px;[^}]*\}/);
+  });
+
+  it('a text link is an inline block, so its 24 px minimum holds for an <a> too (WCAG 2.5.8)', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    const rule = css.match(/\n\.lt-link \{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/display: inline-block;/);
+    expect(rule).toMatch(/min-block-size: 24px;/);
+  });
+
+  it('the line key colours each line by the chart role the chart draws it with, and no raw colour', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    for (const n of [1, 2, 3]) {
+      expect(css).toMatch(new RegExp(`\\.lt-line-key > \\[data-line='${n}'\\] \\{\\s*color: var\\(--if-ma-${n}\\);\\s*\\}`));
+    }
+    const block = css.slice(css.indexOf('.lt-line-key {'), css.indexOf("[data-line='3']") + 60);
+    expect(block).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
+  });
+
   it('the risk band slot tells the focus tracker it covers the top; direction colours stay inside rooms', () => {
     const out = withLegal(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }));
     expect(out).toContain('class="lt-band-slot" data-obscures="top"');

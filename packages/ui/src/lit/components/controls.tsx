@@ -233,25 +233,46 @@ export interface MenuItemSpec {
   onSelect: () => void;
 }
 
-/** A button that opens a list of actions (role menu). */
+/**
+ * A button that opens a list of actions (role menu). A `note` says why some are off, above them; `active` marks a
+ * trigger whose list holds the choice in force (a desk's More intervals while one of them is shown).
+ */
 export function Menu({
   label,
   triggerLabel,
   items,
   align = 'end',
+  note,
+  active = false,
+  size = 'md',
+  testId,
 }: {
   label: React.ReactNode;
   /** The trigger's spoken name, when it differs from its words. */
   triggerLabel?: string;
   items: readonly MenuItemSpec[];
   align?: 'start' | 'center' | 'end';
+  note?: React.ReactNode;
+  active?: boolean;
+  /** sm: a dense desk control. */
+  size?: 'sm' | 'md';
+  testId?: string;
 }) {
   return (
     <MenuPrimitive.Root>
-      <MenuPrimitive.Trigger render={<Button tone="secondary" aria-label={triggerLabel} />}>{label}</MenuPrimitive.Trigger>
+      <MenuPrimitive.Trigger
+        render={<Button tone="secondary" size={size} aria-label={triggerLabel} data-testid={testId} data-active={active || undefined} />}
+      >
+        {label}
+      </MenuPrimitive.Trigger>
       <MenuPrimitive.Portal>
         <MenuPrimitive.Positioner side="bottom" sideOffset={8} align={align} className="lt-menu-layer">
           <MenuPrimitive.Popup className="lt-menu">
+            {note ? (
+              <p className="lt-note" role="note">
+                {note}
+              </p>
+            ) : null}
             {items.map((item) => (
               <MenuPrimitive.Item key={item.key} className="lt-menu-item" disabled={item.disabled} onClick={item.onSelect}>
                 {item.label}

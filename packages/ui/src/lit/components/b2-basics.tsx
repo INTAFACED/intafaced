@@ -6,7 +6,8 @@ import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
 import { asOfIso, formatAsOf, freshnessOf, type AsOf, type Freshness } from '../../components/freshness.js';
 import { useFreshnessClock } from '../../components/use-freshness-clock.js';
-import { blurDecimalValue, nextDecimalValue, pastedDecimalValue } from '../../components/input-logic.js';
+import { blurDecimalValue, nextDecimalValue, pastedDecimalValue, stepValueForKey } from '../../components/input-logic.js';
+import { stepDecimal } from '../../components/amount-input-logic.js';
 
 /**
  * Two or more choices of the same size, style and level (COBS 4.12A.18R(2); Directive 2023/2673 Art 16e(1)(a)).
@@ -152,9 +153,11 @@ export type TabsProps =
       items: readonly { label: string; value: string }[];
       value: string;
       onChange: (value: string) => void;
-      label: string;
+      /** The tab row's name; a row whose tabs name themselves (Order book, Last trades) may go without. */
+      label?: string;
       /** Prefix for the tab and panel ids, shared with each `TabPanel`. */
       id: string;
+      className?: string;
     };
 
 /**
@@ -176,7 +179,7 @@ export function Tabs(props: TabsProps) {
       </nav>
     );
   }
-  const { items, value, onChange, label, id } = props;
+  const { items, value, onChange, label, id, className } = props;
   const at = Math.max(
     0,
     items.findIndex((t) => t.value === value),
@@ -191,7 +194,7 @@ export function Tabs(props: TabsProps) {
     refs.current[next]?.focus();
   };
   return (
-    <div className="lt-tabs" role="tablist" aria-label={label}>
+    <div className={className ? `lt-tabs ${className}` : 'lt-tabs'} role="tablist" aria-label={label}>
       {items.map((t, i) => (
         <button
           key={t.value}
@@ -238,7 +241,22 @@ export function panelIsTabStop(panel: Pick<ParentNode, 'querySelector'>): boolea
 }
 
 /** The panel an in-page tab shows. Only the shown panel is rendered, so a hidden one reads nothing. */
-export function TabPanel({ id, value, current, children }: { id: string; value: string; current: string; children: React.ReactNode }) {
+export function TabPanel({
+  id,
+  value,
+  current,
+  className,
+  testId,
+  children,
+}: {
+  id: string;
+  value: string;
+  current: string;
+  /** A layout class for the panel's own parts (`lt-stack`). */
+  className?: string;
+  testId?: string;
+  children: React.ReactNode;
+}) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [stop, setStop] = React.useState(true);
   const shown = value === current;
@@ -255,7 +273,8 @@ export function TabPanel({ id, value, current, children }: { id: string; value: 
   return (
     <div
       ref={ref}
-      className="lt-tab-panel"
+      className={className ? `lt-tab-panel ${className}` : 'lt-tab-panel'}
+      data-testid={testId}
       role="tabpanel"
       id={`${id}-panel-${value}`}
       aria-labelledby={`${id}-tab-${value}`}
@@ -283,7 +302,9 @@ export function Sheet({
   role = 'dialog',
   closeButton = role !== 'alertdialog',
   closeLabel,
+  closeLang,
   footer,
+  testId,
   children,
 }: {
   open: boolean;
@@ -296,8 +317,11 @@ export function Sheet({
   closeButton?: boolean;
   /** The Close button's spoken name, when it says more than its word ("Close dialog"). */
   closeLabel?: string;
+  /** The language of `closeLabel`, when the room's copy fell back to another one than the page's. */
+  closeLang?: string;
   /** The sheet's buttons, at its end. */
   footer?: React.ReactNode;
+  testId?: string;
   children: React.ReactNode;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
@@ -328,6 +352,7 @@ export function Sheet({
     <dialog
       ref={ref}
       className="lt-sheet"
+      data-testid={testId}
       role={alert ? 'alertdialog' : undefined}
       aria-modal={alert || undefined}
       aria-label={title}
@@ -341,7 +366,7 @@ export function Sheet({
       <header className="lt-sheet-head">
         <h2 className="lt-sheet-title">{title}</h2>
         {closeButton ? (
-          <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} onClick={onClose}>
+          <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} lang={closeLang} onClick={onClose}>
             Close
           </button>
         ) : null}
@@ -362,6 +387,12 @@ export function Sheet({
 export interface SelectOption {
   value: string;
   label: string;
+  /** Listed but not choosable (`aria-disabled`): a choice the room shows and refuses, with its reason in the label. */
+  disabled?: boolean;
+  /** Help on hover. */
+  title?: string;
+  /** The option's own `data-*` marks, for a room's tests. */
+  data?: Readonly<Record<`data-${string}`, string>>;
 }
 
 /**
@@ -371,16 +402,29 @@ export interface SelectOption {
  */
 export function Select({
   label,
+  labelledBy,
+  describedBy,
+  title,
+  size = 'md',
+  className,
   options,
   value,
   onChange,
   disabled,
   placeholder,
 }: {
-  label: string;
+  /** Its name; or `labelledBy`, the id of the words on the page that name it. */
+  label?: string;
+  labelledBy?: string;
+  describedBy?: string;
+  title?: string;
+  /** sm: a dense desk control. */
+  size?: 'sm' | 'md';
+  className?: string;
   options: readonly SelectOption[];
   value: string;
-  onChange: (value: string) => void;
+  /** Leave it out for a list that only shows a choice in force (every other option disabled). */
+  onChange?: (value: string) => void;
   disabled?: boolean;
   /** Shown while nothing is chosen (an empty value). */
   placeholder?: string;
@@ -396,8 +440,9 @@ export function Select({
   };
   const pick = (index: number) => {
     const option = options[index];
+    if (option?.disabled) return;
     setOpen(false);
-    if (option && option.value !== value) onChange(option.value);
+    if (option && option.value !== value) onChange?.(option.value);
   };
   const onKeyDown = (event: React.KeyboardEvent) => {
     const step = selectKey(event.key, open);
@@ -409,12 +454,16 @@ export function Select({
     else setActive((i) => nextOptionIndex(i, step, options.length));
   };
   return (
-    <div className="lt-select">
+    <div className={className ? `lt-select ${className}` : 'lt-select'}>
       <button
         type="button"
         role="combobox"
         className="lt-select-button"
-        aria-label={label}
+        data-size={size === 'sm' ? 'sm' : undefined}
+        aria-label={labelledBy ? undefined : label}
+        aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
+        title={title}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={`${id}-list`}
@@ -428,13 +477,22 @@ export function Select({
         <span className="lt-select-mark" aria-hidden="true" />
       </button>
       {open ? (
-        <ul className="lt-select-list" role="listbox" id={`${id}-list`} aria-label={label}>
+        <ul
+          className="lt-select-list"
+          role="listbox"
+          id={`${id}-list`}
+          aria-label={labelledBy ? undefined : label}
+          aria-labelledby={labelledBy}
+        >
           {options.map((o, i) => (
             <li
+              {...o.data}
               key={o.value}
               id={`${id}-${i}`}
               role="option"
               aria-selected={o.value === value}
+              aria-disabled={o.disabled || undefined}
+              title={o.title}
               data-active={i === active || undefined}
               // Keep the focus on the button, so the list closes on blur only when focus really leaves.
               onMouseDown={(e) => e.preventDefault()}
@@ -477,35 +535,78 @@ export function nextOptionIndex(index: number, step: 'next' | 'previous' | 'firs
  * would make it invalid or longer than `precision` decimals is refused, a paste is cleaned and cut down to it, and an
  * unfinished "." is dropped on blur. Put it in an `lt-field` with its label, or give it a `label` and it draws its own
  * field: the label names the box, the `unit` sits after it (not part of its name), the hint and the error describe it.
+ * With a `tick` (a market's tick size) the arrow keys step by it (Shift, PageUp and PageDown: ten ticks) and the field
+ * draws two steppers; `onMax` and `onBbo` add the Max and BBO keys after the unit. Stepping is bigint work, never a float.
  */
 export function DecimalInput({
   label,
   hint,
   error,
   unit,
+  steppers,
+  stepLabels = { up: 'Increase', down: 'Decrease' },
+  onMax,
+  maxLabel = 'Max',
+  onBbo,
+  bboLabel = 'BBO',
   ...props
-}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'inputMode'> & {
-  value: string;
-  onValueChange: (value: string) => void;
-  precision: number;
+}: DecimalBoxProps & {
   /** Draws the field around the box, this its label. */
   label?: string;
   hint?: string;
   error?: string;
   /** The unit after the value ("USDT"). */
   unit?: string;
+  /** The up and down steppers; drawn by default when there is a `tick` and the box can be changed. */
+  steppers?: boolean;
+  stepLabels?: { up: string; down: string };
+  onMax?: () => void;
+  maxLabel?: string;
+  onBbo?: () => void;
+  bboLabel?: string;
 }) {
   const auto = React.useId();
   if (label === undefined) return <DecimalBox {...props} />;
   const id = props.id ?? auto;
   const describedBy =
     [props['aria-describedby'], hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(' ') || undefined;
+  const { tick, value, onValueChange, precision, min, max, disabled, readOnly } = props;
+  const showSteppers = (steppers ?? true) && tick !== undefined && !readOnly;
+  const step = (direction: 1 | -1) => {
+    if (tick === undefined || disabled || readOnly) return;
+    const next = stepDecimal(value, tick, direction, { precision, min: min ?? '0', max });
+    if (next !== value) onValueChange(next);
+  };
   return (
     <div className="lt-field" data-unit={unit ? '' : undefined}>
       <label htmlFor={id}>{label}</label>
       <div className="lt-field-row">
         <DecimalBox {...props} id={id} dir="ltr" aria-invalid={error ? true : props['aria-invalid']} aria-describedby={describedBy} />
         {unit ? <span className="lt-field-unit">{unit}</span> : null}
+        {showSteppers ? (
+          <span className="lt-field-steps">
+            <button type="button" tabIndex={-1} aria-label={stepLabels.up} disabled={disabled} onClick={() => step(1)}>
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                <path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+            <button type="button" tabIndex={-1} aria-label={stepLabels.down} disabled={disabled} onClick={() => step(-1)}>
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+          </span>
+        ) : null}
+        {onBbo ? (
+          <button type="button" className="lt-field-key" disabled={disabled} onClick={onBbo}>
+            {bboLabel}
+          </button>
+        ) : null}
+        {onMax ? (
+          <button type="button" className="lt-field-key" disabled={disabled} onClick={onMax}>
+            {maxLabel}
+          </button>
+        ) : null}
       </div>
       {hint ? <small id={`${id}-hint`}>{hint}</small> : null}
       {error ? (
@@ -517,20 +618,29 @@ export function DecimalInput({
   );
 }
 
-function DecimalBox({
-  value,
-  onValueChange,
-  precision,
-  onBlur,
-  ...rest
-}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'inputMode'> & {
+type DecimalBoxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'inputMode' | 'min' | 'max'> & {
   value: string;
   onValueChange: (value: string) => void;
   precision: number;
-}) {
+  /** The step for the arrow keys (a market's tick size), as a decimal string. */
+  tick?: string;
+  /** Where stepping stops (typing is never clamped); the lower bound is "0" unless given. */
+  min?: string;
+  max?: string;
+};
+
+function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, onKeyDown, ...rest }: DecimalBoxProps) {
   return (
     <input
       {...rest}
+      onKeyDown={(e) => {
+        onKeyDown?.(e);
+        if (tick === undefined || rest.readOnly || rest.disabled || e.defaultPrevented) return;
+        const next = stepValueForKey(value, tick, e.key, e.shiftKey, { precision, min: min ?? '0', max });
+        if (next === null) return;
+        e.preventDefault();
+        if (next !== value) onValueChange(next);
+      }}
       type="text"
       inputMode="decimal"
       autoComplete="off"
@@ -558,11 +668,14 @@ function DecimalBox({
 /** A checkbox with its words, as one row: the box, then the label (`lt-field`). */
 export function Checkbox({
   label,
+  hideLabel = false,
   checked,
   onChange,
   disabled,
 }: {
   label: string;
+  /** The label names the box but is not drawn (a row's pick box in a table, whose row says what it is). */
+  hideLabel?: boolean;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
@@ -570,7 +683,7 @@ export function Checkbox({
   return (
     <label className="lt-field">
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.currentTarget.checked)} />
-      <span>{label}</span>
+      <span className={hideLabel ? 'lt-sr' : undefined}>{label}</span>
     </label>
   );
 }

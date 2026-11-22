@@ -4,7 +4,8 @@ import type { OrderChange } from '../../../features/trade/trade-api';
 import { usePreferences } from '../../../shared/preferences';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
-import { fmtAmount, fmtPrice, Popover, PopoverContent, PopoverTrigger } from './deps';
+import { Popover, PopoverContent, PopoverTrigger } from '@intafaced/ui/lit';
+import { fmtAmount, fmtPrice } from './deps';
 import { changeLine, latestOnly } from './order-changes';
 import { dayTime } from './time';
 
@@ -38,17 +39,17 @@ export function OrderChanges({ orderId, tick }: { orderId: string; tick?: string
   const unreadable = state.status === 'ready' ? state.rows.length - lines.length : 0;
   return (
     <Popover onOpenChange={(open) => void load(open)}>
-      <PopoverTrigger className="dk-changes-trigger">{t('Order changes open')}</PopoverTrigger>
-      <PopoverContent align="end" className="dk-changes-pop">
-        <p className="dk-changes-title">{t('Order changes title')}</p>
-        {state.status === 'loading' ? <p className="dk-changes-note">{t('Order changes loading')}</p> : null}
-        {state.status === 'failed' ? <p className="dk-changes-note">{t('Order changes failed')}</p> : null}
-        {state.status === 'ready' && state.rows.length === 0 ? <p className="dk-changes-note">{t('Order changes none')}</p> : null}
+      <PopoverTrigger className="lt-link">{t('Order changes open')}</PopoverTrigger>
+      <PopoverContent align="end">
+        <p className="lt-pop-title">{t('Order changes title')}</p>
+        {state.status === 'loading' ? <p className="lt-note">{t('Order changes loading')}</p> : null}
+        {state.status === 'failed' ? <p className="lt-note">{t('Order changes failed')}</p> : null}
+        {state.status === 'ready' && state.rows.length === 0 ? <p className="lt-note">{t('Order changes none')}</p> : null}
         {lines.length > 0 ? (
-          <ul className="dk-changes-list">
+          <ul className="lt-list lt-tight">
             {lines.map((line, index) => (
               <li key={`${line.at}:${index}`}>
-                <span className="if-num">{Number.isNaN(Date.parse(line.at)) ? '—' : dayTime(Date.parse(line.at), timeZone)}</span>{' '}
+                <span className="lt-num">{Number.isNaN(Date.parse(line.at)) ? '—' : dayTime(Date.parse(line.at), timeZone)}</span>{' '}
                 {line.key === 'Order changes amend'
                   ? t(line.key, { amount: fmtAmount(line.amount, { places: 8 }), price: fmtPrice(line.price, tick) })
                   : t(line.key)}
@@ -56,7 +57,7 @@ export function OrderChanges({ orderId, tick }: { orderId: string; tick?: string
             ))}
           </ul>
         ) : null}
-        {unreadable > 0 ? <p className="dk-changes-note">{t('Order changes unreadable')}</p> : null}
+        {unreadable > 0 ? <p className="lt-note">{t('Order changes unreadable')}</p> : null}
       </PopoverContent>
     </Popover>
   );

@@ -55,16 +55,20 @@ export function Surface({
 }
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  /** primary: the metal pill, one per view. secondary: the dark pill. quiet: text only. */
-  tone?: 'primary' | 'secondary' | 'quiet';
-  size?: 'md' | 'lg';
+  /**
+   * primary: the metal pill, one per view. secondary: the dark pill. quiet: text only. up and down: a desk's Buy and
+   * Sell, in the market's gain and loss colours (with their words, never colour alone).
+   */
+  tone?: 'primary' | 'secondary' | 'quiet' | 'up' | 'down';
+  /** sm: a dense desk or table control. */
+  size?: 'sm' | 'md' | 'lg';
   block?: boolean;
-  /** Working: the button stays in focus order, says it is busy and takes no click. */
+  /** Working: the button stays in focus order, says it is busy and takes no click (no second submit, no second action). */
   busy?: boolean;
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { tone = 'secondary', size = 'md', block, busy, className, type = 'button', onClick, ...rest },
+  { tone = 'secondary', size = 'md', block, busy = false, className, type = 'button', onClick, ...rest },
   ref,
 ) {
   return (
@@ -72,9 +76,17 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       {...rest}
       ref={ref}
       type={type}
-      onClick={busy ? undefined : onClick}
-      aria-busy={busy || undefined}
+      disabled={rest.disabled && !busy}
+      aria-busy={busy || rest['aria-busy'] || undefined}
       aria-disabled={busy || rest['aria-disabled'] || undefined}
+      onClick={
+        busy
+          ? (event) => {
+              // Busy: no second submit and no second action, while focus stays where it was.
+              event.preventDefault();
+            }
+          : onClick
+      }
       className={clsx('lit-button', className)}
       data-slot="button"
       data-variant={tone === 'quiet' ? 'ghost' : tone}

@@ -1,5 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Button as KitButton, Dialog, Field } from '../../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { uiCopy } from '../../../shared/ui-copy';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { StepUpConfirm } from '../../../features/money/StepUpConfirm';
@@ -42,6 +44,9 @@ import {
   type ListedPlaces,
 } from './venue-desk';
 
+/** A note's kit classes: plain, or the refusal tone. */
+const NOTE = { plain: 'lt-note', bad: 'lt-note lt-note-bad' } as const;
+
 /**
  * The supported asset list's row for `asset` and `action` (J-wallet-01 #5): the venue desk's Deposit and Withdraw use the
  * same rows and precision Assets lists, read from svc-bank `assets.list`.
@@ -57,7 +62,7 @@ function useListed(asset: string, action: 'deposit' | 'withdraw', unlisted: numb
 /** Why the list keeps `asset` from `action`, in plain words, or null when it allows it. */
 function ListedRefusal({ listed, asset, action }: { listed: ListedPlaces | 'loading'; asset: string; action: 'deposit' | 'withdraw' }) {
   const { t } = spotVenueCopy.useCopy();
-  if (listed === 'loading') return <p className="muted">{t('Listed loading')}</p>;
+  if (listed === 'loading') return <p className="lt-note">{t('Listed loading')}</p>;
   if (listed.ok) return null;
   const text =
     listed.why === 'unread'
@@ -66,7 +71,7 @@ function ListedRefusal({ listed, asset, action }: { listed: ListedPlaces | 'load
         ? t('Listed unlisted', { asset })
         : t(action === 'deposit' ? 'Listed closed deposit' : 'Listed closed withdraw', { asset });
   return (
-    <p role="alert" className="failure" data-testid="venue-listed-refusal">
+    <p role="alert" className="lt-note lt-note-bad" data-testid="venue-listed-refusal">
       {text}
     </p>
   );
@@ -120,44 +125,44 @@ export function VenueAccountPanel({
   const clock = useClock();
   const rowOf = (asset: string) => balances?.value.find((b) => b.asset === asset) ?? null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('Venue account')} data-testid="venue-account">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Venue account')} data-testid="venue-account">
+      <h2 className="lt-panel-title">
         {t('Venue account')} <TestMark test={status.test} />
       </h2>
-      <p className="muted">{t('Venue account note')}</p>
+      <p className="lt-note">{t('Venue account note')}</p>
       <VenueWalletRow />
       {owner && balances
         ? [market.quoteAsset, market.baseAsset].map((asset) => {
             const row = rowOf(asset);
             return (
-              <dl className="protocol-facts" key={asset} data-asset={asset}>
+              <dl className="lt-kv" key={asset} data-asset={asset}>
                 <div>
                   <dt>{v('Asset')}</dt>
                   <dd>{asset}</dd>
                 </div>
                 <div>
                   <dt>{t('Free')}</dt>
-                  <dd className="numeric" data-cell="free">
+                  <dd className="lt-num" data-cell="free">
                     {displayAmount(row?.free ?? '0')} {asset}
                   </dd>
                 </div>
                 <div>
                   <dt>{t('Used')}</dt>
-                  <dd className="numeric" data-cell="used">
+                  <dd className="lt-num" data-cell="used">
                     {displayAmount(row?.locked ?? '0')} {asset}
                   </dd>
                 </div>
                 <div>
                   <dt>{t('As of')}</dt>
-                  <dd className="numeric">{clock(balances.asOf)}</dd>
+                  <dd className="lt-num">{clock(balances.asOf)}</dd>
                 </div>
                 {asset === market.baseAsset && flattenable(row?.free ?? '0', market.lotSize) ? (
                   <div>
-                    <dt className="muted">{t('Flatten note', { asset })}</dt>
+                    <dt className="lt-quiet">{t('Flatten note', { asset })}</dt>
                     <dd>
-                      <KitButton variant="secondary" onClick={() => onFlatten(flattenable(row?.free ?? '0', market.lotSize)!)}>
+                      <Button tone="secondary" onClick={() => onFlatten(flattenable(row?.free ?? '0', market.lotSize)!)}>
                         {t('Flatten', { asset })}
-                      </KitButton>
+                      </Button>
                     </dd>
                   </div>
                 ) : null}
@@ -166,12 +171,12 @@ export function VenueAccountPanel({
           })
         : null}
       <p>
-        <KitButton disabled={!owner} onClick={onDeposit}>
+        <Button tone="primary" disabled={!owner} onClick={onDeposit}>
           {t('Deposit')}
-        </KitButton>{' '}
-        <KitButton variant="secondary" disabled={!owner} onClick={onWithdraw}>
+        </Button>{' '}
+        <Button tone="secondary" disabled={!owner} onClick={onWithdraw}>
           {t('Withdraw')}
-        </KitButton>
+        </Button>
       </p>
       {withdrawal}
     </section>
@@ -189,33 +194,40 @@ export function VenueWalletRow() {
         <div>
           <p>
             {t('Connected')}:{' '}
-            <span className="numeric" data-testid="venue-wallet-address">
+            <span className="lt-num" data-testid="venue-wallet-address">
               {wallet.address.toLowerCase()}
             </span>{' '}
-            <KitButton variant="secondary" onClick={wallet.disconnect}>
+            <Button tone="secondary" onClick={wallet.disconnect}>
               {v('Disconnect')}
-            </KitButton>
+            </Button>
           </p>
           {wallet.guard && !wallet.guard.ok ? (
             <p role="alert">
               {v('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <KitButton onClick={() => void wallet.switchNetwork()}>{v('Switch network')}</KitButton>
+              <Button tone="primary" onClick={() => void wallet.switchNetwork()}>
+                {v('Switch network')}
+              </Button>
             </p>
           ) : null}
         </div>
       ) : wallet.wallets.length === 0 ? (
-        <p className="muted">{v('No wallet')}</p>
+        <p className="lt-note">{v('No wallet')}</p>
       ) : (
         <p>
           {wallet.wallets.map((entry) => (
-            <KitButton key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
+            <Button
+              tone="primary"
+              key={entry.info.uuid}
+              disabled={wallet.status === 'connecting'}
+              onClick={() => void wallet.connect(entry)}
+            >
               {v('Connect wallet', { name: entry.info.name })}
-            </KitButton>
+            </Button>
           ))}
         </p>
       )}
       {wallet.problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-note lt-note-bad" role="alert">
           {wallet.problem}
         </p>
       ) : null}
@@ -226,6 +238,7 @@ export function VenueWalletRow() {
 /** Deposit: the person's own wallet transfer to the venue's deposit address; the ledger posts nothing. */
 export function DepositDialog({ route, test, onClose }: { route: DepositRoute | null; test: boolean; onClose: () => void }) {
   const { t } = spotVenueCopy.useCopy();
+  const closeLabel = uiCopy.useCopy().t('closeDialog');
   const wallet = useWallet();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState<{ good: boolean; text: string } | null>(null);
@@ -253,12 +266,12 @@ export function DepositDialog({ route, test, onClose }: { route: DepositRoute | 
   }
 
   return (
-    <Dialog title={t('Deposit title')} onClose={onClose}>
-      <div className="form-stack" data-testid="venue-deposit">
+    <Sheet open title={t('Deposit title')} onClose={onClose} closeLabel={closeLabel}>
+      <div className="lt-stack" data-testid="venue-deposit">
         <TestMark test={test} />
         {route ? (
           <>
-            <p className="muted">{t('Deposit why', { asset })}</p>
+            <p className="lt-note">{t('Deposit why', { asset })}</p>
             <Field
               label={t('Deposit amount', { asset })}
               name="venue-deposit-amount"
@@ -266,44 +279,44 @@ export function DepositDialog({ route, test, onClose }: { route: DepositRoute | 
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
-            <dl className="protocol-facts">
+            <dl className="lt-kv">
               <div>
                 <dt>{t('Deposit to')}</dt>
-                <dd className="numeric">{route.address}</dd>
+                <dd className="lt-num">{route.address}</dd>
               </div>
               <div>
                 <dt>{t('Deposit token')}</dt>
-                <dd className="numeric">
+                <dd className="lt-num">
                   {asset} · {route.token}
                 </dd>
               </div>
               <div>
                 <dt>{t('Deposit network')}</dt>
-                <dd className="numeric">{route.chainId}</dd>
+                <dd className="lt-num">{route.chainId}</dd>
               </div>
               {places !== null && fromList ? (
                 <div>
                   <dt>{t('Decimal places')}</dt>
-                  <dd className="numeric">{places}</dd>
+                  <dd className="lt-num">{places}</dd>
                 </div>
               ) : null}
             </dl>
             <ListedRefusal listed={listed} asset={asset} action="deposit" />
-            <KitButton disabled={busy || amount.trim() === '' || places === null} onClick={() => void send()}>
+            <Button tone="primary" disabled={busy || amount.trim() === '' || places === null} onClick={() => void send()}>
               {t('Deposit send')}
-            </KitButton>
+            </Button>
           </>
         ) : (
           <p role="alert">{t('Deposit no route')}</p>
         )}
-        {busy ? <p className="muted">{t('Waiting wallet')}</p> : null}
+        {busy ? <p className="lt-note">{t('Waiting wallet')}</p> : null}
         {note ? (
-          <p role={note.good ? 'status' : 'alert'} className={note.good ? '' : 'failure'}>
+          <p role={note.good ? 'status' : 'alert'} className={note.good ? NOTE.plain : NOTE.bad}>
             {note.text}
           </p>
         ) : null}
       </div>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -324,6 +337,7 @@ export function WithdrawDialog({
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
   const s = withdrawStepUpCopy.useCopy().t;
+  const closeLabel = uiCopy.useCopy().t('closeDialog');
   const { run } = useVenueActions(owner);
   const draft = useRef(draftId());
   const [amount, setAmount] = useState('');
@@ -372,8 +386,8 @@ export function WithdrawDialog({
 
   return (
     <>
-      <Dialog title={t('Withdraw title')} onClose={onClose}>
-        <div className="form-stack" data-testid="venue-withdraw">
+      <Sheet open title={t('Withdraw title')} onClose={onClose} closeLabel={closeLabel}>
+        <div className="lt-stack" data-testid="venue-withdraw">
           <TestMark test={test} />
           <Field
             label={t('Withdraw amount', { asset })}
@@ -390,33 +404,33 @@ export function WithdrawDialog({
           />
           <p>
             {t('Withdraw to')}:{' '}
-            <span className="numeric" title={owner}>
+            <span className="lt-num" title={owner}>
               {shortAddress(owner)}
             </span>
           </p>
           {places !== null && fromList ? (
-            <dl className="protocol-facts">
+            <dl className="lt-kv">
               <div>
                 <dt>{t('Decimal places')}</dt>
-                <dd className="numeric">{places}</dd>
+                <dd className="lt-num">{places}</dd>
               </div>
             </dl>
           ) : null}
           <ListedRefusal listed={listed} asset={asset} action="withdraw" />
           {problem ? (
-            <p className="failure" role="alert">
+            <p className="lt-note lt-note-bad" role="alert">
               {problem}
             </p>
           ) : null}
-          {busy ? <p className="muted">{v('Waiting wallet')}</p> : null}
+          {busy ? <p className="lt-note">{v('Waiting wallet')}</p> : null}
           <OutcomeLine result={result} owner={owner} />
-          <KitButton disabled={busy || places === null} onClick={press}>
+          <Button tone="primary" disabled={busy || places === null} onClick={press}>
             {t('Withdraw send')}
-          </KitButton>
+          </Button>
         </div>
-      </Dialog>
+      </Sheet>
       {stepUp && canonical ? (
-        <Dialog title={s('title')} onClose={() => setStepUp(false)}>
+        <Sheet open title={s('title')} onClose={() => setStepUp(false)} closeLabel={closeLabel}>
           <StepUpConfirm
             request={() => ({
               scope: 'trade.step_up.venue.withdraw',
@@ -436,7 +450,7 @@ export function WithdrawDialog({
             disabled={busy}
             onApproved={(id) => void signed(id)}
           />
-        </Dialog>
+        </Sheet>
       ) : null}
     </>
   );
@@ -456,26 +470,26 @@ export function WithdrawalLine({ withdrawal, asOf }: { withdrawal: VenueWithdraw
   const { t } = spotVenueCopy.useCopy();
   const clock = useClock();
   return (
-    <dl className="protocol-facts" data-testid="venue-withdrawal" data-status={withdrawal.status} data-nonce={withdrawal.nonce}>
+    <dl className="lt-kv" data-testid="venue-withdrawal" data-status={withdrawal.status} data-nonce={withdrawal.nonce}>
       <div>
         <dt>{v('Withdrawal status')}</dt>
         <dd>{word(v, 'withdrawal', withdrawal.status)}</dd>
       </div>
       <div>
         <dt>{v('Amount')}</dt>
-        <dd className="numeric">
+        <dd className="lt-num">
           {displayAmount(withdrawal.amount)} {withdrawal.asset}
         </dd>
       </div>
       <div>
         <dt>{v('Withdrawal fee')}</dt>
-        <dd className="numeric" data-cell="fee">
+        <dd className="lt-num" data-cell="fee">
           <Known value={withdrawal.fee} />
         </dd>
       </div>
       <div>
         <dt>{t('As of')}</dt>
-        <dd className="numeric">{clock(asOf)}</dd>
+        <dd className="lt-num">{clock(asOf)}</dd>
       </div>
     </dl>
   );

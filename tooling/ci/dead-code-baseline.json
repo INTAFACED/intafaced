@@ -793,7 +793,6 @@
   "apps/customer/src/screens/trade/desk/chart-setting.ts#isChartInterval",
   "apps/customer/src/screens/trade/desk/deps.ts#AlertDialogClose",
   "apps/customer/src/screens/trade/desk/deps.ts#Price",
-  "apps/customer/src/screens/trade/desk/deps.ts#SegmentedControl",
   "apps/customer/src/screens/trade/desk/deps.ts#Tooltip",
   "apps/customer/src/screens/trade/desk/deps.ts#TooltipContent",
   "apps/customer/src/screens/trade/desk/deps.ts#TooltipTrigger",

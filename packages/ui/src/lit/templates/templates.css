@@ -104,6 +104,8 @@
   flex-direction: column;
   gap: var(--lit-gap-section);
   min-inline-size: 0;
+  /* Under the in-flight lane's order on a phone (below). */
+  order: 2;
 }
 
 .lt-region {
@@ -564,7 +566,10 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  min-block-size: 1.5rem;
+  /* An inline box ignores a minimum height, so a link (an <a>, inline by default) is an inline block, 24 px tall to touch
+     (WCAG 2.5.8): in CSS pixels, as the rule counts them, since a rem is smaller than 16 px at the desk's root. */
+  display: inline-block;
+  min-block-size: 24px; /* look-drift-allow: WCAG 2.5.8 counts 24 CSS pixels; a rem is smaller at the root here */
 }
 
 .lt-actions,
@@ -732,14 +737,8 @@
 
 /* ---- In-flight lane: under the body on a phone (the shell's dock sits below it), at the top on a computer ---- */
 
-.lt-body {
-  order: 2;
-}
 .lt-inflight {
   order: 3;
-}
-
-.lt-inflight {
   background: var(--lit-solid-bg-raised);
   border: 1px solid var(--lit-line);
   border-radius: var(--lit-radius-tile);
@@ -818,6 +817,10 @@
   font-size: var(--lit-type-label-size);
   font-weight: 600;
   white-space: nowrap;
+}
+/* A chip that is a control (a status chip that opens its details) is 24 px tall to touch (WCAG 2.5.8). */
+:is(button, a).lt-chip {
+  min-block-size: 24px; /* look-drift-allow: WCAG 2.5.8 counts 24 CSS pixels; a rem is smaller at the root here */
 }
 
 .lt-chip-mark {
@@ -1513,15 +1516,355 @@ button.lt-tab:focus-visible {
   outline-offset: 0.25rem;
 }
 
-/* ---- working rooms: layout helpers, a desk with no markets, book or trades column, and the b3 controls ---- */
+/* ---- Dense parts: what a desk, a ticket or a table lays out inside its region. Generic: any room may use them. ---- */
 
-/* A column of parts at the item gap. */
+/* Columns and rows of parts. */
 .lt-stack {
   display: flex;
   flex-direction: column;
   gap: var(--lit-gap-item);
   min-inline-size: 0;
 }
+.lt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.lt-row-between {
+  justify-content: space-between;
+}
+.lt-row-end {
+  justify-content: flex-end;
+}
+.lt-row-nowrap {
+  flex-wrap: nowrap;
+}
+.lt-row-baseline {
+  align-items: baseline;
+}
+.lt-grow {
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+.lt-cols-2 {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.lt-cols-3 {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* A panel inside a region: its head (title and tools on one line), then its body. */
+.lt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+  padding: var(--lit-pad-panel);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+}
+.lt-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.lt-panel-title {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: 600;
+}
+.lt-scroll {
+  max-block-size: 24rem;
+  overflow: auto;
+}
+.lt-scroll-tall {
+  max-block-size: 40rem;
+  overflow: auto;
+}
+
+/* Words beside a control: quieter, smaller, and toned when they say something went well or wrong. */
+.lt-note {
+  margin: 0;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  line-height: var(--lit-type-label-line);
+}
+.lt-note-bad {
+  color: var(--lit-error-text);
+}
+.lt-note-good {
+  color: var(--lit-up-text);
+}
+.lt-note-warn {
+  color: var(--lit-warn-text);
+}
+.lt-quiet {
+  color: var(--lit-text-2);
+}
+/* A line key: which drawn line is which, in the colour the chart draws it (a chart's moving averages read the same roles). */
+.lt-line-key {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+.lt-line-key > [data-line='1'] {
+  color: var(--if-ma-1);
+}
+.lt-line-key > [data-line='2'] {
+  color: var(--if-ma-2);
+}
+.lt-line-key > [data-line='3'] {
+  color: var(--if-ma-3);
+}
+.lt-small {
+  font-size: var(--lit-type-label-size);
+}
+.lt-label {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+  letter-spacing: var(--lit-type-micro-tracking);
+  text-transform: uppercase;
+}
+.lt-strong {
+  font-weight: 600;
+}
+.lt-up {
+  color: var(--lit-up-text);
+}
+.lt-down {
+  color: var(--lit-down-text);
+}
+.lt-end {
+  text-align: end;
+}
+
+/* A bordered aside for a notice inside a panel: an account hold, a refusal with its reason, a result. */
+.lt-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: var(--lit-gap-item);
+  border-inline-start: 0.125rem solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-callout-bad {
+  border-inline-start-color: var(--lit-down);
+}
+.lt-callout-good {
+  border-inline-start-color: var(--lit-up);
+}
+.lt-callout-warn {
+  border-inline-start-color: var(--lit-warn-text);
+}
+
+/* A square control holding one icon, with its name in aria-label. */
+.lt-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 2rem;
+  min-block-size: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--lit-radius-control);
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+.lt-icon-button:hover,
+.lt-icon-button[aria-pressed='true'],
+.lt-icon-button[data-popup-open] {
+  color: var(--lit-text-1);
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-icon-button:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* A row of small choices (percent chips, intervals): each a button, pressed when chosen. */
+.lt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.lt-chips > button {
+  min-block-size: 1.75rem;
+  padding-inline: 0.625rem;
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-control);
+  background: none;
+  color: var(--lit-text-2);
+  font: inherit;
+  font-size: var(--lit-type-label-size);
+  cursor: pointer;
+}
+.lt-chips > button[aria-pressed='true'],
+.lt-chips > button[aria-checked='true'],
+.lt-chips > button[data-active] {
+  border-color: var(--lit-accent);
+  color: var(--lit-text-1);
+}
+.lt-chips > button:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* A dense table: desk rows at the row height, figures to the end. */
+.lt-table-dense {
+  font-size: var(--lit-type-label-size);
+}
+.lt-table-dense td {
+  block-size: calc(var(--lit-row-h) * 0.75);
+}
+.lt-table-dense th,
+.lt-table-dense td {
+  padding-inline: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Price levels (an order book, a ladder): a dense grid of figures with a depth meter behind each row. */
+.lt-levels {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  font-size: var(--lit-type-label-size);
+  font-variant-numeric: tabular-nums;
+}
+.lt-level {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: 1.375rem;
+  padding-inline: 0.5rem;
+  border: 0;
+  background: none;
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: end;
+  cursor: pointer;
+}
+.lt-level > :first-child {
+  text-align: start;
+}
+.lt-level:hover {
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-level-head {
+  color: var(--lit-text-2);
+  cursor: default;
+}
+.lt-level-head:hover {
+  background: none;
+}
+.lt-level > .lt-depth {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.lt-level > :not(.lt-depth) {
+  position: relative;
+  z-index: 1;
+}
+/* A native meter drawn as a flat, rounded bar from the end edge: depth behind a level, a share of a whole. */
+.lt-depth {
+  inline-size: 100%;
+  block-size: 100%;
+  appearance: none;
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+  background: none;
+  overflow: hidden;
+  direction: rtl;
+  pointer-events: none;
+}
+.lt-depth::-webkit-meter-bar {
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+  background: none;
+}
+.lt-depth::-webkit-meter-optimum-value,
+.lt-depth::-webkit-meter-suboptimum-value,
+.lt-depth::-webkit-meter-even-less-good-value {
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-depth::-moz-meter-bar {
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-depth-up::-webkit-meter-optimum-value,
+.lt-depth-up::-webkit-meter-suboptimum-value,
+.lt-depth-up::-webkit-meter-even-less-good-value {
+  background: color-mix(in srgb, var(--lit-up) 18%, transparent);
+}
+.lt-depth-up::-moz-meter-bar {
+  background: color-mix(in srgb, var(--lit-up) 18%, transparent);
+}
+.lt-depth-down::-webkit-meter-optimum-value,
+.lt-depth-down::-webkit-meter-suboptimum-value,
+.lt-depth-down::-webkit-meter-even-less-good-value {
+  background: color-mix(in srgb, var(--lit-down) 18%, transparent);
+}
+.lt-depth-down::-moz-meter-bar {
+  background: color-mix(in srgb, var(--lit-down) 18%, transparent);
+}
+.lt-depth-inline {
+  block-size: 0.375rem;
+  direction: ltr;
+}
+
+/* Stats in a line (an instrument strip's 24 h figures): a label over its figure. */
+.lt-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem var(--lit-gap-section);
+  margin: 0;
+}
+.lt-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+.lt-stats dt {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+}
+.lt-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A host for a drawn canvas (a chart library): it fills its region and keeps a usable height. */
+.lt-canvas {
+  position: relative;
+  min-block-size: 22rem;
+  inline-size: 100%;
+}
+.lt-canvas-short {
+  min-block-size: 12rem;
+}
+
+/* A desk arranged by the person: the order and widths the room passes (DeskTemplate `arrangement`). */
+@container room (min-width: 1024px) {
+  .lt-desk[data-desk='pro'][data-arranged] {
+    grid-template-columns: var(--lt-desk-columns);
+    grid-template-areas: var(--lt-desk-areas);
+  }
+}
+
+/* ---- working rooms: layout helpers, a desk with no markets, book or trades column, and the b3 controls ---- */
 
 /* A section's own heading inside a region. */
 .lt-heading {
@@ -1550,6 +1893,12 @@ button.lt-tab:focus-visible {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* A list with a rule between its rows. */
+.lt-list-rule > li + li {
+  padding-block-start: 0.25rem;
+  border-block-start: 1px solid var(--lit-line);
 }
 
 /* Rules or points a room states in a list, bulleted. */
@@ -1639,6 +1988,44 @@ button.lt-tab:focus-visible {
   margin-block-end: calc(var(--lit-gap-item) / 2);
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
+}
+
+/* A decimal field's steppers (a tick up, a tick down) and its Max and BBO keys, after the unit. */
+.lt-field-steps {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+.lt-field-steps > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.25rem;
+  block-size: 1rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+
+.lt-field-key {
+  flex: none;
+  min-block-size: 24px; /* look-drift-allow: WCAG 2.5.8 counts 24 CSS pixels; a rem is smaller at the root here */
+  padding-inline: 0.625rem;
+  border: 0;
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-solid-bg-sunken);
+  color: var(--lit-text-2);
+  font: inherit;
+  font-size: var(--lit-type-micro-size);
+  cursor: pointer;
+}
+
+.lt-field-key:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
 }
 
 /* ---- form and overlay parts (components/controls.tsx; the dialog is the Sheet) and small generic layout ---- */
@@ -1776,6 +2163,12 @@ button.lt-tab:focus-visible {
   cursor: not-allowed;
 }
 
+/* A dense desk select: the shorter control and the label type size. */
+.lt-select-button[data-size='sm'] {
+  min-block-size: 2rem;
+  font-size: var(--lit-type-label-size);
+}
+
 /* A headline figure: its label, the value, its hint and how fresh it is. */
 .lt-stat {
   display: flex;
@@ -1783,4 +2176,9 @@ button.lt-tab:focus-visible {
   align-items: flex-start;
   gap: calc(var(--lit-gap-item) / 2);
   min-inline-size: 0;
+}
+
+/* A desk's dense column or list: a quarter-rem gap, after lt-stack-tight and lt-list so it wins over theirs. */
+.lt-tight {
+  gap: 0.25rem;
 }
