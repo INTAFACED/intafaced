@@ -3,7 +3,8 @@
 // CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR. A push
 // that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it. The lint
 // ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files and refuses a rise; CI's other Doctrine gates
-// (gates.mjs --before-push) run too, and a red one refuses the push, as does a red typecheck of the packages it reaches.
+// (gates.mjs --before-push) run too, and a red one refuses the push, as does a red typecheck of the packages it reaches
+// or a red wire replay of a service it changes.
 // Without the install either refuses, naming the command. Every check runs on every push and every refusal is named in
 // that one run, with the list at the end; a direct push to main is refused before any check runs.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
@@ -415,6 +416,37 @@ test('a red typecheck refuses the push with its compiler line; a green one lets 
     const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
     assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
     assert.doesNotMatch(`${d.stdout}${d.stderr}`, /typecheck step/);
+  } finally {
+    p.done();
+  }
+});
+
+// The wire replay of the services a push changes (tooling/scripts/pre-push-wire-replay.mjs), planted: it answers `code`.
+const replayStep = (code) => ({
+  'tooling/scripts/pre-push-wire-replay.mjs': `console.log('wire replay step');\n${code ? "console.error('accounts.features absent customer: 412 != 500');\n" : ''}process.exit(${code});\n`,
+});
+
+test('a red wire replay refuses the push with its differences, named; a green one lets it through; a delete never runs it', () => {
+  const p = plant({ prettier: 'exit 0', base: replayStep(1) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /accounts\.features absent customer: 412 != 500/);
+    assert.match(r.out, /- wire replay\n/);
+    writeFileSync(
+      join(p.work, 'tooling', 'scripts', 'pre-push-wire-replay.mjs'),
+      replayStep(0)['tooling/scripts/pre-push-wire-replay.mjs'],
+    );
+    const g = p.push();
+    assert.equal(g.code, 0, g.out);
+    assert.match(g.out, /wire replay step/);
+    writeFileSync(
+      join(p.work, 'tooling', 'scripts', 'pre-push-wire-replay.mjs'),
+      replayStep(1)['tooling/scripts/pre-push-wire-replay.mjs'],
+    );
+    const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
+    assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
+    assert.doesNotMatch(`${d.stdout}${d.stderr}`, /wire replay step/);
   } finally {
     p.done();
   }
