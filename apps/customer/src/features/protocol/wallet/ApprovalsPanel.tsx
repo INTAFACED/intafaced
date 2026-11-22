@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ProtocolAllowanceRow, ProtocolAllowances, ProtocolSwapToken } from '@intafaced/contracts/protocol-swap';
-import { Button } from '@intafaced/ui/lit';
-import { DataTable, EmptyState, Failure, Panel } from '../volt/parts';
+import { Button, DataTable, EmptyState, Failure, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session';
@@ -195,8 +194,8 @@ function Allowances({ owner, headers }: { owner: string; headers: string[] }) {
           }}
         />
       )}
-      {data && <p className="lt-hint">{t('approvalsNote', { block: data.blockNumber, from: data.logsFromBlock })}</p>}
-      {data?.approvalLogsUnread && <p className="lt-hint">{t('approvalsLogsUnread')}</p>}
+      {data && <p className="muted">{t('approvalsNote', { block: data.blockNumber, from: data.logsFromBlock })}</p>}
+      {data?.approvalLogsUnread && <p className="muted">{t('approvalsLogsUnread')}</p>}
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
       <DataTable label={t('section_approvals')} headers={headers}>
         {resource.status === 'loading' && (
@@ -221,10 +220,10 @@ function Allowances({ owner, headers }: { owner: string; headers: string[] }) {
               <td>
                 {token ? tokenLabel(token, tokens) : row.token}
                 <br />
-                <small className="lt-hint lt-mono">{shortContract(row.token)}</small>
+                <small className="muted numeric">{shortContract(row.token)}</small>
               </td>
-              <td className="lt-mono">{spenderText(row, tokens, (pair) => t('approvalPool', { pair }))}</td>
-              <td className="lt-mono">
+              <td className="numeric">{spenderText(row, tokens, (pair) => t('approvalPool', { pair }))}</td>
+              <td className="numeric">
                 {row.unlimited
                   ? t('approvalUnlimited')
                   : token
@@ -235,7 +234,7 @@ function Allowances({ owner, headers }: { owner: string; headers: string[] }) {
                 {busy && pending?.hash ? (
                   <span role="status">{t('revoking')}</span>
                 ) : (
-                  <Button tone="secondary" disabled={pending !== null} onClick={() => void revoke(row, token)}>
+                  <Button variant="secondary" disabled={pending !== null} onClick={() => void revoke(row, token)}>
                     {t('revoke')}
                   </Button>
                 )}
@@ -244,8 +243,8 @@ function Allowances({ owner, headers }: { owner: string; headers: string[] }) {
           );
         })}
       </DataTable>
-      {data && data.unread > 0 && <p className="lt-hint">{t('approvalsUnread', { count: String(data.unread) })}</p>}
-      {data?.truncated && <p className="lt-hint">{t('approvalsTruncated')}</p>}
+      {data && data.unread > 0 && <p className="muted">{t('approvalsUnread', { count: String(data.unread) })}</p>}
+      {data?.truncated && <p className="muted">{t('approvalsTruncated')}</p>}
       {problem && <p role="alert">{problem}</p>}
     </>
   );

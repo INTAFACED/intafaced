@@ -108,13 +108,13 @@
 <div class="lt-toolbar">
 <section class="lt-region" data-region="filters">
 <form aria-label="Screen filters">
-<label class="lt-field">
+<label>
 <span>Screen over</span>
 <select>
 <option value="all">All markets</option>
 </select>
 </label>
-<label class="lt-field">
+<label>
 <span>Quote</span>
 <select>
 <option value="">Any quote</option>
@@ -122,27 +122,37 @@
 <option value="USDT">USDT</option>
 </select>
 </label>
-<div class="lit-field-control">
-<label for="_r_3_">Change 24h above (%)</label>
-<input aria-label="Change 24h above (%)" id="_r_3_" value="">
+<label>
+<span>Change 24h above (%)</span>
+<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
+<input id="base-ui-_r_3_" aria-label="Change 24h above (%)" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="">
 </div>
-<div class="lit-field-control">
-<label for="_r_4_">Change 24h below (%)</label>
-<input aria-label="Change 24h below (%)" id="_r_4_" value="">
+</label>
+<label>
+<span>Change 24h below (%)</span>
+<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
+<input id="base-ui-_r_4_" aria-label="Change 24h below (%)" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="">
 </div>
-<div class="lit-field-control">
-<label for="_r_5_">Volume 24h above</label>
-<input aria-label="Volume 24h above" id="_r_5_" value="">
+</label>
+<label>
+<span>Volume 24h above</span>
+<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
+<input id="base-ui-_r_5_" aria-label="Volume 24h above" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="">
 </div>
-<div class="lit-field-control">
-<label for="_r_6_">Last price from</label>
-<input aria-label="Last price from" id="_r_6_" value="">
+</label>
+<label>
+<span>Last price from</span>
+<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
+<input id="base-ui-_r_6_" aria-label="Last price from" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="">
 </div>
-<div class="lit-field-control">
-<label for="_r_7_">Last price to</label>
-<input aria-label="Last price to" id="_r_7_" value="">
+</label>
+<label>
+<span>Last price to</span>
+<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
+<input id="base-ui-_r_7_" aria-label="Last price to" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="">
 </div>
-<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Apply</button>
+</label>
+<button type="submit" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill">Apply</button>
 <p data-testid="screener-applied">Over all markets · Quote not set · Change 24h above not set · Change 24h below not set · Volume 24h above not set · Last price from not set · Last price to not set</p>
 </form>
 </section>
@@ -150,28 +160,46 @@
 <div>
 <fieldset role="group" aria-label="Columns">
 <legend>Columns</legend>
-<label class="lt-field">
-<input type="checkbox" checked="">
-<span>Last</span>
-</label>
-<label class="lt-field">
-<input type="checkbox" checked="">
-<span>Change 24h</span>
-</label>
-<label class="lt-field">
-<input type="checkbox" checked="">
-<span>Volume 24h</span>
-</label>
-<label class="lt-field">
-<input type="checkbox">
-<span>High 24h</span>
-</label>
-<label class="lt-field">
-<input type="checkbox">
-<span>Low 24h</span>
-</label>
+<label id="base-ui-_r_8_-label">
+<span data-checked="" role="checkbox" tabindex="0" id="base-ui-_r_9_" aria-checked="true" data-slot="checkbox" class="inline-flex size-5 shrink-0 items-center justify-center rounded-xs border border-line-strong bg-field text-on-lime transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-checked:border-lime data-checked:bg-lime data-indeterminate:border-lime data-indeterminate:bg-lime data-disabled:cursor-not-allowed data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-labelledby="base-ui-_r_8_-label">
+<span data-checked="" data-slot="checkbox-indicator" class="inline-flex data-unchecked:hidden">
+<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check" aria-hidden="true">
+<path d="M20 6 9 17l-5-5">
+</path>
+</svg>
+</span>
+</span>
+<input id="base-ui-_r_8_" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" type="checkbox" checked="">Last</label>
+<label id="base-ui-_r_10_-label">
+<span data-checked="" role="checkbox" tabindex="0" id="base-ui-_r_11_" aria-checked="true" data-slot="checkbox" class="inline-flex size-5 shrink-0 items-center justify-center rounded-xs border border-line-strong bg-field text-on-lime transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-checked:border-lime data-checked:bg-lime data-indeterminate:border-lime data-indeterminate:bg-lime data-disabled:cursor-not-allowed data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-labelledby="base-ui-_r_10_-label">
+<span data-checked="" data-slot="checkbox-indicator" class="inline-flex data-unchecked:hidden">
+<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check" aria-hidden="true">
+<path d="M20 6 9 17l-5-5">
+</path>
+</svg>
+</span>
+</span>
+<input id="base-ui-_r_10_" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" type="checkbox" checked="">Change 24h</label>
+<label id="base-ui-_r_12_-label">
+<span data-checked="" role="checkbox" tabindex="0" id="base-ui-_r_13_" aria-checked="true" data-slot="checkbox" class="inline-flex size-5 shrink-0 items-center justify-center rounded-xs border border-line-strong bg-field text-on-lime transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-checked:border-lime data-checked:bg-lime data-indeterminate:border-lime data-indeterminate:bg-lime data-disabled:cursor-not-allowed data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-labelledby="base-ui-_r_12_-label">
+<span data-checked="" data-slot="checkbox-indicator" class="inline-flex data-unchecked:hidden">
+<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check" aria-hidden="true">
+<path d="M20 6 9 17l-5-5">
+</path>
+</svg>
+</span>
+</span>
+<input id="base-ui-_r_12_" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" type="checkbox" checked="">Volume 24h</label>
+<label id="base-ui-_r_14_-label">
+<span data-unchecked="" role="checkbox" tabindex="0" id="base-ui-_r_15_" aria-checked="false" data-slot="checkbox" class="inline-flex size-5 shrink-0 items-center justify-center rounded-xs border border-line-strong bg-field text-on-lime transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-checked:border-lime data-checked:bg-lime data-indeterminate:border-lime data-indeterminate:bg-lime data-disabled:cursor-not-allowed data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-labelledby="base-ui-_r_14_-label">
+</span>
+<input id="base-ui-_r_14_" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" type="checkbox">High 24h</label>
+<label id="base-ui-_r_16_-label">
+<span data-unchecked="" role="checkbox" tabindex="0" id="base-ui-_r_17_" aria-checked="false" data-slot="checkbox" class="inline-flex size-5 shrink-0 items-center justify-center rounded-xs border border-line-strong bg-field text-on-lime transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-checked:border-lime data-checked:bg-lime data-indeterminate:border-lime data-indeterminate:bg-lime data-disabled:cursor-not-allowed data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-labelledby="base-ui-_r_16_-label">
+</span>
+<input id="base-ui-_r_16_" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" type="checkbox">Low 24h</label>
 </fieldset>
-<label class="lt-field">
+<label>
 <span>Change timeframe</span>
 <select>
 <option value="24h">24 hours</option>
@@ -182,28 +210,30 @@
 </label>
 <p>A 1 hour, 4 hour or 1 day change is the last price against the close of the bar before the open one.</p>
 <div role="group" aria-label="View">
-<button aria-pressed="true" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Table</button>
-<button aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Chart</button>
+<button type="button" tabindex="0" data-slot="button" data-variant="secondary" aria-pressed="true" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Table</button>
+<button type="button" tabindex="0" data-slot="button" data-variant="secondary" aria-pressed="false" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Chart</button>
 </div>
 <div>
-<label class="lt-field">
+<label>
 <span>Saved screens</span>
 <select disabled="">
 <option value="">No saved screens</option>
 </select>
 </label>
-<p role="alert">Your saved screens couldn’t be read, so saving is off until they are. <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+<p role="alert">Your saved screens couldn’t be read, so saving is off until they are. <button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Try again</button>
 </p>
-<div class="lit-field-control">
-<label for="_r_8_">Screen name</label>
-<input aria-label="Screen name" maxlength="60" id="_r_8_" value="">
+<label>
+<span>Screen name</span>
+<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
+<input id="base-ui-_r_18_" aria-label="Screen name" maxlength="60" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="">
 </div>
-<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Save screen</button>
+</label>
+<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Save screen</button>
 </div>
 </div>
 </section>
 <section class="lt-region" data-region="export" aria-label="Export">
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Export CSV</button>
+<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Export CSV</button>
 </section>
 </div>
 <section class="lt-region" data-region="summary" aria-label="Summary">
@@ -213,7 +243,7 @@
 </section>
 <div class="lt-grid">
 <section class="lt-region" data-region="list" aria-label="Records">
-<table class="lt-table" aria-label="Screener results">
+<table aria-label="Screener results">
 <thead>
 <tr>
 <th scope="col">Market</th>

@@ -1,8 +1,8 @@
 import { QUANT_QUOTA_RESOURCES, type QuantQuotaResource, type QuantTier } from '@intafaced/contracts/quant-algo';
 import { useState } from 'react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, DataTable, Panel } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
-import { ReadView, RecordTable } from '../../shared/record/record-parts';
+import { Read } from '../more';
 import { useApi } from '../session';
 import { tierCopy } from './tier-copy';
 import { usageCopy } from './usage-copy';
@@ -51,11 +51,10 @@ export function PlanTiers({ revision }: { revision: number }) {
   const limit = (value: string | null) => value ?? t('notSet');
 
   return (
-    <section>
-      <h2>{t('title')}</h2>
+    <Panel title={t('title')}>
       <section data-testid="quant-plan-tiers" aria-label={t('title')}>
-        <p className="lt-hint">{t('intro')}</p>
-        <ReadView resource={tiers.resource} retry={tiers.reload}>
+        <p className="muted">{t('intro')}</p>
+        <Read resource={tiers.resource} retry={tiers.reload}>
           {(data) => {
             if (data.tiers.length === 0) {
               return (
@@ -92,7 +91,7 @@ export function PlanTiers({ revision }: { revision: number }) {
             const changed = picked && yours ? rows.filter((row) => row.show(yours) !== row.show(valuesOf(picked))) : [];
             return (
               <>
-                <RecordTable
+                <DataTable
                   label={t('title')}
                   headers={[
                     t('changes'),
@@ -109,10 +108,10 @@ export function PlanTiers({ revision }: { revision: number }) {
                       ))}
                     </tr>
                   ))}
-                </RecordTable>
-                <div className="lt-actions">
+                </DataTable>
+                <div className="actions">
                   {data.tiers.map((tier) => (
-                    <Button key={tier.profile} tone="secondary" onClick={() => setChosen(tier.profile)}>
+                    <Button key={tier.profile} variant="secondary" onClick={() => setChosen(tier.profile)}>
                       {t('choose', { profile: tier.profile })}
                     </Button>
                   ))}
@@ -139,15 +138,15 @@ export function PlanTiers({ revision }: { revision: number }) {
                         ))}
                       </ul>
                     )}
-                    <p className="lt-hint">{t('move')}</p>
+                    <p className="muted">{t('move')}</p>
                   </div>
                 )}
-                {!picked && <p className="lt-hint">{t('move')}</p>}
+                {!picked && <p className="muted">{t('move')}</p>}
               </>
             );
           }}
-        </ReadView>
+        </Read>
       </section>
-    </section>
+    </Panel>
   );
 }

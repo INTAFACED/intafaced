@@ -2,11 +2,10 @@ import { useState } from 'react';
 import { marginModesSchema, type MarginModes } from '@intafaced/contracts/trade-margin-modes';
 import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
-import { Button } from '@intafaced/ui/lit';
-import { Failure, Panel } from '../volt/parts';
+import { Button, Failure, Panel } from '../../../shared/ui';
 import { futuresRefusal } from '../../../screens/trade/futures/refusals';
 import { useApi } from '../../session';
-import { conventionPath } from './portfolio-paths';
+import { conventionPath } from './PortfolioPanel';
 import { portfolioCopy } from './portfolio-copy';
 
 /**
@@ -30,17 +29,17 @@ export function AccountModePanel() {
   const refusal = portfolio && !portfolio.offered && portfolio.code ? futuresRefusal({ code: portfolio.code }) : null;
   return (
     <Panel title={t('modeTitle')} aria-label={t('modeTitle')}>
-      <dl className="lt-kv">
+      <dl className="protocol-facts">
         <div>
           <dt>{t('modeTitle')}</dt>
           <dd data-account-mode="standard">{t('modeStandard')}</dd>
         </div>
       </dl>
-      <p className="lt-hint">{t('modeNote')}</p>
+      <p className="muted">{t('modeNote')}</p>
       <p>
         <a href={conventionPath('modes')}>{t('modeLink')}</a>
       </p>
-      <Button tone="secondary" disabled={asking} onClick={() => void ask()}>
+      <Button variant="secondary" disabled={asking} onClick={() => void ask()}>
         {t('modeAsk')}
       </Button>
       {answer && !answer.ok && <Failure result={answer} retry={() => void ask()} />}
@@ -48,7 +47,7 @@ export function AccountModePanel() {
         <div role="alert" data-code={portfolio.code}>
           <strong>{refusal.title}</strong>
           <p>{refusal.body}</p>
-          <p className="lt-hint">{t('modeCode', { code: portfolio.code })}</p>
+          <p className="muted">{t('modeCode', { code: portfolio.code })}</p>
         </div>
       )}
       {portfolio?.offered && (

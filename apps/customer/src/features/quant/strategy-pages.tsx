@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button } from '@intafaced/ui/lit';
-import { FailureBox, LoadingLine } from '../../shared/record/record-parts';
+import { Button, Failure, Loading } from '../../shared/ui';
 import { useApi } from '../session';
 import { studioCopy } from './studio-copy';
 
@@ -54,10 +53,10 @@ export function MorePages(props: { cursor: string | null; busy: boolean; failure
   const { cursor } = props;
   return (
     <>
-      {props.busy && <LoadingLine />}
-      {props.failure && <FailureBox result={props.failure} retry={() => cursor && props.more(cursor)} />}
+      {props.busy && <Loading />}
+      {props.failure && <Failure result={props.failure} retry={() => cursor && props.more(cursor)} />}
       {cursor && !props.busy && (
-        <Button tone="secondary" onClick={() => props.more(cursor)}>
+        <Button variant="secondary" onClick={() => props.more(cursor)}>
           {t('showMore')}
         </Button>
       )}

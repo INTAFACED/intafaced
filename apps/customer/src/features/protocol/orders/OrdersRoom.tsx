@@ -1,9 +1,6 @@
-// volt-room: /dex/orders
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DexOrderCap } from '@intafaced/contracts/protocol-dex-orders';
-import { Button } from '@intafaced/ui/lit';
-import { DataTable, EmptyState, Panel } from '../volt/parts';
-import { RecordListTemplate } from '@intafaced/ui/lit/templates';
+import { Button, DataTable, EmptyState, Page, Panel } from '../../../shared/ui';
 import { currentPreferences, usePreferences } from '../../../shared/preferences';
 import type { ApiResult } from '../../../shared/api';
 import { stamp } from '../../../screens/money/time';
@@ -20,6 +17,7 @@ import {
   type OrderSession,
   type OrdersApi,
 } from './orders-api';
+import '../protocol.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -60,28 +58,20 @@ export function OrdersRoom() {
   useEffect(() => setSession(address ? (rememberedSession(address) ?? null) : null), [address]);
 
   return (
-    <RecordListTemplate
-      title={t('title')}
-      description={t('description')}
-      state={{ kind: 'ready' }}
-      summary={<p className="lt-hint">{t('eyebrow')}</p>}
-      list={
+    <Page eyebrow={t('eyebrow')} title={t('title')} description={t('description')}>
+      {!address ? (
+        <Panel title={t('connectTitle')}>
+          <EmptyState title={t('connectTitle')} action={<a href="/wallet">{t('connectAction')}</a>}>
+            {t('connectBody')}
+          </EmptyState>
+        </Panel>
+      ) : (
         <>
-          {!address ? (
-            <Panel title={t('connectTitle')}>
-              <EmptyState title={t('connectTitle')} action={<a href="/wallet">{t('connectAction')}</a>}>
-                {t('connectBody')}
-              </EmptyState>
-            </Panel>
-          ) : (
-            <>
-              <SessionPanel api={api} address={address} session={session} onSession={setSession} t={t} />
-              <OrderList api={api} address={address} session={session} t={t} />
-            </>
-          )}
+          <SessionPanel api={api} address={address} session={session} onSession={setSession} t={t} />
+          <OrderList api={api} address={address} session={session} t={t} />
         </>
-      }
-    />
+      )}
+    </Page>
   );
 }
 
@@ -89,7 +79,7 @@ function CapRows({ cap, t }: { cap: readonly DexOrderCap[]; t: OrdersTranslate }
   return (
     <>
       {cap.map((row) => (
-        <span key={row.token} className="lt-mono">
+        <span key={row.token} className="numeric">
           {t('sessionCapRow', { max: row.max, symbol: row.symbol })}
           <br />
         </span>
@@ -176,9 +166,9 @@ function SessionPanel({
   const shown = session ?? challenge;
   return (
     <Panel title={t('sessionTitle')} aria-label={t('sessionTitle')}>
-      <p className="lt-hint">{t('sessionIntro')}</p>
+      <p className="muted">{t('sessionIntro')}</p>
       {shown ? (
-        <dl className="lt-kv">
+        <dl className="kv">
           <dt>{t('sessionScope')}</dt>
           <dd>{shown.scope}</dd>
           <dt>{t('sessionExpires')}</dt>
@@ -193,21 +183,21 @@ function SessionPanel({
           </dd>
         </dl>
       ) : (
-        !problem && <p className="lt-hint">{t('sessionLoading')}</p>
+        !problem && <p className="muted">{t('sessionLoading')}</p>
       )}
-      <div className="lt-actions">
+      <div className="actions">
         {!session && (
-          <Button tone="primary" onClick={() => void signSession()} disabled={!challenge || busy}>
+          <Button onClick={() => void signSession()} disabled={!challenge || busy}>
             {busy ? t('sessionSigning') : t('sessionSign')}
           </Button>
         )}
         {last.current && (
-          <Button tone="secondary" onClick={() => void replay()} title={t('sessionReplayHint')}>
+          <Button variant="secondary" onClick={() => void replay()} title={t('sessionReplayHint')}>
             {t('sessionReplay')}
           </Button>
         )}
         {session && (
-          <Button tone="quiet" onClick={() => void signOut()}>
+          <Button variant="ghost" onClick={() => void signOut()}>
             {t('sessionSignOut')}
           </Button>
         )}

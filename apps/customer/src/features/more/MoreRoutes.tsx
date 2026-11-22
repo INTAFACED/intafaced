@@ -7,11 +7,12 @@ import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
 import { AgentsTeam } from './AgentsTeam';
-import { AgentApprovalsRoom } from './agent-approvals/AgentApprovalsRoom';
+import { AgentApprovals } from './AgentApprovals';
 import { AgentConnect } from './AgentConnect';
 import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
 import { agentRunCopy } from './agent-run-copy';
+import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
@@ -40,7 +41,7 @@ import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { PaperRoom } from './paper-mode';
 import { preservePaperHref } from './trade-context';
-import { Fragment, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -71,12 +72,7 @@ function MoreRooms({ path }: { path: string }) {
     );
   // Set when the path is one of the six rooms of the set, so `?simulated=true` labels it and refuses its actions.
   let room: MoreRoomId | undefined;
-  // A room on its Volt template draws its own title row, so it is mounted without the old page frame.
-  let bare = false;
   if (p === '/academy' || p.startsWith('/academy/')) {
-    const academy = academyRoute(p);
-    // The signed-in course-team inbox is on its Volt template; a signed-out visitor gets the public Academy.
-    bare = academy.kind === 'messages' && !academy.conversationId && Boolean(userId);
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
     content = (
@@ -109,8 +105,9 @@ function MoreRooms({ path }: { path: string }) {
     title = <OwnAgentTitle id={id} />;
     content = <OwnAgentPage key={id} id={id} />;
   } else if (p === '/agents/approvals') {
-    bare = true;
-    content = <AgentApprovalsRoom />;
+    title = <agentApprovalsCopy.Copy k="title" />;
+    description = <agentApprovalsCopy.Copy k="description" />;
+    content = <AgentApprovals />;
   } else if (p === '/agents/team') {
     title = <agentsTeamCopy.Copy k="title" />;
     description = <agentsTeamCopy.Copy k="description" />;
@@ -167,7 +164,6 @@ function MoreRooms({ path }: { path: string }) {
     content = <Token />;
   } else if (quant) {
     ({ title, description, content } = quant);
-    bare = 'bare' in quant && quant.bare === true;
   } else if (p === '/support/chat') {
     title = <chatCopy.Copy k="pageTitle" />;
     description = <chatCopy.Copy k="pageDescription" />;
@@ -213,7 +209,6 @@ function MoreRooms({ path }: { path: string }) {
       </PaperRoom>
     );
   }
-  if (bare) return <Fragment key={userId ?? 'anonymous'}>{content}</Fragment>;
   return (
     <div className="more-feature">
       <Page

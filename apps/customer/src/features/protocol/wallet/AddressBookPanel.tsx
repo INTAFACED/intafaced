@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ADDRESS_BOOK_LABEL_MAX, WALLET_GROUP_NAME_MAX } from '@intafaced/contracts/protocol-address-book';
-import { Button } from '@intafaced/ui/lit';
-import { Checkbox } from '@intafaced/ui/lit/templates';
-import { DataTable, Dialog, EmptyState, Field, Panel } from '../volt/parts';
+import { Button, DataTable, Dialog, EmptyState, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { walletGroupPath } from '../routes';
 import type { AddressBook } from './address-book-api';
@@ -103,15 +101,15 @@ export function AddressBookPanel() {
   return (
     <>
       <Panel title={t('bookTitle')}>
-        <p className="lt-hint">{t('bookNote')}</p>
-        {!address && <p className="lt-hint">{t('needsWallet')}</p>}
+        <p className="muted">{t('bookNote')}</p>
+        {!address && <p className="muted">{t('needsWallet')}</p>}
         {book.kind === 'opening' && <p role="status">{t('bookLoading')}</p>}
         {book.kind === 'closed' && (
           <>
             <p role="alert" data-book-closed>
               {fail(book.failure)}
             </p>
-            <Button tone="secondary" onClick={() => void load()}>
+            <Button variant="secondary" onClick={() => void load()}>
               {t('bookSignIn')}
             </Button>
           </>
@@ -133,14 +131,14 @@ export function AddressBookPanel() {
             value={contactAddress}
             autoComplete="off"
             spellCheck={false}
-            className="lt-mono"
+            className="numeric"
             onChange={(event) => {
               setContactAddress(event.target.value);
               setProblem(null);
             }}
           />
           {problem && <p role="alert">{problem}</p>}
-          <Button tone="primary" type="submit" disabled={!address || saving}>
+          <Button type="submit" disabled={!address || saving}>
             {t('addSave')}
           </Button>
         </form>
@@ -152,9 +150,9 @@ export function AddressBookPanel() {
             ready.contacts.map((contact) => (
               <tr key={contact.id}>
                 <td>{contact.label}</td>
-                <td className="lt-mono">{contact.address}</td>
+                <td className="numeric">{contact.address}</td>
                 <td>
-                  <Button tone="quiet" disabled={removing !== null} onClick={() => void remove('contact', contact.id, contact.label)}>
+                  <Button variant="ghost" disabled={removing !== null} onClick={() => void remove('contact', contact.id, contact.label)}>
                     {t('contactRemove')}
                   </Button>
                 </td>
@@ -170,8 +168,8 @@ export function AddressBookPanel() {
         </DataTable>
       </Panel>
       <Panel title={t('groupsTitle')}>
-        <p className="lt-hint">{t('groupsNote')}</p>
-        <Button tone="secondary" disabled={!ready} onClick={() => setGrouping(true)}>
+        <p className="muted">{t('groupsNote')}</p>
+        <Button variant="secondary" disabled={!ready} onClick={() => setGrouping(true)}>
           {t('groupNew')}
         </Button>
         <DataTable label={t('groupsTitle')} headers={[t('hdr_name'), t('hdr_members'), t('hdr_actions')]}>
@@ -183,7 +181,7 @@ export function AddressBookPanel() {
                 </td>
                 <td>{group.members.map((m) => (m.self ? t('groupThisWallet') : (m.label ?? m.address))).join(', ')}</td>
                 <td>
-                  <Button tone="quiet" disabled={removing !== null} onClick={() => void remove('group', group.id, group.name)}>
+                  <Button variant="ghost" disabled={removing !== null} onClick={() => void remove('group', group.id, group.name)}>
                     {t('contactRemove')}
                   </Button>
                 </td>
@@ -271,25 +269,26 @@ function NewGroupDialog({
         />
         <fieldset>
           <legend>{t('groupMembers')}</legend>
-          <Checkbox
-            label={t('groupThisWallet')}
-            checked={chosen.has(book.owner)}
-            onChange={(event) => toggle(book.owner, event.target.checked)}
-          />
+          <label className="field field--inline">
+            <input type="checkbox" checked={chosen.has(book.owner)} onChange={(event) => toggle(book.owner, event.target.checked)} />
+            <span>{t('groupThisWallet')}</span>
+          </label>
           {book.contacts.map((contact) => (
-            <Checkbox
-              key={contact.id}
-              label={contact.label}
-              checked={chosen.has(contact.address)}
-              onChange={(event) => toggle(contact.address, event.target.checked)}
-            />
+            <label key={contact.id} className="field field--inline">
+              <input
+                type="checkbox"
+                checked={chosen.has(contact.address)}
+                onChange={(event) => toggle(contact.address, event.target.checked)}
+              />
+              <span>{contact.label}</span>
+            </label>
           ))}
         </fieldset>
         {problem && <p role="alert">{problem}</p>}
-        <Button tone="primary" type="submit" disabled={saving}>
+        <Button type="submit" disabled={saving}>
           {t('groupSave')}
         </Button>{' '}
-        <Button tone="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           {t('groupCancel')}
         </Button>
       </form>

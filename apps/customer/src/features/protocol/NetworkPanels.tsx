@@ -3,11 +3,10 @@ import { canAddToWallet, NETWORK_PARAMS_UNSET, routerIsSunset, type NetworkEntry
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button } from '@intafaced/ui/lit';
-import { DataTable, EmptyState, Failure, Loading, Panel } from './volt/parts';
+import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { createProtocolApi, type Deployments, type ProtocolApi } from './api';
 import { protocolCopy as copy } from './copy';
-import { ContractLookup } from './contracts/ContractLookup';
+import { ContractLookup } from './contracts/ContractPage';
 import { discoverWallets, toHexChainId, type DiscoveredWallet } from './wallet/eip1193';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
@@ -64,7 +63,7 @@ function useWallets(): DiscoveredWallet[] {
 
 function NoneListed({ t, list }: { t: Translate; list: 'gas' | 'faucets' | 'ecosystem' }) {
   return (
-    <p className="lt-hint" data-list={list}>
+    <p className="muted" data-list={list}>
       {t('noneListed')}
     </p>
   );
@@ -87,7 +86,7 @@ function NetworkCard({ network, t }: { network: NetworkEntry; t: Translate }) {
   };
   return (
     <>
-      <dl className="lt-kv">
+      <dl className="protocol-facts">
         {(
           [
             [t('netName'), network.name ?? t('notPublished')],
@@ -103,7 +102,7 @@ function NetworkCard({ network, t }: { network: NetworkEntry; t: Translate }) {
         ).map(([label, value]) => (
           <div key={label}>
             <dt>{label}</dt>
-            <dd className="lt-mono">{value}</dd>
+            <dd className="numeric">{value}</dd>
           </div>
         ))}
         <div>
@@ -114,7 +113,7 @@ function NetworkCard({ network, t }: { network: NetworkEntry; t: Translate }) {
         </div>
       </dl>
       <Button
-        tone="secondary"
+        variant="secondary"
         disabled={disabledReason !== null}
         aria-disabled={disabledReason !== null}
         title={disabledReason ?? undefined}
@@ -123,20 +122,20 @@ function NetworkCard({ network, t }: { network: NetworkEntry; t: Translate }) {
         {t('addToWallet')}
       </Button>
       {disabledReason && (
-        <p className="lt-hint" role="note">
+        <p className="protocol-actions__reason" role="note">
           {t('blockedBy', { reason: disabledReason })}
         </p>
       )}
       {state !== 'idle' && (
-        <p role="status" className="lt-hint">
+        <p role="status" className="muted">
           {t(state === 'added' ? 'addToWalletDone' : state === 'declined' ? 'addToWalletDeclined' : 'addToWalletFailed')}
         </p>
       )}
       <h3>{t('gasTitle')}</h3>
-      <p className="lt-hint">{t('gasNote')}</p>
+      <p className="muted">{t('gasNote')}</p>
       <NoneListed t={t} list="gas" />
       <h3>{t('faucetsTitle')}</h3>
-      <p className="lt-hint">{t('faucetsNote')}</p>
+      <p className="muted">{t('faucetsNote')}</p>
       {network.faucets ? (
         <ul>
           {network.faucets.map((entry) => (
@@ -212,7 +211,7 @@ function ContractsTable({ chainId, t }: { chainId: number; t: Translate }) {
               <a href={`/protocol/contracts/${contract.address}`}>{contract.name}</a>
             </td>
             <td>{contract.suite}</td>
-            <td className="lt-mono">
+            <td className="numeric">
               {contract.explorerUrl ? <ExternalLink url={contract.explorerUrl} label={contract.address} /> : contract.address}
             </td>
             <td>{contract.verified ? t('yes') : t('no')}</td>
@@ -227,7 +226,7 @@ function ContractsTable({ chainId, t }: { chainId: number; t: Translate }) {
 export function ContractsPanel({ chain, t }: { chain: ChainRef; t: Translate }) {
   return (
     <Panel title={t('contractsTitle')}>
-      <p className="lt-hint">{t('contractsNote')}</p>
+      <p className="muted">{t('contractsNote')}</p>
       <ContractLookup />
       {chain.status === 'ready' ? <ContractsTable chainId={chain.chainId} t={t} /> : <ChainPending chain={chain} t={t} />}
     </Panel>
@@ -286,7 +285,7 @@ export function SupportedNetworksPanel({ t, chain, now = new Date() }: { t: Tran
   }, 'protocol-room:supported-networks');
   return (
     <Panel title={t('supportedTitle')}>
-      <p className="lt-hint">{t('supportedNote')}</p>
+      <p className="muted">{t('supportedNote')}</p>
       {resource.status === 'loading' ? (
         <Loading label={t('checking', { source: t('src_networks') })} />
       ) : resource.status === 'failed' ? (
@@ -331,7 +330,7 @@ export function SupportedNetworksPanel({ t, chain, now = new Date() }: { t: Tran
               return routers.map((router) => (
                 <tr key={`${row.chainId}:${router.address}`}>
                   <td>{label}</td>
-                  <td className="lt-mono">{router.address}</td>
+                  <td className="numeric">{router.address}</td>
                   <td>{router.version}</td>
                   <td>{routerIsSunset(router, now) ? t('sunsetNow') : (router.sunsetAt ?? t('noSunset'))}</td>
                   <td>{router.verified ? t('yes') : t('no')}</td>

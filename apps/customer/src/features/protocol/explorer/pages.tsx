@@ -1,19 +1,14 @@
-// volt-room: /chain/blocks/:height
-// volt-room: /chain/tx/:hash
 import { useMemo, useState, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
 import { useApi } from '../../session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { Button, Tag } from '@intafaced/ui/lit';
-import { RecordListTemplate } from '@intafaced/ui/lit/templates';
-import { DataTable, EmptyState, Loading, Panel } from '../volt/parts';
+import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
 import { networkLabel } from '../blockers';
+import { createProtocolApi } from '../api';
 import type { ChainRef } from '../NetworkPanels';
 import { TabList } from '../tokens/TabList';
-import { Banner } from '../volt/frame';
-import { watchCopy } from '../watch/copy';
-import { protocolCopy } from '../copy';
+import { WatchShell } from '../watch/AddressPage';
 import { explorerCopy, type ExplorerTranslate } from './copy';
 import { decodeInput, gwei, nativeAmount } from './decode';
 import {
@@ -26,6 +21,7 @@ import {
   type ExplorerTxsPage,
 } from './explorer-api';
 import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from './parts';
+import './explorer.css';
 
 export { BlockerNote, NoteRow, refusalWords, short } from './parts';
 
@@ -59,7 +55,7 @@ export function GasTracker({ rows, t }: { rows: readonly ExplorerBlockRow[]; t: 
   return (
     <Panel title={t('gasTracker')} aria-label={t('gasTracker')}>
       {newest ? (
-        <dl className="lt-kv">
+        <dl className="protocol-facts">
           <div>
             <dt>{t('gasBaseFee', { height: String(newest.height) })}</dt>
             <dd data-testid="gas-base-fee">
@@ -74,7 +70,7 @@ export function GasTracker({ rows, t }: { rows: readonly ExplorerBlockRow[]; t: 
           </div>
         </dl>
       ) : (
-        <p className="lt-hint">{t('gasNoBlocks')}</p>
+        <p className="muted">{t('gasNoBlocks')}</p>
       )}
     </Panel>
   );
@@ -115,7 +111,7 @@ export function BlocksList({ chain }: { chain: ChainRef }) {
         <BlockerNote
           title={t('blocksRefused', { reason: refusalWords(resource.failure, t) })}
           action={
-            <Button tone="secondary" onClick={blocks.reload}>
+            <Button variant="secondary" onClick={blocks.reload}>
               {t('retry')}
             </Button>
           }
@@ -142,16 +138,16 @@ export function BlocksList({ chain }: { chain: ChainRef }) {
         <th scope="row">
           {row.orphaned ? (
             <>
-              {row.height} <Tag>{t('blockOrphaned', { reason: row.orphaned.reason })}</Tag>{' '}
-              <span className="lt-hint">{short(row.hash)}</span>
+              {row.height} <span className="badge">{t('blockOrphaned', { reason: row.orphaned.reason })}</span>{' '}
+              <span className="muted">{short(row.hash)}</span>
             </>
           ) : (
             <a href={`/chain/blocks/${row.height}`}>{row.height}</a>
           )}
         </th>
         <td>{when(new Date(row.timestamp * 1000))}</td>
-        <td className="lt-mono">{row.txCount}</td>
-        <td className="lt-mono">{row.gasUsed}</td>
+        <td className="numeric">{row.txCount}</td>
+        <td className="numeric">{row.gasUsed}</td>
         <td>
           {row.orphaned ? t('rowOffChain') : finalizedHeight !== null && row.height <= finalizedHeight ? t('rowFinal') : t('rowNotFinal')}
         </td>
@@ -167,7 +163,7 @@ export function BlocksList({ chain }: { chain: ChainRef }) {
           {body}
         </DataTable>
         {next !== null && (
-          <Button tone="secondary" onClick={() => setCursor(next)}>
+          <Button variant="secondary" onClick={() => setCursor(next)}>
             {t('olderBlocks')}
           </Button>
         )}
@@ -220,7 +216,7 @@ export function TxTable({
         <BlockerNote
           title={t('txsRefused', { reason: refusalWords(resource.failure, t) })}
           action={
-            <Button tone="secondary" onClick={txs.reload}>
+            <Button variant="secondary" onClick={txs.reload}>
               {t('retry')}
             </Button>
           }
@@ -241,7 +237,7 @@ export function TxTable({
         {body}
       </DataTable>
       {next !== null && (
-        <Button tone="secondary" onClick={() => setCursor(next)}>
+        <Button variant="secondary" onClick={() => setCursor(next)}>
           {t('moreTxs')}
         </Button>
       )}
@@ -273,7 +269,7 @@ function TxRow({ row, t }: { row: ExplorerTxRow; t: ExplorerTranslate }) {
 
 function Facts({ label, rows }: { label: string; rows: [string, ReactNode, string?][] }) {
   return (
-    <dl className="lt-kv" aria-label={label}>
+    <dl className="protocol-facts" aria-label={label}>
       {rows.map(([term, value, testId]) => (
         <div key={term}>
           <dt>{term}</dt>
@@ -290,72 +286,16 @@ function ChainWait({ chain, t, label }: { chain: ChainRef; t: ExplorerTranslate;
 }
 function RetryChain({ chain, t }: { chain: Extract<ChainRef, { status: 'failed' }>; t: ExplorerTranslate }) {
   return (
-    <Button tone="secondary" onClick={chain.reload}>
+    <Button variant="secondary" onClick={chain.reload}>
       {t('retry')}
     </Button>
   );
 }
 function BackToChain({ t }: { t: ExplorerTranslate }) {
   return (
-    <Button tone="secondary" onClick={() => navigate('/chain')}>
+    <Button variant="secondary" onClick={() => navigate('/chain')}>
       {t('backToChain')}
     </Button>
-  );
-}
-
-/**
- * One record of the explorer (a block, a transaction) on the record-list template's record page, under the parked line.
- */
-function ExplorerRecord({
-  title,
-  description,
-  route,
-  children,
-}: {
-  title: string;
-  description?: string;
-  route?: string;
-  children: ReactNode;
-}) {
-  const { language } = usePreferences();
-  return (
-    <div lang={watchCopy.forLocale(language).renderedLocale} data-route={route}>
-      <RecordListTemplate
-        title={title}
-        description={description}
-        state={{ kind: 'ready' }}
-        detailOnly
-        list={null}
-        detail={
-          <>
-            <Banner />
-            {children}
-          </>
-        }
-      />
-    </div>
-  );
-}
-
-/**
- * A block height or transaction hash that is not one, from the address bar: answered not found without asking the indexer,
- * in the same words the pending pages use, with the way back to /chain.
- */
-export function RecordNotFound({ page }: { page: 'blockDetail' | 'txDetail' }) {
-  const { language } = usePreferences();
-  const { t } = protocolCopy.forLocale(language);
-  const title = t(`page_${page}`);
-  return (
-    <ExplorerRecord title={title} description={t('pendingNote')} route={page}>
-      <Panel title={t('pendingNotFoundTitle')}>
-        <div data-code="protocol.not_found" role="status">
-          <EmptyState title={t('pendingNotFoundBody', { what: t(page === 'blockDetail' ? 'what_block' : 'what_tx') })} />
-        </div>
-      </Panel>
-      <Button tone="secondary" onClick={() => navigate('/chain')}>
-        {t('pendingBack', { room: t('roomChain') })}
-      </Button>
-    </ExplorerRecord>
   );
 }
 
@@ -386,7 +326,7 @@ export function BlockPage({ height }: { height: number }) {
           <BlockerNote
             title={t('blockRefused', { reason: refusalWords(resource.failure, t) })}
             action={
-              <Button tone="secondary" onClick={block.reload}>
+              <Button variant="secondary" onClick={block.reload}>
                 {t('retry')}
               </Button>
             }
@@ -406,7 +346,7 @@ export function BlockPage({ height }: { height: number }) {
     body = (
       <>
         <Panel title={t('blockFacts')}>
-          {row.orphaned && <Tag>{t('blockOrphaned', { reason: row.orphaned.reason })}</Tag>}
+          {row.orphaned && <span className="badge">{t('blockOrphaned', { reason: row.orphaned.reason })}</span>}
           <Facts
             label={t('blockFacts')}
             rows={[
@@ -439,10 +379,10 @@ export function BlockPage({ height }: { height: number }) {
     );
   }
   return (
-    <ExplorerRecord title={t('blockTitle', { height: String(height) })}>
+    <WatchShell title={t('blockTitle', { height: String(height) })}>
       {body}
       <BackToChain t={t} />
-    </ExplorerRecord>
+    </WatchShell>
   );
 }
 
@@ -501,7 +441,7 @@ export function TxPage({ hash }: { hash: string }) {
         <BlockerNote
           title={t('txRefused', { reason: refusalWords(resource.failure, t) })}
           action={
-            <Button tone="secondary" onClick={tx.reload}>
+            <Button variant="secondary" onClick={tx.reload}>
               {t('retry')}
             </Button>
           }
@@ -510,10 +450,10 @@ export function TxPage({ hash }: { hash: string }) {
     );
   else if (resource.data) body = <TxBody tx={resource.data} t={t} />;
   return (
-    <ExplorerRecord title={t('txTitle')} description={hash}>
+    <WatchShell title={t('txTitle')} description={hash}>
       {body}
       <BackToChain t={t} />
-    </ExplorerRecord>
+    </WatchShell>
   );
 }
 
@@ -581,10 +521,10 @@ function TxBody({ tx, t }: { tx: ExplorerTx; t: ExplorerTranslate }) {
 
 function InputView({ tx, t }: { tx: ExplorerTx; t: ExplorerTranslate }) {
   const body = tx.transaction;
-  if (!body) return <p className="lt-hint">{t('notReturned')}</p>;
+  if (!body) return <p className="muted">{t('notReturned')}</p>;
   const decoded = decodeInput(body.input, body.to);
   return (
-    <section aria-label={t('tabInput')}>
+    <section aria-label={t('tabInput')} className="explorer-input">
       {decoded.kind === 'empty' && <p>{t('inputEmpty')}</p>}
       {decoded.kind === 'creation' && <p>{t('inputCreation')}</p>}
       {decoded.kind === 'unknown' && <p>{t('inputUnknown', { selector: decoded.selector })}</p>}
@@ -593,11 +533,11 @@ function InputView({ tx, t }: { tx: ExplorerTx; t: ExplorerTranslate }) {
           <p>
             {t('inputMethod')}: <code data-testid="tx-input-method">{decoded.method}</code>
           </p>
-          <dl className="lt-kv" data-testid="tx-input-args">
+          <dl className="protocol-facts" data-testid="tx-input-args">
             {decoded.args.map((arg) => (
               <div key={arg.name}>
                 <dt>
-                  {arg.name} <span className="lt-hint">{arg.type}</span>
+                  {arg.name} <span className="muted">{arg.type}</span>
                 </dt>
                 <dd>
                   <code>{arg.value}</code>
@@ -610,7 +550,7 @@ function InputView({ tx, t }: { tx: ExplorerTx; t: ExplorerTranslate }) {
       {decoded.kind !== 'decoded' && decoded.kind !== 'empty' && (
         <details>
           <summary>{t('inputRaw')}</summary>
-          <code className="lt-mono">{body.input}</code>
+          <code className="explorer-raw">{body.input}</code>
         </details>
       )}
     </section>
@@ -618,9 +558,9 @@ function InputView({ tx, t }: { tx: ExplorerTx; t: ExplorerTranslate }) {
 }
 
 function LogsView({ tx, t }: { tx: ExplorerTx; t: ExplorerTranslate }) {
-  if (tx.logs.length === 0) return <p className="lt-hint">{t('logsNone')}</p>;
+  if (tx.logs.length === 0) return <p className="muted">{t('logsNone')}</p>;
   return (
-    <ol>
+    <ol className="explorer-logs">
       {tx.logs.map((log) => (
         <li key={log.logIndex}>
           <h3>{t('logIndex', { index: String(log.logIndex) })}</h3>
@@ -638,14 +578,14 @@ function LogsView({ tx, t }: { tx: ExplorerTx; t: ExplorerTranslate }) {
                 <ol key="topics">
                   {log.topics.map((topic, i) => (
                     <li key={i}>
-                      <code className="lt-mono">{topic}</code>
+                      <code className="explorer-raw">{topic}</code>
                     </li>
                   ))}
                 </ol>,
               ],
               [
                 t('logData'),
-                <code key="data" className="lt-mono">
+                <code key="data" className="explorer-raw">
                   {log.data}
                 </code>,
               ],

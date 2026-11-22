@@ -133,40 +133,6 @@ export function Sparkline({
   );
 }
 
-/**
- * Which stretches of a time window hold data: one track, each covered range drawn where it falls and the gaps left
- * empty, so a gap reads as a gap. `from` and `to` are the window (ISO times); a range too short to see keeps a sliver.
- * Times become floats here only to place pixels. `rangeTestId` marks each range for a room's journey test.
- */
-export function Coverage({
-  label,
-  from,
-  to,
-  ranges,
-  rangeTestId,
-}: {
-  label: string;
-  from: string;
-  to: string;
-  ranges: readonly { from: string; to: string }[];
-  rangeTestId?: string;
-}) {
-  const start = Date.parse(from);
-  const span = Math.max(1, Date.parse(to) - start);
-  const at = (iso: string) => Math.min(100, Math.max(0, ((Date.parse(iso) - start) / span) * 100));
-  return (
-    <div className="lt-coverage" role="img" aria-label={label}>
-      {ranges.map((range) => (
-        <span
-          key={range.from}
-          data-testid={rangeTestId}
-          style={{ insetInlineStart: `${at(range.from)}%`, inlineSize: `${Math.max(0.5, at(range.to) - at(range.from))}%` }}
-        />
-      ))}
-    </div>
-  );
-}
-
 export function Bars({ label, bars, asset }: { label: string; bars: readonly { label: string; value: DecimalString }[]; asset: string }) {
   // Negative bars hang below a zero baseline, so a loss never draws as nothing.
   const ys = bars.map((b) => plot(b.value));

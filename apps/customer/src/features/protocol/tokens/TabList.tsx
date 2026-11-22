@@ -27,7 +27,7 @@ export function TabList<T extends string>({
   const current = tabs.findIndex((tab) => tab.id === value);
   return (
     <>
-      <div role="tablist" aria-label={label} className="lt-tabs">
+      <div role="tablist" aria-label={label} className="tokens-tabs">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -37,7 +37,7 @@ export function TabList<T extends string>({
             aria-selected={tab.id === value}
             aria-controls={`${base}-panel`}
             tabIndex={tab.id === value ? 0 : -1}
-            className="lt-tab"
+            className={tab.id === value ? 'selected' : ''}
             onClick={() => onChange(tab.id)}
             onKeyDown={(event) => {
               // Arrows follow the reading direction: in a right-to-left language the next tab is to the left.
@@ -55,7 +55,7 @@ export function TabList<T extends string>({
           </button>
         ))}
       </div>
-      <div role="tabpanel" id={`${base}-panel`} aria-labelledby={`${base}-tab-${value}`} className="lt-body">
+      <div role="tabpanel" id={`${base}-panel`} aria-labelledby={`${base}-tab-${value}`} className="tokens-panel">
         {children}
       </div>
     </>

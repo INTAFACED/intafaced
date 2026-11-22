@@ -1,4 +1,3 @@
-// volt-room: /quant/strategies
 import {
   QUANT_DESCRIPTION_MAX,
   QUANT_FOLDER_MAX,
@@ -15,10 +14,8 @@ import {
 } from '@intafaced/contracts/quant-studio-procedures';
 import { useState } from 'react';
 import { parsesAs, type ApiResult } from '../../shared/api';
-import { Button, EmptyState, Field, Select } from '@intafaced/ui/lit';
-import { RecordListTemplate, SectionTabs } from '@intafaced/ui/lit/templates';
-import { FailureBox, LoadingLine, ReadView, RecordTable } from '../../shared/record/record-parts';
-import { preservePaperHref } from '../more';
+import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
+import { Read, Select, preservePaperHref } from '../more';
 import { useApi } from '../session';
 import { QuantRooms } from './QuantRooms';
 import { strategiesCopy } from './strategies-copy';
@@ -26,6 +23,7 @@ import { MorePages, useStrategyPages, type StrategyPageRead } from './strategy-p
 import { QuotaAwareFailure } from './quota-refusal';
 import { PlanTiers } from './PlanTiers';
 import { UsagePanel } from './UsagePanel';
+import './algo.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -63,37 +61,28 @@ export function StrategiesRoom({ paper }: { paper: boolean }) {
     setNote(message);
     setRevision((n) => n + 1);
   };
-  const labels: Record<ListTab, string> = { saved: t('tabSaved'), bin: t('tabBin') };
   return (
-    <RecordListTemplate
-      title={t('title')}
-      description={t('description')}
-      state={{ kind: 'ready' }}
-      filters={<QuantRooms active="strategies" paper={paper} />}
-      list={
-        <>
-          <section>
-            <h2>{t('title')}</h2>
-            <div data-testid="quant-strategies">
-              <p className="lt-hint">{t('simulated')}</p>
-              <SectionTabs items={TABS.map((value) => ({ value, label: labels[value] }))} value={tab} onChange={choose} label={t('tabs')} />
-              {note && (
-                <p role="status" data-testid="quant-strategies-note">
-                  {note}
-                </p>
-              )}
-              {tab === 'saved' ? (
-                <SavedList key={`saved:${revision}`} paper={paper} onChanged={changed} />
-              ) : (
-                <RecycleBin key={`bin:${revision}`} onChanged={changed} />
-              )}
-            </div>
-          </section>
-          <UsagePanel revision={revision} />
-          <PlanTiers revision={revision} />
-        </>
-      }
-    />
+    <>
+      <QuantRooms active="strategies" paper={paper} />
+      <Panel title={t('title')}>
+        <div data-testid="quant-strategies">
+          <p className="muted">{t('simulated')}</p>
+          <Tabs items={TABS} value={tab} onChange={choose} label={t('tabs')} labels={{ saved: t('tabSaved'), bin: t('tabBin') }} />
+          {note && (
+            <p role="status" data-testid="quant-strategies-note">
+              {note}
+            </p>
+          )}
+          {tab === 'saved' ? (
+            <SavedList key={`saved:${revision}`} paper={paper} onChanged={changed} />
+          ) : (
+            <RecycleBin key={`bin:${revision}`} onChanged={changed} />
+          )}
+        </div>
+      </Panel>
+      <UsagePanel revision={revision} />
+      <PlanTiers revision={revision} />
+    </>
   );
 }
 
@@ -127,20 +116,21 @@ function SavedList({ paper, onChanged }: { paper: boolean; onChanged: (note: str
   }
 
   return (
-    <ReadView resource={pages.first.resource} retry={pages.first.reload}>
+    <Read resource={pages.first.resource} retry={pages.first.reload}>
       {(data) => {
         const { rows, cursor } = pages.rowsOf(data);
         if (!rows.length) {
           return (
             <EmptyState
               title={t('none')}
-              body={t('noneBody')}
               action={
-                <a className="lt-link" href={preservePaperHref('/quant/studio', paper)}>
+                <a className="button" href={preservePaperHref('/quant/studio', paper)}>
                   {t('openStudio')}
                 </a>
               }
-            />
+            >
+              {t('noneBody')}
+            </EmptyState>
           );
         }
         const folders = [...new Set(rows.map((row) => row.folder))].sort((a, b) => a.localeCompare(b));
@@ -154,15 +144,15 @@ function SavedList({ paper, onChanged }: { paper: boolean; onChanged: (note: str
               options={[{ value: ALL, label: t('folderAll') }, ...folders.map((name) => ({ value: name, label: name || t('folderRoot') }))]}
             />
             {cursor && folder !== ALL && (
-              <p className="lt-hint" role="note">
+              <p className="muted" role="note">
                 {t('folderPartial')}
               </p>
             )}
-            {failure && <FailureBox result={failure} />}
+            {failure && <Failure result={failure} />}
             {shown.length === 0 ? (
               <EmptyState title={t('noneInFolder')} />
             ) : (
-              <RecordTable
+              <DataTable
                 label={t('tabSaved')}
                 headers={[t('name'), t('folder'), t('version'), t('saved'), t('descriptionHeading'), t('actions')]}
               >
@@ -170,7 +160,7 @@ function SavedList({ paper, onChanged }: { paper: boolean; onChanged: (note: str
                   <tr key={row.id} data-testid="quant-strategy-row" data-id={row.id} data-version={row.version} data-folder={row.folder}>
                     <td lang="und">
                       <a
-                        className="lt-link"
+                        className="text-link"
                         data-testid="quant-strategy-name"
                         href={preservePaperHref(`/quant/strategies/${encodeURIComponent(row.id)}`, paper)}
                       >
@@ -193,25 +183,25 @@ function SavedList({ paper, onChanged }: { paper: boolean; onChanged: (note: str
                         />
                       ) : (
                         <>
-                          <Button tone="secondary" onClick={() => setEditing(row.id)} disabled={busyId !== null}>
+                          <Button variant="secondary" onClick={() => setEditing(row.id)} disabled={busyId !== null}>
                             {t('organise', { name: row.name })}
                           </Button>
-                          <Button tone="secondary" onClick={() => void remove(row)} disabled={busyId !== null}>
+                          <Button variant="secondary" onClick={() => void remove(row)} disabled={busyId !== null}>
                             {t('delete', { name: row.name })}
                           </Button>
-                          {busyId === row.id && <LoadingLine label={t('deleting')} />}
+                          {busyId === row.id && <Loading label={t('deleting')} />}
                         </>
                       )}
                     </td>
                   </tr>
                 ))}
-              </RecordTable>
+              </DataTable>
             )}
             <MorePages cursor={cursor} busy={pages.busy} failure={pages.failure} more={(next) => void pages.more(next)} />
           </>
         );
       }}
-    </ReadView>
+    </Read>
   );
 }
 
@@ -269,14 +259,14 @@ function OrganiseForm(props: { strategy: QuantStrategyCard; onCancel: () => void
         onChange={(event) => setDescription(event.currentTarget.value)}
         maxLength={QUANT_DESCRIPTION_MAX}
       />
-      <Button type="submit" tone="primary" disabled={busy}>
+      <Button type="submit" disabled={busy}>
         {t('save')}
       </Button>
-      <Button type="button" tone="secondary" onClick={props.onCancel} disabled={busy}>
+      <Button type="button" variant="secondary" onClick={props.onCancel} disabled={busy}>
         {t('cancel')}
       </Button>
-      {busy && <LoadingLine label={t('saving')} />}
-      {failure && <FailureBox result={failure} />}
+      {busy && <Loading label={t('saving')} />}
+      {failure && <Failure result={failure} />}
     </form>
   );
 }
@@ -302,14 +292,14 @@ function RecycleBin({ onChanged }: { onChanged: (note: string) => void }) {
     else setFailure(res);
   }
   return (
-    <ReadView resource={pages.first.resource} retry={pages.first.reload}>
+    <Read resource={pages.first.resource} retry={pages.first.reload}>
       {(data) => {
         const { rows, cursor } = pages.rowsOf(data);
-        if (!rows.length) return <EmptyState title={t('binNone')} body={t('binNoneBody')} />;
+        if (!rows.length) return <EmptyState title={t('binNone')}>{t('binNoneBody')}</EmptyState>;
         return (
           <>
             {failure && <QuotaAwareFailure result={failure} />}
-            <RecordTable label={t('tabBin')} headers={[t('name'), t('folder'), t('version'), t('deleted'), t('actions')]}>
+            <DataTable label={t('tabBin')} headers={[t('name'), t('folder'), t('version'), t('deleted'), t('actions')]}>
               {rows.map((row) => (
                 <tr key={row.id} data-testid="quant-bin-row" data-id={row.id} data-version={row.version}>
                   <td lang="und">{row.name}</td>
@@ -317,18 +307,18 @@ function RecycleBin({ onChanged }: { onChanged: (note: string) => void }) {
                   <td>{t('versionOf', { version: row.version })}</td>
                   <td lang="zxx">{row.deletedAt ? utcText(row.deletedAt) : ''}</td>
                   <td>
-                    <Button tone="secondary" onClick={() => void restore(row)} disabled={busyId !== null}>
+                    <Button variant="secondary" onClick={() => void restore(row)} disabled={busyId !== null}>
                       {t('restore', { name: row.name })}
                     </Button>
-                    {busyId === row.id && <LoadingLine label={t('restoring')} />}
+                    {busyId === row.id && <Loading label={t('restoring')} />}
                   </td>
                 </tr>
               ))}
-            </RecordTable>
+            </DataTable>
             <MorePages cursor={cursor} busy={pages.busy} failure={pages.failure} more={(next) => void pages.more(next)} />
           </>
         );
       }}
-    </ReadView>
+    </Read>
   );
 }

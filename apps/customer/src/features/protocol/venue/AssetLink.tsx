@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import type { ProtocolAssetLinkReview } from '@intafaced/contracts/protocol-venue-funds';
 import { useResource } from '../../../shared/resource';
-import { Button } from '@intafaced/ui/lit';
-import { Failure, Field, Loading, Panel } from '../volt/parts';
+import { Button, Failure, Field, Loading, Panel } from '../../../shared/ui';
 import type { createProtocolApi } from '../api';
 import type { protocolCopy } from '../copy';
 
@@ -39,9 +38,9 @@ export function AssetLinkReview({ api, t }: { api: Api; t: Translate }) {
 
   return (
     <Panel title={t('linkTitle')}>
-      <p className="lt-hint">{t('linkLead')}</p>
+      <p className="muted">{t('linkLead')}</p>
       {open ? (
-        <form aria-label={t('linkTitle')} onSubmit={(event) => void request(event)}>
+        <form className="protocol-quote" aria-label={t('linkTitle')} onSubmit={(event) => void request(event)}>
           <Field
             label={t('linkToken')}
             value={token}
@@ -52,22 +51,20 @@ export function AssetLinkReview({ api, t }: { api: Api; t: Translate }) {
               setState({ status: 'idle' });
             }}
           />
-          <Button tone="primary" type="submit" disabled={token.trim() === '' || state.status === 'reviewing'}>
+          <Button type="submit" disabled={token.trim() === '' || state.status === 'reviewing'}>
             {state.status === 'reviewing' ? t('linkRequesting') : t('linkRequest')}
           </Button>
           {state.status === 'refused' && (
-            <p className="lt-refusal" role="alert">
+            <p className="protocol-refuse" role="alert">
               {state.message}
             </p>
           )}
         </form>
       ) : (
-        <Button tone="primary" onClick={() => setOpen(true)}>
-          {t('linkOpen')}
-        </Button>
+        <Button onClick={() => setOpen(true)}>{t('linkOpen')}</Button>
       )}
       {state.status === 'ready' && (
-        <section aria-label={t('linkResult')}>
+        <section aria-label={t('linkResult')} className="protocol-quote__result">
           <h3>{t('linkResult')}</h3>
           <p>
             {state.review.token.symbol ?? state.review.token.address} ·{' '}
@@ -77,7 +74,7 @@ export function AssetLinkReview({ api, t }: { api: Api; t: Translate }) {
             <strong>{t('linkVerdict', { verdict: state.review.verdict === 'linked' ? t('linkLinked') : t('linkNotLinked') })}</strong>
           </p>
           <p>{state.review.reason}</p>
-          <p className="lt-hint">{t('linkAt', { venue: state.review.venue, block: state.review.blockNumber })}</p>
+          <p className="muted">{t('linkAt', { venue: state.review.venue, block: state.review.blockNumber })}</p>
         </section>
       )}
       <p>
@@ -99,7 +96,7 @@ export function VenueReadDocs({ api, t }: { api: Api; t: Translate }) {
         <Failure result={resource.failure} retry={docs.reload} />
       ) : (
         <>
-          <p className="lt-hint">{t('readsLead', { venue: resource.data.venue, chainId: String(resource.data.chainId) })}</p>
+          <p className="muted">{t('readsLead', { venue: resource.data.venue, chainId: String(resource.data.chainId) })}</p>
           {resource.data.calls.map((call) => (
             <article key={call.name}>
               <h4>
@@ -113,7 +110,7 @@ export function VenueReadDocs({ api, t }: { api: Api; t: Translate }) {
           ))}
         </>
       )}
-      <p className="lt-hint">{t('readsCore')}</p>
+      <p className="muted">{t('readsCore')}</p>
     </Panel>
   );
 }
