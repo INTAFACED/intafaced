@@ -20,6 +20,7 @@ import {
   RiskMoment,
   Select,
   Surface,
+  TextArea,
   type DoorLink,
 } from './index.js';
 
@@ -165,6 +166,17 @@ describe('components', () => {
     expect(out).toMatch(/^<label class="lt-field"><input [^>]*type="checkbox"[^>]*\/><span>Allowed<\/span><\/label>$/);
     expect(out).toContain('checked=""');
     expect(out).toContain('aria-label="Allow Runner"');
+  });
+
+  it('TextArea is a labelled native text box whose hint describes it and whose change hands back the text', () => {
+    const out = html(<TextArea id="why" label="Why" value="TEST" readOnly maxLength={500} hint="Up to 500 characters" aria-invalid />);
+    expect(out).toMatch(
+      /^<label class="lt-field"><span>Why<\/span><textarea [^>]*>TEST<\/textarea><small id="why-hint">Up to 500 characters<\/small><\/label>$/,
+    );
+    expect(out).toContain('aria-describedby="why-hint"');
+    expect(out).toContain('maxLength="500"');
+    expect(out).toContain('aria-invalid="true"');
+    expect(html(<TextArea label="Note" name="note" />)).not.toContain('aria-describedby');
   });
 
   it('LegalSlot holds no copy of its own, and an unset text shows a refusal in words, never the id', () => {
