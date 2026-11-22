@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { mfaResetViewSchema, type MfaResetView } from '@intafaced/contracts/identity';
-import { Button, Failure, Field } from '../../shared/ui';
+import { Button, Field, RefusalBox } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { mfaResetCopy } from './mfa-reset-copy';
+import { Failed } from './Failed';
 
 type View = MfaResetView;
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -79,13 +80,13 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
 
   const code = refusal?.code;
   return (
-    <section className="public-auth-mfa-reset stack" aria-labelledby="mfa-reset-title">
+    <section aria-labelledby="mfa-reset-title">
       <h2 id="mfa-reset-title" lang={languageFor('title')}>
         {t('title')}
       </h2>
       {view?.state === 'waiting' ? (
-        <div className="stack">
-          <p className="notice" role="status" lang={languageFor('waiting')}>
+        <div>
+          <p role="status" lang={languageFor('waiting')}>
             <strong>{t('waiting', { time: when(view.completesAt) })}</strong>
           </p>
           <p lang={languageFor('told')}>{t('told', { email: view.told.email })}</p>
@@ -96,7 +97,6 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
         </div>
       ) : view?.state === 'code_sent' ? (
         <form
-          className="form-stack"
           onSubmit={(event) =>
             void send(event, 'mfaReset.confirm', (form) => ({ resetId: view.resetId, code: value(form, 'mfaResetCode') }))
           }
@@ -105,12 +105,12 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
             {t('mailed', { email: view.email, time: when(view.codeExpiresAt) })}
           </p>
           <Field label={t('code')} name="mfaResetCode" inputMode="numeric" autoComplete="one-time-code" required disabled={busy} />
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('confirming') : t('confirm')}
             </Button>
             <Button
-              variant="ghost"
+              tone="quiet"
               disabled={busy}
               onClick={() => {
                 setRefusal(null);
@@ -123,7 +123,6 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
         </form>
       ) : (
         <form
-          className="form-stack"
           onSubmit={(event) =>
             void send(event, 'mfaReset.start', (form) => ({
               identifier: value(form, 'mfaResetIdentifier'),
@@ -141,25 +140,29 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
             disabled={busy}
           />
           <Field label={t('password')} name="mfaResetPassword" type="password" autoComplete="current-password" required disabled={busy} />
-          <Button type="submit" disabled={busy}>
+          <Button tone="primary" type="submit" disabled={busy}>
             {busy ? t('sending') : t('send')}
           </Button>
         </form>
       )}
       {refusal &&
         (worded(code) && refusal.reason !== 'uncertain' ? (
-          <div data-testid="failure" className="failure" role="alert">
-            <p lang={languageFor(code)}>{t(code)}</p>
+          <RefusalBox
+            data-testid="failure"
+            role="alert"
+            lang={languageFor(code)}
+            refusal={{ variant: 'refused', title: t(code), body: '' }}
+          >
             {TO_SUPPORT.has(code) && (
-              <a className="text-link" href="/help" lang={languageFor('support')}>
+              <a className="lt-link" href="/help" lang={languageFor('support')}>
                 {t('support')}
               </a>
             )}
-          </div>
+          </RefusalBox>
         ) : (
-          <Failure result={refusal} />
+          <Failed result={refusal} />
         ))}
-      <Button variant="secondary" onClick={onBack}>
+      <Button tone="secondary" onClick={onBack}>
         {t('back')}
       </Button>
     </section>
