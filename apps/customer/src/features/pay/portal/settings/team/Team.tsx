@@ -447,14 +447,14 @@ export function InviteReview({ userId = '', email, label, role }: { userId?: str
           <div>
             <dt>{t('fEmail')}</dt>
             <dd>
-              <code className="pp-wrap">{address}</code>
+              <code className="lt-mono">{address}</code>
             </dd>
           </div>
         ) : (
           <div>
             <dt>{t('fUserId')}</dt>
             <dd>
-              <code className="pp-wrap">{id}</code>
+              <code className="lt-mono">{id}</code>
             </dd>
           </div>
         )}
