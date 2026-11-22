@@ -22,7 +22,6 @@
     "packages/ledger-client": ["services/svc-pay"],
     "packages/sdk-ts": ["services/svc-edge"],
     "packages/ui": ["apps/customer"],
-    "services/svc-agents": ["packages/i18n"],
     "services/svc-edge": ["apps/customer"],
     "services/svc-identity": ["services/svc-edge", "services/svc-trade"],
     "services/svc-indexer": ["services/svc-dex"],

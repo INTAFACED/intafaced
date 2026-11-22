@@ -1,4 +1,4 @@
-//! The `advisors` slice (`PORT.md`): the AI Coach (`coach.policy`, `coach.session`, `coach.runSession`), Risk &
+//! The `advisors` slice (`README.md`): the AI Coach (`coach.policy`, `coach.session`, `coach.runSession`), Risk &
 //! Compliance's drafts (`riskCompliance.draftScreening`, `riskCompliance.refuseKycReview`), Growth (`growth.propose`),
 //! the Launch agent (`launch.assess`), the Portfolio agent (`portfolio.plan`) and the marketplace install
 //! (`marketplace.install`), answered as `router.ts` answers them.

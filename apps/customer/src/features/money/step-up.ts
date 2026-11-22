@@ -6,11 +6,9 @@ import { useSession } from '../session';
 import { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from '../account';
 import { isStepUpCode, mintWithdrawToken, type WithdrawStepUpMethod } from './withdraw-step-up';
 
-import { stepUpRefusalKeys } from './WithdrawStepUp';
-
 import { useAliveSignal, useFactorStatus } from './StepUpConfirm';
 
-import { withdrawStepUpCopy } from './withdraw-step-up-copy';
+import { stepUpRefusalKeys, withdrawStepUpCopy } from './withdraw-step-up-copy';
 
 /**
  * The logic of the two "Confirm it's you" parts, `WithdrawStepUp` and `StepUpConfirm`, as hooks, so a room drawn

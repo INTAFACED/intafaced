@@ -222,7 +222,6 @@
   "/uc/safe/api-keys/:keyId",
   "/uc/trading-permissions",
   "/view",
-  "/notifications",
   "/uc/promotion",
   "/uc/promotion/mycards",
   "/uc/promotion/mypromotion",

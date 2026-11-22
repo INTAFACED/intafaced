@@ -1258,7 +1258,7 @@ export const FEATURES = [
     phase: '5',
     status: 'done',
     dependsOn: ['identity.accounts'],
-    requires: ['services/svc-agents'],
+    requires: ['crates/svc-agents'],
     note:
       'Reference mount — the /trpc + createEdgeContext recipe every other service copies. ' +
       '**D26-P1-A6 sealed:** metering-off audit-only forever (`metering/product-law.ts` + seal suite); no silent feeCharge when AGENTS_METERING_ENABLED=false.',
@@ -1271,10 +1271,10 @@ export const FEATURES = [
     dependsOn: ['agents.gateway'],
     // Path-narrowed 2026-08-15: was whole svc-agents; fence matches navigator dir like bank.auto-invest.
     requires: [
-      'services/svc-agents/src/navigator/mount-vs-tracker.ts',
-      'services/svc-agents/src/navigator/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/navigator/trade-data-http-port.ts',
-      'services/svc-agents/src/navigator/identity-session-http-port.ts',
+      'crates/svc-agents/src/navigator/mod.rs',
+      'crates/svc-agents/src/navigator/run.rs',
+      'crates/svc-agents/src/navigator/ports.rs',
+      'crates/svc-agents/tests/navigator_research_pg.rs',
     ],
     note:
       '**D26-P1-A1 Done 2026-08-21:** tool-calling inside guardrails; dark refuse bills zero (`mount-vs-tracker.ts`). ' +
@@ -1288,12 +1288,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['agents.gateway', 'ops.support'],
-    requires: [
-      'services/svc-agents/src/support-agent/mount-vs-tracker.ts',
-      'services/svc-agents/src/support-agent/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/support-agent/d26-p1-a2-done-bar.test.ts',
-      'services/svc-agents/src/support-agent/desk-port.ts',
-    ],
+    requires: ['crates/svc-agents/src/factories/support.rs', 'crates/svc-agents/tests/factories_support_pg.rs'],
     note:
       '**D26-P1-A2 Done 2026-08-21:** KB + account-state grounded; AbortSignal stoppable; no invent balance (`mount-vs-tracker.ts`, #1735). ' +
       'Assist surface only — desk mountain is `ops.support` (D26-P1-O3 split). HTTP desk port when SUPPORT_URL set. ' +
@@ -1305,12 +1300,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['agents.gateway', 'trade.spot'],
-    requires: [
-      'services/svc-agents/src/scanner/mount-vs-tracker.ts',
-      'services/svc-agents/src/scanner/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/scanner/spot-tickers-port.ts',
-      'services/svc-agents/src/scanner/trade-tickers-http-port.ts',
-    ],
+    requires: ['crates/svc-agents/src/factories/scanner.rs', 'crates/svc-agents/tests/factories_scanner_pg.rs'],
     note:
       '**D26-P1-A3 Done 2026-08-21:** P0-11 production allow-list empty → refuse all ranks (`adr/2026-08-12-scanner-signal-inputs-law.md`, Accepted 2026-08-15); fixture recipe test-only. ' +
       'SpotTickersPort + TRADE_URL HTTP door (#2574/#2577); live session refuses `no_live_tickers` when unset/empty — never invent quotes. ' +
@@ -1322,12 +1312,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['agents.gateway', 'pay.routing'],
-    requires: [
-      'services/svc-agents/src/merchant/mount-vs-tracker.ts',
-      'services/svc-agents/src/merchant/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/merchant/pay-metrics-port.ts',
-      'services/svc-agents/src/merchant/pay-metrics-http-port.ts',
-    ],
+    requires: ['crates/svc-agents/src/factories/merchant.rs', 'crates/svc-agents/tests/factories_merchant_pg.rs'],
     note:
       '**D26-P1-A4 Done 2026-08-21:** missing/dark/stale pay metrics named refuse; never invent numeric rate (`mount-vs-tracker.ts`). ' +
       'PayMetricsPort + PAY_URL HTTP door; svc-pay merchant_watch_metrics store/project/refresh (#2607/#2614). ' +
@@ -1339,12 +1324,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['agents.gateway', 'trade.copy'],
-    requires: [
-      'services/svc-agents/src/copy-intel/mount-vs-tracker.ts',
-      'services/svc-agents/src/copy-intel/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/copy-intel/copy-leader-fixtures-http-port.ts',
-      'services/svc-agents/src/copy-intel/returns-board-refuse.ts',
-    ],
+    requires: ['crates/svc-agents/src/factories/copy_intel.rs', 'crates/svc-agents/tests/factories_copy_intel_pg.rs'],
     note:
       '**D26-P1-A5 Done 2026-08-21:** audited leader stats + directory presentation; returns-ranked boards refused (`mount-vs-tracker.ts`, #1708). ' +
       'CopyLeaderFixturesPort + TRADE_URL HTTP door; live session refuses `no_live_leaders` when plane sealed. ' +
@@ -1946,11 +1926,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['agents.gateway', 'ops.portfolio'],
-    requires: [
-      'services/svc-agents/src/portfolio-agent/mount-vs-tracker.ts',
-      'services/svc-agents/src/portfolio-agent/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/portfolio-agent/plan.test.ts',
-    ],
+    requires: ['crates/svc-agents/src/advisors/portfolio.rs', 'crates/svc-agents/tests/advisors_pg.rs'],
     note:
       '**D26-P1-PF1 Done 2026-08-21:** plan-only rebalance mounted (`mount-vs-tracker.ts`); dark port refuses. ' +
       'Never places orders in this slice. Kill-switch + audit on plan path. ' +
@@ -1963,12 +1939,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['agents.gateway', 'launch.trust-layer'],
-    requires: [
-      'services/svc-agents/src/launch/mount-vs-tracker.ts',
-      'services/svc-agents/src/launch/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/launch/pre-listing-assess.ts',
-      'services/svc-agents/src/launch/launch-route.test.ts',
-    ],
+    requires: ['crates/svc-agents/src/advisors/drafts.rs', 'crates/svc-agents/tests/advisors_pg.rs'],
     note:
       'DONE 2026-08-21 D26-P1-LA1: `launch.assess` — pattern flags from DeployerReputation counts only; `history_absent` refused (no clean badge). ' +
       'Class X residual: live chain reputation port wiring; block-vs-annotate listing policy (owner).',
@@ -1980,12 +1951,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['agents.gateway', 'ops.compliance'],
-    requires: [
-      'services/svc-agents/src/risk-compliance/mount-vs-tracker.ts',
-      'services/svc-agents/src/risk-compliance/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/risk-compliance/screening-draft.ts',
-      'services/svc-agents/src/risk-compliance/draft-route.test.ts',
-    ],
+    requires: ['crates/svc-agents/src/advisors/drafts.rs', 'crates/svc-agents/tests/advisors_pg.rs'],
     note:
       'DONE 2026-08-21 D26-P1-RC1: `riskCompliance.draftScreening` — screening-support drafts only; refuses empty/unset list and `asDecision`. ' +
       'Never writes identity.kyc-review `reviewed_by`. Class X residual: sanctions list content (counsel); geo/VPN case UI.',
@@ -1998,10 +1964,9 @@ export const FEATURES = [
     owner: 'Phantom-X-007',
     dependsOn: ['agents.gateway', 'academy.curriculum'],
     requires: [
-      'services/svc-agents/src/coach/mount-vs-tracker.ts',
-      'services/svc-agents/src/coach/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/coach/grounded-session.ts',
-      'services/svc-agents/src/coach/coach-route.test.ts',
+      'crates/svc-agents/src/advisors/coach_run.rs',
+      'crates/svc-agents/src/advisors/grounding.rs',
+      'crates/svc-agents/tests/advisors_pg.rs',
     ],
     note:
       'DONE 2026-08-15 S2S spine citations (GET ACADEMY_URL/internal/curriculum, fail-closed empty). ' +
@@ -2015,12 +1980,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['agents.gateway', 'ops.analytics'],
-    requires: [
-      'services/svc-agents/src/growth/mount-vs-tracker.ts',
-      'services/svc-agents/src/growth/mount-vs-tracker.test.ts',
-      'services/svc-agents/src/growth/campaign-proposal.ts',
-      'services/svc-agents/src/growth/growth-route.test.ts',
-    ],
+    requires: ['crates/svc-agents/src/advisors/drafts.rs', 'crates/svc-agents/tests/advisors_pg.rs'],
     note:
       '**D26-P1-G1 Done 2026-08-21:** campaign proposals mounted (`mount-vs-tracker.ts`); never publishes. ' +
       'Dark warehouse + returns-ranked copy + budget invent refused. ' +

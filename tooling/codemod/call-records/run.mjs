@@ -97,7 +97,9 @@ export function run(argv) {
       if (!Object.keys(skipped).length || callersOnly) break;
       const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...door, ...files]));
       if (!fixed.fixed) break;
-      for (const f of fixed.files) if (tracked.has(f)) kept.add(f);
+      // A record file is written again by the next round's step 1 (and fixed again by portable.mjs), so only the
+      // schema sources it edited are kept: keeping a record file would bring back this round's records after a put back.
+      for (const f of fixed.files) if (tracked.has(f) && !files.includes(f)) kept.add(f);
       build();
     }
     if (!Object.keys(skipped).length) break;

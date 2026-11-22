@@ -7,7 +7,7 @@
 //! handler already decided (a `TRPCError`) passes through unchanged; anything else is the engine's outage.
 //!
 //! The sub-routers (`own`, `team`, `spend`, `fleet`, `oplog`, `alerts`, the route desk, the on-chain routes) each map
-//! their refusals with their own guard; each is its slice's to port (`PORT.md`).
+//! their refusals with their own guard; each is its slice's to port (`README.md`).
 
 use service_kit::trpc::TrpcError;
 
