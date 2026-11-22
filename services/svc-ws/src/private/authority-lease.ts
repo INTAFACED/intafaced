@@ -1,5 +1,6 @@
 import { performance } from 'node:perf_hooks';
-import { currentAuthorityInputSchema, currentAuthorityResultSchema, type CurrentAuthorityInput } from '@intafaced/contracts';
+import type { CurrentAuthorityInput } from '@intafaced/contracts';
+import { currentAuthorityInputSchema, currentAuthorityResultSchema } from '@intafaced/contracts/account-controls';
 import type { CurrentAuthorityPort } from './authority.js';
 import type { LiveCredentialInput } from './live-credential.js';
 

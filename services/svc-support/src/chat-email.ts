@@ -7,14 +7,9 @@
  * Without a mailbox (`SUPPORT_CHAT_EMAIL` blank, or identity with no mail transport) the chat answers `vendor.email`, as
  * it did before a mailbox existed.
  */
-import {
-  SERVICE_MAIL_PATH,
-  serviceCallSigner,
-  serviceMailAcceptedSchema,
-  type ServiceAuthMode,
-  type ServiceMailRequest,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceMailRequest, ServiceSigner } from '@intafaced/contracts';
+import { SERVICE_MAIL_PATH, serviceMailAcceptedSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { SupportError } from './support-service.js';
 
 export const SUPPORT_CHAT_EMAIL_UNPROVED = 'support.chat_email_unproved';

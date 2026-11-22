@@ -1,12 +1,7 @@
 import { parseAbiItem, parseUnits, type Address, type Hex, type PublicClient } from 'viem';
-import {
-  PORTFOLIO_TRANSFERS_SHOWN,
-  TOKENS_READ_TOO_LARGE,
-  type ProtocolPortfolio,
-  type ProtocolPortfolioHolding,
-  type ProtocolPortfolioTransfer,
-  type ProtocolSwapPairs,
-} from '@intafaced/contracts';
+import type { ProtocolPortfolio, ProtocolPortfolioHolding, ProtocolPortfolioTransfer, ProtocolSwapPairs } from '@intafaced/contracts';
+import { PORTFOLIO_TRANSFERS_SHOWN } from '@intafaced/contracts/protocol-portfolio';
+import { TOKENS_READ_TOO_LARGE } from '@intafaced/contracts/protocol-tokens';
 import { classifyChainError } from '../chain/availability.js';
 import { listPairs } from './pairs.js';
 import { priceTokens, usdText, type PriceSetting } from './prices.js';

@@ -7,7 +7,8 @@
  * is 403 and `identity.step_up_unavailable` 503. With no grid service mounted every door answers 503 `trade.grid_unavailable`.
  */
 import { z } from 'zod';
-import { router, scopedProcedure, StepUpCheckError, TRPCError } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { GRID_SET_EXITS, GRID_SET_IDLE_YIELD, GRID_SUBMIT_PERMISSION, venueGridSchema } from '@intafaced/contracts/trade-grid-procedures';
 import { answerKeys } from '../answer-keys.js';

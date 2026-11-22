@@ -1,13 +1,8 @@
 import type { Sql } from 'postgres';
 import { SUPPORT_TICKET_LINK_KINDS } from '@intafaced/contracts/support-desk-procedures';
-import {
-  serviceCallSigner,
-  SUPPORT_RECORD_OWNERSHIP_PATH,
-  supportRecordOwnershipResultSchema,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type SupportTicket,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner, SupportTicket } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
+import { SUPPORT_RECORD_OWNERSHIP_PATH, supportRecordOwnershipResultSchema } from '@intafaced/contracts/support-record-ownership';
 import { SupportError } from './support-service.js';
 import type { TicketOrderSource } from './ticket-order.js';
 import { identitySecretSet } from './identity-grounding-honesty.js';

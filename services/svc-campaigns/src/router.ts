@@ -1,4 +1,4 @@
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import type { CampaignService } from './campaigns.js';
 import type { CompetitionService } from './competitions.js';
 import type { DistributionService } from './distributions.js';

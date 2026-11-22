@@ -17,7 +17,7 @@
  * replays and a different change on the same revision refuses `bank.ops_revision_conflict`. A change also needs a
  * second person: an identity approval bound to the partner and the new kinds, consumed before the write.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';

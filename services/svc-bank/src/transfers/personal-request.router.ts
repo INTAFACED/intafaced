@@ -1,4 +1,4 @@
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import {
   BANK_PERSONAL_REQUEST_CANCEL,
   BANK_PERSONAL_REQUEST_CREATE,

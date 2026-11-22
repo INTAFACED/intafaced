@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
-import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { FeeScheduleError } from '../spot/fee-schedule.js';
 import type { Market } from '../spot/types.js';

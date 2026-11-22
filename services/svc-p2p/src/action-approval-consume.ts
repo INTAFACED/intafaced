@@ -3,13 +3,9 @@
  * (method schema + merchant decide). A typed-in second name is not this.
  */
 import { createHash } from 'node:crypto';
-import {
-  actionApprovalConsumeInputSchema,
-  actionApprovalSchema,
-  createIdentityApprovalClient as createSharedIdentityApprovalClient,
-  type ActionApproval,
-  type ActionApprovalConsumeInput,
-} from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
+import { actionApprovalConsumeInputSchema, actionApprovalSchema } from '@intafaced/contracts/action-approval';
+import { createIdentityApprovalClient as createSharedIdentityApprovalClient } from '@intafaced/contracts/action-approval-client';
 
 export const ACTION_APPROVAL_UNWIRED = 'action_approval.identity_unwired' as const;
 export const ACTION_APPROVAL_MISSING = 'action_approval.missing' as const;

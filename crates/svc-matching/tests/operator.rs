@@ -126,6 +126,7 @@ fn mount(o: Options) -> Mounted {
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: true,
     });
     let calls = Arc::new(AtomicUsize::new(0));
     let door = MatchingDoor::new(

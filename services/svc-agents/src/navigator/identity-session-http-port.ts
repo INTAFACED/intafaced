@@ -6,7 +6,8 @@
  * never an invented session row and never a caller fixture as live truth.
  */
 
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { SessionFixture } from './data-tools.js';
 import type { NavigatorIdentitySessionPort } from './identity-session-port.js';
 

@@ -15,7 +15,7 @@
  */
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError, type Principal } from '@intafaced/auth';
 import {
   InsufficientFundsError,

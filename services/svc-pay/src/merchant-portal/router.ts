@@ -3,12 +3,16 @@ import { AuthError, hasScope, requireMfa, requireScope } from '@intafaced/auth';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import {
+  merchantCategoryChooseInputSchema,
+  merchantCategoryGetInputSchema,
+  merchantCategoryViewSchema,
+} from '@intafaced/contracts/business-category';
+import {
   merchantAnalyticsDeclinesInputSchema,
   merchantAnalyticsDeclinesSchema,
   merchantAnalyticsFeesSchema,
   merchantAnalyticsInputSchema,
   merchantAnalyticsVolumeSchema,
-  merchantRoomAccessSchema,
   merchantBusinessProfileConfirmInputSchema,
   merchantBusinessProfileDecideResultSchema,
   merchantBusinessProfileReviewInputSchema,
@@ -25,14 +29,9 @@ import {
   merchantProfileSecondApprovalResultSchema,
   merchantTermsAcceptInputSchema,
   merchantTermsAcceptResultSchema,
-  merchantCategoryChooseInputSchema,
-  merchantCategoryGetInputSchema,
-  merchantCategoryViewSchema,
-  anyScopeProcedure,
-  router,
-  scopedProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-portal';
+import { merchantRoomAccessSchema } from '@intafaced/contracts/merchant-room-access';
+import { anyScopeProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { consumePayApproval, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { merchantProfileReviewFields } from '../approval-bindings.js';
 import { createMerchantCustomerEmails } from '../customer-emails/router.js';
