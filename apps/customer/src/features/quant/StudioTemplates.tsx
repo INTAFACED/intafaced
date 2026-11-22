@@ -3,12 +3,12 @@ import { QUANT_TEMPLATE_GET, QUANT_TEMPLATE_LIST } from '@intafaced/contracts/qu
 import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
+import { Button, EmptyState } from '@intafaced/ui/lit';
 import { Read, Select } from '../more';
 import { useApi } from '../session';
 import { STRATEGY_PAGE } from './StrategyTable';
 import { templatesCopy } from './templates-copy';
-import './algo.css';
+import { KitFailure, KitLoading, KitTable } from './kit-parts';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -66,17 +66,18 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
   }
 
   return (
-    <Panel title={t('title')}>
+    <section className="lt-panel">
+      <h2 className="lt-panel-title">{t('title')}</h2>
       <div data-testid="quant-templates">
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-hint">{t('intro')}</p>
         <Read resource={first.resource} retry={reload}>
           {(data) => {
             const rows = [...data.templates, ...(later?.rows ?? [])];
             const cursor = later ? later.cursor : data.nextCursor;
-            if (!rows.length) return <EmptyState title={t('none')}>{t('noneBody')}</EmptyState>;
+            if (!rows.length) return <EmptyState title={t('none')} body={t('noneBody')} />;
             return (
               <>
-                <DataTable headers={[t('name'), t('about'), t('versionHeading'), t('note'), t('actions')]} label={t('title')}>
+                <KitTable headers={[t('name'), t('about'), t('versionHeading'), t('note'), t('actions')]} label={t('title')}>
                   {rows.map((row) => (
                     <tr key={row.id}>
                       <td lang="und">{row.name}</td>
@@ -84,18 +85,18 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
                       <td>{t('version', { version: row.version })}</td>
                       <td lang="und">{row.releaseNote}</td>
                       <td>
-                        <Button variant="secondary" onClick={() => void use(row.id)} disabled={busy !== null}>
+                        <Button tone="secondary" onClick={() => void use(row.id)} disabled={busy !== null}>
                           {t('use', { name: row.name })}
                         </Button>
-                        <Button variant="secondary" onClick={() => void view(row.id, row.name)} disabled={busy !== null}>
+                        <Button tone="secondary" onClick={() => void view(row.id, row.name)} disabled={busy !== null}>
                           {t('viewSource', { name: row.name })}
                         </Button>
                       </td>
                     </tr>
                   ))}
-                </DataTable>
+                </KitTable>
                 {cursor && busy === null && (
-                  <Button variant="secondary" onClick={() => void more(cursor)}>
+                  <Button tone="secondary" onClick={() => void more(cursor)}>
                     {t('showMore')}
                   </Button>
                 )}
@@ -103,8 +104,8 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
             );
           }}
         </Read>
-        {busy && busy !== 'more' && <Loading label={t('using')} />}
-        {failure && <Failure result={failure.result} retry={failure.retry} />}
+        {busy && busy !== 'more' && <KitLoading label={t('using')} />}
+        {failure && <KitFailure result={failure.result} retry={failure.retry} />}
         {used && (
           <p role="status" data-testid="quant-template-used">
             {t('used', { name: used.name, version: used.version })}
@@ -112,7 +113,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
         )}
         {viewing && <TemplateSource key={viewing.id} {...viewing} onClose={() => setViewing(null)} />}
       </div>
-    </Panel>
+    </section>
   );
 }
 
@@ -134,11 +135,11 @@ function TemplateSource(props: { name: string; versions: QuantTemplateVersionSou
       <p lang="und" data-testid="quant-template-source-note">
         {shown.releaseNote}
       </p>
-      <p className="muted">{t('readOnly', { version: newest.version })}</p>
-      <pre lang="zxx" className="quant-source" tabIndex={0} data-testid="quant-template-source" data-version={shown.version}>
+      <p className="lt-hint">{t('readOnly', { version: newest.version })}</p>
+      <pre lang="zxx" className="lt-mono lt-scroll-x" tabIndex={0} data-testid="quant-template-source" data-version={shown.version}>
         {shown.source}
       </pre>
-      <Button variant="secondary" onClick={props.onClose}>
+      <Button tone="secondary" onClick={props.onClose}>
         {t('closeSource')}
       </Button>
     </section>

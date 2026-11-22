@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Popover, PopoverContent, PopoverTrigger } from './deps';
+import { Button, Popover, PopoverContent, PopoverTrigger } from '@intafaced/ui/lit';
 import { templateRefusal, templatesCopy } from './templates-copy';
 import { CHART_TEMPLATE_NAME_MAX, findTemplate, saveTemplate, useChartTemplates, type ChartTemplate } from './templates';
 import type { StudyStore } from './studies/model';
@@ -62,40 +62,40 @@ export function TemplatesMenu({
           if (!next) setForm(null);
         }}
       >
-        <PopoverTrigger className="cw-templates-btn">{t('Templates')}</PopoverTrigger>
-        <PopoverContent align="end" aria-label={t('Chart templates')} className="cw-templates">
+        <PopoverTrigger className="lt-button lt-button-secondary">{t('Templates')}</PopoverTrigger>
+        <PopoverContent align="end" size="wide" aria-label={t('Chart templates')} className="lt-stack">
           {record.status === 'signed-out' ? (
-            <p className="cw-templates-note">{t('Templates signed out')}</p>
+            <p className="lt-note">{t('Templates signed out')}</p>
           ) : record.status === 'loading' ? (
-            <p className="cw-templates-note">{t('Templates loading')}</p>
+            <p className="lt-note">{t('Templates loading')}</p>
           ) : record.status === 'failed' ? (
-            <p className="cw-templates-note">
+            <p className="lt-note">
               {t('Templates failed')}{' '}
-              <button type="button" className="cw-templates-link" onClick={record.reload}>
+              <button type="button" className="lt-link" onClick={record.reload}>
                 {t('Try again')}
               </button>
             </p>
           ) : (
             <>
               {record.value.templates.length === 0 ? (
-                <p className="cw-templates-note">{t('No templates')}</p>
+                <p className="lt-note">{t('No templates')}</p>
               ) : (
-                <div role="menu" aria-label={t('Chart templates')} className="cw-templates-list">
+                <div role="menu" aria-label={t('Chart templates')} className="lt-stack-tight">
                   {record.value.templates.map((template) => (
                     <button
                       key={template.id}
                       type="button"
                       role="menuitem"
-                      className="cw-templates-item"
+                      className="lt-menu-item"
                       onClick={() => {
                         setOpen(false);
                         onApply(template);
                       }}
                     >
-                      <span className="cw-templates-name">{template.name}</span>{' '}
-                      <span className="cw-templates-facts">{t('Template facts', { count: template.studies.length })}</span>{' '}
+                      <span className="lt-strong">{template.name}</span>{' '}
+                      <span className="lt-note">{t('Template facts', { count: template.studies.length })}</span>{' '}
                       {template.drawings && template.drawings.items.length > 0 ? (
-                        <span className="cw-templates-facts" data-testid="cw-template-drawings">
+                        <span className="lt-note" data-testid="cw-template-drawings">
                           {t('Template drawings', { count: template.drawings.items.length, symbol: template.drawings.symbol })}
                         </span>
                       ) : null}
@@ -104,22 +104,22 @@ export function TemplatesMenu({
                 </div>
               )}
               {form ? (
-                <div className="cw-templates-form">
+                <div className="lt-stack">
                   {form.replacing ? (
-                    <div role="alertdialog" aria-label={t('Replace title', { name: form.name.trim() })} className="cw-templates-form">
+                    <div role="alertdialog" aria-label={t('Replace title', { name: form.name.trim() })} className="lt-stack">
                       <p>{t('Replace body', { name: form.name.trim() })}</p>
-                      <div className="cw-templates-actions">
-                        <button type="button" disabled={busy} onClick={() => void submit(true)}>
+                      <div className="lt-actions">
+                        <Button size="sm" disabled={busy} onClick={() => void submit(true)}>
                           {t('Replace')}
-                        </button>
-                        <button type="button" onClick={() => setForm({ ...form, replacing: false })}>
+                        </Button>
+                        <Button size="sm" tone="quiet" onClick={() => setForm({ ...form, replacing: false })}>
                           {t('Cancel')}
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   ) : (
-                    <form onSubmit={onSubmit} className="cw-templates-form">
-                      <label className="cw-templates-field">
+                    <form onSubmit={onSubmit} className="lt-stack">
+                      <label className="lt-field">
                         {t('Template name')}
                         <input
                           value={form.name}
@@ -128,28 +128,28 @@ export function TemplatesMenu({
                           onChange={(event) => setForm({ ...form, name: event.target.value, problem: null })}
                         />
                       </label>
-                      <p className="cw-templates-note">{t('What it keeps')}</p>
-                      <div className="cw-templates-actions">
-                        <button type="submit" disabled={busy}>
+                      <p className="lt-note">{t('What it keeps')}</p>
+                      <div className="lt-actions">
+                        <Button type="submit" size="sm" disabled={busy}>
                           {t('Save template')}
-                        </button>
-                        <button type="button" onClick={() => setForm(null)}>
+                        </Button>
+                        <Button size="sm" tone="quiet" onClick={() => setForm(null)}>
                           {t('Cancel')}
-                        </button>
+                        </Button>
                       </div>
                     </form>
                   )}
                   {form.problem ? (
-                    <p role="alert" className="cw-templates-problem">
+                    <p role="alert" className="lt-note lt-note-bad">
                       {form.problem}
                     </p>
                   ) : null}
                 </div>
               ) : (
-                <div className="cw-templates-actions">
-                  <button type="button" onClick={() => setForm({ name: '', replacing: false, problem: null })}>
+                <div className="lt-actions">
+                  <Button size="sm" onClick={() => setForm({ name: '', replacing: false, problem: null })}>
                     {t('Save as template')}
-                  </button>
+                  </Button>
                 </div>
               )}
             </>
@@ -157,7 +157,7 @@ export function TemplatesMenu({
         </PopoverContent>
       </Popover>
       {savedName ? (
-        <p role="status" className="cw-templates-saved" data-testid="cw-template-saved" data-template={savedName}>
+        <p role="status" className="lt-note" data-testid="cw-template-saved" data-template={savedName}>
           {t('Saved template', { name: savedName })}
         </p>
       ) : null}

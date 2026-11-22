@@ -46,37 +46,40 @@ export function PriceLines({
 
   if (!open && lines.length === 0) return null;
   return (
-    <div className="cw-lines" data-testid="price-lines">
+    <div className="lt-stack-tight" data-testid="price-lines">
       {open && (
-        <form className="cw-date" onSubmit={add} aria-label={t('Price line title')}>
-          <label className="cw-select cw-select--inline">
+        <form className="lt-row" onSubmit={add} aria-label={t('Price line title')}>
+          <label className="lt-field">
             <span>{t('Price line price')}</span>
             <input name="price" type="text" inputMode="decimal" autoComplete="off" aria-describedby="cw-price-line-tick" />
           </label>
-          <label className="cw-select cw-select--inline">
+          <label className="lt-field">
             <span>{t('Price line label')}</span>
             <input name="label" type="text" maxLength={PRICE_LABEL_LIMIT} autoComplete="off" />
           </label>
-          <button type="submit">{t('Price line add')}</button>
-          <span id="cw-price-line-tick" className="cw-lines-tick">
+          <button type="submit" className="lt-button lt-button-secondary">
+            {t('Price line add')}
+          </button>
+          <span id="cw-price-line-tick" className="lt-note">
             {t('Price line off tick', { tick: tickSize })}
           </span>
         </form>
       )}
       {refusal && (
-        <p className="cw-note" role="status" data-code="trade.chart.price_line_refused">
+        <p className="lt-note lt-note-warn" role="status" data-code="trade.chart.price_line_refused">
           {refusal}
         </p>
       )}
       {lines.length === 0 ? (
-        <p className="cw-lines-none">{t('Price line none')}</p>
+        <p className="lt-note">{t('Price line none')}</p>
       ) : (
-        <ul className="cw-lines-list" aria-label={t('Price lines')}>
+        <ul className="lt-list" aria-label={t('Price lines')}>
           {lines.map((line) => (
-            <li key={line.id} data-price={line.price}>
+            <li key={line.id} className="lt-row lt-row-between" data-price={line.price}>
               <span>{t('Price line item', { label: line.label, price: line.price })}</span>
               <button
                 type="button"
+                className="lt-icon-button"
                 aria-label={t('Price line remove', { price: line.price })}
                 onClick={() => onChange(lines.filter((row) => row.id !== line.id))}
               >

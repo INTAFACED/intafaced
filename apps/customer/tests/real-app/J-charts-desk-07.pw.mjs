@@ -309,7 +309,7 @@ test(`${J} #6 saves a chart template with indicators and drawings and applies it
     await expect(rsiChip(second)).toHaveCount(0);
     await expect(canvas(second, 'ETH/USDT')).not.toHaveAttribute('data-style', 'heikin-ashi');
     // The workbench is the full chart: every style, studies, drawings and templates are on.
-    await expect(second.locator('.cw-page')).toHaveAttribute(
+    await expect(second.getByTestId('cw-page')).toHaveAttribute(
       'data-featureset',
       'styles=candles,bars,line,area,columns,heikin-ashi studies=on drawings=on templates=on',
     );
