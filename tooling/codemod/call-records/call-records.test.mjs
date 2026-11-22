@@ -11,14 +11,18 @@ import {
   checkedCall,
   importedFrom,
   importsFile,
+  holdCallersOnly,
   portInFlight,
+  portRefusal,
   pruneImports,
   pruneReExports,
   pruneBuilders,
   pruneSchemas,
   recordName,
   rewriteSite,
+  schemaArgOf,
 } from './index.mjs';
+import { answerFromCallers } from './answer.mjs';
 import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
@@ -46,6 +50,84 @@ test('a service whose Rust port is in flight is refused, by name, before anythin
   assert.match(portInFlight('svc-agents', root) ?? '', /svc-agents's Rust port is in flight/);
   assert.equal(portInFlight('svc-bank', root), null, 'no crate yet: its port has not started');
   assert.equal(portInFlight('svc-academy', root), null, 'switched: its TypeScript is gone, the door path (--from-rev) runs');
+  // Mid-port, only --callers-only runs; and --callers-only runs only mid-port.
+  assert.equal(portRefusal({ service: 'svc-agents' }, root)?.code, 3);
+  assert.equal(portRefusal({ service: 'svc-agents', callersOnly: true }, root), null);
+  assert.match(portRefusal({ service: 'svc-bank', callersOnly: true }, root)?.why ?? '', /svc-bank's is not: run without it/);
+  // Planted: a callers-only run that touched a service or its crate fails, naming the file; one that touched only callers and contracts does not.
+  assert.throws(() => holdCallersOnly([join(root, 'services/svc-agents/src/router.ts')], root), /services\/svc-agents\/src\/router\.ts/);
+  assert.throws(() => holdCallersOnly([join(root, 'crates/svc-agents/src/door/calls.rs')], root), /crates\/svc-agents/);
+  holdCallersOnly([join(root, 'apps/customer/src/a.ts'), join(root, 'packages/contracts/src/agents-own-procedures.ts')], root);
+});
+
+test('--callers-only moves a caller of a service mid-port to a record written from its router, leaves a near case, and never touches the service or its crate', () => {
+  // The codemod, copied into a small repo: a service whose crate sits beside it, a helper its router declares, and two callers.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const files = {
+    'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-agents/src/router.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().min(1) });',
+      'const agentOut = z.object({ id: z.string(), name: z.string() });',
+      'export function createAgentsRouter() {',
+      "  return router({ own: router({ get: scopedProcedure('agents:read').input(idInput).output(agentOut).query(({ input }) => get(input)) }) });",
+      '}',
+      '',
+    ].join('\n'),
+    'crates/svc-agents/src/lib.rs': '// the port\n',
+    'apps/customer/src/features/agents/agent.ts': [
+      "import { z } from 'zod';",
+      'const agent = z.object({ id: z.string(), name: z.string() });',
+      "export const a = (api) => api.query('agents', 'own.get', { id: 'x' }, agent);",
+      "export const b = (api) => api.query('agents', 'own.gone', { id: 'x' }, agent);",
+      '',
+    ].join('\n'),
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  mkdirSync(join(root, 'packages/contracts/src'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  const run = (...a) => execFileSync('node', [index, '--module', 'agents', ...a], { cwd: root, encoding: 'utf8', stdio: 'pipe' });
+  // Without the mode the service is still refused, by name, exit 3.
+  assert.throws(
+    () => run('--write'),
+    (e) => e.status === 3 && /Rust port is in flight/.test(e.stderr),
+  );
+  run('--callers-only', '--write', '--json', join(root, '.git/summary.json'));
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.records, ['AGENTS_OWN_GET']);
+  assert.deepEqual(
+    summary.hand.map((h) => h.call),
+    ['agents own.gone'],
+  );
+  const caller = readFileSync(join(root, 'apps/customer/src/features/agents/agent.ts'), 'utf8');
+  assert.match(caller, /export const a = \(api\) => api\.call\(AGENTS_OWN_GET, \{ id: ["']x["'] \}\);/);
+  assert.match(
+    caller,
+    /export const b = \(api\) => api\.query\(["']agents["'], ["']own\.gone["']/,
+    'the near case, a path the router has not, stays',
+  );
+  // The service and its crate are as they were: the router keeps its own schemas and mounts nothing.
+  assert.equal(git('status', '--porcelain', '--', 'services', 'crates'), '');
+  // The record's input and answer are the router's own declarations, copied as written.
+  const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
+  assert.match(shared, /export const idInput = z\.object\(\{ id: z\.string\(\)\.min\(1\) \}\);/);
+  assert.match(shared, /export const agentOut = z\.object\(\{ id: z\.string\(\), name: z\.string\(\) \}\);/);
+  const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
+  assert.match(record, /input: idInput,\s+output: agentOut,/);
+  assert.match(record, /access: \{ caller: ["']scope["'], scope: ["']agents:read["'] \}/);
 });
 
 test('an import read only as a JSX tag or a re-export stays; one nothing reads goes', () => {
@@ -357,6 +439,58 @@ test('the router reader follows a builder member, an imported builder and both b
   );
 });
 
+test('the router reader follows a re-exported factory and a factory parameter to the router its call passes, and still names a parameter no call binds', async () => {
+  const { procedures } = await import('./router.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-svc-'));
+  mkdirSync(join(dir, 'src/parts'), { recursive: true });
+  writeFileSync(
+    join(dir, 'src/parts/router.ts'),
+    [
+      'export function createPartRouter() { return router({ preview: p.query(h) }); }',
+      'export function createSubRouter() { return router({ mine: p.query(h) }); }',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(join(dir, 'src/parts/index.ts'), "export { createPartRouter } from './router.js';\nexport * from './router.js';\n");
+  writeFileSync(
+    join(dir, 'src/account.ts'),
+    [
+      'export function createAccountRouter(deps: unknown, sub: unknown) {',
+      '  return router({ sub, own: p.query(h) });',
+      '}',
+      'export function createLoneRouter(sub: unknown) { return router({ sub }); }',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { createPartRouter, createSubRouter } from './parts/index.js';",
+      "import { createAccountRouter, createLoneRouter } from './account.js';",
+      'export function createSvcRouter(deps: unknown, given: unknown) {',
+      '  return router({',
+      '    part: createPartRouter(),',
+      '    account: createAccountRouter(deps, createSubRouter()),',
+      '    lone: createLoneRouter(given),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found, unread } = procedures(dir);
+  assert.deepEqual([...found.keys()].sort(), ['account.own', 'account.sub.mine', 'part.preview']);
+  // `given` is the root's own parameter: nothing passes it, so the part stays, named.
+  assert.deepEqual(
+    unread.map((u) => `${u.path}: ${u.why}`),
+    ['lone.sub.*: name given not followed (param)'],
+  );
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(
+    reasonOf('pay founderAdmin.changes.submit: two procedures under one path (a switch router)'),
+    'two procedures under one path (a switch router)',
+  );
+});
+
 test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RECORD)', async () => {
   const { deskReadSite } = await import('./sites.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
@@ -606,6 +740,71 @@ test("a guard behind the service's own function or const options is copied whole
   const { reasonOf } = await import('./report.mjs');
   assert.equal(reasonOf(access.job), 'guard kept by hand (named, with its reason)');
   assert.equal(reasonOf(access.audited), 'guard chained with .use()');
+});
+
+test("a guard whose one check runs inside the service's own error mapper names its check; the mount is handed it without next(), and a near shape stays", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const { partsFor } = await import('./guard-check.mjs');
+  const { reasonOf } = await import('./report.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-wrapped-'));
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'src/kit.ts'), 'export async function mappedElsewhere(fn) { return fn(); }\n');
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { scopedProcedure, router } from '@intafaced/contracts/trpc';",
+      "import { mappedElsewhere } from './kit.js';",
+      'async function mapped(fn) { try { return await fn(); } catch (e) { throw e; } }',
+      'export function createSvcRouter(authority, other) {',
+      "  const staffRead = scopedProcedure('ops:read').use(async ({ ctx, next }) =>\n    mapped(async () => {\n      await authority(ctx);\n      return next({ ctx });\n    }),\n  );",
+      "  const imported = scopedProcedure('ops:read').use(async ({ ctx, next }) => mappedElsewhere(async () => { await authority(ctx); return next({ ctx }); }));",
+      "  const twice = scopedProcedure('ops:read').use(async ({ ctx, next }) => mapped(async () => { await authority(ctx); await authority(ctx); return next({ ctx }); }));",
+      "  const reads = scopedProcedure('ops:read').use(async ({ ctx, next }) => mapped(async () => { await authority(other); return next({ ctx }); }));",
+      "  const changes = scopedProcedure('ops:read').use(async ({ ctx, next }) => mapped(async () => { await authority(ctx); return next({ ctx: { ...ctx, x: 1 } }); }));",
+      '  const shadowed = (authority) => router({ inner: staffRead.output(o).query(h) });',
+      '  return router({',
+      '    preview: staffRead.output(o).query(h),',
+      '    imported: imported.output(o).query(h),',
+      '    twice: twice.output(o).query(h),',
+      '    reads: reads.output(o).query(h),',
+      '    changes: changes.output(o).query(h),',
+      '    nested: shadowed(other),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const chains = new Map([...found].map(([path, proc]) => [path, chainOf(proc)]));
+  const access = Object.fromEntries([...chains].map(([path, c]) => [path, c.problems.length ? c.problems.join('; ') : c.guard.text]));
+  assert.deepEqual(access, {
+    preview: "{ caller: 'scope', scope: 'ops:read', check: 'authority' }",
+    // A wrapper from another file, a second statement, a check reading more than ctx, a changed context: each stays.
+    imported: 'guard use() chained: not one a record names',
+    twice: 'guard use() chained: not one a record names',
+    reads: 'guard use() chained: not one a record names',
+    changes: 'guard use() chained: not one a record names',
+    // Where the record would mount, \`authority\` is another function's parameter: the check would read something else.
+    'nested.inner': 'guard use() chained: its wrapped check reads a name that means something else where the record mounts',
+  });
+  for (const why of Object.values(access).filter((t) => !t.startsWith('{'))) assert.equal(reasonOf(why), 'guard chained with .use()');
+  // The mount is handed the same check with next() taken out, beside the router file's refusal reader.
+  const guard = chains.get('preview').guard;
+  const file = join(dir, 'src/router.ts');
+  const reader = { name: 'storageRefusal', file, exported: false };
+  assert.deepEqual(
+    partsFor([{ name: 'svcParts', file, parts: true }], file, guard, () => reader),
+    {
+      name: '{ refusalOf: storageRefusal, checks: { authority: (ctx) => mapped(async () => { await authority(ctx); }) } }',
+      file,
+      imports: [],
+    },
+  );
+  assert.equal(
+    partsFor([], file, guard, () => undefined),
+    undefined,
+  );
 });
 
 test("a record naming its service's own check mounts with the router file's parts, else with its refusal reader and the check's export", async () => {
@@ -1114,4 +1313,41 @@ test('a re-run whose records already exist (no record file changes) skips the fi
     calls.some((c) => c.startsWith('doubles.mjs --write')),
     calls.join('\n'),
   );
+});
+
+test("a call whose router writes no answer schema takes its callers' one pure zod schema; callers that disagree, check or parse with none keep it", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-answer-'));
+  const file = join(repo, 'apps/customer/src/features/session/passkey.ts');
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    [
+      "import { z } from 'zod';",
+      'const options = z.object({ challenge: z.string(), timeout: z.number().optional() });',
+      'const same = options;',
+      "export const a = (api) => api.mutate('identity', 'auth.stepUpOptions', {}, options);",
+      "export const b = (api) => api.mutate('identity', 'auth.stepUpOptions', {}, same, { signal });",
+      "export const c = (api) => api.mutate('identity', 'webauthn.registerOptions', {}, options);",
+      "export const d = (api) => api.mutate('identity', 'webauthn.registerOptions', {}, z.object({ challenge: z.string(), timeout: z.number().optional() }));",
+      "export const e = (api) => api.mutate('identity', 'webauthn.authOptions', {}, options.refine((o) => o.challenge !== ''));",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo).sort((x, y) => x.node.start - y.node.start);
+  const of = (path) =>
+    answerFromCallers(
+      repo,
+      sites.filter((s) => s.path === path),
+      { schemaOf: schemaArgOf, checksOf: answerChecks },
+    );
+  const moved = of('auth.stepUpOptions');
+  assert.ok(moved.output, moved.why);
+  assert.equal(text(moved.output.p, moved.output.node), 'options', "the record takes the caller's schema as the caller names it");
+  assert.match(of('webauthn.registerOptions').why ?? '', /passkey\.ts:6 and .*passkey\.ts:7 parse it with different schemas/);
+  assert.match(of('webauthn.authOptions').why ?? '', /not pure zod \(\.refine\(\)/);
+  const reader = { ...sites[0], node: sites[0].node, reader: true };
+  const none = answerFromCallers(repo, [reader], { schemaOf: () => undefined, checksOf: answerChecks });
+  assert.match(none.why ?? '', /with its own reader function, not a zod schema/);
 });

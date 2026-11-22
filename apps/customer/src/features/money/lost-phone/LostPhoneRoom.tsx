@@ -6,7 +6,6 @@ import {
   EXTRA_CONTROLS,
   EXTRA_CONTROLS_ASSETS,
   safetyChangeOutputSchema,
-  safetyReadOutputSchema,
   type ExtraControl,
   type SafetyRead,
 } from '@intafaced/contracts/identity-safety';
@@ -14,6 +13,7 @@ import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
+import { IDENTITY_ACCOUNT_SAFETY_READ } from '@intafaced/contracts/identity-account-procedures';
 
 /**
  * Lost phone or compromised account (BK-safe-01, J-bank-18 #4), on the flow template. From the bank: the ordered steps
@@ -108,7 +108,7 @@ export function LostPhoneRoom() {
   const { resource } = useResource<SafetyRead>(
     (signal) =>
       userId
-        ? api.query('identity', 'account.safety.read', undefined, safetyReadOutputSchema, { signal })
+        ? api.call(IDENTITY_ACCOUNT_SAFETY_READ, undefined, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: t('signedOutBody') }),
     `safety-read:${userId ?? 'out'}`,
   );
