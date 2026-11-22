@@ -173,16 +173,22 @@
 /* Segmented: ranges, Buy/Sell, Simple/Pro. */
 .lit-segmented {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 4px;
-  border-radius: var(--lit-radius-control);
+  /* A pill for one row; a wrapped track keeps one row's rounding instead of curving through its corner options. */
+  border-radius: min(var(--lit-radius-control), calc(var(--lit-control-h) / 2 - 4px));
   background: var(--lit-solid-bg-sunken);
   box-shadow: inset 0 0 0 1px var(--lit-control-rim);
 }
 .lit-segmented button {
   flex: 1;
   min-height: calc(var(--lit-control-h) - 16px);
-  min-width: 24px;
+  /* A label stays whole on one line, clear of the pill's rounded ends, so the pressed fill is under every glyph; a
+     row too long for its track wraps whole options instead. */
+  min-width: max-content;
+  padding-inline: 12px;
+  white-space: nowrap;
   border: 0;
   border-radius: calc(var(--lit-radius-control) - 4px);
   background: none;
