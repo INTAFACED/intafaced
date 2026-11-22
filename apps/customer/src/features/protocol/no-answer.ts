@@ -9,8 +9,8 @@ export const NO_ANSWER_CODE = 'edge.upstream_unavailable';
  * The retry window: the room asks again on its own, and a person may ask again too. After this many no-answer replies in a
  * row, a second attempt is no longer worth offering, so the room says the service is not running here and hides Try again.
  */
-export const NO_ANSWER_ATTEMPTS = 3;
-export const NO_ANSWER_RETRY_MS = 4000;
+const NO_ANSWER_ATTEMPTS = 3;
+const NO_ANSWER_RETRY_MS = 4000;
 
 /** True once the retry window has run out of attempts. Any other answer starts the count again. */
 export function useNoAnswerWindow<T>({ resource, reload }: Resource<T>): boolean {

@@ -7,7 +7,6 @@ import type { AuditStatus, createProtocolApi } from '../api';
 import { SUBNAV, type Slug } from '../blockers';
 import { protocolCopy } from '../copy';
 import { NO_ANSWER_CODE, useNoAnswerWindow } from '../no-answer';
-import { auditCopy } from './audit-copy';
 import { AuditProducts } from './AuditProducts';
 import { canRetry, failureRefusal } from './failure';
 
@@ -90,7 +89,7 @@ function AuditState({ audit }: { audit: Resource<AuditStatus> }) {
  * connected" answer hides Try again; a plain no-answer keeps it until the retry window closes, then says the service is
  * not running here (the parked room's rule, `NO_ANSWER_ATTEMPTS`).
  */
-export function Answer<T>({ value, source, children }: { value: Resource<T>; source: string; children: (data: T) => ReactNode }) {
+function Answer<T>({ value, source, children }: { value: Resource<T>; source: string; children: (data: T) => ReactNode }) {
   const { language } = usePreferences();
   const { t } = protocolCopy.forLocale(language);
   const { resource, reload } = value;

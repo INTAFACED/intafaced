@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { SwapForm } from './swap/SwapForm';
 import { navigate } from '../../app/location';
 import { useApi } from '../session';
@@ -36,8 +36,6 @@ import './explorer/explorer.css';
 import './protocol.css';
 import { NO_ANSWER_CODE, useNoAnswerWindow } from './no-answer';
 import { AuditRoom } from './audit/AuditRoom';
-
-export { NO_ANSWER_ATTEMPTS, NO_ANSWER_RETRY_MS } from './no-answer';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
 type Resource<T> = ReturnType<typeof useResource<T>>;
