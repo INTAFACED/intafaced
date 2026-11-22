@@ -3,7 +3,7 @@ import { BrandIris, Panel } from '@intafaced/ui';
 import { isServiceNotConnected, type ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
-import { canTryAgain, failureRawCode } from './failure-words';
+import { RAW_CODE, canTryAgain, embeddedKey } from './failure-words';
 export { Panel };
 export { canTryAgain };
 
@@ -95,7 +95,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
       </div>
     );
   }
-  const rawCode = failureRawCode(result);
+  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
     const words = refusalCopy(result.code ?? rawCode);

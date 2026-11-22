@@ -11,7 +11,7 @@ import { useSession } from '../../session';
 import { helpCopy as copy } from '../help-copy';
 import { helpHref } from '../help-guards';
 import { HELP_SECTION_WINDOW, helpCategoryHref, helpSectionHref, helpSectionRead, type HelpLibraryPath } from '../help-library';
-import { ApiFailure } from './ApiFailure';
+import { FailureNote } from '../../more';
 import { ContactSupport } from './ContactSupport';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -93,7 +93,7 @@ function Unread({ failure, reload }: { failure: Failed; reload: () => void }) {
       body={
         <div className="lt-stack">
           <div lang="und">
-            <ApiFailure result={failure} />
+            <FailureNote result={failure} />
           </div>
           <div className="lt-actions">
             <Button tone="primary" onClick={reload}>

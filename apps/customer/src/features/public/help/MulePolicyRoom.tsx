@@ -3,7 +3,7 @@ import { ReadingTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { defineCopy } from '../../../shared/i18n';
-import { ApiFailure } from './ApiFailure';
+import { FailureNote } from '../../more';
 import { SUPPORT_SAFETY_MULE_POLICY } from '@intafaced/contracts/support-safety-procedures';
 
 const copy = defineCopy('public.mule-policy', {
@@ -34,7 +34,7 @@ export function MulePolicyRoom() {
         state={state}
         body={
           resource.status === 'failed' ? (
-            <ApiFailure result={resource.failure} retry={reload} />
+            <FailureNote result={resource.failure} retry={reload} />
           ) : resource.status === 'ready' && !resource.data.published ? (
             <div role="status" data-testid="mule-policy__unpublished">
               <EmptyState title={t('unpublished')} />

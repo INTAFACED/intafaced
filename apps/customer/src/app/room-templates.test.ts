@@ -16,9 +16,13 @@ import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-tem
 const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
-/** A route's pattern as a person opens it: a `:pair` is a real market. */
-// A route's parameter filled with a value its room reads as an address (a help topic id is lower-case letters, digits and dashes).
-const opened = (route: string) => route.replace(':pair', 'BTC-USDT').replace(':id', 'test-1');
+/** A route's pattern as a person opens it: a `:pair` is a real market, a `:runId` a run's id (an agent run's page opens only on one), and an `:id` a help topic address (lower-case letters, digits and dashes). */
+const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
+  ':pair': 'BTC-USDT',
+  ':runId': '00000000-0000-4000-8000-000000000001',
+  ':id': 'test-1',
+};
+const opened = (route: string) => route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_PARAMS[param] ?? param);
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 
 describe('room templates registry', () => {

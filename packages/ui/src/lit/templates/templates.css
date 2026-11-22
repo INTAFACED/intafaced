@@ -638,6 +638,44 @@
   unicode-bidi: isolate;
 }
 
+/* Words a person wrote (a post, a message) keep their own line breaks, and a long word or link breaks rather than
+   widening the room. */
+.lt-pre-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A picture in a room (a posted image, a shared card) fits the room's width, keeps its shape, and is never taller than
+   most of a screen. */
+.lt-media {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: 30rem;
+  block-size: auto;
+  object-fit: contain;
+}
+
+/* Code read as written (a strategy's source, a line comparison): it keeps its lines, wraps rather than widening the room,
+   and scrolls inside its own box. A compared line carries data-op; its + or − mark says the change, the tone repeats it. */
+.lt-code {
+  margin: 0;
+  padding-block: var(--lit-gap-item);
+  padding-inline: var(--lit-gap-item);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  font-family: var(--lit-font-mono);
+  direction: ltr;
+  unicode-bidi: isolate;
+  background: var(--lit-solid-bg-raised);
+  border-radius: var(--lit-radius-control);
+}
+.lt-code [data-op='removed'] {
+  color: var(--lit-down-text);
+}
+.lt-code [data-op='added'] {
+  color: var(--lit-up-text);
+}
+
 .lt-receipt,
 .lt-review {
   display: flex;

@@ -5,7 +5,7 @@ import { ReadingTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { defineCopy } from '../../../shared/i18n';
-import { ApiFailure } from './ApiFailure';
+import { FailureNote } from '../../more';
 import { SUPPORT_OFFICIAL_CHANNELS } from '@intafaced/contracts/support-official-channels-procedures';
 
 const copy = defineCopy('public.official-channels', {
@@ -59,7 +59,7 @@ export function OfficialChannelsRoom() {
         body={
           resource.status === 'loading' ? null : (
             <div className="lt-stack">
-              {resource.status === 'failed' && <ApiFailure result={resource.failure} retry={reload} />}
+              {resource.status === 'failed' && <FailureNote result={resource.failure} retry={reload} />}
               {resource.status === 'ready' && !resource.data.published && (
                 <div role="status" data-testid="official-channels__unpublished">
                   <EmptyState title={t('unpublished')} />
