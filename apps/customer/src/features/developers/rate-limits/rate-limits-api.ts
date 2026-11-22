@@ -7,7 +7,6 @@ import {
   limitRequestListOutputSchema,
   limitRequestSchema,
   rateCostsOutputSchema,
-  rateTiersOutputSchema,
   type LimitRequest,
   type LimitRequestCreateInput,
   type LimitRequestListOutput,
@@ -15,9 +14,10 @@ import {
   type RateTiersOutput,
 } from '@intafaced/contracts/api-rate-limits';
 import type { ApiClient, ApiResult } from '../../../shared/api';
+import { IDENTITY_API_RATE_TIERS } from '@intafaced/contracts/identity-api-rate-tiers-procedures';
 
 export const readRateTiers = (api: ApiClient, signal: AbortSignal): Promise<ApiResult<RateTiersOutput>> =>
-  api.query('identity', 'apiRateTiers', undefined, rateTiersOutputSchema, { signal });
+  api.call(IDENTITY_API_RATE_TIERS, undefined, { signal });
 
 export const readRateCosts = (api: ApiClient, signal: AbortSignal): Promise<ApiResult<RateCostsOutput>> =>
   api.plain('edge', '/rate-limits/costs', rateCostsOutputSchema, { signal });

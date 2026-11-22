@@ -1,7 +1,6 @@
 import { StatusTag } from '@intafaced/ui';
 import {
   KYC_LADDER_LEVELS,
-  kycLevelsDescribeOutputSchema,
   type KycLadderFeatureState,
   type KycLadderLevel,
   type KycLadderRung,
@@ -12,6 +11,7 @@ import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { verificationLadderCopy as copy } from './verification-ladder-copy';
+import { IDENTITY_KYC_LEVELS_DESCRIBE } from '@intafaced/contracts/identity-kyc-procedures';
 
 const rank = (level: KycLadderLevel) => KYC_LADDER_LEVELS.indexOf(level);
 
@@ -44,7 +44,7 @@ export function VerificationLadder({
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'kyc.levels.describe', {}, kycLevelsDescribeOutputSchema, { signal }),
+    (signal) => api.call(IDENTITY_KYC_LEVELS_DESCRIBE, {}, { signal }),
     `verification-ladder:${userId}:${statusTier ?? 'reading'}`,
   );
   // The owner's figures are the same for every customer, so one read serves every level (svc-pay, D-148).
