@@ -301,14 +301,14 @@ export const FEATURES = [
     module: 'matching',
     phase: '2',
     status: 'done',
-    requires: ['services/svc-matching'],
+    requires: ['crates/svc-matching'],
     dependsOn: ['ledger.double-entry'],
   }),
   f('matching.determinism', 'Determinism test — replay yields identical book', {
     module: 'matching',
     phase: '2',
     status: 'done',
-    requires: ['services/svc-matching/src/engine/engine.test.ts'],
+    requires: ['crates/svc-matching/tests/journal_replay.rs'],
     dependsOn: ['matching.engine'],
   }),
   f('trade.spot', 'Spot markets, order lifecycle, fees', {

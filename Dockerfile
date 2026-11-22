@@ -22,9 +22,9 @@
 # ── Non-root ────────────────────────────────────────────────────────────────
 #
 # The final stage runs as `node` (uid 1000, shipped by the base image). Nothing
-# in the runtime writes inside /app except Next's `.next/cache`, and the one
-# service that does write — svc-matching's journal — writes to a named volume
-# mounted at /data.
+# in the runtime writes inside /app except Next's `.next/cache`. svc-matching's
+# journal, the one service write to a named volume, is the Rust image's now
+# (crates/svc-matching/Dockerfile).
 
 # ── base ────────────────────────────────────────────────────────────────────
 # bookworm-slim, not alpine: `@node-rs/argon2` (svc-identity's password hasher),
@@ -95,7 +95,6 @@ COPY services/svc-bank/package.json          services/svc-bank/
 COPY services/svc-blueprint/package.json     services/svc-blueprint/
 COPY services/svc-identity/package.json      services/svc-identity/
 COPY services/svc-mining-pool/package.json  services/svc-mining-pool/
-COPY services/svc-matching/package.json      services/svc-matching/
 COPY services/svc-notify/package.json        services/svc-notify/
 COPY services/svc-ops/package.json           services/svc-ops/
 COPY services/svc-support/package.json       services/svc-support/
@@ -155,10 +154,6 @@ FROM base AS runtime
 ENV NODE_ENV=production
 
 COPY --from=build --chown=node:node /app /app
-
-# svc-matching fsyncs its order journal here; a named volume is mounted over it
-# so the books survive a container replacement (§5.1 recovery).
-RUN mkdir -p /data/matching && chown -R node:node /data
 
 USER node
 
