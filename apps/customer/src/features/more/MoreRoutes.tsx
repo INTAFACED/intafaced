@@ -3,6 +3,10 @@ import { Page, Panel, EmptyState } from '../../shared/ui';
 import { useSession } from '../session';
 import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
+import { AcademyDiscussionThreadRoom } from './AcademyDiscussion';
+import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
+import { AcademyCourseRoom } from './AcademyCourseRoom';
+import { AcademyReaderRoom } from './academy-reader/AcademyReaderRoom';
 import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
@@ -11,9 +15,9 @@ import { AgentApprovalsRoom } from './agent-approvals/AgentApprovalsRoom';
 import { AgentConnect } from './AgentConnect';
 import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
-import { agentRunCopy } from './agent-run-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
+import { BlueprintSharedRoom } from './BlueprintSharedCard';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-detail/CampaignDetailRoom';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
@@ -27,11 +31,9 @@ import { Prediction } from './Prediction';
 import { PredictRoom } from './predict-room/PredictRoom';
 import { quantRoute } from '../quant';
 import { quantModeRoute } from './quant-mode-route';
-import { Support, supportPageTitleKey } from './Support';
+import { Support } from './Support';
 import { SupportChatRoom } from './SupportChat';
 import { chatCopy } from './support-chat-copy';
-import { supportRoute } from './support-desk';
-import { deskCopy } from './support-desk-copy';
 import { Token, selectedFor, type TokenTab } from './Token';
 import { TokenRoom } from './token-room/TokenRoom';
 import { launchCopy } from './launch-copy';
@@ -45,6 +47,8 @@ import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { PaperRoom } from './paper-mode';
 import { preservePaperHref } from './trade-context';
 import { Fragment, type ReactNode } from 'react';
+import { TokenProposalRoom } from './token-proposal/TokenProposalRoom';
+import { LaunchRequirementsRoom } from './launch-requirements/LaunchRequirementsRoom';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -77,12 +81,23 @@ function MoreRooms({ path }: { path: string }) {
   let room: MoreRoomId | undefined;
   // A room drawn on its Volt template: it carries its own title, so it opens without the old page frame.
   let volt: ReactNode = undefined;
-  // A room on its Volt template draws its own title row, so it is mounted without the old page frame.
-  let bare = false;
-  if (p === '/academy' || p.startsWith('/academy/')) {
-    const academy = academyRoute(p);
-    // The signed-in course-team inbox is on its Volt template; a signed-out visitor gets the public Academy.
-    bare = academy.kind === 'messages' && !academy.conversationId && Boolean(userId);
+  const academy = p === '/academy' || p.startsWith('/academy/') ? academyRoute(p) : null;
+  if (userId && academy?.kind === 'discussion' && academy.postId) {
+    volt = <AcademyDiscussionThreadRoom key={academy.postId} courseSlug={academy.courseSlug} postId={academy.postId} />;
+  } else if (userId && academy?.kind === 'messages' && academy.conversationId) {
+    volt = <AcademyCourseConversationRoom key={academy.conversationId} conversationId={academy.conversationId} />;
+  } else if (academy?.kind === 'reader' && academy.slug) {
+    volt = (
+      <AcademyReaderRoom
+        key={`${p}:${url.search}`}
+        slug={academy.slug}
+        initialPath={url.searchParams.get('path') ?? undefined}
+        signedIn={Boolean(userId)}
+      />
+    );
+  } else if (academy?.kind === 'course') {
+    volt = <AcademyCourseRoom key={`${p}:${url.search}`} slug={academy.slug} signedIn={Boolean(userId)} />;
+  } else if (academy) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
     content = (
@@ -90,11 +105,13 @@ function MoreRooms({ path }: { path: string }) {
         key={`${p}:${url.search}`}
         pathname={p}
         search={url.search}
-        route={academyRoute(p)}
+        route={academy}
         slug={url.searchParams.get('slug') ?? undefined}
         initialPath={url.searchParams.get('path') ?? undefined}
       />
     );
+    // The signed-in course-team inbox is on its Volt template; a signed-out visitor gets the public Academy.
+    if (academy.kind === 'messages' && !academy.conversationId && userId) volt = content;
   } else if (p === '/agents') {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
@@ -108,15 +125,13 @@ function MoreRooms({ path }: { path: string }) {
     content = <NewAgent />;
   } else if (agentRunId(p)) {
     const runId = agentRunId(p)!;
-    title = agentRunCopy.t('title');
-    content = <AgentRunPage key={runId} runId={runId} />;
+    volt = <AgentRunPage key={runId} runId={runId} />;
   } else if (ownAgentId(p)) {
     const id = ownAgentId(p)!;
     title = <OwnAgentTitle id={id} />;
     content = <OwnAgentPage key={id} id={id} />;
   } else if (p === '/agents/approvals') {
-    bare = true;
-    content = <AgentApprovalsRoom />;
+    volt = <AgentApprovalsRoom />;
   } else if (p === '/agents/team') {
     title = <agentsTeamCopy.Copy k="title" />;
     description = <agentsTeamCopy.Copy k="description" />;
@@ -169,18 +184,17 @@ function MoreRooms({ path }: { path: string }) {
     // With a proposal saved for this account, /token opens on governance, which is not this room: the old room draws it.
     if (selectedFor(userId ?? null)) content = <Token />;
     else volt = <TokenRoom paper={paper} />;
+  } else if (quant && 'bare' in quant && quant.bare) {
+    volt = quant.content;
   } else if (quant) {
     ({ title, description, content } = quant);
-    bare = 'bare' in quant && quant.bare === true;
   } else if (p === '/support/chat') {
     title = <chatCopy.Copy k="pageTitle" />;
     description = <chatCopy.Copy k="pageDescription" />;
     content = <SupportChatRoom />;
   } else if (p === '/support' || p.startsWith('/support/')) {
-    const key = supportPageTitleKey(supportRoute(p, url.search));
-    title = key ? <deskCopy.Copy k={key} /> : copyText('moreroutes.support');
-    description = copyText('moreroutes.help.requests.and.your.conversation.with.the');
-    content = <Support path={p + url.search} />;
+    // The support desk is drawn on its reading template, with its own title for each of its addresses.
+    volt = <Support path={p + url.search} />;
   } else {
     // A section or a record of one of the six rooms: /mining/workers, /market/:listingId and so on.
     const hit = matchMoreRoute(p);
@@ -189,9 +203,14 @@ function MoreRooms({ path }: { path: string }) {
       const page = ROOM_PAGES[room];
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
-      if (hit.route.kind === 'detail' && room === 'market' && hit.id && !hit.invalid)
+      if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
+      else if (hit.route.pattern === '/blueprint/shared/:cardId') volt = <BlueprintSharedRoom path={path} paper={paper} />;
+      else if (hit.route.kind === 'detail' && room === 'token')
+        volt = <TokenProposalRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
+      else if (hit.route.kind === 'detail' && room === 'market' && hit.id && !hit.invalid)
         volt = <MarketListingPage key={hit.id} listingId={hit.id} />;
-      if (hit.route.kind === 'detail' && room === 'launch' && hit.id && !hit.invalid) volt = <LaunchDetail key={hit.id} eventId={hit.id} />;
+      else if (hit.route.kind === 'detail' && room === 'launch' && hit.id && !hit.invalid)
+        volt = <LaunchDetail key={hit.id} eventId={hit.id} />;
       content =
         hit.route.kind === 'part' ? (
           page.content(path, paper)
@@ -223,7 +242,6 @@ function MoreRooms({ path }: { path: string }) {
     if (volt) volt = wrap(volt);
   }
   if (volt) return <Fragment key={userId ?? 'anonymous'}>{volt}</Fragment>;
-  if (bare) return <Fragment key={userId ?? 'anonymous'}>{content}</Fragment>;
   return (
     <div className="more-feature">
       <Page

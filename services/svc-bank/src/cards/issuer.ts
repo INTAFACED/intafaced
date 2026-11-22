@@ -353,6 +353,20 @@ export interface TestCardPartnerBook {
     readonly reversed: boolean;
   }[];
   readonly lossLiability: CardPartnerTerms['lossLiability'];
+  /** The programme's terms as the partner reports them (J-bank-26 #6); each null is "not reported". */
+  readonly terms: Pick<
+    CardPartnerTerms,
+    'lossLiability' | 'funder' | 'reserve' | 'programmeFigures' | 'figuresAsOf' | 'fundingAssetId' | 'fundingOffers'
+  >;
+  /** The programme funding instructions the partner took, once each under its request key (J-bank-26 #6). */
+  readonly funding: readonly {
+    readonly requestId: string;
+    readonly kind: 'fund' | 'defund' | 'auto_reload';
+    readonly assetId: string;
+    readonly amount: string;
+    readonly threshold: string | null;
+    readonly partnerRef: string;
+  }[];
 }
 
 export function cardSim(options: { displayName?: string; partner?: CardPartnerTerms } = {}): CardIssuerAdapter {
@@ -365,6 +379,7 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
     displayName: options.displayName ?? 'Simulated card (no card programme)',
   });
   const credits = new Map<string, { userId: string; assetId: string; amount: Amount; partnerRef: string; reversed: boolean }>();
+  const funding = new Map<string, TestCardPartnerBook['funding'][number]>();
 
   return {
     programme,
@@ -396,7 +411,10 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
       if (!offered || partner.fundingAssetId !== input.assetId) {
         throw new BankError(`The TEST card partner does not offer ${input.kind} in ${input.assetId}`, 'bank.card_funding_not_offered');
       }
-      return { partnerRef: `TEST-card-sim-${createHash('sha256').update(input.requestId).digest('hex').slice(0, 16)}` };
+      const partnerRef = `TEST-card-sim-${createHash('sha256').update(input.requestId).digest('hex').slice(0, 16)}`;
+      // Its own book of what it took, once per request key (J-bank-26 #6 reads it through the TEST record).
+      if (!funding.has(input.requestId)) funding.set(input.requestId, { ...input, partnerRef });
+      return { partnerRef };
     },
     // TEST rule: the TEST partner credits the disputed amount in full, once per request key, and adds it to what it reports
     // that cardholder can spend in that asset. It keeps its credits in this process only, as a stand-in: there is no
@@ -425,6 +443,16 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
         .filter((c) => c.userId === userId)
         .map((c) => ({ partnerRef: c.partnerRef, assetId: c.assetId, amount: formatAmount(c.amount), reversed: c.reversed })),
       lossLiability: partner.lossLiability,
+      terms: {
+        lossLiability: partner.lossLiability,
+        funder: partner.funder,
+        reserve: partner.reserve,
+        programmeFigures: partner.programmeFigures,
+        figuresAsOf: partner.figuresAsOf,
+        fundingAssetId: partner.fundingAssetId,
+        fundingOffers: partner.fundingOffers,
+      },
+      funding: [...funding.values()],
     }),
   };
 }

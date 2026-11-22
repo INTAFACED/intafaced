@@ -96,27 +96,28 @@
 </header>
 <main id="main" tabindex="-1">
 <div class="legacy-room">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Trade</p>
-<h1>News</h1>
-<p class="muted">Market news with category, language and symbol filters.</p>
+<h1 class="lt-title">News</h1>
+<p class="lt-description">Market news with category, language and symbol filters.</p>
 </div>
 </header>
-<div class="news-notice" role="status">
-<strong>News feed is off</strong>
-<p>News needs a news data feed. It is switched off in this build.</p>
-<p class="muted">Service code: <code>feed.news</code>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="meta" aria-label="Details">
+<p class="lt-hint">Trade</p>
+<div class="lt-refusal" data-refusal="parked" role="status">
+<p class="lt-refusal-title">News feed is off</p>
+<p class="lt-refusal-body">News needs a news data feed. It is switched off in this build.</p>
+<p class="lt-ref">Service code: <code>feed.news</code>
 </p>
 </div>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">News</h2>
-</header>
-<div class="if-panel__body">
-<form class="news-filters" aria-label="News">
-<label class="news-filter">
+</section>
+<section class="lt-region" data-region="body" aria-label="Article">
+<form class="lt-toolbar" aria-label="News">
+<label class="lt-field">
 <span>Category</span>
 <select>
 <option value="">All categories</option>
@@ -127,7 +128,7 @@
 <option value="regulation">Regulation</option>
 </select>
 </label>
-<label class="news-filter">
+<label class="lt-field">
 <span>Language</span>
 <select>
 <option value="">All languages</option>
@@ -136,21 +137,24 @@
 <option value="fr">French</option>
 </select>
 </label>
-<label class="news-filter">
+<label class="lt-field">
 <span>Symbol</span>
 <input autocomplete="off" spellcheck="false" aria-describedby="news-symbol-hint" value="">
-<small id="news-symbol-hint" class="muted">For example BTC. Matches items tagged with that symbol.</small>
+<small id="news-symbol-hint">For example BTC. Matches items tagged with that symbol.</small>
 </label>
 </form>
-<p class="muted" data-testid="news-applied" aria-live="polite">No filter applied. 0 stored items.</p>
-<div class="empty-state">
-<span class="empty-mark" aria-hidden="true">↗</span>
-<h3>News</h3>
-<p>The store holds no items, so there is nothing to list.</p>
-</div>
+<p class="lt-hint" data-testid="news-applied" aria-live="polite">No filter applied. 0 stored items.</p>
+<div class="lit-empty">
+<div data-part="title">News</div>
+<div>The store holds no items, so there is nothing to list.</div>
 </div>
 </section>
-<a class="text-link" href="/trade/calendar">Open the economic calendar</a>
+<section class="lt-region" data-region="related" aria-label="Related">
+<a class="lt-link" href="/trade/calendar">Open the economic calendar</a>
+</section>
+</div>
+</div>
+</div>
 </div>
 </div>
 </main>

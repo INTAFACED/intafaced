@@ -459,7 +459,9 @@ export function RoomFrame(props: RoomFrameProps) {
         ) : null}
         <header className="lt-title-row">
           <div>
-            <h1 className="lt-title">{title}</h1>
+            <h1 className="lt-title" lang={props.titleLang} ref={props.titleRef} tabIndex={props.titleRef ? -1 : undefined}>
+              {title}
+            </h1>
             {description ? <p className="lt-description">{description}</p> : null}
           </div>
           {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}

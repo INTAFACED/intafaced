@@ -4,7 +4,7 @@ import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { MAX_INPUT_LENGTH, passwordIssue, passwordProblem, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
-import { ContactSupport } from './ContactSupport';
+import { ContactSupport } from './help/ContactSupport';
 import { HandleRecovery } from './HandleRecovery';
 import {
   RECOVERY_STEPS,
