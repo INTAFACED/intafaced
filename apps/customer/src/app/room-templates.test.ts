@@ -23,8 +23,8 @@ import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-tem
 const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
-/** A route's pattern as a person opens it: a `:pair` is a real market. */
-const opened = (route: string) => route.replace(':pair', 'BTC-USDT');
+/** A route's pattern as a person opens it: its registry row's `sample` where it names one. */
+const opened = (route: string, entry: RoomTemplate) => entry.sample ?? route;
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 
 describe('room templates registry', () => {
@@ -61,7 +61,7 @@ describe('room templates registry', () => {
     try {
       for (const [room, entry] of Object.entries(ROUTE_TEMPLATES)) {
         if (!isRoom(entry) || !entry.migrated) continue;
-        const html = await renderPart({ name: room, route: opened(room) });
+        const html = await renderPart({ name: room, route: opened(room, entry) });
         expect(html.startsWith('<!-- never settled -->'), `${room} settles`).toBe(false);
         const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
         expect(drawn, `${room} (${entry.migrated.file}) draws the ${entry.template} template`).toContain(entry.template);

@@ -18,6 +18,11 @@ export interface RoomTemplate {
    * scaffold for a new room, or by the stage C PR that moves an old one.
    */
   migrated?: { file: string };
+  /**
+   * The route as a person opens it, when its parameter has a shape a placeholder fails (a `:poolId` is a contract
+   * address, a `:pair` a real market): `room-templates.test.ts` opens this address, not the pattern.
+   */
+  sample?: string;
 }
 
 export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> = {
@@ -364,7 +369,11 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/pools': { template: 'record-list' },
   '/dex/pools/new': { template: 'flow', migrated: { file: 'features/protocol/liquidity/NewPool.tsx' } },
   '/dex/pools/:poolId': { template: 'monitor' },
-  '/dex/pools/:poolId/add': { template: 'flow' },
+  '/dex/pools/:poolId/add': {
+    template: 'flow',
+    migrated: { file: 'features/protocol/liquidity/AddLiquidity.tsx' },
+    sample: '/dex/pools/0x00000000000000000000000000000000000000a1/add',
+  },
   '/dex/positions': { template: 'record-list' },
   '/dex/positions/:positionId': { template: 'record-list' },
   '/dex/tokens': { template: 'record-list' },
@@ -404,7 +413,11 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/protocol/*': 'fallback',
   '/wallet/*': 'fallback',
   '/copy/lead/apply': { template: 'flow', migrated: { file: 'features/trade/lead-apply/LeadApplyRoom.tsx' } },
-  '/trade/analytics/:pair': { template: 'monitor', migrated: { file: 'features/trade/market-analytics/MarketAnalyticsRoom.tsx' } },
+  '/trade/analytics/:pair': {
+    template: 'monitor',
+    migrated: { file: 'features/trade/market-analytics/MarketAnalyticsRoom.tsx' },
+    sample: '/trade/analytics/BTC-USDT',
+  },
   '/rulebook': { template: 'reading', migrated: { file: 'features/public/rulebook/RulebookRoom.tsx' } },
   '/trade/screener': { template: 'record-list', migrated: { file: 'features/trade/screener/ScreenerRoom.tsx' } },
 };
