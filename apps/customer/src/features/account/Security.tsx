@@ -58,7 +58,7 @@ import { nativeRegistration, registrationFor, registrationPayload } from './secu
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { VerifyEmail } from './VerifyEmail';
-import { WithdrawStepUp } from '../money';
+import { StepUpSheet } from '../money';
 import { IDENTITY_WEBAUTHN_REMOVE } from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
@@ -964,7 +964,7 @@ export function Security() {
                 </div>
               ))}
             {stepUp && sameActor(stepUp.original) && (
-              <WithdrawStepUp
+              <StepUpSheet
                 why={t('stepUpWhy')}
                 run={(token) => afterStepUp(stepUp, token)}
                 onDone={() => setStepUp(null)}
