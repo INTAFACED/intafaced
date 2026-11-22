@@ -12,7 +12,7 @@ vi.mock('../session', async (original) => ({
 }));
 
 import { MoneyActivity } from './activity';
-import { RepeatBuy } from './repeat-buy';
+import { RepeatBuy } from './repeat-buy/repeat-buy';
 
 beforeAll(() => {
   Object.defineProperty(globalThis, 'location', {
