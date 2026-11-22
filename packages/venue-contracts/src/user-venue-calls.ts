@@ -59,6 +59,8 @@ export const USER_VENUE_READS = {
   accountMode: { path: '/account-mode', args: ['account'] },
   vaults: { path: '/vaults', args: [] },
   vaultHoldings: { path: '/vault-holdings', args: ['account'] },
+  staking: { path: '/staking', args: [] },
+  stakingAccount: { path: '/staking-account', args: ['account'] },
   liquidationStatus: { path: '/liquidation-status', args: ['account', 'symbol'] },
   liquidations: { path: '/liquidations', args: ['account', 'since'] },
   insuranceFund: { path: '/insurance-fund', args: [] },

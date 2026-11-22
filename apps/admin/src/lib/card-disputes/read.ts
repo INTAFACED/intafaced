@@ -1,6 +1,7 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
+import { type FounderCallContext, partFrom, type Part, founderRecordRead } from '@/lib/desk';
 import { parseCase, parseQueuePage, refusalWords, type DisputeCase, type DisputeState, type DisputeSummary } from './model';
+import { BANK_OPS_CARD_DISPUTES, BANK_OPS_CARD_DISPUTE } from '@intafaced/contracts/bank-ops-procedures';
 
 const labels = {
   service: 'svc-bank',
@@ -13,7 +14,7 @@ export async function readDisputeQueue(
   ctx: FounderCallContext,
   state: DisputeState | null,
 ): Promise<{ asOf: string; queue: Part<{ rows: DisputeSummary[]; more: boolean }> }> {
-  const result = await founderCall(ctx, 'bank', 'ops.cardDisputes', 'GET', state ? { state } : {}, parseQueuePage, {
+  const result = await founderRecordRead(ctx, BANK_OPS_CARD_DISPUTES, state ? { state } : {}, parseQueuePage, {
     sendEmptyInput: true,
   });
   return { asOf: new Date().toISOString(), queue: partFrom(result, (d) => d, labels) };
@@ -21,6 +22,6 @@ export async function readDisputeQueue(
 
 /** One case with its timeline. */
 export async function readDisputeCase(ctx: FounderCallContext, disputeId: string): Promise<{ asOf: string; dispute: Part<DisputeCase> }> {
-  const result = await founderCall(ctx, 'bank', 'ops.cardDispute', 'GET', { disputeId }, parseCase);
+  const result = await founderRecordRead(ctx, BANK_OPS_CARD_DISPUTE, { disputeId }, parseCase);
   return { asOf: new Date().toISOString(), dispute: partFrom(result, (d) => d, labels) };
 }

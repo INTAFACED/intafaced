@@ -397,6 +397,104 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
   );
 });
 
+test("the Business API's calls, named by their call alone, are svc-pay's and move to its record form; a near shape stays", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const pay = 'apps/customer/src/features/pay';
+  put(`${pay}/pay-api.ts`, ['export function createBusinessPayApi() { return {}; }', 'export type BusinessPayApi = {};']);
+  put(`${pay}/Room.tsx`, [
+    "import { createBusinessPayApi, type BusinessPayApi } from './pay-api';",
+    'export function Balance({ pay }: { pay: BusinessPayApi }) {',
+    "  return pay.query('merchant.balances', { merchantId }, balanceSchema, signal);",
+    '}',
+    'export function Capture() {',
+    '  const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api]);',
+    "  return pay.mutate('payment.capture', { paymentId }, paymentSchema, 'pay:write', `payment:${paymentId}`, 'captured');",
+    '}',
+    // Near: a call that names its service first, and a query on something that is not the Business API.
+    "export const named = (api) => api.query('pay', 'merchant.me', undefined, meSchema);",
+    "export const other = (portal: PortalApi) => portal.query('merchant.listLinks', { merchantId }, linksSchema, signal);",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => s.shape !== 'keyed-schema');
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind]).sort(),
+    [
+      ['payMutate', 'pay', 'payment.capture', 'mutation'],
+      ['payQuery', 'pay', 'merchant.balances', 'query'],
+      ['query', 'merchant.listLinks', undefined, 'query'],
+      ['query', 'pay', 'merchant.me', 'query'],
+    ].sort(),
+  );
+  const of = (path) => sites.find((s) => s.path === path);
+  for (const path of ['merchant.balances', 'payment.capture']) assert.equal(of(path).problem, undefined);
+  assert.equal(text(load(of('merchant.balances').file), schemaArgOf(of('merchant.balances'))), 'balanceSchema');
+  const moved = (s, name) => {
+    const changes = new Changes();
+    rewriteSite(changes, s, name, '@intafaced/contracts/x');
+    return applyEdits(load(s.file).src, changes.of(s.file).edits);
+  };
+  assert.match(
+    moved(of('merchant.balances'), 'PAY_MERCHANT_BALANCES'),
+    /return pay\.queryRecord\(PAY_MERCHANT_BALANCES, \{ merchantId \}, signal\);$/m,
+  );
+  assert.match(
+    moved(of('payment.capture'), 'PAY_PAYMENT_CAPTURE'),
+    /return pay\.mutateRecord\(PAY_PAYMENT_CAPTURE, \{ paymentId \}, 'pay:write', `payment:\$\{paymentId\}`, 'captured'\);$/m,
+  );
+});
+
+test('a name imported from a contracts subpath is read from that file, though another contracts file exports the name too', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  // asset-id sorts first and exports a looser assetIdSchema under the same name (svc-pay's merchant.balances).
+  put('packages/contracts/src/asset-id.ts', ["import { z } from 'zod';", 'export const assetIdSchema = z.string().brand();']);
+  put('packages/contracts/src/pay-call-schemas.ts', [
+    "import { z } from 'zod';",
+    "import { assetIdSchema as branded } from './asset-id.js';",
+    'export const assetIdSchema = z.string().min(1).max(16);',
+  ]);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { assetIdSchema } from '@intafaced/contracts/pay-call-schemas';",
+    "import { assetIdSchema as root } from '@intafaced/contracts';",
+    'const a = z.object({ assetId: assetIdSchema });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const c = closureOf(repo, [{ p, node: p.program.body[3].declarations[0].init, where: 'r' }]);
+  assert.deepEqual(c.problems, []);
+  assert.equal(c.fromContracts.get('assetIdSchema').file, join(repo, 'packages/contracts/src/pay-call-schemas.ts'));
+});
+
+test('a Business API test double gets the record form of each method it has; an API client double does not', async () => {
+  const { businessDoubleEdits } = await import('./pay-business.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'a.test.ts');
+  writeFileSync(
+    file,
+    [
+      'const pay = { authority, query } as unknown as BusinessPayApi;',
+      'const both = { query, mutate, queryRecord } as unknown as BusinessPayApi;',
+      'const api = { query, mutate } as unknown as ApiClient;',
+      '',
+    ].join('\n'),
+  );
+  const p = load(file);
+  const out = applyEdits(p.src, businessDoubleEdits(p));
+  assert.match(out.split('\n')[0], /, query, queryRecord\( ?this: \{ query: .*\[record\.path, input, record\.output,/);
+  assert.doesNotMatch(out.split('\n')[0], /mutateRecord/);
+  assert.match(out.split('\n')[1], /, queryRecord, mutateRecord\(/);
+  assert.equal(out.split('\n')[2], 'const api = { query, mutate } as unknown as ApiClient;');
+});
+
 test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
   const { reasonOf } = await import('./report.mjs');
   assert.equal(
@@ -1637,4 +1735,20 @@ test('a wrapper that sends the call name it is handed, or a spec whose procedure
     );
     assert.ok(!some.of(file).edits.some((e) => /CONTACTS_|callAs\(api, procedure, input/.test(e.text)));
   }
+});
+
+// A wrapper that takes its call name is one site per caller, while the rule counts its sender once and a caller only
+// where it names the call in a `procedure:` property. On main at a67176909 the report counted 931 sites to the rule's 928:
+// RecoveryKeys.tsx (3 `procedure:` callers, +1), LostPhoneRoom.tsx and AgentAccess.tsx (3 plain-string callers each, -2).
+test("the report adds a wrapper's sender the rule counts and drops the callers it does not, so its totals meet the rule", async () => {
+  const { wrapperSenders } = await import('./report.mjs');
+  const caller = (key, type) => ({ shape: 'wrapper', node: { type }, wrapper: { key } });
+  const sites = [
+    { shape: 'query', node: { type: 'CallExpression' } },
+    ...['a', 'b', 'c'].map(() => caller('recovery:send', 'Property')),
+    ...['a', 'b', 'c'].map(() => caller('lost-phone:change', 'CallExpression')),
+    ...['a', 'b', 'c'].map(() => caller('agent-access:change', 'CallExpression')),
+  ];
+  assert.equal(wrapperSenders(sites), 1 - 2 - 2);
+  assert.equal(wrapperSenders(sites.slice(0, 1)), 0, 'no wrapper, nothing to add');
 });

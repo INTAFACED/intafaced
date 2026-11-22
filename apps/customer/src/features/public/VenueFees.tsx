@@ -201,13 +201,86 @@ function VenueTierBody() {
 function OwnerTier({ owner }: { owner: string }) {
   const api = useVenueApi();
   const { resource } = useResource((signal) => api.feeTier(owner, signal), `venue-fee-tier:${owner}`);
+  const { resource: fees } = useResource((signal) => api.publicFees(signal), 'venue-public-fees:tier');
   const { t } = venueFeesCopy.useCopy();
   if (resource.status === 'loading') return <p role="status">{t('loading')}</p>;
   if (resource.status !== 'ready') return <p role="alert">{t('unread')}</p>;
-  return <VenueTierView tier={resource.data} />;
+  return <VenueTierView tier={resource.data} builder={fees.status === 'ready' ? fees.data.value.markets : null} />;
 }
 
-export function VenueTierView({ tier }: { tier: VenueFeeTier }) {
+type Discount = NonNullable<NonNullable<VenueFeeTier['value']['account']>['stakingDiscount']>;
+type BuilderRows = VenuePublicFees['value']['markets'] | null;
+
+/**
+ * The venue's staking discount on its own fee (J-cex-spot-21 #4): the stake it counts, its tier and discount, and each
+ * market's venue rates before and after it, as the venue reports them; our builder fee beside them, unchanged.
+ */
+function StakingDiscountView({ discount, builder, t }: { discount: Discount; builder: BuilderRows; t: T }) {
+  const pct = bpsToPercent(String(discount.discountBps));
+  return (
+    <section data-testid="tier-staking" aria-labelledby="tier-staking-title">
+      <h3 id="tier-staking-title">{t('stakingTitle')}</h3>
+      <p
+        data-testid="tier-staking-line"
+        data-tier={discount.tierName ?? ''}
+        data-discount={discount.discountBps}
+        data-counted={discount.countedStake}
+      >
+        {discount.tierName
+          ? t('stakingLine', { amount: discount.countedStake, asset: discount.asset, tier: discount.tierName, pct })
+          : t('stakingNone', { amount: discount.countedStake, asset: discount.asset })}
+      </p>
+      <p className="lt-hint" data-testid="tier-staking-builder">
+        {t('stakingBuilderNote')}
+      </p>
+      <table className="lt-table" data-fees="staking-markets">
+        <thead>
+          <tr>
+            <th scope="col">{t('colMarket')}</th>
+            <th scope="col">{t('colVenueMakerBefore')}</th>
+            <th scope="col">{t('colVenueMakerAfter')}</th>
+            <th scope="col">{t('colVenueTakerBefore')}</th>
+            <th scope="col">{t('colVenueTakerAfter')}</th>
+            <th scope="col">{t('colBuilder')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {discount.markets.map((m) => {
+            const ours = builder?.find((b) => b.symbol === m.symbol)?.builderFeeBps ?? null;
+            const bps = (r: Rate) => (r.known ? r.value : '');
+            return (
+              <tr key={m.symbol} data-market={m.symbol}>
+                <th scope="row">{m.symbol}</th>
+                <td data-cell="maker-before" data-value={bps(m.before.makerFeeBps)}>
+                  <RateCell rate={m.before.makerFeeBps} t={t} />
+                </td>
+                <td data-cell="maker-after" data-value={bps(m.after.makerFeeBps)}>
+                  <RateCell rate={m.after.makerFeeBps} t={t} />
+                </td>
+                <td data-cell="taker-before" data-value={bps(m.before.takerFeeBps)}>
+                  <RateCell rate={m.before.takerFeeBps} t={t} />
+                </td>
+                <td data-cell="taker-after" data-value={bps(m.after.takerFeeBps)}>
+                  <RateCell rate={m.after.takerFeeBps} t={t} />
+                </td>
+                <td data-cell="builder-fee" data-value={ours?.known ? ours.value : ''}>
+                  {ours === null ? t('loading') : ours.known ? t('pct', { pct: bpsToPercent(ours.value) }) : t('notSet')}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p>
+        <a className="lt-link lt-link-alone" href="/trade/staking">
+          {t('stakingMore')}
+        </a>
+      </p>
+    </section>
+  );
+}
+
+export function VenueTierView({ tier, builder = null }: { tier: VenueFeeTier; builder?: BuilderRows }) {
   const { t } = venueFeesCopy.useCopy();
   const a = tier.value.account;
   const tiers = tier.value.schedule.tiers;
@@ -252,6 +325,7 @@ export function VenueTierView({ tier }: { tier: VenueFeeTier }) {
         <small>{t('updateRule')}</small>
       </p>
       <TiersTable schedule={tier.value.schedule} current={a?.tierName ?? null} t={t} />
+      {a?.stakingDiscount ? <StakingDiscountView discount={a.stakingDiscount} builder={builder} t={t} /> : null}
     </div>
   );
 }

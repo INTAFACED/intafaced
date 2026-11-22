@@ -38,7 +38,7 @@ import {
   Section,
   scheduleWindowIssue,
   startsField,
-  useBankRead,
+  useBankRecord,
   useSpaces,
   usePageLimit,
   type ActionSpec,
@@ -106,6 +106,9 @@ import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 import { bankLabels, bankRoomHref, bankRooms } from './bank-frame/bank-rooms';
+import { BANK_ANALYTICS_SPEND } from '@intafaced/contracts/bank-analytics-procedures';
+import { BANK_SPACES_UNNAMED } from '@intafaced/contracts/bank-spaces-procedures';
+import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 
 export function BankNavigation({ current }: { current: string }) {
   return (
@@ -196,7 +199,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
   const context = spaceContext(search, 'space');
   const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
   const spaces = useSpaces(limit);
-  const unnamed = useBankRead('spaces.unnamed', undefined);
+  const unnamed = useBankRecord(BANK_SPACES_UNNAMED, undefined);
   const held = useHoldings();
   const heldAssets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   const depthCopy = transferDepthCopy.useCopy();
@@ -466,7 +469,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
   const serial = useRef(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const listHeading = useRef<HTMLSpanElement>(null);
-  const query = useBankRead('transfers.listSchedules', { limit });
+  const query = useBankRecord(BANK_TRANSFERS_LIST_SCHEDULES, { limit });
   const rows = query.resource.status === 'ready' ? query.resource.data : [];
   const instruction = selected ? currentInstruction(rows, selected.id) : undefined;
   const other = instruction ? rows.filter((row) => row.id !== instruction.id) : rows;
@@ -1062,6 +1065,8 @@ function CashOutRoom() {
     </BankPage>
   );
 }
+/** A range is sent only while the read is on; this stands in for it while the read is off, and is never sent. */
+const NO_RANGE = { assetId: '', from: '', to: '' };
 function Analytics() {
   const depth = transferDepthCopy.useCopy();
   const held = useHoldings();
@@ -1080,7 +1085,7 @@ function Analytics() {
     }
     return { assetId, ...periodRange(preset, new Date(Math.floor(Date.now() / 60_000) * 60_000)) };
   }, [assetId, preset, useCustom, custom.from, custom.to]);
-  const query = useBankRead('analytics.spend', range, Boolean(range));
+  const query = useBankRecord(BANK_ANALYTICS_SPEND, range ?? NO_RANGE, range !== null);
   const presetLabel = (value: PeriodPreset) =>
     depth.t(value === '7d' ? 'period7d' : value === '30d' ? 'period30d' : value === 'month' ? 'periodMonth' : 'periodLastMonth');
   return (
