@@ -1199,7 +1199,7 @@ pub fn run_due(d: &Deps<'_>, limit: f64, now: Instant) -> Result<RunReport, Refu
     };
     for s in &schedules {
         let last: Option<i64> = with(d.store(), |c| {
-            Ok(c.query(
+            c.query(
                 "SELECT occurrence FROM bank.bill_recurring_firings WHERE schedule_id = $1::text::uuid \
                   ORDER BY occurrence DESC LIMIT 1",
                 &[&s.id],
@@ -1208,7 +1208,7 @@ pub fn run_due(d: &Deps<'_>, limit: f64, now: Instant) -> Result<RunReport, Refu
             .first()
             .map(|r| r.try_get::<_, i32>(0).map(i64::from))
             .transpose()
-            .map_err(|e| pg(&e))?)
+            .map_err(|e| pg(&e))
         })?;
         let cadence = s.cadence()?;
         let plan = calendar::plan_due(
@@ -1310,7 +1310,9 @@ pub fn ops_summary(d: &Deps<'_>, now: Instant) -> Result<Json, Refusal> {
         if count.unsigned_abs() > (1u64 << 53) - 1 {
             return Err(pp("bank.bills_outcome_unknown"));
         }
-        counts[i] += count;
+        if let Some(n) = counts.get_mut(i) {
+            *n += count;
+        }
         let amount = format_amount(parse_amount(&total).map_err(Refusal::Other)?);
         volumes.push(Json::obj([
             ("status", Json::str(status)),
