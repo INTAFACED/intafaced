@@ -1,4 +1,3 @@
-import { payHaltStatusInputSchema, payHaltStatusSchema } from '@intafaced/contracts/pay-halts';
 import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PAY_HALTS_HISTORY,
@@ -17,6 +16,7 @@ import { founderProcedure } from './founder-procedure.js';
 import { payRefusal } from '../record-refusal.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { hasScope } from '@intafaced/auth';
+import { PAY_PAY_HALTS_STATUS } from '@intafaced/contracts/pay-pay-halts-procedures';
 
 /**
  * `payHalts.*` (W5).
@@ -76,10 +76,9 @@ export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: 
   const parts = { refusalOf: payRefusal, founder: founderProcedure(founderAuthority) };
   return router({
     payHalts: router({
-      status: read
-        .input(payHaltStatusInputSchema)
-        .output(payHaltStatusSchema)
-        .query(async ({ ctx, input }) => {
+      status: mountRecord(
+        PAY_PAY_HALTS_STATUS,
+        async ({ ctx, input }) => {
           if (!deps) return unavailable();
           // The platform-wide answer stays with acquiring merchants; an owner still onboarding asks about its own.
           if (!input.merchantId && !hasScope(ctx.principal.scopes, 'pay:read')) {
@@ -102,7 +101,9 @@ export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: 
             }
           }
           return deps.store.status(input.merchantId);
-        }),
+        },
+        payRefusal,
+      ),
       operatorStatus: mountRecord(
         PAY_HALTS_OPERATOR_STATUS,
         async () => {

@@ -1351,6 +1351,8 @@ import {
 
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from './pay-checkout-procedures.js';
 
+import { PAY_CONVERSION_LIST, PAY_CONVERSION_GET, PAY_CONVERSION_QUOTE, PAY_CONVERSION_EXECUTE } from './pay-conversion-procedures.js';
+
 import { PAY_DEPOSIT_CREDIT } from './pay-deposit-procedures.js';
 
 import {
@@ -1397,7 +1399,48 @@ import {
   PAY_KYB_REQUESTS_FILE,
   PAY_KYB_REQUESTS_REVIEW_LIST,
   PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+  PAY_KYB_ENTITY_TYPES_READ,
+  PAY_KYB_APPLICATION_CURRENT,
+  PAY_KYB_APPLICATION_RESTART,
+  PAY_KYB_APPLICATION_SUBMIT,
+  PAY_KYB_DOCUMENTS_CHECKLIST,
+  PAY_KYB_DOCUMENTS_UPLOAD,
+  PAY_KYB_REQUESTS_LIST,
 } from './pay-kyb-procedures.js';
+
+import {
+  PAY_MERCHANT_CATALOG_PRODUCTS_GET,
+  PAY_MERCHANT_CATALOG_IMAGES_RULES,
+  PAY_MERCHANT_CATALOG_IMAGES_GET,
+  PAY_MERCHANT_CATALOG_PRICES_LIST,
+  PAY_MERCHANT_CATALOG_PRICES_USAGE,
+  PAY_MERCHANT_CATALOG_PRICES_GET,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+} from './pay-merchant-catalog-procedures.js';
+
+import { PAY_MERCHANT_CHECKOUT_BRANDING_GET } from './pay-merchant-checkout-procedures.js';
+
+import {
+  PAY_MERCHANT_CONTROL_GET,
+  PAY_MERCHANT_CONTROL_RESERVE,
+  PAY_MERCHANT_CONTROL_TOP_UP_OPTIONS,
+  PAY_MERCHANT_CONTROL_USAGE,
+  PAY_MERCHANT_CONTROL_PRICING_PREVIEW,
+  PAY_MERCHANT_CONTROL_APPROVALS_CANCEL,
+  PAY_MERCHANT_CONTROL_APPROVALS_REQUEST,
+  PAY_MERCHANT_CONTROL_LIMITS_OPEN,
+  PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
+  PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+} from './pay-merchant-control-procedures.js';
+
+import {
+  PAY_MERCHANT_METRICS_SNAPSHOT,
+  PAY_MERCHANT_METRICS_SERIES,
+  PAY_MERCHANT_METRICS_PARTNER_TERMS,
+  PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS,
+} from './pay-merchant-metrics-procedures.js';
+
+import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET } from './pay-merchant-ops-procedures.js';
 
 import {
   PAY_MERCHANT_STARTER_FEE,
@@ -1406,7 +1449,24 @@ import {
   PAY_MERCHANT_LIST_LINKS,
   PAY_MERCHANT_DEACTIVATE_LINK,
   PAY_MERCHANT_GET_LINK,
+  PAY_MERCHANT_STATEMENT_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_SET_DEFAULT,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_REMOVE,
+  PAY_MERCHANT_PROFILE,
+  PAY_MERCHANT_CREATE_LINK,
+  PAY_MERCHANT_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SUBMIT_KYB,
 } from './pay-merchant-procedures.js';
+
+import {
+  PAY_MERCHANT_RECEIVING_WALLET_GET,
+  PAY_MERCHANT_RECEIVING_WALLET_OUTSIDE_FUNDS,
+} from './pay-merchant-receiving-wallet-procedures.js';
+
+import { PAY_PAY_HALTS_STATUS } from './pay-pay-halts-procedures.js';
 
 import {
   PAY_PAYMENT_GET,
@@ -1414,6 +1474,9 @@ import {
   PAY_PAYMENT_LIST,
   PAY_PAYMENT_AUTHORIZE,
   PAY_PAYMENT_CAPTURE,
+  PAY_PAYMENT_CREATE,
+  PAY_PAYMENT_REFUNDS_GET,
+  PAY_PAYMENT_VIEWS_LIST,
 } from './pay-payment-procedures.js';
 
 import { PAY_RAIL_HEALTH } from './pay-rail-health-procedures.js';
@@ -1422,7 +1485,15 @@ import { PAY_RESOLVE_LINK } from './pay-resolve-link-procedures.js';
 
 import { PAY_SANDBOX_FUNDS_BALANCE, PAY_SANDBOX_FUNDS_FUND, PAY_SANDBOX_FUNDS_RESET } from './pay-sandbox-funds-procedures.js';
 
-import { PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE } from './pay-settlement-procedures.js';
+import {
+  PAY_SETTLEMENT_LIST,
+  PAY_SETTLEMENT_GET,
+  PAY_SETTLEMENT_RELEASE,
+  PAY_SETTLEMENT_LINES,
+  PAY_SETTLEMENT_CLEARING,
+  PAY_SETTLEMENT_LIFECYCLE,
+  PAY_SETTLEMENT_PAYOUT,
+} from './pay-settlement-procedures.js';
 
 import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
@@ -1430,7 +1501,12 @@ import {
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
 } from './pay-submerchant-permission-procedures.js';
 
-import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET } from './pay-submerchant-procedures.js';
+import {
+  PAY_SUBMERCHANT_LIST,
+  PAY_SUBMERCHANT_GET,
+  PAY_SUBMERCHANT_CREATE,
+  PAY_SUBMERCHANT_SUMMARY,
+} from './pay-submerchant-procedures.js';
 
 import {
   PAY_SUBSCRIPTION_LIST,
@@ -3391,6 +3467,13 @@ const part_pay_allowlist_procedures: readonly ProcedureRecord[] = [
 
 const part_pay_checkout_procedures: readonly ProcedureRecord[] = [PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN];
 
+const part_pay_conversion_procedures: readonly ProcedureRecord[] = [
+  PAY_CONVERSION_LIST,
+  PAY_CONVERSION_GET,
+  PAY_CONVERSION_QUOTE,
+  PAY_CONVERSION_EXECUTE,
+];
+
 const part_pay_deposit_procedures: readonly ProcedureRecord[] = [PAY_DEPOSIT_CREDIT];
 
 const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
@@ -3442,7 +3525,48 @@ const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
   PAY_KYB_REQUESTS_FILE,
   PAY_KYB_REQUESTS_REVIEW_LIST,
   PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+  PAY_KYB_ENTITY_TYPES_READ,
+  PAY_KYB_APPLICATION_CURRENT,
+  PAY_KYB_APPLICATION_RESTART,
+  PAY_KYB_APPLICATION_SUBMIT,
+  PAY_KYB_DOCUMENTS_CHECKLIST,
+  PAY_KYB_DOCUMENTS_UPLOAD,
+  PAY_KYB_REQUESTS_LIST,
 ];
+
+const part_pay_merchant_catalog_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_CATALOG_PRODUCTS_GET,
+  PAY_MERCHANT_CATALOG_IMAGES_RULES,
+  PAY_MERCHANT_CATALOG_IMAGES_GET,
+  PAY_MERCHANT_CATALOG_PRICES_LIST,
+  PAY_MERCHANT_CATALOG_PRICES_USAGE,
+  PAY_MERCHANT_CATALOG_PRICES_GET,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+];
+
+const part_pay_merchant_checkout_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_CHECKOUT_BRANDING_GET];
+
+const part_pay_merchant_control_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_CONTROL_GET,
+  PAY_MERCHANT_CONTROL_RESERVE,
+  PAY_MERCHANT_CONTROL_TOP_UP_OPTIONS,
+  PAY_MERCHANT_CONTROL_USAGE,
+  PAY_MERCHANT_CONTROL_PRICING_PREVIEW,
+  PAY_MERCHANT_CONTROL_APPROVALS_CANCEL,
+  PAY_MERCHANT_CONTROL_APPROVALS_REQUEST,
+  PAY_MERCHANT_CONTROL_LIMITS_OPEN,
+  PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
+  PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+];
+
+const part_pay_merchant_metrics_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_METRICS_SNAPSHOT,
+  PAY_MERCHANT_METRICS_SERIES,
+  PAY_MERCHANT_METRICS_PARTNER_TERMS,
+  PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS,
+];
+
+const part_pay_merchant_ops_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET];
 
 const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_STARTER_FEE,
@@ -3451,7 +3575,24 @@ const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_LIST_LINKS,
   PAY_MERCHANT_DEACTIVATE_LINK,
   PAY_MERCHANT_GET_LINK,
+  PAY_MERCHANT_STATEMENT_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_SET_DEFAULT,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_REMOVE,
+  PAY_MERCHANT_PROFILE,
+  PAY_MERCHANT_CREATE_LINK,
+  PAY_MERCHANT_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SUBMIT_KYB,
 ];
+
+const part_pay_merchant_receiving_wallet_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_RECEIVING_WALLET_GET,
+  PAY_MERCHANT_RECEIVING_WALLET_OUTSIDE_FUNDS,
+];
+
+const part_pay_pay_halts_procedures: readonly ProcedureRecord[] = [PAY_PAY_HALTS_STATUS];
 
 const part_pay_payment_procedures: readonly ProcedureRecord[] = [
   PAY_PAYMENT_GET,
@@ -3459,6 +3600,9 @@ const part_pay_payment_procedures: readonly ProcedureRecord[] = [
   PAY_PAYMENT_LIST,
   PAY_PAYMENT_AUTHORIZE,
   PAY_PAYMENT_CAPTURE,
+  PAY_PAYMENT_CREATE,
+  PAY_PAYMENT_REFUNDS_GET,
+  PAY_PAYMENT_VIEWS_LIST,
 ];
 
 const part_pay_rail_health_procedures: readonly ProcedureRecord[] = [PAY_RAIL_HEALTH];
@@ -3471,7 +3615,15 @@ const part_pay_sandbox_funds_procedures: readonly ProcedureRecord[] = [
   PAY_SANDBOX_FUNDS_RESET,
 ];
 
-const part_pay_settlement_procedures: readonly ProcedureRecord[] = [PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE];
+const part_pay_settlement_procedures: readonly ProcedureRecord[] = [
+  PAY_SETTLEMENT_LIST,
+  PAY_SETTLEMENT_GET,
+  PAY_SETTLEMENT_RELEASE,
+  PAY_SETTLEMENT_LINES,
+  PAY_SETTLEMENT_CLEARING,
+  PAY_SETTLEMENT_LIFECYCLE,
+  PAY_SETTLEMENT_PAYOUT,
+];
 
 const part_pay_submerchant_permission_procedures: readonly ProcedureRecord[] = [
   PAY_SUBMERCHANT_PERMISSION_AREAS,
@@ -3479,7 +3631,12 @@ const part_pay_submerchant_permission_procedures: readonly ProcedureRecord[] = [
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
 ];
 
-const part_pay_submerchant_procedures: readonly ProcedureRecord[] = [PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET];
+const part_pay_submerchant_procedures: readonly ProcedureRecord[] = [
+  PAY_SUBMERCHANT_LIST,
+  PAY_SUBMERCHANT_GET,
+  PAY_SUBMERCHANT_CREATE,
+  PAY_SUBMERCHANT_SUMMARY,
+];
 
 const part_pay_subscription_procedures: readonly ProcedureRecord[] = [
   PAY_SUBSCRIPTION_LIST,
@@ -4234,12 +4391,20 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_p2p_procedures,
   ...part_pay_allowlist_procedures,
   ...part_pay_checkout_procedures,
+  ...part_pay_conversion_procedures,
   ...part_pay_deposit_procedures,
   ...part_pay_founder_admin_procedures,
   ...part_pay_fraud_procedures,
   ...part_pay_halt_procedures,
   ...part_pay_kyb_procedures,
+  ...part_pay_merchant_catalog_procedures,
+  ...part_pay_merchant_checkout_procedures,
+  ...part_pay_merchant_control_procedures,
+  ...part_pay_merchant_metrics_procedures,
+  ...part_pay_merchant_ops_procedures,
   ...part_pay_merchant_procedures,
+  ...part_pay_merchant_receiving_wallet_procedures,
+  ...part_pay_pay_halts_procedures,
   ...part_pay_payment_procedures,
   ...part_pay_rail_health_procedures,
   ...part_pay_resolve_link_procedures,
