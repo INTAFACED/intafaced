@@ -1,3 +1,4 @@
+// volt-room: /bank/loans/detail
 import { useEffect, useState, type FormEvent } from 'react';
 import { Download } from 'lucide-react';
 import { Button, Field, Select } from '@intafaced/ui/lit';

@@ -1,3 +1,4 @@
+// volt-room: /uc/safe
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { StaffAccessLink } from './StaffAccess';
 import { flushSync } from 'react-dom';

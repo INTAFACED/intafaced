@@ -1,3 +1,4 @@
+// volt-room: /wallet/venue
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@intafaced/ui';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';

@@ -1,3 +1,4 @@
+// volt-room: /bank/limits
 import { useState } from 'react';
 import { Select } from '@intafaced/ui/lit';
 import { defineCopy } from '../../../shared/i18n';

@@ -1,3 +1,4 @@
+// volt-room: /status/manage
 import { useEffect, useState, type FormEvent } from 'react';
 import { useLinkToken } from './status-link-token';
 import { Button, Checkbox, Field, Radio } from '@intafaced/ui/lit';

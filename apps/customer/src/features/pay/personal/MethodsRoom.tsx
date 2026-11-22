@@ -1,3 +1,4 @@
+// volt-room: /p2p/methods
 import { SettingsTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { payCopy } from '../copy';
 import type { PersonalPayApi } from '../pay-api';

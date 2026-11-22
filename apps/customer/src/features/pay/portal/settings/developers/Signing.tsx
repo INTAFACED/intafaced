@@ -1,3 +1,5 @@
+// volt-room: /pay/developer/signing
+// volt-room: portal:developer-signing
 import { useState } from 'react';
 import { reason } from '../../chrome/copy';
 import { DateTime } from '../../ui/DateTime';

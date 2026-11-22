@@ -1,3 +1,5 @@
+// volt-room: /pay/permissions
+// volt-room: portal:permissions
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import { useMerchantAccess } from '../../access/MerchantAccess';

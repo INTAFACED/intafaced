@@ -1,3 +1,4 @@
+// volt-room: /bank/safety/lost-phone
 import { useState, type FormEvent } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate, type Refusal, type RoomState } from '@intafaced/ui/lit/templates';

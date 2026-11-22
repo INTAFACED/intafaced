@@ -1,3 +1,4 @@
+// volt-room: /uc/trading-permissions
 import { useState, type ReactNode } from 'react';
 import { usePolled } from '../../protocol';
 import { defineCopy } from '../../../shared/i18n';
