@@ -246,6 +246,7 @@ function StakingDiscountView({ discount, builder, t }: { discount: Discount; bui
         </thead>
         <tbody>
           {discount.markets.map((m) => {
+            // A venue market we don't list has no builder fee of ours: it reads "not offered here", never loading.
             const ours = builder?.find((b) => b.symbol === m.symbol)?.builderFeeBps ?? null;
             const bps = (r: Rate) => (r.known ? r.value : '');
             return (
@@ -265,7 +266,13 @@ function StakingDiscountView({ discount, builder, t }: { discount: Discount; bui
                 </td>
                 {/* No data-value until our fees answer: "loading" is never read as "not set" (J-cex-spot-21 #4). */}
                 <td data-cell="builder-fee" data-value={builder === null ? undefined : ours?.known ? ours.value : ''}>
-                  {ours === null ? t('loading') : ours.known ? t('pct', { pct: bpsToPercent(ours.value) }) : t('notSet')}
+                  {builder === null
+                    ? t('loading')
+                    : ours === null
+                      ? t('notOffered')
+                      : ours.known
+                        ? t('pct', { pct: bpsToPercent(ours.value) })
+                        : t('notSet')}
                 </td>
               </tr>
             );

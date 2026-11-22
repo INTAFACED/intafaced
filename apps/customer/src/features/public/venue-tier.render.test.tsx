@@ -57,4 +57,11 @@ describe('My tier: our builder fee beside the staking discount', () => {
   it('once they answer, the cell holds our fee', () => {
     expect(builderCell(renderToString(<VenueTierView tier={tier} builder={builder} />))).toContain('data-value="3"');
   });
+
+  it('a venue market we do not list reads "not offered here", never loading', () => {
+    const html = renderToString(<VenueTierView tier={tier} builder={[]} />);
+    expect(builderCell(html)).toContain('data-value=""');
+    expect(html).toMatch(/data-cell="builder-fee"[^>]*>not offered here</);
+    expect(html).not.toContain('Reading the venue’s fees');
+  });
 });

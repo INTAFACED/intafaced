@@ -292,20 +292,21 @@ test(`${J} #4 opens My tier: the venue's staking discount for the staked amount,
       expect(rate.known ? sameDecimal(shown, rate.value) : shown === '', `${m.symbol} ${cell}`).toBe(true);
     }
     if (m.before.takerFeeBps.known && toUnits(m.after.takerFeeBps.value) < toUnits(m.before.takerFeeBps.value)) lowered += 1;
-    // Our builder fee, named apart, the same as before any staking.
+    // Our builder fee, named apart, the same as before any staking. It comes from a second read: the cell has no value
+    // until that read answers, so wait for it. A venue market we don't list carries none of ours: "not offered here".
     const ours = builder[m.symbol];
-    // It comes from a second read: the cell has no value until that read answers, so wait for it.
-    if (ours) {
-      await expect
-        .poll(
-          async () => {
-            const shown = await row.locator('[data-cell="builder-fee"]').getAttribute('data-value');
-            return shown !== null && (ours.known ? sameDecimal(shown, ours.value) : shown === '');
-          },
-          { message: `${m.symbol} builder fee`, timeout: 20_000 },
-        )
-        .toBe(true);
-    }
+    const cell = row.locator('[data-cell="builder-fee"]');
+    await expect
+      .poll(
+        async () => {
+          const shown = await cell.getAttribute('data-value');
+          if (shown === null) return false;
+          return ours?.known ? sameDecimal(shown, ours.value) : shown === '';
+        },
+        { message: `${m.symbol} builder fee`, timeout: 20_000 },
+      )
+      .toBe(true);
+    if (!ours) await expect(cell).toHaveText('not offered here');
   }
   expect(lowered).toBeGreaterThan(0);
   const now = await (await door()).get('/api/v1/venue/fees');
