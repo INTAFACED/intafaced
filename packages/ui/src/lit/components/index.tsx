@@ -135,7 +135,8 @@ export function Switch({ checked, onChange, label, className, onClick, ...rest }
 }
 
 export type SegmentedProps<T extends string> = {
-  options: readonly { value: T; label: string }[];
+  /** `disabled`: a choice listed but not open now (the room says why beside it). */
+  options: readonly { value: T; label: string; disabled?: boolean }[];
   value: T;
   onChange: (v: T) => void;
   label: string;
@@ -146,7 +147,7 @@ export function Segmented<T extends string>({ options, value, onChange, label, c
   return (
     <div className={clsx('lit-segmented', className)} role="group" aria-label={label}>
       {options.map((o) => (
-        <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
+        <button key={o.value} type="button" aria-pressed={o.value === value} disabled={o.disabled} onClick={() => onChange(o.value)}>
           {o.label}
         </button>
       ))}
