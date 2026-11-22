@@ -22,6 +22,7 @@ use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
 use svc_bank::activity;
+use svc_bank::automations;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
@@ -193,6 +194,8 @@ fn spaces_wiring(env: &BankEnv) -> Result<spaces::Wiring, String> {
 /// its approvals (none without `IDENTITY_URL`, so each refuses as unset), the bus for the slice's notices, and the owner's
 /// values as published.
 fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wiring, String> {
+    // `onCreditPosted: (credit) => made.sorter.sortCredit(credit)`.
+    let sorter = sorter_wiring(env);
     let s2s = s2s_from_env(
         env.str("S2S_AUTH_MODE").unwrap_or("off"),
         env.str("S2S_KEYRING"),
@@ -245,6 +248,7 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
             )),
             bus,
             settings,
+            credit_posted: Some(Box::new(sorter.hand_off())),
         },
         None => transfers::Wiring {
             recipients: Box::new(NoIdentity),
@@ -254,6 +258,7 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
             approvals: Box::new(transfers::NoApprovals),
             bus,
             settings,
+            credit_posted: Some(Box::new(sorter.hand_off())),
         },
     })
 }
@@ -567,6 +572,84 @@ fn global_wiring(env: &BankEnv) -> Result<svc_bank::global::Wiring, String> {
     })
 }
 
+/// Slice `automations`' wiring from the environment. Only the parts ported here; the others are `none()` until theirs.
+fn automations_wiring(env: &BankEnv) -> Result<automations::Wiring, String> {
+    let mut w = automations::Wiring::none();
+    w.auto_invest = auto_invest_wiring(env)?;
+    // `scheduledNotices: eventScheduledNotices(bus)`: the notices go out on the bus the transfers slice holds.
+    w.rules = automations::rules::Wiring::on_the_bus();
+    w.sorter = sorter_wiring(env);
+    pay_and_own_moves_wiring(env, w)
+}
+
+/// `incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT`, read by the sorter and by the send's hand-off to it.
+fn sorter_wiring(env: &BankEnv) -> automations::sorter::Wiring {
+    automations::sorter::Wiring {
+        min_credit: env.raw.get("BANK_INCOME_SORTER_MIN_CREDIT").cloned(),
+    }
+}
+
+/// Part `auto_invest` of slice `automations` (`index.ts`'s `autoInvest` options): the kill switch, and svc-trade's convert
+/// port when `TRADE_URL` is usable (`usableTradeConvertUrl`), signed as svc-bank with the owner's markets page size;
+/// without it every DCA refuses `bank.auto_invest_rate_unset`. Its batch is the job's, never the service's own.
+fn auto_invest_wiring(env: &BankEnv) -> Result<automations::auto_invest::Wiring, String> {
+    let trade = env.str("TRADE_URL").unwrap_or("http://localhost:4004");
+    let convert: Option<Box<dyn automations::auto_invest::convert::ConvertPort>> =
+        if ready::usable_trade_convert_url(Some(trade)) {
+            Some(Box::new(
+                automations::auto_invest::convert::TradeConvert::new(
+                    trade,
+                    call_signer(env, "svc-trade")?,
+                    Box::new(UreqFetch::new()),
+                    env.int("CONVERT_MARKETS_LIMIT"),
+                ),
+            ))
+        } else {
+            None
+        };
+    Ok(automations::auto_invest::Wiring {
+        enabled: env.flag("AUTO_INVEST_ENABLED").unwrap_or(true),
+        convert,
+        batch_size: None,
+    })
+}
+
+/// Parts `pay_yourself` and `own_moves` of slice `automations` (`index.ts`).
+///
+/// - `pay_yourself`: svc-trade's realised read (`createRealisedSource`), signed as svc-bank, five seconds a read.
+/// - `own_moves`: the pay-in partner's send to a wallet (`onrampPartnerFor`'s `deliver`: only the TEST stand-in on a dev
+///   or test stack with a loopback delivery address), the owner's destination sanctions list as published, and no
+///   deposit read (`index.ts` wires none).
+fn pay_and_own_moves_wiring(
+    env: &BankEnv,
+    mut wiring: automations::Wiring,
+) -> Result<automations::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let deliver = automations::own_moves::delivery::for_stack(
+        env.str("BANK_ONRAMP_PARTNER"),
+        env.str("BANK_PAYIN_SIM_DELIVER_URL"),
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+        Box::new(UreqFetch::new()),
+    )?;
+    wiring.pay_yourself = automations::pay_yourself::Wiring {
+        realised: Some(Box::new(
+            automations::pay_yourself::realised::TradeRealised::new(
+                env.str("TRADE_URL").unwrap_or_default(),
+                call_signer(env, "svc-trade")?,
+                Box::new(UreqFetch::new()),
+            ),
+        )),
+    };
+    wiring.own_moves = automations::own_moves::Wiring {
+        deliver: deliver
+            .map(|d| Box::new(d) as Box<dyn automations::own_moves::delivery::Delivery>),
+        sanctions: env.str("BANK_DESTINATION_SANCTIONS").map(str::to_owned),
+        deposits: None,
+    };
+    Ok(wiring)
+}
+
 /// The door, built once from the environment, with the store.
 fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -591,7 +674,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_cards(cards)
     .with_loans(loans_wiring(env)?)
     .with_activity(activity_wiring(env)?)
-    .with_global(global_wiring(env)?);
+    .with_global(global_wiring(env)?)
+    .with_automations(automations_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(
