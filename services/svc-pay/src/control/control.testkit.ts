@@ -19,8 +19,8 @@ export const migrations = readdirSync(drizzle)
 export async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const { PostgreSqlContainer } = await import('@testcontainers/postgresql');
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const { testPostgres } = await import('@intafaced/db/test-postgres');
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_control_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
