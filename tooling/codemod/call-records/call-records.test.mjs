@@ -525,6 +525,62 @@ test('the report sorts each hand reason into the kind one script change or one d
   assert.equal(reasonOf('something new'), 'other');
 });
 
+test('the report names what the export refused, construct by construct, as the run left it', async () => {
+  const { reasonOf } = await import('./report.mjs');
+  // The run's own words for svc-pay's and svc-ops' refusals, as run.mjs left them.
+  const refine =
+    "its record can't be exported as the router writes it: pay.payment.refund.input cannot be exported without losing meaning: input.refundId (.refine/.superRefine (a TypeScript predicate the export drops))";
+  const both =
+    "its record can't be exported as the router writes it: ops.x.output cannot be exported without losing meaning: ops.x.output (.refine/.superRefine (a TypeScript predicate the export drops)); ops.x.output.id (transform (a value computed in TypeScript))";
+  const regex =
+    "its record can't be exported as the router writes it: ops.i.output cannot be exported without losing meaning: ops.i.output.s|1 (regex /^(?!pending$)[a-z]$/ uses lookaround or backreferences (not in Rust regex))";
+  assert.equal(reasonOf(refine), "record can't be exported as written: .refine");
+  assert.equal(reasonOf(both), "record can't be exported as written: .refine + transform");
+  assert.equal(reasonOf(regex), "record can't be exported as written: regex lookaround");
+});
+
+test('the deep report counts what each service run moved, never what its plan would rewrite, and puts the checkout back after each', async () => {
+  const { deep } = await import('./report.mjs');
+  // svc-ops: the plan rewrote 20 calls, and the run moved none (each record refused by the export).
+  const why =
+    "its record can't be exported as the router writes it: ops.a.output cannot be exported without losing meaning: ops.a.output (.refine/.superRefine (a TypeScript predicate the export drops))";
+  const rows = [
+    { service: 'svc-ops', sites: 30, planned: 20, left: { other: 1 } },
+    { service: 'svc-trade', sites: 36, planned: 25, left: {} },
+    { service: 'svc-none', sites: 0, planned: 0, left: {} },
+  ];
+  const ran = [];
+  let restored = 0;
+  const runOne = (row) => {
+    ran.push(row.service);
+    if (row.service === 'svc-trade') throw new Error('build failed');
+    return { records: 0, rewritten: 0, hand: Array.from({ length: 20 }, () => ({ why })) };
+  };
+  assert.throws(
+    () =>
+      deep(
+        rows,
+        runOne,
+        () => ({ typeErrors: 0 }),
+        () => restored++,
+      ),
+    /build failed/,
+  );
+  assert.deepEqual(ran, ['svc-ops', 'svc-trade'], 'a service with nothing planned is not run');
+  assert.equal(restored, 2, 'the checkout is put back after every run, a failed one too');
+  assert.equal(rows[0].wouldMove, 0);
+  assert.deepEqual(rows[0].left, { "record can't be exported as written: .refine": 20 });
+  const errored = [{ service: 'svc-pay', sites: 67, planned: 6, left: { other: 2 } }];
+  deep(
+    errored,
+    () => ({ error: 'records still refused' }),
+    () => ({}),
+    () => {},
+  );
+  assert.equal(errored[0].wouldMove, 0, 'a run that fails moves nothing');
+  assert.equal(errored[0].runError, 'records still refused');
+});
+
 test('the router reader follows a builder member, an imported builder and both branches of a switch, and names a path two branches define', async () => {
   const { procedures } = await import('./router.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'call-records-svc-'));
