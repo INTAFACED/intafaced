@@ -36,6 +36,7 @@ import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { CI_WORKFLOW, recheckStep, SEAL_WORKFLOWS } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
+import { githubFetch } from './github-fetch.mjs';
 
 export const SWITCH_BRANCH = 'factory-switch';
 export const SWITCH_FILE = 'FACTORY';
@@ -162,12 +163,12 @@ function apiFor(token) {
   const headers = { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' };
   return {
     async get(path) {
-      const res = await fetch(`https://api.github.com${path}`, { headers });
+      const res = await githubFetch(`https://api.github.com${path}`, { headers });
       if (!res.ok) throw new Error(httpMessage(path, res));
       return res.json();
     },
     async post(path) {
-      const res = await fetch(`https://api.github.com${path}`, { method: 'POST', headers });
+      const res = await githubFetch(`https://api.github.com${path}`, { method: 'POST', headers });
       const text = await res.text();
       let message = text;
       try {

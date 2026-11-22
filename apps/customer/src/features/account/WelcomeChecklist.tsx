@@ -1,16 +1,12 @@
 import { useMemo, useState } from 'react';
-import {
-  welcomeChecklistSchema,
-  welcomeClaimResultSchema,
-  type TaskEvent,
-  type WelcomeChecklist as Checklist,
-} from '@intafaced/contracts/campaigns-catalogue';
+import { type TaskEvent, type WelcomeChecklist as Checklist } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { welcomeChecklistCopy } from './welcome-checklist-copy';
 import { timeLeft } from './time-left';
+import { CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM } from '@intafaced/contracts/campaigns-tasks-procedures';
 
 /**
  * The welcome checklist on /uc/promotion (CM-rewards-hub-03, J-campaigns-04): the account's
@@ -63,15 +59,12 @@ function useFormat() {
 export function WelcomeChecklist() {
   const api = useApi();
   const { t } = welcomeChecklistCopy.useCopy();
-  const list = useResource(
-    (signal) => api.query('campaigns', 'tasks.welcome.list', {}, welcomeChecklistSchema, { signal }),
-    'welcome-checklist',
-  );
+  const list = useResource((signal) => api.call(CAMPAIGNS_TASKS_WELCOME_LIST, {}, { signal }), 'welcome-checklist');
   const [refusal, setRefusal] = useState<{ event: TaskEvent; result: Failed } | null>(null);
   const [busy, setBusy] = useState<TaskEvent | null>(null);
   const claim = async (event: TaskEvent) => {
     setBusy(event);
-    const result = await api.mutate('campaigns', 'tasks.welcome.claim', { event }, welcomeClaimResultSchema);
+    const result = await api.call(CAMPAIGNS_TASKS_WELCOME_CLAIM, { event });
     setBusy(null);
     setRefusal(result.ok ? null : { event, result });
     list.reload();

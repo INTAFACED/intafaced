@@ -1,22 +1,18 @@
 import { z } from 'zod';
 import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
-import { router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { router } from '@intafaced/contracts/trpc';
 import {
-  myRewardsInputSchema,
-  myRewardsSchema,
   payoutRecordListSchema,
   potFundingApproveInputSchema,
   potFundingRequestInputSchema,
   potFundingSchema,
-  welcomeChecklistSchema,
-  welcomeClaimInputSchema,
-  welcomeClaimResultSchema,
-  welcomeListInputSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { CAMPAIGNS_OPS_PAYOUTS_BOARD, CAMPAIGNS_TASKS_CLAIM, CAMPAIGNS_TASKS_PROGRESS } from '@intafaced/contracts/campaigns-procedures';
-import { guard, mapError, opsProcedure, refusalOf, requireOpsMfa } from './kit.js';
+import { mapError, opsProcedure, refusalOf, requireOpsMfa } from './kit.js';
 import type { CampaignServices } from '../router.js';
+import { CAMPAIGNS_REWARDS_MINE } from '@intafaced/contracts/campaigns-rewards-procedures';
+import { CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM } from '@intafaced/contracts/campaigns-tasks-procedures';
 
 /** Task campaigns, the welcome checklist and My Rewards for the customer; the payout board and the reward pot for operators. */
 export function taskRoutes({ tasks }: CampaignServices) {
@@ -38,21 +34,21 @@ export function taskRoutes({ tasks }: CampaignServices) {
         ),
         welcome: router({
           /** The caller's own welcome checklist (CM-rewards-hub-03): its window and each task's state and reward. */
-          list: scopedProcedure('campaigns:read', guard)
-            .input(welcomeListInputSchema)
-            .output(welcomeChecklistSchema)
-            .query(async ({ ctx }) => {
+          list: mountRecord(
+            CAMPAIGNS_TASKS_WELCOME_LIST,
+            async ({ ctx }) => {
               try {
                 return await tasks.welcomeChecklist({ accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
               } catch (err) {
                 mapError(err);
               }
-            }),
+            },
+            refusalOf,
+          ),
           /** Claims one welcome task for the caller's own account. A second call returns the first claim's reward. */
-          claim: scopedProcedure('campaigns:write', guard)
-            .input(welcomeClaimInputSchema)
-            .output(welcomeClaimResultSchema)
-            .mutation(async ({ ctx, input }) => {
+          claim: mountRecord(
+            CAMPAIGNS_TASKS_WELCOME_CLAIM,
+            async ({ ctx, input }) => {
               try {
                 return await tasks.welcomeClaim({
                   accountId: ctx.principal!.userId,
@@ -62,22 +58,25 @@ export function taskRoutes({ tasks }: CampaignServices) {
               } catch (err) {
                 mapError(err);
               }
-            }),
+            },
+            refusalOf,
+          ),
         }),
       }),
 
       rewards: router({
         /** My Rewards hub: the caller's own rewards in plain status words, with totals summed from those rows. */
-        mine: scopedProcedure('campaigns:read', guard)
-          .input(myRewardsInputSchema)
-          .output(myRewardsSchema)
-          .query(async ({ ctx }) => {
+        mine: mountRecord(
+          CAMPAIGNS_REWARDS_MINE,
+          async ({ ctx }) => {
             try {
               return await tasks.myRewards({ accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
             } catch (err) {
               mapError(err);
             }
-          }),
+          },
+          refusalOf,
+        ),
       }),
     },
     ops: {
