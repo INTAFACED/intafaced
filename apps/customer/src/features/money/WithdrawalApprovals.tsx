@@ -333,8 +333,8 @@ export function WithdrawalApprovals({ context, search }: { context: ApprovalRead
             <List current={current} />
           )}
           <p>
-            <a className="lt-link" href="/uc/withdraw">
-              {t('viewWithdrawals')} ↗
+            <a className="lt-button lt-button-secondary" href="/uc/withdraw">
+              {t('viewWithdrawals')} <span aria-hidden="true">↗</span>
             </a>
           </p>
         </>
