@@ -17,7 +17,6 @@
     "apps/customer/src/features/account/FreezeAccount.tsx": 1,
     "apps/customer/src/features/account/NotificationTargets.tsx": 1,
     "apps/customer/src/features/account/PasskeyNames.tsx": 1,
-    "apps/customer/src/features/account/PerksRoom.tsx": 1,
     "apps/customer/src/features/account/Promotions.tsx": 1,
     "apps/customer/src/features/account/RecoveryKeys.tsx": 1,
     "apps/customer/src/features/account/RewardsHub.tsx": 1,

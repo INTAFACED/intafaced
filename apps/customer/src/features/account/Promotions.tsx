@@ -28,6 +28,7 @@ import {
   type ShareOriginal,
 } from './promotions-guards';
 import './promotions.css';
+import { PromotionTabs, promotionsViewFor } from './promotion-tabs';
 import { callAs } from '../../shared/api';
 import { IDENTITY_AFFILIATES_CREATE_SHARE, IDENTITY_AFFILIATES_REVOKE_SHARE } from '@intafaced/contracts/identity-affiliates-procedures';
 
@@ -53,37 +54,7 @@ type Known = {
 type Problem = 'storage' | 'locks' | 'another';
 const empty: ShareJournal = { records: [], failed: false };
 
-export type PromotionsView = 'overview' | 'link' | 'records' | 'points' | 'perks';
-/** Each promotion address opens its own section; the bare address and the invitations address show both. */
-export function promotionsViewFor(path: string): PromotionsView {
-  const clean = path.split('?')[0]!.replace(/\/+$/, '');
-  if (clean === '/uc/promotion/points') return 'points';
-  if (clean === '/uc/promotion/perks') return 'perks';
-  return clean === '/uc/promotion/mycards' ? 'link' : clean === '/uc/promotion/mypromotion' ? 'records' : 'overview';
-}
-const promotionTabs: ReadonlyArray<{
-  view: PromotionsView;
-  href: string;
-  label: 'tabOverview' | 'tabLink' | 'tabRecords' | 'tabPoints' | 'tabPerks';
-}> = [
-  { view: 'overview', href: '/uc/promotion', label: 'tabOverview' },
-  { view: 'link', href: '/uc/promotion/mycards', label: 'tabLink' },
-  { view: 'records', href: '/uc/promotion/mypromotion', label: 'tabRecords' },
-  { view: 'points', href: '/uc/promotion/points', label: 'tabPoints' },
-  { view: 'perks', href: '/uc/promotion/perks', label: 'tabPerks' },
-];
-export function PromotionTabs({ view }: { view: PromotionsView }) {
-  const { t } = copy.useCopy();
-  return (
-    <nav className="promotions__tabs" aria-label={t('tabsLabel')}>
-      {promotionTabs.map((tab) => (
-        <a key={tab.view} href={tab.href} aria-current={tab.view === view ? 'page' : undefined}>
-          {t(tab.label)}
-        </a>
-      ))}
-    </nav>
-  );
-}
+export { PromotionTabs, promotionsViewFor, type PromotionsView } from './promotion-tabs';
 
 export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
   const view = promotionsViewFor(path);
