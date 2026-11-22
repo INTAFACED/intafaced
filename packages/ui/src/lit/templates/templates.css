@@ -1168,6 +1168,42 @@ button.lt-tab {
   block-size: 2rem;
 }
 
+/* QrCode: a scanner needs dark on light in every theme, so the ground and the modules are the kit's one fixed pair. */
+.lt-qr {
+  margin: 0;
+  inline-size: 100%;
+  max-inline-size: 13rem;
+  display: grid;
+  gap: var(--lit-gap-item);
+}
+.lt-qr[data-size='sm'] {
+  max-inline-size: 11rem;
+}
+.lt-qr svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  border-radius: var(--lit-radius-tile);
+  forced-color-adjust: none;
+}
+.lt-qr-ground {
+  fill: white; /* look-drift-allow: a QR code needs a fixed light ground for scanners in every theme; no role token stays light in both schemes */
+}
+.lt-qr-modules {
+  fill: black; /* look-drift-allow: a QR code needs fixed dark modules for scanners in every theme; no role token stays dark in both schemes */
+}
+.lt-qr-value {
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.lt-qr-failed {
+  margin: 0;
+  color: var(--lit-warn-text);
+}
+
 /* Candles: rise in the up role, fall in the down role; the wick keeps its width however the chart stretches. */
 .lt-candle line {
   stroke-width: 1;
