@@ -9,6 +9,7 @@
 //! `ready` (`/ready`), `restore_watermark` (svc-ops' restore position), `recovery` (the recovery jobs' lock and pass)
 //! and `timers` (what else `index.ts` runs on a period); the binary (`main.rs`) puts them together.
 
+pub mod automations;
 pub mod cards;
 pub mod credit_previews;
 pub mod db;

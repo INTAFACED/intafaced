@@ -241,6 +241,8 @@ pub struct BankDoor {
     cards: crate::cards::Wiring,
     /// Slice `loans`'s marks, venue, affiliates and owner values (`loans::Wiring`).
     loans: crate::loans::Wiring,
+    /// Slice `automations`' wiring, one part each (`automations::Wiring`); nothing until handed in.
+    pub(crate) automations: crate::automations::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -290,6 +292,7 @@ impl BankDoor {
             earn: crate::earn::Settings::default(),
             cards: crate::cards::Wiring::none(),
             loans: crate::loans::Wiring::none(),
+            automations: crate::automations::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -404,6 +407,34 @@ impl BankDoor {
         f(&crate::cards::Deps {
             t: &t,
             w: &self.cards,
+        })
+    }
+
+    /// Slice `automations`' wiring, built by the binary from the environment.
+    pub fn with_automations(mut self, wiring: crate::automations::Wiring) -> BankDoor {
+        self.automations = wiring;
+        self
+    }
+
+    /// `f` given slice `automations`' dependencies at `now`: what a call, a job door or another slice hands the slice.
+    pub fn automations_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::automations::Deps<'_>) -> T,
+    ) -> T {
+        let custody = self.partner.custody(&self.store);
+        let t = crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now,
+        };
+        f(&crate::automations::Deps {
+            t: &t,
+            w: &self.automations,
         })
     }
 
@@ -526,6 +557,9 @@ impl BankDoor {
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::Loans)))
             }
+            Slice::Automations => self
+                .automations_deps(ctx.now, |d| crate::automations::router::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Automations))),
             other => Err(not_ported(other)),
         }
     }
