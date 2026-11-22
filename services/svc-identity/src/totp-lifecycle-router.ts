@@ -4,16 +4,15 @@ import { AuthError } from './auth/auth-service.js';
 import { SecurityStepUpError, toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
 import { TotpLifecycleError, type TotpLifecycle } from './auth/totp-lifecycle.js';
 import { userCopy } from './user-copy.js';
-
-const status = z.object({
-  enabled: z.boolean(),
-  label: z.string().nullable(),
-  enrolledAt: z.string().nullable(),
-  recoveryCodesLeft: z.number().int(),
-});
-const code = z.string().trim().min(6).max(64);
-const requestId = z.string().min(1).max(128);
-const approvalId = z.string().min(1).max(128).nullish();
+import { requestId, approvalId, code } from '@intafaced/contracts/identity-call-schemas';
+import {
+  IDENTITY_TOTP_MANAGE_STATUS,
+  IDENTITY_TOTP_MANAGE_REPLACE_START,
+  IDENTITY_TOTP_MANAGE_DISABLE,
+  IDENTITY_TOTP_MANAGE_RENAME,
+} from '@intafaced/contracts/identity-totp-manage-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 function mapError(err: unknown): never {
   if (err instanceof TotpLifecycleError) {
@@ -36,29 +35,31 @@ function mapError(err: unknown): never {
 export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: SecurityStepUp) {
   return router({
     totpManage: router({
-      status: scopedProcedure('identity:read')
-        .output(status)
-        .query(async ({ ctx }) => {
+      status: mountRecord(
+        IDENTITY_TOTP_MANAGE_STATUS,
+        async ({ ctx }) => {
           try {
             return await lifecycle.status(ctx.principal.userId);
           } catch (err) {
             return mapError(err);
           }
-        }),
-      rename: scopedProcedure('identity:write')
-        .input(z.object({ label: z.string().max(256) }).strict())
-        .output(status)
-        .mutation(async ({ ctx, input }) => {
+        },
+        codedRefusal,
+      ),
+      rename: mountRecord(
+        IDENTITY_TOTP_MANAGE_RENAME,
+        async ({ ctx, input }) => {
           try {
             return await lifecycle.rename(ctx.principal.userId, input.label);
           } catch (err) {
             return mapError(err);
           }
-        }),
-      disable: scopedProcedure('identity:write')
-        .input(z.object({ code, clientRequestId: requestId, stepUpApprovalId: approvalId }).strict())
-        .output(z.object({ disabled: z.literal(true), recoveryCodeSpent: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
+        },
+        codedRefusal,
+      ),
+      disable: mountRecord(
+        IDENTITY_TOTP_MANAGE_DISABLE,
+        async ({ ctx, input }) => {
           try {
             // Already off answers ok before the guard: the guard needs a second factor, and there is none left.
             if (!(await lifecycle.isEnabled(ctx.principal.userId))) return { disabled: true as const, recoveryCodeSpent: false };
@@ -72,13 +73,12 @@ export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: Secu
           } catch (err) {
             return mapError(err);
           }
-        }),
-      replaceStart: scopedProcedure('identity:write')
-        // A session that signed in without its second factor (for example one that turned the authenticator on just
-        // now) starts with the confirmation it just gave: the same approval replaceConfirm then spends.
-        .input(z.object({ clientRequestId: requestId, stepUpApprovalId: approvalId }).strict().optional())
-        .output(z.object({ secret: z.string(), uri: z.string() }))
-        .mutation(async ({ ctx, input }) => {
+        },
+        codedRefusal,
+      ),
+      replaceStart: mountRecord(
+        IDENTITY_TOTP_MANAGE_REPLACE_START,
+        async ({ ctx, input }) => {
           try {
             if (!ctx.principal.mfa) {
               // Typed as every other step-up refusal, so the page offers "Confirm it is you".
@@ -94,7 +94,9 @@ export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: Secu
           } catch (err) {
             return mapError(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
       replaceConfirm: scopedProcedure('identity:write')
         .input(
           z

@@ -1,8 +1,9 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk';
+import { founderCall, type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import { refusalOf } from '@/lib/agents-log';
 import { handlesFor, type FleetAnswer } from '@/lib/agents-fleet';
 import type { OutsideAction } from './model';
+import { IDENTITY_API_KEY_OPS_REVOKE } from '@intafaced/contracts/identity-api-key-ops-procedures';
 
 /**
  * The outside assistant connections desk's hops (J-agents-21 #15), always as the signed-in founder through svc-edge:
@@ -75,11 +76,9 @@ export async function runOutside(ctx: FounderCallContext, action: OutsideAction)
       // The person the key belongs to, from svc-trade's own record of the key's connection, never from the browser.
       const owner = await founderCall(ctx, 'trade', 'admin.agentDesk.connection', 'GET', { keyId: action.keyId }, parseOwner);
       if (owner.kind !== 'ok') return refusalOf(owner);
-      const revoked = await founderCall(
+      const revoked = await founderRecordRead(
         ctx,
-        'identity',
-        'apiKeyOps.revoke',
-        'POST',
+        IDENTITY_API_KEY_OPS_REVOKE,
         { userId: owner.data.userId, keyId: action.keyId, reason: action.reason, clientRequestId: action.requestId },
         parseAny,
       );
