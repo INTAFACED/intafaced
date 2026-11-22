@@ -1,32 +1,16 @@
 import { useState } from 'react';
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Badge,
-  Button,
-  EmptyState,
-  Table,
-  dec,
-  fmtAmount,
-  fmtPrice,
-  formatAsOf,
-  type Loadable,
-  type TableColumn,
-} from '../rooms/ui';
+import { Button, Dialog, EmptyState, Tag } from '@intafaced/ui/lit';
+import { Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
+import { dec, fmtAmount, fmtPrice, formatAsOf, type Loadable } from '../rooms/ui';
 import type { Order } from '../../../features/trade/trade-api';
 import type { ListedMarket } from '../rooms/api';
-import { Freshness } from '../rooms/RoomNotices';
 import { asOfOf, useNow } from '../rooms/read';
 import { roomWords } from '../rooms/refusals';
 import { BLOCK_WORDS, type RoomWriter } from '../rooms/write';
 import { useDeskApi, useRefreshPrivate } from '../desk/data';
 import { CANCEL_BUCKET_ORDER, bucketOf, cancelCounts, type CancelBucket, type CancelRow } from './cancelAll';
 import { optionsCopy } from './copy';
+import { Freshness, Refusal } from './notices';
 import { RefusedRegion } from './shared';
 
 function Section({
@@ -39,30 +23,26 @@ function Section({
   title: string;
   load: Loadable<Order[]>;
   rows: Order[];
-  columns: TableColumn<Order>[];
+  columns: Column<Order>[];
   emptyText: string;
 }) {
   const now = useNow(15_000);
   if (load.status === 'refused') return <RefusedRegion code={load.code} />;
   return (
-    <section aria-label={title} className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <h3 className="m-0 text-md font-medium text-fg">{title}</h3>
+    <section aria-label={title} className="lt-stack">
+      <div className="lt-toolbar">
+        <h3 className="lt-heading">{title}</h3>
         <Freshness asOf={asOfOf(load)} now={now} />
       </div>
-      <Table
-        label={title}
-        density="dense"
-        columns={columns}
-        rows={rows}
-        getRowId={(o) => o.id}
-        status={load.status === 'loading' || load.status === 'empty' ? 'loading' : load.status === 'error' ? 'error' : 'ready'}
-        onRetry={load.status === 'error' ? load.retry : undefined}
-        errorState={<EmptyState variant="refused" title={title} reason={emptyText} />}
-        emptyState={<EmptyState title={emptyText} />}
-        minWidth={columns.reduce((sum, column) => sum + (typeof column.width === 'number' ? column.width : 0), 0)}
-        maxHeight={320}
-      />
+      {load.status === 'loading' || load.status === 'empty' ? (
+        <Skeleton shape="rows" />
+      ) : load.status === 'error' ? (
+        <Refusal words={{ title, body: emptyText }} onRetry={load.retry} />
+      ) : (
+        <div className="lt-scroll-x">
+          <Table caption={title} mode="pro" columns={columns} rows={rows} rowKey={(o) => o.id} empty={<EmptyState title={emptyText} />} />
+        </div>
+      )}
     </section>
   );
 }
@@ -144,67 +124,37 @@ export function OrdersTab({
   }
 
   const stateOf = (o: Order) => {
-    if (o.recoveryRequired) return <Badge tone="warn">{t('Needs recovery')}</Badge>;
-    if (o.status === 'open')
-      return <Badge tone="lime">{dec(o.filled) !== null && o.filled !== '0' ? t('Partly filled') : t('Open')}</Badge>;
+    if (o.recoveryRequired) return <Tag tone="neutral">{t('Needs recovery')}</Tag>;
+    if (o.status === 'open') return <Tag tone="accent">{dec(o.filled) !== null && o.filled !== '0' ? t('Partly filled') : t('Open')}</Tag>;
     const word = { closed: t('Filled'), canceled: t('Cancelled'), expired: t('Expired'), rejected: t('Rejected') }[o.status];
-    return <Badge>{word ?? o.status}</Badge>;
+    return <Tag tone="neutral">{word ?? o.status}</Tag>;
   };
 
-  const base: TableColumn<Order>[] = [
-    {
-      id: 'symbol',
-      header: t('Contract'),
-      width: 200,
-      pin: 'start',
-      value: (o) => o.symbol,
-      cell: (o) => <span className="font-mono">{o.symbol}</span>,
-    },
-    { id: 'side', header: t('Side'), width: 52, cell: (o) => (o.side === 'buy' ? t('Buy') : t('Sell')) },
-    { id: 'type', header: t('Type'), width: 60, cell: () => t('Limit') },
-    {
-      id: 'price',
-      header: t('Price'),
-      width: 90,
-      numeric: true,
-      value: (o) => o.price,
-      cell: (o) => fmtPrice(o.price, markets.get(o.symbol)?.precision.price),
-    },
-    { id: 'size', header: t('Size'), width: 80, numeric: true, value: (o) => o.amount, cell: (o) => fmtAmount(o.amount, { places: 8 }) },
-    {
-      id: 'filled',
-      header: t('Filled'),
-      width: 80,
-      numeric: true,
-      value: (o) => o.filled,
-      cell: (o) => fmtAmount(o.filled, { places: 8 }),
-    },
-    { id: 'state', header: t('State'), width: 126, cell: stateOf },
-    { id: 'created', header: t('Created'), width: 110, cell: (o) => formatAsOf(o.timestamp) },
+  const base: Column<Order>[] = [
+    { key: 'symbol', label: t('Contract'), ltr: true, cell: (o) => o.symbol },
+    { key: 'side', label: t('Side'), cell: (o) => (o.side === 'buy' ? t('Buy') : t('Sell')) },
+    { key: 'type', label: t('Type'), cell: () => t('Limit') },
+    { key: 'price', label: t('Price'), align: 'end', cell: (o) => fmtPrice(o.price, markets.get(o.symbol)?.precision.price) },
+    { key: 'size', label: t('Size'), align: 'end', cell: (o) => fmtAmount(o.amount, { places: 8 }) },
+    { key: 'filled', label: t('Filled'), align: 'end', cell: (o) => fmtAmount(o.filled, { places: 8 }) },
+    { key: 'state', label: t('State'), cell: stateOf },
+    { key: 'created', label: t('Created'), cell: (o) => formatAsOf(o.timestamp) },
   ];
-  const openColumns: TableColumn<Order>[] = [
+  const openColumns: Column<Order>[] = [
     ...base,
     {
-      id: 'actions',
-      header: t('Actions'),
-      headerLabel: t('Actions'),
-      width: 230,
+      key: 'actions',
+      label: t('Actions'),
       align: 'end',
       cell: (o) => (
-        <span className="inline-flex items-center gap-2">
-          {rowNote[o.id] ? <span className="text-xs text-fg-2">{rowNote[o.id]}</span> : null}
+        <span className="lt-actions">
+          {rowNote[o.id] ? <span className="lt-hint">{rowNote[o.id]}</span> : null}
           {o.recoveryRequired ? (
-            <Button variant="secondary" size={28} loading={checking === o.id} onClick={() => void checkRow(o)}>
+            <Button aria-busy={checking === o.id || undefined} disabled={checking === o.id} onClick={() => void checkRow(o)}>
               {t('Check status')}
             </Button>
           ) : null}
-          <Button
-            variant="secondary"
-            size={28}
-            disabled={writer.busy}
-            aria-label={t('Cancel order label', { contract: o.symbol })}
-            onClick={() => setCancelling(o)}
-          >
+          <Button disabled={writer.busy} aria-label={t('Cancel order label', { contract: o.symbol })} onClick={() => setCancelling(o)}>
             {t('Cancel')}
           </Button>
         </span>
@@ -215,22 +165,18 @@ export function OrdersTab({
   const rowsOf = (load: Loadable<Order[]>) => (load.status === 'ready' ? [...load.data].sort((a, b) => b.timestamp - a.timestamp) : []);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="lt-stack">
       {open.status === 'ready' && open.data.length > 1 ? (
-        <div className="flex justify-end">
-          <Button variant="secondary" size={28} disabled={writer.busy} onClick={() => setCancellingAll(true)}>
+        <div className="lt-actions">
+          <Button disabled={writer.busy} onClick={() => setCancellingAll(true)}>
             {t('Cancel all orders')}
           </Button>
         </div>
       ) : null}
       {batch ? (
-        <section
-          aria-label={t('Cancel all result title')}
-          aria-live="polite"
-          className="flex flex-col gap-1 rounded-sm border border-line bg-panel p-3"
-        >
-          <h3 className="m-0 text-base font-medium text-fg">{t('Cancel all result title')}</h3>
-          <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-sm text-fg">
+        <section aria-label={t('Cancel all result title')} aria-live="polite" className="lt-stack">
+          <h3 className="lt-heading">{t('Cancel all result title')}</h3>
+          <ul className="lt-list">
             {CANCEL_BUCKET_ORDER.map((bucket) => {
               const counts = cancelCounts(batch.rows, batch.total, { running: batch.running });
               if (bucket !== 'cancelled' && counts[bucket] === 0) return null;
@@ -249,10 +195,10 @@ export function OrdersTab({
               </li>
             ) : null}
           </ul>
-          <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs text-fg-2">
+          <ul className="lt-list">
             {batch.rows.map((r) => (
-              <li key={r.id}>
-                <span className="font-mono text-fg">{r.symbol}</span> {r.text}
+              <li key={r.id} className="lt-hint">
+                <span className="lt-mono">{r.symbol}</span> {r.text}
               </li>
             ))}
           </ul>
@@ -260,52 +206,53 @@ export function OrdersTab({
       ) : null}
       <Section title={t('Open orders')} load={open} rows={rowsOf(open)} columns={openColumns} emptyText={t('No open option orders')} />
       <Section title={t('Order history')} load={closed} rows={rowsOf(closed)} columns={base} emptyText={t('No closed option orders')} />
-      <AlertDialog open={cancelling !== null} onOpenChange={(next) => !next && setCancelling(null)}>
-        <AlertDialogContent>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (cancelling) void cancel(cancelling);
-            }}
-          >
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Cancel this order')}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {cancelling
-                  ? t('Cancel order body', {
-                      side: cancelling.side === 'buy' ? t('Buy') : t('Sell'),
-                      size: fmtAmount(cancelling.remaining, { places: 8 }),
-                      contract: cancelling.symbol,
-                      price: fmtPrice(cancelling.price, markets.get(cancelling.symbol)?.precision.price),
-                    })
-                  : ''}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogClose render={<Button variant="secondary" size={40} type="button" />}>{t('Keep order')}</AlertDialogClose>
-              <Button type="submit" size={40} variant="primary" autoFocus>
-                {t('Cancel order')}
-              </Button>
-            </AlertDialogFooter>
-          </form>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog open={cancellingAll} onOpenChange={(next) => !next && setCancellingAll(false)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('Cancel all title')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('Cancel all body', { count: String(open.status === 'ready' ? open.data.length : 0) })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="secondary" size={40} type="button" />}>{t('Keep order')}</AlertDialogClose>
-            <Button size={40} variant="primary" onClick={() => void cancelAll()}>
-              {t('Cancel all go', { count: String(open.status === 'ready' ? open.data.length : 0) })}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Dialog
+        alert
+        open={cancelling !== null}
+        onClose={() => setCancelling(null)}
+        title={t('Cancel this order')}
+        description={
+          cancelling
+            ? t('Cancel order body', {
+                side: cancelling.side === 'buy' ? t('Buy') : t('Sell'),
+                size: fmtAmount(cancelling.remaining, { places: 8 }),
+                contract: cancelling.symbol,
+                price: fmtPrice(cancelling.price, markets.get(cancelling.symbol)?.precision.price),
+              })
+            : ''
+        }
+      >
+        <form
+          className="lt-actions"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (cancelling) void cancel(cancelling);
+          }}
+        >
+          <Button size="lg" onClick={() => setCancelling(null)}>
+            {t('Keep order')}
+          </Button>
+          <Button type="submit" size="lg" tone="primary" data-autofocus="">
+            {t('Cancel order')}
+          </Button>
+        </form>
+      </Dialog>
+      <Dialog
+        alert
+        open={cancellingAll}
+        onClose={() => setCancellingAll(false)}
+        title={t('Cancel all title')}
+        description={t('Cancel all body', { count: String(open.status === 'ready' ? open.data.length : 0) })}
+      >
+        <div className="lt-actions">
+          <Button size="lg" onClick={() => setCancellingAll(false)}>
+            {t('Keep order')}
+          </Button>
+          <Button size="lg" tone="primary" onClick={() => void cancelAll()}>
+            {t('Cancel all go', { count: String(open.status === 'ready' ? open.data.length : 0) })}
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

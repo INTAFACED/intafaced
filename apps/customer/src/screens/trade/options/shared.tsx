@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { EmptyState } from '../rooms/ui';
-import { Refusal } from '../rooms/RoomNotices';
+import { RefusalBox } from '@intafaced/ui/lit/templates';
 import { roomWords } from '../rooms/refusals';
 import { optionsCopy } from './copy';
+import { Refusal } from './notices';
 
 /** Where a signed-out person is sent to carry on with this room. */
 export function loginHref(): string {
@@ -14,11 +14,13 @@ export function RefusedRegion({ code, onRetry }: { code: string; onRetry?: () =>
   const { t } = optionsCopy.useCopy();
   if (code === 'auth.required')
     return (
-      <EmptyState
-        variant="refused"
-        title={t('Sign in to see this')}
-        reason={t('Sign in reason')}
-        action={{ label: t('Sign in'), href: loginHref(), variant: 'secondary' }}
+      <RefusalBox
+        refusal={{
+          variant: 'refused',
+          title: t('Sign in to see this'),
+          body: t('Sign in reason'),
+          action: { label: t('Sign in'), href: loginHref() },
+        }}
       />
     );
   return <Refusal words={roomWords({ code })} onRetry={onRetry} />;

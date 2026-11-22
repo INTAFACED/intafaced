@@ -1,33 +1,34 @@
-import { EmptyState, KeyValue, type Loadable } from '../rooms/ui';
+import { KeyValue, RefusalBox } from '@intafaced/ui/lit/templates';
+import type { Loadable } from '../rooms/ui';
 import type { OptionsPolicy } from '../rooms/api';
-import { Freshness } from '../rooms/RoomNotices';
 import { asOfOf } from '../rooms/read';
 import { optionsCopy } from './copy';
+import { Freshness, kvRow } from './notices';
 import { RefusedRegion } from './shared';
 
 export function SettlementTab({ policy }: { policy: Loadable<OptionsPolicy> }) {
   const { t } = optionsCopy.useCopy();
   if (policy.status === 'refused') return <RefusedRegion code={policy.code} />;
   const p = policy.status === 'ready' ? policy.data : null;
+  const row = kvRow;
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="m-0 text-md font-medium text-fg">{t('Settlement and exercise')}</h3>
+    <div className="lt-stack">
+      <div className="lt-toolbar">
+        <h3 className="lt-heading">{t('Settlement and exercise')}</h3>
         <Freshness asOf={asOfOf(policy)} />
       </div>
       <KeyValue
-        density="dense"
-        items={[
-          { label: t('Settlement asset'), value: p ? (p.settlementAssetLawStamped ? t('Published') : t('Not published')) : null },
-          { label: t('Settlement price source'), value: p ? (p.settlementFixingConfigured ? t('Set up') : t('Not set up')) : null },
-          { label: t('Style'), value: p ? (p.europeanOnly ? t('European: exercised at expiry only') : t('Other')) : null },
-          { label: t('Collateral'), value: p ? (p.fullCollateralV1 ? t('Full collateral') : t('Other')) : null },
-          { label: t('Exercise and expiry runs'), value: null, hint: t('Jobs hint') },
+        rows={[
+          row(t('Settlement asset'), p ? (p.settlementAssetLawStamped ? t('Published') : t('Not published')) : null),
+          row(t('Settlement price source'), p ? (p.settlementFixingConfigured ? t('Set up') : t('Not set up')) : null),
+          row(t('Style'), p ? (p.europeanOnly ? t('European: exercised at expiry only') : t('Other')) : null),
+          row(t('Collateral'), p ? (p.fullCollateralV1 ? t('Full collateral') : t('Other')) : null),
+          row(t('Exercise and expiry runs'), null, t('Jobs hint')),
         ]}
       />
-      <p className="m-0 text-sm text-fg-2">{t('Expiry price rule')}</p>
-      <p className="m-0 text-sm text-fg-2">{t('Result names')}</p>
-      <EmptyState variant="unavailable" size="inline" title={t('Exercise history not published')} reason={t('Exercise history blocker')} />
+      <p className="lt-hint">{t('Expiry price rule')}</p>
+      <p className="lt-hint">{t('Result names')}</p>
+      <RefusalBox refusal={{ variant: 'parked', title: t('Exercise history not published'), body: t('Exercise history blocker') }} />
     </div>
   );
 }
