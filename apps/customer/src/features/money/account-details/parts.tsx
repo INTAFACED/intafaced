@@ -2,14 +2,38 @@ import { useId, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { accountScreenCopy } from '../../../screens/account/copy';
 
-/** A titled panel of the Bank's account pages, drawn from the kit. */
-export function Panel({ title, lead, children, id }: { title: ReactNode; lead?: ReactNode; children: ReactNode; id?: string }) {
+/**
+ * A titled panel of the Bank's account pages, drawn from the kit. `framed` draws it as a kit card, for a page whose
+ * other panels are cards (Add money); inside a room's own section it stays bare, so no card sits inside a card.
+ */
+export function Panel({
+  title,
+  lead,
+  children,
+  id,
+  framed = false,
+}: {
+  title: ReactNode;
+  lead?: ReactNode;
+  children: ReactNode;
+  id?: string;
+  framed?: boolean;
+}) {
   const heading = useId();
-  return (
-    <section className="lt-stack" aria-labelledby={heading} id={id}>
+  const body = (
+    <>
       <h3 id={heading}>{title}</h3>
       {lead && <p className="lt-hint">{lead}</p>}
       {children}
+    </>
+  );
+  return framed ? (
+    <section className="lt-region lt-stack" aria-labelledby={heading} id={id}>
+      {body}
+    </section>
+  ) : (
+    <section className="lt-stack" aria-labelledby={heading} id={id}>
+      {body}
     </section>
   );
 }

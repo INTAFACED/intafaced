@@ -151,6 +151,16 @@
   display: none;
 }
 
+/* A room with nothing in its side column gives the main column the whole width, never an empty third. */
+.lt-grid-main-side:has(> .lt-col-side:empty) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A region whose part drew nothing (a banner with nothing to say) draws no empty box. */
+.lt-region:empty {
+  display: none;
+}
+
 .lt-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1063,6 +1073,52 @@ button.lt-tab {
 .lt-row-link:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 2px;
+}
+
+/*
+ * A record row that is one link across its whole row (a holding, a space, a service): `data-span="row"` on the link. A
+ * leading mark (a lettered `.lt-person-face`), then the record's `.lt-lines` taking the room, then its figures
+ * (`data-part="figures"`) at the end, then the arrow. On a phone the figures drop to their own line under the name.
+ */
+.lt-row-link[data-span='row'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  inline-size: 100%;
+  min-block-size: var(--lit-row-h);
+}
+
+.lt-row-link[data-span='row'] > * {
+  flex: none;
+}
+
+.lt-row-link[data-span='row'] > .lt-lines {
+  flex: 1 1 10rem;
+}
+
+.lt-row-link[data-span='row'] > [data-part='figures'] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(var(--lit-gap-item) / 4);
+  min-inline-size: min(100%, 16rem);
+  text-align: end;
+}
+
+.lt-row-link[data-span='row'] > [data-part='figures'] > .lt-kv {
+  align-self: stretch;
+}
+
+.lt-row-link[data-span='row'] > .lt-arrow {
+  align-self: center;
+  color: var(--lit-text-2);
+}
+
+@container room (max-width: 599px) {
+  .lt-row-link[data-span='row'] > [data-part='figures'] {
+    order: 1;
+    flex-basis: 100%;
+  }
 }
 
 /* Table: a sortable header. */
