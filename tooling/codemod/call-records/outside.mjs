@@ -27,7 +27,7 @@ function manifest(file) {
 const depsOf = (m) => ({ ...m?.dependencies, ...m?.peerDependencies });
 
 /** `@scope/name/sub` -> `@scope/name`, `name/sub` -> `name`. */
-export const packageOf = (spec) =>
+const packageOf = (spec) =>
   spec
     .split('/')
     .slice(0, spec.startsWith('@') ? 2 : 1)
