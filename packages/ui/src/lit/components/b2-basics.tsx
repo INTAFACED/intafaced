@@ -1,6 +1,6 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, FreshnessChip, Tabs, SectionTabs, Checkbox, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, FreshnessChip, Tabs, SectionTabs, Disclosure, Checkbox, Dialog, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
@@ -311,6 +311,56 @@ export function SectionTabs<T extends string>({
   );
 }
 
+export interface DisclosureItem {
+  /** Names the section in `defaultOpen`; stable across renders. */
+  value: string;
+  title: React.ReactNode;
+  body: React.ReactNode;
+}
+
+/**
+ * Sections that fold: each one's heading is a button that opens and closes it, and its open body is a region named by
+ * that heading. One is open at a time unless `multiple`; `defaultOpen` names the ones open at first. A closed body is
+ * not drawn, so nothing folded away is read out or reached by Tab.
+ */
+export function Disclosure({
+  items,
+  defaultOpen = [],
+  multiple = false,
+}: {
+  items: readonly DisclosureItem[];
+  defaultOpen?: readonly string[];
+  multiple?: boolean;
+}) {
+  const [open, setOpen] = React.useState<readonly string[]>(defaultOpen);
+  const base = React.useId();
+  const toggle = (value: string) =>
+    setOpen((now) => (now.includes(value) ? now.filter((v) => v !== value) : multiple ? [...now, value] : [value]));
+  return (
+    <div className="lt-disclosure">
+      {items.map((item, i) => {
+        const isOpen = open.includes(item.value);
+        const head = `${base}-${i}-head`;
+        const body = `${base}-${i}-body`;
+        return (
+          <div key={item.value} className="lt-disclosure-item" data-open={isOpen || undefined}>
+            <h3 className="lt-disclosure-head">
+              <button type="button" id={head} aria-expanded={isOpen} aria-controls={body} onClick={() => toggle(item.value)}>
+                {item.title}
+              </button>
+            </h3>
+            {isOpen ? (
+              <div id={body} role="region" aria-labelledby={head} className="lt-disclosure-body">
+                {item.body}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** A tick with its words, one row: the box, then the label. Every other attribute goes to the native checkbox. */
 export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: React.ReactNode }) {
   return (
@@ -318,6 +368,54 @@ export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTM
       <input {...input} type="checkbox" />
       <span>{label}</span>
     </label>
+  );
+}
+
+/**
+ * A modal dialog in the middle of the screen: a review before a step that cannot be undone, or one short task. It is
+ * open while it is drawn (the caller decides when it shows and owns its own submission), keeps focus inside, and closes
+ * on Escape or its Close button by calling `onClose`. Built on the native <dialog> element, named by its title.
+ */
+export function Dialog({
+  title,
+  onClose,
+  closeLabel,
+  children,
+}: {
+  title: React.ReactNode;
+  onClose: () => void;
+  closeLabel: string;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLDialogElement>(null);
+  const titleId = React.useId();
+  React.useEffect(() => {
+    const d = ref.current;
+    if (!d || d.open) return;
+    // A host without modal dialogs (an older engine, a test DOM) still shows it, in the flow.
+    if (typeof d.showModal === 'function') d.showModal();
+    else d.setAttribute('open', '');
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="lt-dialog"
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <header className="lt-sheet-head">
+        <h2 id={titleId} className="lt-sheet-title">
+          {title}
+        </h2>
+        <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} onClick={onClose}>
+          ×
+        </button>
+      </header>
+      <div className="lt-sheet-body">{children}</div>
+    </dialog>
   );
 }
 

@@ -15,3 +15,5 @@ export { CardStack, CardStackLoading, type CardStackProps, type StackCard } from
 export { contrastRatio, deltaE2000, hue, luminance, parseColour, toHex } from './colour.js';
 export * from './components/controls.js';
 export { asOfIso, formatAsOf } from '../components/freshness.js';
+export { heldStateOf, totalFreshness, type HeldState } from '../components/freshness.js';
+export { useFreshnessClock } from '../components/use-freshness-clock.js';
