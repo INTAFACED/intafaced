@@ -9,10 +9,6 @@ import { agentGuardrailsCopy, hasGuardrailWords } from './agent-guardrails-copy'
 import {
   OWN_AGENT_RULE_CHOICES,
   ownAgentApprovalRequestSchema,
-  ownAgentCatalogueSchema,
-  ownAgentConsentSchema,
-  ownAgentRuleSchema,
-  ownAgentSessionSchema,
   ownAgentToolCallSchema,
   type OwnAgent,
   type OwnAgentApprovalRequest,
@@ -23,6 +19,15 @@ import {
   type OwnAgentRuleChoice,
   type OwnAgentToolCall,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_CATALOGUE,
+  AGENTS_OWN_SESSION_OPEN,
+  AGENTS_OWN_RULES_LIST,
+  AGENTS_OWN_RULES_SAVE,
+  AGENTS_OWN_CONSENTS_LIST,
+  AGENTS_OWN_CONSENTS_REVOKE,
+  AGENTS_OWN_CONSENTS_GRANT,
+} from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Rules and Permissions pages, and the tool test on its Test page (AG-guardrails-01, AG-guardrails-02).
@@ -68,19 +73,26 @@ const CODES = [
 /** A refusal as words with its code beside them, or the app's own account of a failure that is not one. */
 export function Answer({ failed }: { failed: Failed }) {
   const { t } = agentGuardrailsCopy.useCopy();
+  const refusal = refusalWords(t, failed);
+  if (!refusal) return <Failure result={failed} />;
+  return (
+    <p role="alert">
+      {refusal.words} <code lang="zxx">{refusal.code}</code>
+    </p>
+  );
+}
+
+/** A refusal's code and its words, as Answer says them; null for a failure that is not a refusal of svc-agents'. */
+export function refusalWords(t: Words, failed: Failed): { code: string; words: string } | null {
   const code = refusalCode(failed);
-  if (!code) return <Failure result={failed} />;
+  if (!code) return null;
   const key = `code_${code.replaceAll('.', '_')}`;
   const words = code.startsWith('agents.tool_refused.')
     ? t('code_tool_refused')
     : (CODES as readonly string[]).includes(code) && hasGuardrailWords(key)
       ? t(key)
       : t('code_other');
-  return (
-    <p role="alert">
-      {words} <code lang="zxx">{code}</code>
-    </p>
-  );
+  return { code, words };
 }
 
 /** A request's state in words: an approved one says whether its tool has run yet. */
@@ -103,18 +115,13 @@ const classWords = (t: Words, dataClass: OwnAgentDataClass) => t(`class_${dataCl
 const ruleWords = (t: Words, rule: Pick<OwnAgentRule, 'tool' | 'choice'>) =>
   t(`rule_${rule.choice}`, { action: actionWords(t, rule.tool) });
 
-const rulesSchema = z.array(ownAgentRuleSchema);
-const consentsSchema = z.array(ownAgentConsentSchema);
 const requestsSchema = z.array(ownAgentApprovalRequestSchema);
 
 /** The Rules page: the person's standing rules for this agent, one per tool. */
 export function RulesPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentGuardrailsCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.rules.list', { id: agent.id }, rulesSchema, { signal }),
-    `own-rules:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_RULES_LIST, { id: agent.id }, { signal }), `own-rules:${agent.id}`);
   return (
     <Panel title={t('rulesTitle')}>
       <Read resource={loaded.resource} retry={loaded.reload}>
@@ -137,7 +144,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
     setBusy(true);
     setSaved(false);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.rules.save', { id: agent.id, tool, choice }, ownAgentRuleSchema);
+    const res = await api.call(AGENTS_OWN_RULES_SAVE, { id: agent.id, tool, choice });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setRules((current) => [...current.filter((rule) => rule.tool !== res.data.tool), res.data]);
@@ -208,14 +215,8 @@ function classesOf(agent: OwnAgent, catalogue: OwnAgentCatalogue): OwnAgentDataC
 export function PermissionsPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentGuardrailsCopy.useCopy();
-  const catalogue = useResource(
-    (signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }),
-    'own-catalogue',
-  );
-  const consents = useResource(
-    (signal) => api.query('agents', 'own.consents.list', { id: agent.id }, consentsSchema, { signal }),
-    `own-consents:${agent.id}`,
-  );
+  const catalogue = useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
+  const consents = useResource((signal) => api.call(AGENTS_OWN_CONSENTS_LIST, { id: agent.id }, { signal }), `own-consents:${agent.id}`);
   return (
     <>
       <Panel title={t('permissionsTitle')}>
@@ -250,7 +251,7 @@ function Consents({ agent, classes, stored }: { agent: OwnAgent; classes: OwnAge
     setBusy(true);
     setWithdrawn(null);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.consents.revoke', { id: agent.id, dataClass }, ownAgentConsentSchema);
+    const res = await api.call(AGENTS_OWN_CONSENTS_REVOKE, { id: agent.id, dataClass });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setRows((current) => [...current.filter((row) => row.dataClass !== dataClass), res.data]);
@@ -296,10 +297,7 @@ export function TryTool({
 }) {
   const api = useApi();
   const { t } = agentGuardrailsCopy.useCopy();
-  const catalogue = useResource(
-    (signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }),
-    'own-catalogue',
-  );
+  const catalogue = useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
   const [tool, setTool] = useState(agent.tools[0] ?? '');
   const [args, setArgs] = useState<Record<string, string>>({});
   const [answer, setAnswer] = useState<OwnAgentToolCall | null>(null);
@@ -315,7 +313,7 @@ export function TryTool({
 
   async function sessionFor(): Promise<string | null> {
     if (sessionId) return sessionId;
-    const res = await api.mutate('agents', 'own.session.open', { id: agent.id }, ownAgentSessionSchema);
+    const res = await api.call(AGENTS_OWN_SESSION_OPEN, { id: agent.id });
     if (!res.ok) {
       setRefused(res);
       return null;
@@ -353,7 +351,7 @@ export function TryTool({
 
   async function allow(dataClass: OwnAgentDataClass) {
     setBusy(true);
-    const res = await api.mutate('agents', 'own.consents.grant', { id: agent.id, dataClass }, ownAgentConsentSchema);
+    const res = await api.call(AGENTS_OWN_CONSENTS_GRANT, { id: agent.id, dataClass });
     setBusy(false);
     setConsent(null);
     if (!res.ok) return setRefused(res);

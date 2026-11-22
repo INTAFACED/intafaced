@@ -7,6 +7,8 @@ import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema } from '../../shared/money';
 import { Button, DataTable, Panel } from '../../shared/ui';
 import { Details, Read, Select } from './common';
+import { callAs } from '../../shared/api';
+import { ACADEMY_PAPER_DRILL } from '@intafaced/contracts/academy-paper-drill-procedures';
 const marketSchema = z.object({ id: z.string().min(1), symbol: z.string().min(1), paper: z.boolean(), quote: z.string().optional() });
 const seal = {
   simulated: z.literal(true),
@@ -86,9 +88,9 @@ export function Workbook({ slug }: { slug: string }) {
   const gate = useResource(
       (signal) =>
         flag
-          ? api.query(
-              'academy',
-              'paperDrill',
+          ? callAs(
+              api,
+              ACADEMY_PAPER_DRILL,
               { slug, market: flag },
               drill.refine(
                 (r) => !r.ok || (r.marketId === flag.marketId && r.symbol === flag.symbol),

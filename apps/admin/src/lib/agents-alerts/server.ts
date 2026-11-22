@@ -1,15 +1,16 @@
 import 'server-only';
-import {
-  agentAlertDeskSchema,
-  agentAlertEvaluationSchema,
-  agentAlertNotificationsSchema,
-  agentAlertRuleSchema,
-  agentPolicySchema,
-  agentRuleCheckSchema,
-} from '@intafaced/contracts/agents-alerts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk';
+import { type FounderCallContext, type FounderCallResult, founderRecordCall } from '@/lib/desk';
 import { refusalOf } from '@/lib/agents-log';
 import type { AlertsAction } from './model';
+import {
+  AGENTS_OPS_ALERTS_DESK,
+  AGENTS_OPS_ALERTS_POLICY,
+  AGENTS_OPS_ALERTS_EVALUATE,
+  AGENTS_OPS_ALERTS_CREATE_RULE,
+  AGENTS_OPS_ALERTS_SET_NOTIFICATIONS,
+  AGENTS_OPS_ALERTS_SET_OVERRIDE,
+  AGENTS_OPS_ALERTS_CHECK_RULE,
+} from '@intafaced/contracts/agents-ops-alerts-procedures';
 
 /**
  * The agent alert desk's hops (AG-analytics-02, AG-guardrails-02), always as the signed-in founder through svc-edge:
@@ -27,53 +28,26 @@ export async function runAlerts(ctx: FounderCallContext, action: AlertsAction): 
   };
   switch (action.action) {
     case 'desk':
-      return answer(founderCall(ctx, 'agents', 'opsAlerts.desk', 'GET', undefined, parseWith(agentAlertDeskSchema)));
+      return answer(founderRecordCall(ctx, AGENTS_OPS_ALERTS_DESK, undefined));
     case 'policy':
-      return answer(founderCall(ctx, 'agents', 'opsAlerts.policy', 'GET', undefined, parseWith(agentPolicySchema)));
+      return answer(founderRecordCall(ctx, AGENTS_OPS_ALERTS_POLICY, undefined));
     case 'evaluate':
-      return answer(founderCall(ctx, 'agents', 'opsAlerts.evaluate', 'POST', undefined, parseWith(agentAlertEvaluationSchema)));
+      return answer(founderRecordCall(ctx, AGENTS_OPS_ALERTS_EVALUATE, undefined));
     case 'createRule':
       return answer(
-        founderCall(
-          ctx,
-          'agents',
-          'opsAlerts.createRule',
-          'POST',
-          {
-            name: action.name,
-            measure: action.measure,
-            windowMinutes: action.windowMinutes,
-            ...(action.threshold !== null ? { threshold: action.threshold } : {}),
-            ...(action.agentId !== null ? { agentId: action.agentId } : {}),
-          },
-          parseWith(agentAlertRuleSchema),
-        ),
+        founderRecordCall(ctx, AGENTS_OPS_ALERTS_CREATE_RULE, {
+          name: action.name,
+          measure: action.measure,
+          windowMinutes: action.windowMinutes,
+          ...(action.threshold !== null ? { threshold: action.threshold } : {}),
+          ...(action.agentId !== null ? { agentId: action.agentId } : {}),
+        }),
       );
     case 'setNotifications':
-      return answer(
-        founderCall(ctx, 'agents', 'opsAlerts.setNotifications', 'POST', { state: action.state }, parseWith(agentAlertNotificationsSchema)),
-      );
+      return answer(founderRecordCall(ctx, AGENTS_OPS_ALERTS_SET_NOTIFICATIONS, { state: action.state }));
     case 'setOverride':
-      return answer(
-        founderCall(
-          ctx,
-          'agents',
-          'opsAlerts.setOverride',
-          'POST',
-          { dataClass: action.dataClass, choice: action.choice },
-          parseWith(agentPolicySchema),
-        ),
-      );
+      return answer(founderRecordCall(ctx, AGENTS_OPS_ALERTS_SET_OVERRIDE, { dataClass: action.dataClass, choice: action.choice }));
     case 'checkRule':
-      return answer(
-        founderCall(
-          ctx,
-          'agents',
-          'opsAlerts.checkRule',
-          'POST',
-          { dataClass: action.dataClass, choice: action.choice },
-          parseWith(agentRuleCheckSchema),
-        ),
-      );
+      return answer(founderRecordCall(ctx, AGENTS_OPS_ALERTS_CHECK_RULE, { dataClass: action.dataClass, choice: action.choice }));
   }
 }

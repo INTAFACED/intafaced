@@ -1123,7 +1123,12 @@ dependencies = [
 name = "svc-bank"
 version = "0.0.0"
 dependencies = [
+ "postgres",
  "service-kit",
+ "sha2 0.10.9",
+ "signal-hook",
+ "tiny_http",
+ "url",
 ]
 
 [[package]]

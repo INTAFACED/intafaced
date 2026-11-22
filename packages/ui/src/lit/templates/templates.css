@@ -897,7 +897,15 @@
   border: 1px solid var(--lit-line);
 }
 
-.lt-tab[aria-current='page'] {
+button.lt-tab {
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lt-tab[aria-current='page'],
+.lt-tab[aria-pressed='true'],
+.lt-tab[aria-selected='true'] {
   color: var(--lit-text-1);
   background: var(--lit-solid-bg-raised);
   border-color: var(--lit-control-rim-active);
@@ -1097,6 +1105,21 @@
 
 .lt-chart-live {
   fill: var(--lit-accent);
+}
+
+/* Coverage: a time window's track, its covered ranges lit and its gaps left dark. */
+.lt-coverage {
+  position: relative;
+  block-size: 0.75rem;
+  background: var(--lit-secondary-bg);
+  border-radius: calc(var(--lit-radius-control) / 3);
+  overflow: hidden;
+}
+
+.lt-coverage > span {
+  position: absolute;
+  inset-block: 0;
+  background: var(--lit-accent);
 }
 
 .lt-bar {
@@ -1379,4 +1402,51 @@
 .lt-person:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.25rem;
+}
+
+/* ---- a limit's use, and a sample of someone else's brand ---- */
+
+.lt-meter {
+  position: relative;
+  display: block;
+  block-size: calc(var(--lit-gap-item) / 1.5);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  overflow: hidden;
+}
+
+.lt-meter-fill {
+  display: block;
+  block-size: 100%;
+  background: var(--lit-accent);
+}
+
+.lt-meter[data-full] .lt-meter-fill {
+  background: var(--lit-warn-text);
+}
+
+.lt-brand {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding: var(--lit-pad-panel);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-tile);
+}
+
+.lt-brand-logo {
+  max-block-size: 3rem;
+  max-inline-size: 10rem;
+  object-fit: contain;
+}
+
+.lt-brand-button {
+  display: inline-block;
+  inline-size: fit-content;
+  padding-block: calc(var(--lit-gap-item) / 2);
+  padding-inline: var(--lit-gap-item);
+  border-radius: var(--lit-radius-control);
+  background: var(--lt-brand, var(--lit-accent));
+  color: var(--lt-on-brand, var(--lit-text-1));
 }
