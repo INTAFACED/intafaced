@@ -5,7 +5,18 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { answerChecks, Changes, checkedCall, importedFrom, importsFile, pruneImports, pruneReExports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
+import {
+  answerChecks,
+  Changes,
+  checkedCall,
+  importedFrom,
+  importsFile,
+  pruneImports,
+  pruneReExports,
+  pruneSchemas,
+  recordName,
+  rewriteSite,
+} from './index.mjs';
 import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
@@ -53,7 +64,12 @@ test('an import read only as a JSX tag or a re-export stays; one nothing reads g
 test('a re-export no other file imports once the run is written is dropped; one still imported stays', () => {
   const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
   const file = join(dir, 'service.ts');
-  writeFileSync(file, ["import { CAP, LIMIT } from '@intafaced/contracts/x';", 'export const use = () => CAP + LIMIT;', 'export { CAP, LIMIT };', ''].join('\n'));
+  writeFileSync(
+    file,
+    ["import { CAP, LIMIT } from '@intafaced/contracts/x';", 'export const use = () => CAP + LIMIT;', 'export { CAP, LIMIT };', ''].join(
+      '\n',
+    ),
+  );
   pruneReExports(file, new Set(['CAP', 'LIMIT']), (name) => (name === 'LIMIT' ? ['other.ts'] : []));
   const out = readFileSync(file, 'utf8');
   assert.match(out, /export \{ LIMIT \};/);

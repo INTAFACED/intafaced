@@ -275,7 +275,7 @@ describe("a record's own accept checks", () => {
   });
 });
 
-describe('callAs: a call by its record, read through the caller\'s own stricter schema', () => {
+describe("callAs: a call by its record, read through the caller's own stricter schema", () => {
   const COUNT = defineProcedure({
     name: 'plant.count',
     service: 'svc-tax',
@@ -292,10 +292,10 @@ describe('callAs: a call by its record, read through the caller\'s own stricter 
   const answering = (n: number) => createApiClient({ fetch: async () => new Response(JSON.stringify({ result: { data: { n } } })) });
   const positive = z.object({ n: z.number().positive() });
 
-  it('an answer the record and the caller\'s schema both accept is the data', async () => {
+  it("an answer the record and the caller's schema both accept is the data", async () => {
     expect(await callAs(answering(2), COUNT, undefined, positive)).toEqual({ ok: true, data: { n: 2 } });
   });
-  it('an answer the record accepts but the caller\'s schema refuses reads as unverified, never as data', async () => {
+  it("an answer the record accepts but the caller's schema refuses reads as unverified, never as data", async () => {
     expect(await callAs(answering(0), COUNT, undefined, positive)).toMatchObject({ ok: false, reason: 'invalid_response' });
   });
   it('a refusal is passed on as it came', async () => {

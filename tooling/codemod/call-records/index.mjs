@@ -854,7 +854,9 @@ function importersOf(file, name) {
       maxBuffer: 256 * 1024 * 1024,
     })
       .split('\n')
-      .filter((f) => /\.(c|m)?[jt]sx?$/.test(f) && !f.endsWith('.d.ts') && join(REPO, f) !== file && importsFile(join(REPO, f), file, stem, name));
+      .filter(
+        (f) => /\.(c|m)?[jt]sx?$/.test(f) && !f.endsWith('.d.ts') && join(REPO, f) !== file && importsFile(join(REPO, f), file, stem, name),
+      );
   } catch (e) {
     // git grep exits 1 when nothing matches: that alone is "no importer".
     if (e.status === 1 && !e.stdout) return [];
@@ -886,7 +888,13 @@ export function importsFile(from, file, stem, name) {
         let read = false;
         walk(p.program, (n) => {
           if (read) return false;
-          if (n.type === 'MemberExpression' && !n.computed && n.object.type === 'Identifier' && n.object.name === sp.local.name && n.property.name === name)
+          if (
+            n.type === 'MemberExpression' &&
+            !n.computed &&
+            n.object.type === 'Identifier' &&
+            n.object.name === sp.local.name &&
+            n.property.name === name
+          )
             read = true;
         });
         if (read) return true;
