@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
 import { Bars, Coverage, Parts } from '../components/b2-charts.js';
-import { BrandSample, Disclosure, Meter } from '../components/b2-basics.js';
+import { BrandSample, Dialog, Disclosure, Meter } from '../components/b2-basics.js';
 import { LegalSlotsSwitch, Region, Review, RoomFrame } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
@@ -593,5 +593,20 @@ describe('sections that fold', () => {
     const out = html(<Disclosure items={items} />);
     expect(out).not.toContain('role="region"');
     expect(out).not.toContain('aria-expanded="true"');
+  });
+});
+
+describe('a dialog', () => {
+  it('is a native dialog named by its title, with a labelled close button and its body', () => {
+    const out = html(
+      <Dialog title="Review the order" closeLabel="Close dialog" onClose={() => undefined}>
+        <p>TEST body</p>
+      </Dialog>,
+    );
+    expect(out).toMatch(/^<dialog class="lt-dialog" aria-labelledby="([^"]+)">/);
+    const id = /aria-labelledby="([^"]+)"/.exec(out)![1]!;
+    expect(out).toContain(`<h2 id="${id}" class="lt-sheet-title">Review the order</h2>`);
+    expect(out).toContain('aria-label="Close dialog"');
+    expect(out).toContain('TEST body');
   });
 });

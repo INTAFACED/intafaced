@@ -1023,6 +1023,28 @@ button.lt-tab {
   font-size: var(--lit-type-heading-size);
 }
 
+.lt-dialog {
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-panel);
+  padding: var(--lit-pad-panel);
+  inline-size: min(100vw - 1rem, 34rem);
+  max-block-size: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.lt-dialog::backdrop {
+  background: var(--lit-scrim);
+}
+
+.lt-dialog .lt-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding-block-start: var(--lit-gap-item);
+}
+
 .lt-table {
   inline-size: 100%;
   border-collapse: collapse;

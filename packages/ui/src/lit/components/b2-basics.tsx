@@ -1,6 +1,6 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, Tabs, SectionTabs, Disclosure, Checkbox, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, Tabs, SectionTabs, Disclosure, Checkbox, Dialog, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
@@ -237,6 +237,54 @@ export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTM
       <input {...input} type="checkbox" />
       <span>{label}</span>
     </label>
+  );
+}
+
+/**
+ * A modal dialog in the middle of the screen: a review before a step that cannot be undone, or one short task. It is
+ * open while it is drawn (the caller decides when it shows and owns its own submission), keeps focus inside, and closes
+ * on Escape or its Close button by calling `onClose`. Built on the native <dialog> element, named by its title.
+ */
+export function Dialog({
+  title,
+  onClose,
+  closeLabel,
+  children,
+}: {
+  title: React.ReactNode;
+  onClose: () => void;
+  closeLabel: string;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLDialogElement>(null);
+  const titleId = React.useId();
+  React.useEffect(() => {
+    const d = ref.current;
+    if (!d || d.open) return;
+    // A host without modal dialogs (an older engine, a test DOM) still shows it, in the flow.
+    if (typeof d.showModal === 'function') d.showModal();
+    else d.setAttribute('open', '');
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="lt-dialog"
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <header className="lt-sheet-head">
+        <h2 id={titleId} className="lt-sheet-title">
+          {title}
+        </h2>
+        <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} onClick={onClose}>
+          ×
+        </button>
+      </header>
+      <div className="lt-sheet-body">{children}</div>
+    </dialog>
   );
 }
 
