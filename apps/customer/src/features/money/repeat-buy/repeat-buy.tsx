@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Button, EmptyState, Select } from '@intafaced/ui/lit';
 import { FlowTemplate, Skeleton } from '@intafaced/ui/lit/templates';
 import type { Resource } from '../../../shared/resource';
 import { useResource } from '../../../shared/resource';
@@ -57,18 +57,21 @@ function Read<T>({ resource, reload, children }: { resource: Resource<T>; reload
 
 /** A titled part of the room with its own refresh. */
 function Lane({
+  lane,
   title,
   description,
   actions,
   children,
 }: {
+  /** Which of the room's two lanes: setting a rule up, or the rules already set. */
+  lane: 'setup' | 'rules';
   title: ReactNode;
   description?: string;
   actions?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section>
+    <section data-repeat-lane={lane}>
       <header>
         <div>
           <h2>{title}</h2>
@@ -104,7 +107,16 @@ function More({ count, limit, onMore }: { count: number; limit: number; onMore: 
   );
 }
 
-export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: ActionSpec) => void }) {
+/** The rules read and their pause, resume and cancel reviews; Repeat buy draws them here, the Earn room in its own look. */
+export interface AutoInvestRulesRead {
+  limit: number;
+  setLimit: (limit: number) => void;
+  resource: Resource<Rule[]>;
+  reload: () => void;
+  lifecycle: (rule: Rule, action: 'pause' | 'resume' | 'cancel') => ActionSpec;
+}
+
+export function useAutoInvestRules(): AutoInvestRulesRead {
   const api = useApi();
   const [limit, setLimit] = usePageLimit();
   const { resource, reload } = useBankRead('autoInvest.list', { limit });
@@ -159,8 +171,14 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
       },
     };
   }
+  return { limit, setLimit, resource, reload, lifecycle };
+}
+
+function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: ActionSpec) => void }) {
+  const { limit, setLimit, resource, reload, lifecycle } = useAutoInvestRules();
   return (
     <Lane
+      lane="rules"
       title={asset ? t('buyingRules', { asset }) : t('allRules')}
       description={asset ? t('buyingRulesDetail', { asset }) : t('allRulesDetail')}
       actions={
@@ -176,7 +194,7 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
             <>
               {rows.length ? (
                 rows.map((rule) => (
-                  <article key={rule.id}>
+                  <article data-repeat-rule key={rule.id}>
                     <header>
                       <div>
                         <h3>
@@ -287,17 +305,12 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
         }
         return (
           <div>
-            <label className="lt-field">
-              <span>{t('spendSource')}</span>
-              <select value={spendAsset} onChange={(event) => setSelected(event.target.value)} aria-label={t('spendSource')}>
-                <option value="">{t('choose')}</option>
-                {sources.map(([id]) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Select
+              label={t('spendSource')}
+              value={spendAsset}
+              options={[['', t('choose')], ...sources.map(([id]) => [id, id] as const)]}
+              onChange={(value) => setSelected(value)}
+            />
             {source && <p className="lt-hint lt-mono">{t('available', { amount: funds(source[1].free, spendAsset) })}</p>}
             <p className="lt-hint">{t('unreserved')}</p>
             <Button tone="primary" disabled={!source} onClick={() => open(setup())}>
@@ -327,6 +340,7 @@ function PersonalRepeatBuy({ asset, open }: { asset: string; open: (spec: Action
         <div>
           <p className="lt-hint">{t('eyebrow')}</p>
           <Lane
+            lane="setup"
             title={t('newTitle')}
             description={t('mainSource')}
             actions={

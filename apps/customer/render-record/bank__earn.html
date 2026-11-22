@@ -189,20 +189,24 @@
 </section>
 </div>
 <p class="muted money-caption">This list shows active positions only. Pending and closed positions and earned interest aren’t available here.</p>
-<section>
+<section class="money-section">
 <header>
 <div>
 <h2>Your Bank automation</h2>
-<p class="lt-hint">Spending instructions over the same ledger. These rules do not hold a separate balance.</p>
+<p class="muted">Spending instructions over the same ledger. These rules do not hold a separate balance.</p>
 </div>
-<div class="lt-actions">
-<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Refresh</button>
+<div class="actions">
+<button type="button" class="button button--ghost ">Refresh</button>
 </div>
 </header>
-<div data-testid="failure" role="status">
-<h3>Can’t connect right now</h3>
+<div data-testid="failure" class="failure" role="status">
+<h3>
+<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
+</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+<button type="button" class="button button--secondary ">
+<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
+</button>
 </div>
 </section>
 </div>
