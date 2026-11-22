@@ -41,7 +41,7 @@ export function RailForm({
             label={t(`field_${field.name}` as Key)}
             value={values[field.name] ?? field.choices[0] ?? ''}
             options={field.choices.map((choice) => [choice, t(`choice_${choice}` as Key)] as const)}
-            onChange={(event) => onChange(field.name, event.target.value)}
+            onChange={(value) => onChange(field.name, value)}
           />
         ) : (
           <Field

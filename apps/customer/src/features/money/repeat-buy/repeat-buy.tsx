@@ -309,7 +309,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
               label={t('spendSource')}
               value={spendAsset}
               options={[['', t('choose')], ...sources.map(([id]) => [id, id] as const)]}
-              onChange={(event) => setSelected(event.target.value)}
+              onChange={(value) => setSelected(value)}
             />
             {source && <p className="lt-hint lt-mono">{t('available', { amount: funds(source[1].free, spendAsset) })}</p>}
             <p className="lt-hint">{t('unreserved')}</p>
