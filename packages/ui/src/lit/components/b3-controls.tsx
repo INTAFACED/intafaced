@@ -48,7 +48,7 @@ export function Select({
   React.useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!(event.target instanceof Node) || !root.current?.contains(event.target)) setOpen(false);
     };
     document.addEventListener('pointerdown', away);
     return () => document.removeEventListener('pointerdown', away);
