@@ -825,6 +825,35 @@
   border-style: dashed;
 }
 
+/* Freshness of a polled read: live is a filled dot, stale a ring, unknown dashed, refused a turned square. */
+.lt-chip[data-freshness='live'] {
+  color: var(--lit-accent-text);
+}
+.lt-chip[data-freshness='live'] .lt-chip-mark {
+  background: currentColor;
+}
+.lt-chip[data-freshness='stale'] {
+  color: var(--lit-status-stale);
+}
+.lt-chip[data-freshness='unknown'] {
+  color: var(--lit-text-2);
+}
+.lt-chip[data-freshness='unknown'] .lt-chip-mark {
+  border-style: dashed;
+}
+.lt-chip[data-freshness='refused'] {
+  color: var(--lit-status-failed);
+}
+.lt-chip[data-freshness='refused'] .lt-chip-mark {
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+.lt-chip-when {
+  color: var(--lit-text-2);
+  font-weight: 400;
+}
+
 .lt-tabs {
   display: flex;
   gap: calc(var(--lit-gap-item) / 2);

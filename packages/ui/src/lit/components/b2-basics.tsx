@@ -1,9 +1,12 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, Tabs, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, FreshnessChip, Tabs, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
+import { asOfIso, formatAsOf, freshnessOf, type AsOf, type Freshness } from '../../components/freshness.js';
+import { useFreshnessClock } from '../../components/use-freshness-clock.js';
+import { blurDecimalValue, nextDecimalValue, pastedDecimalValue } from '../../components/input-logic.js';
 
 /**
  * Two or more choices of the same size, style and level (COBS 4.12A.18R(2); Directive 2023/2673 Art 16e(1)(a)).
@@ -107,7 +110,7 @@ export function KeyValue({ rows, label }: { rows: readonly KeyValueRow[]; label?
   return (
     <dl className="lt-kv" aria-label={label}>
       {rows.map((r) => (
-        <div key={r.label} data-total={r.total || undefined} data-unset={r.unset || undefined}>
+        <div key={r.label} data-slot="key-value-row" data-total={r.total || undefined} data-unset={r.unset || undefined}>
           <dt>{r.label}</dt>
           <dd>
             <bdi className={r.ltr ? 'lt-mono' : undefined} dir={r.ltr ? 'ltr' : undefined} data-ltr={r.ltr ? '' : undefined}>
@@ -394,4 +397,91 @@ export function nextOptionIndex(index: number, step: 'next' | 'previous' | 'firs
   if (step === 'first') return 0;
   if (step === 'last') return count - 1;
   return Math.min(count - 1, Math.max(0, index + (step === 'next' ? 1 : -1)));
+}
+
+/**
+ * A text box for an amount or a quantity: the value is a decimal string ("0.1", never a number). A keystroke that
+ * would make it invalid or longer than `precision` decimals is refused, a paste is cleaned and cut down to it, and an
+ * unfinished "." is dropped on blur. Put it in an `lt-field` with its label.
+ */
+export function DecimalInput({
+  value,
+  onValueChange,
+  precision,
+  onBlur,
+  ...rest
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'inputMode'> & {
+  value: string;
+  onValueChange: (value: string) => void;
+  precision: number;
+}) {
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      spellCheck={false}
+      value={value}
+      onChange={(e) => {
+        const next = nextDecimalValue(value, e.currentTarget.value, { precision });
+        if (next !== value) onValueChange(next);
+      }}
+      onPaste={(e) => {
+        if (rest.readOnly || rest.disabled) return;
+        e.preventDefault();
+        const next = pastedDecimalValue(value, e.clipboardData.getData('text'), { precision });
+        if (next !== value) onValueChange(next);
+      }}
+      onBlur={(e) => {
+        const cleaned = blurDecimalValue(value);
+        if (cleaned !== value) onValueChange(cleaned);
+        onBlur?.(e);
+      }}
+    />
+  );
+}
+
+/** The TEST label an illustrative figure or sample list carries (AGENTS.md: an illustrative figure says TEST). */
+export function TestTag() {
+  return <span className="lt-test">TEST</span>;
+}
+
+const FRESHNESS_WORDS: Record<Freshness, string> = { live: 'Live', stale: 'Stale', unknown: 'Unknown', refused: 'Refused' };
+
+/**
+ * How fresh a polled read is, as a shape and a word (Live, Stale, Unknown, Refused), never colour alone, with its
+ * "as of" time when `showAsOf`. It keeps its own clock, so Live turns Stale by itself; pass `now` only for screenshots.
+ */
+export function FreshnessChip({
+  asOf,
+  staleAfterMs,
+  refused = false,
+  showAsOf = false,
+  now,
+}: {
+  asOf: AsOf;
+  staleAfterMs: number;
+  refused?: boolean;
+  showAsOf?: boolean;
+  now?: number;
+}) {
+  const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused });
+  const kind = freshnessOf({ asOf, now: clock, staleAfterMs, refused });
+  const iso = showAsOf ? asOfIso(asOf) : null;
+  const shown = iso ? formatAsOf(asOf, { now: clock }) : null;
+  return (
+    <span className="lt-chip" role="status" data-freshness={kind}>
+      <span className="lt-chip-mark" aria-hidden="true" />
+      <span>
+        <span data-part="word">{FRESHNESS_WORDS[kind]}</span>
+        {iso && shown ? (
+          <span className="lt-chip-when">
+            {' · as of '}
+            <time dateTime={iso}>{shown}</time>
+          </span>
+        ) : null}
+      </span>
+    </span>
+  );
 }

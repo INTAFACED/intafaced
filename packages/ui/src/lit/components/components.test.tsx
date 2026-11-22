@@ -338,4 +338,16 @@ describe('b2 controls the desk rooms use', () => {
       gridKey('x', 0, 3),
     ]).toEqual(['pick', 2, 0, 2, null]);
   });
+
+  it('DecimalInput keeps a decimal string, never a number, and asks for the decimal keyboard', () => {
+    const out = html(<B2.DecimalInput aria-label="Total size (BTC)" value="0.001" precision={8} onValueChange={() => undefined} />);
+    expect(out).toContain('value="0.001"');
+    expect(out).toContain('inputMode="decimal"');
+    expect(out).toContain('type="text"');
+  });
+
+  it('KeyValue marks each row, so a reader finds a value by its label', () => {
+    expect(html(<B2.KeyValue rows={[{ label: 'Start price', value: '0.99' }]} />)).toContain('<div data-slot="key-value-row">');
+    expect(html(<B2.TestTag />)).toBe('<span class="lt-test">TEST</span>');
+  });
 });
