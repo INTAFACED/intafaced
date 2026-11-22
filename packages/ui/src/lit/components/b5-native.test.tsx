@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { components } from '../contracts.js';
-import { CheckRow, NativeSelect, TextArea } from './index.js';
+import { CheckRow, NativeSelect, NativeTextArea } from './index.js';
 
-describe('NativeSelect, TextArea and CheckRow', () => {
+describe('NativeSelect, NativeTextArea and CheckRow', () => {
   it('are named in the contracts', () => {
-    expect(Object.keys(components)).toEqual(expect.arrayContaining(['NativeSelect', 'TextArea', 'CheckRow']));
+    expect(Object.keys(components)).toEqual(expect.arrayContaining(['NativeSelect', 'NativeTextArea', 'CheckRow']));
   });
 
   it('NativeSelect is a real select with its own options and every native attribute', () => {
@@ -26,9 +26,9 @@ describe('NativeSelect, TextArea and CheckRow', () => {
     expect(out).toContain('<option value="EUR" selected="">EUR</option>');
   });
 
-  it('TextArea is a real textarea that keeps its value and attributes', () => {
+  it('NativeTextArea is a real textarea that keeps its value and attributes', () => {
     const out = renderToStaticMarkup(
-      <TextArea id="t" name="reason" maxLength={20} aria-invalid data-x="1" value="Because" onChange={() => {}} required />,
+      <NativeTextArea id="t" name="reason" maxLength={20} aria-invalid data-x="1" value="Because" onChange={() => {}} required />,
     );
     expect(out).toMatch(/^<textarea /);
     expect(out).toContain('maxLength="20"');

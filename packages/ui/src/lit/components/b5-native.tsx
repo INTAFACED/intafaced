@@ -18,10 +18,10 @@ export function NativeSelect({ className, ...rest }: NativeSelectProps) {
   return <select {...rest} className={clsx('lit-native-select', className)} />;
 }
 
-export type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
+export type NativeTextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
 
 /** A native `<textarea>` drawn like `Field`'s control. Named by the room, as `NativeSelect` is. */
-export function TextArea({ className, ...rest }: TextAreaProps) {
+export function NativeTextArea({ className, ...rest }: NativeTextAreaProps) {
   return <textarea {...rest} className={clsx('lit-textarea', className)} />;
 }
 

@@ -293,7 +293,7 @@ export const components = {
   AlertDialog: 'Confirm dialog (role alertdialog) on the glass sheet layer; no Close of its own, the room brings its choices',
   Picker: 'One value from a list: a combobox drawn like Field, opening a listbox of options',
   NativeSelect: "A native select drawn like Field's control, named by the room; its options stay the browser's own",
-  TextArea: "A native text area drawn like Field's control, named by the room",
+  NativeTextArea: "A native text area drawn like Field's control, named by the room",
   CheckRow: 'A native checkbox with its words, one row; the box in the kit accent',
   Freshness: 'Data freshness: Live, Stale or Unknown as a shape and a word, with its as-of time; turns Stale by itself',
   Figure: 'A money figure from a decimal string (never a number), with TEST and stale marks',
