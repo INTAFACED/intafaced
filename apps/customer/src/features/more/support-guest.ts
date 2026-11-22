@@ -30,7 +30,7 @@ export const guestReply = contractProcedure('support', 'guestReply', {
 });
 
 /** The token a link carries after `#<name>=`, read once; the address bar keeps no token. */
-export function takeLinkToken(name: 'token' | 'access'): string {
+function takeLinkToken(name: 'token' | 'access'): string {
   const value = new URLSearchParams(location.hash.replace(/^#/, '')).get(name)?.trim() ?? '';
   if (location.hash) history.replaceState(history.state, '', location.pathname);
   return value;

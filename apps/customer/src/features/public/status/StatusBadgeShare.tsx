@@ -4,7 +4,7 @@ import type { StatusPage } from '../status';
 import { statusCopy } from '../status-copy';
 
 /** Where the service draws the badge; Edge serves it on the site's own origin. */
-export const statusBadgeUrl = (origin: string, componentId: string | null) =>
+const statusBadgeUrl = (origin: string, componentId: string | null) =>
   `${origin}/api/notify/status/badge.svg${componentId ? `?component=${encodeURIComponent(componentId)}` : ''}`;
 
 const escapeAttr = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
