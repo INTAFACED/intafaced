@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Button } from '@intafaced/ui';
-import { encodeQr, qrPath } from '../../../../shared/qr';
+import { encodeQr, qrPath } from '@intafaced/ui/lit/templates';
 import { CopyReference } from '../ui/CopyReference';
 import { paymentsCopy as c } from './copy';
 

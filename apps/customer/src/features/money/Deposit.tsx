@@ -102,7 +102,7 @@ export function Deposit() {
             />
           </DepthPanel>
           <DepositAddressPanel asset={asset} catalogue={catalogue.resource} networkId={networkId} />
-          <AccountDetailsPanel />
+          <AccountDetailsPanel framed />
           <DepthPanel title={t('warningTitle')}>
             <ul className="bd-list">
               <li>{t('warning1')}</li>
