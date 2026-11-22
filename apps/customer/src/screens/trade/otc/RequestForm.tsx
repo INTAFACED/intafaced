@@ -148,7 +148,9 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
                     key={m.id}
                     label={m.name}
                     checked={picked.includes(m.id)}
-                    onChange={(on) => onPick(on ? [...new Set([...picked, m.id])] : picked.filter((id) => id !== m.id))}
+                    onChange={(event) =>
+                      onPick(event.currentTarget.checked ? [...new Set([...picked, m.id])] : picked.filter((id) => id !== m.id))
+                    }
                   />
                 ))}
                 {makers.data.selectCap != null ? (
