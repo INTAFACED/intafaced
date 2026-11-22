@@ -305,6 +305,10 @@ test('the report sorts each hand reason into the kind one script change or one d
   );
   assert.equal(reasonOf('identity.x: no accepted input found; write its samples by hand'), 'no sample inputs');
   assert.equal(
+    reasonOf("its `action` sends one input value to 3 records: each one's input type can't be kept"),
+    'one input sent to each of a closed set of calls',
+  );
+  assert.equal(
     reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
     'helper name clash (a rerun places it)',
   );
@@ -439,13 +443,84 @@ test('a call naming one of two paths by `? :` is a site per branch, its input wr
   );
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['add', '.'], { cwd: repo });
-  const found = findSites(repo).map((s) => `${s.path} ${s.branch} ${s.problem ? 'stays' : 'moves'}`);
-  assert.deepEqual(found, [
-    'holds.accept consequent moves',
-    'holds.deny alternate moves',
-    'auth.register consequent stays',
-    'auth.login alternate stays',
+  const found = findSites(repo).map((s) => `${s.path} ${s.fan.at} ${s.problem ? 'stays' : 'moves'}`);
+  assert.deepEqual(found, ['holds.accept 0 moves', 'holds.deny 1 moves', 'auth.register 0 stays', 'auth.login 1 stays']);
+});
+
+test('a call named by a template over a closed set the code lists is one site per value, written back as one call; an open one stays, named', async () => {
+  const { callText } = await import('./index.mjs');
+  const { fanIn } = await import('./fan.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-fan-'));
+  mkdirSync(join(repo, 'apps/customer/src'), { recursive: true });
+  mkdirSync(join(repo, 'apps/admin/src/lib'), { recursive: true });
+  // A union written on the parameter, an alias of an `as const` list in another file, and a const: each a closed set.
+  writeFileSync(
+    join(repo, 'apps/customer/src/actions.ts'),
+    "export const STEPS = ['declare', 'resolve'] as const;\nexport type Step = (typeof STEPS)[number];\nexport const NOW = 'clock.now';\n",
+  );
+  const file = join(repo, 'apps/customer/src/tool-api.ts');
+  writeFileSync(
+    file,
+    [
+      "import { NOW, type Step } from './actions';",
+      "export const a = (api: any, action: 'pause' | 'resume' | 'cancel', algoId: string) => api.mutate('trade', `algo.${action}`, { algoId }, s);",
+      "export const b = (api: any, step: Step, id: string) => api.mutate('ops', `incidents.${step}`, { id }, s);",
+      "export const c = (api: any) => api.query('identity', NOW, undefined, s);",
+      // The near cases: a wider string, a name assigned again, a value read off an object, and a closed set sent one input.
+      "export const d = (api: any, action: string, algoId: string) => api.mutate('trade', `algo.${action}`, { algoId }, s);",
+      "export const e = (api: any, action: 'pause' | 'resume', algoId: string) => { action = 'pause'; return api.mutate('trade', `algo.${action}`, { algoId }, s); };",
+      "export const f = (api: any, spec: { procedure: string }) => api.mutate('bank', spec.procedure, {}, s);",
+      "export const g = (api: any, action: 'pause' | 'resume', body: object) => api.mutate('trade', `algo.${action}`, body, s);",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo).filter((s) => s.file === file);
+  const row = (s) => `${s.module} ${s.path ?? '?'} ${s.fan ? `${s.fan.at}/${s.fan.size}` : '-'} ${s.problem ?? 'moves'}`;
+  assert.deepEqual(sites.map(row), [
+    'trade algo.pause 0/3 moves',
+    'trade algo.resume 1/3 moves',
+    'trade algo.cancel 2/3 moves',
+    'ops incidents.declare 0/2 moves',
+    'ops incidents.resolve 1/2 moves',
+    'identity clock.now - moves',
+    "trade ? - service or call named by a template: parameter `action`'s type is not a closed set of strings",
+    'trade ? - service or call named by a template: parameter `action` is assigned again',
+    'bank ? - service or call named by a template: `spec.procedure` is not a name, a `? :` or a string',
+    "trade algo.pause 0/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
+    "trade algo.resume 1/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
   ]);
+
+  // Every value moved: one call again, each value sent by its own record.
+  const changes = new Changes();
+  const name = (s) => s.path.toUpperCase().replace('.', '_');
+  for (const s of sites.filter((x) => !x.problem)) rewriteSite(changes, s, name(s), '@intafaced/contracts/x', s.path === 'clock.now');
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(
+    out,
+    /=> \(action === 'pause' \? api\.call\(ALGO_PAUSE, \{ algoId \}\) : action === 'resume' \? api\.call\(ALGO_RESUME, \{ algoId \}\) : api\.call\(ALGO_CANCEL, \{ algoId \}\)\);$/m,
+  );
+  assert.match(out, /=> \(step === 'declare' \? api\.call\(INCIDENTS_DECLARE, \{ id \}\) : api\.call\(INCIDENTS_RESOLVE, \{ id \}\)\);$/m);
+  assert.match(out, /=> api\.call\(CLOCK_NOW, undefined\);$/m);
+  assert.deepEqual(planned.hand, []);
+
+  // One value left: none moves, each named.
+  const some = new Changes();
+  const algo = sites.filter((s) => s.path?.startsWith('algo.') && !s.problem);
+  for (const s of algo.slice(0, 2)) rewriteSite(some, s, name(s), '@intafaced/contracts/x', false);
+  const left = { hand: [], existing: [] };
+  fanIn(some, left, [], callText);
+  assert.deepEqual(some.of(file).edits, []);
+  assert.deepEqual(
+    left.hand.map((h) => `${h.site.path} ${h.why}`),
+    [
+      'algo.pause another value of its call stays, and one call sends them all',
+      'algo.resume another value of its call stays, and one call sends them all',
+    ],
+  );
 });
 
 test("a guard behind the service's own function or const options is copied whole onto its record; one that checks more names its check, or keeps its call, named", async () => {
@@ -892,4 +967,53 @@ test('a customer call whose own schema only refuses an answer moves through call
   assert.match(out, /api\.call\(AGENTS_SESSION_CLOSE, \{ id \}\)/);
   assert.deepEqual([...(f.imports.get('../../shared/api') ?? [])], ['callAs']);
   assert.ok(!(f.schemas ?? new Map()).has('mine'), 'the checked schema is kept as written, not retyped');
+});
+
+test('a re-run whose records already exist (no record file changes) skips the file-list steps and still runs the rest', () => {
+  // The failure it prevents: on 22 Nov 2026 a layer branch re-ran the identity run after main's (#9593) had written the
+  // record; prettier was handed no paths and failed, and build, procedures:write and doubles were skipped.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-rerun-'));
+  const dir = join(root, 'tooling/codemod/call-records');
+  const bin = join(root, 'bin');
+  const log = join(root, 'calls.log');
+  for (const d of [dir, bin, join(root, 'node_modules/.bin'), join(root, 'packages/contracts/src')]) mkdirSync(d, { recursive: true });
+  writeFileSync(join(dir, 'run.mjs'), readFileSync(new URL('./run.mjs', import.meta.url)));
+  const stub = (body) =>
+    `#!/usr/bin/env node\nconst { appendFileSync, writeFileSync } = process.getBuiltinModule('node:fs');\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, process.getBuiltinModule('node:path').basename(process.argv[1]) + ' ' + a.join(' ') + '\\n');\n${body}\n`;
+  const flagOut = (flag, json) => `const i = a.indexOf('${flag}'); if (i >= 0) writeFileSync(a[i + 1], '${json}');`;
+  writeFileSync(join(dir, 'index.mjs'), stub(flagOut('--json', '{"records":[],"rewritten":1,"hand":[]}')));
+  writeFileSync(join(dir, 'samples.mjs'), stub(flagOut('--unportable', '{}')));
+  for (const f of ['portable.mjs', 'refusals.mjs', 'door-check.mjs', 'doubles.mjs']) writeFileSync(join(dir, f), stub(''));
+  // Like the real prettier: no paths is an error.
+  writeFileSync(
+    join(root, 'node_modules/.bin/prettier'),
+    stub("if (!a.some((x) => !x.startsWith('--') && x !== 'warn')) process.exit(2);"),
+  );
+  writeFileSync(join(bin, 'pnpm'), stub(''));
+  for (const f of [join(root, 'node_modules/.bin/prettier'), join(bin, 'pnpm')]) execFileSync('chmod', ['+x', f]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\nbin\ncalls.log\n');
+  writeFileSync(join(root, 'packages/contracts/src/identity-procedures.ts'), 'export {};\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, stdio: 'ignore' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'records already written');
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  execFileSync('node', [join(dir, 'run.mjs'), '--module', 'identity', '--service', 'svc-identity', '--refusals', '--door', 'x'], {
+    cwd: root,
+    env,
+    stdio: 'pipe',
+  });
+  const calls = readFileSync(log, 'utf8').trim().split('\n');
+  assert.ok(
+    !calls.some((c) => /^(prettier|samples|portable|refusals|door-check)\.mjs? /.test(c) || c.startsWith('prettier ')),
+    calls.join('\n'),
+  );
+  assert.ok(
+    calls.some((c) => c.startsWith('pnpm procedures:write')),
+    calls.join('\n'),
+  );
+  assert.ok(
+    calls.some((c) => c.startsWith('doubles.mjs --write')),
+    calls.join('\n'),
+  );
 });

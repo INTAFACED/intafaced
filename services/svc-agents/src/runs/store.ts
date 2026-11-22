@@ -1,7 +1,12 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { ResearchProvenance } from '@intafaced/contracts/agents-research';
 import { assertMove, type RunState } from './machine.js';
+import { enqueueRunFinished, finishedEventId } from '../webhooks/run-webhooks.js';
+
+/** The states a run ends in; each ending is delivered once to the person's run webhooks (J-agents-12 #5). */
+const ENDINGS: readonly RunState[] = ['completed', 'refused', 'failed'];
 
 /**
  * The run entity on Postgres (AG-sessions-01, ENGINE RS-1 to RS-4). `admit` writes the run row and its first event in
@@ -166,12 +171,35 @@ export function createRunStore(sql: Sql): RunStore {
           RETURNING id, run_key, user_id, session_id, request_id, agent_id, task, state, reply, cost::text, asset_id,
                     metered, action_id, provenance, created_at, updated_at
         `;
-        await tx`
+        const [event] = z
+          .object({ sequence: z.number().int() })
+          .array()
+          .length(1)
+          .parse(
+            await tx`
           INSERT INTO agents.agent_run_events (run_id, sequence, state, code)
           SELECT ${runId}, COALESCE(MAX(sequence), 0) + 1, ${to}, ${outcome.code ?? null}
             FROM agents.agent_run_events WHERE run_id = ${runId}
-        `;
-        return toRun(row!);
+          RETURNING sequence
+        `,
+          );
+        const run = toRun(row!);
+        if (ENDINGS.includes(to) && event) {
+          await enqueueRunFinished(tx, {
+            eventId: finishedEventId('run', run.id, event.sequence),
+            kind: 'run',
+            userId: run.userId,
+            runId: run.id,
+            sessionId: run.sessionId,
+            agentId: run.agentId,
+            state: to,
+            reply: run.reply,
+            cost: run.cost,
+            assetId: run.assetId,
+            refusalCodes: to === 'refused' && outcome.code ? [outcome.code] : [],
+          });
+        }
+        return run;
       });
     },
 

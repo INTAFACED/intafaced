@@ -1,7 +1,7 @@
 //! The owner's own freeze as every agent action of an own agent meets it (`own/self-freeze.ts`, `assertNotSelfFrozen`),
 //! and the owner's account as an approval reads it (`own/identity.ts`, `assertOwnerActive`). Both fail closed: no
 //! reader wired, identity down or an answer outside its record refuses as frozen or unread. The freeze is read through
-//! the one reader the runtime holds (`crate::self_freeze`); the `selfFreezeApplied` consumer is `own-sharing`'s.
+//! the one reader the runtime holds (`crate::self_freeze`); the `selfFreezeApplied` consumer is `own-sharing`'s ([`super::freeze_applied`]).
 
 use super::OwnRefusal;
 use super::desk::{DeskAccount, SupportDesk};

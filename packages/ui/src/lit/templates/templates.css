@@ -381,7 +381,24 @@
   flex-direction: column;
   gap: var(--lit-gap-section);
 }
+/* A settings room's section index: each link a full-height target (WCAG 2.5.8), a plain list, never bullets. */
+.lt-grid-settings > [data-region='index'] :is(ul, ol) {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lt-grid-settings > [data-region='index'] a {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.25rem;
+}
 @container room (min-width: 1024px) {
+  /* On a computer the index is a column beside the sections, so a row of tabs stands as a column, never cut off. */
+  .lt-grid-settings > [data-region='index'] .lt-tabs {
+    flex-direction: column;
+    overflow-x: visible;
+    animation: none;
+  }
   .lt-grid-settings > .lt-gate-area {
     grid-column: 2 / -1;
   }
