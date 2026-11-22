@@ -1982,3 +1982,8 @@ button.lt-tab {
 .lt-hint[data-part='error'] {
   color: var(--lit-down-text);
 }
+
+/* A region with nothing in it (a notice board with nothing to say) takes no space in the room's grid. */
+.lt-region:empty {
+  display: none;
+}
