@@ -222,7 +222,7 @@
 <p>
 <span lang="en" dir="ltr" data-i18n="account.security.authenticatorBody">Set up an authenticator app and keep your recovery codes somewhere safe.</span>
 </p>
-<p class="lt-sr" role="status" aria-live="polite" aria-atomic="true">
+<p class="lt-sr" data-testid="security__announcement" role="status" aria-live="polite" aria-atomic="true">
 </p>
 <button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.security.start">Start authenticator setup</span>
@@ -374,7 +374,7 @@
 </button>
 </div>
 <section data-testid="security__card" id="security-sessions">
-<fieldset>
+<fieldset data-testid="security__session-inspection">
 <section data-testid="identity-sessions" aria-label="Where you’re signed in" lang="en">
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.sessions.title">Where you’re signed in</span>
@@ -416,7 +416,7 @@
 <span lang="en" dir="ltr" data-i18n="customer.account.api.records.intro">The keys on your account. Secrets are never shown.</span>
 </p>
 </header>
-<div>
+<div data-testid="api-key-records__controls">
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.account.api.records.read">Show keys</span>
 </button>

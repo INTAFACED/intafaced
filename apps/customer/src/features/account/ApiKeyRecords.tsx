@@ -144,7 +144,7 @@ export function ApiKeyRecords() {
         </p>
       </header>
       {failure && (
-        <div role="status">
+        <div data-testid="api-key-records__failure" role="status">
           <h3>
             <Copy
               k={
@@ -181,7 +181,7 @@ export function ApiKeyRecords() {
           )}
         </div>
       )}
-      <div>
+      <div data-testid="api-key-records__controls">
         {failure?.reason !== 'unauthorized' && (
           <Button tone="secondary" disabled={rendered.status === 'loading'} onClick={() => void read()}>
             <Copy
@@ -202,7 +202,7 @@ export function ApiKeyRecords() {
         ) : (
           <ul>
             {rendered.rows.map((record) => (
-              <li key={record.id}>
+              <li key={record.id} data-testid="api-key-records__row">
                 <div>
                   <h3>{record.name ? <bdi lang="und">{record.name}</bdi> : <Copy k="api.records.unnamed" />}</h3>
                   <p className="lt-hint">
@@ -271,7 +271,7 @@ export function ApiKeyRecords() {
                 {canReviewApiKeyRevoke(record) && (
                   <Button
                     tone="secondary"
-
+                    data-testid="api-key-revoke__row-action"
                     disabled={revocation.blocked}
                     onClick={(event) => revocation.review(record, event?.currentTarget)}
                   >

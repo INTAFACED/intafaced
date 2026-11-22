@@ -650,7 +650,7 @@ export function Security() {
                 activeStage.record.kind === record.kind;
               const heading = sending ? 'sent' : retained ? 'guardRetained' : preparation ? 'preparationUnknown' : 'unknown';
               return (
-                <section key={record.requestId} aria-label={t(heading)}>
+                <section key={record.requestId} data-testid="security__unknown" aria-label={t(heading)}>
                   <h2>
                     <Copy k={heading} />
                   </h2>
@@ -770,7 +770,7 @@ export function Security() {
                 <p>
                   <Copy k="authenticatorBody" />
                 </p>
-                <p className="lt-sr" role="status" aria-live="polite" aria-atomic="true">
+                <p className="lt-sr" data-testid="security__announcement" role="status" aria-live="polite" aria-atomic="true">
                   {visibleSetup && !codesShown ? <Copy k="setupReady" /> : null}
                 </p>
                 {visibleSetup ? (
@@ -898,7 +898,7 @@ export function Security() {
                     <Copy k="blockedSessions" />
                   </p>
                 )}
-                <fieldset disabled={sessionBlocked}>
+                <fieldset data-testid="security__session-inspection" disabled={sessionBlocked}>
                   <IdentitySessions key={`${userId}:${seatVersion}:${sessionBlocked ? 'readonly' : 'writable'}`} />
                 </fieldset>
                 {sessionBlocked && (
