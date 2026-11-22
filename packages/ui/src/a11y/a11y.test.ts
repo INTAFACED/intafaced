@@ -12,6 +12,7 @@ import {
   contrastRatio,
   isLargeText,
   meetsContrast,
+  bottomReach,
   obscuredInsets,
   parseColor,
   readSurfacesSetting,
@@ -216,6 +217,16 @@ describe('focus not obscured', () => {
     ).toEqual({ top: 117.5, bottom: 88 });
     expect(OBSCURED_TOP_VAR).toBe('--a11y-obscured-top');
     expect(OBSCURED_BOTTOM_VAR).toBe('--a11y-obscured-bottom');
+  });
+
+  it("counts a floating bottom bar from the screen's foot, so the gap under the phone dock is covered too", () => {
+    // The phone dock: 58 px tall, floating 0.875rem (14 px) above the foot of an 844 px screen.
+    expect(bottomReach({ top: 772, height: 58 }, 844)).toBe(72);
+    // A bar flush with the foot covers its own height; a bar not drawn (the dock on a computer) covers nothing.
+    expect(bottomReach({ top: 786, height: 58 }, 844)).toBe(58);
+    expect(bottomReach({ top: 0, height: 0 }, 900)).toBe(0);
+    // Never more than the screen.
+    expect(bottomReach({ top: -20, height: 900 }, 844)).toBe(844);
   });
 });
 

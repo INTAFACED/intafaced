@@ -5,7 +5,9 @@
  *
  * A fixed bar says which edge it covers with `data-obscures="top"` or `data-obscures="bottom"`. Their
  * real heights are measured, not assumed, because the risk band grows with text size (200% text must
- * not hide the field under it).
+ * not hide the field under it). A bottom bar counts from the screen's foot to its top edge, not just its
+ * own height: the phone dock floats 0.875rem above the foot, and a control scrolled into that gap still
+ * sits behind the pill. Top bars stack flush from the top (one is sticky), so they count their heights.
  */
 
 export const OBSCURES_ATTRIBUTE = 'data-obscures';
@@ -14,7 +16,14 @@ export const OBSCURED_BOTTOM_VAR = '--a11y-obscured-bottom';
 
 export interface Bar {
   readonly edge: string | null;
+  /** The bar's height; for a bottom bar, the distance from the screen's foot to its top edge (`bottomReach`). */
   readonly height: number;
+}
+
+/** How far a bottom bar reaches up from the foot of a viewport `viewport` tall: its height plus any gap under it. */
+export function bottomReach(box: { top: number; height: number }, viewport: number): number {
+  if (!(box.height > 0)) return 0;
+  return Math.min(Math.max(viewport - box.top, box.height), viewport);
 }
 
 /** The space covered at each edge: bars stack, so their heights add up. */
@@ -40,7 +49,11 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   let last = '';
   const measure = (): void => {
     const { top, bottom } = obscuredInsets(
-      bars.map((el) => ({ edge: el.getAttribute(OBSCURES_ATTRIBUTE), height: el.getBoundingClientRect().height })),
+      bars.map((el) => {
+        const edge = el.getAttribute(OBSCURES_ATTRIBUTE);
+        const box = el.getBoundingClientRect();
+        return { edge, height: edge === 'bottom' ? bottomReach(box, window.innerHeight) : box.height };
+      }),
     );
     const next = `${top}|${bottom}`;
     if (next === last) return;
@@ -68,8 +81,11 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   });
   mutations.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: [OBSCURES_ATTRIBUTE] });
   observeBars();
+  // A bottom bar's reach moves with the screen's height (a phone turned, a keyboard shown), not only with its own size.
+  window.addEventListener('resize', measure);
 
   return () => {
+    window.removeEventListener('resize', measure);
     mutations.disconnect();
     resize.disconnect();
     root.style.removeProperty(OBSCURED_TOP_VAR);
