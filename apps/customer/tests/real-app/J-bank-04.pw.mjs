@@ -6,6 +6,7 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, staffFreeze, toUnits, signOutBrowser } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { partnerBookMoves, partnerMainBalance } from './partner.mjs';
 import { keptSession } from '../../../../tooling/scripts/kept-session.mjs';
 
 // J-bank-04, in the running app (docs/roadmap/journeys.json): I send money to a person from the bank's Transfers room.
@@ -14,7 +15,9 @@ import { keptSession } from '../../../../tooling/scripts/kept-session.mjs';
 // at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`), A funded there with TEST 100 USDT
 // (`testPartner.fund`), so a send is the partner's one move, both balances are the partner's figures read through each
 // person's own bank API, and our ledger posts nothing. B holds TEST 10 there already. The stack's gates publish TEST send terms for USDT and USDC with a
-// zero fee (`local-test-gates.mjs apply`) and none for BTC; every number here is a TEST number on the local stack. #5 to
+// zero fee (`local-test-gates.mjs apply`) and none for BTC; every number here is a TEST number on the local stack. #4 compares the app's figures
+// with the partner's own book: the TEST partner bank's record of each person's balance and moves, read on loopback straight
+// from the stand-in (svc-bank src/partner/test-partner-record.ts, venue.mjs venueRecord and venueBalance). #5 to
 // #7 are the global send, still on the custodial layer: their sender is a second TEST person, G, whose money the ledger
 // holds, until that send is made through the partner too. #5 sends abroad through Pay's global send on the TEST stand-in, whose TEST
 // catalogue puts a USDT send of 500 or more on hold for a compliance look: staff ask for a document and release it by
@@ -56,6 +59,8 @@ async function signInToken() {
   }).then((r) => r.json());
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${sender.email} refused`);
+  // A's user id, which names A's record at the partner (#4).
+  if (login.result.data.userId) run.write({ senderId: login.result.data.userId });
   return token;
 }
 
@@ -103,6 +108,26 @@ async function partnerUsdtVia(get) {
 /** The sender's USDT: the partner's figure for A (#1 to #4), the ledger's for G (#5 to #7). */
 async function senderUsdt() {
   return run === atPartner ? partnerUsdtVia(asSender) : ledgerUsdtVia(asSender);
+}
+
+/** The user id behind someone with no authenticator app, from their own sign-in: it names their record at the partner. */
+async function userIdOf(who) {
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  }).then((r) => r.json());
+  const userId = login?.result?.data?.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} named no user id`);
+  return userId;
+}
+
+/** A's user id, kept from A's own sign-in. */
+async function senderId() {
+  if (!run.read().senderId) await senderToken();
+  const id = run.read().senderId;
+  if (!id) throw new Error(`${J}: A's sign-in named no user id`);
+  return id;
 }
 
 /** A session token for someone with no authenticator app. */
@@ -423,6 +448,14 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   const senderBefore = await senderUsdt();
   // What the ledger holds for each of them: a send the partner makes posts nothing to it.
   const ledgerBefore = { sender: await ledgerUsdtVia(asSender), recipient: await ledgerUsdt(recipient) };
+  // The partner's own book of each of them, read on loopback from the TEST partner, never through our doors.
+  const partnerHolds = (userId) => partnerMainBalance(userId, 'USDT');
+  const ids = { sender: await senderId(), recipient: await userIdOf(recipient) };
+  const bookBefore = { sender: await partnerHolds(ids.sender), recipient: await partnerHolds(ids.recipient) };
+  const movesBefore = await partnerBookMoves(ids.sender);
+  // The app's figures are the partner's own.
+  expect(toUnits(before)).toBe(toUnits(bookBefore.recipient));
+  expect(toUnits(senderBefore)).toBe(toUnits(bookBefore.sender));
   // A send to another person needs a fresh second factor for exactly this send, with its note.
   const stepUp = dialog.getByTestId('step-up-confirm');
   await expect(stepUp).toContainText('Confirm it’s you');
@@ -435,6 +468,21 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   expect(toUnits(await senderUsdt())).toBe(toUnits(senderBefore) - toUnits(AMOUNT));
   expect(await ledgerUsdtVia(asSender)).toBe(ledgerBefore.sender);
   expect(await ledgerUsdt(recipient)).toBe(ledgerBefore.recipient);
+  // The partner's own book: one move of 40 from A to B's main account, keyed by the transfer, and each balance moved by
+  // exactly 40, equal to what the app shows.
+  const sent = (await partnerBookMoves(ids.sender)).slice(movesBefore.length);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({
+    from: { owner: ids.sender, assetId: 'USDT' },
+    to: { owner: ids.recipient, assetId: 'USDT', spaceId: null },
+  });
+  expect(toUnits(sent[0].amount)).toBe(toUnits(AMOUNT));
+  expect(sent[0].key).toMatch(/^bank\.transfer\.p2p:.+:0$/);
+  const bookAfter = { sender: await partnerHolds(ids.sender), recipient: await partnerHolds(ids.recipient) };
+  expect(toUnits(bookAfter.sender)).toBe(toUnits(bookBefore.sender) - toUnits(AMOUNT));
+  expect(toUnits(bookAfter.recipient)).toBe(toUnits(bookBefore.recipient) + toUnits(AMOUNT));
+  expect(toUnits(await senderUsdt())).toBe(toUnits(bookAfter.sender));
+  expect(toUnits(await usdt(recipient))).toBe(toUnits(bookAfter.recipient));
 
   // C is frozen by staff after A picked them (a frozen account is not found by handle at all): the bank refuses the
   // send before any posting, and it is never shown as sent.
@@ -442,6 +490,7 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   const frozen = await signUp(other, 'jb4c');
   await verify(other, frozen);
   await holdAtPartner(await tokenOf(frozen));
+  const frozenId = await userIdOf(frozen);
   const refused = await reviewSend(page, { to: frozen, value: '1', signedIn: true });
   await staffFreeze(frozen);
   const confirm = refused.getByTestId('step-up-confirm');
@@ -452,6 +501,11 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   await expect(refused).not.toContainText('Sent');
   expect(toUnits(await senderUsdt())).toBe(toUnits(senderBefore) - toUnits(AMOUNT));
   expect(await ledgerUsdtVia(asSender)).toBe(ledgerBefore.sender);
+  // The partner's own book agrees: no move after the one send, A still holds what it held after it, and C holds nothing.
+  expect(await partnerBookMoves(ids.sender)).toHaveLength(movesBefore.length + 1);
+  expect(await partnerHolds(ids.sender)).toBe(bookAfter.sender);
+  expect(await partnerBookMoves(frozenId)).toEqual([]);
+  expect(toUnits(await partnerHolds(frozenId))).toBe(0n);
 });
 
 let founderSessions;
