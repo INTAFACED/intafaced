@@ -8,7 +8,7 @@ import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 // by the service (`share.tag_invalid`) and counts nothing.
 // hand-declared-ok: svc-identity's affiliates procedures have no browser-safe schema in packages/contracts yet
 /** The surfaces svc-identity signs tags for (its SHARE_SURFACES); one list for the browser, shared with the share sheet. */
-export const SHARE_SURFACES = ['promotion', 'card', 'token', 'strategy', 'receipt'] as const;
+const SHARE_SURFACES = ['promotion', 'card', 'token', 'strategy', 'receipt'] as const;
 export type ShareSurface = (typeof SHARE_SURFACES)[number];
 export type ShareVisit =
   | { status: 'none' }
