@@ -464,7 +464,7 @@ export const PORTAL_TEMPLATES: Readonly<Record<PortalRoom, RoomTemplate>> = {
   'invoice-new': { template: 'flow' },
   products: { template: 'record-list' },
   'product-new': { template: 'flow' },
-  'product-import': { template: 'flow' },
+  'product-import': { template: 'flow', migrated: { file: 'features/pay/portal/flow/ProductImportRoom.tsx' } },
   product: { template: 'record-list' },
   'settings-stores': { template: 'settings' },
 };

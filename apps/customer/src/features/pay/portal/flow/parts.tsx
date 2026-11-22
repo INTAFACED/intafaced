@@ -1,6 +1,7 @@
 import { useContext, useEffect, useId, useState, type ReactNode } from 'react';
 import { Button, EmptyState, RefusalBox, Tag } from '@intafaced/ui/lit';
-import { Skeleton } from '@intafaced/ui/lit/templates';
+import { Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
+import { formatDateTime, formatDay } from '../ui/format';
 import type { ApiResult } from '../../../../shared/api';
 import { portalCopy } from '../copy';
 import { uiCopy } from '../ui/copy';
@@ -161,4 +162,59 @@ export function CopyReference({ value, what }: { value: string; what?: string })
 /** A form's button row. */
 export function Actions({ children }: { children: ReactNode }) {
   return <div className="lt-actions">{children}</div>;
+}
+
+/** Every timestamp in the portal, in one format with its zone named; the tooltip holds the full date, time and zone. */
+export function DateTime({ value, timeZone, dayOnly = false }: { value: string; timeZone?: string; dayOnly?: boolean }) {
+  const { requestedLocale } = uiCopy.useCopy();
+  const parts = formatDateTime(value, requestedLocale, timeZone);
+  if (!parts) return <span lang="zxx">{value}</span>;
+  return (
+    <time dateTime={value} title={parts.full} lang={requestedLocale}>
+      {dayOnly ? (formatDay(value, requestedLocale, timeZone) ?? parts.short) : parts.short}
+    </time>
+  );
+}
+
+export interface ListColumn<T> {
+  header: string;
+  cell: (row: T) => ReactNode;
+  align?: 'start' | 'end';
+  ltr?: boolean;
+}
+
+/**
+ * Rows of records as a kit table in a named region (a stacked list on a phone). With `href`, each row ends in an Open
+ * link to its record.
+ */
+export function List<T>({
+  label,
+  rows,
+  rowKey,
+  columns,
+  href,
+}: {
+  label: string;
+  rows: readonly T[];
+  rowKey: (row: T) => string;
+  columns: readonly ListColumn<T>[];
+  href?: (row: T) => string;
+}) {
+  const { t } = uiCopy.useCopy();
+  const cols: Column<T>[] = columns.map((c, i) => ({ key: String(i), label: c.header, cell: c.cell, align: c.align, ltr: c.ltr }));
+  if (href)
+    cols.push({
+      key: 'open',
+      label: t('open'),
+      cell: (row) => (
+        <a className="lt-link" href={href(row)}>
+          {t('open')}
+        </a>
+      ),
+    });
+  return (
+    <section data-testid="pe-table" role="region" aria-label={label}>
+      <Table caption={label} columns={cols} rows={rows} rowKey={rowKey} />
+    </section>
+  );
 }
