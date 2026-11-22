@@ -251,4 +251,22 @@ describe('b2 controls the desk rooms use', () => {
     expect(B2.nextOptionIndex(1, 'last', 3)).toBe(2);
     expect(B2.nextOptionIndex(1, 'first', 3)).toBe(0);
   });
+
+  it('Sheet is a dialog with its own Close; as an alertdialog its own buttons answer it, so it draws no Close', () => {
+    const dialog = html(
+      <B2.Sheet open={false} title="Details" onClose={() => undefined}>
+        x
+      </B2.Sheet>,
+    );
+    expect(dialog).not.toContain('role="alertdialog"');
+    expect(dialog).toContain('>Close</button>');
+    const alert = html(
+      <B2.Sheet open={false} role="alertdialog" title="Cancel this order?" onClose={() => undefined}>
+        <button type="button">Go back</button>
+      </B2.Sheet>,
+    );
+    expect(alert).toContain('role="alertdialog"');
+    expect(alert).toContain('aria-label="Cancel this order?"');
+    expect(alert).not.toContain('>Close</button>');
+  });
 });

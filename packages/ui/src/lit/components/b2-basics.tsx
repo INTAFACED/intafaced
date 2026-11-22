@@ -156,33 +156,54 @@ export function Tabs({ items, current, label }: { items: readonly { label: strin
 
 /**
  * A bottom sheet on a phone, a side sheet on a computer: one of the two layers allowed glass. It is a modal
- * dialog (focus stays inside, Escape closes), built on the native <dialog> element.
+ * dialog (focus stays inside, Escape closes), built on the native <dialog> element. As an `alertdialog` it asks for
+ * an answer: it draws no Close button of its own (its own buttons answer it), Escape asks `onClose` and the sheet
+ * stays open until `open` turns false. An element inside marked `data-autofocus` takes the focus when it opens.
  */
 export function Sheet({
   open,
   title,
   onClose,
+  role = 'dialog',
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
+  role?: 'dialog' | 'alertdialog';
   children: React.ReactNode;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
+  const alert = role === 'alertdialog';
   React.useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal?.();
+    if (open && !d.open) {
+      d.showModal?.();
+      d.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    }
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog ref={ref} className="lt-sheet" aria-label={title} onClose={onClose} onCancel={onClose}>
+    <dialog
+      ref={ref}
+      className="lt-sheet"
+      role={alert ? 'alertdialog' : undefined}
+      aria-modal={alert || undefined}
+      aria-label={title}
+      onClose={alert ? undefined : onClose}
+      onCancel={(e) => {
+        if (alert) e.preventDefault();
+        onClose();
+      }}
+    >
       <header className="lt-sheet-head">
         <h2 className="lt-sheet-title">{title}</h2>
-        <button type="button" className="lt-button lt-button-secondary" onClick={onClose}>
-          Close
-        </button>
+        {alert ? null : (
+          <button type="button" className="lt-button lt-button-secondary" onClick={onClose}>
+            Close
+          </button>
+        )}
       </header>
       <div className="lt-sheet-body">{children}</div>
     </dialog>
