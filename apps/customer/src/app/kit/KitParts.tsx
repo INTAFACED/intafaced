@@ -49,6 +49,7 @@ import {
 } from '@intafaced/ui/lit';
 import {
   Candles,
+  QrCode,
   Sparkline as LineSpark,
   sortRows,
   Stepper,
@@ -429,6 +430,27 @@ export function CandleChart() {
         timeZone="UTC"
         labels={CHART_LABELS}
       />
+    </div>
+  );
+}
+
+/** The kit's QR code: dark on its own light ground on the dark page, in both sizes, and its failure line. */
+export function ScanCodes() {
+  return (
+    <div className="vk-row">
+      <QrCode
+        value="https://example.test/pay/link/TEST-0001"
+        label="Scan to open the TEST payment link"
+        failed="This link is too long for a code."
+      />
+      <QrCode
+        value="ethereum:0x000000000000000000000000000000000000dEaD@84532"
+        label="Scan to send to this TEST address"
+        failed="This address is too long for a code."
+        size="sm"
+        showValue
+      />
+      <QrCode value={'x'.repeat(3000)} label="Scan" failed="This TEST text is too long for a code, so none is drawn." />
     </div>
   );
 }
