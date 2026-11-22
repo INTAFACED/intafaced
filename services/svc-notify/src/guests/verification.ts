@@ -3,6 +3,12 @@ import { performance } from 'node:perf_hooks';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
 import { createTranslator } from '@intafaced/i18n';
+import type {
+  GuestVerificationCode,
+  GuestVerificationEraseReceipt,
+  GuestVerificationReceipt,
+  GuestVerificationSendInput,
+} from '@intafaced/contracts';
 import {
   guestVerificationEraseInputSchema,
   guestVerificationEraseReceiptSchema,
@@ -10,11 +16,7 @@ import {
   guestVerificationLinkMatches,
   guestVerificationReceiptSchema,
   guestVerificationSendInputSchema,
-  type GuestVerificationCode,
-  type GuestVerificationEraseReceipt,
-  type GuestVerificationReceipt,
-  type GuestVerificationSendInput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/guest-verification';
 import { ChannelDeliveryError, ChannelRefusal, type NotificationChannel } from '../channels/channel.js';
 import type { StatusMailer } from '../status-page/mailer.js';
 

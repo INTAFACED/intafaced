@@ -1,5 +1,6 @@
 import { createHttpLedgerClient, type HttpLedgerOptions, type LedgerClient } from '@intafaced/ledger-client';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 /**
  * svc-campaigns' client for svc-ledger: the shared HTTP client, signed as `svc-campaigns`. It posts only `rewardPay` (a

@@ -6,13 +6,8 @@
  * then its newest reading if that is inside the staleness window. Anything else is `no_data`, never operational. The top
  * level is the worst component state, so one component nobody can read keeps it from reading operational.
  */
-import {
-  STATUS_PAGE_SEVERITY,
-  type StatusComponentBasis,
-  type StatusPage,
-  type StatusPageState,
-  type StatusReadingState,
-} from '@intafaced/contracts';
+import type { StatusComponentBasis, StatusPage, StatusPageState, StatusReadingState } from '@intafaced/contracts';
+import { STATUS_PAGE_SEVERITY } from '@intafaced/contracts/status-page';
 import type { StatusFeed } from '../notices/status-feed.js';
 import type { StatusDay, StatusDefinition, StatusReading } from './book.js';
 

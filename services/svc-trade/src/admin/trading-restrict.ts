@@ -4,12 +4,8 @@
  * Off: the apply path is unchanged and an approval id is not required.
  */
 import { z } from 'zod';
-import {
-  accountControlInputSchema,
-  accountControlResultSchema,
-  type AccountControlResult,
-  type AccountControlState,
-} from '@intafaced/contracts';
+import type { AccountControlResult, AccountControlState } from '@intafaced/contracts';
+import { accountControlInputSchema, accountControlResultSchema } from '@intafaced/contracts/account-controls';
 import { consumeApproval, payloadHash, type ApprovalBook } from './common.js';
 
 let bound: ApprovalBook | null = null;

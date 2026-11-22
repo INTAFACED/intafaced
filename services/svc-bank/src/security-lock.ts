@@ -14,13 +14,9 @@
  * (`bank.security_lock_unset`), not an outage.
  */
 
-import {
-  securityLockSchema,
-  selfFreezeStateSchema,
-  serviceCallSigner,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { securityLockSchema, selfFreezeStateSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { BankError } from './errors.js';
 
 export interface SecurityLockState {

@@ -5,17 +5,10 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { TRPCError } from '@trpc/server';
-import {
-  ServiceAuthError,
-  rawBodyOf,
-  requireServiceCaller,
-  retainRawBody,
-  verifyServiceHeaders,
-  verifyServiceRequest,
-  type ServiceAuthMode,
-  type ServiceRawBody,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceRawBody, ServiceVerifier } from '@intafaced/contracts';
+import { rawBodyOf, retainRawBody } from '@intafaced/contracts/raw-body';
+import { ServiceAuthError, requireServiceCaller, verifyServiceHeaders } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 
 /** Per-service keys (S2S v3): set only when S2S_AUTH_MODE is on; unset keeps the shared secret alone. */
 export type OmsWriteS2s = { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };

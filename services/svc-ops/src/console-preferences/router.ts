@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import type { Preferences } from '@intafaced/contracts';
 import {
   PREFERENCE_INVALID,
   PREFERENCES_STALE,
@@ -11,10 +12,8 @@ import {
   preferencesSchema,
   preferencesSetInputSchema,
   resolvePreferences,
-  router,
-  scopedProcedure,
-  type Preferences,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-console-preferences';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OpsError } from '../codes.js';
 import type { LevelRef, PreferenceStore, StoredLevel } from './store.js';
 

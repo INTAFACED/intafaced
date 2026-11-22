@@ -8,6 +8,8 @@ import {
   kybApplicationStartInputSchema,
   kybApplicationSubmitInputSchema,
   kybApplicationViewSchema,
+} from '@intafaced/contracts/kyb-application';
+import {
   kybDocumentChecklistViewSchema,
   kybDocumentFileInputSchema,
   kybDocumentFileSchema,
@@ -17,8 +19,9 @@ import {
   kybDocumentsChecklistInputSchema,
   kybDocumentsUploadInputSchema,
   kybDocumentsUploadResultSchema,
-  kybDecisionBindingSchema,
-  kybEntityTypesViewSchema,
+} from '@intafaced/contracts/kyb-documents';
+import { kybEntityTypesViewSchema, kybRequirementsReadInputSchema, kybRequirementsViewSchema } from '@intafaced/contracts/kyb-entity-types';
+import {
   kybRequestAnswerInputSchema,
   kybRequestCloseInputSchema,
   kybRequestCreateInputSchema,
@@ -27,12 +30,9 @@ import {
   kybRequestResultSchema,
   kybRequestsListInputSchema,
   kybRequestsViewSchema,
-  kybRequirementsReadInputSchema,
-  kybRequirementsViewSchema,
-  router,
-  scopedProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/kyb-information-requests';
+import { kybDecisionBindingSchema } from '@intafaced/contracts/merchant-portal';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,

@@ -1,6 +1,7 @@
 import { GATE_CRITERION_NAMES } from '../lifecycle/gate.js';
 import { QUANT_GATE_CRITERIA_UNSET, QUANT_STAGE_TRANSITION_INVALID, QuantError } from '../errors.js';
-import { type QuantStage, router } from '@intafaced/contracts';
+import type { QuantStage } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { QUANT_LIFECYCLE_GET, QUANT_LIFECYCLE_PROMOTE } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { withQuantSpan } from '../tracing.js';

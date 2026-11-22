@@ -6,7 +6,8 @@
  */
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { retainRawBody, type ServiceBodyBindMode } from '@intafaced/contracts';
+import type { ServiceBodyBindMode } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { NavigatorSessionPublishError, type NavigatorSessionStore } from './navigator-session-store.js';
 

@@ -1,4 +1,5 @@
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { createHttpLedgerClient, type LedgerClient } from '@intafaced/ledger-client';
 
 /** svc-matching's reads of svc-ledger (replay hold lookup), signed as `svc-matching`: with a key the ledger names the caller from it. */

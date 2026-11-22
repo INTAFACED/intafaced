@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { ASSET_ACTIONS, ASSET_STATES, REGISTRY_ASSET_KINDS, router, publicProcedure, scopedProcedure } from '@intafaced/contracts';
+import { ASSET_ACTIONS, ASSET_STATES, REGISTRY_ASSET_KINDS } from '@intafaced/contracts/asset-registry';
+import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   BANK_DEPOSITS_ADDRESS,
   BANK_DEPOSITS_ADDRESSES_CREATE,

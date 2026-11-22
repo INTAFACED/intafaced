@@ -2,14 +2,9 @@
  * HTTP JobHost mutate doors always bind retained bytes.
  * Compose INTERNAL_SERVICE_BODY_BIND does not weaken this mill.
  */
-import {
-  verifyServiceHeaders,
-  verifyServiceRequest,
-  type HttpServiceRequest,
-  type ServiceAuthMode,
-  type ServiceRawBody,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+import type { HttpServiceRequest, ServiceAuthMode, ServiceRawBody, ServiceVerifier } from '@intafaced/contracts';
+import { verifyServiceHeaders } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 
 /** Per-service keys (S2S v3): the whole request, because a key signs the method, path and query too. */
 export interface KeyedJobAuth {

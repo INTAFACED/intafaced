@@ -1,14 +1,8 @@
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import {
-  createServiceSigner,
-  createServiceVerifier,
-  verifyServiceRequest,
-  type Keyring,
-  type ServiceAuthMode,
-  type ServiceName,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { Keyring, ServiceAuthMode, ServiceName, ServiceSigner } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
+import { createServiceSigner, createServiceVerifier } from '@intafaced/contracts/service-keys';
 
 /**
  * Shared by the `*-keys.test.ts` files: svc-market' outgoing calls signed with its own key, judged by the contracts
