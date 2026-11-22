@@ -101,7 +101,7 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
           </div>
           <div className="lt-sr">
             <table>
-              <caption>{caption}</caption>
+              <caption className="lt-sr">{caption}</caption>
               <thead>
                 <tr>
                   <th scope="col">{t('Group')}</th>
