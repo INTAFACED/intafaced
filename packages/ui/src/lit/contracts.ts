@@ -323,7 +323,11 @@ export const components = {
   Candles:
     "(B2) Candles over time: rise and fall from role tokens and in words (data-rising, each candle's title), placed by time so a gap stays a gap; an honest empty line for none",
   Bars: '(B2) Bars (volume, monthly totals)',
+  QrCode:
+    '(B2) A scannable code: dark modules on a light ground in every theme, a four-module quiet zone, a bounded size, a name for a screen reader and its text on the figure',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
+  TimeLine:
+    '(B2) A line placed by time, so a gap keeps its real width; a zero line, a readout by pointer or arrow keys, an honest empty line for none',
   ChartBox: "(B2) A chart's box of definite size (22.5rem high, full width) for a library that draws into it, or a state in its place",
   ChartCanvas: '(B2) The named picture inside a ChartBox and the element a charting library draws into, filling the box',
   AssetIcon: "An asset's round mark: the kit's artwork for a listed asset, a lettered disc for any other, never a guessed logo",
