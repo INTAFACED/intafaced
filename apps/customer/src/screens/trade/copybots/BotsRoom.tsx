@@ -274,7 +274,7 @@ function BotsHub({ path }: { path: string }) {
         return { tone: 'warn', word: 'Unknown', reason: 'The bot service did not answer. Try again in a moment.', ready: false };
       if (policy.data && !policy.data.capability.createEnabled)
         return { tone: 'warn', word: 'Switched off', reason: 'New bots can’t be created right now', ready: false };
-      if (policy.data?.immatureKinds.includes(row.id))
+      if (policy.data?.immatureKinds.some((k) => k === row.id))
         return {
           tone: 'warn',
           word: 'Needs trading history',

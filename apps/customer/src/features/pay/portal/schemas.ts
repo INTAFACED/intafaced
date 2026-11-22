@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { paymentListPrivacySchema } from '@intafaced/contracts/pay-payment-views';
 import {
   PAY_CAP_KINDS,
-  PAY_PRICING_LAYERS,
   merchantControlProfileSchema,
   payControlUsageSchema,
   payPricingQuoteSchema,
@@ -19,19 +18,18 @@ import {
   PAY_PAYMENT_STATUSES,
   merchantMetricsSeriesSchema,
   merchantMetricsSnapshotSchema,
-  metricsFreshnessSchema,
   type MerchantMetricsSeries,
   type MerchantMetricsSnapshot,
   type MetricsFreshness,
   type PayAssetAmount,
 } from '@intafaced/contracts/merchant-metrics';
-import { PAY_HALT_SCOPES, payHaltStatusSchema, type PayHaltScope, type PayHaltStatus } from '@intafaced/contracts/pay-halts';
+import { payHaltStatusSchema, type PayHaltScope, type PayHaltStatus } from '@intafaced/contracts/pay-halts';
 import {
   payMerchantFailureSchema,
   payPaymentConfirmationsSchema,
   payPricingSnapshotViewSchema,
 } from '@intafaced/contracts/pay-merchant-reads';
-import { PAY_EXPORT_KINDS, payExportJobSchema, type PayExportJob, type PayExportKind } from '@intafaced/contracts/pay-portal-reads';
+import { payExportJobSchema, type PayExportJob, type PayExportKind } from '@intafaced/contracts/pay-portal-reads';
 import {
   amount,
   asset,
@@ -72,19 +70,18 @@ export const settlementSchema = baseSettlementSchema.extend({
 });
 export type AssetAmount = PayAssetAmount;
 
-export const metricPresets = PAY_METRIC_PRESETS;
+const metricPresets = PAY_METRIC_PRESETS;
 export type MetricPreset = (typeof metricPresets)[number];
 export const paymentStatuses = PAY_PAYMENT_STATUSES;
 
 // svc-pay `merchantMetrics.snapshot` and `.series` answer with these, checked against them on the server.
-export const freshnessSchema = metricsFreshnessSchema;
 export type Freshness = MetricsFreshness;
 export const snapshotSchema = merchantMetricsSnapshotSchema;
 export type Snapshot = MerchantMetricsSnapshot;
 export const seriesSchema = merchantMetricsSeriesSchema;
 export type Series = MerchantMetricsSeries;
 
-export const kybStatusSchema = z.enum(['none', 'pending', 'approved', 'rejected']);
+const kybStatusSchema = z.enum(['none', 'pending', 'approved', 'rejected']);
 export const kybCurrentSchema = z.object({ kybStatus: kybStatusSchema, kybRef: z.string().nullable(), mode: z.string() });
 export const kybEventSchema = z.object({
   seq: z.string(),
@@ -260,7 +257,6 @@ export const customerDetailSchema = customerSchema.extend({
 });
 export type CustomerDetail = z.infer<typeof customerDetailSchema>;
 
-export const exportKinds = PAY_EXPORT_KINDS;
 export type ExportKind = PayExportKind;
 export const exportJobSchema = payExportJobSchema;
 export type ExportJob = PayExportJob;
@@ -361,7 +357,6 @@ export const settlementStatuses = ['pending', 'posted', 'paid_out', 'failed'] as
 // an operator; a null section is "not configured" and is shown as such, never as a default.
 export const capKinds = PAY_CAP_KINDS;
 export type CapKind = PayCapKind;
-export const pricingLayers = PAY_PRICING_LAYERS;
 export type PricingRule = PayPricingRule;
 export const controlProfileSchema = merchantControlProfileSchema;
 export type ControlProfile = MerchantControlProfile;
@@ -376,7 +371,6 @@ export type ApprovalStatus = (typeof approvalStatuses)[number];
 export const approvalSchema = payoutApprovalSchema;
 export type Approval = PayoutApproval;
 
-export const haltScopes = PAY_HALT_SCOPES;
 export type HaltScope = PayHaltScope;
 export const haltStatusSchema = payHaltStatusSchema;
 export type HaltStatus = PayHaltStatus;

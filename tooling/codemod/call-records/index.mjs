@@ -31,10 +31,12 @@ import { answerFromCallers } from './answer.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
+import { founderPartsFor } from './founder-guard.mjs';
 import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
+import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -99,6 +101,7 @@ function refusalReaders(serviceDir) {
 }
 /** A record naming its service's own check (`check:`) is mounted with the parts that hand it over, in its router's file. */
 function readerFor(readers, file, guard = undefined) {
+  if (guard?.founder) return founderPartsFor(file, guard, readerFor(readers, file));
   if (/\bcheck: '/.test(guard?.text ?? '')) return partsFor(readers, file, guard, () => readerFor(readers, file));
   return (
     readers.find((r) => !r.parts && r.file === file) ??
@@ -270,7 +273,7 @@ function recordOfPath(file, name, path) {
 }
 
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
-const INPUT_AT = { founderCall: 4, founderEdgeCall: 4, payCall: 3, useBankRead: 1 };
+const INPUT_AT = { founderCall: 4, founderEdgeCall: 4, payCall: 3, useBankRead: 1, payQuery: 1, payMutate: 1 };
 const inputArg = (s) =>
   s.shape === 'desk-read'
     ? s.inputProp?.value
@@ -490,6 +493,7 @@ export function schemaArgOf(s) {
   const a = s.node.arguments;
   if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
   if (s.shape === 'payCall') return s.reader ? undefined : a[4]?.arguments?.[0];
+  if (BUSINESS_FORMS[s.shape]) return a[2];
   // useBankRead's schema is `bankReads[path]` in its own file (`s.schema`); founderEdgeCall parses nothing.
   if (s.shape === 'useBankRead' || s.shape === 'founderEdgeCall') return undefined;
   return a[3];
@@ -581,6 +585,7 @@ export function callText(changes, s, name, takesNone) {
     const rest = [input, ...(a[4] ? [text(p, a[4])] : [])];
     return `${recv}.call(${name}, ${rest.join(', ')})`;
   }
+  if (BUSINESS_FORMS[s.shape]) return businessCall(p, s, name, input);
   if (RECORD_FORMS[s.shape]) {
     const { fn, head, tail } = RECORD_FORMS[s.shape](s, a);
     if (s.wrapperFrom) changes.imp(s.file, s.wrapperFrom, fn);
@@ -716,10 +721,12 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
 }
 
 /** The service's shared schema file: every declaration a record reads that lived in the service, moved here once. */
-function writeSchemas(opts, file, closure, pending) {
+export function writeSchemas(opts, file, closure, pending) {
   const fresh = pending === undefined && !existsSync(file);
   const imports = new Map([['zod', new Set(['z'])]]);
+  const self = `./${basename(file).replace(/\.ts$/, '.js')}`;
   const imp = (spec, name) => {
+    if (spec === self) return; // a declaration already in this file is read where it stands, never imported from itself
     if (!imports.has(spec)) imports.set(spec, new Set());
     imports.get(spec).add(name);
   };

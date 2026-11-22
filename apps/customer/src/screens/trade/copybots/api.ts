@@ -25,9 +25,7 @@ import {
 import { z } from 'zod';
 import {
   LEADER_MODES,
-  algoPolicySchema,
   botListRowSchema,
-  botListSchema,
   copiedMarketSchema,
   copiedPositionSchema,
   copiedPositionsSchema,
@@ -49,7 +47,7 @@ import {
   venueFollowCheckSchemaOf,
 } from '@intafaced/contracts/trade-copy-room';
 import { parsesAs, type ApiClient } from '../../../shared/api';
-import { algoSchema, copyFollowSchema, createToolApi } from '../../../features/trade/tool-api';
+import { copyFollowSchema, createToolApi } from '../../../features/trade/tool-api';
 import {
   TRADE_COPY_MY_LEAD,
   TRADE_COPY_LEADER_TRADES,
@@ -78,6 +76,7 @@ import {
   TRADE_BOTS_GRID_WITHDRAW_PROFIT,
 } from '@intafaced/contracts/trade-bots-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
+import { TRADE_ALGO_POLICY, TRADE_ALGO_CREATE_TWAP, TRADE_ALGO_LIST } from '@intafaced/contracts/trade-algo-procedures';
 
 export {
   copyDeskSchema,
@@ -123,7 +122,7 @@ export const SIGNAL_PAGE = 50;
 
 export type PlatformPauses = ProcedureOutput<typeof TRADE_COPY_PLATFORM_PAUSES>;
 
-export type AlgoPolicy = z.infer<typeof algoPolicySchema>;
+export type AlgoPolicy = ProcedureOutput<typeof TRADE_ALGO_POLICY>;
 
 export type BotListRow = z.infer<typeof botListRowSchema>;
 /** Bots My bots reads at a time. The service refuses a list read without a limit, and lists at most 500 a read. */
@@ -283,7 +282,7 @@ export function createRoomApi(api: ApiClient) {
     /** Close-all needs identity's step-up for exactly this follow and request (`trade.step_up.copy.flatten`). */
     flatten: (input: { followId: string; requestId: string; stepUpApprovalId: string | null }) =>
       api.mutate('trade', 'copy.flatten', input, copyAckSchema.passthrough()),
-    algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
+    algoPolicy: (signal?: AbortSignal) => api.call(TRADE_ALGO_POLICY, undefined, { signal }),
     webhooks: (signal?: AbortSignal) => api.query('trade', 'signals.webhooks.list', undefined, z.array(signalWebhookSchema), { signal }),
     createWebhook: (input: { symbol: string; venueOwner: string; clientRequestId: string }) =>
       api.call(TRADE_SIGNALS_WEBHOOKS_CREATE, input),
@@ -304,8 +303,8 @@ export function createRoomApi(api: ApiClient) {
     /** Always refused `trade.copy_pnl_fee_forbidden`: the platform sets no maximum ratio. */
     setMaxRatio: (ratio: string) => api.mutate('trade', 'copy.setMaxRatio', { ratio }, z.unknown()),
     platformPauses: (signal?: AbortSignal) => api.call(TRADE_COPY_PLATFORM_PAUSES, undefined, { signal }),
-    createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),
-    algoList: (limit: number, signal?: AbortSignal) => api.query('trade', 'algo.list', { limit }, botListSchema, { signal }),
+    createTwap: (input: TwapRequest) => api.call(TRADE_ALGO_CREATE_TWAP, input),
+    algoList: (limit: number, signal?: AbortSignal) => api.call(TRADE_ALGO_LIST, { limit }, { signal }),
     algoGet: tools.algoGet,
     algoProgress: tools.algoProgress,
     algoAction: tools.algoAction,

@@ -33,6 +33,7 @@ import { LinkAddress } from './LinkAddress';
 import { CopyReference } from '../ui/CopyReference';
 import { definite } from './not-available';
 import { linkRowSchema } from './schemas';
+import { PAY_MERCHANT_DEACTIVATE_LINK, PAY_MERCHANT_GET_LINK } from '@intafaced/contracts/pay-merchant-procedures';
 
 type Link = z.infer<typeof linkRowSchema>;
 export function linkState(link: Link, now: number) {
@@ -496,7 +497,7 @@ export async function settleDeactivate(pay: BusinessPayApi, merchantId: string, 
   const original = pay.guard.original(lockId);
   if (!original) return 'failed';
   // A read of an outcome that may already exist, so it is not wrapped in definite().
-  const read = await pay.query('merchant.getLink', { merchantId, linkId }, linkRowSchema);
+  const read = await pay.queryRecord(PAY_MERCHANT_GET_LINK, { merchantId, linkId });
   if (!read.ok || read.data.id !== linkId) return 'failed';
   if (!(await pay.guard.resolve(lockId, original.raw))) return 'failed';
   return read.data.active ? 'active' : 'inactive';
@@ -572,10 +573,9 @@ function DeactivateLink({
         disabled={noWrite || held}
         perform={async () => {
           const result = definite(
-            await pay.mutate(
-              'merchant.deactivateLink',
+            await pay.mutateRecord(
+              PAY_MERCHANT_DEACTIVATE_LINK,
               { merchantId, linkId: selected.id, ...(payerNote.trim() ? { message: payerNote.trim() } : {}) },
-              z.object({ deactivated: z.boolean() }),
               'pay:write',
               `link-deactivate:${selected.id}`,
             ),
