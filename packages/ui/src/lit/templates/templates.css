@@ -1167,6 +1167,27 @@ button.lt-tab {
   block-size: 2rem;
 }
 
+/* Candles: rise in the up role, fall in the down role; the wick keeps its width however the chart stretches. */
+.lt-candle line {
+  stroke-width: 1;
+}
+.lt-candle[data-rising='true'] {
+  stroke: var(--lit-up);
+  fill: var(--lit-up);
+}
+.lt-candle[data-rising='false'] {
+  stroke: var(--lit-down);
+  fill: var(--lit-down);
+}
+.lt-candle rect {
+  stroke: none;
+}
+.lt-candles figcaption,
+.lt-candles-empty {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
 .lt-chart-area {
   fill: var(--lit-accent-deep);
   opacity: 0.6;

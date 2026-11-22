@@ -34,7 +34,16 @@ import {
   TooltipTrigger,
 } from '@intafaced/ui';
 import { Rail, ToggleChips, typeRoles, type DoorLink, type TypeRole } from '@intafaced/ui/lit';
-import { Sparkline as LineSpark, sortRows, Stepper, Table, type Column, type SortState } from '@intafaced/ui/lit/templates';
+import {
+  Candles,
+  Sparkline as LineSpark,
+  sortRows,
+  Stepper,
+  Table,
+  type Candle as KitCandle,
+  type Column,
+  type SortState,
+} from '@intafaced/ui/lit/templates';
 import type { OrderBook as WireBook } from '@intafaced/exchange-contract/schemas';
 import { ShellIcon, type ShellIconName } from '../icons';
 import { PriceChart } from '../../screens/trade/chart/PriceChart';
@@ -407,6 +416,34 @@ export function CandleChart() {
         timeZone="UTC"
         labels={CHART_LABELS}
       />
+    </div>
+  );
+}
+
+/** The kit's own small candle chart, for a pool's or a token's page: the same TEST candles, placed by time. */
+export function SmallCandles() {
+  const window = { start: START / 1000, seconds: 48 * 3600, width: 3600 };
+  // A quiet stretch: candles 20 to 27 are left out, so the chart shows the gap.
+  const candles: KitCandle[] = TEST_CANDLES.filter((_, i) => i < 20 || i > 27).map((c) => ({
+    key: String(c.t),
+    at: c.t / 1000,
+    open: c.o,
+    high: c.h,
+    low: c.l,
+    close: c.c,
+    title: `${new Date(c.t).toISOString().slice(11, 16)} UTC: open ${c.o}, high ${c.h}, low ${c.l}, close ${c.c}, TEST`,
+    marks: { 'data-testid': 'kit-candle' },
+  }));
+  return (
+    <div className="vk-grid">
+      <Candles
+        label="TEST/USDT, hourly candles over two days, TEST"
+        candles={candles}
+        window={window}
+        empty="No trades in these two days, so there is no price to draw."
+        caption="Hourly candles, TEST. The gap is eight hours with no trade."
+      />
+      <Candles label="TEST/USDT, hourly candles, TEST" candles={[]} empty="No trades in these two days, so there is no price to draw." />
     </div>
   );
 }
