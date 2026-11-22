@@ -1,5 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react';
-import type { z } from 'zod';
+import { Button, Checkbox, Field, Select } from '@intafaced/ui/lit';
 import {
   bankAccountClosureRowSchema as closureRowSchema,
   bankAccountClosureSchema as closureSchema,
@@ -11,148 +11,17 @@ import {
   bankAccountReviewsSchema as reviewsSchema,
   bankAccountReviewSchema as reviewSchema,
 } from '@intafaced/contracts/bank-money-room';
-import { useSession } from '../session';
-import { defineCopy } from '../../shared/i18n';
-import { useResource } from '../../shared/resource';
-import { DepthPanel } from './DepthParts';
-import './bank-depth.css';
-
-/**
- * Words for the bank account room (BK-acct-05, BK-acct-06; J-bank-17): onboarding, the partner's information requests
- * and periodic reviews, closing and reopening the account, and a data-rights request. Every step, requirement, deadline,
- * cap and window comes from the bank; none is written here.
- */
-export const bankAccountCopy = defineCopy('bank-account', {
-  title: 'Your bank account',
-  description: 'Onboarding, requests and reviews from the bank partner, closing the account and your data.',
-  bannerTitle: 'Finish your bank onboarding',
-  bannerBody:
-    '{partner} needs something from you: {steps} onboarding steps, {requests} information requests and {reviews} reviews are open.',
-  bannerOpen: 'Open onboarding',
-  onboardingTitle: 'Onboarding',
-  onboardingLead: 'The steps and requirements of {partner}, which holds your bank account, with our own.',
-  stepDone: 'Done',
-  stepOpen: 'Open',
-  stepDoneWithCase: 'Done with your INTAFACED verification, which {partner} accepts',
-  identityCaseAccepted: 'Your INTAFACED verification (level {tier}) is offered to {partner}, and it accepts it.',
-  identityCaseRefused: '{partner} does not accept your INTAFACED verification, so it asks for its own check.',
-  verify: 'Verify your identity',
-  partnerRequirements: 'Requirements of {partner}',
-  ownerRequirements: 'Our requirements',
-  ownerRequirementsUnset: 'Our requirements are not published ({code}).',
-  onboardingComplete: 'Onboarding is done.',
-  requestsTitle: 'Information requests',
-  requestsLead: 'What {partner} asks you for. Answer each one with one file before its deadline.',
-  requestsNone: 'No information requests.',
-  due: 'Deadline: {date}',
-  statusOpen: 'Waiting for your answer',
-  statusUnderReview: 'Under review since {date}',
-  file: 'File',
-  uploadCap: 'One {types} file, up to {size} bytes.',
-  uploadUnset: 'The size cap for an answer is not published ({code}), so nothing can be sent yet.',
-  answer: 'Send answer',
-  sent: 'Sent: {name}, {size} bytes',
-  reviewsTitle: 'Periodic reviews',
-  reviewsLead: '{partner} checks your account details from time to time.',
-  reviewsNone: 'No reviews.',
-  reviewDue: 'Due: {date}',
-  reviewMissed: 'If you miss it: {effect}',
-  reviewAccurate: 'My account details are still accurate',
-  reviewNote: 'Anything that changed',
-  reviewAnswer: 'Answer review',
-  reviewAnswered: 'Answered on {date}',
-  closureTitle: 'Close your bank account',
-  closureLead:
-    'Closing asks {partner} to pay out what the account holds to the destination you name. While it is closing, no money moves in or out.',
-  closureOpen: 'Your account is open.',
-  destinationName: 'Name on the destination account',
-  destinationRef: 'Destination account number (IBAN)',
-  close: 'Close account',
-  closurePending: 'Closing: restricted while {partner} pays out your balance to {name}, {ref}. No money moves in or out until then.',
-  closureBalance: 'To be paid out: {amount} {asset}',
-  closureClosed: 'Closed on {date}.',
-  closurePaidOut: 'Paid out by {partner} on {date}.',
-  reopenUntil: 'You can reopen it until {date}.',
-  reopenUnset: 'How long a closed account can be reopened is not published ({code}).',
-  reopen: 'Reopen account',
-  reopened: 'Reopened on {date}.',
-  dataTitle: 'Your data',
-  dataLead: 'Ask {partner} for a copy of the data it holds about your bank account.',
-  dataKind: 'What you ask for',
-  dataAccess: 'A copy of my data',
-  dataPortability: 'My data in a portable file',
-  dataRequest: 'Send request',
-  dataNone: 'No data requests yet.',
-  dataRecord: '{kind}: received on {date}, reference {ref}',
-  signIn: 'Sign in to read your bank account.',
-  unread: 'This could not be read from the bank: {message}',
-  refused: '{message}',
-});
-
-type Failure = { code: string; message: string };
-type Read<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'failed'; failure: Failure };
-
-/** One bank read, re-read whenever `version` changes. */
-function useAccountRead<T>(procedure: string, schema: z.ZodType<T>, version: number): Read<T> {
-  const { api, userId, profiles } = useSession();
-  // Every bank call carries the profile in view (J-bank-01 #7); a business profile is refused, as it has no bank account here.
-  const profile = profiles.active;
-  const { resource } = useResource<T>(async (signal) => {
-    if (!userId) return { ok: false, reason: 'unauthorized', message: bankAccountCopy.t('signIn') };
-    return api.query('bank', `bankAccount.${procedure}`, { profile }, schema, { signal });
-  }, `${userId}:${profile}:bankAccount.${procedure}:${version}`);
-  if (resource.status === 'loading') return { state: 'loading' };
-  if (resource.status === 'ready') return { state: 'ready', data: resource.data };
-  return { state: 'failed', failure: { code: resource.failure.code ?? '', message: resource.failure.message } };
-}
-
-const day = (at: string | null) => (at ? at.slice(0, 10) : '');
+import { useSession } from '../../session';
+import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
+import { Panel } from '../bank-settings/parts';
+import { bankAccountCopy, base64Of, day, useAccountRead, type Failure } from './account-read';
 
 function Refusal({ failure, unread = false }: { failure: Failure; unread?: boolean }) {
   const { t } = bankAccountCopy.useCopy();
   return (
-    <p role="alert" className="error-text" data-code={failure.code}>
+    <p role="alert" data-code={failure.code}>
       {t(unread ? 'unread' : 'refused', { message: failure.message })}
     </p>
-  );
-}
-
-/** Reads a chosen file as base64, without the data-URL prefix. */
-function base64Of(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
-    reader.onerror = () => reject(reader.error ?? new Error('the file could not be read'));
-    reader.readAsDataURL(file);
-  });
-}
-
-/**
- * The onboarding banner on the Bank's first page (J-bank-17 #1): shown while the partner's onboarding has an open step,
- * request or review. A person whose bank account the partner does not hold sees nothing.
- */
-export function OnboardingBanner() {
-  const { t } = bankAccountCopy.useCopy();
-  const read = useAccountRead('onboarding', onboardingSchema, 0);
-  if (read.state !== 'ready') return null;
-  const now = read.data;
-  const openSteps = now.steps.filter((step) => step.status === 'open').length;
-  if (now.complete && now.openRequests === 0 && now.openReviews === 0) return null;
-  return (
-    <section className="money-card" data-testid="bank-onboarding-banner" aria-label={t('bannerTitle')} role="region">
-      <h3>{t('bannerTitle')}</h3>
-      <p>
-        {t('bannerBody', {
-          partner: now.label,
-          steps: String(openSteps),
-          requests: String(now.openRequests),
-          reviews: String(now.openReviews),
-        })}
-      </p>
-      <a className="button button--primary" href="/bank/account">
-        {t('bannerOpen')}
-      </a>
-    </section>
   );
 }
 
@@ -164,7 +33,7 @@ function Onboarding({ version }: { version: number }) {
   const now = read.data;
   return (
     <div data-testid="bank-onboarding" data-complete={String(now.complete)} data-partner={now.label}>
-      <p className="money-caption">{t('onboardingLead', { partner: now.label })}</p>
+      <p className="lt-hint">{t('onboardingLead', { partner: now.label })}</p>
       <ol>
         {now.steps.map((step) => (
           <li key={step.id} data-step={step.id} data-status={step.status} data-done-with={step.doneWith ?? ''}>
@@ -183,7 +52,7 @@ function Onboarding({ version }: { version: number }) {
           : t('identityCaseRefused', { partner: now.label })}
       </p>
       {now.identityCase.tier === 'none' && (
-        <a className="text-link" href="/verification">
+        <a className="lt-link" href="/verification">
           {t('verify')}
         </a>
       )}
@@ -245,11 +114,11 @@ function InfoRequests({ version, changed }: { version: number; changed: () => vo
   if (read.state === 'loading') return null;
   if (read.state === 'failed') return <Refusal failure={read.failure} unread />;
   const { requests, upload } = read.data;
-  if (requests.length === 0) return <p className="money-caption">{t('requestsNone')}</p>;
+  if (requests.length === 0) return <p className="lt-hint">{t('requestsNone')}</p>;
   return (
-    <ul className="bd-stack" data-testid="bank-info-requests">
+    <ul data-testid="bank-info-requests">
       {requests.map((row) => (
-        <li key={row.id} className="money-card" data-request={row.id} data-status={row.status} data-due={row.dueAt}>
+        <li key={row.id} data-request={row.id} data-status={row.status} data-due={row.dueAt}>
           <h4>{row.title}</h4>
           <p>{row.detail}</p>
           <p>{t('due', { date: day(row.dueAt) })}</p>
@@ -258,21 +127,23 @@ function InfoRequests({ version, changed }: { version: number; changed: () => vo
           {row.status === 'open' && (
             <form onSubmit={(event) => void answer(event, row.id)} aria-label={row.title}>
               {upload.state === 'published' ? (
-                <p className="money-caption" data-max-bytes={upload.maxBytes}>
+                <p className="lt-hint" data-max-bytes={upload.maxBytes}>
                   {t('uploadCap', { types: upload.allowedTypes.join(' or '), size: String(upload.maxBytes) })}
                 </p>
               ) : (
-                <p className="money-caption" data-code={upload.code}>
+                <p className="lt-hint" data-code={upload.code}>
                   {t('uploadUnset', { code: upload.code })}
                 </p>
               )}
-              <label className="field">
-                <span>{t('file')}</span>
-                <input type="file" name="file" accept={upload.state === 'published' ? upload.allowedTypes.join(',') : undefined} />
-              </label>
-              <button type="submit" className="button button--primary" disabled={busy === row.id}>
+              <Field
+                label={t('file')}
+                type="file"
+                name="file"
+                accept={upload.state === 'published' ? upload.allowedTypes.join(',') : undefined}
+              />
+              <Button type="submit" tone="primary" disabled={busy === row.id}>
                 {t('answer')}
-              </button>
+              </Button>
             </form>
           )}
           {failures[row.id] && <Refusal failure={failures[row.id]!} />}
@@ -291,7 +162,7 @@ function Reviews({ version, changed }: { version: number; changed: () => void })
   if (read.state === 'loading') return null;
   if (read.state === 'failed') return <Refusal failure={read.failure} unread />;
   const { reviews } = read.data;
-  if (reviews.length === 0) return <p className="money-caption">{t('reviewsNone')}</p>;
+  if (reviews.length === 0) return <p className="lt-hint">{t('reviewsNone')}</p>;
   const submit = async (event: FormEvent<HTMLFormElement>, reviewId: string) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -307,9 +178,9 @@ function Reviews({ version, changed }: { version: number; changed: () => void })
     changed();
   };
   return (
-    <ul className="bd-stack" data-testid="bank-reviews">
+    <ul data-testid="bank-reviews">
       {reviews.map((row) => (
-        <li key={row.id} className="money-card" data-review={row.id} data-status={row.status} data-due={row.dueAt}>
+        <li key={row.id} data-review={row.id} data-status={row.status} data-due={row.dueAt}>
           <h4>{row.title}</h4>
           <p>{t('reviewDue', { date: day(row.dueAt) })}</p>
           <p data-testid="bank-review-missed">{t('reviewMissed', { effect: row.missedEffect })}</p>
@@ -317,17 +188,16 @@ function Reviews({ version, changed }: { version: number; changed: () => void })
             <p role="status">{t('reviewAnswered', { date: day(row.answeredAt) })}</p>
           ) : (
             <form onSubmit={(event) => void submit(event, row.id)} aria-label={row.title}>
-              <label className="field">
-                <input type="checkbox" name="accurate" defaultChecked />
-                <span>{t('reviewAccurate')}</span>
-              </label>
-              <label className="field">
+              <Checkbox name="accurate" defaultChecked>
+                {t('reviewAccurate')}
+              </Checkbox>
+              <label className="lt-field">
                 <span>{t('reviewNote')}</span>
                 <textarea name="note" maxLength={500} />
               </label>
-              <button type="submit" className="button button--primary">
+              <Button type="submit" tone="primary">
                 {t('reviewAnswer')}
-              </button>
+              </Button>
             </form>
           )}
         </li>
@@ -375,17 +245,11 @@ function Closure({ version, changed }: { version: number; changed: () => void })
           <p role="status">{t('closureOpen')}</p>
           {last?.state === 'reopened' && <p>{t('reopened', { date: day(last.reopenedAt) })}</p>}
           <form onSubmit={(event) => void close(event)} aria-label={t('closureTitle')}>
-            <label className="field">
-              <span>{t('destinationName')}</span>
-              <input name="destinationName" autoComplete="name" maxLength={140} />
-            </label>
-            <label className="field">
-              <span>{t('destinationRef')}</span>
-              <input name="destinationRef" maxLength={40} />
-            </label>
-            <button type="submit" className="button button--secondary">
+            <Field label={t('destinationName')} name="destinationName" autoComplete="name" maxLength={140} />
+            <Field label={t('destinationRef')} name="destinationRef" maxLength={40} />
+            <Button type="submit" tone="secondary">
               {t('close')}
-            </button>
+            </Button>
           </form>
         </>
       )}
@@ -412,9 +276,9 @@ function Closure({ version, changed }: { version: number; changed: () => void })
               <p data-testid="bank-reopen-until" data-until={now.reopenWindow.until ?? ''} data-days={now.reopenWindow.days}>
                 {t('reopenUntil', { date: day(now.reopenWindow.until) })}
               </p>
-              <button type="button" className="button button--primary" onClick={() => void reopen()}>
+              <Button tone="primary" onClick={() => void reopen()}>
                 {t('reopen')}
-              </button>
+              </Button>
             </>
           ) : (
             <p data-code={now.reopenWindow.code}>{t('reopenUnset', { code: now.reopenWindow.code })}</p>
@@ -447,19 +311,21 @@ function DataRights({ version, changed }: { version: number; changed: () => void
   return (
     <div data-testid="bank-data-rights">
       <form onSubmit={(event) => void send(event)} aria-label={t('dataTitle')}>
-        <label className="field">
-          <span>{t('dataKind')}</span>
-          <select value={kind} onChange={(event) => setKind(event.target.value as 'access' | 'portability')}>
-            <option value="access">{t('dataAccess')}</option>
-            <option value="portability">{t('dataPortability')}</option>
-          </select>
-        </label>
-        <button type="submit" className="button button--secondary">
+        <Select
+          label={t('dataKind')}
+          value={kind}
+          onChange={(value) => setKind(value as 'access' | 'portability')}
+          options={[
+            { value: 'access', label: t('dataAccess') },
+            { value: 'portability', label: t('dataPortability') },
+          ]}
+        />
+        <Button type="submit" tone="secondary">
           {t('dataRequest')}
-        </button>
+        </Button>
       </form>
       {requests.length === 0 ? (
-        <p className="money-caption">{t('dataNone')}</p>
+        <p className="lt-hint">{t('dataNone')}</p>
       ) : (
         <ul>
           {requests.map((row) => (
@@ -478,6 +344,33 @@ function DataRights({ version, changed }: { version: number; changed: () => void
   );
 }
 
+/** The room's sections, each a link to its part of the page. */
+const SECTIONS = [
+  ['bank-account-onboarding', 'onboardingTitle'],
+  ['bank-account-requests', 'requestsTitle'],
+  ['bank-account-reviews', 'reviewsTitle'],
+  ['bank-account-closure', 'closureTitle'],
+  ['bank-account-data', 'dataTitle'],
+] as const;
+
+/** `/bank/account` (BK-acct-05, BK-acct-06, J-bank-17), inside the Overview room, on its settings template. */
+export function BankAccountPage() {
+  const { t } = bankAccountCopy.useCopy();
+  return (
+    <BankSettingsRoom
+      room="Overview"
+      title={t('title')}
+      description={t('description')}
+      state={{ kind: 'ready' }}
+      sectionsLabel={t('sectionsLabel')}
+      sections={SECTIONS.map(([id, key]) => [id, t(key)] as const)}
+      explain={t('explain')}
+    >
+      <BankAccountRoom />
+    </BankSettingsRoom>
+  );
+}
+
 /** `/bank/account`: the person's bank account at the partner: onboarding, requests, reviews, closure and data (J-bank-17). */
 export function BankAccountRoom() {
   const { t } = bankAccountCopy.useCopy();
@@ -486,22 +379,22 @@ export function BankAccountRoom() {
   const partner = useAccountRead('onboarding', onboardingSchema, version);
   const name = partner.state === 'ready' ? partner.data.label : '';
   return (
-    <div className="bd-stack" data-testid="bank-account">
-      <DepthPanel title={t('onboardingTitle')}>
+    <div data-testid="bank-account">
+      <Panel id="bank-account-onboarding" title={t('onboardingTitle')}>
         <Onboarding version={version} />
-      </DepthPanel>
-      <DepthPanel title={t('requestsTitle')} lead={t('requestsLead', { partner: name })}>
+      </Panel>
+      <Panel id="bank-account-requests" title={t('requestsTitle')} lead={t('requestsLead', { partner: name })}>
         <InfoRequests version={version} changed={changed} />
-      </DepthPanel>
-      <DepthPanel title={t('reviewsTitle')} lead={t('reviewsLead', { partner: name })}>
+      </Panel>
+      <Panel id="bank-account-reviews" title={t('reviewsTitle')} lead={t('reviewsLead', { partner: name })}>
         <Reviews version={version} changed={changed} />
-      </DepthPanel>
-      <DepthPanel title={t('closureTitle')} lead={t('closureLead', { partner: name })}>
+      </Panel>
+      <Panel id="bank-account-closure" title={t('closureTitle')} lead={t('closureLead', { partner: name })}>
         <Closure version={version} changed={changed} />
-      </DepthPanel>
-      <DepthPanel title={t('dataTitle')} lead={t('dataLead', { partner: name })}>
+      </Panel>
+      <Panel id="bank-account-data" title={t('dataTitle')} lead={t('dataLead', { partner: name })}>
         <DataRights version={version} changed={changed} />
-      </DepthPanel>
+      </Panel>
     </div>
   );
 }

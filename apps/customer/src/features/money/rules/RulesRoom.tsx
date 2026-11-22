@@ -1,13 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session';
-import { CATEGORY_CHANNELS, type CategoryPrefRow } from '../../screens/notifications/notify-api';
-import { useCategoryPrefs } from '../../screens/notifications/use-category-prefs';
-import { useBankRead, useSpaces } from './components';
-import { reminderLeadChoices, rulesWrites, type ReminderRule } from './contracts';
-import { DepthPanel } from './DepthParts';
-import { rulesCopy } from './rules-copy';
-import './bank-depth.css';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import type { RoomState } from '@intafaced/ui/lit/templates';
+import { useSession } from '../../session';
+import { CATEGORY_CHANNELS } from '../../../screens/notifications/notify-api';
+import { useCategoryPrefs } from '../../../screens/notifications/use-category-prefs';
+import { useBankRead, useSpaces } from '../components';
+import { reminderLeadChoices, rulesWrites, type ReminderRule } from '../contracts';
+import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
+import { Failure, Loading, Panel, useRoomRefusal } from '../bank-settings/parts';
+import { choiceWords } from '../Rules';
+import { rulesCopy } from '../rules-copy';
 
 /**
  * `/bank/rules` (J-bank-06 #6, BK-acct-10): the person's payment reminder rule (how long before each standing order
@@ -79,45 +81,31 @@ function ReminderPanel({
   }
 
   return (
-    <DepthPanel title={t('remindTitle')} lead={t('remindLead')}>
-      <form className="bd-stack" onSubmit={(event) => void save(event)} data-testid="rules-reminder">
-        <label className="field">
-          <span>{t('remindLabel')}</span>
-          <select value={choice} onChange={(event) => setChoice(event.target.value)}>
-            <option value="off">{t('lead_off')}</option>
-            {choices.filter(isLead).map((lead) => (
-              <option key={lead} value={String(lead)}>
-                {t(`lead_${lead}`)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="money-caption" data-testid="rules-reminder-current" data-rule-key={rule?.ruleKey ?? ''}>
+    <Panel id="rules-reminders" title={t('remindTitle')} lead={t('remindLead')}>
+      <form onSubmit={(event) => void save(event)} data-testid="rules-reminder">
+        <Select
+          label={t('remindLabel')}
+          value={choice}
+          onChange={setChoice}
+          options={[
+            { value: 'off', label: t('lead_off') },
+            ...choices.filter(isLead).map((lead) => ({ value: String(lead), label: t(`lead_${lead}`) })),
+          ]}
+        />
+        <p className="lt-hint" data-testid="rules-reminder-current" data-rule-key={rule?.ruleKey ?? ''}>
           {rule
             ? t('ruleCurrent', { key: rule.ruleKey, revision: String(rule.revision), choice: leadWords(t, rule.leadHours) })
             : t('ruleNone')}
         </p>
-        <div className="actions">
-          <Button type="submit" variant="primary" disabled={busy}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={busy}>
             {busy ? t('saving') : t('save')}
           </Button>
         </div>
-        {said && (
-          <p role={said.kind === 'error' ? 'alert' : 'status'} className={said.kind === 'error' ? 'error-text' : undefined}>
-            {said.words}
-          </p>
-        )}
+        {said && <p role={said.kind === 'error' ? 'alert' : 'status'}>{said.words}</p>}
       </form>
-    </DepthPanel>
+    </Panel>
   );
-}
-
-export function choiceWords(t: Copy, row: CategoryPrefRow | undefined) {
-  if (!row) return t('choiceUnknown');
-  if (row.notConnected) return `${t('choiceNotConnected')} ${t('reference', { code: row.notConnected })}`;
-  if (!row.configured) return t('choicePlatformOff');
-  if (row.locked) return t('choiceLocked');
-  return row.enabled ? t('choiceOn') : t('choiceOff');
 }
 
 /** The account's `orders` choices, as the notification service holds them: the bank's notices are sent under them. */
@@ -126,19 +114,19 @@ function ChoicesPanel() {
   const { load, reload } = useCategoryPrefs();
   const choices = load.status === 'ready' ? { status: 'ready' as const, rows: load.rows.filter((row) => row.category === 'orders') } : load;
   return (
-    <DepthPanel title={t('choicesTitle')} lead={t('choicesLead', { category: t('category') })}>
+    <Panel id="rules-choices" title={t('choicesTitle')} lead={t('choicesLead', { category: t('category') })}>
       {choices.status === 'loading' && <Loading />}
       {choices.status === 'failed' && (
-        <p role="alert" className="error-text">
+        <p role="alert">
           {t('choicesFailed')}{' '}
-          <Button variant="ghost" onClick={reload}>
+          <Button tone="quiet" onClick={reload}>
             {t('choicesRetry')}
           </Button>
         </p>
       )}
       {choices.status === 'ready' && (
-        <div className="withdrawal-address-scroll">
-          <table className="bd-table" data-testid="rules-choices">
+        <div>
+          <table className="lt-table" data-testid="rules-choices">
             <thead>
               <tr>
                 <th scope="col">{t('colChannel')}</th>
@@ -161,11 +149,11 @@ function ChoicesPanel() {
         </div>
       )}
       <p>
-        <a className="text-link" href="/notifications?view=settings">
+        <a className="lt-link" href="/notifications?view=settings">
           {t('choicesChange')}
         </a>
       </p>
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -215,17 +203,14 @@ function MoneyRulePanel({ code }: { code: string }) {
 
   const options = spaces.resource.status === 'ready' ? spaces.resource.data : [];
   return (
-    <DepthPanel title={t('moneyTitle')} lead={t('moneyLead')}>
+    <Panel id="rules-money" title={t('moneyTitle')} lead={t('moneyLead')}>
       <p role="note" data-testid="rules-money-not-set">
-        {t('moneyNotSet')} <small className="muted">{t('reference', { code })}</small>
+        {t('moneyNotSet')} <small className="lt-hint">{t('reference', { code })}</small>
       </p>
       {spaces.resource.status === 'failed' && <Failure result={spaces.resource.failure} retry={spaces.reload} />}
-      <form className="bd-stack" onSubmit={(event) => void save(event)} noValidate data-testid="rules-money">
-        <label className="field">
-          <span>{t('moneyName')}</span>
-          <input value={form.name} maxLength={60} onChange={set('name')} />
-        </label>
-        <label className="field">
+      <form onSubmit={(event) => void save(event)} noValidate data-testid="rules-money">
+        <Field label={t('moneyName')} value={form.name} maxLength={60} onChange={set('name')} />
+        <label className="lt-field">
           <span>{t('moneyFrom')}</span>
           <select value={form.from} onChange={set('from')}>
             <option value="">{t('pickSpace')}</option>
@@ -236,7 +221,7 @@ function MoneyRulePanel({ code }: { code: string }) {
             ))}
           </select>
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('moneyTo')}</span>
           <select value={form.to} onChange={set('to')}>
             <option value="">{t('pickSpace')}</option>
@@ -247,67 +232,90 @@ function MoneyRulePanel({ code }: { code: string }) {
             ))}
           </select>
         </label>
-        <label className="field">
-          <span>{t('moneyTrigger')}</span>
-          <select value={form.trigger} onChange={set('trigger')}>
-            <option value="date">{t('trigger_date')}</option>
-            <option value="balance">{t('trigger_balance')}</option>
-          </select>
-        </label>
+        <Select
+          label={t('moneyTrigger')}
+          value={form.trigger}
+          onChange={(value) => set('trigger')({ target: { value } })}
+          options={[
+            { value: 'date', label: t('trigger_date') },
+            { value: 'balance', label: t('trigger_balance') },
+          ]}
+        />
         {form.trigger === 'date' ? (
-          <label className="field">
-            <span>{t('moneyCadence')}</span>
-            <select value={form.cadence} onChange={set('cadence')}>
-              <option value="daily">{t('cadence_daily')}</option>
-              <option value="weekly">{t('cadence_weekly')}</option>
-              <option value="monthly">{t('cadence_monthly')}</option>
-            </select>
-          </label>
+          <Select
+            label={t('moneyCadence')}
+            value={form.cadence}
+            onChange={(value) => set('cadence')({ target: { value } })}
+            options={[
+              { value: 'daily', label: t('cadence_daily') },
+              { value: 'weekly', label: t('cadence_weekly') },
+              { value: 'monthly', label: t('cadence_monthly') },
+            ]}
+          />
         ) : (
-          <label className="field">
-            <span>{t('moneyAbove')}</span>
-            <input value={form.above} inputMode="decimal" onChange={set('above')} />
-          </label>
+          <Field label={t('moneyAbove')} value={form.above} inputMode="decimal" onChange={set('above')} />
         )}
-        <label className="field">
-          <span>{t('moneyAmount')}</span>
-          <input value={form.amount} inputMode="decimal" onChange={set('amount')} />
-        </label>
-        <div className="actions">
-          <Button type="submit" variant="primary" disabled={busy}>
+        <Field label={t('moneyAmount')} value={form.amount} inputMode="decimal" onChange={set('amount')} />
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={busy}>
             {t('moneySave')}
           </Button>
         </div>
-        {said && (
-          <p role="alert" className="error-text">
-            {said}
-          </p>
-        )}
+        {said && <p role="alert">{said}</p>}
       </form>
-    </DepthPanel>
+    </Panel>
   );
 }
 
-export function Rules() {
+/** The room's sections, each a link to its part of the page. */
+const SECTIONS = [
+  ['rules-reminders', 'remindTitle'],
+  ['rules-failed', 'failedTitle'],
+  ['rules-choices', 'choicesTitle'],
+  ['rules-money', 'moneyTitle'],
+] as const;
+
+/** `/bank/rules`: payment reminders, failure notices, notification choices and money rules, inside Transfers (J-bank-06 #6). */
+export function RulesRoom() {
   const { t } = rulesCopy.useCopy();
+  const refusalOf = useRoomRefusal();
   const view = useBankRead('rules.get', undefined);
   const [said, setSaid] = useState<Said>(null);
-  if (view.resource.status === 'loading') return <Loading />;
-  if (view.resource.status === 'failed') return <Failure result={view.resource.failure} retry={view.reload} />;
-  const data = view.resource.data;
+  let state: RoomState = { kind: 'ready' };
+  let retry: (() => void) | undefined;
+  if (view.resource.status === 'loading') state = { kind: 'loading' };
+  else if (view.resource.status === 'failed') {
+    const failed = refusalOf(view.resource.failure);
+    state = { kind: 'refused', refusal: failed.refusal };
+    if (failed.retry) retry = view.reload;
+  }
+  const data = view.resource.status === 'ready' ? view.resource.data : null;
   return (
-    <div className="bd-stack">
-      <ReminderPanel rule={data.reminder} choices={data.leadChoices} said={said} setSaid={setSaid} onSaved={view.reload} />
-      <DepthPanel title={t('failedTitle')} lead={t('failedLead')}>
-        {null}
-      </DepthPanel>
-      <ChoicesPanel />
-      <MoneyRulePanel code={data.moneyRules.code} />
-      <p>
-        <a className="text-link" href="/bank/transfers">
+    <BankSettingsRoom
+      room="Transfers"
+      title={t('title')}
+      description={t('description')}
+      state={state}
+      retry={retry}
+      sectionsLabel={t('sectionsLabel')}
+      sections={SECTIONS.map(([id, key]) => [id, t(key)] as const)}
+      index={
+        <a className="lt-link" href="/bank/transfers">
           {t('back')}
         </a>
-      </p>
-    </div>
+      }
+      explain={t('explain')}
+    >
+      {data ? (
+        <>
+          <ReminderPanel rule={data.reminder} choices={data.leadChoices} said={said} setSaid={setSaid} onSaved={view.reload} />
+          <Panel id="rules-failed" title={t('failedTitle')} lead={t('failedLead')}>
+            {null}
+          </Panel>
+          <ChoicesPanel />
+          <MoneyRulePanel code={data.moneyRules.code} />
+        </>
+      ) : null}
+    </BankSettingsRoom>
   );
 }

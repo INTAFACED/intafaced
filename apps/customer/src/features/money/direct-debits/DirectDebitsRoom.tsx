@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react';
-import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session';
-import { amount, date, useBankRead } from './components';
-import { directDebitWrites, type DirectDebitCollection, type DirectDebitMandate, type DirectDebitsView } from './contracts';
-import { DepthPanel, DisabledActions } from './DepthParts';
-import { directDebitsCopy } from './direct-debits-copy';
-import './bank-depth.css';
+import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Sheet, type RoomState } from '@intafaced/ui/lit/templates';
+import { useSession } from '../../session';
+import { amount, date, useBankRead } from '../components';
+import { directDebitWrites, type DirectDebitCollection, type DirectDebitMandate, type DirectDebitsView } from '../contracts';
+import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
+import { DisabledActions, Panel, useRoomRefusal } from '../bank-settings/parts';
+import { directDebitsCopy } from '../direct-debits-copy';
 
 /**
  * `/bank/direct-debits` (J-bank-06 #4, BK-xfer-11): the companies that may collect from the person's main balance, what
@@ -62,8 +63,8 @@ function MandateTable({
   const { t } = directDebitsCopy.useCopy();
   return (
     <>
-      <div className="withdrawal-address-scroll">
-        <table className="bd-table" data-testid="dd-mandates">
+      <div>
+        <table className="lt-table" data-testid="dd-mandates">
           <thead>
             <tr>
               <th scope="col">{t('colCreditor')}</th>
@@ -84,7 +85,7 @@ function MandateTable({
                     {row.upcoming.length === 0 ? (
                       t('noUpcoming')
                     ) : (
-                      <ul className="bd-list">
+                      <ul>
                         {row.upcoming.map((c) => (
                           <li key={c.id}>{t('upcomingLine', { amount: amount(c.amount, c.assetId), time: date(c.dueAt) })}</li>
                         ))}
@@ -93,7 +94,7 @@ function MandateTable({
                   </td>
                   <td>
                     {live && (
-                      <Button variant="secondary" onClick={() => onToggle(row)}>
+                      <Button tone="secondary" onClick={() => onToggle(row)}>
                         {row.status === 'active' ? t('block') : t('unblock')}
                       </Button>
                     )}
@@ -104,7 +105,7 @@ function MandateTable({
           )}
         </table>
       </div>
-      {rows.length === 0 && <EmptyState title={t('emptyMandates')}>{t('emptyMandatesBody')}</EmptyState>}
+      {rows.length === 0 && <EmptyState title={t('emptyMandates')} body={t('emptyMandatesBody')} />}
     </>
   );
 }
@@ -115,10 +116,10 @@ function RefundCell({ row, onRefund }: { row: DirectDebitCollection; onRefund: (
     case 'available':
       return (
         <>
-          <Button variant="secondary" onClick={() => onRefund(row)}>
+          <Button tone="secondary" onClick={() => onRefund(row)}>
             {t('refundAvailable')}
           </Button>{' '}
-          <small className="muted">{t('refundUntil', { time: date(row.refund.endsAt) })}</small>
+          <small className="lt-hint">{t('refundUntil', { time: date(row.refund.endsAt) })}</small>
         </>
       );
     case 'requested':
@@ -128,7 +129,7 @@ function RefundCell({ row, onRefund }: { row: DirectDebitCollection; onRefund: (
     case 'unset':
       return (
         <>
-          {t('refundUnset')} <small className="muted">{t('reference', { code: 'bank.dd_guarantee_unset' })}</small>
+          {t('refundUnset')} <small className="lt-hint">{t('reference', { code: 'bank.dd_guarantee_unset' })}</small>
         </>
       );
     default:
@@ -140,8 +141,8 @@ function CollectionTable({ rows, onRefund }: { rows: readonly DirectDebitCollect
   const { t } = directDebitsCopy.useCopy();
   return (
     <>
-      <div className="withdrawal-address-scroll">
-        <table className="bd-table" data-testid="dd-collections">
+      <div>
+        <table className="lt-table" data-testid="dd-collections">
           <thead>
             <tr>
               <th scope="col">{t('colCreditor')}</th>
@@ -158,14 +159,14 @@ function CollectionTable({ rows, onRefund }: { rows: readonly DirectDebitCollect
               {rows.map((row) => (
                 <tr key={row.id} data-testid={`dd-collection-${row.collectionId}`}>
                   <td lang="und">{row.creditorName}</td>
-                  <td className="numeric">{amount(row.amount, row.assetId)}</td>
+                  <td>{amount(row.amount, row.assetId)}</td>
                   <td>{date(row.dueAt)}</td>
                   <td>
                     {t(`status_${row.status}`)}
                     {row.partnerMoveId && (
                       <>
                         {' '}
-                        <small className="muted" data-testid="dd-partner-move">
+                        <small className="lt-hint" data-testid="dd-partner-move">
                           {t('partnerMove', { id: row.partnerMoveId })}
                         </small>
                       </>
@@ -174,7 +175,7 @@ function CollectionTable({ rows, onRefund }: { rows: readonly DirectDebitCollect
                   <td>
                     {row.failureCode ? (
                       <>
-                        {reasonOf(t, row.failureCode)} <small className="muted">{t('reference', { code: row.failureCode })}</small>
+                        {reasonOf(t, row.failureCode)} <small className="lt-hint">{t('reference', { code: row.failureCode })}</small>
                       </>
                     ) : (
                       '—'
@@ -183,7 +184,7 @@ function CollectionTable({ rows, onRefund }: { rows: readonly DirectDebitCollect
                   <td>
                     {row.failureFeeBlocker ? (
                       <>
-                        {t('feeNotSet')} <small className="muted">{t('reference', { code: row.failureFeeBlocker })}</small>
+                        {t('feeNotSet')} <small className="lt-hint">{t('reference', { code: row.failureFeeBlocker })}</small>
                       </>
                     ) : (
                       t('feeNone')
@@ -198,7 +199,7 @@ function CollectionTable({ rows, onRefund }: { rows: readonly DirectDebitCollect
           )}
         </table>
       </div>
-      {rows.length === 0 && <EmptyState title={t('emptyCollections')}>{t('emptyCollectionsBody')}</EmptyState>}
+      {rows.length === 0 && <EmptyState title={t('emptyCollections')} body={t('emptyCollectionsBody')} />}
     </>
   );
 }
@@ -229,22 +230,18 @@ function ToggleDialog({ row, onDone, onCancel }: { row: DirectDebitMandate; onDo
     return onDone(t('unblocked', { creditor: row.creditorName }));
   }
   return (
-    <Dialog title={blocking ? t('blockConfirm') : t('unblockConfirm')} onClose={onCancel}>
+    <Sheet open title={blocking ? t('blockConfirm') : t('unblockConfirm')} onClose={onCancel}>
       <p>{t(blocking ? 'blockWhy' : 'unblockWhy', { creditor: row.creditorName, reference: row.reference })}</p>
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
-      <div className="actions">
-        <Button variant={blocking ? 'danger' : 'primary'} disabled={busy} onClick={() => void confirm()}>
+      {error && <p role="alert">{error}</p>}
+      <div className="lt-actions">
+        <Button tone="primary" disabled={busy} onClick={() => void confirm()}>
           {blocking ? t('blockConfirm') : t('unblockConfirm')}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button tone="quiet" onClick={onCancel}>
           {t('cancel')}
         </Button>
       </div>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -273,10 +270,10 @@ function RefundDialog({ row, onDone, onCancel }: { row: DirectDebitCollection; o
     onDone(answer.data.created ? t('refundSent', { amount: amount(row.amount, row.assetId) }) : t('refundAgain'));
   }
   return (
-    <Dialog title={t('refundTitle')} onClose={onCancel}>
-      <form className="bd-stack" onSubmit={(event) => void submit(event)} noValidate>
+    <Sheet open title={t('refundTitle')} onClose={onCancel}>
+      <form onSubmit={(event) => void submit(event)} noValidate>
         <p>{t('refundLead', { amount: amount(row.amount, row.assetId), creditor: row.creditorName, time: date(row.settledAt) })}</p>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('refundReason')}</span>
           <textarea
             value={reason}
@@ -285,80 +282,103 @@ function RefundDialog({ row, onDone, onCancel }: { row: DirectDebitCollection; o
             onChange={(event) => setReason(event.target.value)}
             aria-invalid={tried && bad}
           />
-          <small className={tried && bad ? 'error-text' : ''}>{tried && bad ? t('refundReasonBad') : t('refundReasonHint')}</small>
+          <small>{tried && bad ? t('refundReasonBad') : t('refundReasonHint')}</small>
         </label>
-        {error && (
-          <p role="alert" className="error-text">
-            {error}
-          </p>
-        )}
-        <div className="actions">
-          <Button type="submit" variant="primary" disabled={busy}>
+        {error && <p role="alert">{error}</p>}
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={busy}>
             {t('refundSend')}
           </Button>
-          <Button variant="ghost" onClick={onCancel}>
+          <Button tone="quiet" onClick={onCancel}>
             {t('cancel')}
           </Button>
         </div>
       </form>
-    </Dialog>
+    </Sheet>
   );
 }
 
 function SchemeNotice({ scheme }: { scheme: DirectDebitsView['scheme'] }) {
   const { t } = directDebitsCopy.useCopy();
   return (
-    <div className="bd-stack" data-testid="dd-scheme">
+    <div data-testid="dd-scheme">
       {scheme.status === 'unset' ? (
         <p role="note">
           {t('schemeUnset', { rail: scheme.blocker ?? 'rail.bank' })}{' '}
-          <small className="muted">{t('reference', { code: 'rail.bank' })}</small>
+          <small className="lt-hint">{t('reference', { code: 'rail.bank' })}</small>
         </p>
       ) : (
         scheme.standIn && <p role="note">{t('schemeStandIn', { label: scheme.standIn })}</p>
       )}
-      <p className="money-caption">
+      <p className="lt-hint">
         {scheme.guaranteeDays === null ? t('guaranteeUnset') : t('guarantee', { days: String(scheme.guaranteeDays) })}
       </p>
     </div>
   );
 }
 
-export function DirectDebits() {
+/** The room's sections, each a link to its part of the page. */
+const SECTIONS = [
+  ['direct-debits-mandates', 'mandatesTitle'],
+  ['direct-debits-collections', 'collectionsTitle'],
+] as const;
+
+/** `/bank/direct-debits`: Direct Debit mandates and collections, inside the Transfers room (J-bank-06 #4), on its settings template. */
+export function DirectDebitsRoom() {
   const { t } = directDebitsCopy.useCopy();
+  const refusalOf = useRoomRefusal();
   const list = useBankRead('directDebits.list', undefined);
   const [toggling, setToggling] = useState<DirectDebitMandate | null>(null);
   const [refunding, setRefunding] = useState<DirectDebitCollection | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  if (list.resource.status === 'loading') return <Loading />;
-  if (list.resource.status === 'failed') return <Failure result={list.resource.failure} retry={list.reload} />;
-  const view = list.resource.data;
-  const live = view.scheme.status === 'live';
+  let state: RoomState = { kind: 'ready' };
+  let retry: (() => void) | undefined;
+  if (list.resource.status === 'loading') state = { kind: 'loading' };
+  else if (list.resource.status === 'failed') {
+    const failed = refusalOf(list.resource.failure);
+    state = { kind: 'refused', refusal: failed.refusal };
+    if (failed.retry) retry = list.reload;
+  }
   const finish = (words: string) => {
     setDone(words);
     setToggling(null);
     setRefunding(null);
     list.reload();
   };
+  const view = list.resource.status === 'ready' ? list.resource.data : null;
+  const live = view?.scheme.status === 'live';
   return (
-    <div className="bd-stack">
-      <SchemeNotice scheme={view.scheme} />
-      {done && <p role="status">{done}</p>}
-      <DepthPanel title={t('mandatesTitle')} lead={t('mandatesLead')}>
-        <MandateTable rows={view.mandates} live={live} onToggle={(row) => (setDone(null), setToggling(row))} />
-        {!live && <DisabledActions labels={[t('block'), t('unblock')]} reason={t('schemeUnset', { rail: 'rail.bank' })} />}
-      </DepthPanel>
-      <DepthPanel title={t('collectionsTitle')} lead={t('collectionsLead')}>
-        <CollectionTable rows={view.collections} onRefund={(row) => (setDone(null), setRefunding(row))} />
-        {!live && <DisabledActions labels={[t('refundAvailable')]} reason={t('schemeUnset', { rail: 'rail.bank' })} />}
-      </DepthPanel>
-      {toggling && <ToggleDialog row={toggling} onDone={finish} onCancel={() => setToggling(null)} />}
-      {refunding && <RefundDialog row={refunding} onDone={finish} onCancel={() => setRefunding(null)} />}
-      <p>
-        <a className="text-link" href="/bank/transfers">
+    <BankSettingsRoom
+      room="Transfers"
+      title={t('title')}
+      description={t('description')}
+      state={state}
+      retry={retry}
+      sectionsLabel={t('sectionsLabel')}
+      sections={SECTIONS.map(([id, key]) => [id, t(key)] as const)}
+      index={
+        <a className="lt-link" href="/bank/transfers">
           {t('back')}
         </a>
-      </p>
-    </div>
+      }
+      explain={t('explain')}
+    >
+      {view ? (
+        <>
+          <SchemeNotice scheme={view.scheme} />
+          {done && <p role="status">{done}</p>}
+          <Panel id="direct-debits-mandates" title={t('mandatesTitle')} lead={t('mandatesLead')}>
+            <MandateTable rows={view.mandates} live={live} onToggle={(row) => (setDone(null), setToggling(row))} />
+            {!live && <DisabledActions labels={[t('block'), t('unblock')]} reason={t('schemeUnset', { rail: 'rail.bank' })} />}
+          </Panel>
+          <Panel id="direct-debits-collections" title={t('collectionsTitle')} lead={t('collectionsLead')}>
+            <CollectionTable rows={view.collections} onRefund={(row) => (setDone(null), setRefunding(row))} />
+            {!live && <DisabledActions labels={[t('refundAvailable')]} reason={t('schemeUnset', { rail: 'rail.bank' })} />}
+          </Panel>
+          {toggling && <ToggleDialog row={toggling} onDone={finish} onCancel={() => setToggling(null)} />}
+          {refunding && <RefundDialog row={refunding} onDone={finish} onCancel={() => setRefunding(null)} />}
+        </>
+      ) : null}
+    </BankSettingsRoom>
   );
 }

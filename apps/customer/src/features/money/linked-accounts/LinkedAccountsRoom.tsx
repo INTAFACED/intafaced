@@ -1,13 +1,13 @@
 import { useState, type FormEvent } from 'react';
-import { Button, EmptyState, Failure, Field, Loading } from '../../shared/ui';
-import type { Resource } from '../../shared/resource';
-import { useSession } from '../session';
-import { date, useBankRead } from './components';
-import { linkedAccountWrites, type LinkedAccount } from './contracts';
-import { DepthPanel } from './DepthParts';
-import { linkedAccountsCopy } from './linked-accounts-copy';
-import { WithdrawStepUp } from './WithdrawStepUp';
-import './bank-depth.css';
+import { Button, EmptyState, Field } from '@intafaced/ui/lit';
+import type { Resource } from '../../../shared/resource';
+import { useSession } from '../../session';
+import { date, useBankRead } from '../components';
+import { linkedAccountWrites, type LinkedAccount } from '../contracts';
+import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
+import { Failure, Loading, Panel } from '../bank-settings/parts';
+import { StepUpSheet } from '../bank-settings/StepUpSheet';
+import { linkedAccountsCopy } from '../linked-accounts-copy';
 
 /**
  * Linked bank accounts (J-bank-02 #6): the person's own accounts at other banks, each listed with its state and whether
@@ -47,7 +47,7 @@ function UseCell({ row }: { row: LinkedAccount }) {
         : [t('useCoolingUnset'), row.blocker ?? 'bank.offramp_cooling_unset'];
   return (
     <>
-      {words} <small className="muted">{t('reference', { code })}</small>
+      {words} <small className="lt-hint">{t('reference', { code })}</small>
     </>
   );
 }
@@ -56,8 +56,8 @@ export function LinkedAccountTable({ rows, onRemove }: { rows: readonly LinkedAc
   const { t } = linkedAccountsCopy.useCopy();
   return (
     <>
-      <div className="withdrawal-address-scroll">
-        <table className="bd-table" data-testid="linked-accounts">
+      <div>
+        <table className="lt-table" data-testid="linked-accounts">
           <thead>
             <tr>
               <th scope="col">{t('colName')}</th>
@@ -75,9 +75,7 @@ export function LinkedAccountTable({ rows, onRemove }: { rows: readonly LinkedAc
                 <tr key={row.accountId} data-testid={`linked-${row.accountId}`}>
                   <td lang="und">{row.label}</td>
                   <td lang="und">{row.holderName}</td>
-                  <td className="numeric" lang="und">
-                    {row.ibanMasked}
-                  </td>
+                  <td lang="und">{row.ibanMasked}</td>
                   <td>{t(row.state === 'verified' ? 'state_verified' : 'state_unverified')}</td>
                   <td>
                     <UseCell row={row} />
@@ -85,7 +83,7 @@ export function LinkedAccountTable({ rows, onRemove }: { rows: readonly LinkedAc
                   <td>{date(row.linkedAt)}</td>
                   <td>
                     {onRemove && (
-                      <Button variant="ghost" onClick={() => onRemove(row)}>
+                      <Button tone="quiet" onClick={() => onRemove(row)}>
                         {t('remove')}
                       </Button>
                     )}
@@ -96,7 +94,7 @@ export function LinkedAccountTable({ rows, onRemove }: { rows: readonly LinkedAc
           )}
         </table>
       </div>
-      {rows.length === 0 && <EmptyState title={t('empty')}>{t('emptyBody')}</EmptyState>}
+      {rows.length === 0 && <EmptyState title={t('empty')} body={t('emptyBody')} />}
     </>
   );
 }
@@ -148,7 +146,7 @@ function LinkForm({ onLinked }: { onLinked: () => void }) {
   }
   return (
     <>
-      <form className="bd-stack" onSubmit={submit} noValidate aria-label={t('addTitle')}>
+      <form onSubmit={submit} noValidate aria-label={t('addTitle')}>
         <Field
           label={t('name')}
           hint={t('nameHint')}
@@ -178,15 +176,15 @@ function LinkForm({ onLinked }: { onLinked: () => void }) {
           onChange={(event) => set({ iban: event.target.value })}
           error={shown('iban') ? t('ibanBad') : undefined}
         />
-        <div className="actions">
-          <Button type="submit" variant="primary">
+        <div className="lt-actions">
+          <Button type="submit" tone="primary">
             {t('link')}
           </Button>
         </div>
         {done && <p role="status">{done}</p>}
       </form>
       {confirming && (
-        <WithdrawStepUp
+        <StepUpSheet
           why={t('linkWhy')}
           run={async (token) => {
             const answer = await api.mutate('bank', 'linkedAccounts.link', input, linkedAccountWrites.link, { bearer: token });
@@ -212,16 +210,35 @@ function LinkForm({ onLinked }: { onLinked: () => void }) {
   );
 }
 
-/** `/bank/ramps/accounts`: the person's linked bank accounts and the form to link one. */
-export function LinkedAccounts() {
+/** The room's sections, each a link to its part of the page. */
+const SECTIONS = [
+  ['linked-accounts-list', 'listTitle'],
+  ['linked-accounts-add', 'addTitle'],
+] as const;
+
+/** `/bank/ramps/accounts`: the person's linked bank accounts and the form to link one, inside Ramps, on its settings template. */
+export function LinkedAccountsRoom() {
   const { t } = linkedAccountsCopy.useCopy();
   const { api } = useSession();
   const list = useBankRead('linkedAccounts.list', undefined);
   const [removing, setRemoving] = useState<LinkedAccount | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   return (
-    <div className="bd-stack">
-      <DepthPanel title={t('listTitle')} lead={t('listLead')}>
+    <BankSettingsRoom
+      room="Ramps"
+      title={t('title')}
+      description={t('description')}
+      state={{ kind: 'ready' }}
+      sectionsLabel={t('sectionsLabel')}
+      sections={SECTIONS.map(([id, key]) => [id, t(key)] as const)}
+      index={
+        <a className="lt-link" href="/bank/ramps">
+          {t('back')}
+        </a>
+      }
+      explain={t('explain')}
+    >
+      <Panel id="linked-accounts-list" title={t('listTitle')} lead={t('listLead')}>
         <LinkedAccountList
           resource={list.resource}
           reload={list.reload}
@@ -231,12 +248,12 @@ export function LinkedAccounts() {
           }}
         />
         {removed && <p role="status">{t('removed', { name: removed })}</p>}
-      </DepthPanel>
-      <DepthPanel title={t('addTitle')} lead={t('addLead')}>
+      </Panel>
+      <Panel id="linked-accounts-add" title={t('addTitle')} lead={t('addLead')}>
         <LinkForm onLinked={list.reload} />
-      </DepthPanel>
+      </Panel>
       {removing && (
-        <WithdrawStepUp
+        <StepUpSheet
           why={t('removeWhy', { account: `${removing.label} (${removing.ibanMasked})` })}
           run={(token) =>
             api.mutate('bank', 'linkedAccounts.remove', { accountId: removing.accountId }, linkedAccountWrites.remove, { bearer: token })
@@ -249,11 +266,6 @@ export function LinkedAccounts() {
           onCancel={() => setRemoving(null)}
         />
       )}
-      <p>
-        <a className="text-link" href="/bank/ramps">
-          {t('back')}
-        </a>
-      </p>
-    </div>
+    </BankSettingsRoom>
   );
 }

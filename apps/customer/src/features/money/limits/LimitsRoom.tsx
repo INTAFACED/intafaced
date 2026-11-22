@@ -1,14 +1,18 @@
 import { useState } from 'react';
-import { defineCopy } from '../../shared/i18n';
-import { useBankRead } from './components';
-import { DepthPanel } from './DepthParts';
-import { useHoldings } from './holdings';
-import './bank-depth.css';
+import { Select } from '@intafaced/ui/lit';
+import { defineCopy } from '../../../shared/i18n';
+import { useBankRead } from '../components';
+import { useHoldings } from '../holdings';
+import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
+import { Panel } from '../bank-settings/parts';
 
 /** Words for the limits, fees and plan room (BK-acct-04, J-bank-16 #6). No limit, fee or price is written here. */
 export const limitsCopy = defineCopy('bank-limits', {
   title: 'Limits, fees and plan',
   description: 'What you can send today, the fees the bank has published and your plan.',
+  sectionsLabel: 'Limits sections',
+  explain:
+    'Every limit and fee here is read from the bank as it stands now; none is written in the app. A limit or fee the bank has not published says not set, and nothing is charged for it.',
   limitsTitle: 'Sending limits',
   limitsLead: 'What the bank lets you send to people today, from its own quote. Limits refresh at 00:00 UTC.',
   asset: 'Coin',
@@ -43,6 +47,31 @@ export const limitsCopy = defineCopy('bank-limits', {
   failed: '{message}',
 });
 
+/** The room's sections, each a link to its part of the page. */
+const SECTIONS = [
+  ['limits-sending', 'limitsTitle'],
+  ['limits-fees', 'feesTitle'],
+  ['limits-plan', 'planTitle'],
+] as const;
+
+/** `/bank/limits` (BK-acct-04, J-bank-16 #6), inside the Overview room, on its settings template. */
+export function LimitsPage() {
+  const { t } = limitsCopy.useCopy();
+  return (
+    <BankSettingsRoom
+      room="Overview"
+      title={t('title')}
+      description={t('description')}
+      state={{ kind: 'ready' }}
+      sectionsLabel={t('sectionsLabel')}
+      sections={SECTIONS.map(([id, key]) => [id, t(key)] as const)}
+      explain={t('explain')}
+    >
+      <LimitsRoom />
+    </BankSettingsRoom>
+  );
+}
+
 /** `/bank/limits`: today's send limit and what is left of it, the fee schedules, and the person's plan. */
 export function LimitsRoom() {
   const { t } = limitsCopy.useCopy();
@@ -57,28 +86,25 @@ export function LimitsRoom() {
   const accountFees = useBankRead('fees.account', undefined);
   const plans = useBankRead('plans.list', undefined);
   const refusal = (failure: { code?: string | null; message: string }) => (
-    <p role="alert" className="error-text" data-code={failure.code ?? ''}>
+    <p role="alert" data-code={failure.code ?? ''}>
       {t('failed', { message: failure.message })}
     </p>
   );
 
   return (
-    <div className="bd-stack" data-testid="bank-limits">
-      <DepthPanel title={t('limitsTitle')} lead={t('limitsLead')}>
-        <label className="field">
-          <span>{t('asset')}</span>
-          <select value={assetId} onChange={(event) => setChosen(event.target.value)} disabled={assets.length === 0}>
-            {assets.map((asset) => (
-              <option key={asset.assetId} value={asset.assetId}>
-                {asset.assetId}
-              </option>
-            ))}
-          </select>
-        </label>
+    <div data-testid="bank-limits">
+      <Panel id="limits-sending" title={t('limitsTitle')} lead={t('limitsLead')}>
+        <Select
+          label={t('asset')}
+          value={assetId}
+          onChange={setChosen}
+          disabled={assets.length === 0}
+          options={assets.map((asset) => asset.assetId)}
+        />
         {partner.resource.status === 'failed' && refusal(partner.resource.failure)}
         {heldAtPartner && (
           <>
-            <p className="money-caption">{t('partnerLead', { partner: heldAtPartner.label })}</p>
+            <p className="lt-hint">{t('partnerLead', { partner: heldAtPartner.label })}</p>
             <ul
               data-testid="bank-limits-today"
               data-source={heldAtPartner.label}
@@ -117,8 +143,8 @@ export function LimitsRoom() {
             <li>{t('perTransfer', { amount: quote.resource.data.perTransferLimit, asset: assetId })}</li>
           </ul>
         )}
-      </DepthPanel>
-      <DepthPanel title={t('feesTitle')}>
+      </Panel>
+      <Panel id="limits-fees" title={t('feesTitle')}>
         {heldAtPartner && (
           <p data-testid="bank-partner-send-fee" data-state={heldAtPartner.sendFee === null ? 'not-set' : 'set'}>
             {heldAtPartner.sendFee === null
@@ -149,12 +175,12 @@ export function LimitsRoom() {
               ))}
             </ul>
           ) : (
-            <p className="money-caption" data-testid="bank-account-fees" data-state="not-set">
+            <p className="lt-hint" data-testid="bank-account-fees" data-state="not-set">
               {t('accountFeesNotSet')}
             </p>
           ))}
-      </DepthPanel>
-      <DepthPanel title={t('planTitle')} lead={t('planLead')}>
+      </Panel>
+      <Panel id="limits-plan" title={t('planTitle')} lead={t('planLead')}>
         {plans.resource.status === 'failed' && refusal(plans.resource.failure)}
         {plans.resource.status === 'ready' && (
           <>
@@ -166,7 +192,7 @@ export function LimitsRoom() {
                 asset: plans.resource.data.current.assetId,
               })}
             </p>
-            <table aria-label={t('plansTable')}>
+            <table className="lt-table" aria-label={t('plansTable')}>
               <thead>
                 <tr>
                   <th scope="col">{t('planName')}</th>
@@ -185,13 +211,13 @@ export function LimitsRoom() {
               </tbody>
             </table>
             {plans.resource.data.plans.some((p) => p.blocker) && (
-              <p className="money-caption" data-code="bank.plan_fee_unwired">
+              <p className="lt-hint" data-code="bank.plan_fee_unwired">
                 {t('planBlocked', { code: 'bank.plan_fee_unwired' })}
               </p>
             )}
           </>
         )}
-      </DepthPanel>
+      </Panel>
     </div>
   );
 }
