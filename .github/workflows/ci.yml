@@ -903,7 +903,7 @@ jobs:
   # Not on a pull request into a Volt layer branch (`volt/<template>`): no seal guards those; CI's fast checks do.
   seal-start:
     name: Start the seal
-    needs: [changes, gates, format, build, test-full, rust, look, merge-seal]
+    needs: [changes, gates, fast-gates, format, build, test-full, rust, look, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.base_ref, 'volt/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
