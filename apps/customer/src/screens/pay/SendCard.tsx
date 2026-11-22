@@ -53,11 +53,11 @@ import {
   DecimalField,
   EmptyState,
   HIDDEN_MASK,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Picker,
+  PickerList,
+  PickerItem,
+  PickerTrigger,
+  PickerValue,
   Tag,
   useHideBalances,
   useToast,
@@ -930,7 +930,7 @@ function SendForm({
 
       <div className="lt-field" data-testid="amount-field">
         <div className="lt-actions">
-          <Select
+          <Picker
             items={sourceItems}
             value={source?.id ?? ''}
             onValueChange={(value) => {
@@ -940,17 +940,17 @@ function SendForm({
               }
             }}
           >
-            <SelectTrigger aria-label={payCopy.t('Asset to send')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
+            <PickerTrigger aria-label={payCopy.t('Asset to send')}>
+              <PickerValue />
+            </PickerTrigger>
+            <PickerList>
               {sources.map((row) => (
-                <SelectItem key={row.id} value={row.id}>
+                <PickerItem key={row.id} value={row.id}>
                   {labelOf(row)}
-                </SelectItem>
+                </PickerItem>
               ))}
-            </SelectContent>
-          </Select>
+            </PickerList>
+          </Picker>
           <DecimalField
             label={payCopy.t('Amount')}
             aria-label={payCopy.t('Amount to send')}

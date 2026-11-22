@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, Checkbox, ChoiceGroup, EmptyState, Field, NativeSelect, TextArea } from '@intafaced/ui/lit';
+import { Button, CheckRow, ChoiceGroup, EmptyState, Field, NativeSelect, TextArea } from '@intafaced/ui/lit';
 import { useResource } from '../../../shared/resource';
 import type { ApiResult } from '../../../shared/api';
 import type { PersonalPayApi } from '../pay-api';
@@ -459,7 +459,7 @@ function Fields({
               {methods.resource.data
                 .filter((method) => method.enabled || values.methods.includes(method.methodId))
                 .map((method) => (
-                  <Checkbox
+                  <CheckRow
                     key={`${method.methodId}:${method.country}`}
                     label={<span lang="und">{method.label}</span>}
                     checked={values.methods.includes(method.methodId)}
@@ -476,7 +476,7 @@ function Fields({
             </div>
           ) : null}
           {choseNonInstant ? (
-            <Checkbox
+            <CheckRow
               labelProps={{ 'data-testid': 'offer-non-instant-consent' }}
               label={<span>{settlementCopy.t('consentLabel')}</span>}
               checked={values.acceptsNonInstant}

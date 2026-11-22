@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Checkbox, ChoiceGroup, Field, NativeSelect } from '@intafaced/ui/lit';
+import { Button, CheckRow, ChoiceGroup, Field, NativeSelect } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
@@ -215,7 +215,7 @@ export function BulkAds({
                 <Copy k="bulkPick" />
               </legend>
               {ads.map((ad) => (
-                <Checkbox
+                <CheckRow
                   key={ad.id}
                   labelProps={{ 'data-testid': 'bulk-ad', 'data-offer-id': ad.id }}
                   label={
