@@ -33,6 +33,7 @@ import type { HomePortfolio } from '../../screens/home/deps';
 import { MobileTabs } from '../TopBar';
 import { useResolvedColours } from '../../shared/resolved-colours';
 import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, StepsAndSpark, TypeRoles } from './KitParts';
+import { TimeLines } from './KitTimeLine';
 import './kit.css';
 
 /**
@@ -507,6 +508,14 @@ export default function VoltKit() {
             <span>21 Nov</span>
           </p>
         </div>
+      </Block>
+
+      <Block
+        id="time-line"
+        title="A line over time"
+        note="TEST profit and loss placed by time, so a gap keeps its width, with its dashed zero line. Point at it, or focus it and use the arrow keys, to read a point. Below, its empty line."
+      >
+        <TimeLines />
       </Block>
 
       <Block id="candles" title="The candle chart" note="TEST hourly candles, with volume and moving averages.">

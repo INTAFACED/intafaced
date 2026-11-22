@@ -1206,6 +1206,75 @@ button.lt-tab {
   background: var(--lit-accent);
 }
 
+/* TimeLine: a line placed by time; the zero line dashed, the cursor and the readout over the plot. */
+.lt-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+}
+
+.lt-timeline-plot {
+  position: relative;
+  border-radius: var(--lit-radius-control);
+}
+
+.lt-timeline-plot:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-timeline svg {
+  block-size: 15rem;
+  touch-action: pan-y;
+  stroke-linejoin: round;
+}
+
+.lt-timeline-dot {
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.lt-timeline-zero {
+  stroke: var(--lit-line-strong);
+  stroke-dasharray: 6 6;
+}
+
+.lt-timeline-cursor {
+  stroke: var(--lit-line-strong);
+}
+
+.lt-timeline-readout {
+  position: absolute;
+  inset-block-start: calc(var(--lit-gap-item) / 2);
+  inset-inline-start: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: calc(var(--lit-gap-item) / 4) calc(var(--lit-gap-item) / 2);
+  border: 1px solid var(--lit-line);
+  border-radius: calc(var(--lit-radius-control) / 2);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-label-size);
+  pointer-events: none;
+}
+
+.lt-timeline-readout:empty {
+  display: none;
+}
+
+.lt-timeline figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+.lt-timeline-empty {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
 .lt-bar {
   fill: var(--lit-accent);
 }

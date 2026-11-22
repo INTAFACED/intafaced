@@ -322,6 +322,8 @@ export const components = {
   Sparkline: '(B2) A small trend line for a card or a row, named for a screen reader; nothing from fewer than two points',
   Bars: '(B2) Bars (volume, monthly totals)',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
+  TimeLine:
+    '(B2) A line placed by time, so a gap keeps its real width; a zero line, a readout by pointer or arrow keys, an honest empty line for none',
 } as const;
 export type ComponentName = keyof typeof components;
 
