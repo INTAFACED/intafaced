@@ -22,6 +22,12 @@ import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-re
 import { OPS_CAPITAL_SET_THRESHOLD } from '@intafaced/contracts/ops-capital-procedures';
 import { OPS_RECORD_VENUE_COST } from '@intafaced/contracts/ops-record-venue-cost-procedures';
 import { BANK_OPS_SET_CARD_STATUS } from '@intafaced/contracts/bank-ops-procedures';
+import {
+  OPS_PROTOCOL_LISTING_POOLS_HIDE,
+  OPS_PROTOCOL_LISTING_POOLS_RESTORE,
+  OPS_PROTOCOL_LISTING_MARKETS_DELIST,
+  OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
+} from '@intafaced/contracts/ops-protocol-listing-procedures';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -174,10 +180,10 @@ type ListingRequest = Extract<
 
 /** The svc-ops call each listing request is sent as. */
 const LISTING_CALLS = {
-  'protocol.pool.hide': { procedure: 'protocolListing.pools.hide' },
-  'protocol.pool.restore': { procedure: 'protocolListing.pools.restore' },
-  'protocol.market.delist': { procedure: 'protocolListing.markets.delist' },
-  'protocol.market.restore': { procedure: 'protocolListing.markets.restore' },
+  'protocol.pool.hide': { record: OPS_PROTOCOL_LISTING_POOLS_HIDE },
+  'protocol.pool.restore': { record: OPS_PROTOCOL_LISTING_POOLS_RESTORE },
+  'protocol.market.delist': { record: OPS_PROTOCOL_LISTING_MARKETS_DELIST },
+  'protocol.market.restore': { record: OPS_PROTOCOL_LISTING_MARKETS_RESTORE },
 } as const;
 
 /** The input (before the approval ids) and the state the answer must show for one listing request. */
@@ -420,7 +426,7 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
     ) {
       const call = listingCall(request);
       const spec = LISTING_CALLS[request.kind];
-      const result = await founderCall(ctx, 'ops', spec.procedure, 'POST', { ...call.input, ...ids }, readListingAnswer);
+      const result = await founderRecordRead(ctx, spec.record, { ...call.input, ...ids }, readListingAnswer);
       if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
       const a = result.data;
       if (a.action !== request.kind || a.targetId !== call.targetId || a.state !== call.state) return WRONG_STATE;
