@@ -1,6 +1,6 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, FreshnessChip, Tabs, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, FreshnessChip, Tabs, SectionTabs, Checkbox, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
@@ -282,6 +282,42 @@ export function TabPanel({
     >
       {children}
     </div>
+  );
+}
+
+/**
+ * A room's own sections, one button each, the open one pressed: the same row as Tabs, for sections a room switches
+ * itself (it navigates in `onChange`) rather than by link. Scrolls when it overflows, as Tabs do.
+ */
+export function SectionTabs<T extends string>({
+  items,
+  value,
+  onChange,
+  label,
+}: {
+  items: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  label: string;
+}) {
+  return (
+    <div className="lt-tabs" role="group" aria-label={label}>
+      {items.map((t) => (
+        <button key={t.value} type="button" className="lt-tab" aria-pressed={t.value === value} onClick={() => onChange(t.value)}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A tick with its words, one row: the box, then the label. Every other attribute goes to the native checkbox. */
+export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: React.ReactNode }) {
+  return (
+    <label className="lt-field">
+      <input {...input} type="checkbox" />
+      <span>{label}</span>
+    </label>
   );
 }
 
@@ -662,29 +698,6 @@ function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, o
         onBlur?.(e);
       }}
     />
-  );
-}
-
-/** A checkbox with its words, as one row: the box, then the label (`lt-field`). */
-export function Checkbox({
-  label,
-  hideLabel = false,
-  checked,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  /** The label names the box but is not drawn (a row's pick box in a table, whose row says what it is). */
-  hideLabel?: boolean;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="lt-field">
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.currentTarget.checked)} />
-      <span className={hideLabel ? 'lt-sr' : undefined}>{label}</span>
-    </label>
   );
 }
 

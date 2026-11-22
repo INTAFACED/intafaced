@@ -9,20 +9,10 @@ import { Read, TextArea } from './common';
 import { agentBuilderCopy } from './agent-builder-copy';
 import './agents-session.css';
 import {
-  ownAgentCatalogueSchema as catalogueSchema,
-  ownAgentLimitsSchema,
-  ownAgentPaymentMethodSchema,
-  ownAgentRunResultSchema,
-  ownAgentRunRowSchema,
   ownAgentSchema,
-  ownAgentSessionClosedSchema,
-  ownAgentSessionSchema,
-  ownAgentUsageDaySchema,
-  ownAgentUsageWindowSchema,
   ownAgentCoOwnerSchema,
   ownAgentDeletedSchema,
   ownAgentPublicationSchema,
-  ownAgentSharedSchema,
   OWN_AGENT_DELETE_CONFIRMATION,
   type OwnAgent,
   type OwnAgentPublication,
@@ -31,7 +21,7 @@ import {
   type OwnAgentPaymentMethod,
   type OwnAgentRunResult,
 } from '@intafaced/contracts/agents-own';
-import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/contracts/agents-usage-limits';
+import { type OwnAgentUsageLimits } from '@intafaced/contracts/agents-usage-limits';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { PermissionsPage, RulesPage, toolWords, TryTool } from './AgentGuardrails';
 import { AccessPage } from './AgentAccess';
@@ -44,6 +34,35 @@ import { SchedulesPage, TriggersPage } from './AgentAutomation';
 import { AnalyticsPage, RunsPage, TestPanel } from './AgentTestRuns';
 import { AssistantPanel, IdentityPage } from './AgentIdentity';
 import { MemoryPage, PrivacyPage, ShareWithCoOwners } from './AgentMemory';
+import {
+  AGENTS_OWN_CATALOGUE,
+  AGENTS_OWN_CREATE,
+  AGENTS_OWN_SAVE,
+  AGENTS_OWN_GET,
+  AGENTS_OWN_STATUS,
+  AGENTS_OWN_LIMITS_GET,
+  AGENTS_OWN_LIMITS_SET,
+  AGENTS_OWN_USAGE_LIMITS_GET,
+  AGENTS_OWN_USAGE_LIMITS_SET,
+  AGENTS_OWN_PAYMENT_METHOD_GET,
+  AGENTS_OWN_PAYMENT_METHOD_SET,
+  AGENTS_OWN_SESSION_OPEN,
+  AGENTS_OWN_RUN,
+  AGENTS_OWN_RUNS,
+  AGENTS_OWN_SESSION_CLOSE,
+  AGENTS_OWN_BACKGROUND_RUNS,
+  AGENTS_OWN_USAGE,
+  AGENTS_OWN_USAGE_BY_DAY,
+  AGENTS_OWN_PUBLICATION,
+  AGENTS_OWN_PUBLISH,
+  AGENTS_OWN_CO_OWNERS_LIST,
+  AGENTS_OWN_LIST,
+  AGENTS_OWN_SHARED_WITH_ME,
+  AGENTS_OWN_DELETE,
+  AGENTS_OWN_CO_OWNERS_ADD,
+  AGENTS_OWN_CO_OWNERS_REMOVE,
+} from '@intafaced/contracts/agents-own-procedures';
+import { callAs } from '../../shared/api';
 
 type ToolEntry = OwnAgentCatalogue['tools'][number];
 
@@ -244,14 +263,14 @@ export function NewAgent() {
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
   // The templates the service offers (AG-catalogue-02): a template it does not offer has no button.
-  const catalogue = useResource((signal) => api.query('agents', 'own.catalogue', undefined, catalogueSchema, { signal }), 'own-catalogue');
+  const catalogue = useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
   // This visit's key for each template: pressing again after an answer that never arrived returns the draft the first
   // press made, rather than a second one. Each visit to the picker is a new draft.
   const visit = useRef(`picker:${crypto.randomUUID()}`);
   async function start(template: string) {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.create', { template, createKey: `${visit.current}:${template}` }, ownAgentSchema);
+    const res = await api.call(AGENTS_OWN_CREATE, { template, createKey: `${visit.current}:${template}` });
     setBusy(false);
     if (res.ok) navigate(`/agents/${res.data.id}`, true);
     else setRefused(res);
@@ -288,7 +307,7 @@ export function NewAgent() {
 export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: OwnAgent) => void }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const catalogue = useResource((signal) => api.query('agents', 'own.catalogue', undefined, catalogueSchema, { signal }), 'own-catalogue');
+  const catalogue = useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
   const [name, setName] = useState(agent.name);
   const [instructions, setInstructions] = useState(agent.instructions);
   const [cap, setCap] = useState(agent.perSessionCap ?? '');
@@ -314,9 +333,9 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
     setSaved(false);
     setRefused(null);
     setMoneyTool(false);
-    const res = await api.mutate(
-      'agents',
-      'own.save',
+    const res = await callAs(
+      api,
+      AGENTS_OWN_SAVE,
       { id: agent.id, name, instructions, tools, perSessionCap: cap.trim() ? cap.trim() : null },
       ownAgentSchema.refine((row) => row.id === agent.id),
     );
@@ -540,7 +559,7 @@ export function OwnAgentPage({ id }: { id: string }) {
   const session = useState<string | null>(null);
   const [usageRuns, setUsageRuns] = useState(0);
   const countRun = useCallback(() => setUsageRuns((n) => n + 1), []);
-  const loaded = useResource((signal) => api.query('agents', 'own.get', { id }, ownAgentSchema, { signal }), `own-agent:${id}`);
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_GET, { id }, { signal }), `own-agent:${id}`);
   const [latest, setLatest] = useState<OwnAgent | null>(null);
   // An agent that is not the person's, or an address that names none, is the service's refusal, not a retry.
   if (loaded.resource.status === 'failed' && refusalCode(loaded.resource.failure) === 'agents.own.not_found')
@@ -639,18 +658,6 @@ export function OwnAgentPage({ id }: { id: string }) {
   );
 }
 
-const backgroundRunSchema = z.object({
-  id: z.string(),
-  state: z.enum(['running', 'done', 'stopped']),
-  stepsDone: z.number(),
-  stepsTotal: z.number(),
-  stopCode: z.string().nullable(),
-  cost: z.string(),
-  startedAt: z.string(),
-});
-
-const agentStatusSchema = z.object({ status: z.enum(['active', 'quarantined', 'disabled_by_kind']) });
-
 /**
  * Whether the agent may start new work (AG-control-02). Switched off by an operator, the page says so on every tab, with
  * the service's refusal code and the open button off; only an operator switches it off and only two founders restore it.
@@ -658,7 +665,7 @@ const agentStatusSchema = z.object({ status: z.enum(['active', 'quarantined', 'd
 function AgentStatus({ id }: { id: string }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const loaded = useResource((signal) => api.query('agents', 'own.status', { id }, agentStatusSchema, { signal }), `own-status:${id}`);
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_STATUS, { id }, { signal }), `own-status:${id}`);
   if (loaded.resource.status !== 'ready') return null;
   const off = loaded.resource.data.status !== 'active';
   return (
@@ -684,10 +691,7 @@ const money = (amount: string, asset: string) => `${amount} ${asset}`;
  */
 function Limits({ agent }: { agent: OwnAgent }) {
   const api = useApi();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.limits.get', { id: agent.id }, ownAgentLimitsSchema, { signal }),
-    `own-limits:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_LIMITS_GET, { id: agent.id }, { signal }), `own-limits:${agent.id}`);
   return (
     <Read resource={loaded.resource} retry={loaded.reload}>
       {(view) => <LimitsForm agent={agent} view={view} />}
@@ -710,12 +714,12 @@ function LimitsForm({ agent, view }: { agent: OwnAgent; view: OwnAgentLimits }) 
     setBusy(true);
     setSaved(false);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.limits.set',
-      { id: agent.id, perCall: blankAsNull(perCall), perSession: blankAsNull(perSession), perPeriod: blankAsNull(perPeriod) },
-      ownAgentLimitsSchema,
-    );
+    const res = await api.call(AGENTS_OWN_LIMITS_SET, {
+      id: agent.id,
+      perCall: blankAsNull(perCall),
+      perSession: blankAsNull(perSession),
+      perPeriod: blankAsNull(perPeriod),
+    });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setCurrent(res.data);
@@ -767,7 +771,7 @@ function LimitsForm({ agent, view }: { agent: OwnAgent; view: OwnAgentLimits }) 
 function UsageLimits({ agent, runs }: { agent: OwnAgent; runs: number }) {
   const api = useApi();
   const loaded = useResource(
-    (signal) => api.query('agents', 'own.usageLimits.get', { id: agent.id }, ownAgentUsageLimitsSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_USAGE_LIMITS_GET, { id: agent.id }, { signal }),
     `own-usage-limits:${agent.id}`,
   );
   return (
@@ -786,11 +790,9 @@ function UsageLimitsForm({ agent, view, runs }: { agent: OwnAgent; view: OwnAgen
   useEffect(() => {
     if (runs === 0) return;
     const controller = new AbortController();
-    void api
-      .query('agents', 'own.usageLimits.get', { id: agent.id }, ownAgentUsageLimitsSchema, { signal: controller.signal })
-      .then((res) => {
-        if (res.ok && !controller.signal.aborted) setCurrent(res.data);
-      });
+    void api.call(AGENTS_OWN_USAGE_LIMITS_GET, { id: agent.id }, { signal: controller.signal }).then((res) => {
+      if (res.ok && !controller.signal.aborted) setCurrent(res.data);
+    });
     return () => controller.abort();
   }, [runs, api, agent.id]);
   const [alertAt, setAlertAt] = useState(view.alertAt ?? '');
@@ -804,12 +806,12 @@ function UsageLimitsForm({ agent, view, runs }: { agent: OwnAgent; view: OwnAgen
     setBusy(true);
     setSaved(false);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.usageLimits.set',
-      { id: agent.id, alertAt: blankAsNull(alertAt), hardLimit: blankAsNull(hardLimit), email },
-      ownAgentUsageLimitsSchema,
-    );
+    const res = await api.call(AGENTS_OWN_USAGE_LIMITS_SET, {
+      id: agent.id,
+      alertAt: blankAsNull(alertAt),
+      hardLimit: blankAsNull(hardLimit),
+      email,
+    });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setCurrent(res.data);
@@ -870,7 +872,7 @@ function UsageLimitsForm({ agent, view, runs }: { agent: OwnAgent; view: OwnAgen
 export function PaymentMethod({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const loaded = useResource(
-    (signal) => api.query('agents', 'own.paymentMethod.get', { id: agent.id }, ownAgentPaymentMethodSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_PAYMENT_METHOD_GET, { id: agent.id }, { signal }),
     `own-payment-method:${agent.id}`,
   );
   return (
@@ -893,7 +895,7 @@ function PaymentMethodForm({ agent, view }: { agent: OwnAgent; view: OwnAgentPay
     setBusy(true);
     setSaved(false);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.paymentMethod.set', { id: agent.id, address: choice || null }, ownAgentPaymentMethodSchema);
+    const res = await api.call(AGENTS_OWN_PAYMENT_METHOD_SET, { id: agent.id, address: choice || null });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setCurrent(res.data);
@@ -1003,7 +1005,7 @@ function Sessions({
   async function open(): Promise<string | null> {
     setRefused(null);
     setClosed(false);
-    const res = await api.mutate('agents', 'own.session.open', { id: agent.id }, ownAgentSessionSchema);
+    const res = await api.call(AGENTS_OWN_SESSION_OPEN, { id: agent.id });
     if (!res.ok) {
       setRefused(res);
       return null;
@@ -1013,16 +1015,16 @@ function Sessions({
   }
   const runOnce = (session: string) => {
     presses.current += 1;
-    return api.mutate(
-      'agents',
-      'own.run',
-      { id: agent.id, sessionId: session, requestId: `own-run:${session}:${visit.current}:${presses.current}`, ask },
-      ownAgentRunResultSchema,
-    );
+    return api.call(AGENTS_OWN_RUN, {
+      id: agent.id,
+      sessionId: session,
+      requestId: `own-run:${session}:${visit.current}:${presses.current}`,
+      ask,
+    });
   };
   /** This session's newest run refused with `code`, as svc-agents logged it, or null when it cannot be read. */
   async function refusedRow(session: string, code: string) {
-    const res = await api.query('agents', 'own.runs', { id: agent.id, limit: 10 }, z.array(ownAgentRunRowSchema));
+    const res = await api.call(AGENTS_OWN_RUNS, { id: agent.id, limit: 10 });
     if (!res.ok) return null;
     return res.data.find((row) => row.sessionId === session && row.refusalCode === code) ?? null;
   }
@@ -1031,7 +1033,7 @@ function Sessions({
     setBusy(true);
     setRan(null);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.session.close', { id: agent.id, sessionId: session }, ownAgentSessionClosedSchema);
+    const res = await api.call(AGENTS_OWN_SESSION_CLOSE, { id: agent.id, sessionId: session });
     if (res.ok) {
       setSessionId(null);
       setClosed(true);
@@ -1127,12 +1129,12 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
   const { t } = agentBuilderCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
   const runs = useResource(
-    (signal) => api.query('agents', 'own.runs', { id: agent.id, limit: 50 }, z.array(ownAgentRunRowSchema), { signal }),
+    (signal) => api.call(AGENTS_OWN_RUNS, { id: agent.id, limit: 50 }, { signal }),
     `own-runs:${agent.id}:${version}`,
   );
   // Background test runs first, newest first: each says how far it got, or what stopped it at its next step.
   const background = useResource(
-    (signal) => api.query('agents', 'own.backgroundRuns', { id: agent.id, limit: 20 }, z.array(backgroundRunSchema), { signal }),
+    (signal) => api.call(AGENTS_OWN_BACKGROUND_RUNS, { id: agent.id, limit: 20 }, { signal }),
     `own-background-runs:${agent.id}:${version}`,
   );
   const backgroundRows = background.resource.status === 'ready' ? background.resource.data : [];
@@ -1200,10 +1202,7 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
 function Usage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const windows = useResource(
-    (signal) => api.query('agents', 'own.usage', { id: agent.id, limit: 50 }, z.array(ownAgentUsageWindowSchema), { signal }),
-    `own-usage:${agent.id}`,
-  );
+  const windows = useResource((signal) => api.call(AGENTS_OWN_USAGE, { id: agent.id, limit: 50 }, { signal }), `own-usage:${agent.id}`);
   return (
     <>
       <Panel title={t('usageTitle')} role="region" aria-label={t('usageTitle')}>
@@ -1262,10 +1261,7 @@ function Usage({ agent }: { agent: OwnAgent }) {
 function UsageByDay() {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const days = useResource(
-    (signal) => api.query('agents', 'own.usageByDay', undefined, z.array(ownAgentUsageDaySchema), { signal }),
-    'own-usage-by-day',
-  );
+  const days = useResource((signal) => api.call(AGENTS_OWN_USAGE_BY_DAY, undefined, { signal }), 'own-usage-by-day');
   return (
     <Panel title={t('byDayTitle')} role="region" aria-label={t('byDayTitle')}>
       <p className="muted">{t('byDayNote')}</p>
@@ -1317,7 +1313,7 @@ function Publish({ agent, onPublished }: { agent: OwnAgent; onPublished: (agent:
   const [choosing, setChoosing] = useState(false);
   const [published, setPublished] = useState<OwnAgentPublication | null>(null);
   const loaded = useResource(
-    (signal) => api.query('agents', 'own.publication', { id: agent.id }, ownAgentPublicationSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_PUBLICATION, { id: agent.id }, { signal }),
     `own-publication:${agent.id}:${agent.version}:${agent.state}`,
   );
   const blocking = agent.findings.find((finding) => finding.blocksPublishing);
@@ -1375,7 +1371,7 @@ function PublishDialog({
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
   const loaded = useResource(
-    (signal) => api.query('agents', 'own.publication', { id: agent.id }, ownAgentPublicationSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_PUBLICATION, { id: agent.id }, { signal }),
     `own-publication-choose:${agent.id}:${agent.version}:${agent.state}`,
   );
   const [chosen, setChosen] = useState<string[]>([]);
@@ -1384,9 +1380,9 @@ function PublishDialog({
   async function publish() {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.publish',
+    const res = await callAs(
+      api,
+      AGENTS_OWN_PUBLISH,
       { id: agent.id, surfaces: chosen },
       ownAgentPublicationSchema.refine((row) => row.id === agent.id),
     );
@@ -1505,10 +1501,7 @@ function PublicationView({ publication }: { publication: OwnAgentPublication }) 
 function SharingPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.coOwners.list', { id: agent.id }, z.array(ownAgentCoOwnerSchema), { signal }),
-    `own-co-owners:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_CO_OWNERS_LIST, { id: agent.id }, { signal }), `own-co-owners:${agent.id}`);
   const [rows, setRows] = useState<z.infer<typeof ownAgentCoOwnerSchema>[] | null>(null);
   const [coOwner, setCoOwner] = useState('');
   const [refused, setRefused] = useState<Failed | null>(null);
@@ -1518,7 +1511,9 @@ function SharingPage({ agent }: { agent: OwnAgent }) {
     setBusy(true);
     setRefused(null);
     setAdded(false);
-    const res = await api.mutate('agents', procedure, { id: agent.id, coOwner: who }, z.array(ownAgentCoOwnerSchema));
+    const res = await (procedure === 'own.coOwners.add'
+      ? api.call(AGENTS_OWN_CO_OWNERS_ADD, { id: agent.id, coOwner: who })
+      : api.call(AGENTS_OWN_CO_OWNERS_REMOVE, { id: agent.id, coOwner: who }));
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setRows(res.data);
@@ -1583,7 +1578,7 @@ function SharingPage({ agent }: { agent: OwnAgent }) {
 export function OwnAgentTitle({ id }: { id: string }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const loaded = useResource((signal) => api.query('agents', 'own.get', { id }, ownAgentSchema, { signal }), `own-agent-title:${id}`);
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_GET, { id }, { signal }), `own-agent-title:${id}`);
   const [renamed, setRenamed] = useState<string | null>(null);
   useEffect(() => {
     const onSaved = (event: Event) => {
@@ -1610,10 +1605,7 @@ export function OwnAgentTitle({ id }: { id: string }) {
 function MadeAgentOpen({ agent, children }: { agent: OwnAgent; children?: ReactNode }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.status', { id: agent.id }, agentStatusSchema, { signal }),
-    `own-status:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_STATUS, { id: agent.id }, { signal }), `own-status:${agent.id}`);
   const [opened, setOpened] = useState<string | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1621,7 +1613,7 @@ function MadeAgentOpen({ agent, children }: { agent: OwnAgent; children?: ReactN
   async function open() {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.session.open', { id: agent.id }, ownAgentSessionSchema);
+    const res = await api.call(AGENTS_OWN_SESSION_OPEN, { id: agent.id });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setOpened(res.data.sessionId);
@@ -1656,14 +1648,8 @@ export function MadeAgents() {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
   const [reads, setReads] = useState(0);
-  const mine = useResource(
-    (signal) => api.query('agents', 'own.list', { limit: 50 }, z.array(ownAgentSchema), { signal }),
-    `own-agents:${reads}`,
-  );
-  const shared = useResource(
-    (signal) => api.query('agents', 'own.sharedWithMe', { limit: 50 }, z.array(ownAgentSharedSchema), { signal }),
-    'own-agents-shared',
-  );
+  const mine = useResource((signal) => api.call(AGENTS_OWN_LIST, { limit: 50 }, { signal }), `own-agents:${reads}`);
+  const shared = useResource((signal) => api.call(AGENTS_OWN_SHARED_WITH_ME, { limit: 50 }, { signal }), 'own-agents-shared');
   const [deleting, setDeleting] = useState<OwnAgent | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
   const [deleted, setDeleted] = useState(false);
@@ -1671,9 +1657,9 @@ export function MadeAgents() {
   async function remove(agent: OwnAgent) {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.delete',
+    const res = await callAs(
+      api,
+      AGENTS_OWN_DELETE,
       { id: agent.id, confirm: OWN_AGENT_DELETE_CONFIRMATION },
       ownAgentDeletedSchema.refine((row) => row.id === agent.id),
     );

@@ -1,5 +1,7 @@
 // World: restart
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   createPublicClient,
@@ -324,16 +326,21 @@ const onItsWay = (page) => page.getByRole('region', { name: 'On its way' }).getB
 const rowOf = (page, hash) => onItsWay(page).locator(`tr[data-tx-hash="${hash.toLowerCase()}"]`);
 
 /**
- * The brand scan's forbidden names, read from its own list (tooling/ci/brand-scan.mjs FORBIDDEN), never spelled out here:
- * the scan refuses them anywhere under apps/. A list that reads short fails, so the check can't pass by reading nothing.
+ * The brand scan's verdict on the room's words: the scan itself (tooling/ci/brand-scan.mjs) runs over a scratch tree whose
+ * one file under apps/ holds them, so its own forbidden list judges them, never a copy spelled out here. Its report must
+ * say it read that one file, so the check can't pass by reading nothing.
  */
-function bannedNames() {
-  const src = fs.readFileSync(path.join(ROOT, 'tooling/ci/brand-scan.mjs'), 'utf8');
-  const start = src.indexOf('const FORBIDDEN = [');
-  const block = src.slice(start, src.indexOf('\n];', start));
-  const names = [...block.matchAll(/pattern: \/((?:\\.|[^/\\\n])+)\/([a-z]*),/g)].map(([, source, flags]) => new RegExp(source, flags));
-  expect(names.length, 'the brand scan lists its forbidden names').toBeGreaterThan(5);
-  return names;
+function expectBrandScanPasses(words) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dex05-brand-'));
+  try {
+    fs.mkdirSync(path.join(root, 'apps/customer'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'apps/customer/venue-room-words.md'), words);
+    const run = spawnSync(process.execPath, [path.join(ROOT, 'tooling/ci/brand-scan.mjs')], { cwd: root, encoding: 'utf8' });
+    expect(run.status, `the room names nothing the brand scan forbids:\n${run.stderr}`).toBe(0);
+    expect(run.stdout, "the brand scan read the room's words").toContain('brand-scan clean — 1 files');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 /** The TEST venue's explorer link for deposits: the TEST chain's explorer, or none (a network with no explorer). */
@@ -421,7 +428,7 @@ test(`${J} #1 opens the venue's deposit for a chain: minimums and arrival terms 
 
   // No banned partner wording anywhere in the room: none of the brand scan's forbidden names is on the page.
   const words = await page.locator('main').innerText();
-  for (const name of bannedNames()) expect(words, 'the room names nothing the brand scan forbids').not.toMatch(name);
+  expectBrandScanPasses(words);
 
   // Later (OWNER 226): on the exchange Deposit page, while crypto custody is absent, the address panel says so and shows
   // no address. Custody is made absent for this check and put back after.

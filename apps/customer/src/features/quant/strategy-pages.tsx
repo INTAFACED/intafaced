@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui/lit';
+import { FailureBox, LoadingLine } from '../../shared/record/record-parts';
 import { useApi } from '../session';
-import { KitFailure, KitLoading } from './kit-parts';
 import { studioCopy } from './studio-copy';
 
 /** How many saved strategies a list reads at once. A page size of these screens, not a product limit. */
@@ -54,9 +54,13 @@ export function MorePages(props: { cursor: string | null; busy: boolean; failure
   const { cursor } = props;
   return (
     <>
-      {props.busy && <KitLoading />}
-      {props.failure && <KitFailure result={props.failure} retry={() => cursor && props.more(cursor)} />}
-      {cursor && !props.busy && <Button onClick={() => props.more(cursor)}>{t('showMore')}</Button>}
+      {props.busy && <LoadingLine />}
+      {props.failure && <FailureBox result={props.failure} retry={() => cursor && props.more(cursor)} />}
+      {cursor && !props.busy && (
+        <Button tone="secondary" onClick={() => props.more(cursor)}>
+          {t('showMore')}
+        </Button>
+      )}
     </>
   );
 }
