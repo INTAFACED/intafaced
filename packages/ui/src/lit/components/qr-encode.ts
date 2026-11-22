@@ -19,6 +19,13 @@
  */
 export type QrEcc = 'L' | 'M' | 'Q' | 'H';
 
+/** An index the algorithm guarantees is in range; a slip throws here instead of drawing a wrong code. */
+function at<T>(xs: readonly T[], i: number): T {
+  const v = xs[i];
+  if (v === undefined) throw new RangeError(`QR encoder: no entry ${i}`);
+  return v;
+}
+
 const ECC_INDEX: Record<QrEcc, number> = { L: 0, M: 1, Q: 2, H: 3 };
 /** The two format bits that name the error-correction level. */
 const ECC_FORMAT_BITS: Record<QrEcc, number> = { L: 1, M: 0, Q: 3, H: 2 };
@@ -76,7 +83,8 @@ function rawDataModules(version: number): number {
 function dataCodewords(version: number, ecc: QrEcc): number {
   const level = ECC_INDEX[ecc];
   return (
-    Math.floor(rawDataModules(version) / 8) - ECC_CODEWORDS_PER_BLOCK[level]![version]! * NUM_ERROR_CORRECTION_BLOCKS[level]![version]!
+    Math.floor(rawDataModules(version) / 8) -
+    at(at(ECC_CODEWORDS_PER_BLOCK, level), version) * at(at(NUM_ERROR_CORRECTION_BLOCKS, level), version)
   );
 }
 
@@ -95,8 +103,8 @@ function divisorFor(degree: number): number[] {
   let root = 1;
   for (let i = 0; i < degree; i++) {
     for (let j = 0; j < result.length; j++) {
-      result[j] = gfMultiply(result[j]!, root);
-      if (j + 1 < result.length) result[j]! ^= result[j + 1]!;
+      result[j] = gfMultiply(at(result, j), root);
+      if (j + 1 < result.length) result[j] = at(result, j) ^ at(result, j + 1);
     }
     root = gfMultiply(root, 0x02);
   }
@@ -106,10 +114,11 @@ function divisorFor(degree: number): number[] {
 function remainderOf(data: readonly number[], divisor: readonly number[]): number[] {
   const result = divisor.map(() => 0);
   for (const byte of data) {
-    const factor = byte ^ result.shift()!;
+    const factor = byte ^ at(result, 0);
+    result.shift();
     result.push(0);
     divisor.forEach((coefficient, i) => {
-      result[i]! ^= gfMultiply(coefficient, factor);
+      result[i] = at(result, i) ^ gfMultiply(coefficient, factor);
     });
   }
   return result;
@@ -118,8 +127,8 @@ function remainderOf(data: readonly number[], divisor: readonly number[]): numbe
 /** Split the data into blocks, add the error-correction bytes to each, and interleave them. */
 function addEccAndInterleave(data: readonly number[], version: number, ecc: QrEcc): number[] {
   const level = ECC_INDEX[ecc];
-  const blocks = NUM_ERROR_CORRECTION_BLOCKS[level]![version]!;
-  const eccLength = ECC_CODEWORDS_PER_BLOCK[level]![version]!;
+  const blocks = at(at(NUM_ERROR_CORRECTION_BLOCKS, level), version);
+  const eccLength = at(at(ECC_CODEWORDS_PER_BLOCK, level), version);
   const raw = Math.floor(rawDataModules(version) / 8);
   const shortBlocks = blocks - (raw % blocks);
   const shortLength = Math.floor(raw / blocks);
@@ -133,10 +142,10 @@ function addEccAndInterleave(data: readonly number[], version: number, ecc: QrEc
     all.push(part.concat(check));
   }
   const result: number[] = [];
-  for (let i = 0; i < all[0]!.length; i++) {
+  for (let i = 0; i < at(all, 0).length; i++) {
     all.forEach((block, j) => {
       // The padding byte in a short block is skipped.
-      if (i !== shortLength - eccLength || j >= shortBlocks) result.push(block[i]!);
+      if (i !== shortLength - eccLength || j >= shortBlocks) result.push(at(block, i));
     });
   }
   return result;
@@ -155,8 +164,8 @@ class Grid {
     this.reserved = Array.from({ length: this.size }, () => Array.from({ length: this.size }, () => false));
   }
   private set(x: number, y: number, dark: boolean) {
-    this.modules[y]![x] = dark;
-    this.reserved[y]![x] = true;
+    at(this.modules, y)[x] = dark;
+    at(this.reserved, y)[x] = true;
   }
   drawFunctionPatterns() {
     for (let i = 0; i < this.size; i++) {
@@ -171,7 +180,7 @@ class Grid {
     for (let i = 0; i < n; i++)
       for (let j = 0; j < n; j++) {
         if ((i === 0 && j === 0) || (i === 0 && j === n - 1) || (i === n - 1 && j === 0)) continue;
-        this.alignment(positions[i]!, positions[j]!);
+        this.alignment(at(positions, i), at(positions, j));
       }
     this.formatBits(0);
     this.versionBits();
@@ -232,8 +241,8 @@ class Grid {
           const x = right - j;
           const upward = ((right + 1) & 2) === 0;
           const y = upward ? this.size - 1 - vertical : vertical;
-          if (!this.reserved[y]![x] && i < data.length * 8) {
-            this.modules[y]![x] = bit(data[i >>> 3]!, 7 - (i & 7));
+          if (!at(at(this.reserved, y), x) && i < data.length * 8) {
+            at(this.modules, y)[x] = bit(at(data, i >>> 3), 7 - (i & 7));
             i++;
           }
         }
@@ -268,7 +277,7 @@ class Grid {
           default:
             invert = (((x + y) % 2) + ((x * y) % 3)) % 2 === 0;
         }
-        if (!this.reserved[y]![x] && invert) this.modules[y]![x] = !this.modules[y]![x];
+        if (!at(at(this.reserved, y), x) && invert) at(this.modules, y)[x] = !at(at(this.modules, y), x);
       }
   }
   /** The four standard penalty rules; the mask with the lowest score reads best. */
@@ -290,21 +299,21 @@ class Grid {
         }
         // Finder-like 1:1:3:1:1 runs with light space on one side.
         for (let k = 0; k + 4 < history.length; k++) {
-          const core = history[k + 1]!;
+          const core = at(history, k + 1);
           if (core > 0 && history[k + 2] === core * 3 && history[k + 3] === core && history[k + 4] === core) {
-            const before = history[k]!;
+            const before = at(history, k);
             const after = history[k + 5] ?? 0;
             if (before >= core * 4 || after >= core * 4) result += 40;
           }
         }
       }
     };
-    lines((y, x) => m[y]![x]!);
-    lines((x, y) => m[y]![x]!);
+    lines((y, x) => at(at(m, y), x));
+    lines((x, y) => at(at(m, y), x));
     for (let y = 0; y < n - 1; y++)
       for (let x = 0; x < n - 1; x++) {
-        const c = m[y]![x]!;
-        if (c === m[y]![x + 1] && c === m[y + 1]![x] && c === m[y + 1]![x + 1]) result += 3;
+        const c = at(at(m, y), x);
+        if (c === at(m, y)[x + 1] && c === at(m, y + 1)[x] && c === at(m, y + 1)[x + 1]) result += 3;
       }
     let dark = 0;
     for (const row of m) for (const cell of row) if (cell) dark++;
@@ -344,7 +353,7 @@ export function encodeQr(text: string, ecc: QrEcc = 'M'): boolean[][] {
   for (let pad = 0xec; bits.length < capacityBits; pad ^= 0xec ^ 0x11) push(pad, 8);
   const data: number[] = Array.from({ length: bits.length / 8 }, () => 0);
   bits.forEach((value, i) => {
-    data[i >>> 3]! |= value << (7 - (i & 7));
+    data[i >>> 3] = at(data, i >>> 3) | (value << (7 - (i & 7)));
   });
 
   const grid = new Grid(version, ecc);
