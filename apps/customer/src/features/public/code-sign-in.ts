@@ -1,14 +1,6 @@
-import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 
 // hand-declared-ok: svc-identity's code sign-in answers (auth.loginCodeRequest, auth.loginCodeResend) have no browser-safe schema in packages/contracts yet
-
-/** `auth.loginCodeRequest` and `auth.loginCodeResend`: the same answer for every name, and no session. */
-export const loginCodeAcceptedSchema = z.object({
-  accepted: z.literal(true),
-  flowId: z.string().guid(),
-  resendAfterSeconds: z.number().int().positive(),
-});
 
 /** The refusals the code sign-in words itself. Anything else falls back to the shared failure card. */
 export const CODE_SIGN_IN_CODES = [

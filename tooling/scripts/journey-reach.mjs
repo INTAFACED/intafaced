@@ -53,7 +53,7 @@ export const POSITIONS_SUFFIX = '.positions.json';
 
 /** The only reasons a record may give for being incomplete. */
 export const INCOMPLETE = {
-  popup: 'the app opened a page by itself; its first scripts ran before coverage started',
+  popup: 'the app opened a page by itself that asked the customer app for something before its coverage started',
   closed: 'a page closed before its coverage was read',
   detached: 'a page lost its coverage session before it was read',
   noStart: 'coverage could not start on a page',
@@ -628,6 +628,16 @@ export function makeRecorder({
     request(file, url, m) {
       const k = requestKey(routes, url, m);
       if (k) add(file, 'http', k);
+    },
+    /** Whether a URL is the customer app's (its port, on loopback): only its scripts are placed (coverage), so a page
+     *  that never asked it for anything ran none of its code. */
+    servesCustomer(url) {
+      try {
+        const u = new URL(String(url));
+        return u.port === String(customerPort) && LOOPBACK.has(u.hostname);
+      } catch {
+        return false;
+      }
     },
     /** One of INCOMPLETE's codes; anything else is recorded as `noRead`, never as given. */
     incomplete(file, code) {

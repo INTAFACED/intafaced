@@ -5,9 +5,9 @@ import { fetchMe } from '../../data/identity';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Field } from '../../shared/ui';
 import { verifyEmailCopy } from './verify-email-copy';
+import { IDENTITY_AUTH_REQUEST_EMAIL_CONFIRMATION } from '@intafaced/contracts/identity-auth-procedures';
 
 // hand-declared-ok: svc-identity's auth.requestEmailConfirmation and auth.confirmEmailCode answers have no browser-safe schema in packages/contracts yet
-const acceptedSchema = z.object({ accepted: z.literal(true) });
 const confirmedSchema = z.object({ confirmed: z.literal(true) });
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -70,7 +70,7 @@ export function VerifyEmail() {
     if (busy) return;
     setBusy('send');
     clear();
-    const answer = await api.mutate('identity', 'auth.requestEmailConfirmation', undefined, acceptedSchema);
+    const answer = await api.call(IDENTITY_AUTH_REQUEST_EMAIL_CONFIRMATION, undefined);
     if (!mounted.current) return;
     setBusy(null);
     if (answer.ok) setSent(true);
