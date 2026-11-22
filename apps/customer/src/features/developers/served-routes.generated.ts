@@ -144,6 +144,7 @@ export const SERVED_ROUTES: readonly string[] = [
   'GET /api/v1/venue/session private trade:read',
   'GET /api/v1/venue/settlements private trade:read',
   'GET /api/v1/venue/spot-agent private trade:read',
+  'GET /api/v1/venue/spot-candles public trade:read',
   'GET /api/v1/venue/spot-orders private trade:read',
   'GET /api/v1/venue/statements/:id/file private trade:read',
   'GET /api/v1/venue/status private trade:read',

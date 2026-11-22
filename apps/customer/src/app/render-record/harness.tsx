@@ -50,6 +50,24 @@ function pinIds(html: string) {
   });
 }
 
+/** Ids that count from 1, so a room that makes ids draws the same ones every run. */
+function counted() {
+  let uuid = 0;
+  return () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}` as `${string}-${string}-${string}-${string}-${string}`;
+}
+
+/**
+ * Each part loads the whole app afresh, so a closed part leaves about 18 MB that nothing holds, and V8 lets the 203 parts
+ * of the render recording pile up to 1.8 GB before it collects. Collected once the heap passes GC_AT (every 20 parts or
+ * so, not every part: one collection takes about half a second), its worker stays under 1 GB. `gc` exists where
+ * `--expose-gc` is set: vitest.render.config.ts, which render.compare.tsx requires. A unit test drawing a room or two
+ * needs no collection.
+ */
+const GC_AT = 512e6;
+function collectAbove(bytes: number) {
+  if (process.memoryUsage().heapUsed > bytes) (globalThis as { gc?: () => void }).gc?.();
+}
+
 const tick = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 20))));
 
 /**
@@ -57,6 +75,9 @@ const tick = () => act(async () => void (await new Promise((resolve) => setTimeo
  * with its markup once nothing is in flight and the markup has held still. A part that never settles says so instead.
  */
 export async function renderPart(part: Part): Promise<string> {
+  // vitest keeps every mock it ever made, with its implementation, for the life of the worker (@vitest/spy's
+  // REGISTERED_MOCKS), and a closure made in here would hold this call's scope, and with it this part's whole app
+  // (`App` below): 18.6 MB a part, 4.25 GB over the run. So each mock's implementation is made outside (seeded, counted).
   vi.resetModules();
   localStorage.clear();
   sessionStorage.clear();
@@ -71,10 +92,7 @@ export async function renderPart(part: Part): Promise<string> {
   let inFlight = 0;
   vi.setSystemTime(FROZEN);
   vi.spyOn(Math, 'random').mockImplementation(seeded(20261026));
-  let uuid = 0;
-  vi.spyOn(crypto, 'randomUUID').mockImplementation(
-    () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}` as `${string}-${string}-${string}-${string}-${string}`,
-  );
+  vi.spyOn(crypto, 'randomUUID').mockImplementation(counted());
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     inFlight++;
     try {
@@ -131,7 +149,10 @@ export async function renderPart(part: Part): Promise<string> {
   }
   const html = pinIds(settled ? host.innerHTML : `<!-- never settled -->${host.innerHTML}`);
   await act(async () => root.unmount());
+  // The part's page closes: its tab-wide poller stops listening to the document, which every part shares.
+  (await import('../../data/poll')).setDefaultPoller(null);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  collectAbove(GC_AT);
   return html;
 }

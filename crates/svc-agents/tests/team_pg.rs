@@ -711,6 +711,7 @@ fn door(w: &World, team: Team) -> AgentsDoor {
         runtime: Runtime::unwired(),
         background: svc_agents::background::Settings::default(),
         advisors: svc_agents::advisors::Advisors::unwired(),
+        ops: svc_agents::ops::Ops::unwired(),
         own: svc_agents::own::Own::unwired(),
         team,
     })

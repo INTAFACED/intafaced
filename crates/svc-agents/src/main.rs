@@ -48,6 +48,7 @@ use svc_agents::navigator::onchain::ports::{
 };
 use svc_agents::navigator::ports::{IdentitySessionHttp, TradeHttp};
 use svc_agents::navigator::research::{Research, parse_uncertainty_scale, research_environment};
+use svc_agents::ops::{Ops, alerts, log as oplog};
 use svc_agents::own::Own;
 use svc_agents::own::catalog::parse_own_templates;
 use svc_agents::own::desk::{SupportDesk, SupportDeskHttp};
@@ -99,6 +100,25 @@ fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job
             Box::new(move || {
                 door.gateway()
                     .refresh(door.store())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+        (
+            "transcript purge",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                oplog::purge_expired_transcripts(pool, door.ops().retention_days)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+        (
+            "alert evaluation",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                alerts::evaluate_alert_rules(pool).map_err(|e| e.to_string())?;
+                alerts::publish_pending_agent_alerts(pool, door.metering(), system_now())
                     .map(|_| ())
                     .map_err(|e| e.to_string())
             }),
@@ -543,6 +563,14 @@ fn door(
     fetch: &Arc<dyn Fetch>,
 ) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    // The operator desks' owner values; a malformed baseline stops the start.
+    let ops = Ops::from_env(
+        env.str("AGENTS_LOG_READ_REASONS"),
+        env.int("AGENTS_OPS_ACTIONS_LIMIT"),
+        env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS"),
+        env.int("AGENTS_REGISTRY_LIST_LIMIT"),
+        env.str("AGENTS_POLICY_BASELINE"),
+    )?;
     let door = AgentsDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         services: service_auth(env)?,
@@ -553,6 +581,7 @@ fn door(
         gateway,
         ready,
         runtime,
+        ops,
         background: background::Settings {
             max_steps: env.int("AGENTS_SESSION_RUN_MAX_STEPS"),
             step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),

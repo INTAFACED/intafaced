@@ -337,12 +337,19 @@ impl IdentityClient {
     }
 }
 
-/// `ledgerActionPayloadHash` and `matchingActionPayloadHash` (`actionType`, `fields`): `sha256:` and the hex digest of `JSON.stringify({ actionType,
-/// ...fields })`.
+/// `JSON.stringify({ actionType, ...fields })` hashed: `sha256:` and the hex digest, as every service's
+/// `*ActionPayloadHash` writes it (a repeated key keeps its first place and its last value; integer-like keys first, as
+/// JavaScript orders them).
 pub fn payload_hash(action_type: &str, fields: &[(&str, &str)]) -> String {
-    let mut o = vec![("actionType".to_owned(), Json::str(action_type))];
-    o.extend(fields.iter().map(|(k, v)| ((*k).to_owned(), Json::str(*v))));
-    let digest = Sha256::digest(Json::Object(o).compact().as_bytes());
+    let mut all = vec![("actionType".to_owned(), Json::str(action_type))];
+    for (k, v) in fields {
+        match all.iter_mut().find(|(key, _)| key == k) {
+            Some(slot) => slot.1 = Json::str(*v),
+            None => all.push(((*k).to_owned(), Json::str(*v))),
+        }
+    }
+    let payload = Json::Object(json::js_key_order(all)).compact();
+    let digest = Sha256::digest(payload.as_bytes());
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     format!("sha256:{hex}")
 }
