@@ -23,7 +23,9 @@ import {
   type Step,
   type StepStatus,
 } from './started';
-import { BANK_ACTIVITY_LIST } from '@intafaced/contracts/bank-activity-procedures';
+import { BANK_ACTIVITY_LIST, type ACTIVITY_KINDS } from '@intafaced/contracts/bank-activity-procedures';
+
+type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /** The answer Home already holds; every other step reads its own. */
 export interface StartedInputs {
@@ -75,7 +77,11 @@ function useRecordProbe<R extends AppProcedure>(
 }
 
 /** "Has a line of these kinds ever been posted": a one-line, kind-filtered read of the history, following the cursor. */
-function useEver(enabled: boolean, name: string, filter: { kind: readonly string[]; direction?: 'in' }): Resource<{ found: boolean }> {
+function useEver(
+  enabled: boolean,
+  name: string,
+  filter: { kind: readonly ActivityKind[]; direction?: 'in' },
+): Resource<{ found: boolean }> {
   const { api, userId } = useSession();
   return useResource(async (signal): Promise<ApiResult<{ found: boolean }>> => {
     if (!enabled || !userId) return authoredRefusal('aborted', { key: 'beforeDispatch' });
@@ -83,7 +89,7 @@ function useEver(enabled: boolean, name: string, filter: { kind: readonly string
     for (let page = 0; page < EVER_PAGES; page++) {
       const result = await api.call(
         BANK_ACTIVITY_LIST,
-        { ...filter, limit: 1, ...(cursor ? { cursor } : {}) },
+        { ...filter, kind: [...filter.kind], limit: 1, ...(cursor ? { cursor } : {}) },
         {
           signal,
         },

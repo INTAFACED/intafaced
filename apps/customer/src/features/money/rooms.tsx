@@ -1752,6 +1752,8 @@ function CashOutRoom() {
     </BankPage>
   );
 }
+/** The spend read's input while no range is chosen: the read is off then, so this is never sent. */
+const NO_RANGE = { assetId: '', from: '', to: '' };
 function Analytics() {
   const depth = transferDepthCopy.useCopy();
   const held = useHoldings();
@@ -1770,7 +1772,7 @@ function Analytics() {
     }
     return { assetId, ...periodRange(preset, new Date(Math.floor(Date.now() / 60_000) * 60_000)) };
   }, [assetId, preset, useCustom, custom.from, custom.to]);
-  const query = useBankRecord(BANK_ANALYTICS_SPEND, range, Boolean(range));
+  const query = useBankRecord(BANK_ANALYTICS_SPEND, range ?? NO_RANGE, range !== null);
   const presetLabel = (value: PeriodPreset) =>
     depth.t(value === '7d' ? 'period7d' : value === '30d' ? 'period30d' : value === 'month' ? 'periodMonth' : 'periodLastMonth');
   return (

@@ -32,8 +32,9 @@ import {
   usePageLimit,
   type ActionSpec,
   useBankRecord,
+  useBankRecordAs,
 } from './components';
-import type { businessSchema, pendingApprovalSchema } from './contracts';
+import { myRoleSchema, pendingApprovalsSchema, type businessSchema, type pendingApprovalSchema } from './contracts';
 import { assetSelectField, useHoldings } from './holdings';
 import { t as copyText } from './copy';
 import './bank-depth.css';
@@ -184,7 +185,7 @@ function Approvals({
     return () => controller.abort();
   }, [api, userId]);
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRecord(BANK_BUSINESS_PENDING, { accountId, limit });
+  const query = useBankRecordAs(BANK_BUSINESS_PENDING, { accountId, limit }, pendingApprovalsSchema);
   return (
     <DepthPanel title={t('approvalsTitle')} lead={t('approvalsLead')}>
       <ResourceView resource={query.resource} reload={query.reload}>
@@ -217,7 +218,7 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
   const { t } = businessCopy.useCopy();
   const [panel, setPanel] = useState<'team' | 'person' | 'payroll' | null>(null);
   const own = companySpaces(spaces, account.assetId);
-  const roleRead = useBankRecord(BANK_BUSINESS_MY_ROLE, { accountId: account.id });
+  const roleRead = useBankRecordAs(BANK_BUSINESS_MY_ROLE, { accountId: account.id }, myRoleSchema);
   const role: RoleState = roleRead.resource;
   const known = roleOf(role);
   const mayProposeUnknown = known === null || canSend(known);

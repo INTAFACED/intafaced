@@ -1,6 +1,6 @@
 import { Failure, Loading } from '../../shared/ui';
-import { date, funds, useBankRecord } from './components';
-import type { IncomingLine } from './contracts';
+import { date, funds, useBankRecordAs } from './components';
+import { incomingPageSchema, type IncomingLine } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { incomingCopy } from './incoming-copy';
 import './bank-depth.css';
@@ -81,7 +81,7 @@ export function IncomingRules() {
 
 export function IncomingPayments() {
   const { t } = incomingCopy.useCopy();
-  const read = useBankRecord(BANK_ACTIVITY_LIST, { limit: 20, direction: 'in', kind: [...INCOMING_KINDS] });
+  const read = useBankRecordAs(BANK_ACTIVITY_LIST, { limit: 20, direction: 'in', kind: [...INCOMING_KINDS] }, incomingPageSchema);
   const { resource } = read;
   return (
     <DepthPanel title={t('title')} lead={t('lead')}>

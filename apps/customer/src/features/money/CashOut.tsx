@@ -27,6 +27,8 @@ import { BANK_LINKED_ACCOUNTS_LIST } from '@intafaced/contracts/bank-linked-acco
  */
 
 type Ask = { assetId: string; amount: string; linkedAccountId: string };
+/** The quote read's input while nothing is asked: the read is off then, so this is never sent. */
+const NO_ASK: Ask = { assetId: '', amount: '', linkedAccountId: '' };
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Key = Parameters<ReturnType<typeof cashOutCopy.useCopy>['t']>[0];
 
@@ -337,7 +339,7 @@ export function CashOut() {
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [outcome, setOutcome] = useState<CashOutRequest | null>(null);
   const [revision, setRevision] = useState(0);
-  const quote = useBankRecord(BANK_CASH_OUT_QUOTE, ask, ask !== null);
+  const quote = useBankRecord(BANK_CASH_OUT_QUOTE, ask ?? NO_ASK, ask !== null);
   const assetField = useId();
   const accountField = useId();
 

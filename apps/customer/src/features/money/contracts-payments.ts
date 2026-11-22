@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 import { linkedAccountSchema } from './contracts-accounts';
+import { BANK_TRANSFERS_LIST_SCHEDULES, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
 
 /** The partner bank's move of money it holds for the person (OWNER 226): its id, and the partner's name for itself. */
 const partnerMoveSchema = z.object({ id: z.string().min(1), label: z.string().min(1) }).passthrough();
@@ -273,23 +274,10 @@ export const paymentsReads = {
   'cashOut.quote': cashOutQuoteSchema,
   // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
   'transfers.quote': transferQuoteSchema,
-  'cashOut.requests': z.array(cashOutRequestSchema),
   'railSends.requirements': railRequirementsSchema,
   'safety.regionNotice': regionNoticeSchema,
-  'railSends.list': z.array(railSendSchema),
-  'railSends.payees': z.array(railPayeeSchema),
-  'transfers.listSchedules': z.array(scheduleSchema),
-  'transfers.executions': z.array(
-    z.object({
-      occurrence: z.number().int(),
-      amount: money,
-      status: z.string(),
-      ledgerTxId: z.string().nullable(),
-      /** The partner bank's move for this occurrence when it holds the money (OWNER 226); null on the ledger path. */
-      partnerMoveId: z.string().nullable().default(null),
-      rejectionCode: z.string().nullable(),
-    }),
-  ),
+  // Read by name through Activity's source table; its schema is the record's own, so it cannot drift from the bank's.
+  'transfers.listSchedules': BANK_TRANSFERS_LIST_SCHEDULES.output,
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
@@ -306,14 +294,9 @@ export const paymentsWrites = {
         .optional(),
     })
     .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null)),
-  // A personal send echoes the note and reference it stored, so the review can be checked against them.
-  'transfers.toUser': z.object({
-    ledgerTxId: z.string().nullable(),
-    partnerMove: partnerMoveSchema.nullable().optional(),
-    amount: money,
-    note: z.string().nullable(),
-    reference: z.string().nullable(),
-  }),
+  // The ActionSpec dispatch table names this write; its reply schema is the record's own (the send itself goes through
+  // the money client's transfer, which checks the reply against the review).
+  'transfers.toUser': BANK_TRANSFERS_TO_USER.output,
   'transfers.schedule': z.object({ id: z.string(), nextRunAt: z.string() }),
   'transfers.scheduleToUser': z.object({ id: z.string(), nextRunAt: z.string() }),
   'transfers.pause': z.object({ status: z.string(), nextRunAt: z.string() }),

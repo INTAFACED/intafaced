@@ -64,6 +64,7 @@ export function CardOrderRoom() {
   const product = (type: 'virtual' | 'physical') => c.products.find((p) => p.type === type);
   const chosenDesign = design ?? c.designs[0]?.id ?? null;
   const chosenSpeed = speed ?? c.speeds[0]?.speed ?? null;
+  const offeredSpeed = c.speeds.find((s) => s.speed === chosenSpeed)?.speed;
   const deliverTo = address.country || c.deliveryCountries[0] || '';
   const addressOk = !!(address.name.trim() && address.line1.trim() && address.city.trim() && address.postalCode.trim());
   const blocker = !c.eligible
@@ -103,8 +104,9 @@ export function CardOrderRoom() {
       cardType,
       ...(physical
         ? {
-            designId: chosenDesign,
-            deliverySpeed: chosenSpeed,
+            // The bank takes no null here: an unset design or speed is left out, never sent as null.
+            ...(chosenDesign !== null ? { designId: chosenDesign } : {}),
+            ...(offeredSpeed ? { deliverySpeed: offeredSpeed } : {}),
             shippingAddress: {
               name: address.name.trim(),
               line1: address.line1.trim(),

@@ -16,9 +16,10 @@ import { CardCashback, CardJourney, CardPayFrom } from './CardJourney';
 import { cardOrderCopy } from './card-order-copy';
 import { cardFeedCopy } from './card-feed-copy';
 import { BANK_CARDS_PROGRAMME, BANK_CARDS_AUTHORIZATIONS, BANK_CARDS_LIST } from '@intafaced/contracts/bank-cards-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type CardRecord = z.infer<typeof cardSchema>;
-type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
+type CardDecision = ProcedureOutput<typeof BANK_CARDS_AUTHORIZATIONS>[number];
 
 export function CardReference({ id }: { id: string }) {
   const { Copy } = cardCopy.useCopy();

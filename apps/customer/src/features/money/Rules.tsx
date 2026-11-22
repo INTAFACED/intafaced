@@ -168,6 +168,8 @@ function ChoicesPanel() {
   );
 }
 
+const MONEY_RULE_CADENCES = ['daily', 'weekly', 'monthly'] as const;
+
 /** The money rule editor: every field there, and saving is the bank's own refusal while the terms are unpublished. */
 function MoneyRulePanel({ code }: { code: string }) {
   const { t } = rulesCopy.useCopy();
@@ -180,13 +182,15 @@ function MoneyRulePanel({ code }: { code: string }) {
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm((now) => ({ ...now, [key]: event.target.value }));
   const decimal = /^\d+(\.\d{1,18})?$/;
+  // The select offers only these; one the bank does not know is never sent.
+  const cadence = MONEY_RULE_CADENCES.find((c) => c === form.cadence);
   const complete =
     form.name.trim() !== '' &&
     form.from !== '' &&
     form.to !== '' &&
     form.from !== form.to &&
     decimal.test(form.amount) &&
-    (form.trigger === 'date' || decimal.test(form.above));
+    (form.trigger === 'date' ? cadence !== undefined : decimal.test(form.above));
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -197,7 +201,7 @@ function MoneyRulePanel({ code }: { code: string }) {
       name: form.name.trim(),
       fromSpaceId: form.from,
       toSpaceId: form.to,
-      trigger: form.trigger === 'date' ? { kind: 'date', cadence: form.cadence } : { kind: 'balance', above: form.above },
+      trigger: form.trigger === 'date' && cadence ? { kind: 'date', cadence } : { kind: 'balance', above: form.above },
       amount: form.amount,
       clientRequestId: `money-rule:${requestId}`,
     });

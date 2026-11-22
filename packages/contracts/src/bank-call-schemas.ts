@@ -298,7 +298,7 @@ export const jobOutput = z.object({
   format: z.enum(['csv', 'pdf']),
   from: z.string(),
   to: z.string(),
-  assetId: z.string().nullable(),
+  assetId: assetIdSchema.nullable(),
   spaceId: z.string().nullable(),
   state: z.enum(['queued', 'rendering', 'ready', 'failed']),
   attempts: z.number().int().nonnegative(),
@@ -362,7 +362,7 @@ export const allocationOutput = z.object({
 });
 
 export const balanceEntriesOutput = z.object({
-  assetId: z.string(),
+  assetId: assetIdSchema,
   entries: z.array(
     z.object({
       entryId: z.string().nullable(),
@@ -417,7 +417,7 @@ export const portfolioSummaryOutput = z.object({
 export const balanceBreakdownOutput = z.object({
   assets: z.array(
     z.object({
-      assetId: z.string(),
+      assetId: assetIdSchema,
       total: signedAmountString,
       available: signedAmountString,
       locked: z.array(
