@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react';
-import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 import { Button, Dialog, Failure } from '../../shared/ui';
 import { useSession } from '../session';
+import { IDENTITY_REVOKE_ALL_API_KEYS } from '@intafaced/contracts/identity-revoke-all-api-keys-procedures';
 
 const copy = defineCopy('api-keys-revoke-all', {
   open: 'Revoke all keys',
@@ -16,7 +16,6 @@ const copy = defineCopy('api-keys-revoke-all', {
 });
 
 // hand-declared-ok: svc-identity's revokeAllApiKeys output (api-key-revoke-all-router.ts) has no contracts schema.
-const revokeAllSchema = z.object({ userId: z.string(), revoked: z.number().int() });
 
 /**
  * Revoke every live key of the signed-in person (DV-keys-04, J-developer-07 #5), from the key list. The service revokes
@@ -37,7 +36,7 @@ export function RevokeAllKeys({ liveKeys, onDone }: { liveKeys: number; onDone: 
     setBusy(true);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'revokeAllApiKeys', { userId }, revokeAllSchema);
+      const answer = await api.call(IDENTITY_REVOKE_ALL_API_KEYS, { userId });
       if (answer.ok) {
         setOpen(false);
         setDone(true);

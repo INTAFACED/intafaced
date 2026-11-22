@@ -83,6 +83,7 @@ import {
   RUN_FILE,
   dispatchCommands,
   journeyTouch,
+  mayBeQuiet,
   namedInputs,
   namedJourneyIds,
   pathKind,
@@ -617,6 +618,17 @@ async function listWhole(path, key, token, what) {
 export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
+    // The head's tooling reach (journey-touch.mjs quietTooling), scanned by this script's own tooling-reach.mjs (the
+    // default branch's) over the head commit's files, as the journeys run's planner scans its checkout of the head.
+    toolingReach: async (sha) => {
+      const { commitTree, reachOf } = await import('./tooling-reach.mjs');
+      const tree = commitTree(BASE_ROOT, sha);
+      try {
+        return reachOf(tree)?.journeys ?? null;
+      } finally {
+        tree.cleanup();
+      }
+    },
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
     // The pull requests GitHub lists on a commit, open or not (mergedNothingToSeal).
     pullsOn: (sha) => api(`/repos/${repo}/commits/${sha}/pulls?per_page=100`, token),
@@ -759,7 +771,8 @@ export function makeIo(repo, token) {
 /** The default branch's checkout this script runs from (ci.yml runs the base's copy): its baseline and money rule. */
 const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 let base = null;
-const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map() });
+// `memo`: each GET fetchInputs makes is made once per seal step, for every run it judges (journey-verdict.mjs fetchInputs).
+const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map(), memo: new Map() });
 
 /**
  * The journey files a checkout holds (`apps/customer/tests/real-app/*.pw.mjs`), as a set of names, or null when the
@@ -777,8 +790,8 @@ export function journeyFilesAt(root) {
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
 export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null, headBaseline = null }) {
-  const { baseline, money, reports } = inputs;
-  const got = read({ repo, baseline, thisRun: run, reports, log: () => {} });
+  const { baseline, money, reports, memo } = inputs;
+  const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
   // The files each run ran, never the step-to-file map: that keeps one file a step, so a step id two files share
@@ -1585,11 +1598,20 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   const named = reverting || auto?.ok ? null : await namedSealInputs({ io, pull: { ...pull, stack }, head });
   const touchAt = (f) => atHead.get(f) ?? true;
   const inputs = reverting || auto?.ok ? null : await reachInputs({ io, paths, head, base: pull.base?.sha, text });
+  // Tooling no journeys run reaches, by the head's tree (journey-touch.mjs quietTooling), as the run's planner reads it.
+  // A seal that can't scan it judges by today's rules.
+  let tooling = null;
+  if (!reverting && !auto?.ok && io.toolingReach && mayBeQuiet(paths))
+    try {
+      tooling = (await io.toolingReach(head)) ?? null;
+    } catch {
+      tooling = null;
+    }
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
     : auto?.ok
       ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
-      : pullPick(paths, journeyTouch(paths, touchAt, inputs, named), { atHead: touchAt, reach: inputs, named });
+      : pullPick(paths, journeyTouch(paths, touchAt, inputs, named, tooling), { atHead: touchAt, reach: inputs, named });
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
   const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));

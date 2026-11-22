@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { myRewardsSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { networkLabel as chainLabel } from '@intafaced/contracts/protocol-blockers';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
@@ -30,6 +29,7 @@ import { withdrawalCopy } from './withdrawal-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import { WALLET_NOT_CONNECTED, walletFill, walletGone, walletSavedNetwork, type WalletFill } from './withdraw-to-wallet';
 import './bank-depth.css';
+import { CAMPAIGNS_REWARDS_MINE } from '@intafaced/contracts/campaigns-rewards-procedures';
 
 const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 'fAmountTooMuch', unknown: 'fBalanceUnknown' } as const;
 // A person's ask has no business id before svc-pay records it, so its client reference is minted once per ask here and kept
@@ -1053,7 +1053,7 @@ function WalletChip({
 function LockedRewards({ asset, hidden, shown }: { asset: string; hidden: boolean; shown: (value: string) => string }) {
   const { t } = withdrawalCopy.useCopy();
   const { api } = useSession();
-  const mine = useResource((signal) => api.query('campaigns', 'rewards.mine', {}, myRewardsSchema, { signal }), 'withdraw-locked-rewards');
+  const mine = useResource((signal) => api.call(CAMPAIGNS_REWARDS_MINE, {}, { signal }), 'withdraw-locked-rewards');
   const r = mine.resource;
   if (r.status === 'loading') return null;
   if (r.status === 'failed') {

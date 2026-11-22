@@ -1282,3 +1282,83 @@ test('the stored pass history keeps the passes of tests with no step title, and 
   const via = historyThrough(runs.slice(0, 1), { stored: { from: 101, runs: old }, read: () => assert.fail('stored') });
   assert.deepEqual(passesSince(via.reports), { 'J-a-01#1': 101 });
 });
+
+// The seal's reads (22 Nov 2026): one seal step on #9630 judged 9 runs with the same baseline, and each fetchInputs read
+// main's whole run history since the named run (13 pages), the named run and all three regression issues again: 218
+// calls, the largest spender of the workflow token's hourly budget. With a memo each is read once per process.
+test('fetchInputs with a memo reads main history, the named run and each issue once, however many runs it judges', async () => {
+  const { fetchInputs: read } = await import('./journey-verdict.mjs');
+  const calls = [];
+  const mainRun = (id, n, at) => ({
+    id,
+    run_number: n,
+    run_attempt: 1,
+    head_sha: String(n).padStart(40, 'a'),
+    head_branch: 'main',
+    event: 'push',
+    status: 'completed',
+    conclusion: 'success',
+    created_at: at,
+    head_repository: { full_name: REPO },
+  });
+  const named = { id: 1, run_number: 10, created_at: '2026-11-07T08:49:26Z' };
+  const get = (path) => {
+    calls.push(`get ${path}`);
+    if (path.endsWith('/actions/runs/1')) return named;
+    if (/\/issues\/\d+$/.test(path)) return { number: Number(path.split('/').pop()), state: 'open' };
+    throw new Error(`unexpected ${path}`);
+  };
+  const pages = (path) => {
+    calls.push(`pages ${path}`);
+    if (path.includes('/comments')) return [];
+    return [mainRun(11, 11, '2026-11-08T00:00:00Z'), mainRun(12, 12, '2026-11-09T00:00:00Z')];
+  };
+  const baseline = {
+    run: { id: 1, number: 10 },
+    steps: [
+      { step: 'J-a-01#1', state: 'regression', issue: 6750 },
+      { step: 'J-a-02#1', state: 'regression', issue: 6853 },
+    ],
+  };
+  const reports = new Map([
+    [1, { states: {}, ran: [] }],
+    [11, { states: {}, ran: [] }],
+    [12, { states: {}, ran: [] }],
+  ]);
+  const memo = new Map();
+  const judged = (id, at) => ({ ...mainRun(id, id, at), head_branch: 'feature', event: 'pull_request', head_sha: 'b'.repeat(40) });
+  const opts = {
+    repo: REPO,
+    baseline,
+    reports,
+    log: () => {},
+    get,
+    pages,
+    memo,
+    readStored: () => null,
+    compare: () => ({ commits: [], total_commits: 0 }),
+  };
+  const first = read({ ...opts, thisRun: judged(901, '2026-11-22T01:00:00Z') });
+  const second = read({ ...opts, thisRun: judged(902, '2026-11-22T02:00:00Z') });
+  assert.deepEqual(first.problems, []);
+  assert.deepEqual(second.problems, []);
+  assert.deepEqual(Object.keys(second.issues), ['6750', '6853']);
+  // Each read once: the named run, main's history and the two issues with their comments.
+  assert.equal(calls.length, 6, calls.join('\n'));
+  assert.equal(calls.filter((c) => c.includes('/actions/workflows/')).length, 1);
+  // Without a memo (journey-verdict.mjs's own run, one verdict) nothing is kept: each call reads afresh.
+  calls.length = 0;
+  read({ ...opts, memo: null, thisRun: judged(903, '2026-11-22T03:00:00Z') });
+  read({ ...opts, memo: null, thisRun: judged(904, '2026-11-22T03:00:00Z') });
+  assert.equal(calls.length, 12);
+  // A read that failed is not kept: the next run reads it again, and it is a problem there too, never an answer.
+  let down = true;
+  const flaky = (path) => {
+    if (down && path.endsWith('/actions/runs/1')) throw new Error('HTTP 502');
+    return get(path);
+  };
+  const m2 = new Map();
+  assert.match(read({ ...opts, get: flaky, memo: m2, thisRun: judged(905, '2026-11-22T03:00:00Z') }).problems.join(), /HTTP 502/);
+  down = false;
+  assert.deepEqual(read({ ...opts, get: flaky, memo: m2, thisRun: judged(906, '2026-11-22T03:00:00Z') }).problems, []);
+});
