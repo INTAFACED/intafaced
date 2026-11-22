@@ -1603,6 +1603,8 @@ const part2: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_FEE_LEVELS,
   PROTOCOL_AMM_ROUTES,
   PROTOCOL_AMM_QUOTE_FROM_POOL,
+];
+const part3: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_BUILD_SWAP_EXACT_IN,
   PROTOCOL_AMM_ALLOWANCES,
   PROTOCOL_AMM_CHECK_APPROVAL,
@@ -1614,8 +1616,6 @@ const part2: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_V2_SETTINGS,
   PROTOCOL_AMM_APPROVAL_ROUTE,
   PROTOCOL_AMM_BUILD_PERMIT,
-];
-const part3: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_PATHS,
   PROTOCOL_AMM_BUILD_SWAP_V2,
   PROTOCOL_AMM_FEE_TIERS,
@@ -1805,6 +1805,8 @@ const part3: readonly ProcedureRecord[] = [
   SUPPORT_CREATED_BY_REQUEST,
   SUPPORT_RATED_MINE,
   SUPPORT_GET,
+];
+const part4: readonly ProcedureRecord[] = [
   SUPPORT_COMMENT,
   SUPPORT_LIST_COMMENTS,
   SUPPORT_EVENTS,
@@ -1816,8 +1818,6 @@ const part3: readonly ProcedureRecord[] = [
   SUPPORT_ATTACH,
   SUPPORT_TICKET_ATTACHMENTS,
   SUPPORT_ATTACHMENT_DOWNLOAD,
-];
-const part4: readonly ProcedureRecord[] = [
   SUPPORT_ATTACHMENT_LIMITS,
   SUPPORT_KB_FEEDBACK,
   SUPPORT_KB_RELATED,
