@@ -3,7 +3,7 @@
 // has its record (`fanIn`). An open one (a value from a request body, a wider string) stays, named with why.
 import { bindingOf, literal, load, resolveRelative, text, walk } from './ast.mjs';
 
-export const REASON = 'service or call named by a template';
+const REASON = 'service or call named by a template';
 
 /** Where each shape names its service, its call and its input. */
 const ARG_AT = {
@@ -51,7 +51,7 @@ export function fanOut(p, site) {
  * The strings an expression can take: `{ by, values: [{ value, test }] }`, where `test` is the condition that picks a value
  * (the last value needs none), or `{ open }` naming why the set is not closed.
  */
-export function valuesOf(p, node, depth = 0) {
+function valuesOf(p, node, depth = 0) {
   node = unwrap(node);
   if (!node) return { open: 'it names no service or call' };
   if (depth > 8) return { open: `${where(p, node)} is followed too far` };
