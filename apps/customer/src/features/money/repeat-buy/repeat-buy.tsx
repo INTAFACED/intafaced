@@ -1,18 +1,17 @@
 // volt-room: /portfolio/:asset/repeat-buy
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { z } from 'zod';
 import { Button, EmptyState, Select } from '@intafaced/ui/lit';
-import { FlowTemplate, Skeleton } from '@intafaced/ui/lit/templates';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Resource } from '../../../shared/resource';
 import { useResource } from '../../../shared/resource';
 import { parseAmount } from '../../../shared/money';
 import type { ApiResult } from '../../../shared/api';
-import { useFailureWords } from '../../../shared/failure-words';
 import { useSession, useApi } from '../../session';
 import { createMoneyClient } from '../client';
 import { bankReads, ruleSchema } from '../contracts';
 import { t } from '../repeat-buy-copy';
-import { t as copyText } from '../copy';
+import { Lane, More, Read } from './parts';
 import { funds, cadenceField, date, iso, positiveMoney, startsField, useBankRead, usePageLimit, type ActionSpec } from '../components';
 
 type Rule = z.infer<typeof ruleSchema>;
@@ -25,90 +24,7 @@ const readRefusal = (subject: string): ApiResult<null> => ({
   message: t('readCheckFailed', { subject }),
 });
 
-type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-
-/** A failed read, in the words the shared failure line gives, with its try-again. */
-function FailureNote({ result, retry }: { result: Failed; retry?: () => void }) {
-  const w = useFailureWords(result, Boolean(retry));
-  return (
-    <div data-testid="failure" role={w.alert ? 'alert' : 'status'}>
-      <h3>{w.title}</h3>
-      <p lang={w.bodyLang}>{w.body}</p>
-      {w.action && (
-        <a className="lt-link" href={w.action.href}>
-          {w.action.label}
-        </a>
-      )}
-      {w.reference && <small>{w.reference}</small>}
-      {w.retry && retry && (
-        <Button tone="secondary" onClick={retry}>
-          {w.retry}
-        </Button>
-      )}
-    </div>
-  );
-}
-
-/** A read: the skeleton while it loads, the failure line if it failed, else what it read. */
-function Read<T>({ resource, reload, children }: { resource: Resource<T>; reload: () => void; children: (data: T) => ReactNode }) {
-  if (resource.status === 'loading') return <Skeleton shape="rows" count={3} />;
-  if (resource.status === 'failed') return <FailureNote result={resource.failure} retry={reload} />;
-  return <>{children(resource.data)}</>;
-}
-
-/** A titled part of the room with its own refresh. */
-function Lane({
-  lane,
-  title,
-  description,
-  actions,
-  children,
-}: {
-  /** Which of the room's two lanes: setting a rule up, or the rules already set. */
-  lane: 'setup' | 'rules';
-  title: ReactNode;
-  description?: string;
-  actions?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section data-repeat-lane={lane}>
-      <header>
-        <div>
-          <h2>{title}</h2>
-          {description && <p className="lt-hint">{description}</p>}
-        </div>
-        {actions && <div className="lt-actions">{actions}</div>}
-      </header>
-      {children}
-    </section>
-  );
-}
-
-/** How many records a bounded read returned, and the way to ask for more. */
-function More({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
-  return (
-    <div>
-      <span>
-        {count}
-        {copyText('components.records.returned.requested.limit')}.{' '}
-        {count >= limit
-          ? limit < 200
-            ? copyText('components.more.records.may.exist')
-            : copyText('components.this.service.has.no.continuation.beyond.200')
-          : copyText('components.this.list.has.no.total.count.or')}
-      </span>
-      {count >= limit && limit < 200 && (
-        <Button tone="secondary" onClick={onMore}>
-          {copyText('components.load.up.to')}
-          {Math.min(200, limit + 50)}
-        </Button>
-      )}
-    </div>
-  );
-}
-
-/** The rules read and their pause, resume and cancel reviews; Repeat buy draws them here, the Earn room in its own look. */
+/** The rules read and their pause, resume and cancel reviews; Repeat buy draws them here, Earn in earn/AutoInvestRules.tsx. */
 export interface AutoInvestRulesRead {
   limit: number;
   setLimit: (limit: number) => void;
