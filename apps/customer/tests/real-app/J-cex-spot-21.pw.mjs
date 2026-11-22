@@ -58,7 +58,8 @@ const staking = async (owner, set) => {
   const { status, body } = await testVenue('/test/staking', { account: await venueAccount(owner), ...set });
   expect(status, JSON.stringify(body)).toBe(200);
   expect(body.label).toBe('TEST');
-  return body;
+  // The account's staking as the venue reports it after the move: `{ label, asOf, value }`.
+  return body.value;
 };
 const validator = async (name) => {
   const v = (await terms()).validators.find((x) => x.name === name);
@@ -274,7 +275,8 @@ test(`${J} #4 opens My tier: the venue's staking discount for the staked amount,
   await expect(line).toHaveAttribute('data-tier', discount.tierName, { timeout: 30_000 });
   await expect(line).toHaveAttribute('data-discount', String(discount.discountBps));
   await expect(line).toHaveText(
-    `The venue counts ${discount.countedStake} HYPE staked: tier ${discount.tierName}, ${percent(discount.discountBps)}% off the venue’s own fee.`,
+    // The fee page writes a percent the way it writes every fee on it: no trailing zeros (1000 bps is 10%).
+    `The venue counts ${discount.countedStake} HYPE staked: tier ${discount.tierName}, ${discount.discountBps / 100}% off the venue’s own fee.`,
   );
   // Each market: the venue's fee before and after the discount, as the venue reports them; at least one fee is lowered.
   let lowered = 0;
