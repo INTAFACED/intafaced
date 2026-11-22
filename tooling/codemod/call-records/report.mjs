@@ -20,13 +20,16 @@ const git = (...args) => execFileSync('git', args, { cwd: REPO, encoding: 'utf8'
 export function reasonOf(why) {
   const rules = [
     [/no refusal reader this file can import/, 'service has no exported refusal reader (one file per service)'],
+    [/which depends on @intafaced\/contracts, so contracts can't import it/, 'schema from a package that depends on contracts (it stays)'],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
     [/named by a template/, 'service or call named by a template'],
+    [/sends one input value to \d+ records/, 'one input sent to each of a closed set of calls'],
     [/builds the schema/, "schema built by the caller's own function"],
     [/own schema checks the answer/, 'caller schema checks the answer (.refine and the like)'],
     [/no accepted input found|no refused input/, 'no sample inputs'],
     [/can't be exported|cannot be exported/, "record can't be exported as written"],
     [/has no procedure/, 'procedure the codemod cannot find'],
+    [/two procedures under one path/, 'two procedures under one path (a switch router)'],
     [/clashes with another/, 'helper name clash (a rerun places it)'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],

@@ -5,7 +5,8 @@
 //!
 //! 1. the call is found and its method checked;
 //! 2. who may call: a scoped call needs a signed-in caller (`protectedProcedure`), then `scopedProcedure`'s guards in
-//!    their order (a service on the request refused for a person's call, the scope with its interactive-only and
+//!    their order (a service on the request refused for a person's call, a key or a sub-account on a person-only call
+//!    refused with the call's own code, the scope with its interactive-only and
 //!    two-factor rules, the region for the `agents` module); a service call needs a verified service, one the call
 //!    lists (`serviceProcedureFor`) or svc-agents itself (`requireSettleService`);
 //! 3. the call's own middleware before its input: a person-only check (a key or a sub-account refused with the call's
@@ -109,10 +110,11 @@ pub enum Slice {
     OwnRuns,
     OwnControls,
     OwnSharing,
+    Webhooks,
 }
 
 impl Slice {
-    pub const ALL: [Slice; 14] = [
+    pub const ALL: [Slice; 15] = [
         Slice::Door,
         Slice::Gateway,
         Slice::Runtime,
@@ -127,6 +129,7 @@ impl Slice {
         Slice::OwnRuns,
         Slice::OwnControls,
         Slice::OwnSharing,
+        Slice::Webhooks,
     ];
 
     /// The slice's name in `PORT.md`.
@@ -146,6 +149,7 @@ impl Slice {
             Slice::OwnRuns => "own-runs",
             Slice::OwnControls => "own-controls",
             Slice::OwnSharing => "own-sharing",
+            Slice::Webhooks => "webhooks",
         }
     }
 }
@@ -410,7 +414,7 @@ impl AgentsDoor {
         &self.own
     }
 
-    /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
+    /// The slices' answers: the door's own call and every ported slice; `webhooks`, not ported yet, answers "not ported".
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
             Slice::Door => Ok(Some(Json::obj([
@@ -491,6 +495,14 @@ impl AgentsDoor {
                     own: &self.own,
                 },
             ),
+            Slice::OwnSharing => crate::own::sharing_slice::handle(
+                ctx,
+                &crate::own::sharing_slice::Deps {
+                    store: &self.store,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
             Slice::Team => crate::team::slice::handle(
                 ctx,
                 &crate::team::slice::Deps {
@@ -501,7 +513,8 @@ impl AgentsDoor {
                     team: &self.team,
                 },
             ),
-            other => Err(not_ported(other)),
+            // The webhooks slice is not ported yet (PORT.md): the runtime and background ports write no delivery row.
+            Slice::Webhooks => Err(not_ported(Slice::Webhooks)),
         }
     }
 
@@ -563,6 +576,13 @@ impl AgentsDoor {
                 };
                 if g.person && service.is_some() {
                     return Err(forbidden(SESSION_REQUIRED));
+                }
+                // The person's own call: a key or a sub-account is told so before the scope, never to ask for a
+                // scope no key can hold (`scopedProcedure`'s `ownSession`, J-agents-12 #3).
+                if let Pre::PersonOnly(code) = call.pre
+                    && delegated(p)
+                {
+                    return Err(forbidden(code));
                 }
                 access::require_scope(p, g.scope).map_err(TrpcError::guard)?;
                 if g.module {

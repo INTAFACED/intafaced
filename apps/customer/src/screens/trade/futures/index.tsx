@@ -1,3 +1,4 @@
+// volt-room: /trade/futures
 import { useMemo, useState } from 'react';
 import { StateBlock } from '@intafaced/ui/lit';
 import { DeskTemplate, Skeleton, TabPanel, Tabs, type Notice } from '@intafaced/ui/lit/templates';
