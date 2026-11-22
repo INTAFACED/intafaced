@@ -1,4 +1,4 @@
-import { SubNav } from '@intafaced/ui';
+import { Tabs } from '@intafaced/ui/lit/templates';
 import { preservePaperHref } from '../more';
 import { algoCopy } from './algo-copy';
 
@@ -22,16 +22,7 @@ export const QUANT_ROOMS: readonly { id: QuantRoomId; href: string; label?: 'str
 
 export function QuantRooms({ active, paper = false }: { active: QuantRoomId; paper?: boolean }) {
   const { t } = algoCopy.useCopy();
-  return (
-    <SubNav
-      aria-label={t('rooms')}
-      active={active}
-      className="px-0"
-      items={QUANT_ROOMS.map((room) => ({
-        id: room.id,
-        label: t(room.label ?? room.id),
-        href: preservePaperHref(room.href, paper),
-      }))}
-    />
-  );
+  const items = QUANT_ROOMS.map((room) => ({ label: t(room.label ?? room.id), href: preservePaperHref(room.href, paper) }));
+  const current = QUANT_ROOMS.findIndex((room) => room.id === active);
+  return <Tabs label={t('rooms')} current={items[current]?.href ?? ''} items={items} />;
 }

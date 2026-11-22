@@ -10,7 +10,7 @@ export function quantModeRoute(
   pathname: string,
   paper: boolean,
   userId: string | null,
-): { title: ReactNode; description: ReactNode; content: ReactNode } | null {
+): { title: ReactNode; description: ReactNode; content: ReactNode; framed?: boolean } | null {
   const mode = MODES[pathname as keyof typeof MODES];
   if (!mode) return null;
   return {

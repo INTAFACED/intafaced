@@ -3,11 +3,12 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { DeskTemplate, Segmented, type RoomState } from '@intafaced/ui/lit/templates';
 import { venueBalanceSchema, venueFillSchema, venueOrderSchema, venuePositionSchema } from '../trade';
-import { Read, Select } from '../more';
 import { useApi } from '../session';
 import { liveRunCopy } from './live-run-copy';
+import { KitFailure, KitRead, KitTable } from './kit-parts';
 
 // hand-declared-ok: svc-trade's live-run answers (src/quant/live-run/rest.ts) have no browser-safe schema in @intafaced/contracts; the venue rows reuse trade/venue-api's.
 
@@ -107,7 +108,7 @@ const timeText = (value: string) => value.slice(0, 19).replace('T', ' ');
 function Refused({ refusal }: { refusal: Refusal }) {
   const { t } = liveRunCopy.useCopy();
   return (
-    <p role="alert" data-testid="live-run-refusal" data-code={refusal.code ?? ''}>
+    <p role="alert" className="lt-refusal" data-testid="live-run-refusal" data-code={refusal.code ?? ''}>
       {refusal.code && KNOWN.has(refusal.code)
         ? t(`code_${refusal.code.replaceAll('.', '_')}` as 'code_other')
         : refusal.message || t('code_other')}{' '}
@@ -123,13 +124,13 @@ export function LiveRuns() {
   const list = useResource((signal) => api.rest(BASE, listSchema, { signal }), 'quant-live-runs');
   return (
     <section aria-label={t('listTitle')} data-testid="live-runs">
-      <p className="muted">{t('intro')}</p>
-      <Read resource={list.resource} retry={list.reload}>
+      <p className="lt-hint">{t('intro')}</p>
+      <KitRead resource={list.resource} retry={list.reload}>
         {(data) =>
           data.runs.length === 0 ? (
-            <p className="muted">{t('none')}</p>
+            <p className="lt-hint">{t('none')}</p>
           ) : (
-            <DataTable label={t('listTitle')} headers={[t('colStrategy'), t('colState'), t('colStarted'), '']}>
+            <KitTable label={t('listTitle')} headers={[t('colStrategy'), t('colState'), t('colStarted'), '']}>
               {data.runs.map((r) => (
                 <tr key={r.runId} data-testid="live-run-row" data-id={r.runId}>
                   <td>
@@ -139,16 +140,16 @@ export function LiveRuns() {
                     {t(`state_${r.state}`)}
                     {r.halt ? ` · ${t('haltedShort')}` : ''}
                   </td>
-                  <td className="numeric">{r.startedAt ? timeText(r.startedAt) : '—'}</td>
+                  <td data-align="end">{r.startedAt ? timeText(r.startedAt) : '—'}</td>
                   <td>
                     <a href={`/quant/live/${encodeURIComponent(r.runId)}`}>{t('open')}</a>
                   </td>
                 </tr>
               ))}
-            </DataTable>
+            </KitTable>
           )
         }
-      </Read>
+      </KitRead>
     </section>
   );
 }
@@ -171,33 +172,68 @@ export function LiveRun({ runId }: { runId: string }) {
     if (ready) setShown(ready);
   }, [ready]);
   const current = ready ?? (detail.resource.status === 'loading' ? shown : null);
+  const failure = !current && detail.resource.status === 'failed' ? detail.resource.failure : null;
+  // The first read is the whole room's loading state; a failed read keeps the room, with the failure and Try again.
+  const state: RoomState = current || failure ? { kind: 'ready' } : { kind: 'loading' };
+  const intro = <p className="lt-hint">{t('intro')}</p>;
   return (
     <section aria-label={t('roomTitle')} data-testid="live-run">
-      <p className="muted">{t('intro')}</p>
-      {current ? (
-        <RunBody d={current} onChange={reload} />
-      ) : (
-        <Read resource={detail.resource} retry={detail.reload}>
-          {(d) => <RunBody d={d} onChange={reload} />}
-        </Read>
-      )}
+      <DeskTemplate
+        title={t('roomTitle')}
+        description={t('description')}
+        mode="pro"
+        state={state}
+        instrument={
+          current ? (
+            <div className="lt-col-main">
+              {intro}
+              <RunHead d={current} />
+            </div>
+          ) : failure ? (
+            <div className="lt-col-main">
+              {intro}
+              <div lang="und">
+                <KitFailure result={failure} retry={detail.reload} />
+              </div>
+            </div>
+          ) : null
+        }
+        chart={current ? <RunState d={current} /> : null}
+        ticket={
+          current ? (
+            <div className="lt-col-main">
+              <Controls d={current} onChange={reload} />
+              <ManualOrder d={current} onChange={reload} />
+            </div>
+          ) : null
+        }
+        orders={
+          current ? (
+            <div className="lt-col-main">
+              <VenueRecord d={current} />
+              <RunOrders d={current} />
+            </div>
+          ) : null
+        }
+      />
     </section>
   );
 }
 
-function RunBody({ d, onChange }: { d: Detail; onChange: () => void }) {
+/** The run's name, its state, why it ended, its permission, and any halt or freeze standing on it. */
+function RunHead({ d }: { d: Detail }) {
   const { t } = liveRunCopy.useCopy();
   return (
     <>
       {d.test ? (
-        <p className="muted" data-testid="live-run-test">
+        <p className="lt-hint" data-testid="live-run-test">
           {t('testLabel')}
         </p>
       ) : null}
       <h3>
         {d.strategyName} · {t('version', { version: d.strategyVersion })}
       </h3>
-      <dl className="protocol-facts" data-testid="live-run-status">
+      <dl className="lt-kv" data-testid="live-run-status">
         <div>
           <dt>{t('stateLabel')}</dt>
           <dd data-testid="live-run-state" data-state={d.state}>
@@ -227,26 +263,31 @@ function RunBody({ d, onChange }: { d: Detail; onChange: () => void }) {
           {t('frozenNotice')}
         </p>
       ) : null}
+    </>
+  );
+}
+
+/** The run's safeguards and its log. */
+function RunState({ d }: { d: Detail }) {
+  const { t } = liveRunCopy.useCopy();
+  return (
+    <div className="lt-col-main">
       <Safeguards d={d} />
-      <Controls d={d} onChange={onChange} />
-      <ManualOrder d={d} onChange={onChange} />
-      <VenueRecord d={d} />
-      <RunOrders d={d} />
       <section aria-label={t('logTitle')} data-testid="live-run-log">
         <h4>{t('logTitle')}</h4>
         {d.log.length === 0 ? (
-          <p className="muted">{t('logNone')}</p>
+          <p className="lt-hint">{t('logNone')}</p>
         ) : (
           <ol>
             {d.log.map((e) => (
               <li key={e.n} data-kind={e.kind}>
-                <span className="numeric">{timeText(e.at)}</span> {e.detail}
+                <span className="lt-mono">{timeText(e.at)}</span> {e.detail}
               </li>
             ))}
           </ol>
         )}
       </section>
-    </>
+    </div>
   );
 }
 
@@ -256,7 +297,7 @@ function Safeguards({ d }: { d: Detail }) {
   return (
     <section aria-label={t('safeguards')} data-testid="live-run-health">
       <h4>{t('safeguards')}</h4>
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('restarts')}</dt>
           <dd data-testid="live-run-restarts" data-restarts={h.restarts} data-attempts={h.restartAttempts}>
@@ -271,13 +312,13 @@ function Safeguards({ d }: { d: Detail }) {
         </div>
         <div>
           <dt>{t('ticks')}</dt>
-          <dd className="numeric" data-testid="live-run-ticks">
+          <dd className="lt-mono" data-testid="live-run-ticks">
             {t('ticksOf', { ticks: h.strategyTicks })}
           </dd>
         </div>
         <div>
           <dt>{t('heartbeat')}</dt>
-          <dd className="numeric">
+          <dd className="lt-mono">
             {h.heartbeatAt ? timeText(h.heartbeatAt) : t('heartbeatNever')}
             {h.heartbeatMs ? ` · ${t('heartbeatEvery', { seconds: Math.round(h.heartbeatMs / 1000) })}` : ''}
           </dd>
@@ -321,24 +362,24 @@ function Controls({ d, onChange }: { d: Detail; onChange: () => void }) {
     onChange();
   }
   return (
-    <section aria-label={t('controls')} data-testid="live-run-controls">
+    <section aria-label={t('controls')} data-testid="live-run-controls" className="lt-col-main">
       <h4>{t('controls')}</h4>
-      <p className="muted">{t('stopWhat')}</p>
-      <Button variant="secondary" disabled={busy} onClick={() => void stop()}>
+      <p className="lt-hint">{t('stopWhat')}</p>
+      <Button disabled={busy} onClick={() => void stop()}>
         {busy ? t('stopping') : t('stop')}
       </Button>
-      <p className="muted">{t('liquidateWhat')}</p>
+      <p className="lt-hint">{t('liquidateWhat')}</p>
       {confirming ? (
-        <>
-          <Button variant="danger" disabled={busy} onClick={() => void liquidate()}>
+        <div className="lt-actions">
+          <Button disabled={busy} onClick={() => void liquidate()}>
             {t('liquidateConfirm')}
           </Button>
-          <Button variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>
+          <Button tone="quiet" disabled={busy} onClick={() => setConfirming(false)}>
             {t('liquidateCancel')}
           </Button>
-        </>
+        </div>
       ) : (
-        <Button variant="danger" disabled={busy} onClick={() => setConfirming(true)}>
+        <Button disabled={busy} onClick={() => setConfirming(true)}>
           {t('liquidate')}
         </Button>
       )}
@@ -378,18 +419,19 @@ function ManualOrder({ d, onChange }: { d: Detail; onChange: () => void }) {
     onChange();
   }
   return (
-    <section aria-label={t('manualTitle')} data-testid="live-run-manual">
+    <section aria-label={t('manualTitle')} data-testid="live-run-manual" className="lt-col-main">
       <h4>{t('manualTitle')}</h4>
-      <p className="muted">{t('manualWhat')}</p>
+      <p className="lt-hint">{t('manualWhat')}</p>
       <form
         aria-label={t('manualTitle')}
+        className="lt-col-main"
         onSubmit={(event) => {
           event.preventDefault();
           void send();
         }}
       >
         <Field label={t('seq')} inputMode="numeric" value={seq} disabled={busy} onChange={(e) => setSeq(e.target.value)} />
-        <Select
+        <Segmented
           label={t('side')}
           value={side}
           onChange={(v) => setSide(v as 'buy' | 'sell')}
@@ -398,7 +440,7 @@ function ManualOrder({ d, onChange }: { d: Detail; onChange: () => void }) {
             { value: 'sell', label: t('side_sell') },
           ]}
         />
-        <Select
+        <Segmented
           label={t('type')}
           value={type}
           onChange={(v) => setType(v as 'market' | 'limit')}
@@ -412,7 +454,7 @@ function ManualOrder({ d, onChange }: { d: Detail; onChange: () => void }) {
         {type === 'limit' ? (
           <Field label={t('price')} inputMode="decimal" value={price} disabled={busy} onChange={(e) => setPrice(e.target.value)} />
         ) : null}
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" tone="primary" disabled={busy}>
           {t('send')}
         </Button>
       </form>
@@ -430,80 +472,80 @@ function VenueRecord({ d }: { d: Detail }) {
   const { t } = liveRunCopy.useCopy();
   const v = d.venue;
   return (
-    <section aria-label={t('venueTitle')} data-testid="live-run-venue">
+    <section aria-label={t('venueTitle')} data-testid="live-run-venue" className="lt-col-main">
       <h4>{t('venueTitle')}</h4>
       {!v ? (
         <p role="alert">{d.venueError ?? t('venueUnread')}</p>
       ) : (
         <>
-          <p className="muted" data-testid="live-run-as-of">
+          <p className="lt-hint" data-testid="live-run-as-of">
             {t('asOf', { time: timeText(v.asOf) })}
           </p>
-          <DataTable label={t('cash')} headers={[t('colAsset'), t('colFree'), t('colLocked'), t('colTotal')]}>
+          <KitTable label={t('cash')} headers={[t('colAsset'), t('colFree'), t('colLocked'), t('colTotal')]}>
             {v.balances.map((b) => (
               <tr key={b.asset} data-testid="live-run-cash" data-asset={b.asset}>
                 <td>{b.asset}</td>
-                <td className="numeric">{b.free}</td>
-                <td className="numeric">{b.locked}</td>
-                <td className="numeric" data-testid="live-run-cash-total">
+                <td data-align="end">{b.free}</td>
+                <td data-align="end">{b.locked}</td>
+                <td data-align="end" data-testid="live-run-cash-total">
                   {b.total}
                 </td>
               </tr>
             ))}
-          </DataTable>
+          </KitTable>
           <h5>{t('positions')}</h5>
           {v.positions.length === 0 ? (
-            <p className="muted" data-testid="live-run-no-position">
+            <p className="lt-hint" data-testid="live-run-no-position">
               {t('positionsNone')}
             </p>
           ) : (
-            <DataTable label={t('positions')} headers={[t('colMarket'), t('colSide'), t('colSize'), t('colEntry'), t('colMark')]}>
+            <KitTable label={t('positions')} headers={[t('colMarket'), t('colSide'), t('colSize'), t('colEntry'), t('colMark')]}>
               {v.positions.map((p) => (
                 <tr key={p.symbol} data-testid="live-run-position" data-symbol={p.symbol} data-size={p.size}>
                   <td>{p.symbol}</td>
                   <td>{p.side}</td>
-                  <td className="numeric">{p.size}</td>
-                  <td className="numeric">{p.entryPrice}</td>
-                  <td className="numeric">{p.markPrice}</td>
+                  <td data-align="end">{p.size}</td>
+                  <td data-align="end">{p.entryPrice}</td>
+                  <td data-align="end">{p.markPrice}</td>
                 </tr>
               ))}
-            </DataTable>
+            </KitTable>
           )}
           <h5>{t('openOrders')}</h5>
           {v.openOrders.length === 0 ? (
-            <p className="muted" data-testid="live-run-no-open-order">
+            <p className="lt-hint" data-testid="live-run-no-open-order">
               {t('openNone')}
             </p>
           ) : (
-            <DataTable label={t('openOrders')} headers={[t('colMarket'), t('colSide'), t('colPrice'), t('colRemaining')]}>
+            <KitTable label={t('openOrders')} headers={[t('colMarket'), t('colSide'), t('colPrice'), t('colRemaining')]}>
               {v.openOrders.map((o, i) => (
                 <tr key={o.venueClientOrderId ?? i} data-testid="live-run-open-order">
                   <td>{o.symbol}</td>
                   <td>{o.side}</td>
-                  <td className="numeric">{o.price}</td>
-                  <td className="numeric">{o.remaining}</td>
+                  <td data-align="end">{o.price}</td>
+                  <td data-align="end">{o.remaining}</td>
                 </tr>
               ))}
-            </DataTable>
+            </KitTable>
           )}
           <h5>{t('fills')}</h5>
           {v.fills.length === 0 ? (
-            <p className="muted">{t('fillsNone')}</p>
+            <p className="lt-hint">{t('fillsNone')}</p>
           ) : (
-            <DataTable label={t('fills')} headers={[t('colMarket'), t('colSide'), t('colSize'), t('colPrice'), t('colFee'), t('colTime')]}>
+            <KitTable label={t('fills')} headers={[t('colMarket'), t('colSide'), t('colSize'), t('colPrice'), t('colFee'), t('colTime')]}>
               {v.fills.map((f) => (
                 <tr key={f.fillId} data-testid="live-run-fill" data-side={f.side} data-amount={f.amount}>
                   <td>{f.symbol}</td>
                   <td>{f.side}</td>
-                  <td className="numeric">{f.amount}</td>
-                  <td className="numeric">{f.price}</td>
-                  <td className="numeric">
+                  <td data-align="end">{f.amount}</td>
+                  <td data-align="end">{f.price}</td>
+                  <td data-align="end">
                     {f.venueFee} {f.feeAsset}
                   </td>
-                  <td className="numeric">{timeText(f.filledAt)}</td>
+                  <td data-align="end">{timeText(f.filledAt)}</td>
                 </tr>
               ))}
-            </DataTable>
+            </KitTable>
           )}
         </>
       )}
@@ -515,7 +557,7 @@ function RunOrders({ d }: { d: Detail }) {
   const { t } = liveRunCopy.useCopy();
   if (d.orders.length === 0) return null;
   return (
-    <DataTable
+    <KitTable
       label={t('ordersTitle')}
       headers={[t('colSeq'), t('colKind'), t('colMarket'), t('colSide'), t('colSize'), t('colPrice'), t('colRecorded'), t('colVenue')]}
     >
@@ -528,19 +570,19 @@ function RunOrders({ d }: { d: Detail }) {
           data-key={o.actionKey}
           data-reduce-only={String(o.reduceOnly)}
         >
-          <td className="numeric">{o.seq}</td>
+          <td data-align="end">{o.seq}</td>
           <td>{t(`kind_${o.kind}`)}</td>
           <td>{o.symbol}</td>
           <td>
             {o.side}
             {o.reduceOnly ? ` · ${t('reduceOnly')}` : ''}
           </td>
-          <td className="numeric">{o.size}</td>
-          <td className="numeric">{o.price}</td>
+          <td data-align="end">{o.size}</td>
+          <td data-align="end">{o.price}</td>
           <td>{t(`order_${o.state}`)}</td>
           <td>{o.order ? o.order.status : '—'}</td>
         </tr>
       ))}
-    </DataTable>
+    </KitTable>
   );
 }

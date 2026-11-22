@@ -97,34 +97,41 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div data-testid="quant-preview" data-room="editor">
+<div class="lt-room" data-template="desk" data-state="ready" data-mode="pro">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Code editor</h1>
-<p class="muted">Preview · sample data</p>
+<h1 class="lt-title">Code editor</h1>
+<p class="lt-description">Preview · sample data</p>
 </div>
 </header>
-<nav data-slot="sub-nav" aria-label="Algo dev rooms" class="flex flex-wrap items-center gap-1 border-b border-line py-2 px-0">
-<a href="/quant" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Start</a>
-<a href="/quant/strategies" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Strategies</a>
-<a href="/quant/studio" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Studio</a>
-<a href="/quant/backtest" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Backtest</a>
-<a href="/quant/sandbox" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Sandbox</a>
-<a href="/quant/editor" aria-current="page" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Editor</a>
-<a href="/quant/tester" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Tester</a>
-<a href="/quant/optimise" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Optimiser</a>
-<a href="/quant/data" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Data</a>
-<a href="/execution" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Execution</a>
+<div class="lt-body">
+<div class="lt-desk" data-desk="pro">
+<section class="lt-region" data-region="instrument" aria-label="Price">
+<div class="lt-col-main">
+<nav class="lt-tabs" aria-label="Algo dev rooms">
+<a href="/quant" class="lt-tab">Start</a>
+<a href="/quant/strategies" class="lt-tab">Strategies</a>
+<a href="/quant/studio" class="lt-tab">Studio</a>
+<a href="/quant/backtest" class="lt-tab">Backtest</a>
+<a href="/quant/sandbox" class="lt-tab">Sandbox</a>
+<a href="/quant/editor" class="lt-tab" aria-current="page">Editor</a>
+<a href="/quant/tester" class="lt-tab">Tester</a>
+<a href="/quant/optimise" class="lt-tab">Optimiser</a>
+<a href="/quant/data" class="lt-tab">Data</a>
+<a href="/execution" class="lt-tab">Execution</a>
 </nav>
-<div data-testid="quant-preview" data-room="editor" class="quant-preview">
-<p class="badge" role="note">
+<p role="note">
+<span class="lit-tag" data-tone="accent">
 <strong>Preview · sample data</strong>
+</span>
 </p>
-<p class="muted">Every row here is TEST sample data. The engines behind these rooms are not built in this build.</p>
-<div class="more-columns">
-<section aria-label="Files" class="panel">
+<p class="lt-hint">Every row here is TEST sample data. The engines behind these rooms are not built in this build.</p>
+</div>
+</section>
+<section class="lt-region" data-region="chart" aria-label="Chart">
+<div class="lt-col-main">
+<section aria-label="Files" class="lt-col-main">
 <h3>Files</h3>
 <ul role="tree" aria-label="Files">
 <li role="treeitem" aria-selected="true">TEST strategies/two-averages.js</li>
@@ -132,91 +139,165 @@
 <li role="treeitem" aria-selected="false">TEST lib/indicators.js</li>
 </ul>
 </section>
-<section aria-label="Editor" class="panel">
+<section aria-label="Editor" class="lt-col-main">
 <h3>Editor</h3>
-<ol class="preview-code" lang="zxx">
+<ol class="lt-mono" lang="zxx">
 <li data-line="1">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 1" aria-pressed="false">○</button>
+<button aria-label="Breakpoint on line 1" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
 <code>// TEST sample strategy: two moving averages</code>
 </li>
 <li data-line="2">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 2" aria-pressed="false">○</button>
-<button type="button" class="preview-fold" aria-label="Fold block at line 2" aria-expanded="true">▾</button>
+<button aria-label="Breakpoint on line 2" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
+<button aria-label="Fold block at line 2" aria-expanded="true" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
+<path d="m6 9 6 6 6-6">
+</path>
+</svg>
+</button>
 <code>export function onBar(bar) {</code>
 </li>
 <li data-line="3">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 3" aria-pressed="false">○</button>
+<button aria-label="Breakpoint on line 3" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
 <code>  const fast = sma(bar.closes, 10);</code>
 </li>
 <li data-line="4">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 4" aria-pressed="false">○</button>
+<button aria-label="Breakpoint on line 4" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
 <code>  const slow = sma(bar.closes, 30);</code>
 </li>
 <li data-line="5">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 5" aria-pressed="false">○</button>
-<button type="button" class="preview-fold" aria-label="Fold block at line 5" aria-expanded="true">▾</button>
+<button aria-label="Breakpoint on line 5" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
+<button aria-label="Fold block at line 5" aria-expanded="true" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
+<path d="m6 9 6 6 6-6">
+</path>
+</svg>
+</button>
 <code>  if (fast &gt; slow) {</code>
 </li>
 <li data-line="6">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 6" aria-pressed="false">○</button>
+<button aria-label="Breakpoint on line 6" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
 <code>    oms.buy("BTC/USDT", 0.01);</code>
 </li>
 <li data-line="7">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 7" aria-pressed="false">○</button>
+<button aria-label="Breakpoint on line 7" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
 <code>  }</code>
 </li>
 <li data-line="8">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 8" aria-pressed="false">○</button>
-<button type="button" class="preview-fold" aria-label="Fold block at line 8" aria-expanded="true">▾</button>
+<button aria-label="Breakpoint on line 8" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
+<button aria-label="Fold block at line 8" aria-expanded="true" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
+<path d="m6 9 6 6 6-6">
+</path>
+</svg>
+</button>
 <code>  if (fast &lt; slow) {</code>
 </li>
 <li data-line="9">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 9" aria-pressed="false">○</button>
+<button aria-label="Breakpoint on line 9" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
 <code>    oms.sell("BTC/USDT", 0.01);</code>
 </li>
 <li data-line="10">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 10" aria-pressed="false">○</button>
+<button aria-label="Breakpoint on line 10" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
 <code>  }</code>
 </li>
 <li data-line="11">
-<button type="button" class="preview-gutter" aria-label="Breakpoint on line 11" aria-pressed="false">○</button>
+<button aria-label="Breakpoint on line 11" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle" aria-hidden="true">
+<circle cx="12" cy="12" r="10">
+</circle>
+</svg>
+</button>
 <code>}</code>
 </li>
 </ol>
 </section>
 </div>
-<div class="more-columns">
-<section aria-label="Compile" class="panel">
+</section>
+<section class="lt-region" data-region="ticket" aria-label="Order">
+<div class="lt-col-main">
+<section aria-label="Compile" class="lt-col-main">
 <h3>Compile</h3>
-<button type="button" class="button button--primary ">Compile</button>
-<div data-testid="preview-engine" data-blurred="true" aria-label="Compile: sample data, not a result" class="preview-engine" style="filter: blur(0.125rem);">
-<p class="muted">Sample build log (TEST), not a result of this code</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Compile</button>
+<div data-testid="preview-engine" data-blurred="true" aria-label="Compile: sample data, not a result" class="lt-blurred">
+<p class="lt-hint">Sample build log (TEST), not a result of this code</p>
 <ul>
 <li>TEST 0 errors, 0 warnings (sample)</li>
 <li>TEST built in 0.4 s (sample)</li>
 </ul>
 </div>
-<a class="text-link" href="/quant">Open the working sandbox</a>
+<a class="lt-link" href="/quant">Open the working sandbox</a>
 </section>
-<section aria-label="Debugger" class="panel">
+<section aria-label="Debugger" class="lt-col-main">
 <h3>Debugger</h3>
-<button type="button" class="button button--secondary ">Debug</button>
-<div data-testid="preview-engine" data-blurred="true" aria-label="Debugger: sample data, not a result" class="preview-engine" style="filter: blur(0.125rem);">
-<p class="muted">Sample variables (TEST)</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Debug</button>
+<div data-testid="preview-engine" data-blurred="true" aria-label="Debugger: sample data, not a result" class="lt-blurred">
+<p class="lt-hint">Sample variables (TEST)</p>
 <ul lang="zxx">
 <li>TEST fast = 101.2</li>
 <li>TEST slow = 99.8</li>
 </ul>
 </div>
 </section>
-<section aria-label="Profiler" class="panel">
+<section aria-label="Profiler" class="lt-col-main">
 <h3>Profiler</h3>
-<div data-testid="preview-engine" data-blurred="true" aria-label="Profiler: sample data, not a result" class="preview-engine" style="filter: blur(0.125rem);">
-<p class="muted">Sample timings (TEST)</p>
+<div data-testid="preview-engine" data-blurred="true" aria-label="Profiler: sample data, not a result" class="lt-blurred">
+<p class="lt-hint">Sample timings (TEST)</p>
 <ul lang="zxx">
 <li>TEST onBar 0.12 ms</li>
 <li>TEST sma 0.04 ms</li>
 </ul>
+</div>
+</section>
 </div>
 </section>
 </div>
