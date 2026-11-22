@@ -9,6 +9,7 @@ import {
   SURFACES_STORAGE_KEY,
   applySurfaces,
   composite,
+  focusScroll,
   contrastRatio,
   isLargeText,
   meetsContrast,
@@ -216,6 +217,16 @@ describe('focus not obscured', () => {
     ).toEqual({ top: 117.5, bottom: 88 });
     expect(OBSCURED_TOP_VAR).toBe('--a11y-obscured-top');
     expect(OBSCURED_BOTTOM_VAR).toBe('--a11y-obscured-bottom');
+  });
+
+  it('scrolls a focused control clear of the bar that covers it, and leaves a clear one alone', () => {
+    // The look gate's /trade/calendar at 200% text: the link at 684-700 under a dock that starts at 686.
+    expect(focusScroll({ top: 684, bottom: 700 }, { topEdge: 48, bottomEdge: 686 })).toBe(22);
+    expect(focusScroll({ top: 300, bottom: 320 }, { topEdge: 48, bottomEdge: 686 })).toBe(0);
+    expect(focusScroll({ top: 40, bottom: 60 }, { topEdge: 48, bottomEdge: 686 })).toBe(-16);
+    // Taller than the space between the bars: its top stays in view rather than its bottom.
+    expect(focusScroll({ top: 100, bottom: 900 }, { topEdge: 48, bottomEdge: 686 })).toBe(44);
+    expect(focusScroll({ top: 100, bottom: 110 }, { topEdge: 48, bottomEdge: 686 }, 0)).toBe(0);
   });
 });
 
