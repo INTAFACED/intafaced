@@ -1,20 +1,9 @@
-import './pay-screen.css';
-import './personal.css';
-import '../trade/buy/buy.css';
+// volt-room: /pay
 import { useMemo } from 'react';
+import { ToastProvider } from '@intafaced/ui/lit';
+import { OverviewTemplate, TabList } from '@intafaced/ui/lit/templates';
 import type { ScreenProps } from '../../app/screen-types';
-import {
-  Button,
-  isHiddenPath,
-  navigate,
-  parseRequestSearch,
-  PersonalRoom,
-  personalRoomFor,
-  Tabs,
-  TabsList,
-  TabsTab,
-  useSession,
-} from './deps';
+import { isHiddenPath, navigate, parseRequestSearch, PersonalRoom, personalRoomFor, useSession } from './deps';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { useIdentity } from './identity-state';
@@ -26,6 +15,7 @@ import { GlobalCard } from './GlobalCard';
 import { RecentPanel } from './RecentPanel';
 import { WaitingForYou } from './WaitingForYou';
 import { rooms, roomTitle } from '../../app/navigation';
+import { usePreferences } from '../../shared/preferences';
 
 /**
  * The other personal Pay rooms beyond the card's own tabs (J-pay-01 #1), read from the one route table so a new room is
@@ -57,17 +47,25 @@ export const tabOf = (path: string): Tab => {
   const clean = path.split('?')[0]!.replace(/\/+$/, '');
   return (Object.keys(ROUTES) as Tab[]).find((tab) => ROUTES[tab] === clean) ?? 'send';
 };
+/** The id of a tab's panel, for the tab that names it. */
+const panelId = (tab: Tab) => `pay-panel-${tab}`;
 
-/** Pay: Send, Receive, Request, Bills and Global (UI-SPEC 5.10). Headline left, one card right with the tabs. */
+/**
+ * Pay: Send, Receive, Request, Bills and Global (UI-SPEC 5.10), on the Volt kit's overview template: the card with its
+ * tabs is the room's lead, what waits for the person under it, and recent payments beside it. Every Pay room, the
+ * personal record rooms included, raises its confirmations through the kit's one toast host here.
+ */
 export default function PayScreen(props: ScreenProps) {
+  const { t } = payCopy.useCopy();
   const room = personalRoomFor(props.path);
-  return room ? <PersonalRoom match={room} /> : <PayTabs {...props} />;
+  return <ToastProvider closeLabel={t('Dismiss')}>{room ? <PersonalRoom match={room} /> : <PayTabs {...props} />}</ToastProvider>;
 }
 
 function PayTabs({ path, search }: ScreenProps) {
   const { t } = payCopy.useCopy();
   const copy = personalCopy.useCopy();
   const { api, userId, session } = useSession();
+  const { layoutMode } = usePreferences();
   const identity = useIdentity(api, userId);
   const tab = tabOf(path);
   const otherRooms = useMemo(payRooms, []);
@@ -81,72 +79,81 @@ function PayTabs({ path, search }: ScreenProps) {
         : tab === 'global'
           ? copy.t('taglineGlobal')
           : t('Pay tagline');
+  const tabs: readonly { value: Tab; label: string }[] = [
+    { value: 'send', label: t('Send') },
+    { value: 'receive', label: t('Receive') },
+    { value: 'request', label: copy.t('tabRequest') },
+    { value: 'bills', label: copy.t('tabBills') },
+    { value: 'global', label: copy.t('tabGlobal') },
+  ];
+  const label = (value: Tab) => tabs.find((item) => item.value === value)!.label;
+  // Send and Receive stay drawn (hidden) while another tab shows; the others are drawn only while chosen.
+  const drawn = (value: Tab) => Boolean(session) && (value === 'send' || value === 'receive' || value === tab);
   // The Send card stays mounted (hidden) while the other tabs show, so a payment on its way is never cut off by a tab change.
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
-  return (
-    <div data-testid="if-pay" className="if-pay">
-      <div className="pay-grid">
-        <header data-testid="pay-hero" className="pay-hero">
-          <h1>{t('Pay')}</h1>
-          <p>{tagline}</p>
-        </header>
-        {session ? (
-          <div className="pay-side">
-            <WaitingForYou />
-            <RecentPanel />
+  const card = (
+    <section data-testid="pay-card" aria-label={t('Pay')} className="lt-stack">
+      <TabList
+        label={t('Send or receive')}
+        items={tabs}
+        value={tab}
+        onChange={(next) => navigate(ROUTES[next] ?? ROUTES.send)}
+        panelOf={(value) => (drawn(value) ? panelId(value) : undefined)}
+      />
+      {session ? (
+        <>
+          <div hidden={tab !== 'send'} data-testid="send-panel" id={panelId('send')} role="tabpanel" aria-label={label('send')}>
+            <SendCard identity={identity} prefill={prefill} prefillKey={tab === 'send' ? search : ''} />
           </div>
-        ) : null}
-        <section data-testid="pay-card" className="pay-card" aria-label={t('Pay')}>
-          <Tabs value={tab} onValueChange={(next) => typeof next === 'string' && navigate(ROUTES[next as Tab] ?? ROUTES.send)}>
-            <TabsList divider aria-label={t('Send or receive')} className="pay-tabs">
-              <TabsTab value="send">{t('Send')}</TabsTab>
-              <TabsTab value="receive">{t('Receive')}</TabsTab>
-              <TabsTab value="request">{copy.t('tabRequest')}</TabsTab>
-              <TabsTab value="bills">{copy.t('tabBills')}</TabsTab>
-              <TabsTab value="global">{copy.t('tabGlobal')}</TabsTab>
-            </TabsList>
-          </Tabs>
-          {session ? (
-            <>
-              <div hidden={tab !== 'send'} data-testid="send-panel">
-                <SendCard identity={identity} prefill={prefill} prefillKey={tab === 'send' ? search : ''} />
-              </div>
-              <div hidden={tab !== 'receive'} data-testid="receive-panel">
-                <ReceiveCard identity={identity} />
-              </div>
-              {tab === 'request' ? (
-                <div data-testid="request-panel">
-                  <RequestCard identity={identity} />
-                </div>
-              ) : null}
-              {tab === 'bills' ? (
-                <div data-testid="bills-panel">
-                  <BillsCard />
-                </div>
-              ) : null}
-              {tab === 'global' ? (
-                <div data-testid="global-panel">
-                  <GlobalCard />
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="lt-stack">
-              <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={loginHref} role="link" />}>
-                {tab === 'receive' ? t('Log in to receive') : t('Log in to send')}
-              </Button>
+          <div hidden={tab !== 'receive'} data-testid="receive-panel" id={panelId('receive')} role="tabpanel" aria-label={label('receive')}>
+            <ReceiveCard identity={identity} />
+          </div>
+          {tab === 'request' ? (
+            <div data-testid="request-panel" id={panelId('request')} role="tabpanel" aria-label={label('request')}>
+              <RequestCard identity={identity} />
             </div>
-          )}
-          <nav className="pay-rooms" aria-label={t('Pay rooms')} data-testid="pay-rooms">
-            <p className="pay-rooms__title">{t('Pay rooms')}</p>
-            {otherRooms.map((room) => (
-              <a key={room.path} className="pay-chip" href={room.path}>
-                {roomTitle(room)}
-              </a>
-            ))}
-          </nav>
-        </section>
-      </div>
+          ) : null}
+          {tab === 'bills' ? (
+            <div data-testid="bills-panel" id={panelId('bills')} role="tabpanel" aria-label={label('bills')}>
+              <BillsCard />
+            </div>
+          ) : null}
+          {tab === 'global' ? (
+            <div data-testid="global-panel" id={panelId('global')} role="tabpanel" aria-label={label('global')}>
+              <GlobalCard />
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div className="lt-actions">
+          <a className="lt-button lt-button-primary" href={loginHref}>
+            {tab === 'receive' ? t('Log in to receive') : t('Log in to send')}
+          </a>
+        </div>
+      )}
+      <nav className="lt-stack" aria-label={t('Pay rooms')} data-testid="pay-rooms">
+        <p className="lt-hint">{t('Pay rooms')}</p>
+        <div className="lt-actions">
+          {otherRooms.map((room) => (
+            <a key={room.path} className="lt-button lt-button-secondary" href={room.path}>
+              {roomTitle(room)}
+            </a>
+          ))}
+        </div>
+      </nav>
+    </section>
+  );
+  return (
+    <div data-testid="if-pay">
+      <OverviewTemplate
+        title={t('Pay')}
+        description={tagline}
+        state={{ kind: 'ready' }}
+        mode={layoutMode === 'pro' ? 'pro' : 'simple'}
+        hero={card}
+        needsYou={session ? <WaitingForYou /> : undefined}
+        watching={session ? <RecentPanel /> : undefined}
+      />
     </div>
   );
 }
