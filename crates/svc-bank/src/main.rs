@@ -33,6 +33,7 @@ use svc_bank::migrate;
 use svc_bank::partner::custody::LedgerFreeze;
 use svc_bank::partner::router::Wiring;
 use svc_bank::partner::{TestPartner, cash_leg, pay_in};
+use svc_bank::ramps;
 use svc_bank::ready;
 use svc_bank::recovery::{self, AdvisoryLock, RecoveryCounts};
 use svc_bank::spaces;
@@ -547,6 +548,89 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Slice `ramps`' address book: identity's mail and trusted devices, from the environment.
+fn ramps_book_wiring(env: &BankEnv) -> Result<ramps::book::Wiring, String> {
+    let Some(url) = env.str("IDENTITY_URL") else {
+        return Ok(ramps::book::Wiring::none());
+    };
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default();
+    let identity = || {
+        ramps::book::ports::IdentityHttp::new(
+            url,
+            CallSigner::new("svc-bank", "svc-identity", secret, keyed.clone()),
+            Box::new(UreqFetch::new()),
+        )
+    };
+    Ok(ramps::book::Wiring {
+        mail: Box::new(identity()),
+        devices: Box::new(identity()),
+    })
+}
+
+/// Slice `ramps`' on-ramp: the programme, the rate source and the pay-in partner, from the environment.
+fn ramps_onramp_wiring(env: &BankEnv) -> Result<ramps::onramp::Wiring, String> {
+    use ramps::onramp::{payin, rails, sim};
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let refused = |(code, words): (&str, &str)| format!("{words} ({code})");
+    let stand_in = sim::stand_in_for(
+        raw("BANK_ONRAMP_RATES"),
+        raw("BANK_ONRAMP_SIM_JSON"),
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+    )
+    .map_err(refused)?;
+    let partner = payin::partner_for(
+        raw("BANK_ONRAMP_PARTNER"),
+        &payin::Config {
+            catalogue: raw("BANK_PAYIN_SIM_JSON"),
+            page_url: raw("BANK_PAYIN_SIM_PAGE_URL"),
+            return_url: raw("BANK_PAYIN_SIM_RETURN_URL"),
+            deliver_url: raw("BANK_PAYIN_SIM_DELIVER_URL"),
+        },
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+        || Box::new(UreqFetch::new()) as Box<dyn Fetch>,
+    )
+    .map_err(refused)?;
+    Ok(ramps::onramp::Wiring {
+        programme: rails::programme_for(raw("BANK_RAMP_MODE")),
+        stand_in,
+        partner,
+        ..ramps::onramp::Wiring::none()
+    })
+}
+
+/// Slice `ramps`' wiring: the owner's values as the TypeScript reads them, and each part's own.
+fn ramps_wiring(env: &BankEnv) -> Result<ramps::Wiring, String> {
+    let owned = |k: &str| env.raw.get(k).cloned().filter(|v| !v.trim().is_empty());
+    Ok(ramps::Wiring {
+        settings: ramps::Settings {
+            ramp_mode: owned("BANK_RAMP_MODE"),
+            offramp_cooling_hours: owned("BANK_OFFRAMP_COOLING_HOURS"),
+            address_book_cap: owned("BANK_ADDRESS_BOOK_CAP"),
+            destination_sanctions: owned("BANK_DESTINATION_SANCTIONS"),
+            wallet_proof_window_minutes: owned("BANK_WALLET_PROOF_WINDOW_MINUTES"),
+            wallet_proof_valid_days: owned("BANK_WALLET_PROOF_VALID_DAYS"),
+            address_approval_link_minutes: owned("BANK_ADDRESS_APPROVAL_LINK_MINUTES"),
+            app_env: owned("APP_ENV"),
+            node_env: owned("NODE_ENV"),
+        },
+        book: ramps_book_wiring(env)?,
+        onramp: ramps_onramp_wiring(env)?,
+    })
+}
+
 /// Slice `automations`' wiring from the environment. Only the parts ported here; the others are `none()` until theirs.
 fn automations_wiring(env: &BankEnv) -> Result<automations::Wiring, String> {
     let mut w = automations::Wiring::none();
@@ -648,6 +732,7 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_earn(earn_settings(env))
     .with_cards(cards)
     .with_loans(loans_wiring(env)?)
+    .with_ramps(ramps_wiring(env)?)
     .with_activity(activity_wiring(env)?)
     .with_automations(automations_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {

@@ -116,7 +116,7 @@ export function OtoLink({ order, tick, quote }: { order: Pick<Order, 'linked'>; 
 /** An order's state in words, with the kit's mark: filled reads done, working pending, cancelled and failed failed. */
 function OrderStatusChip({ status, label }: { status: 'filled' | 'working' | 'cancelled' | 'failed'; label: string }) {
   return (
-    <span data-status={status}>
+    <span data-slot="status-tag" data-status={status}>
       <StatusChip status={status === 'filled' ? 'done' : status === 'working' ? 'pending' : 'failed'} label={label} />
     </span>
   );
