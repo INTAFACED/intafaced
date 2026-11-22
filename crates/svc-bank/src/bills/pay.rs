@@ -680,17 +680,6 @@ fn instruction(
     Ok(row)
 }
 
-/// `railBoundary(rail, asset)`.
-fn rail_boundary(rail_id: &str, asset_id: &str) -> LedgerAccount {
-    LedgerAccount {
-        owner_type: "treasury",
-        owner_id: format!("rail:{rail_id}"),
-        asset_id: asset_id.to_owned(),
-        kind: "available",
-        purpose: None,
-    }
-}
-
 /// `forwardKey`: `bank.transfer.rail:<paymentId>:0`.
 pub fn forward_key(payment_id: &str) -> String {
     crate::transfers::moves::bank_transfer_key("rail", payment_id, 0)
@@ -716,7 +705,7 @@ fn post_rail(
     rail_id: &str,
     amount: Amount,
 ) -> Result<LedgerTx, PostFailure> {
-    let boundary = rail_boundary(rail_id, &account.asset_id);
+    let boundary = super::rail_boundary(rail_id, &account.asset_id);
     let (from, to) = if occurrence == 0 {
         (account, &boundary)
     } else {

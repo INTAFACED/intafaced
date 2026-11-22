@@ -7,8 +7,8 @@
 //! (none is published), so loans contribute nothing and say so. Read only: the calendar posts nothing and writes
 //! nothing. Each source is read on its own, so a source that fails names itself and the others still show.
 //!
-//! Standing orders (`transfers`), recurring bills (`bills`), earn and loans are ported slices and are read through their
-//! own functions. Direct debits are read with the SQL `DirectDebitService.dated` runs, on svc-bank's own tables.
+//! Every source is a ported slice, read through its own functions: standing orders (`transfers`), recurring bills and
+//! direct debits (`bills`), earn and loans.
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
@@ -19,7 +19,7 @@ use super::{Deps, user_of};
 use crate::door::Ctx;
 use crate::errors::{Refusal, to_trpc};
 use crate::partner::refuse;
-use crate::spaces::space::{at as time_param, pg, with};
+use crate::spaces::space::{pg, with};
 use crate::transfers::calendar::{Cadence, occurrence_start};
 use crate::transfers::schedules::{self, Schedule};
 
@@ -607,10 +607,6 @@ fn earn(
 // ---------------------------------------------------------------------------------------------------------------
 // The door's sources.
 
-fn ms(col: &str) -> String {
-    format!("floor(extract(epoch from {col}) * 1000)::int8")
-}
-
 #[allow(
     clippy::cast_precision_loss,
     reason = "a page size of at most 200, as the router checked"
@@ -619,8 +615,7 @@ fn as_page(limit: i64) -> f64 {
     limit as f64
 }
 
-/// The sources as the door reads them: the ported slices through their own functions, direct debits with the
-/// TypeScript service's own SQL.
+/// The sources as the door reads them: each slice through its own functions.
 pub struct DoorSources<'a> {
     pub d: &'a Deps<'a>,
 }
@@ -695,42 +690,22 @@ impl Sources for DoorSources<'_> {
         to: Instant,
         limit: i64,
     ) -> Result<Vec<Collection>, Refusal> {
-        // `collections(sql, { userId, due: { from, to, limit } })`, the columns the calendar reads.
-        with(self.d.store(), |c| {
-            c.query(
-                &format!(
-                    "SELECT c.id::text, c.mandate_id, m.creditor_name, c.asset_id, c.amount::text AS amount, {}, \
-                            c.status, c.failure_code \
-                       FROM bank.dd_collections c \
-                       JOIN bank.dd_mandates m ON m.id = c.mandate_id \
-                       LEFT JOIN bank.dd_refund_requests r ON r.collection_row_id = c.id \
-                      WHERE c.user_id = $1::text::uuid \
-                        AND c.due_at >= {} AND c.due_at < {} \
-                      ORDER BY c.due_at ASC, c.id ASC \
-                      LIMIT $4",
-                    ms("c.due_at"),
-                    time_param("$2"),
-                    time_param("$3")
-                ),
-                &[&user_id, &from.0, &to.0, &limit],
-            )
-            .map_err(|e| pg(&e))?
-            .iter()
-            .map(|r| {
-                let amount: String = r.try_get(4).map_err(|e| pg(&e))?;
-                Ok(Collection {
-                    id: r.try_get(0).map_err(|e| pg(&e))?,
-                    mandate_id: r.try_get(1).map_err(|e| pg(&e))?,
-                    creditor_name: r.try_get(2).map_err(|e| pg(&e))?,
-                    asset_id: r.try_get(3).map_err(|e| pg(&e))?,
-                    amount: parse_amount(&amount).map_err(Refusal::Other)?,
-                    due_at: Instant(r.try_get(5).map_err(|e| pg(&e))?),
-                    status: r.try_get(6).map_err(|e| pg(&e))?,
-                    failure_code: r.try_get(7).map_err(|e| pg(&e))?,
-                })
+        let rows = self.d.door.bills_deps(self.d.now, |b| {
+            crate::bills::direct_debits::service::dated(b, user_id, from, to, limit)
+        })?;
+        Ok(rows
+            .into_iter()
+            .map(|c| Collection {
+                id: c.id,
+                mandate_id: c.mandate_id,
+                creditor_name: c.creditor_name,
+                asset_id: c.asset_id,
+                amount: c.amount,
+                due_at: c.due_at,
+                status: c.status,
+                failure_code: c.failure_code,
             })
-            .collect()
-        })
+            .collect())
     }
 
     fn loan_statuses(&self, user_id: &str, limit: i64) -> Result<Vec<String>, Refusal> {

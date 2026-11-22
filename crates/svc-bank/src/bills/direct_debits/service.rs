@@ -419,17 +419,6 @@ fn partner_for<'a>(d: &'a Deps<'a>, user_id: &str) -> Result<Option<AtPartner<'a
     Ok(Some(AtPartner { bank, desk }))
 }
 
-/// `railBoundary(rail, asset)`: the treasury's account for a rail.
-pub fn rail_boundary(rail: &str, asset_id: &str) -> LedgerAccount {
-    LedgerAccount {
-        owner_type: "treasury",
-        owner_id: format!("rail:{rail}"),
-        asset_id: asset_id.to_owned(),
-        kind: "available",
-        purpose: None,
-    }
-}
-
 /// `collectionTransferId`: the ledger transfer id of one collection; its key is `bank.transfer.rail:<this>:0`.
 pub fn collection_transfer_id(mandate_id: &str, collection_id: &str) -> String {
     format!("dd:{mandate_id}:{collection_id}")
@@ -1276,7 +1265,7 @@ fn collect_on_ledger(d: &Deps<'_>, due: &Due, now: Instant) -> Result<Outcome, R
         &transfer_id,
         0,
         &LedgerAccount::user_available(&due.user_id, &due.asset_id),
-        &rail_boundary(rail, &due.asset_id),
+        &crate::bills::rail_boundary(rail, &due.asset_id),
         due.amount,
         "rail",
     );

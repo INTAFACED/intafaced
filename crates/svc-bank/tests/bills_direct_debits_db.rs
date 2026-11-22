@@ -42,10 +42,9 @@ use service_kit::time::{Instant, js_date};
 use svc_bank::bills::direct_debits::scheme::{Catalogue, Creditor, Scheme};
 use svc_bank::bills::direct_debits::service::{
     self, CollectionView, NewMandate, RunReport, collection_partner_key, collection_transfer_id,
-    rail_boundary,
 };
 use svc_bank::bills::direct_debits::{self as dd, desk};
-use svc_bank::bills::{self, Deps};
+use svc_bank::bills::{self, Deps, rail_boundary};
 use svc_bank::db::Store;
 use svc_bank::door::{self, BankDoor, DoorConfig, Kind, ServiceAuth};
 use svc_bank::errors::Refusal;

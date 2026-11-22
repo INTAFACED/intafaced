@@ -47,3 +47,14 @@ impl Deps<'_> {
         self.t.now
     }
 }
+
+/// `railBoundary(rail, asset)`: the ledger boundary a rail's payments post to. Never a partner's or a payee's name.
+pub fn rail_boundary(rail_id: &str, asset_id: &str) -> crate::spaces::ports::LedgerAccount {
+    crate::spaces::ports::LedgerAccount {
+        owner_type: "treasury",
+        owner_id: format!("rail:{rail_id}"),
+        asset_id: asset_id.to_owned(),
+        kind: "available",
+        purpose: None,
+    }
+}
