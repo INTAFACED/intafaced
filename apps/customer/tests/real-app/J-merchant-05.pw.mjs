@@ -248,7 +248,7 @@ test(`${J} #2 opens the list: totals with their period, filters the service appl
   await page.getByRole('button', { name: 'Export these results' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  await dialog.locator('.form-stack > button').last().click();
+  await dialog.locator(':is(.form-stack, .lt-stack) > button').last().click();
   await expect(page.getByRole('status').filter({ hasText: 'Your export is being prepared.' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open exports' })).toHaveAttribute('href', '/pay/reports/exports');
 

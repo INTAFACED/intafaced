@@ -420,7 +420,7 @@ async function ready(page, card, rows, locale = 'en', hidden = false) {
     await expect(a.locator('.money-card-conversion')).toHaveCount(row.conversion === null ? 0 : 1);
     if (row.conversion) {
       const c = a.locator('.money-card-conversion');
-      await expect(c.locator('.numeric')).toHaveText(hidden ? '••••' : quantity(row.conversion.settlementAmount));
+      await expect(c.locator(':is(.numeric, .lt-num)')).toHaveText(hidden ? '••••' : quantity(row.conversion.settlementAmount));
       await expect(c).toContainText(row.conversion.settlementAssetId);
       await expect(c).toContainText(`${quantity(row.conversion.rate)} ${row.conversion.settlementAssetId} / ${card.assetId}`);
       await expect(c).toContainText(row.conversion.rateQuality);
@@ -611,7 +611,7 @@ test('current full card identity, exact decisions and natural arrival at four wi
             expect(r.left).toBeGreaterThanOrEqual(g.bounds.left - 0.5);
             expect(r.right).toBeLessThanOrEqual(g.bounds.right + 0.5);
           }
-        await expect(p.locator('.money-card-configuration .numeric')).toHaveText(quantity(a.perAuthorizationLimit));
+        await expect(p.locator('.money-card-configuration :is(.numeric, .lt-num)')).toHaveText(quantity(a.perAuthorizationLimit));
         await expect(p.locator('.money-card-reference dd')).toHaveAttribute('lang', 'zxx');
         await expect(historyPanel(page, locale).getByRole('article').first().locator('.money-card-status dd')).toHaveAttribute(
           'lang',
@@ -692,7 +692,7 @@ test('current owner-window and real-shaped card failures recover with bounded ne
       ]) {
         state.authorizationReply = async () => make();
         await refreshDecisions(page);
-        await expect(historyPanel(page).locator('.failure')).toBeVisible();
+        await expect(historyPanel(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
         await expect(historyPanel(page).getByRole('article')).toHaveCount(0);
         await snapshot(page, state, 'cards-' + name);
         await captureHandler(historyPanel(page).getByRole('button', { name: 'Try again', exact: true }), '__oldCardRetry');
@@ -751,17 +751,17 @@ test('current owner-window and real-shaped card failures recover with bounded ne
       for (const reply of [readRefusals.unavailable(), { status: 200, data: [{ ...b, perAuthorizationLimit: 'NaN' }] }]) {
         state.listReply = async () => reply;
         await refreshCards(page);
-        await expect(panel(page).locator('.failure')).toBeVisible();
+        await expect(panel(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
         await expect(panel(page).locator('.money-card-identity')).toHaveCount(0);
         await expect(historyPanel(page)).toHaveCount(0);
         await expect(panel(page).locator('.money-card-reference dd')).toHaveText(b.id);
         state.listReply = listNormal;
-        await panel(page).locator('.failure').getByRole('button', { name: 'Try again', exact: true }).click();
+        await panel(page).locator(':is(.failure, .lt-refusal)').getByRole('button', { name: 'Try again', exact: true }).click();
         await ready(page, b, state.authorizationsByCard.get(b.id));
       }
       state.authorizationReply = async () => ({ status: 200, data: [{ ...decisionRows(b)[0], amount: 'NaN' }] });
       await refreshDecisions(page);
-      await expect(historyPanel(page).locator('.failure')).toBeVisible();
+      await expect(historyPanel(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
       state.authorizationReply = normal;
       await retry(page);
       await ready(page, b, state.authorizationsByCard.get(b.id));
