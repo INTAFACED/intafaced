@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { z } from 'zod';
-import { Button, Field, Input } from '@intafaced/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, formatMoney } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
@@ -176,7 +176,7 @@ export function LeadApplyRoom() {
       description={t('description')}
       state={state}
       step={
-        <div className="lead-apply">
+        <div>
           {sent ? <p role="status">{t('sent')}</p> : null}
           {!sent && (current?.state === 'submitted' || current?.state === 'under_review') ? (
             <p>{t('waiting', { name: current.displayName })}</p>
@@ -197,10 +197,16 @@ export function LeadApplyRoom() {
           ) : null}
           {canApply ? (
             <form aria-label={t('title')} onSubmit={(e) => void apply(e)}>
-              <Field label={t('nameLabel')} hint={t('nameHint')}>
-                <Input id={nameId} value={name} onValueChange={setName} maxLength={80} autoComplete="nickname" />
-              </Field>
-              <Button type="submit" variant="primary" loading={busy} disabled={busy}>
+              <Field
+                label={t('nameLabel')}
+                hint={t('nameHint')}
+                id={nameId}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={80}
+                autoComplete="nickname"
+              />
+              <Button type="submit" tone="primary" aria-busy={busy || undefined} disabled={busy}>
                 {t('apply')}
               </Button>
             </form>

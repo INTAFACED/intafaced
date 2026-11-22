@@ -8,6 +8,8 @@ import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
+export * from './b3-live.js';
+
 type Div = React.HTMLAttributes<HTMLDivElement>;
 
 /** A panel. Glass only on the nav and sheet layers; the content layer is solid, and money sits there. */

@@ -685,6 +685,7 @@ const messages = {
   'Spot leaders': 'Spot leaders',
   'Spot trades: margin is what the leader paid, with no leverage. Buys and sells are paired oldest first.':
     'Spot trades: margin is what the leader paid, with no leverage. Buys and sells are paired oldest first.',
+  Stale: 'Stale',
   'Start bot': 'Start bot',
   'Start copying': 'Start copying',
   'Start copying also turns on automatic copying: each new trade the leader makes is placed for you, as you, within these limits, until you turn it off or the permission ends.':
@@ -938,6 +939,7 @@ const messages = {
   '{price} {asset} every {days} days': '{price} {asset} every {days} days',
   '{share} of our fee, paid by the platform from that fee': '{share} of our fee, paid by the platform from that fee',
   '{share} of that fee, paid by the platform from the fee': '{share} of that fee, paid by the platform from the fee',
+  'as of': 'as of',
 } as const;
 
 export const roomCopy = defineCopy('trade.rooms', messages);

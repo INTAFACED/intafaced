@@ -622,3 +622,60 @@
 .lit-gate__card [data-part='body'] {
   color: var(--lit-text-2);
 }
+
+/* Freshness: a shape and a word, never colour alone */
+.lit-fresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  white-space: nowrap;
+}
+.lit-fresh-mark {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+.lit-fresh[data-fresh='live'] {
+  color: var(--lit-accent-text);
+}
+.lit-fresh[data-fresh='live'] .lit-fresh-mark {
+  background: currentColor;
+}
+.lit-fresh[data-fresh='stale'] {
+  color: var(--lit-warn-text);
+}
+.lit-fresh[data-fresh='unknown'] .lit-fresh-mark {
+  border-style: dashed;
+}
+
+/* ChoiceGroup: radios with their own words */
+.lit-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.lit-choices legend {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lit-choices [data-part='choice'] {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: baseline;
+  color: var(--lit-text-1);
+}
+.lit-choices input {
+  accent-color: var(--lit-accent-fill);
+}
+.lit-choices [data-part='hint'] {
+  grid-column: 2;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}

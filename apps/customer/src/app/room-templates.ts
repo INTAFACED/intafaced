@@ -135,7 +135,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/trade/copy/:ref': { template: 'catalogue' },
   '/trade/bots': { template: 'catalogue' },
   '/trade/bots/:kind': { template: 'catalogue' },
-  '/trade/bots/signals/publish': { template: 'flow' },
+  '/trade/bots/signals/publish': { template: 'flow', migrated: { file: 'screens/trade/copybots/PublishSignal.tsx' } },
   '/trade/risk': { template: 'monitor' },
   '/trade/positions': { template: 'monitor' },
   '/trade/account': { template: 'monitor' },
