@@ -1,3 +1,8 @@
+// volt-room: /pay/send
+// volt-room: /pay/request
+// volt-room: /pay/receive
+// volt-room: /pay/bills
+// volt-room: /pay/global
 import { useMemo } from 'react';
 import { FlowTemplate, Tabs, type RoomState } from '@intafaced/ui/lit/templates';
 import type { ScreenProps } from '../../app/screen-types';

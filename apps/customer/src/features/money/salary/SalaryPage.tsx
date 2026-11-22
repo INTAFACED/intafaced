@@ -1,3 +1,4 @@
+// volt-room: /bank/salary
 import { FlowTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { useBankNav } from '../bank-nav';
 import type { ActionSpec } from '../components';

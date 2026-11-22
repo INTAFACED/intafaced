@@ -6,6 +6,8 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api as ledgerApi, journeyState, json, signOutBrowser, signUpInBrowser } from './stack.mjs';
 import { signIn, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-bank-23, in the running app (docs/roadmap/journeys.json): I keep my business books and idle cash in order. Tests
 // titled "J-bank-23 #<n>" prove a step. #4 (business savings and treasury funds) is Later (OWNER 226: custody) and is not
@@ -15,7 +17,10 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // business account whose money is the TEST partner bank's (`custody: 'off'`), with a month of TEST activity: TEST 1000
 // paid in (`testPartner.fundBusiness`) and four TEST card purchases, three at TESTSHOP shops and one at a cafe, on a card
 // the owner holds. Every line is one line of the TEST partner's own record; the ledger posts nothing, which each step
-// checks on the owner's ledger figures. Each step opens a business of its own.
+// checks on the owner's ledger figures. Each step opens a business of its own. #3 compares each exported file with the
+// partner's own book: the TEST partner bank's record of the business's account (`business:<account id>`), its balance
+// and its moves, read on loopback straight from the stand-in (svc-bank src/partner/test-partner-record.ts) through the
+// outside record read (venue.mjs venueRecord and venueBalance), never through anyone's bank API.
 const J = 'J-bank-23';
 const RUN = Date.now().toString(36);
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -27,6 +32,8 @@ const ACTIVITY = [
   ['testshop kiosk', '7.3'],
 ];
 const DAY = 24 * 60 * 60 * 1000;
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts). */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
 test.describe.configure({ mode: 'default' });
@@ -125,6 +132,19 @@ async function business(o, tag) {
 /** The TEST partner's own statement of the business's account for the period, straight from its book. */
 async function partnerStatement(b, period) {
   return ok(await b.own.query('testPartner.businessStatement', { accountId: b.accountId, ...period }));
+}
+
+/**
+ * The partner's own book of the business's account (`business:<account id>`), read on loopback: what it holds in the
+ * account's currency now, and its moves booked in the period, each signed as the account sees it.
+ */
+async function partnerBook(b, period, assetId = 'EUR') {
+  const owner = `business:${b.accountId}`;
+  const held = (await venueBalance(owner, assetId, PARTNER_RECORD)).total;
+  const moves = (await venueRecord(owner, '/moves', {}, PARTNER_RECORD, null)).value
+    .filter((m) => m.movedAt >= period.from && m.movedAt < period.to)
+    .map((m) => ({ id: m.id, amount: m.to.owner === owner ? m.amount : `-${m.amount}` }));
+  return { held, moves };
 }
 
 /** The business's lines as the bank lists them for the period. */
@@ -287,6 +307,7 @@ test(`${J} #2 writes a rule "payee contains TESTSHOP sets Supplies": a test run 
 
 test(`${J} #3 exports a month in four formats: each file has the same closing balance and line count as the partner's statement, each line carries its id, history window and SCA apply`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(900_000);
   const o = await freshOwner(page, 'jb23s');
@@ -296,6 +317,13 @@ test(`${J} #3 exports a month in four formats: each file has the same closing ba
   expect(theirs).toMatchObject({ label: PARTNER_BANK, opening: '0', closing: '946', lines: ACTIVITY.length + 1 });
   const ids = (await lines(b, month)).map((l) => l.id);
   expect(ids).toHaveLength(theirs.lines);
+  // The partner's own book: the business's account holds the closing balance, its moves this month are the lines, by id,
+  // and they add up from the opening balance to the closing one.
+  const book = await partnerBook(b, month);
+  expect(book.held).toBe(theirs.closing);
+  expect(book.moves).toHaveLength(theirs.lines);
+  expect([...ids].sort()).toEqual(book.moves.map((m) => m.id).sort());
+  expect(book.moves.reduce((t, m) => t + units(m.amount), units(theirs.opening))).toBe(units(theirs.closing));
   await inBusiness(page, o.who, b.name);
   await expect(page.getByTestId('books-window')).toHaveText(
     'TEST partner bank keeps 400 days of history. A month further back than 90 days needs a fresh confirmation.',
@@ -313,9 +341,16 @@ test(`${J} #3 exports a month in four formats: each file has the same closing ba
     await expect(shown).toHaveAttribute('data-closing', theirs.closing);
     await expect(shown).toHaveAttribute('data-lines', String(theirs.lines));
     await expect(shown).toHaveAttribute('data-partner-closing', theirs.closing);
-    for (const id of ids) expect(files[format].text, `${format} names line ${id}`).toContain(id);
+    await expect(shown).toHaveAttribute('data-closing', book.held);
+    await expect(shown).toHaveAttribute('data-lines', String(book.moves.length));
+    for (const m of book.moves) expect(files[format].text, `${format} names the partner's move ${m.id}`).toContain(m.id);
   }
-  // Each format states the partner's closing balance and line count in its own terms.
+  // The step's picture: the month's four files on screen, each with the partner's closing balance and line count. From
+  // the top, so the page's sticky bar sits where it belongs in the whole-page picture.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await stepPicture(page);
+  // Each format states the partner's closing balance and line count in its own terms; the partner's book above holds the
+  // same closing balance and the same number of moves.
   expect(files.csv.text).toContain(`Closing balance,${theirs.closing}`);
   expect(files.csv.text).toContain(`Line count,${theirs.lines}`);
   expect(files.mt940.text).toMatch(
@@ -343,6 +378,8 @@ test(`${J} #3 exports a month in four formats: each file has the same closing ba
   ).toMatchObject({ ok: false, code: 'bank.step_up_required' });
   // Read before an authenticator is set up: it ends this person's other sessions, and a new one would need its code.
   const oldTheirs = await partnerStatement(b, backMonth);
+  const oldBook = await partnerBook(b, backMonth);
+  expect(oldBook.moves).toHaveLength(oldTheirs.lines);
   await ledgerUnchanged(o);
   const { totp } = await totpLib();
   const { secret, step } = await addAuthenticator(page, totp);

@@ -1,3 +1,7 @@
+// volt-room: /pay/scan
+// volt-room: /pay/request/:requestId
+// volt-room: /pay/claim/:token
+// volt-room: /pay/l/:linkId
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Button, EmptyState, Field } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, RefusalBox, type KeyValueRow, type RoomState } from '@intafaced/ui/lit/templates';

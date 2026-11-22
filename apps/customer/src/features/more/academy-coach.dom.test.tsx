@@ -15,6 +15,9 @@ const route = {
   outputPerMillion: '0',
   assetId: 'IFC',
   engine: 'sandbox',
+  // The router's answer always carries both (svc-agents routes.list output, now the record's).
+  capability: 'complete',
+  metered: false,
 };
 
 vi.mock('../../shared/preferences', async (original) => {

@@ -291,50 +291,6 @@ pub fn assert_allows(
     Ok(decision)
 }
 
-/// `OwnAccessStore.assertAllows` (`own/access.ts`): an action naming a sub-account is refused when no live access
-/// covers it (`agents.access_account_denied`) or the access covering it has ended (`agents.access_expired`); the
-/// main account is not decided here. The access grants themselves are the `own-sharing` slice's.
-pub fn assert_access_allows(
-    pool: &Pool,
-    owner_id: &str,
-    agent_id: &str,
-    account: &str,
-    now: Instant,
-) -> Result<(), OwnError> {
-    let Some(sub) = account.strip_prefix("sub:") else {
-        return Ok(());
-    };
-    let rows = db::with_client(pool, |c| {
-        Ok(c.query(
-            &format!(
-                "SELECT {} FROM agents.own_agent_account_access
-                  WHERE owner_id = $1::text AND agent_id = $2::text::uuid AND ended_at IS NULL
-                    AND sub_account = $3::text
-                  ORDER BY granted_at DESC, name, id
-                  LIMIT 1",
-                ms("ends_at")
-            ),
-            &[&owner_id, &agent_id, &sub],
-        )?)
-    })?;
-    let Some(row) = rows.first() else {
-        return Err(OwnRefusal::with(
-            "agents.access_account_denied",
-            [("account", account.to_owned())],
-        )
-        .into());
-    };
-    let ends_at = Instant(row.try_get(0).map_err(StoreError::from)?);
-    if ends_at.0 <= now.0 {
-        return Err(OwnRefusal::with(
-            "agents.access_expired",
-            [("account", account.to_owned()), ("endedAt", ends_at.iso())],
-        )
-        .into());
-    }
-    Ok(())
-}
-
 /// The refusals `own.policy.check` and `own.policy.forService` answer FORBIDDEN.
 pub fn policy_refused(code: &str) -> Option<&'static str> {
     matches!(

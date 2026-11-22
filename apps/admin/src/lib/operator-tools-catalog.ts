@@ -14,6 +14,7 @@ import {
   IDENTITY_KYC_CAPABILITIES_GET_FOR,
   IDENTITY_KYC_CAPABILITIES_SET,
 } from '@intafaced/contracts/identity-kyc-procedures';
+import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -426,9 +427,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'token',
     label: 'Distribute revenue window',
     summary: 'Hand-invoked yield settlement. Amounts are typed by the operator — no houseFees auto-read.',
-    edgeModule: 'token',
-    procedure: 'distributeRevenue',
-    kind: 'mutation',
+    ...toolOf(TOKEN_DISTRIBUTE_REVENUE),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,

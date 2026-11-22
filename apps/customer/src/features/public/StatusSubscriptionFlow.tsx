@@ -1,3 +1,5 @@
+// volt-room: /status/confirm
+// volt-room: /status/unsubscribe
 import { useState } from 'react';
 import { Button, ChoiceGroup, Field, RefusalBox } from '@intafaced/ui/lit';
 import { Checkbox, FlowTemplate } from '@intafaced/ui/lit/templates';

@@ -88,7 +88,7 @@
     },
     "fleet.audit valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.audit absent anon": {
       "status": 401,
@@ -108,7 +108,7 @@
     },
     "fleet.audit absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.audit wrong-type anon": {
       "status": 401,
@@ -128,7 +128,7 @@
     },
     "fleet.audit wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.audit empty anon": {
       "status": 401,
@@ -148,7 +148,7 @@
     },
     "fleet.audit empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.audit extra-key anon": {
       "status": 401,
@@ -168,7 +168,7 @@
     },
     "fleet.audit extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.export valid anon": {
       "status": 401,
@@ -188,7 +188,7 @@
     },
     "fleet.export valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.export absent anon": {
       "status": 401,
@@ -208,7 +208,7 @@
     },
     "fleet.export absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.export wrong-type anon": {
       "status": 401,
@@ -228,7 +228,7 @@
     },
     "fleet.export wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.export empty anon": {
       "status": 401,
@@ -248,7 +248,7 @@
     },
     "fleet.export empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.export extra-key anon": {
       "status": 401,
@@ -268,7 +268,7 @@
     },
     "fleet.export extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.killKind valid anon": {
       "status": 401,
@@ -288,7 +288,7 @@
     },
     "fleet.killKind valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.killKind absent anon": {
       "status": 401,
@@ -308,7 +308,7 @@
     },
     "fleet.killKind absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.killKind wrong-type anon": {
       "status": 401,
@@ -328,7 +328,7 @@
     },
     "fleet.killKind wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.killKind empty anon": {
       "status": 401,
@@ -348,7 +348,7 @@
     },
     "fleet.killKind empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.killKind extra-key anon": {
       "status": 401,
@@ -368,7 +368,7 @@
     },
     "fleet.killKind extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.quarantine valid anon": {
       "status": 401,
@@ -388,7 +388,7 @@
     },
     "fleet.quarantine valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.quarantine absent anon": {
       "status": 401,
@@ -408,7 +408,7 @@
     },
     "fleet.quarantine absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.quarantine wrong-type anon": {
       "status": 401,
@@ -428,7 +428,7 @@
     },
     "fleet.quarantine wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.quarantine empty anon": {
       "status": 401,
@@ -448,7 +448,7 @@
     },
     "fleet.quarantine empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.quarantine extra-key anon": {
       "status": 401,
@@ -468,7 +468,7 @@
     },
     "fleet.quarantine extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.reassign valid anon": {
       "status": 401,
@@ -488,7 +488,7 @@
     },
     "fleet.reassign valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.reassign absent anon": {
       "status": 401,
@@ -508,7 +508,7 @@
     },
     "fleet.reassign absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.reassign wrong-type anon": {
       "status": 401,
@@ -528,7 +528,7 @@
     },
     "fleet.reassign wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.reassign empty anon": {
       "status": 401,
@@ -548,7 +548,7 @@
     },
     "fleet.reassign empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.reassign extra-key anon": {
       "status": 401,
@@ -568,7 +568,7 @@
     },
     "fleet.reassign extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.registry valid anon": {
       "status": 401,
@@ -588,7 +588,7 @@
     },
     "fleet.registry valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.registry absent anon": {
       "status": 401,
@@ -608,7 +608,7 @@
     },
     "fleet.registry absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.registry wrong-type anon": {
       "status": 401,
@@ -628,7 +628,7 @@
     },
     "fleet.registry wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.registry empty anon": {
       "status": 401,
@@ -648,7 +648,7 @@
     },
     "fleet.registry empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.registry extra-key anon": {
       "status": 401,
@@ -668,7 +668,7 @@
     },
     "fleet.registry extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restore valid anon": {
       "status": 401,
@@ -688,7 +688,7 @@
     },
     "fleet.restore valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restore absent anon": {
       "status": 401,
@@ -708,7 +708,7 @@
     },
     "fleet.restore absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restore wrong-type anon": {
       "status": 401,
@@ -728,7 +728,7 @@
     },
     "fleet.restore wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restore empty anon": {
       "status": 401,
@@ -748,7 +748,7 @@
     },
     "fleet.restore empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restore extra-key anon": {
       "status": 401,
@@ -768,7 +768,7 @@
     },
     "fleet.restore extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restoreKind valid anon": {
       "status": 401,
@@ -788,7 +788,7 @@
     },
     "fleet.restoreKind valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restoreKind absent anon": {
       "status": 401,
@@ -808,7 +808,7 @@
     },
     "fleet.restoreKind absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restoreKind wrong-type anon": {
       "status": 401,
@@ -828,7 +828,7 @@
     },
     "fleet.restoreKind wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restoreKind empty anon": {
       "status": 401,
@@ -848,7 +848,7 @@
     },
     "fleet.restoreKind empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\"}}}"
     },
     "fleet.restoreKind extra-key anon": {
       "status": 401,
@@ -868,7 +868,7 @@
     },
     "fleet.restoreKind extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.fleet_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"<request>\"}}}"
     }
   }
 }

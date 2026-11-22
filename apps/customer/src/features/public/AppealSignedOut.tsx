@@ -1,3 +1,4 @@
+// volt-room: /appeal
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
