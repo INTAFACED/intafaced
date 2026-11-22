@@ -723,21 +723,21 @@ export default function Portfolio() {
   }
 
   // What the person watches beside the holdings: today's best and worst movers.
-  const watching =
-    view && !loading && portfolio.status !== 'empty' ? (
-      <Movers
-        view={view}
-        hidden={hideBalances}
-        copy={copy}
-        sinceLabel={
-          view.windowStart !== null
-            ? t('Movers since {time}', { time: clockTime(view.windowStart, timeZone) })
-            : view.source === 'derived'
-              ? t('Today, from price moves')
-              : t('Today')
-        }
-      />
-    ) : undefined;
+  // While it loads the side column holds its skeleton (null), so the main column keeps the width it has once loaded.
+  const watching = loading ? null : view && portfolio.status !== 'empty' ? (
+    <Movers
+      view={view}
+      hidden={hideBalances}
+      copy={copy}
+      sinceLabel={
+        view.windowStart !== null
+          ? t('Movers since {time}', { time: clockTime(view.windowStart, timeZone) })
+          : view.source === 'derived'
+            ? t('Today, from price moves')
+            : t('Today')
+      }
+    />
+  ) : undefined;
 
   const scopeOptions = [
     { value: 'combined', label: t('All accounts') },
