@@ -9,7 +9,7 @@ import {
 } from '@intafaced/contracts/academy-catalogue';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Choice } from '@intafaced/ui/lit';
+import { Button, Radio } from '@intafaced/ui/lit';
 import { usePreferences } from '../../shared/preferences';
 import { useApi, useSession } from '../session';
 import { leaveReceipt } from './academy-flows';
@@ -236,27 +236,23 @@ export function CourseEnrolView({
               const id = `academy-enrol-${terms.slug}-${row.track}`;
               return (
                 <div key={row.track}>
-                  <Choice
+                  <Radio
                     id={id}
-                    type="radio"
                     name={`academy-enrol-${terms.slug}`}
                     value={row.track}
                     checked={chosen === row.track}
                     disabled={!choosable(row) || terms.closed !== null}
                     aria-describedby={row.closed ? `${id}-closed` : undefined}
-                    onChange={() => setPicked(row.track)}
-                    label={
-                      <>
-                        {t(TRACK_KEYS[row.track])}
-                        {row.free && (
-                          <span className="lt-hint">
-                            {' · '}
-                            <Copy k="trackFree" />
-                          </span>
-                        )}
-                      </>
-                    }
-                  />
+                    onSelect={() => setPicked(row.track)}
+                  >
+                    {t(TRACK_KEYS[row.track])}
+                    {row.free && (
+                      <span className="lt-hint">
+                        {' · '}
+                        <Copy k="trackFree" />
+                      </span>
+                    )}
+                  </Radio>
                   {row.closed && (
                     <small id={`${id}-closed`} className="lt-hint">
                       {' '}

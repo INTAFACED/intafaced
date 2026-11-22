@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, Choice, Field } from '@intafaced/ui/lit';
+import { Button, Checkbox, Field, Radio } from '@intafaced/ui/lit';
 import { useDataEnv } from '../../../data/hooks';
 import { readContract, writeContract } from '../../../shared/contract-call';
 import type { ApiResult } from '../../../shared/api';
@@ -117,22 +117,27 @@ export function StatusSubscribe({ components }: { components: StatusPage['compon
             onChange={(event) => setEmail(event.target.value)}
           />
           <fieldset className="lt-stack">
-            <Choice type="radio" name="scope" checked={all} onChange={() => setAll(true)} label={t('allComponents')} />
+            <Radio name="scope" checked={all} onSelect={() => setAll(true)}>
+              {t('allComponents')}
+            </Radio>
             {components.length > 0 ? (
-              <Choice type="radio" name="scope" checked={!all} onChange={() => setAll(false)} label={t('pickComponents')} />
+              <Radio name="scope" checked={!all} onSelect={() => setAll(false)}>
+                {t('pickComponents')}
+              </Radio>
             ) : null}
             {!all
               ? components.map((component) => (
-                  <Choice
+                  <Checkbox
                     key={component.id}
                     name="component"
                     value={component.id}
                     checked={picked.includes(component.id)}
-                    onChange={(event) =>
-                      setPicked((now) => (event.target.checked ? [...now, component.id] : now.filter((id) => id !== component.id)))
+                    onCheckedChange={(checked) =>
+                      setPicked((now) => (checked ? [...now, component.id] : now.filter((id) => id !== component.id)))
                     }
-                    label={component.name}
-                  />
+                  >
+                    {component.name}
+                  </Checkbox>
                 ))
               : null}
           </fieldset>

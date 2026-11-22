@@ -191,47 +191,6 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
-/**
- * A labelled list to pick from, a labelled box of several lines, and a tick or round choice with its words: the native
- * controls, drawn by the kit inside `lt-field` (templates.css), so no room draws a raw control of its own.
- */
-export type SelectFieldProps = React.SelectHTMLAttributes<HTMLSelectElement> & { label: string; hint?: string };
-
-export function SelectField({ label, hint, className, children, ...rest }: SelectFieldProps) {
-  return (
-    <label className={clsx('lt-field', className)}>
-      <span>{label}</span>
-      <select {...rest}>{children}</select>
-      {hint ? <small>{hint}</small> : null}
-    </label>
-  );
-}
-
-export type TextFieldProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string };
-
-export function TextField({ label, hint, error, className, ...rest }: TextFieldProps) {
-  return (
-    <label className={clsx('lt-field', className)}>
-      <span>{label}</span>
-      <textarea {...rest} aria-invalid={error ? true : rest['aria-invalid']} />
-      {error ? <small role="alert">{error}</small> : hint ? <small>{hint}</small> : null}
-    </label>
-  );
-}
-
-export type ChoiceProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
-  label: React.ReactNode;
-  type?: 'checkbox' | 'radio';
-};
-
-export function Choice({ label, type = 'checkbox', className, ...rest }: ChoiceProps) {
-  return (
-    <label className={clsx('lt-field', className)}>
-      <input {...rest} type={type} /> {label}
-    </label>
-  );
-}
-
 export type SelectOption = string | { value: string; label: string };
 
 export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'onChange' | 'children'> & {

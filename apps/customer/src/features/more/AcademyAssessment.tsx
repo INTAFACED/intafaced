@@ -10,7 +10,7 @@ import { type AcademyQuiz, type AcademyQuizAttempt, type AcademyQuizReview } fro
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { Button, Choice } from '@intafaced/ui/lit';
+import { Button, Radio } from '@intafaced/ui/lit';
 import { StatusChip } from '@intafaced/ui/lit/templates';
 import { useApi, useSession } from '../session';
 import { academyCodeOf, academyRefusalKey, readAttempts, readQuiz, type Attempt } from './academy-flows';
@@ -197,15 +197,15 @@ export function TimedQuizView(props: TimedQuizViewProps) {
               <span lang="und">{question.prompt}</span>
             </legend>
             {question.choices.map((choice) => (
-              <Choice
+              <Radio
                 key={choice.id}
-                type="radio"
                 name={`${id}-${question.id}`}
                 value={choice.id}
                 checked={attempt.answers[question.id] === choice.id}
-                onChange={() => props.onAnswer(question.id, choice.id)}
-                label={<span lang="und">{choice.text}</span>}
-              />
+                onSelect={() => props.onAnswer(question.id, choice.id)}
+              >
+                <span lang="und">{choice.text}</span>
+              </Radio>
             ))}
           </fieldset>
           <p className="lt-hint" role="status">

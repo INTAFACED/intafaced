@@ -3,7 +3,7 @@ import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyRecord } from '@intafaced/contracts/api-keys';
 import type { LimitRequest, RateTiersOutput } from '@intafaced/contracts/api-rate-limits';
 import type { ApiResult } from '../../../shared/api';
-import { Button, Field, SelectField } from '@intafaced/ui/lit';
+import { Button, Field, Select } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
 import { readDeveloperKeys } from '../../account';
 import { FailureNote } from '../../more';
@@ -257,13 +257,13 @@ function LimitRequests({ tiers, tiersSet }: { tiers: RateTiersOutput | null; tie
         )}
         {tiersSet && keys.read.status === 'ready' && live.length === 0 && <p className="lt-hint">{t('formNoKeys')}</p>}
         {keys.read.status === 'failed' && <p className="lt-refusal">{t('requestsFailed')}</p>}
-        <SelectField label={t('fieldKey')} name="keyId" disabled={!formOpen || busy} required>
-          {live.map((key) => (
-            <option key={key.id} value={key.id}>
-              {key.name}
-            </option>
-          ))}
-        </SelectField>
+        <Select
+          label={t('fieldKey')}
+          name="keyId"
+          disabled={!formOpen || busy}
+          required
+          options={live.map((key) => ({ value: key.id, label: key.name }))}
+        />
         <Field label={t('fieldAsked')} hint={t('fieldAskedHint')} name="asked" inputMode="numeric" disabled={!formOpen || busy} />
         <Field label={t('fieldSpikeStarts')} hint={t('fieldSpikeHint')} name="spikeStarts" type="date" disabled={!formOpen || busy} />
         <Field label={t('fieldSpikeEnds')} name="spikeEnds" type="date" disabled={!formOpen || busy} />

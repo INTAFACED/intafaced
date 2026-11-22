@@ -5,7 +5,7 @@ import { tradeSchema } from '@intafaced/exchange-contract/schemas';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema } from '../../shared/money';
-import { Button, Choice } from '@intafaced/ui/lit';
+import { Button, Checkbox } from '@intafaced/ui/lit';
 import { SelectField } from '@intafaced/ui/lit/templates';
 import { KitDetails } from './volt-action';
 import { KitRead, ScrollTable, Section } from './volt-parts';
@@ -164,13 +164,14 @@ export function Workbook({ slug }: { slug: string }) {
                 </p>
                 <div className="lt-stack">
                   {d.steps.map((s) => (
-                    <Choice
+                    <Checkbox
                       key={s.id}
                       aria-label={copyText('workbook.complete.2', { value1: s.instruction })}
                       checked={steps.includes(s.id)}
-                      onChange={(e) => setSteps((ids) => (e.target.checked ? [...ids, s.id] : ids.filter((id) => id !== s.id)))}
-                      label={s.instruction}
-                    />
+                      onCheckedChange={(checked) => setSteps((ids) => (checked ? [...ids, s.id] : ids.filter((id) => id !== s.id)))}
+                    >
+                      {s.instruction}
+                    </Checkbox>
                   ))}
                 </div>
                 <h3>
@@ -191,12 +192,15 @@ export function Workbook({ slug }: { slug: string }) {
                       {rows.map((f) => (
                         <tr key={f.id}>
                           <td>
-                            <Choice
+                            <Checkbox
                               aria-label={copyText('workbook.attach.fill', { value1: f.id })}
                               checked={fillIds.includes(f.id)}
-                              onChange={(e) => setFillIds((ids) => (e.target.checked ? [...ids, f.id] : ids.filter((id) => id !== f.id)))}
-                              label={null}
-                            />
+                              onCheckedChange={(checked) =>
+                                setFillIds((ids) => (checked ? [...ids, f.id] : ids.filter((id) => id !== f.id)))
+                              }
+                            >
+                              {null}
+                            </Checkbox>
                           </td>
                           <td>{f.id}</td>
                           <td>{f.side}</td>
