@@ -11,7 +11,7 @@
  */
 import { AuthError, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
-import { JurisdictionError } from '@intafaced/contracts';
+import { JurisdictionError } from '@intafaced/contracts/trpc';
 
 export function assertPlaceEligible(input: { readonly tier: Principal['tier']; readonly region: string }): void {
   if (TIER_ORDER[input.tier] < TIER_ORDER.basic) {

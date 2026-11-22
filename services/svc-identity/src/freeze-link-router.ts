@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { publicProcedure, router, TRPCError } from '@intafaced/contracts';
+import { publicProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { freezeLinkRedeemSchema } from '@intafaced/contracts/identity';
 import type { AuthService } from './auth/auth-service.js';
 import { FreezeLinkError } from './auth/freeze-link.js';

@@ -10,7 +10,7 @@
  * No lent-out account exists for an earn pool, so utilisation is null with
  * `utilisation_not_recorded`. The output is counts and totals, never a per-user row.
  */
-import { anyScopeProcedure } from '@intafaced/contracts';
+import { anyScopeProcedure } from '@intafaced/contracts/trpc';
 import { earnStakeAccount, formatAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { z } from 'zod';

@@ -1,14 +1,8 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { hasScope } from '@intafaced/auth';
-import {
-  OPS_ALERT_HEALTH,
-  OPS_ALERT_STATES,
-  opsAlertRuleDraftSchema,
-  opsAlertRuleSchema,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+import { OPS_ALERT_HEALTH, OPS_ALERT_STATES, opsAlertRuleDraftSchema, opsAlertRuleSchema } from '@intafaced/contracts/ops-alert-rules';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   OPS_ALERT_FORBIDDEN,
   OPS_ALERT_HISTORY_RETENTION_UNSET,
@@ -28,7 +22,7 @@ import {
   opsAlertRouteSaveSchema,
   opsAlertRouteTreeSchema,
   opsAlertSilenceSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-alert-notify';
 import { assertIdempotencyKey } from '../operator-desks.js';
 import { assertOpsListLimit } from '../list-limit.js';
 import type { Actor, AlertRules, RuleCursor } from './rules.js';

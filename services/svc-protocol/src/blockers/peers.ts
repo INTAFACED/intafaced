@@ -1,7 +1,8 @@
 import { DEX_HEALTH, type DexHealth } from '@intafaced/contracts/dex-procedures';
 import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
-import { indexerStatusSchema, type BlockerSource, type IndexerStatus } from '@intafaced/contracts';
+import type { BlockerSource, IndexerStatus } from '@intafaced/contracts';
+import { indexerStatusSchema } from '@intafaced/contracts/protocol-blockers';
 
 /**
  * Where `protocol.blockers` learns what the indexer and the DEX say about themselves.

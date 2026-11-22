@@ -1,13 +1,6 @@
 import { encodeFunctionData, getAddress, parseAbi, parseAbiItem, type Address, type PublicClient } from 'viem';
-import {
-  ESCROW_AUDIT_EXTERNAL,
-  ESCROW_DEAL_NOT_FOUND,
-  ESCROW_NOT_DEPLOYED,
-  type ProtocolEscrowBuild,
-  type ProtocolEscrowBuildInput,
-  type ProtocolEscrowDeal,
-  type ProtocolEscrowStatus,
-} from '@intafaced/contracts';
+import type { ProtocolEscrowBuild, ProtocolEscrowBuildInput, ProtocolEscrowDeal, ProtocolEscrowStatus } from '@intafaced/contracts';
+import { ESCROW_AUDIT_EXTERNAL, ESCROW_DEAL_NOT_FOUND, ESCROW_NOT_DEPLOYED } from '@intafaced/contracts/protocol-escrow';
 import { isZeroAddress } from '../chain/availability.js';
 
 /**

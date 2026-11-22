@@ -3,7 +3,7 @@
  * No operator cancel lives here.
  */
 import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
 import { AccountClosureService, ClosureError, type ClosureView } from './closure-service.js';
 

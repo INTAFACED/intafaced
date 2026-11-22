@@ -1,4 +1,5 @@
-import { QUANT_ALERT_LIST_MAX, router } from '@intafaced/contracts';
+import { QUANT_ALERT_LIST_MAX } from '@intafaced/contracts/quant-algo';
+import { router } from '@intafaced/contracts/trpc';
 import { QUANT_VERSION_NOT_FOUND, QuantError } from '../errors.js';
 import { alertKey, checkTemplate } from '../notify/rules.js';
 import { toTrpc, alertView, missingStrategy, type QuantCore, quantRefusal } from './core.js';

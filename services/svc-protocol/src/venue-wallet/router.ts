@@ -1,4 +1,4 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PROTOCOL_VENUE_WALLET_AUTHORIZE,
   PROTOCOL_VENUE_WALLET_CHALLENGE,

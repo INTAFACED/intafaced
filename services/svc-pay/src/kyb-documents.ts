@@ -1,16 +1,15 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
-import {
-  kybDocumentRowSchema,
-  kybUploadRulesSchema,
-  type KybDocumentChecklistView,
-  type KybDocumentFile,
-  type KybDocumentReviewView,
-  type KybDocumentRow,
-  type KybDocumentVerdict,
-  type KybUploadRules,
+import type {
+  KybDocumentChecklistView,
+  KybDocumentFile,
+  KybDocumentReviewView,
+  KybDocumentRow,
+  KybDocumentVerdict,
+  KybUploadRules,
 } from '@intafaced/contracts';
+import { kybDocumentRowSchema, kybUploadRulesSchema } from '@intafaced/contracts/kyb-documents';
 import { KybError } from './kyb-service.js';
 import type { KybEntityTypeService } from './kyb-entity-types.js';
 

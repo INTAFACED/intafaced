@@ -6,7 +6,7 @@ import { formatAmount, InsufficientFundsError, type Amount } from '@intafaced/le
 import { AgentError } from '../errors.js';
 import { UsageOwedError } from '../metering/meter.js';
 import type { AgentRuntime } from '../runtime.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /**
  * A session's background runs (AG-sessions-04, AG-control-01; J-agents-06). A person starts a run on their own open
