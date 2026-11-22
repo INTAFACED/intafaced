@@ -3,9 +3,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-// Pins two money-input rules the Volt redraw keeps from the old kit (#9570): the Request and Global amount boxes clean
-// a pasted "1,234.56" and read a typed "," as the decimal point, as AmountInput did; and a sheet whose save is in flight
-// cannot be dismissed by Escape or its Close. Every answer here is TEST data.
+// Two money-input rules: the Request and Global amount boxes clean a pasted "1,234.56" and read a typed "," as the
+// decimal point; and a sheet whose save is in flight cannot be dismissed by Escape or its Close. Every answer here is
+// TEST data.
 
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();

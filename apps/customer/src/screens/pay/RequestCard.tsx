@@ -212,7 +212,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
                 ))}
               </select>
             </div>
-            {/* The old kit's AmountInput rules: a typed "," is the decimal point, a paste is cleaned ("1,234.56"). */}
+            {/* A typed "," is the decimal point; a pasted "1,234.56" is cleaned to 1234.56. */}
             <DecimalField
               label={t('reqAmount')}
               aria-label={t('reqAmount')}

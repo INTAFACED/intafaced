@@ -773,7 +773,7 @@ export function GlobalCard() {
         </fieldset>
         <fieldset className="lt-region lt-review" disabled={locked || stepUpOpen}>
           <div className="lt-field">
-            {/* The old kit's AmountInput rules: a typed "," is the decimal point, a paste is cleaned ("1,234.56"). */}
+            {/* A typed "," is the decimal point; a pasted "1,234.56" is cleaned to 1234.56. */}
             <DecimalField
               label={g('amountLabel')}
               enterKeyHint="done"
