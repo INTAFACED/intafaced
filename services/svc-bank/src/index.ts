@@ -46,7 +46,11 @@ import { testPayInRailFor } from './pay-yourself/test-pay-in.js';
 import { salaryView } from './salary/salary.router.js';
 import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
-import { rampMetricsView } from './ops/ramp-metrics.js';
+import {
+  answerTestRampPartnerRecord,
+  TEST_RAMP_PARTNER_RECORD_BASE,
+  TEST_RAMP_PARTNER_RECORD_PATHS,
+} from './ramps/test-ramp-partner-record.js';
 import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
 import {
   answerTestCardPartnerRecord,
@@ -959,32 +963,23 @@ if (testPartner) {
   app.post(`${TEST_PARTNER_RECORD_BASE}/dd-refund`, read);
 }
 /**
- * LOCAL TEST: the TEST ramp partner's own report on loopback (J-bank-28 #3), so a journey compares the finance desk's ramp
- * metrics with what the partner itself recorded. Mounted only with the pay-in stand-in, which refuses to start outside
- * `dev`/`test`; a caller off loopback is refused.
+ * LOCAL TEST: the TEST ramp partner's own report on loopback (`ramps/test-ramp-partner-record.ts`), so a journey compares
+ * the finance desk's ramp metrics with what the partner itself recorded (J-bank-28 #3). Mounted only with the pay-in
+ * stand-in, which refuses to start outside `dev`/`test`; a caller off loopback is refused.
  */
 const rampBook = onrampPartner?.book;
 if (rampBook) {
-  app.get('/test-ramp-partner/report', async (req, reply) => {
+  const book = rampBook;
+  const read = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
-    return reply
-      .code(200)
-      .header('cache-control', 'no-store')
-      .send({ label: 'TEST', value: rampMetricsView(rampBook.report()).partner });
-  });
-  // The TEST age door: the partner's clock passes for one order it opened (no wall-clock wait in a journey).
-  app.post('/test-ramp-partner/age', async (req, reply) => {
-    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
-    const body = (req.body ?? {}) as { orderId?: unknown; seconds?: unknown };
-    if (typeof body.orderId !== 'string' || typeof body.seconds !== 'number') {
-      return reply.code(400).send({ error: 'orderId and seconds are required' });
-    }
-    const aged = rampBook.age(body.orderId, Math.round(body.seconds * 1000));
-    return reply
-      .code(aged ? 200 : 404)
-      .header('cache-control', 'no-store')
-      .send(aged ? { label: 'TEST', aged: true } : { error: 'no such order' });
-  });
+    const below = (req.url.split('?')[0] ?? '').slice(TEST_RAMP_PARTNER_RECORD_BASE.length);
+    const [status, body] = answerTestRampPartnerRecord({ book, method: req.method, path: below, body: req.body ?? null });
+    return reply.code(status).header('cache-control', 'no-store').send(body);
+  };
+  for (const path of TEST_RAMP_PARTNER_RECORD_PATHS) {
+    if (path === '/venue') app.get(`${TEST_RAMP_PARTNER_RECORD_BASE}${path}`, read);
+    else app.post(`${TEST_RAMP_PARTNER_RECORD_BASE}${path}`, read);
+  }
 }
 /**
  * LOCAL TEST: the TEST card partner's own book on loopback (`cards/test-card-partner-record.ts`), so a journey compares
