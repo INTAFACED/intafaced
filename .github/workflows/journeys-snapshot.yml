@@ -1,0 +1,117 @@
+# Main's seeded stack snapshot (project-state#3703): a pull request's Real-app journeys run starts from a TEST stack
+# main seeded, keyed on what the seed is made from (tooling/scripts/local-test-snapshot.mjs). Main's Real-app journeys
+# run used to keep it, but that run waits behind main's previous full run (30 to 45 minutes), so for 40 to 55 minutes
+# after each of about 17 seed-input changes a day every pull request seeded its own: 8 to 9.5 minutes of build instead
+# of 2 to 3 (runs 45000417817, 44999592041, 44997315508 on 22 Nov 2026), and 22 minutes a run instead of 16.
+# This workflow runs beside it on each push to main: in seconds it finds main already holds a snapshot of the pushed
+# commit's key kept under REFRESH_AFTER_MINUTES ago and stops; otherwise it builds, seeds with the same action the
+# journeys build job seeds with (.github/actions/stack-seed) and keeps the snapshot in main's cache scope, which every
+# pull request reads. TEST funds only.
+name: Journeys snapshot
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One at a time; a newer push waiting replaces an older one waiting, and the running one is never cancelled.
+concurrency:
+  group: journeys-snapshot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  snapshot:
+    name: Keep main's seeded stack snapshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30 # seconds when one is there; about 9 minutes when it seeds (the journeys build job's seeding run)
+    permissions:
+      contents: read
+      actions: write # list main's snapshots, and delete the ones a new one replaces
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Is a snapshot due?
+        id: due
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          key=$(node tooling/scripts/local-test-snapshot.mjs key)
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/caches?ref=refs/heads/main&key=real-app-journeys-snapshot-&per_page=100" \
+            --jq '.actions_caches[]' > "$RUNNER_TEMP/snapshots.jsonl"
+          save="real-app-journeys-snapshot-$key-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          echo "save=$save" >> "$GITHUB_OUTPUT"
+          if node tooling/scripts/local-test-snapshot.mjs due "$key" "$RUNNER_TEMP/snapshots.jsonl"; then echo "due=true" >> "$GITHUB_OUTPUT"; fi
+      # The journeys build job's build, step for step (real-app-journeys.yml, `Build the stack once`).
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        if: steps.due.outputs.due == 'true'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.due.outputs.due == 'true'
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Put pnpm next to node
+        if: steps.due.outputs.due == 'true'
+        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+      - name: Install
+        if: steps.due.outputs.due == 'true'
+        run: pnpm install --frozen-lockfile
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.due.outputs.due == 'true'
+        with:
+          path: |
+            ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
+            ${{ runner.temp }}/stack-state/java-tools/maven.tgz
+          key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
+      - name: The Rust and FIX builds' key
+        id: bins-key
+        if: steps.due.outputs.due == 'true'
+        run: |
+          id=$(git ls-files -s -- Cargo.lock Cargo.toml rust-toolchain.toml crates services/svc-fix/pom.xml services/svc-fix/PIN.quickfixj services/svc-fix/src/main | sha256sum | cut -c1-24)
+          { echo "key=stack-bins-$RUNNER_OS-$id"; echo "prefix=stack-bins-$RUNNER_OS-"; } >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.due.outputs.due == 'true'
+        with:
+          path: |
+            crates/*/dist
+            services/svc-fix/target/svc-fix-0.0.0.jar
+            services/svc-fix/target/stack-jar-inputs.sha256
+          key: ${{ steps.bins-key.outputs.key }}
+          restore-keys: ${{ steps.bins-key.outputs.prefix }}
+      - name: Build what the stack starts
+        if: steps.due.outputs.due == 'true'
+        run: LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs build --no-admin
+      - name: Seed the stack (TEST funds only)
+        if: steps.due.outputs.due == 'true'
+        timeout-minutes: 15
+        uses: ./.github/actions/stack-seed
+        with:
+          sanctions-regions: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+          sanctions-list-source: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+      - name: Keep the snapshot for pull requests
+        if: steps.due.outputs.due == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/stack-snapshot
+          key: ${{ steps.due.outputs.save }}
+      # The ones this one replaces: main's older snapshots of the same key, and every one too old for a run to take.
+      - name: Delete the snapshots it replaces
+        if: steps.due.outputs.due == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEPT: ${{ steps.due.outputs.save }}
+        run: |
+          node tooling/scripts/local-test-snapshot.mjs drop "$KEPT" "$RUNNER_TEMP/snapshots.jsonl" > "$RUNNER_TEMP/drop.txt"
+          while read -r id; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/caches/$id" >/dev/null && echo "deleted cache $id" || echo "::warning::could not delete cache $id; it expires on its own"
+          done < "$RUNNER_TEMP/drop.txt"
