@@ -18,7 +18,8 @@
  *   REPO=owner/name HEAD_SHA=<sha> (PR_NUMBER=<n> | MERGE_GROUP_HEAD_SHA=<sha>) node tooling/ci/ci-jobs-seal.mjs
  *   (CI sets GH_TOKEN; run by hand, it reads through the logged-in gh: github-fetch.mjs)
  */
-import { SHARD_COUNT, classify, sealNeeded, shardMatrix } from './ci-affected.mjs';
+import { fileURLToPath } from 'node:url';
+import { SHARD_COUNT, classify, narrowCandidates, sealNeeded, shardMatrix } from './ci-affected.mjs';
 import { MODEL_JOB, START_JOB, isModelDown, pullFiles } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
 import { githubFetch, githubToken } from './github-fetch.mjs';
@@ -56,9 +57,11 @@ export function jobResults(jobs) {
 
 /**
  * The verdict. `files` are the pull request's changed paths, or null when they can't be read whole (the full suite is
- * then needed). `forceFull` for a merge queue's commit (runsEverything). Returns { ok, wait, lines }.
+ * then needed). `forceFull` for a merge queue's commit (runsEverything). `tree`: the head commit's tree
+ * (tooling-reach.mjs commitTree), which a change of tooling alone is narrowed by (ci-affected.mjs narrowed), as ci.yml's
+ * changes job narrows it by its checkout; null keeps today's rules. Returns { ok, wait, lines }.
  */
-export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
+export function judgeCiJobs({ run, jobs, files, forceFull = false, tree = null }) {
   if (!run)
     return { ok: false, wait: true, lines: ['no CI ran for this pull request on this head: merge origin/main if it conflicts, else push'] };
   const id = `CI run ${run.id} (attempt ${run.run_attempt ?? 1})`;
@@ -70,7 +73,7 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
   );
   if (run.status !== 'completed' && (pending.length || !(jobs ?? []).length))
     return { ok: false, wait: true, lines: [`${id} on this head is ${run.status}; the seal re-runs when it finishes`] };
-  const flags = files === null ? { full: true, affected: false } : classify(files, { forceFull });
+  const flags = files === null ? { full: true, affected: false } : classify(files, tree ? { forceFull, tree } : { forceFull, reach: null });
   const problems = sealNeeded(flags, jobResults(jobs));
   // The full suite is the whole matrix: a pull request's own ci.yml can't narrow it to one passing shard.
   if (flags.full) {
@@ -337,7 +340,22 @@ async function main() {
       if (r.length < 100) break;
     }
   const files = queue ? [] : await changedFiles(get, REPO, PR_NUMBER);
-  const ci = judgeCiJobs({ run, jobs, files, forceFull: queue });
+  // The head's tree, for a change that only tooling could narrow: read through git by main's tooling-reach.mjs. A tree
+  // that can't be read leaves today's rules.
+  let tree = null;
+  if (!queue && files && narrowCandidates(files).length)
+    try {
+      const { commitTree } = await import('./tooling-reach.mjs');
+      tree = commitTree(fileURLToPath(new URL('../..', import.meta.url)), sha);
+    } catch (e) {
+      console.log(`the head's tree could not be read (${e.message.split('\n')[0]}): today's rules judge`);
+    }
+  let ci;
+  try {
+    ci = judgeCiJobs({ run, jobs, files, forceFull: queue, tree });
+  } finally {
+    tree?.cleanup();
+  }
   // The money browser checks (#8708), on a pull request only: read when the change touches their paths.
   let money = { ok: true, lines: [] };
   if (!queue && (files === null || touchesMoney(files))) {

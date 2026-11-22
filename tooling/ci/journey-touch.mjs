@@ -121,8 +121,8 @@ export const JOURNEY_CI = [
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
   'tooling/ci/journey-reach-map.mjs',
   'tooling/ci/journey-reach-map.json',
-  // What the journeys run reaches among tooling no rule places (quietTooling).
-  'tooling/ci/tooling-reach.json',
+  // What finds the journeys run's reach among tooling no rule places (quietTooling).
+  'tooling/ci/tooling-reach.mjs',
   'tooling/ci/post-merge-trust.mjs',
   'tooling/ci/review-marker.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
@@ -489,36 +489,24 @@ function kindOf(p) {
 /** Why a path no rule above places is full: the safe default. */
 export const UNPLACED = 'a path no rule places, so the safe default';
 
-/** What tooling-reach.mjs found the journeys run reaching, beside this script (the default branch's, in the journeys
- *  workflow and the seal). */
-export const TOOLING_REACH_FILE = 'tooling/ci/tooling-reach.json';
-let toolingReach;
-/** The tooling entries the journeys run reaches (tooling-reach.json `journeys`), or null when the file can't be read. */
-export function journeysReach() {
-  if (toolingReach !== undefined) return toolingReach;
-  try {
-    const j = JSON.parse(readFileSync(new URL('./tooling-reach.json', import.meta.url), 'utf8'));
-    toolingReach = Array.isArray(j?.journeys) && j.journeys.every((e) => typeof e === 'string' && e) ? j.journeys : null;
-  } catch {
-    toolingReach = null;
-  }
-  return toolingReach;
-}
-
 /**
- * A tooling file no rule places that no journeys run reaches (tooling-reach.json, from the repository: nothing the
- * journeys workflow, its actions, the stack, the seed, tooling/scripts, a journey file or any app, service, package or
- * crate file names reads it). A change made only of these and of paths that run no journeys runs no journeys
- * (journeyTouch); beside any other path it stays the safe default, so a pull request that touches product code, the
- * stack or a journey keeps its pick. A path the file can't speak for (unreadable, or with a character no tracked path
- * holds) is never quiet. (Failure it prevents: #9552, tooling/design/RECIPE.md and a tooling script, ran 64 journey files
- * on 18 shards, about 23 minutes a push, on 22 Nov 2026.)
+ * A tooling file no rule places that no journeys run reaches: `reach` is tooling-reach.mjs's `journeys` list for the
+ * tree judged, the pull request's head (nothing the journeys workflow, its actions, the stack, the seed, tooling/scripts,
+ * a journey file or any app, service, package or crate file names reads it). A change made only of these and of paths
+ * that run no journeys runs no journeys (journeyTouch); beside any other path it stays the safe default, so a pull
+ * request that touches product code, the stack or a journey keeps its pick. With no list (`null`: not scanned, or the
+ * scan failed), or a path with a character no tracked path holds, nothing is quiet. (Failure it prevents: #9552,
+ * tooling/design/RECIPE.md and a tooling script, ran 64 journey files on 18 shards, about 23 minutes a push, on 22 Nov
+ * 2026.)
  */
-export function quietTooling(path, reach = journeysReach()) {
+export function quietTooling(path, reach = null) {
   const p = String(path);
   if (!reach || !/^tooling\/[A-Za-z0-9_.@/-]+$/.test(p) || kindOf(p).why !== UNPLACED) return false;
   return !reach.some((e) => (e.endsWith('/') || e.endsWith('*') ? p.startsWith(e.replace(/[*]$/, '')) : e === p));
 }
+
+/** Whether a change could be quiet (quietTooling), so a caller scans the tree only then: it holds tooling no rule places. */
+export const mayBeQuiet = (paths) => [...(paths ?? [])].some((p) => String(p).startsWith('tooling/') && kindOf(String(p)).why === UNPLACED);
 
 /**
  * What a pull request with these changed paths must run. `atHead(file)`: whether a journey test file still exists at
@@ -530,12 +518,14 @@ export function quietTooling(path, reach = journeysReach()) {
  * paths run the named journeys besides what the map selects for them (its always-run list included), or the named
  * journeys alone when `reach` is null, and `named` says why. With
  * it, a service's own stack file adds the journeys that use it, when nothing else is full (`stack` lists those paths,
- * `importers` those journeys); otherwise it is full like any other.
+ * `importers` those journeys); otherwise it is full like any other. `tooling`: the head's tooling reach (quietTooling),
+ * or null.
  */
-export function journeyTouch(paths, atHead = () => true, reach = null, named = null) {
+export function journeyTouch(paths, atHead = () => true, reach = null, named = null, tooling = null) {
   // Only tooling no journeys run reaches, beside paths that run none: no journeys (quietTooling).
   const all = [...new Set(paths ?? [])];
-  if (all.length && all.some((p) => quietTooling(p)) && all.every((p) => quietTooling(p) || pathKind(p).kind === 'none'))
+  const quiet = (p) => quietTooling(p, tooling);
+  if (all.length && all.some(quiet) && all.every((p) => quiet(p) || pathKind(p).kind === 'none'))
     return { mode: 'none', full: [], files: [] };
   const full = [];
   const product = [];
@@ -1109,8 +1099,16 @@ async function main() {
     journeyFiles: checkoutJourneyFiles(),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
+  // Tooling no journeys run reaches, by this checkout's tree (the pull request's head; tooling-reach.mjs), scanned only
+  // when the change holds tooling no rule places. A scan that can't run or read leaves today's pick.
+  let tooling = null;
+  if (mayBeQuiet(paths))
+    try {
+      const { checkoutTree, reachOf } = await import('./tooling-reach.mjs');
+      tooling = reachOf(checkoutTree(process.cwd()))?.journeys ?? null;
+    } catch {}
   // What a pull request runs: never the full suite (pullPick).
-  const t = pullPick(paths, journeyTouch(paths, atHead, reach, named), { atHead, reach, named });
+  const t = pullPick(paths, journeyTouch(paths, atHead, reach, named, tooling), { atHead, reach, named });
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (t.bounded && args.includes('--json')) console.error(`journey-touch: ${t.bounded}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));

@@ -2744,14 +2744,13 @@ test("main's own sealPull planted: main's newest run outside the head's history 
     ...(mainIssues ? { mainIssues: async () => issues } : {}),
   });
   const seal = (o) => sealPull({ repo: REPO, number: 7, sha: HEAD, io: io(o) });
-  // A path no rule places outside tooling/ (tooling no journeys run reaches runs none: quietTooling): its bounded set runs.
-  const ok = await seal({ files: ['somewhere/new.txt'] });
+  const ok = await seal({ files: ['tooling/factory/x.mjs'] });
   assert.equal(ok.ok, true, ok.lines.join('\n'));
   assert.match(ok.lines.join('\n'), /J-wallet-05#3 is red on this head and inherited: it is main's: main's newest finished run 60/);
-  assert.equal((await seal({ files: ['somewhere/new.txt'], issues: [] })).ok, false, 'untracked on main: the PR is held');
-  assert.equal((await seal({ files: ['somewhere/new.txt'], newest: { ...clean, lastPass: {} } })).ok, false, 'green on main: held');
-  assert.equal((await seal({ files: ['somewhere/new.txt'], mainIssues: false })).ok, false, 'no issue reader: as before');
-  const tests = await seal({ files: ['somewhere/new.txt', 'apps/customer/tests/real-app/J-bank-13.pw.mjs'] });
+  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], issues: [] })).ok, false, 'untracked on main: the PR is held');
+  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], newest: { ...clean, lastPass: {} } })).ok, false, 'green on main: held');
+  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], mainIssues: false })).ok, false, 'no issue reader: as before');
+  const tests = await seal({ files: ['tooling/factory/x.mjs', 'apps/customer/tests/real-app/J-bank-13.pw.mjs'] });
   assert.equal(tests.ok, false, 'a PR that changes a test file: the step is its own');
   const shared = await seal({ files: ['tooling/scripts/local-test-world.mjs'] });
   assert.equal(shared.ok, false, 'shared setup: every red counts');
@@ -2759,9 +2758,46 @@ test("main's own sealPull planted: main's newest run outside the head's history 
     repo: REPO,
     number: 7,
     sha: HEAD,
-    io: { ...io({ files: ['somewhere/new.txt'] }), mainIssues: async () => Promise.reject(new Error('HTTP 502')) },
+    io: { ...io({ files: ['tooling/factory/x.mjs'] }), mainIssues: async () => Promise.reject(new Error('HTTP 502')) },
   });
   assert.equal(broken.ok, false, 'unreadable issues fail closed');
+});
+
+test("sealPull judges tooling by the head's tree, as the run's planner picks: unreached runs none; reached, unscanned or a failed scan keep the bounded set", async () => {
+  const seen = [];
+  const io = (toolingReach) => ({
+    pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: MAIN_SHA }, title: 'design: a recipe page', body: '' }),
+    runs: async (h) => (seen.push(h), [run(1)]),
+    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', ...CANARY] } }),
+    files: async () => ['tooling/design/RECIPE.md', 'tooling/design/volt-recipe.mjs'],
+    text: async () => 'test(`${J} #1 opens`, async () => {});',
+    verdictOf: async () => clean,
+    mainRuns: async () => [],
+    contains: async () => true,
+    mergeBase: async () => MAIN_SHA,
+    rangeOf: async () => ({ files: [], commits: 0, short: false }),
+    mainIssues: async () => [],
+    ...(toolingReach ? { toolingReach } : {}),
+  });
+  const pick = async (toolingReach) => {
+    seen.length = 0;
+    const r = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io(toolingReach) });
+    return { ok: r.ok, lines: r.lines.join('\n'), readRuns: seen.length > 0 };
+  };
+  const asked = [];
+  const none = await pick(async (sha) => (asked.push(sha), ['tooling/uiproof/']));
+  assert.deepEqual(asked, [HEAD], "the head's tree is the one scanned");
+  assert.equal(none.ok, true, none.lines);
+  assert.equal(none.readRuns, false, 'tooling no journeys run reaches: no journeys to judge');
+  for (const [why, reach] of [
+    ['reached by a journey', async () => ['tooling/design/']],
+    ['a scan that fails', async () => Promise.reject(new Error('git archive failed'))],
+    ['a scan that could not read the tree', async () => null],
+    ['no scanner', null],
+  ]) {
+    const r = await pick(reach);
+    assert.equal(r.readRuns, true, `${why}: the bounded set is judged, as today`);
+  }
 });
 
 // ---- A merged pull request has nothing left to seal (12 of the 66 failed seals, 12 Nov 2026) ----

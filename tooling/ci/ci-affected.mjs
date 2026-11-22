@@ -28,7 +28,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { allEdges, pathReadEdges } from './cross-package-reads.mjs';
 import { journeyTouch } from './journey-touch.mjs';
 import { SPLIT } from './test-shards.mjs';
-import { covers, loadReach, readersOf } from './tooling-reach.mjs';
+import { checkoutTree, covers, reachOf, readersOf } from './tooling-reach.mjs';
 
 /** Run-everything list: a change here can break a consumer in any package, so the whole suite runs. */
 export const FULL_TRIGGERS = [
@@ -84,27 +84,50 @@ function gateOnlyReads(root = fileURLToPath(new URL('../..', import.meta.url))) 
 /**
  * The files of a change that reaches no journey whose tests are their readers' alone: tooling, .github and agent-rule
  * files (the run-everything list's `tooling/` and `.github/`, and the gate files) that no unit-test job runs or reads
- * (tooling-reach.json `tests`: ci.yml and what its test jobs execute, turbo's inputs, a tooling workspace package). A
- * change qualifies when it holds no product or Rust path and journey-touch.mjs picks no journeys for it (journeyTouch
- * `none`: every path is one no journeys run executes or reads, or tooling no journeys run reaches); anything else, or an
- * unreadable tooling-reach.json, keeps today's rules, so a pull request that touches product code, the stack or a
- * journey keeps its tests. Each narrowed file runs the tests of the app, service and package folders whose files read it
- * (tooling-reach.mjs readersOf), never the whole suite. (Failure it prevents: in the 24 hours to 22 Nov 2026 01:00 UTC,
- * 32 of 179 merged pull requests touched no product path, and every one ran all sixteen unit-test shards on every push,
- * up to 9 minutes, for tooling no product test reads.)
+ * (tooling-reach.mjs `tests`, scanned from the tree judged: ci.yml and what its test jobs execute, turbo's inputs, a
+ * tooling workspace package). A change qualifies when it holds no product or Rust path and journey-touch.mjs picks no
+ * journeys for it (journeyTouch `none` with the same scan's `journeys`: every path is one no journeys run executes or
+ * reads, or tooling no journeys run reaches); anything else, or a tree that can't be scanned, keeps today's rules, so a
+ * pull request that touches product code, the stack or a journey keeps its tests. Each narrowed file runs the tests of
+ * the app, service and package folders whose files read it (tooling-reach.mjs readersOf), never the whole suite.
+ * `tree`: the tree judged (this checkout's by default; the seal's, the head commit's); `reach`: its answer, given
+ * (null: unscanned) or scanned only when the change could narrow. (Failure it prevents: in the 24 hours to 22 Nov 2026
+ * 01:00 UTC, 32 of 179 merged pull requests touched no product path, and every one ran all sixteen unit-test shards on
+ * every push, up to 9 minutes, for tooling no product test reads.)
  */
-export function narrowed(files, reach = loadReach()) {
+export function narrowed(files, { reach, tree } = {}) {
   const list = (files || []).map(posix).filter(Boolean);
-  if (!reach || !list.length) return [];
-  if (list.some((f) => PRODUCT_DIRS.test(f) || isRustFile(f))) return [];
-  if (journeyTouch(list).mode !== 'none') return [];
+  const candidates = narrowCandidates(list);
+  if (!candidates.length) return [];
+  if (reach === undefined) reach = reachOf(tree ?? rootTree());
+  if (!reach) return [];
+  if (journeyTouch(list, undefined, null, null, reach.journeys).mode !== 'none') return [];
+  return candidates.filter((f) => !covers(reach.tests, f));
+}
+
+/** The files narrowed could take before any scan: none when the change holds a product or Rust path. A caller with no
+ *  tree at hand (the seal) builds one only when this is not empty. */
+export function narrowCandidates(files) {
+  const list = (files || []).map(posix).filter(Boolean);
+  if (!list.length || list.some((f) => PRODUCT_DIRS.test(f) || isRustFile(f))) return [];
   return list.filter(
     (f) =>
       !isGateOnlyTooling(f) &&
       (isGateFile(f) || FULL_TRIGGERS.some((t) => matchesPrefix(f, t))) &&
-      (f.startsWith('tooling/') || f.startsWith('.github/') || isGateFile(f)) &&
-      !covers(reach.tests, f),
+      (f.startsWith('tooling/') || f.startsWith('.github/') || isGateFile(f)),
   );
+}
+
+// This checkout's tree, listed once (null: it can't be listed, so nothing narrows).
+let ownTree;
+function rootTree() {
+  if (ownTree === undefined)
+    try {
+      ownTree = checkoutTree(fileURLToPath(new URL('../..', import.meta.url)));
+    } catch {
+      ownTree = null;
+    }
+  return ownTree;
 }
 
 /** Rust's own files: the code, every crate's manifest, the lock file, and the workspace's toolchain and lint config. */
@@ -177,13 +200,13 @@ const isDoc = (file) => file.startsWith('docs/') || file.endsWith('.md');
  * `edges` is tooling/ci/test-read-edges.json: tests in <reader> read files of each listed package. turbo's
  * dependents graph cannot see those reads, so the reader is selected whenever a package it reads changes.
  */
-export function readEdges(files = []) {
+export function readEdges(files = [], { tree } = {}) {
   // Reads the scan finds count too, so a test that reads another package needs no edge-list entry to be selected. The
   // same function feeds turbo.json's generated inputs (cross-package-reads.mjs turboReadInputs), so the two agree. The
   // reads of gate-only tooling are added here only: a test reads them when it runs, which no typecheck or build hashes.
   // So are the readers of a change's narrowed files (narrowed), when it has any.
-  const own = narrowed(files);
-  return mergeEdges(mergeEdges(allEdges(), pathReadEdges(gateOnlyReads())), own.length ? readersOf(own) : {});
+  const own = narrowed(files, { tree });
+  return mergeEdges(mergeEdges(allEdges(), pathReadEdges(gateOnlyReads())), own.length ? readersOf(own, tree ?? rootTree()) : {});
 }
 
 export function mergeEdges(a, b) {
@@ -199,23 +222,24 @@ export function mergeEdges(a, b) {
  * Neither  — nothing to test (docs only, gate-only tooling no test reads, or narrowed files no test reads); the seal
  *            then needs no test job.
  * `edges` (readEdges' shape) says who reads gate-only tooling; read from the tree when one changed and none is given.
- * `reach` (tooling-reach.json's shape, null: unreadable) and `readers` (readersOf's shape) stand in for the tree's.
+ * `tree` is the tree judged (narrowed; this checkout's by default); `reach` (tooling-reach.mjs reachOf's shape, null:
+ * unscanned) and `readers` (readersOf's shape) stand in for its answers.
  */
-export function classify(files, { forceFull = false, crates = rustCrates(), edges, reach, readers } = {}) {
+export function classify(files, { forceFull = false, crates = rustCrates(), edges, reach, readers, tree } = {}) {
   if (forceFull) return { full: true, affected: false, rust: true };
   const list = (files || []).map(posix).filter(Boolean);
   const rust = list.some((f) => reachesRust(f, crates) || RUST_JOB_FILES.includes(f));
-  const narrow = new Set(reach === undefined ? narrowed(list) : narrowed(list, reach));
+  const narrow = new Set(narrowed(list, { reach, tree }));
   let affected = false;
   for (const file of list) {
     if (isGateOnlyTooling(file)) {
-      edges ??= readEdges();
+      edges ??= readEdges([], { tree });
       if (Object.values(edges).some((reads) => reads.some((d) => matchesPrefix(file, d)))) affected = true;
       continue;
     }
     // A change that reaches no journey: this file runs its readers' tests alone (narrowed).
     if (narrow.has(file)) {
-      readers ??= readersOf([...narrow]);
+      readers ??= readersOf([...narrow], tree ?? rootTree());
       if (Object.values(readers).some((reads) => reads.includes(file))) affected = true;
       continue;
     }

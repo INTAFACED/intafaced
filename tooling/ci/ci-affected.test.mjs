@@ -53,7 +53,7 @@ test('classify: each path lands in full, affected or neither', () => {
     { files: ['docs/x.md', 'services/svc-trade/src/a.ts'], expected: { full: false, affected: true } },
   ];
   // Today's rules, which every change keeps beside a product, stack or journey path, and every change keeps when
-  // tooling-reach.json can't be read (reach: null). What a change that reaches no journey runs: tooling-reach.test.mjs.
+  // its tree can't be scanned (reach: null). What a change that reaches no journey runs: tooling-reach.test.mjs.
   for (const c of cases) {
     const { full, affected } = classify(c.files, { reach: null });
     const got = { full, affected };

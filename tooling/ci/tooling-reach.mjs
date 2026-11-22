@@ -1,21 +1,22 @@
 #!/usr/bin/env node
 /**
- * Which tooling files a journeys run or a unit-test job can reach, found from the repository itself and kept in
- * tooling/ci/tooling-reach.json, so the journeys planner (journey-touch.mjs) and its seal, which run the default
- * branch's copy without the pull request's tree, and the unit-test classifier (ci-affected.mjs) read one answer.
- * (Failure it prevents: on 22 Nov 2026 #9552, a change to tooling/design/RECIPE.md and a tooling script, ran 64 journey
- * files on 18 shards, about 23 minutes a push, and all sixteen unit-test shards: tooling/design was "a path no rule
- * places", and `tooling/` ran every unit test. 32 of the 179 pull requests merged in the 24 hours before touched no
- * product path, and each paid every unit test on every push.)
+ * Which tooling files a journeys run or a unit-test job can reach, found at run time from the tree being judged: the
+ * pull request's head. The journeys planner (journey-touch.mjs) scans its checkout of the head; the merge seal
+ * (journey-seal.mjs, ci-jobs-seal.mjs) runs in the default branch's checkout and scans the head commit's files, read
+ * through git (commitTree), so both run the default branch's scanner over the same tree. Nothing is committed, so no
+ * answer goes stale and no builder runs a command: a reach main gained after a branch point is in the merged head.
+ * (Failure it prevents: on 22 Nov 2026 #9552, a change to tooling/design/RECIPE.md and three new tooling/design files,
+ * ran 64 journey files on 18 shards, about 23 minutes a push, and all sixteen unit-test shards: tooling/design was "a
+ * path no rule places", and `tooling/` ran every unit test.)
  *
  *   - `journeys`: the tooling files outside the folders journey-touch.mjs places by rule (tooling/scripts, ci, profiles,
  *     infra, lint) that the journeys run can reach. The roots: the journeys workflow and its actions, every app,
  *     service, package and crate file that is not a unit test (the journey files and their helpers, the apps' sources and
- *     build configs), the root build and deploy files, the stack's environment (tooling/profiles, tooling/infra), the CI
- *     files the journeys run uses (JOURNEY_CI) and the stack's shared setup, followed into every script under
- *     tooling/scripts they reach, as journey-touch.test.mjs proves FACTORY_SCRIPTS unreached (a script nothing there
- *     reaches, such as the runner of every tooling test, reaches no journey through what it names). Every tooling
- *     workspace package (tooling/pay-sim) counts whole.
+ *     build configs), the root build and deploy files (pnpm-workspace.yaml's `tooling/*` is read as its packages), the
+ *     stack's environment (tooling/profiles, tooling/infra), the CI files the journeys run uses (JOURNEY_CI) and the
+ *     stack's shared setup, followed into every script under tooling/scripts they reach, as journey-touch.test.mjs proves
+ *     FACTORY_SCRIPTS unreached (a script nothing there reaches, such as the runner of every tooling test, reaches no
+ *     journey through what it names). Every tooling workspace package (tooling/pay-sim) counts whole.
  *   - `tests`: the tooling and .github files the unit-test jobs run or read: ci.yml and what its `changes`, `build` and
  *     `test-full` jobs execute (the classifier, the shard plan, the tooling tests that need the build), turbo.json's
  *     inputs, the root build files and the root `pnpm` scripts those run, followed through the files their code imports or
@@ -26,18 +27,19 @@
  * by its path from the root (`tooling/design/RECIPE.md`), by a folder or the start of a path holding it (`tooling/codemod`,
  * `tooling/codemod/**`, `` `tooling/codemod/${x}` ``: an entry ending `/` or `*`, which covers files added there later),
  * by a relative path from the file or the root (`../../tooling/vitest/setup.mjs`), or, from inside its own tooling
- * folder, by its file name; and a reached file is followed in turn. A file added outside every entry is unreached until
- * something reached names it, and that something is itself a change that keeps today's rules.
+ * folder, by its file name; and a reached file is followed in turn. A scan that can't run or read (reachOf: null) leaves
+ * every path to today's rules.
  *
- *   node tooling/ci/tooling-reach.mjs --write   (regenerate tooling-reach.json)
- *   node tooling/ci/tooling-reach.mjs --check   (fail when the file misses a reach the tree shows; tooling-reach.test.mjs)
+ *   node tooling/ci/tooling-reach.mjs              (this checkout's answer, as JSON)
+ *   node tooling/ci/tooling-reach.mjs --sha <sha>  (that commit's, read through git)
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, normalize } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_WORKFLOW, isSharedSetup } from './journey-seal.mjs';
-import { FACTORY_SCRIPTS, JOURNEY_CI, TOOLING_REACH_FILE, UNPLACED, joinedPaths, pathKind } from './journey-touch.mjs';
+import { FACTORY_SCRIPTS, JOURNEY_CI, UNPLACED, joinedPaths, pathKind } from './journey-touch.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const CI_WORKFLOW = '.github/workflows/ci.yml';
@@ -200,18 +202,17 @@ export function follow(roots, { files, read, pnpm = {}, follows = () => true, sc
   return { reached, seen, scriptFrom };
 }
 
-const readRoot = (f) => readFileSync(join(ROOT, f), 'utf8');
-
-/** The tracked app, service and package files at `root` holding any of `words` (git grep, fixed strings). */
-function grepFiles(root, words) {
+/** The files under apps, services and packages at `root` holding any of `words` (git grep, fixed strings, read from the
+ *  folder whether or not it is a repository; `files` keeps the tracked ones). */
+function grepFiles(root, words, files) {
   if (!words.length) return new Set();
   try {
-    const out = execFileSync('git', ['grep', '-l', '-F', ...words.flatMap((w) => ['-e', w]), '--', 'apps', 'services', 'packages'], {
-      cwd: root,
-      encoding: 'utf8',
-      maxBuffer: 1e8,
-    });
-    return new Set(out.split('\n').filter(Boolean));
+    const out = execFileSync(
+      'git',
+      ['grep', '--no-index', '--exclude-standard', '-l', '-F', ...words.flatMap((w) => ['-e', w]), '--', 'apps', 'services', 'packages'],
+      { cwd: root, encoding: 'utf8', maxBuffer: 1e8, stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return new Set(out.split('\n').filter((f) => f && files.has(f)));
   } catch (e) {
     if (e.status === 1) return new Set(); // no match
     throw e;
@@ -219,16 +220,82 @@ function grepFiles(root, words) {
 }
 
 /** Every tracked file of the checkout at `root`. */
-export function trackedFiles(root = ROOT) {
-  return new Set(execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8', maxBuffer: 1e8 }).split('\n').filter(Boolean));
+export function trackedFiles(root) {
+  return new Set(execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 1e8 }).split('\0').filter(Boolean));
+}
+
+/** A tree to scan: a checkout's tracked files, read from its folder. */
+export function checkoutTree(root = process.cwd(), files = trackedFiles(root)) {
+  return { root, files, read: (f) => readFileSync(join(root, f), 'utf8'), grep: (words) => grepFiles(root, words, files) };
+}
+
+/** The text files a scan reads (git archive's pathspecs): code, config and pages; never a picture or a binary. */
+const TEXT_SPECS = [
+  '*.mjs',
+  '*.js',
+  '*.cjs',
+  '*.jsx',
+  '*.ts',
+  '*.tsx',
+  '*.mts',
+  '*.cts',
+  '*.json',
+  '*.yml',
+  '*.yaml',
+  '*.sh',
+  '*.md',
+  '*.toml',
+  '*Dockerfile*',
+  '.env.example',
+  '.npmrc',
+];
+
+/**
+ * The tree of commit `sha`, from the repository at `repo` (fetched by its sha when the checkout lacks it): its tracked
+ * files, and its text files written to a folder of their own and read from there. Nothing in it is run. `cleanup()`
+ * removes the folder.
+ */
+export function commitTree(repo, sha) {
+  if (!/^[0-9a-f]{40}$/.test(String(sha))) throw new Error('commitTree: a commit sha is needed');
+  const git = (args, opts = {}) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', maxBuffer: 1e9, ...opts });
+  try {
+    git(['cat-file', '-e', `${sha}^{commit}`], { stdio: 'ignore' });
+  } catch {
+    git(['fetch', '--quiet', '--no-tags', '--depth=1', 'origin', sha], { stdio: 'ignore' });
+  }
+  const files = new Set(git(['ls-tree', '-r', '-z', '--name-only', sha]).split('\0').filter(Boolean));
+  // git archive refuses a pathspec that matches no file, so only the ones that match one are passed.
+  const specs = TEXT_SPECS.filter((g) => {
+    const re = new RegExp(
+      `^${g
+        .split('*')
+        .map((x) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .join('.*')}$`,
+    );
+    return [...files].some((f) => re.test(f));
+  });
+  const dir = mkdtempSync(join(tmpdir(), 'tooling-reach-'));
+  if (!specs.length) return { ...checkoutTree(dir, files), cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  try {
+    execFileSync('bash', ['-c', 'set -o pipefail; git archive "$1" -- "${@:3}" | tar -x -C "$2"', 'bash', sha, dir, ...specs], {
+      cwd: repo,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      maxBuffer: 1e8,
+    });
+  } catch (e) {
+    rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
+  return { ...checkoutTree(dir, files), cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 /**
- * Whether a reached file's code runs in a journeys run: not a unit test (a test runner runs it), another workflow, a CI check outside
- * JOURNEY_CI or a factory script (journey-touch.test.mjs proves the journeys run reaches neither).
+ * Whether a reached file's code runs in a journeys run: not a unit test (a test runner runs it) unless it is named by its
+ * path (the journeys workflow runs three by `node --test`), another workflow, a CI check outside JOURNEY_CI or a factory
+ * script (journey-touch.test.mjs proves the journeys run reaches neither).
  */
-export const journeysRun = (f) =>
-  !unitTest(f) &&
+export const journeysRun = (f, how) =>
+  (!unitTest(f) || how === 'path') &&
   !(f.startsWith('.github/workflows/') && f !== JOURNEYS_WORKFLOW) &&
   !(f.startsWith('tooling/ci/') && !JOURNEY_CI.includes(f)) &&
   !FACTORY_SCRIPTS.includes(f);
@@ -242,17 +309,15 @@ export function journeyRoots(files) {
       (/^(apps|services|packages|crates)\//.test(f) && !unitTest(f)) ||
       /^(turbo\.json|package\.json|tsconfig[^/]*\.json|Cargo\.toml|docker-compose[^/]*\.ya?ml|Dockerfile[^/]*|\.env\.example)$/.test(f) ||
       /^tooling\/(profiles|infra)\//.test(f) ||
-      // The answer itself names every entry and reads none of them.
-      (JOURNEY_CI.includes(f) && f !== TOOLING_REACH_FILE) ||
-      isSharedSetup(f),
+      JOURNEY_CI.includes(f) ||
+      // The stack's own unit tests (local-test-stack.test.mjs) are shared setup by name, and no journeys run runs them.
+      (isSharedSetup(f) && !unitTest(f)),
   );
 }
 
-/**
- * The answer tooling-reach.json keeps, from the checkout at `root` (`read` and `files` for a test's own tree).
- * { journeys: [entries], tests: [entries] }, each sorted.
- */
-export function scanReach({ files = trackedFiles(), read = readRoot } = {}) {
+/** A tree's answer (checkoutTree, commitTree, or a test's own `files` and `read`): { journeys: [entries], tests: [entries] },
+ *  each sorted, and `why`: what first named each entry. */
+export function scanReach({ files, read }) {
   let pnpm = {};
   try {
     pnpm = JSON.parse(read('package.json')).scripts ?? {};
@@ -308,12 +373,13 @@ const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * Which app, service and package folders hold a file whose code reads one of `paths` (a tooling, .github or agent-rule
  * file outside every package): it names the path, a folder holding it (`tooling/codemod`), or a relative path to
  * either, in any file of the folder (its tests, configs and scripts). Returns { <folder>: [paths] }, test-read-edges.json's
- * shape, for ci-affected.mjs: a change that reaches no journey runs these folders' tests and no others.
+ * shape, for ci-affected.mjs: a change that reaches no journey runs these folders' tests and no others. `tree` is the tree
+ * judged (checkoutTree, commitTree); a test's own has `files` and `read` and no `grep`, and every file of it is read.
  */
-export function readersOf(paths, { root = ROOT, files, read } = {}) {
+export function readersOf(paths, tree = checkoutTree(ROOT)) {
   const list = [...new Set(paths)].filter(Boolean);
   if (!list.length) return {};
-  const text = read ?? ((f) => readFileSync(join(root, f), 'utf8'));
+  const text = tree.read;
   // Any reading names the file's own name, a folder holding it by its path (`tooling/codemod`, as a relative path from a
   // package does too), or its top folder quoted alone (a path split over arguments).
   const wordsOf = (p) => {
@@ -322,11 +388,9 @@ export function readersOf(paths, { root = ROOT, files, read } = {}) {
     return [parts.at(-1), ...dirs.filter((d) => d.includes('/')), ...(parts.length > 1 ? [`'${parts[0]}'`, `"${parts[0]}"`] : [])];
   };
   const words = [...new Set(list.flatMap(wordsOf))];
-  // On a checkout, git grep finds the files that hold a word of a path at all (a second, not a read of every file).
-  const all = files ?? grepFiles(root, words);
-  const pkgs = new Set(
-    [...(files ?? trackedFiles(root))].filter((f) => /^(apps|services|packages)\/[^/]+\/package\.json$/.test(f)).map((f) => dirname(f)),
-  );
+  // On a tree on disk, git grep finds the files that hold a word of a path at all (a second, not a read of every file).
+  const all = tree.grep ? tree.grep(words) : tree.files;
+  const pkgs = new Set([...tree.files].filter((f) => /^(apps|services|packages)\/[^/]+\/package\.json$/.test(f)).map((f) => dirname(f)));
   // A folder counts when it is named as one (`tooling/codemod`, `tooling/codemod/`, `tooling/codemod/*`,
   // `` `tooling/codemod/${x}` ``), never as the start of another file's path (`tooling/ci/test-typecheck.mjs` reads no
   // other tooling/ci file).
@@ -369,52 +433,33 @@ export function readersOf(paths, { root = ROOT, files, read } = {}) {
   return out;
 }
 
-/** The committed answer, or null when it can't be read. */
-export function loadReach(file = join(ROOT, TOOLING_REACH_FILE)) {
-  try {
-    const j = JSON.parse(readFileSync(file, 'utf8'));
-    return Array.isArray(j.journeys) && Array.isArray(j.tests) ? j : null;
-  } catch {
-    return null;
-  }
-}
+const answers = new WeakMap();
 
-/** What the committed answer misses of a fresh scan: [{ list, entry, from }]. A stale extra entry costs runs, never a miss. */
-export function missing(committed, fresh) {
-  const out = [];
-  for (const list of ['journeys', 'tests'])
-    for (const e of fresh[list]) {
-      const probe = e.endsWith('/') || e.endsWith('*') ? e.replace(/[*]$/, '') : e;
-      if (!covers(committed?.[list] ?? [], probe)) out.push({ list, entry: e, from: fresh.why?.[list]?.get(e) ?? null });
-    }
+/**
+ * The tree's reach, { journeys, tests }, or null when it can't be scanned (a file it can't list, a git that fails): every
+ * caller then keeps today's rules. Scanned once per tree.
+ */
+export function reachOf(tree) {
+  if (!tree) return null;
+  if (answers.has(tree)) return answers.get(tree);
+  let out = null;
+  try {
+    const { journeys, tests } = scanReach(tree);
+    out = { journeys, tests };
+  } catch {}
+  answers.set(tree, out);
   return out;
 }
 
-export function render(fresh) {
-  return `${JSON.stringify(
-    {
-      _comment:
-        'Generated by `node tooling/ci/tooling-reach.mjs --write`; tooling-reach.test.mjs fails when the tree reaches a tooling file this misses. journeys: tooling files outside the folders journey-touch.mjs places by rule that the journeys run reaches. tests: tooling and .github files the unit-test jobs run or read. An entry ending / or * covers every path it starts.',
-      journeys: fresh.journeys,
-      tests: fresh.tests,
-    },
-    null,
-    2,
-  )}\n`;
-}
-
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  const fresh = scanReach();
-  if (process.argv.includes('--write')) {
-    writeFileSync(join(ROOT, TOOLING_REACH_FILE), render(fresh));
-    console.log(`${TOOLING_REACH_FILE}: ${fresh.journeys.length} journeys entries, ${fresh.tests.length} tests entries`);
-  } else {
-    const miss = missing(loadReach(), fresh);
-    for (const m of miss) console.error(`${TOOLING_REACH_FILE} misses ${m.list}: ${m.entry} (reached from ${m.from})`);
-    if (miss.length) {
-      console.error('run: node tooling/ci/tooling-reach.mjs --write');
-      process.exit(1);
-    }
-    console.log(`${TOOLING_REACH_FILE} holds every reach the tree shows`);
+  const arg = (n) => (process.argv.includes(n) ? process.argv[process.argv.indexOf(n) + 1] : undefined);
+  const sha = arg('--sha');
+  const tree = sha ? commitTree(arg('--root') ?? process.cwd(), sha) : checkoutTree(arg('--root') ?? process.cwd());
+  try {
+    const reach = reachOf(tree);
+    if (!reach) throw new Error('the tree could not be scanned');
+    console.log(JSON.stringify(reach, null, 2));
+  } finally {
+    tree.cleanup?.();
   }
 }
