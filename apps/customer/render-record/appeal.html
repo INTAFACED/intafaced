@@ -30,25 +30,31 @@
 <div class="lt-grid lt-grid-flow">
 <div class="lt-col-main">
 <section class="lt-region" data-region="step" aria-label="This step">
-<form class="stack" data-testid="appeal-signed-out__form" novalidate="">
+<form data-testid="appeal-signed-out__form" novalidate="">
 <p>Your account is frozen, so you cannot sign in. Only support can lift a freeze. If our staff froze it and you think that is wrong, ask us to look again: someone other than the person who froze it decides, and we mail you the decision.</p>
+<div class="lit-field-control">
 <label for="appeal-identifier">Email or handle</label>
-<input id="appeal-identifier" autocomplete="username" name="appeal-identifier">
+<input autocomplete="username" id="appeal-identifier" name="appeal-identifier">
+</div>
+<div class="lit-field-control">
 <label for="appeal-password">Password</label>
-<input id="appeal-password" autocomplete="current-password" aria-describedby="appeal-password-hint" type="password" name="appeal-password">
-<small id="appeal-password-hint">Your account password proves the appeal is yours. It does not sign you in.</small>
+<input autocomplete="current-password" id="appeal-password" aria-describedby="appeal-password-hint" type="password" name="appeal-password">
+<span id="appeal-password-hint" data-part="hint">Your account password proves the appeal is yours. It does not sign you in.</span>
+</div>
+<div class="lit-field-control">
 <label for="appeal-text">Why should the freeze be lifted?</label>
-<textarea id="appeal-text" name="appeal-text" maxlength="2000" aria-describedby="appeal-text-hint">
+<textarea name="appeal-text" maxlength="2000" id="appeal-text" rows="5" aria-describedby="appeal-text-hint">
 </textarea>
-<small id="appeal-text-hint">Up to 2000 characters. Only our staff read this.</small>
-<button type="submit" class="button button--primary ">Send appeal</button>
+<span id="appeal-text-hint" data-part="hint">Up to 2000 characters. Only our staff read this.</span>
+</div>
+<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Send appeal</button>
 </form>
 </section>
 </div>
 <div class="lt-col-side">
 <section class="lt-region" data-region="help">
 <p>
-<a class="text-link" href="/help">Contact support</a>
+<a class="lt-link" href="/help">Contact support</a>
 </p>
 </section>
 </div>

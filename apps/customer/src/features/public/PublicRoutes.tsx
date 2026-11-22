@@ -29,6 +29,7 @@ import { RulebookRoom } from './rulebook/RulebookRoom';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
+import { StatusSubscriptionFlow } from './StatusSubscriptionFlow';
 import { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from '../more';
 
 /** The public header carries the horizontal lockup (mark 28 pixels, small drawing); the footer line the wordmark alone. */
@@ -116,7 +117,11 @@ export function PublicRoutes({ path, SharedResult }: { path: string; SharedResul
         ) : path === '/status' ? (
           <StatusPage />
         ) : path === '/status/confirm' || path === '/status/manage' || path === '/status/unsubscribe' ? (
-          <StatusSubscriptionPage mode={path.slice('/status/'.length) as 'confirm' | 'manage' | 'unsubscribe'} />
+          path === '/status/manage' ? (
+            <StatusSubscriptionPage mode="manage" />
+          ) : (
+            <StatusSubscriptionFlow mode={path === '/status/confirm' ? 'confirm' : 'unsubscribe'} />
+          )
         ) : path === '/support/guest/verify' ? (
           <GuestVerify />
         ) : path === '/support/guest/request' ? (

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, Failure, Field } from '../../shared/ui';
+import { Button, Field, RefusalBox } from '@intafaced/ui/lit';
 import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
 import { sessionSchema, useSession, type Session } from '../session';
 import { validAuthSession } from './public-auth-guards';
 import { deviceApprovalCopy } from './device-approval-copy';
+import { Failed } from './Failed';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -115,16 +116,16 @@ export function DeviceApproval({
 
   const expires = new Date(waiting.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return (
-    <section className="public-auth-code" aria-labelledby="device-approval-title">
+    <section aria-labelledby="device-approval-title">
       <h2 id="device-approval-title" ref={heading} tabIndex={-1}>
         {t('title')}
       </h2>
       <p>{t('intro')}</p>
-      <p className="muted" role="status">
+      <p className="lt-hint" role="status">
         {waiting.mailed ? t('mailed') : t('unmailed')}
       </p>
       {waiting.mailed && !final && (
-        <form method="post" className="form-stack" onSubmit={approve}>
+        <form method="post" onSubmit={approve}>
           <Field
             label={t('code')}
             name="deviceCode"
@@ -134,34 +135,39 @@ export function DeviceApproval({
             required
             disabled={busy}
           />
-          <Button type="submit" disabled={busy}>
+          <Button tone="primary" type="submit" disabled={busy}>
             {busy ? t('checking') : t('approve')}
           </Button>
         </form>
       )}
       {!final && (
         <>
-          <p className="muted">{t('fromOther')}</p>
+          <p className="lt-hint">{t('fromOther')}</p>
           <Button
-            variant="secondary"
+            tone="secondary"
             disabled={busy}
             onClick={() => void call('auth.deviceComplete', { flowId: waiting.flowId, secret: waiting.secret })}
           >
             {t('continue')}
           </Button>
-          <small className="muted">{t('expires', { time: expires })}</small>
+          <small className="lt-hint">{t('expires', { time: expires })}</small>
         </>
       )}
       {refusal &&
         (refusal.code === 'codeMissing' || worded(refusal.code) ? (
-          <div className="pub-notice" role="alert">
-            <p>{refusal.code === 'codeMissing' ? t('codeMissing') : t(refusal.code as Worded)}</p>
-            {refusal.code !== 'codeMissing' && <small lang="zxx">{refusal.code}</small>}
-          </div>
+          <RefusalBox
+            role="alert"
+            refusal={{
+              variant: 'refused',
+              title: refusal.code === 'codeMissing' ? t('codeMissing') : t(refusal.code as Worded),
+              body: '',
+              ...(refusal.code !== 'codeMissing' ? { reference: refusal.code } : {}),
+            }}
+          />
         ) : (
-          <Failure result={refusal} />
+          <Failed result={refusal} />
         ))}
-      <Button variant="ghost" disabled={busy} onClick={onCancel}>
+      <Button tone="quiet" disabled={busy} onClick={onCancel}>
         {t('cancel')}
       </Button>
     </section>

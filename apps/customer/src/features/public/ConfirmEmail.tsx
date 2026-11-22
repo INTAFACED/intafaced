@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure } from '../../shared/ui';
+import { Button, RefusalBox } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
+import { Failed } from './Failed';
 import { confirmEmailCopy } from './confirm-email-copy';
-import '../../shared/public-pages.css';
 
 // hand-declared-ok: svc-identity's auth.confirmEmail answer has no browser-safe schema in packages/contracts yet
 const confirmedSchema = z.object({ confirmed: z.literal(true) });
@@ -56,40 +57,37 @@ export function ConfirmEmail() {
           ? 'dead'
           : null;
   return (
-    <div className="pub-page">
-      <header className="pub-heading">
-        <p className="eyebrow">{t('eyebrow')}</p>
-        <h1>{done ? t('doneTitle') : dead ? t(`${dead}Title`) : t('title')}</h1>
-      </header>
-      {done ? (
-        <p role="status">
-          {t('doneBody')}{' '}
-          <a className="text-link" href="/uc/account">
-            {t('toAccount')}
-          </a>
-        </p>
-      ) : dead ? (
-        <div className="pub-notice" role="alert">
-          <p>{t(`${dead}Body`)}</p>
-          <a className="text-link" href="/uc/account">
-            {t('toAccount')}
-          </a>
-        </div>
-      ) : (
-        <>
-          <p className="muted">{t('intro')}</p>
-          <Button onClick={() => void confirm()} disabled={busy}>
-            {busy ? t('confirming') : t('confirm')}
-          </Button>
-          {refusal?.code === 'auth.email_confirm_unwired' ? (
-            <p className="pub-notice" role="alert">
-              {t('unwired')} <small lang="zxx">{refusal.code}</small>
-            </p>
-          ) : (
-            refusal && <Failure result={refusal} />
-          )}
-        </>
-      )}
-    </div>
+    <FlowTemplate
+      title={done ? t('doneTitle') : dead ? t(`${dead}Title`) : t('title')}
+      description={t('eyebrow')}
+      state={{ kind: 'ready' }}
+      step={
+        done ? (
+          <p role="status">
+            {t('doneBody')}{' '}
+            <a className="lt-link" href="/uc/account">
+              {t('toAccount')}
+            </a>
+          </p>
+        ) : dead ? (
+          <RefusalBox
+            refusal={{ variant: 'refused', title: t(`${dead}Body`), body: '', action: { label: t('toAccount'), href: '/uc/account' } }}
+            role="alert"
+          />
+        ) : (
+          <>
+            <p>{t('intro')}</p>
+            <Button tone="primary" onClick={() => void confirm()} disabled={busy}>
+              {busy ? t('confirming') : t('confirm')}
+            </Button>
+            {refusal?.code === 'auth.email_confirm_unwired' ? (
+              <RefusalBox refusal={{ variant: 'refused', title: t('unwired'), body: '', reference: refusal.code }} role="alert" />
+            ) : (
+              refusal && <Failed result={refusal} />
+            )}
+          </>
+        )
+      }
+    />
   );
 }

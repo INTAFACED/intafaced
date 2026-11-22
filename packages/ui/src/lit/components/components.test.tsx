@@ -11,6 +11,8 @@ import {
   Change,
   Dock,
   Field,
+  ChoiceGroup,
+  TextArea,
   Figure,
   LegalSlot,
   Logo,
@@ -147,6 +149,54 @@ describe('components', () => {
   it('Field keeps a caller description next to its own hint', () => {
     const out = html(<Field label="Amount" hint="Max 500" aria-describedby="terms" id="a" />);
     expect(out).toContain('aria-describedby="terms a-hint"');
+  });
+
+  it('RefusalBox carries the caller role, test hook, body language and its own control', () => {
+    const out = html(
+      <RefusalBox
+        refusal={{ variant: 'unreachable', title: 'Not confirmed', body: 'Texto' }}
+        role="alert"
+        bodyLang="es"
+        data-testid="failure"
+      >
+        <button type="button">Try again</button>
+      </RefusalBox>,
+    );
+    expect(out).toContain('role="alert"');
+    expect(out).toContain('data-testid="failure"');
+    expect(out).toContain('<div data-part="body" lang="es">Texto</div>');
+    expect(out).toContain('>Try again</button>');
+    expect(html(<RefusalBox refusal={{ variant: 'refused', title: 'No', body: 'Why' }} />)).toContain('role="status"');
+  });
+
+  it('Select, TextArea and ChoiceGroup name their control the way Field does', () => {
+    const select = html(
+      <Select label="Country" id="c" hint="Where you live" error="Pick one">
+        <option value="DE">Germany</option>
+      </Select>,
+    );
+    expect(select).toContain('<label for="c">Country</label>');
+    expect(select).toContain('aria-describedby="c-hint c-error"');
+    expect(select).toContain('<option value="DE">Germany</option>');
+    const area = html(<TextArea label="Your appeal" id="t" maxLength={10} />);
+    expect(area).toContain('<label for="t">Your appeal</label>');
+    expect(area).toContain('maxLength="10"');
+    const group = html(
+      <ChoiceGroup
+        legend="Are you a US person?"
+        name="us"
+        options={[{ value: 'no', label: 'No' }]}
+        value={null}
+        onChange={() => undefined}
+        hint="Citizens and residents"
+        disabled
+      />,
+    );
+    expect(group).toContain('<legend>Are you a US person?</legend>');
+    expect(group).toMatch(
+      /<fieldset class="lit-choices" disabled="" aria-describedby="([^"]+)">.*<span id="\1" data-part="hint">Citizens and residents<\/span>/,
+    );
+    expect(group).toContain('<input type="radio" name="us" value="no"/>');
   });
 
   it('LegalSlot holds no copy of its own, and an unset text shows a refusal in words, never the id', () => {

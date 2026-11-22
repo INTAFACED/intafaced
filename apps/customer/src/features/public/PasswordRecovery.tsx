@@ -1,10 +1,11 @@
 import { useEffect, useId, useReducer, useRef, useState, type FormEvent } from 'react';
-import { Button, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { MAX_INPUT_LENGTH, passwordIssue, passwordProblem, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
-import { ContactSupport } from './ContactSupport';
+import { ContactCard } from './ContactCard';
 import { HandleRecovery } from './HandleRecovery';
 import {
   RECOVERY_STEPS,
@@ -22,10 +23,10 @@ import {
   type ResetLimits,
 } from './password-recovery';
 import { recoveryCopy } from './password-recovery-copy';
-import '../../shared/public-pages.css';
 
 const TITLE = { request: 'step1', reset: 'step2', done: 'step3' } as const;
 const BODY = { request: 'step1Body', reset: 'step2Body', done: 'step3Body' } as const;
+const READY = { kind: 'ready' } as const;
 
 /**
  * /findPwd. Ask for a code, enter it with a new password, then sign in. The page asks the identity service
@@ -140,55 +141,62 @@ export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
         : pw(problem)
     : null;
   return (
-    <div className="pub-page">
-      <a className="text-link" href="/login">
-        ← {copy.t('backToSignIn')}
-      </a>
-      <header className="pub-heading">
-        <h1>{copy.t('title')}</h1>
-        <p className="muted">{copy.t('intro')}</p>
-      </header>
-      <ol className="pub-steps" aria-label={copy.t('stepsLabel')}>
-        {RECOVERY_STEPS.map((step, index) => (
-          <li key={step} className={`pub-step pub-step--${states[step]}`} aria-current={states[step] === 'current' ? 'step' : undefined}>
-            <span className="pub-step__number">{copy.t('stepNumber', { number: index + 1 })}</span>
-            <h2>{copy.t(TITLE[step])}</h2>
-            <p className="muted">{copy.t(BODY[step])}</p>
-            {step === state.step && (
-              <StepBody
-                step={step}
-                formRef={form}
-                busy={state.busy}
-                email={state.email}
-                codeAsked={state.codeAsked}
-                linkCode={state.fromLink ? linkCode : undefined}
-                limitLine={limitLine}
-                onAsk={askCode}
-                onFinish={finish}
-                describedBy={problemText ? problemId : undefined}
-                onRestart={() => dispatch({ type: 'restart' })}
-              />
-            )}
-          </li>
-        ))}
-      </ol>
-      {problemText && (
-        <p id={problemId} className="pub-notice" role="alert">
-          {problemText}
-          {problem === 'mailOff' ? (
-            <>
-              {' '}
-              <small lang="zxx">vendor.email</small>
-            </>
-          ) : null}
-        </p>
-      )}
-      <HandleRecovery />
-      <ContactSupport context="recovery" />
-      <a className="text-link" href="/help">
-        {copy.t('help')} →
-      </a>
-    </div>
+    <FlowTemplate
+      title={copy.t('title')}
+      description={copy.t('intro')}
+      state={READY}
+      step={
+        <>
+          <a className="lt-link" href="/login">
+            ← {copy.t('backToSignIn')}
+          </a>
+          <ol aria-label={copy.t('stepsLabel')}>
+            {RECOVERY_STEPS.map((step, index) => (
+              <li key={step} data-step={states[step]} aria-current={states[step] === 'current' ? 'step' : undefined}>
+                <span className="lt-hint">{copy.t('stepNumber', { number: index + 1 })}</span>
+                <h2>{copy.t(TITLE[step])}</h2>
+                <p className="lt-hint">{copy.t(BODY[step])}</p>
+                {step === state.step && (
+                  <StepBody
+                    step={step}
+                    formRef={form}
+                    busy={state.busy}
+                    email={state.email}
+                    codeAsked={state.codeAsked}
+                    linkCode={state.fromLink ? linkCode : undefined}
+                    limitLine={limitLine}
+                    onAsk={askCode}
+                    onFinish={finish}
+                    describedBy={problemText ? problemId : undefined}
+                    onRestart={() => dispatch({ type: 'restart' })}
+                  />
+                )}
+              </li>
+            ))}
+          </ol>
+          {problemText && (
+            <p id={problemId} role="alert">
+              {problemText}
+              {problem === 'mailOff' ? (
+                <>
+                  {' '}
+                  <small lang="zxx">vendor.email</small>
+                </>
+              ) : null}
+            </p>
+          )}
+          <HandleRecovery />
+        </>
+      }
+      help={
+        <>
+          <ContactCard context="recovery" />
+          <a className="lt-link" href="/help">
+            {copy.t('help')} →
+          </a>
+        </>
+      }
+    />
   );
 }
 
@@ -223,15 +231,17 @@ function StepBody({
   const { t: pw } = passwordCopy.useCopy();
   if (step === 'done') {
     return (
-      <div className="pub-form">
+      <div>
         <p role="status">{copy.t('doneBody')}</p>
-        <Button onClick={() => navigate('/login')}>{copy.t('signIn')}</Button>
+        <Button tone="primary" onClick={() => navigate('/login')}>
+          {copy.t('signIn')}
+        </Button>
       </div>
     );
   }
   if (step === 'request') {
     return (
-      <form ref={formRef} method="post" className="pub-form" onSubmit={onAsk} noValidate>
+      <form ref={formRef} method="post" onSubmit={onAsk} noValidate>
         <Field
           label={copy.t('emailField')}
           name="email"
@@ -243,22 +253,22 @@ function StepBody({
           disabled={busy}
           aria-describedby={describedBy}
         />
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" tone="primary" disabled={busy}>
           {busy ? copy.t('sending') : copy.t('sendCode')}
         </Button>
-        {limitLine ? <p className="muted">{limitLine}</p> : null}
+        {limitLine ? <p className="lt-hint">{limitLine}</p> : null}
       </form>
     );
   }
   return (
-    <form ref={formRef} method="post" className="pub-form" onSubmit={onFinish} noValidate>
+    <form ref={formRef} method="post" onSubmit={onFinish} noValidate>
       {codeAsked && (
-        <p role="status" className="muted">
+        <p role="status" className="lt-hint">
           {copy.t('codeOnItsWay')}
         </p>
       )}
       {limitLine ? (
-        <p className="muted" data-testid="reset-limit">
+        <p className="lt-hint" data-testid="reset-limit">
           {limitLine}
         </p>
       ) : null}
@@ -293,10 +303,10 @@ function StepBody({
         required
         disabled={busy}
       />
-      <Button type="submit" disabled={busy}>
+      <Button type="submit" tone="primary" disabled={busy}>
         {busy ? copy.t('saving') : copy.t('saveNewPassword')}
       </Button>
-      <Button variant="ghost" disabled={busy} onClick={onRestart}>
+      <Button tone="quiet" disabled={busy} onClick={onRestart}>
         {copy.t('askAgain')}
       </Button>
     </form>
