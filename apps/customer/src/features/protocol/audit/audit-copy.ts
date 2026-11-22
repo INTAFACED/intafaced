@@ -1,4 +1,4 @@
-import { defineCopy } from '../../shared/i18n';
+import { defineCopy } from '../../../shared/i18n';
 
 /** Copy for the audit room's per-product list (D-developer-compliance-02). It never claims an audit that is not recorded. */
 const en = {
