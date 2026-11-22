@@ -6,6 +6,7 @@ import { academyRoute } from './academy-lms';
 import { AcademyDiscussionThreadRoom } from './AcademyDiscussion';
 import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
 import { AcademyCourseRoom } from './AcademyCourseRoom';
+import { AcademyReaderRoom } from './academy-reader/AcademyReaderRoom';
 import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
@@ -82,6 +83,15 @@ function MoreRooms({ path }: { path: string }) {
     volt = <AcademyDiscussionThreadRoom key={academy.postId} courseSlug={academy.courseSlug} postId={academy.postId} />;
   } else if (userId && academy?.kind === 'messages' && academy.conversationId) {
     volt = <AcademyCourseConversationRoom key={academy.conversationId} conversationId={academy.conversationId} />;
+  } else if (academy?.kind === 'reader' && academy.slug) {
+    volt = (
+      <AcademyReaderRoom
+        key={`${p}:${url.search}`}
+        slug={academy.slug}
+        initialPath={url.searchParams.get('path') ?? undefined}
+        signedIn={Boolean(userId)}
+      />
+    );
   } else if (academy?.kind === 'course') {
     volt = <AcademyCourseRoom key={`${p}:${url.search}`} slug={academy.slug} signedIn={Boolean(userId)} />;
   } else if (academy) {

@@ -196,7 +196,6 @@
   "/academy/rooms/messages",
   "/academy/certificates/verify/:code",
   "/campaigns/:campaignId",
-  "/academy/:slug",
   "/quant/live/:runId",
   "/market/strategy",
   "/academy",

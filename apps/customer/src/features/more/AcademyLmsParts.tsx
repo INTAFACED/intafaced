@@ -6,7 +6,7 @@ import { academyRefusalText } from './academy-flows';
 import type { CertificateState, LessonStatus } from './academy-lms';
 import './academy-lms.css';
 
-export { itemTypeLabel, kindLabel, pathLabel } from './academy-labels';
+export { kindLabel, pathLabel } from './academy-labels';
 
 /**
  * A bar is only drawn from a real ratio. Callers pass null when nothing is tracked and get text instead.
