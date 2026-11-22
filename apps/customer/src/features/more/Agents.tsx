@@ -23,8 +23,8 @@ import { researchProvenanceSchema, type ResearchProvenance as ResearchProvenance
 import { NavigatorCapLine, NavigatorOrderView, NavigatorOrders, NavigatorTradeRefusalView, useNavigatorTrading } from './NavigatorOrders';
 import { AgentsActivity, AgentsDashboard, AgentsUsage, RunTraces } from './AgentsReview';
 import { agentsReviewCopy } from './agents-review-copy';
-import { AGENTS_ROUTES_LIST } from '@intafaced/contracts/agents-routes-procedures';
 import { callAs } from '../../shared/api';
+import { AGENTS_ROUTES_LIST } from '@intafaced/contracts/agents-routes-procedures';
 import { AGENTS_RUN_COMPLETE } from '@intafaced/contracts/agents-run-procedures';
 import {
   AGENTS_SESSION_SELECT,
@@ -223,7 +223,10 @@ export function Agents({ paper = false }: { paper?: boolean }) {
       return { message: current.t(key), language: current.languageFor(key) };
     });
   }
-  const routes = useResource((signal) => api.call(AGENTS_ROUTES_LIST, undefined, { signal }), `agent-routes:${userId}`),
+  const routes = useResource(
+      (signal) => callAs(api, AGENTS_ROUTES_LIST, undefined, z.array(routeSchema), { signal }),
+      `agent-routes:${userId}`,
+    ),
     guard = useResource(
       (signal) =>
         callAs(
@@ -368,7 +371,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
         if (!contextMatches(expected)) return changed();
         const [freshGuard, freshRoutes] = await Promise.all([
           api.call(AGENTS_AGENT_GET, { agentId: agent }),
-          api.call(AGENTS_ROUTES_LIST, undefined),
+          callAs(api, AGENTS_ROUTES_LIST, undefined, z.array(routeSchema)),
         ]);
         if (!freshGuard.ok) return freshGuard;
         if (!freshRoutes.ok) return freshRoutes;
