@@ -283,9 +283,12 @@ impl PaymentPort for Spy {
     }
 }
 
+/// Approvals issued (id to action and payload hash), and how many were consumed.
+type Issued = (BTreeMap<String, (String, String)>, usize);
+
 /// `deskApprovals()`: an approval is bound to one action and one set of fields, and is consumed once.
 #[derive(Clone, Default)]
-struct Desk(Arc<Mutex<(BTreeMap<String, (String, String)>, usize)>>);
+struct Desk(Arc<Mutex<Issued>>);
 
 impl Desk {
     fn issue(&self, action: &str, fields: &[(&str, &str)]) -> Vec<(&'static str, Json)> {
