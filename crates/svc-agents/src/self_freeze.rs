@@ -2,7 +2,7 @@
 //! and every change that gives an agent more, from svc-identity's `GET /internal/self-freeze/:userId`, signed as
 //! svc-agents. Nothing is kept: each gate asks again. An unread freeze counts as frozen.
 //!
-//! The `selfFreezeApplied` consumer (the revokes one freeze makes) is the `own-sharing` slice's.
+//! The `selfFreezeApplied` consumer (the revokes one freeze makes) is the `own-sharing` slice's: `own::freeze_applied`.
 
 use std::sync::Arc;
 
