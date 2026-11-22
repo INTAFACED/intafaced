@@ -52,6 +52,7 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readReport } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 export const JOURNEYS_WORKFLOW = 'Real-app journeys';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
@@ -269,6 +270,7 @@ async function gh(method, path, body, { alreadyRunningOk = false } = {}) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+  countCall(res);
   const text = await res.text();
   // AGENTS.md's one exception: "403 This workflow is already running" on a re-run only means the run is in progress.
   if (alreadyRunningOk && res.status === 403 && /already running/i.test(text)) return { status: 403, json: null, alreadyRunning: true };

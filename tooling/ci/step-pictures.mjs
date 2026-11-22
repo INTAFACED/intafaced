@@ -26,6 +26,7 @@ import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 import { downloadShards, pause } from './shard-download.mjs';
+import { countCall } from './api-count.mjs';
 
 export const WORKFLOW = 'real-app-journeys.yml';
 /** The name of the whole-page picture of a test's own page (journey.mjs `stepPicture`). */
@@ -148,7 +149,10 @@ export function attach(readDir, picDir) {
   return `pictures: ${have} of ${meta.required.length} step(s)`;
 }
 
-const api = (path) => JSON.parse(execFileSync('gh', ['api', path], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+const api = (path) => {
+  countCall();
+  return JSON.parse(execFileSync('gh', ['api', path], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+};
 
 /** One shard's zip, downloaded and unpacked into `dir`, every link it held deleted. */
 const unpack = (repo, artifact, dir) =>

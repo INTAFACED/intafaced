@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../shared/ui';
 import { ServiceOffNotice, NOT_CONNECTED_CODES, type NotConnectedCode } from '../../shared/service-off';
 import { useSession } from '../session';
-import { letterRequestSchema, taxStatementsSchema, type LineTotal } from './contracts';
+import { type LineTotal } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { statementExtrasCopy } from './statement-extras-copy';
+import { BANK_STATEMENTS_LETTERS_REQUEST, BANK_STATEMENTS_TAX_LIST } from '@intafaced/contracts/bank-statements-procedures';
 
 const outside = (code: string | null | undefined): NotConnectedCode | null =>
   code && (NOT_CONNECTED_CODES as readonly string[]).includes(code) ? (code as NotConnectedCode) : null;
@@ -46,7 +47,7 @@ export function StatementLetters() {
     if (busy) return;
     setBusy(true);
     setSaid(null);
-    const result = await api.mutate('bank', 'statements.letters.request', { kind }, letterRequestSchema);
+    const result = await api.call(BANK_STATEMENTS_LETTERS_REQUEST, { kind });
     setBusy(false);
     if (result.ok) return;
     const code = outside(result.code);
@@ -98,7 +99,7 @@ export function TaxStatements() {
   useEffect(() => {
     let live = true;
     setTax({ kind: 'loading' });
-    void api.query('bank', 'statements.tax.list', { year }, taxStatementsSchema).then((result) => {
+    void api.call(BANK_STATEMENTS_TAX_LIST, { year }).then((result) => {
       if (!live) return;
       if (result.ok) return setTax({ kind: 'list', count: result.data.items.length });
       const code = outside(result.code);

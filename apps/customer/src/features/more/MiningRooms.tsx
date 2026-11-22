@@ -51,12 +51,17 @@ type Read<T> = { resource: Resource<T>; reload: () => void };
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 export function MiningRooms({ room, health }: { room: Room; health: Health }) {
-  const { Copy, t } = miningDepthCopy.useCopy();
-  const reading = health.resource.status === 'ready' ? health.resource.data : null;
-  const loading = health.resource.status === 'loading';
   if (room === 'Workers') return <Workers />;
   if (room === 'Shares') return <Shares />;
   if (room === 'Rewards') return <Rewards />;
+  return <MiningOverview health={health} />;
+}
+
+/** The overview's verdict on the pool and its journey: each step, whether it can start, and what it waits on. */
+export function useMiningJourney(health: Health) {
+  const { Copy, t } = miningDepthCopy.useCopy();
+  const reading = health.resource.status === 'ready' ? health.resource.data : null;
+  const loading = health.resource.status === 'loading';
   const verdict = poolVerdict(reading);
   // The pool lists a customer's own workers, shares, open windows and paid credits. It still refuses to register a worker.
   const steps: JourneyStep[] = MINING_STEPS.map((step) => {
@@ -82,6 +87,12 @@ export function MiningRooms({ room, health }: { room: Room; health: Health }) {
       ),
     };
   });
+  return { reading, loading, verdict, steps };
+}
+
+function MiningOverview({ health }: { health: Health }) {
+  const { Copy, t } = miningDepthCopy.useCopy();
+  const { reading, loading, verdict, steps } = useMiningJourney(health);
   return (
     <div className="more-grid">
       <Panel title={t('verdictTitle')}>
