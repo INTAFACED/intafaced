@@ -169,6 +169,14 @@ MSG
   fi
 fi
 
+# The wire replay of each service this push changes that keeps one (tooling/scripts/pre-push-wire-replay.mjs, under a time
+# limit that prints TIMEOUT and lets the push go; skipped when the push changes a shared package, so the packages it reads
+# come from turbo's cache and nothing builds here). A new route its recording lacked was otherwise first seen as a red
+# Tests job minutes after the push, then a second push with the recording rewritten (#9297 and #9519, project-state#3682).
+if [ -f "$TOP/tooling/scripts/pre-push-wire-replay.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-wire-replay.mjs) </dev/null; then
+  refuse 'wire replay'
+fi
+
 if [ -n "${SIZE_PID:-}" ]; then
   wait "$SIZE_PID"
   cat "$SIZE_OUT"
