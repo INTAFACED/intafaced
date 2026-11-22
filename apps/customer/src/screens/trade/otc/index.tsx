@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useRoomApi, useNow, asOfOf } from '../rooms/read';
-import { RoomFrame } from '../rooms/RoomFrame';
-import { Freshness, Refusal, WriteNotice } from '../rooms/RoomNotices';
 import { useRoomWriter } from '../rooms/write';
-import { EmptyState, Skeleton, Tabs, TabsList, TabsPanel, TabsTab, useSession } from '../rooms/ui';
+import { useSession } from '../rooms/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DeskTemplate, RefusalBox, Skeleton, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
+import { Freshness, Refusal, TradeRoomsNav, WriteNotice } from '../options/notices';
 import { otcCopy } from './copy';
 import { useDeskStatus, useOtcMakers, usePairs, useQuoteBook, useRfqBoard } from './data';
 import { DeskStatusStrip } from './DeskStatusStrip';
@@ -83,46 +84,61 @@ function Room({ linkedId }: { linkedId: string | null }) {
   const routed = desk.status === 'ready' && desk.data.makerRouting?.published === true;
 
   return (
-    <RoomFrame
-      mode="Quote desk"
+    <DeskTemplate
       title={t('Quote desk')}
       description={t('Quote desk description')}
-      meta={<Freshness asOf={asOfOf(desk)} refused={desk.status === 'refused'} now={now} />}
-    >
-      <div className="flex flex-col gap-4">
-        <DeskStatusStrip desk={desk} />
-        <WriteNotice writer={writer} onCheck={(id) => void check(id)} />
-        {checkNote ? (
-          <p role="status" className="m-0 text-sm text-fg">
-            {checkNote}
-          </p>
-        ) : null}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-          <RequestForm
-            api={api}
-            writer={writer}
-            desk={desk}
-            pairs={pairs}
-            makers={makers}
-            picked={providers}
-            onPick={setProviders}
-            onQuote={(quote, asked) => {
-              setAskedBy((all) => ({ ...all, [quote.quoteId]: asked }));
-              setKept(book.adopt(quote));
-              setSelected(quote.quoteId);
-              setTab('quotes');
-            }}
+      mode="pro"
+      state={{ kind: 'ready' }}
+      instrument={
+        <div className="lt-stack">
+          <TradeRoomsNav active="otc" />
+          <div className="lt-toolbar">
+            <Freshness asOf={asOfOf(desk)} refused={desk.status === 'refused'} now={now} />
+          </div>
+          <DeskStatusStrip desk={desk} />
+          <WriteNotice writer={writer} onCheck={(id) => void check(id)} />
+          {checkNote ? (
+            <p role="status" className="lt-text">
+              {checkNote}
+            </p>
+          ) : null}
+        </div>
+      }
+      ticket={
+        <RequestForm
+          api={api}
+          writer={writer}
+          desk={desk}
+          pairs={pairs}
+          makers={makers}
+          picked={providers}
+          onPick={setProviders}
+          onQuote={(quote, asked) => {
+            setAskedBy((all) => ({ ...all, [quote.quoteId]: asked }));
+            setKept(book.adopt(quote));
+            setSelected(quote.quoteId);
+            setTab('quotes');
+          }}
+        />
+      }
+      chart={
+        <div className="lt-stack">
+          <Tabs
+            id="otc"
+            label={t('Quote desk')}
+            value={tab}
+            onChange={(next) => setTab(next as Tab)}
+            items={[
+              { value: 'quotes', label: t('Tab quotes') },
+              { value: 'export', label: t('Tab export') },
+              { value: 'allocation', label: t('Tab allocation') },
+              { value: 'rules', label: t('Tab rules') },
+            ]}
           />
-          <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-            <TabsList divider className="overflow-x-auto">
-              <TabsTab value="quotes">{t('Tab quotes')}</TabsTab>
-              <TabsTab value="export">{t('Tab export')}</TabsTab>
-              <TabsTab value="allocation">{t('Tab allocation')}</TabsTab>
-              <TabsTab value="rules">{t('Tab rules')}</TabsTab>
-            </TabsList>
-            <TabsPanel value="quotes" className="flex flex-col gap-4 pt-3">
+          <TabPanel id="otc" value="quotes" current={tab}>
+            <div className="lt-stack">
               {kept ? null : (
-                <p role="alert" className="m-0 text-sm text-warn">
+                <p role="alert" className="lt-alert">
                   {t('Not remembered')}
                 </p>
               )}
@@ -140,16 +156,19 @@ function Room({ linkedId }: { linkedId: string | null }) {
                 }}
                 onRetry={(id) => void book.load(id)}
               />
-              {entry?.status === 'loading' ? <Skeleton className="h-48 w-full" /> : null}
+              {entry?.status === 'loading' ? <Skeleton shape="form" /> : null}
               {entry?.status === 'refused' ? <Refusal words={entry.words} /> : null}
               {entry?.status === 'error' ? (
-                <EmptyState
-                  variant="unavailable"
-                  size="panel"
-                  title={t('Quote unreadable title')}
-                  reason={t('Quote unreadable reason')}
-                  action={selected ? { label: t('Try again'), onClick: () => void book.load(selected), variant: 'secondary' } : undefined}
-                />
+                <div className="lt-stack">
+                  <RefusalBox
+                    refusal={{ variant: 'unreachable', title: t('Quote unreadable title'), body: t('Quote unreadable reason') }}
+                  />
+                  {selected ? (
+                    <div className="lt-actions">
+                      <Button onClick={() => void book.load(selected)}>{t('Try again')}</Button>
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
               {entry?.status === 'ready' ? (
                 <QuoteCard
@@ -171,21 +190,21 @@ function Room({ linkedId }: { linkedId: string | null }) {
                   }}
                 />
               ) : null}
-            </TabsPanel>
-            <TabsPanel value="export" className="pt-3">
-              <ExportTab read={book.read} now={now} />
-            </TabsPanel>
-            <TabsPanel value="allocation" className="pt-3">
-              <AllocationTab />
-            </TabsPanel>
-            <TabsPanel value="rules" className="pt-3">
-              <RulesTab routed={routed} />
-            </TabsPanel>
-          </Tabs>
+            </div>
+          </TabPanel>
+          <TabPanel id="otc" value="export" current={tab}>
+            <ExportTab read={book.read} now={now} />
+          </TabPanel>
+          <TabPanel id="otc" value="allocation" current={tab}>
+            <AllocationTab />
+          </TabPanel>
+          <TabPanel id="otc" value="rules" current={tab}>
+            <RulesTab routed={routed} />
+          </TabPanel>
         </div>
-        <RfqBoard board={board} makers={makers} />
-      </div>
-    </RoomFrame>
+      }
+      orders={<RfqBoard board={board} makers={makers} />}
+    />
   );
 }
 
@@ -194,15 +213,26 @@ export default function Screen(props: ScreenProps) {
   const { userId } = useSession();
   if (!userId)
     return (
-      <RoomFrame mode="Quote desk" title={t('Quote desk')} description={t('Quote desk description')}>
-        <EmptyState
-          variant="refused"
-          size="panel"
-          title={t('Sign in title')}
-          reason={t('Sign in reason')}
-          action={{ label: t('Log in'), href: `/login?redirect=${encodeURIComponent(`${props.path}${props.search}`)}` }}
-        />
-      </RoomFrame>
+      <DeskTemplate
+        title={t('Quote desk')}
+        description={t('Quote desk description')}
+        mode="pro"
+        roomAction={<TradeRoomsNav active="otc" />}
+        state={{
+          kind: 'gated',
+          gate: 'signed-out',
+          refusal: {
+            variant: 'refused',
+            title: t('Sign in title'),
+            body: t('Sign in reason'),
+            action: { label: t('Log in'), href: `/login?redirect=${encodeURIComponent(`${props.path}${props.search}`)}` },
+          },
+        }}
+        instrument={null}
+        chart={null}
+        ticket={null}
+        orders={null}
+      />
     );
   return <Room linkedId={linkedQuoteId(props)} />;
 }

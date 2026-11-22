@@ -272,6 +272,14 @@
       'chart tape ticket'
       'orders orders orders';
   }
+  /* A desk with no markets list, book or trades (options, OTC): the main area and the ticket, orders under them. */
+  .lt-desk[data-desk='pro']:not(:has(> [data-region='pairs'], > [data-region='book'], > [data-region='tape'])) {
+    grid-template-columns: minmax(0, 1fr) 22.5rem;
+    grid-template-areas:
+      'instrument instrument'
+      'chart ticket'
+      'orders orders';
+  }
   .lt-desk[data-desk='simple'] {
     grid-template-columns: minmax(0, 1fr) 21.25rem;
     grid-template-areas:
@@ -1080,6 +1088,14 @@ button.lt-tab:focus-visible {
   font-size: var(--lit-type-heading-size);
 }
 
+/* The sheet's content, a column at the item gap under its head. */
+.lt-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  margin-block-start: var(--lit-gap-item);
+}
+
 .lt-table {
   inline-size: 100%;
   border-collapse: collapse;
@@ -1495,4 +1511,132 @@ button.lt-tab:focus-visible {
 .lt-person:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.25rem;
+}
+
+/* ---- working rooms: layout helpers, a desk with no markets, book or trades column, and the b3 controls ---- */
+
+/* A column of parts at the item gap. */
+.lt-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+
+/* A section's own heading inside a region. */
+.lt-heading {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: var(--lit-type-heading-weight);
+}
+
+/* A line of running text. */
+.lt-text {
+  margin: 0;
+}
+
+/* A line that says something needs attention (a blocked send, a mismatch); paired with role alert or status. */
+.lt-alert {
+  margin: 0;
+  color: var(--lit-warn-text);
+}
+
+/* A list with no bullets, its items at the item gap. */
+.lt-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Rules or points a room states in a list, bulleted. */
+.lt-points {
+  margin: 0;
+  padding-inline-start: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+}
+
+/* A wide table that scrolls sideways inside its region rather than the page. */
+.lt-scroll-x {
+  overflow-x: auto;
+  min-inline-size: 0;
+}
+
+/* A decimal field with a unit: the input and its unit on one line. */
+.lt-field-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--lit-gap-item) / 2);
+}
+
+.lt-field-row input {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  text-align: end;
+}
+
+.lt-field-unit {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+/* Table: a sortable header. */
+.lt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lt-sort:focus-visible {
+  outline: 0.125rem solid var(--lit-focus);
+  outline-offset: 0.125rem;
+}
+
+.lt-sort-mark {
+  font-size: var(--lit-type-micro-size);
+}
+
+.lt-table tr[data-empty] td {
+  block-size: auto;
+  padding-block: var(--lit-gap-item);
+}
+
+/* A chart's zero line, dashed and quiet, and the axis words at its two ends. */
+.lt-chart-zero {
+  stroke: var(--lit-line-strong);
+  stroke-dasharray: 6 6;
+}
+
+.lt-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+/* A group of controls under one name (a fieldset and its legend), with no box of its own. */
+.lt-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.lt-group > legend {
+  padding: 0;
+  margin-block-end: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
 }

@@ -1,24 +1,12 @@
 import { useState } from 'react';
-import {
-  Button,
-  Field,
-  Input,
-  KeyValue,
-  SegmentedControl,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Table,
-  fmtAmount,
-  dec,
-  type TableColumn,
-} from '../rooms/ui';
+import { Button, Segmented } from '@intafaced/ui/lit';
+import { DecimalInput, KeyValue, Select, Table, type Column } from '@intafaced/ui/lit/templates';
+import { fmtAmount, dec } from '../rooms/ui';
 import type { ListedMarket } from '../rooms/api';
 import { useRoomApi } from '../rooms/read';
 import { roomWords, type Words } from '../rooms/refusals';
 import { optionsCopy } from './copy';
+import { kvRow } from './notices';
 import { PayoffChart } from './PayoffChart';
 import { analyse, buildPreset, legIssues, PRESET_IDS, UNLIMITED, type Leg, type LegField, type PayoffRow, type PresetId } from './model';
 
@@ -115,120 +103,84 @@ export function StrategyTab({
     return field === 'premium' ? t('Price cannot be negative') : t('Must be above zero');
   };
 
-  const payoffColumns: TableColumn<PayoffRow>[] = [
+  const payoffColumns: Column<PayoffRow>[] = [
+    { key: 'spot', label: t('Price at expiry'), align: 'end', cell: (r) => fmtAmount(r.spot, { places }) },
     {
-      id: 'spot',
-      header: t('Price at expiry'),
-      width: 160,
-      pin: 'start',
-      numeric: true,
-      value: (r) => r.spot,
-      cell: (r) => fmtAmount(r.spot, { places }),
-    },
-    {
-      id: 'pnl',
-      header: t('Result'),
-      numeric: true,
-      value: (r) => r.pnl,
+      key: 'pnl',
+      label: t('Result'),
+      align: 'end',
       cell: (r) => {
         const v = dec(r.pnl)!;
-        return (
-          <span
-            className={v > 0n ? 'text-up-text' : v < 0n ? 'text-down-text' : undefined}
-          >{`${v > 0n ? '+' : ''}${fmtAmount(r.pnl, { places })}`}</span>
-        );
+        return <span data-dir={v > 0n ? 'up' : v < 0n ? 'down' : undefined}>{`${v > 0n ? '+' : ''}${fmtAmount(r.pnl, { places })}`}</span>;
       },
     },
-    { id: 'word', header: t('Outcome'), cell: (r) => (dec(r.pnl)! > 0n ? t('Profit') : dec(r.pnl)! < 0n ? t('Loss') : t('Break-even')) },
+    { key: 'word', label: t('Outcome'), cell: (r) => (dec(r.pnl)! > 0n ? t('Profit') : dec(r.pnl)! < 0n ? t('Loss') : t('Break-even')) },
   ];
 
   const money = (value: string) => fmtAmount(value, { places });
 
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="m-0 text-sm text-fg-2">{t('Strategy intro')}</p>
+  const decimal = (label: string, value: string, onValueChange: (v: string) => void, extra?: { hint?: string; error?: string }) => (
+    <DecimalInput label={label} value={value} onValueChange={onValueChange} precision={8} hint={extra?.hint} error={extra?.error} />
+  );
 
-      <section aria-label={t('Presets')} className="flex flex-wrap items-end gap-3">
-        <Field density="dense" label={t('Preset')}>
+  return (
+    <div className="lt-stack">
+      <p className="lt-hint">{t('Strategy intro')}</p>
+
+      <section aria-label={t('Presets')} className="lt-toolbar">
+        <div className="lt-field">
+          <span aria-hidden="true">{t('Preset')}</span>
           <Select
-            items={Object.fromEntries(PRESET_IDS.map((id) => [id, t(`Preset ${id}`)]))}
+            label={t('Preset')}
             value={preset}
-            onValueChange={(v) => v && setPreset(v as PresetId)}
-          >
-            <SelectTrigger size={32} aria-label={t('Preset')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PRESET_IDS.map((id) => (
-                <SelectItem key={id} value={id}>
-                  {t(`Preset ${id}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field density="dense" label={t('Centre strike')}>
-          <Input kind="decimal" precision={8} value={centre} onValueChange={setCentre} className="w-32" />
-        </Field>
-        <Field density="dense" label={t('Strike step')} error={presetError ? t('Preset needs numbers') : undefined}>
-          <Input kind="decimal" precision={8} value={step} onValueChange={setStep} className="w-32" />
-        </Field>
-        <Button variant="secondary" size={32} onClick={applyPreset}>
-          {t('Fill legs')}
-        </Button>
-        <Button variant="ghost" size={32} onClick={() => change([...legs, blankLeg(selected)])}>
+            onChange={(v) => setPreset(v as PresetId)}
+            options={PRESET_IDS.map((id) => ({ value: id, label: t(`Preset ${id}`) }))}
+          />
+        </div>
+        {decimal(t('Centre strike'), centre, setCentre)}
+        {decimal(t('Strike step'), step, setStep, { error: presetError ? t('Preset needs numbers') : undefined })}
+        <Button onClick={applyPreset}>{t('Fill legs')}</Button>
+        <Button tone="quiet" onClick={() => change([...legs, blankLeg(selected)])}>
           {t('Add leg')}
         </Button>
-        <Button variant="ghost" size={32} disabled={legs.length === 0} onClick={() => change([])}>
+        <Button tone="quiet" disabled={legs.length === 0} onClick={() => change([])}>
           {t('Clear')}
         </Button>
       </section>
 
-      {legs.length === 0 ? <p className="m-0 text-sm text-fg-2">{t('No legs')}</p> : null}
-      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+      {legs.length === 0 ? <p className="lt-hint">{t('No legs')}</p> : null}
+      <ul className="lt-list">
         {legs.map((leg, i) => {
           const g = greeks?.[i];
           return (
-            <li key={i} className="flex flex-col gap-2 rounded-sm border border-line bg-panel p-3">
-              <div className="flex flex-wrap items-start gap-3">
-                <SegmentedControl
-                  aria-label={t('Leg side', { n: String(i + 1) })}
-                  size={28}
+            <li key={i} className="lt-stack">
+              <div className="lt-toolbar">
+                <Segmented
+                  label={t('Leg side', { n: String(i + 1) })}
                   value={leg.side}
-                  onValueChange={(v) => patch(i, { side: v as Leg['side'] })}
-                  items={[
-                    { value: 'buy', label: t('Buy'), tone: 'up' },
-                    { value: 'sell', label: t('Sell'), tone: 'down' },
+                  onChange={(v) => patch(i, { side: v as Leg['side'] })}
+                  options={[
+                    { value: 'buy', label: t('Buy') },
+                    { value: 'sell', label: t('Sell') },
                   ]}
                 />
-                <SegmentedControl
-                  aria-label={t('Leg type', { n: String(i + 1) })}
-                  size={28}
+                <Segmented
+                  label={t('Leg type', { n: String(i + 1) })}
                   value={leg.right}
-                  onValueChange={(v) => patch(i, { right: v as Leg['right'] })}
-                  items={[
+                  onChange={(v) => patch(i, { right: v as Leg['right'] })}
+                  options={[
                     { value: 'call', label: t('Call') },
                     { value: 'put', label: t('Put') },
                   ]}
                 />
-                <Field density="dense" label={t('Strike')} error={fieldError(leg, 'strike')}>
-                  <Input kind="decimal" precision={8} value={leg.strike} onValueChange={(v) => patch(i, { strike: v })} className="w-28" />
-                </Field>
-                <Field density="dense" label={t('Quantity')} error={fieldError(leg, 'qty')}>
-                  <Input kind="decimal" precision={8} value={leg.qty} onValueChange={(v) => patch(i, { qty: v })} className="w-24" />
-                </Field>
-                <Field density="dense" label={t('Your price')} hint={t('Entered by you')} error={fieldError(leg, 'premium')}>
-                  <Input
-                    kind="decimal"
-                    precision={8}
-                    value={leg.premium}
-                    onValueChange={(v) => patch(i, { premium: v })}
-                    className="w-28"
-                  />
-                </Field>
+                {decimal(t('Strike'), leg.strike, (v) => patch(i, { strike: v }), { error: fieldError(leg, 'strike') })}
+                {decimal(t('Quantity'), leg.qty, (v) => patch(i, { qty: v }), { error: fieldError(leg, 'qty') })}
+                {decimal(t('Your price'), leg.premium, (v) => patch(i, { premium: v }), {
+                  hint: t('Entered by you'),
+                  error: fieldError(leg, 'premium'),
+                })}
                 <Button
-                  variant="ghost"
-                  size={28}
+                  tone="quiet"
                   aria-label={t('Remove leg', { n: String(i + 1) })}
                   onClick={() => change(legs.filter((_, at) => at !== i))}
                 >
@@ -236,7 +188,7 @@ export function StrategyTab({
                 </Button>
               </div>
               {g ? (
-                <p className="m-0 text-sm text-fg-2" aria-live="polite">
+                <p className="lt-hint" aria-live="polite">
                   {g.kind === 'ok'
                     ? `${t('Delta')} ${fmtAmount(g.delta, { places })} · ${t('Gamma')} ${fmtAmount(g.gamma, { places })} · ${t('Vega')} ${fmtAmount(g.vega, { places })} · ${t('Theta')} ${fmtAmount(g.theta, { places })} · ${t('Value')} ${fmtAmount(g.npv, { places })}`
                     : `${t('Delta')} —  ${t('Gamma')} —  ${t('Vega')} —  ${t('Theta')} —  · ${g.words.title}. ${g.words.body}`}
@@ -247,24 +199,22 @@ export function StrategyTab({
         })}
       </ul>
 
-      {legs.length > 0 && analysis === null ? <p className="m-0 text-sm text-warn">{t('Finish the legs')}</p> : null}
+      {legs.length > 0 && analysis === null ? <p className="lt-alert">{t('Finish the legs')}</p> : null}
 
       {analysis ? (
-        <section aria-label={t('Result at expiry')} className="flex flex-col gap-3">
-          <p className="m-0 text-xs text-fg-2">{t('Not a quote')}</p>
+        <section aria-label={t('Result at expiry')} className="lt-stack">
+          <p className="lt-hint">{t('Not a quote')}</p>
           <KeyValue
-            density="dense"
-            items={[
-              {
-                label: t('Net price'),
-                value:
-                  analysis.netPremium.kind === 'flat'
-                    ? t('Even')
-                    : `${analysis.netPremium.kind === 'debit' ? t('You pay') : t('You receive')} ${money(analysis.netPremium.amount)}`,
-              },
-              { label: t('Best result'), value: analysis.maxProfit === UNLIMITED ? t('Unlimited') : money(analysis.maxProfit) },
-              { label: t('Worst result'), value: analysis.maxLoss === UNLIMITED ? t('Unlimited') : money(analysis.maxLoss) },
-              { label: t('Break-even'), value: analysis.breakEvens.length ? analysis.breakEvens.map(money).join(', ') : t('None') },
+            rows={[
+              kvRow(
+                t('Net price'),
+                analysis.netPremium.kind === 'flat'
+                  ? t('Even')
+                  : `${analysis.netPremium.kind === 'debit' ? t('You pay') : t('You receive')} ${money(analysis.netPremium.amount)}`,
+              ),
+              kvRow(t('Best result'), analysis.maxProfit === UNLIMITED ? t('Unlimited') : money(analysis.maxProfit)),
+              kvRow(t('Worst result'), analysis.maxLoss === UNLIMITED ? t('Unlimited') : money(analysis.maxLoss)),
+              kvRow(t('Break-even'), analysis.breakEvens.length ? analysis.breakEvens.map(money).join(', ') : t('None')),
             ]}
           />
           <PayoffChart
@@ -273,85 +223,31 @@ export function StrategyTab({
             lowLabel={t('Price {value}', { value: money(analysis.rows[0]!.spot) })}
             highLabel={t('Price {value}', { value: money(analysis.rows[analysis.rows.length - 1]!.spot) })}
           />
-          <Table
-            label={t('Result at expiry')}
-            minWidth={480}
-            density="dense"
-            columns={payoffColumns}
-            rows={analysis.rows}
-            getRowId={(r) => r.spot}
-          />
-          <p className="m-0 text-xs text-fg-2">{t('Margin blocker')}</p>
+          <div className="lt-scroll-x">
+            <Table caption={t('Result at expiry')} mode="pro" columns={payoffColumns} rows={analysis.rows} rowKey={(r) => r.spot} />
+          </div>
+          <p className="lt-hint">{t('Margin blocker')}</p>
         </section>
       ) : null}
 
-      <section aria-label={t('Greeks')} className="flex flex-col gap-3">
-        <h3 className="m-0 text-md font-medium text-fg">{t('Greeks')}</h3>
-        <p className="m-0 text-sm text-fg-2">{t('Greeks intro')}</p>
-        <div className="flex flex-wrap items-end gap-3">
-          <Field density="dense" label={t('Contract size')} hint={t('Contract size hint')}>
-            <Input kind="decimal" precision={8} value={multiplier} onValueChange={setMultiplier} className="w-24" />
-          </Field>
-          <Field density="dense" label={t('Spot price')}>
-            <Input
-              kind="decimal"
-              precision={8}
-              value={inputs.spot}
-              onValueChange={(v) => setInputs({ ...inputs, spot: v })}
-              className="w-28"
-            />
-          </Field>
-          <Field density="dense" label={t('Volatility')} hint={t('Volatility hint')}>
-            <Input
-              kind="decimal"
-              precision={8}
-              value={inputs.vol}
-              onValueChange={(v) => setInputs({ ...inputs, vol: v })}
-              className="w-24"
-            />
-          </Field>
-          <Field density="dense" label={t('Years to expiry')}>
-            <Input
-              kind="decimal"
-              precision={8}
-              value={inputs.tte}
-              onValueChange={(v) => setInputs({ ...inputs, tte: v })}
-              className="w-24"
-            />
-          </Field>
-          <Field density="dense" label={t('Interest rate')}>
-            <Input
-              kind="decimal"
-              precision={8}
-              value={inputs.rate}
-              onValueChange={(v) => setInputs({ ...inputs, rate: v })}
-              className="w-24"
-            />
-          </Field>
-          <Field density="dense" label={t('Dividend yield')}>
-            <Input
-              kind="decimal"
-              precision={8}
-              value={inputs.yld}
-              onValueChange={(v) => setInputs({ ...inputs, yld: v })}
-              className="w-24"
-            />
-          </Field>
-          <Button
-            variant="secondary"
-            size={32}
-            className="mt-[22px]"
-            loading={asking}
-            disabled={analysis === null || !inputsReady}
-            onClick={() => void askGreeks()}
-          >
+      <section aria-label={t('Greeks')} className="lt-stack">
+        <h3 className="lt-heading">{t('Greeks')}</h3>
+        <p className="lt-hint">{t('Greeks intro')}</p>
+        <div className="lt-toolbar">
+          {decimal(t('Contract size'), multiplier, setMultiplier, { hint: t('Contract size hint') })}
+          {decimal(t('Spot price'), inputs.spot, (v) => setInputs({ ...inputs, spot: v }))}
+          {decimal(t('Volatility'), inputs.vol, (v) => setInputs({ ...inputs, vol: v }), { hint: t('Volatility hint') })}
+          {decimal(t('Years to expiry'), inputs.tte, (v) => setInputs({ ...inputs, tte: v }))}
+          {decimal(t('Interest rate'), inputs.rate, (v) => setInputs({ ...inputs, rate: v }))}
+          {decimal(t('Dividend yield'), inputs.yld, (v) => setInputs({ ...inputs, yld: v }))}
+          <Button aria-busy={asking || undefined} disabled={analysis === null || !inputsReady || asking} onClick={() => void askGreeks()}>
             {t('Get Greeks')}
           </Button>
         </div>
         {analysis === null ? (
-          <p className="m-0 text-xs text-fg-2">{t('Greeks need legs')}</p>
+          <p className="lt-hint">{t('Greeks need legs')}</p>
         ) : !inputsReady ? (
-          <p className="m-0 text-xs text-fg-2">{t('Greeks need inputs')}</p>
+          <p className="lt-hint">{t('Greeks need inputs')}</p>
         ) : null}
       </section>
     </div>

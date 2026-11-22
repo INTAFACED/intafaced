@@ -270,6 +270,11 @@ const messages = {
   'Rule live blocked': 'Live option orders are blocked until the settlement asset rule and the settlement price source are published.',
   'Go to Futures': 'Go to Futures',
   'Go to Execution': 'Go to Execution',
+  // Notices (notices.tsx), shared with the quote desk
+  'Try again': 'Try again',
+  'Unconfirmed request': 'Unconfirmed request',
+  'Requests locked': 'New requests stay locked until it is checked.',
+  'Unknown value': 'unknown',
 } as const;
 
 export const optionsCopy = defineCopy('trade.options', messages);
