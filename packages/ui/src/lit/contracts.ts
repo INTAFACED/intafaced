@@ -326,6 +326,11 @@ export const components = {
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
   ChartBox: "(B2) A chart's box of definite size (22.5rem high, full width) for a library that draws into it, or a state in its place",
   ChartCanvas: '(B2) The named picture inside a ChartBox and the element a charting library draws into, filling the box',
+  AssetIcon: "An asset's round mark: the kit's artwork for a listed asset, a lettered disc for any other, never a guessed logo",
+  InfoTip: 'A short explanation behind an (i) button: opens on hover, focus and tap, closes on Escape; also the description',
+  HeroFigure: 'The one large figure a room is about: masked when balances are hidden, a dash when there is none, never animated',
+  Fold: 'A group closed until opened (small balances), with its count: the native disclosure',
+  CardStack: 'The account as two cards you hold, each a link: matte black metal in front, the lit card behind',
 } as const;
 export type ComponentName = keyof typeof components;
 
