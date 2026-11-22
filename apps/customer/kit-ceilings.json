@@ -102,7 +102,6 @@
     "apps/customer/src/features/pay/personal/OrderReview.tsx": 3,
     "apps/customer/src/features/pay/personal/p2p-console.tsx": 6,
     "apps/customer/src/features/pay/personal/p2p-share.tsx": 1,
-    "apps/customer/src/features/pay/personal/P2PDepth.tsx": 2,
     "apps/customer/src/features/pay/personal/rooms/PersonalRoom.tsx": 1,
     "apps/customer/src/features/pay/personal/TakeOffer.tsx": 3,
     "apps/customer/src/features/pay/portal/catalog/Availability.tsx": 1,
