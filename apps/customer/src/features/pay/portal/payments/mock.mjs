@@ -113,6 +113,7 @@ export function createPaymentsMock(ctx) {
       maxUses: 1,
       uses: 0,
       createdAt: iso(Date.now()),
+      token: link.token,
       checkoutUrl: `/api/pay/checkout?token=${link.token}`,
     };
     const at = world.links.findIndex((l) => l.id === record.id);
@@ -147,6 +148,7 @@ export function createPaymentsMock(ctx) {
       maxUses: 1,
       uses: paidVia ? 1 : 0,
       createdAt: invoice.sentAt,
+      token: `TEST-token-${prefix}`,
       checkoutUrl: `/api/pay/checkout?token=TEST-token-${prefix}`,
     });
   }
@@ -470,10 +472,25 @@ export function createPaymentsMock(ctx) {
         case 'subscription.cycles':
           return ok(route, { subscriptionId: input.subscriptionId, cycles: world.cyclesOf(input.subscriptionId) });
         case 'subscription.productReady':
+          // The whole answer svc-pay sends (subscriptions/mandate-product.ts), its words marked TEST.
           return ok(route, {
+            mountain: 'pay.subscriptions',
+            boardDoneBar: 'Mandates product-complete; notify gaps honest',
             paths: [{ path: 'crypto_invoice', charge: 'open_crypto_invoice', opensMoney: true, posture: 'TEST posture' }],
-            preChargeNotify: { status: 'unwired', notified: false, merchantReadable: 'TEST notices are not connected' },
-            card: { status: 'refuse_closed', code: 'pay.mandate_rail_absent' },
+            crypto: { status: 'product_complete', charge: 'open_crypto_invoice', model: 'invoice-and-watch' },
+            card: { status: 'refuse_closed', code: 'pay.mandate_rail_absent', socket: 'socket.psp-partners' },
+            dunning: { maxAttemptsPerCycle: 3, afterLimit: 'stall_named', stallReason: 'arrears' },
+            preChargeNotify: {
+              status: 'unwired',
+              notifyStatus: 'skipped_unwired',
+              code: 'pay.subscription_notify_unwired',
+              socket: 'socket.pay-precharge-notify',
+              inventForbidden: true,
+              notified: false,
+              merchantReadable: 'TEST notices are not connected',
+            },
+            cancel: { immediacy: 'immediate', retentionDelayForbidden: true },
+            reconsent: { priceOrCeilingChange: 'refuse', code: 'pay.subscription_reconsent_required' },
           });
         case 'merchantOps.disputes.uploadEvidence': {
           const row = {

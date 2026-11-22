@@ -5,24 +5,15 @@ import {
   priceChoicesInputSchema,
   priceChoicesSchema,
   priceCreateInputSchema,
-  priceIdInputSchema,
-  pricedProductSchema,
-  priceListInputSchema,
-  priceListSchema,
   priceQuoteInputSchema,
   priceQuoteSchema,
   priceReplaceInputSchema,
   priceReplaceSchema,
   priceSchema,
   priceSetDefaultInputSchema,
-  priceUsageSchema,
   productCreateInputSchema,
   productDeletedSchema,
-  productGetInputSchema,
   productIdInputSchema,
-  productImageFileSchema,
-  productImageGetInputSchema,
-  productImageRulesSchema,
   productImageSchema,
   productImageUploadInputSchema,
   productImportInputSchema,
@@ -53,6 +44,17 @@ import { CatalogCopier } from './copy.js';
 import { ProductImports } from './import.js';
 import { ProductPrices } from './prices.js';
 import { ProductCatalog } from './products.js';
+import {
+  PAY_MERCHANT_CATALOG_PRODUCTS_GET,
+  PAY_MERCHANT_CATALOG_IMAGES_RULES,
+  PAY_MERCHANT_CATALOG_IMAGES_GET,
+  PAY_MERCHANT_CATALOG_PRICES_LIST,
+  PAY_MERCHANT_CATALOG_PRICES_USAGE,
+  PAY_MERCHANT_CATALOG_PRICES_GET,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+} from '@intafaced/contracts/pay-merchant-catalog-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 export interface CatalogMountDeps {
   readonly sql: Sql;
@@ -90,10 +92,11 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           .input(productListInputSchema)
           .output(productListSchema)
           .query(({ ctx, input }) => wrapOps(async () => need().catalog.list(await callerOf(ctx), input))),
-        get: read
-          .input(productGetInputSchema)
-          .output(productSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().catalog.get(await callerOf(ctx), input.productId))),
+        get: mountRecord(
+          PAY_MERCHANT_CATALOG_PRODUCTS_GET,
+          ({ ctx, input }) => wrapOps(async () => need().catalog.get(await callerOf(ctx), input.productId)),
+          payRefusal,
+        ),
         create: write
           .input(productCreateInputSchema)
           .output(z.object({ product: productSchema, replayed: z.boolean() }).strict())
@@ -116,10 +119,11 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           .mutation(({ ctx, input }) => wrapOps(async () => need().imports.run(await callerOf(ctx), input))),
       }),
       prices: router({
-        list: read
-          .input(priceListInputSchema)
-          .output(priceListSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().prices.list(await callerOf(ctx), input))),
+        list: mountRecord(
+          PAY_MERCHANT_CATALOG_PRICES_LIST,
+          ({ ctx, input }) => wrapOps(async () => need().prices.list(await callerOf(ctx), input)),
+          payRefusal,
+        ),
         create: write
           .input(priceCreateInputSchema)
           .output(z.object({ price: priceSchema, replayed: z.boolean() }).strict())
@@ -132,14 +136,16 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           .input(priceReplaceInputSchema)
           .output(priceReplaceSchema)
           .mutation(({ ctx, input }) => wrapOps(async () => need().prices.replace(await callerOf(ctx), input))),
-        get: read
-          .input(priceIdInputSchema)
-          .output(pricedProductSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().prices.get(await callerOf(ctx), input.priceId))),
-        usage: read
-          .input(priceIdInputSchema)
-          .output(priceUsageSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().prices.usage(await callerOf(ctx), input.priceId))),
+        get: mountRecord(
+          PAY_MERCHANT_CATALOG_PRICES_GET,
+          ({ ctx, input }) => wrapOps(async () => need().prices.get(await callerOf(ctx), input.priceId)),
+          payRefusal,
+        ),
+        usage: mountRecord(
+          PAY_MERCHANT_CATALOG_PRICES_USAGE,
+          ({ ctx, input }) => wrapOps(async () => need().prices.usage(await callerOf(ctx), input.priceId)),
+          payRefusal,
+        ),
         choices: read
           .input(priceChoicesInputSchema)
           .output(priceChoicesSchema)
@@ -150,10 +156,11 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           .query(({ ctx, input }) => wrapOps(async () => need().prices.quote(await callerOf(ctx), input))),
       }),
       availability: router({
-        get: read
-          .input(productIdInputSchema)
-          .output(productAvailabilitySchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().availability.get(await callerOf(ctx), input.productId))),
+        get: mountRecord(
+          PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+          ({ ctx, input }) => wrapOps(async () => need().availability.get(await callerOf(ctx), input.productId)),
+          payRefusal,
+        ),
         set: write
           .input(productAvailabilitySetInputSchema)
           .output(productAvailabilitySchema)
@@ -164,18 +171,20 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
         .output(catalogCopySchema)
         .mutation(({ ctx, input }) => wrapOps(async () => need().copier.copy(await callerOf(ctx), input))),
       images: router({
-        rules: read
-          .input(z.object({}).strict())
-          .output(productImageRulesSchema)
-          .query(({ ctx }) => wrapOps(async () => need().catalog.imageRules(await callerOf(ctx)))),
+        rules: mountRecord(
+          PAY_MERCHANT_CATALOG_IMAGES_RULES,
+          ({ ctx }) => wrapOps(async () => need().catalog.imageRules(await callerOf(ctx))),
+          payRefusal,
+        ),
         upload: write
           .input(productImageUploadInputSchema)
           .output(productImageSchema)
           .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.uploadImage(await callerOf(ctx), input))),
-        get: read
-          .input(productImageGetInputSchema)
-          .output(productImageFileSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().catalog.image(await callerOf(ctx), input.imageId))),
+        get: mountRecord(
+          PAY_MERCHANT_CATALOG_IMAGES_GET,
+          ({ ctx, input }) => wrapOps(async () => need().catalog.image(await callerOf(ctx), input.imageId)),
+          payRefusal,
+        ),
       }),
     }),
     // M-adv-org-access-05: the business's stores, where its products are sold (`merchantCatalog.availability`).

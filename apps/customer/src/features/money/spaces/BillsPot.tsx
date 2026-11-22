@@ -1,8 +1,8 @@
 import { Button } from '@intafaced/ui/lit';
 import type { Space } from '../client';
 import type { ActionSpec } from '../components';
-import { bankWrites } from '../contracts';
 import { billsPotCopy } from '../bills-pot-copy';
+import { BANK_SPACES_CLEAR_BILLS_POT, BANK_SPACES_SET_BILLS_POT } from '@intafaced/contracts/bank-spaces-procedures';
 
 /**
  * The bills pot on one of the person's own named spaces (BK-pots-03, J-bank-07 #4): whether this pot pays their bills,
@@ -29,7 +29,7 @@ export function BillsPotActions({ space, open }: { space: Space; open: (spec: Ac
   const set = (fallback: boolean, title: string, note: string, submit: string) =>
     open({
       title,
-      procedure: 'spaces.setBillsPot',
+      record: BANK_SPACES_SET_BILLS_POT,
       facts: [
         [t('pot'), space.name],
         [t('topUp'), t(fallback ? 'on' : 'off')],
@@ -37,7 +37,7 @@ export function BillsPotActions({ space, open }: { space: Space; open: (spec: Ac
       notes: [note],
       input: () => ({ spaceId: space.id, fallback }),
       describeOutcome: (data) => {
-        const row = bankWrites['spaces.setBillsPot'].safeParse(data);
+        const row = BANK_SPACES_SET_BILLS_POT.output.safeParse(data);
         return row.success
           ? [
               [t('pot'), space.name],
@@ -70,7 +70,7 @@ export function BillsPotActions({ space, open }: { space: Space; open: (spec: Ac
         onClick={() =>
           open({
             title: t('stopTitle'),
-            procedure: 'spaces.clearBillsPot',
+            record: BANK_SPACES_CLEAR_BILLS_POT,
             facts: [[t('pot'), space.name]],
             notes: [t('stopNote')],
             input: () => ({ spaceId: space.id }),

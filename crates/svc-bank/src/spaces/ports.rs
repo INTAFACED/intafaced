@@ -24,6 +24,8 @@ pub struct LedgerAccount {
     pub owner_id: String,
     pub asset_id: String,
     pub kind: &'static str,
+    /// The sub-identity within (owner, asset, kind): a stake pot's `bank:earn:<positionId>`; none for most accounts.
+    pub purpose: Option<String>,
 }
 
 impl LedgerAccount {
@@ -34,6 +36,7 @@ impl LedgerAccount {
             owner_id: user_id.to_owned(),
             asset_id: asset_id.to_owned(),
             kind: "available",
+            purpose: None,
         }
     }
 
@@ -44,17 +47,44 @@ impl LedgerAccount {
             owner_id: space_id.to_owned(),
             asset_id: asset_id.to_owned(),
             kind: "available",
+            purpose: None,
         }
     }
 
-    /// The account as JSON, in `AccountRef`'s key order.
+    /// `earnStakeAccount`: `userStake(userId, assetId, 'bank:earn:<positionId>')`, one saving's stake pot.
+    pub fn earn_stake(user_id: &str, asset_id: &str, position_id: &str) -> LedgerAccount {
+        LedgerAccount {
+            owner_type: "user",
+            owner_id: user_id.to_owned(),
+            asset_id: asset_id.to_owned(),
+            kind: "stake",
+            purpose: Some(format!("bank:earn:{position_id}")),
+        }
+    }
+
+    /// `earnPoolReserve`: `moduleAccount('bank', 'earn:<poolId>', assetId)`, what a pool can still pay.
+    pub fn earn_pool_reserve(pool_id: &str, asset_id: &str) -> LedgerAccount {
+        LedgerAccount {
+            owner_type: "module",
+            owner_id: format!("bank:earn:{pool_id}"),
+            asset_id: asset_id.to_owned(),
+            kind: "available",
+            purpose: None,
+        }
+    }
+
+    /// The account as JSON, in `AccountRef`'s key order; `purpose` only when it has one.
     pub fn json(&self) -> Json {
-        Json::obj([
-            ("ownerType", Json::str(self.owner_type)),
-            ("ownerId", Json::str(self.owner_id.clone())),
-            ("assetId", Json::str(self.asset_id.clone())),
-            ("kind", Json::str(self.kind)),
-        ])
+        let mut fields = vec![
+            ("ownerType".to_owned(), Json::str(self.owner_type)),
+            ("ownerId".to_owned(), Json::str(self.owner_id.clone())),
+            ("assetId".to_owned(), Json::str(self.asset_id.clone())),
+            ("kind".to_owned(), Json::str(self.kind)),
+        ];
+        if let Some(p) = &self.purpose {
+            fields.push(("purpose".to_owned(), Json::str(p.clone())));
+        }
+        Json::Object(fields)
     }
 }
 

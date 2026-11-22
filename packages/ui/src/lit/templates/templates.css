@@ -1591,6 +1591,29 @@ button.lt-tab:focus-visible {
   color: var(--lit-text-2);
 }
 
+/* ChartBox: a definite size for a library that draws into an element (the coin page's chart); whatever it holds fills it.
+   ChartCanvas's colour is the accent role, for a library that reads its line colour from the element. */
+.lt-chart-box {
+  position: relative;
+  display: grid;
+  inline-size: 100%;
+  min-inline-size: 0;
+  block-size: 22.5rem;
+}
+
+.lt-chart-canvas {
+  position: relative;
+  min-inline-size: 0;
+  color: var(--lit-accent);
+  border-radius: var(--lit-radius-control);
+  overflow: hidden;
+}
+
+.lt-chart-canvas-host {
+  position: absolute;
+  inset: 0;
+}
+
 .lt-bar {
   fill: var(--lit-accent);
 }

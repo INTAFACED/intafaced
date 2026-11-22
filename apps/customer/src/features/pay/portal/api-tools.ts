@@ -1,10 +1,14 @@
 import type { z, ZodType } from 'zod';
-import type { ApiClient, ApiResult } from '../../../shared/api';
+import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
+import type { ApiClient, ApiResult, AppProcedure } from '../../../shared/api';
 import { portalRefusal, refusalText } from './refusal';
 import * as p from './schemas';
 import { confirmDestination, type DestinationProof } from './access/destination-step-up';
 
 export const PAGE_SIZE = 25;
+
+/** A record the portal sends to svc-pay. */
+type PayRecord = AppProcedure & { readonly module: 'pay' };
 
 /**
  * The three ways any portal call is made. Each package builds its own methods on these, so no package edits
@@ -26,11 +30,33 @@ export function portalTools(api: ApiClient, userId: string | null) {
   }
   const list = <T extends z.ZodTypeAny>(procedure: string, item: T, input: Record<string, unknown>, signal?: AbortSignal) =>
     query(procedure, { limit: PAGE_SIZE, ...input }, p.page(item), signal);
+  /** `query` by the call's written record: its path, input type and answer come from the record svc-pay mounts. */
+  async function queryRecord<R extends PayRecord>(
+    record: R,
+    input: ProcedureInput<R>,
+    signal?: AbortSignal,
+  ): Promise<ApiResult<ProcedureOutput<R>>> {
+    return signedIn() ?? api.call(record, input, { signal });
+  }
+  /** `mutate` by the call's written record, its refusal in plain words as `mutate`'s is. */
+  async function mutateRecord<R extends PayRecord>(
+    record: R,
+    input: ProcedureInput<R>,
+    opts?: { keepalive?: boolean },
+  ): Promise<ApiResult<ProcedureOutput<R>>> {
+    const denied = signedIn();
+    if (denied) return denied;
+    const result = await api.call(record, input, opts?.keepalive ? { keepalive: true } : {});
+    return result.ok ? result : { ...result, message: refusalText(result) };
+  }
+  /** `list` by the call's written record: the first page of `PAGE_SIZE`, the rest of its input as given. */
+  const listRecord = <R extends PayRecord>(record: R, input: Omit<ProcedureInput<R>, 'limit'>, signal?: AbortSignal) =>
+    queryRecord(record, { limit: PAGE_SIZE, ...input } as ProcedureInput<R>, signal);
   /** The fresh-code confirmation a payout destination needs is asked of the identity service, on the same session. */
   const confirmDestinationStepUp = (
     destination: { merchantId: string; railId: string; kind: string; ref: string },
     proof: DestinationProof,
   ) => signedIn() ?? confirmDestination(api, destination, proof);
-  return { userId, query, mutate, list, confirmDestinationStepUp };
+  return { userId, query, mutate, list, queryRecord, mutateRecord, listRecord, confirmDestinationStepUp };
 }
 export type PortalTools = ReturnType<typeof portalTools>;
