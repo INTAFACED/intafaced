@@ -44,13 +44,3 @@ mod tests {
         assert_eq!(SERVICE, "svc-tax");
     }
 }
-
-// Planted fault for #9599: a clippy warning, an error under -D warnings (Rust).
-#[cfg(test)]
-mod planted {
-    #[test]
-    fn planted_warning() {
-        let v = vec![1];
-        assert_eq!(v.len(), 1);
-    }
-}

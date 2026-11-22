@@ -858,6 +858,3 @@ class SqlLeaderBackend implements LeaderBackend {
     `;
   }
 }
-
-// Planted fault for #9599: a type error (Typecheck & build).
-export const plantedTypeError: number = 'not a number';
