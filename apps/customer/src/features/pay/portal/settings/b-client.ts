@@ -19,9 +19,6 @@ type IdentityRecord = AppProcedure & { readonly module: 'identity' };
 export function settingsBTools(api: ApiClient, userId: string | null) {
   const pay = portalTools(api, userId);
   const denied = () => (userId ? null : portalRefusal('signInRequired', 'unauthorized'));
-  async function identityQuery<T>(procedure: string, input: unknown, schema: ZodType<T>, signal?: AbortSignal): Promise<ApiResult<T>> {
-    return denied() ?? api.query('identity', procedure, input, schema, { signal });
-  }
   async function identityMutate<T>(procedure: string, input: unknown, schema: ZodType<T>): Promise<ApiResult<T>> {
     const no = denied();
     if (no) return no;
@@ -46,7 +43,7 @@ export function settingsBTools(api: ApiClient, userId: string | null) {
     const result = await api.call(record, input);
     return result.ok ? result : { ...result, message: refusalText(result) };
   }
-  return { ...pay, identityQuery, identityMutate, identityQueryRecord, identityMutateRecord };
+  return { ...pay, identityMutate, identityQueryRecord, identityMutateRecord };
 }
 export type SettingsBTools = ReturnType<typeof settingsBTools>;
 

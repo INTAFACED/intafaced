@@ -826,7 +826,7 @@ import {
 
 import { IDENTITY_API_KEY_OPS_REVOKE } from './identity-api-key-ops-procedures.js';
 
-import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from './identity-api-keys-procedures.js';
+import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE, IDENTITY_API_KEYS_LIST } from './identity-api-keys-procedures.js';
 
 import { IDENTITY_API_RATE_TIERS } from './identity-api-rate-tiers-procedures.js';
 
@@ -860,6 +860,8 @@ import {
   IDENTITY_AUTH_STEP_UP_OPTIONS,
   IDENTITY_AUTH_LOGOUT_ALL,
 } from './identity-auth-procedures.js';
+
+import { IDENTITY_BIND_API_KEY_IP_ALLOWLIST } from './identity-bind-api-key-ip-allowlist-procedures.js';
 
 import {
   IDENTITY_DEVELOPER_KEYS_LIST,
@@ -972,6 +974,8 @@ import { IDENTITY_REVOKE_OTHER_SESSIONS } from './identity-revoke-other-sessions
 
 import { IDENTITY_REVOKE_SESSION_FAMILY } from './identity-revoke-session-family-procedures.js';
 
+import { IDENTITY_ROTATE_SIGNING_SECRET } from './identity-rotate-signing-secret-procedures.js';
+
 import {
   IDENTITY_SECURITY_LOCK_READ,
   IDENTITY_SECURITY_LOCK_SET,
@@ -1015,6 +1019,8 @@ import {
   IDENTITY_TRUSTED_DEVICES_APPROVE,
   IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN,
 } from './identity-trusted-devices-procedures.js';
+
+import { IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST } from './identity-unbind-api-key-ip-allowlist-procedures.js';
 
 import { IDENTITY_UNLINK_SIGNIN_METHOD } from './identity-unlink-signin-method-procedures.js';
 
@@ -2817,7 +2823,11 @@ const part_identity_affiliates_procedures: readonly ProcedureRecord[] = [
 
 const part_identity_api_key_ops_procedures: readonly ProcedureRecord[] = [IDENTITY_API_KEY_OPS_REVOKE];
 
-const part_identity_api_keys_procedures: readonly ProcedureRecord[] = [IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE];
+const part_identity_api_keys_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_API_KEYS_REVOKE,
+  IDENTITY_API_KEYS_CREATE,
+  IDENTITY_API_KEYS_LIST,
+];
 
 const part_identity_api_rate_tiers_procedures: readonly ProcedureRecord[] = [IDENTITY_API_RATE_TIERS];
 
@@ -2851,6 +2861,8 @@ const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_STEP_UP_OPTIONS,
   IDENTITY_AUTH_LOGOUT_ALL,
 ];
+
+const part_identity_bind_api_key_ip_allowlist_procedures: readonly ProcedureRecord[] = [IDENTITY_BIND_API_KEY_IP_ALLOWLIST];
 
 const part_identity_developer_keys_procedures: readonly ProcedureRecord[] = [
   IDENTITY_DEVELOPER_KEYS_LIST,
@@ -2974,6 +2986,8 @@ const part_identity_revoke_other_sessions_procedures: readonly ProcedureRecord[]
 
 const part_identity_revoke_session_family_procedures: readonly ProcedureRecord[] = [IDENTITY_REVOKE_SESSION_FAMILY];
 
+const part_identity_rotate_signing_secret_procedures: readonly ProcedureRecord[] = [IDENTITY_ROTATE_SIGNING_SECRET];
+
 const part_identity_security_lock_procedures: readonly ProcedureRecord[] = [
   IDENTITY_SECURITY_LOCK_READ,
   IDENTITY_SECURITY_LOCK_SET,
@@ -3021,6 +3035,8 @@ const part_identity_trusted_devices_procedures: readonly ProcedureRecord[] = [
   IDENTITY_TRUSTED_DEVICES_APPROVE,
   IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN,
 ];
+
+const part_identity_unbind_api_key_ip_allowlist_procedures: readonly ProcedureRecord[] = [IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST];
 
 const part_identity_unlink_signin_method_procedures: readonly ProcedureRecord[] = [IDENTITY_UNLINK_SIGNIN_METHOD];
 
@@ -4153,6 +4169,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_approval_policy_procedures,
   ...part_identity_auth_keys_procedures,
   ...part_identity_auth_procedures,
+  ...part_identity_bind_api_key_ip_allowlist_procedures,
   ...part_identity_developer_keys_procedures,
   ...part_identity_developer_sandboxes_procedures,
   ...part_identity_developer_support_procedures,
@@ -4173,6 +4190,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_revoke_all_api_keys_procedures,
   ...part_identity_revoke_other_sessions_procedures,
   ...part_identity_revoke_session_family_procedures,
+  ...part_identity_rotate_signing_secret_procedures,
   ...part_identity_security_lock_procedures,
   ...part_identity_self_freeze_manage_procedures,
   ...part_identity_session_settings_procedures,
@@ -4184,6 +4202,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_totp_manage_procedures,
   ...part_identity_totp_procedures,
   ...part_identity_trusted_devices_procedures,
+  ...part_identity_unbind_api_key_ip_allowlist_procedures,
   ...part_identity_unlink_signin_method_procedures,
   ...part_identity_waitlist_procedures,
   ...part_identity_wallet_link_challenge_procedures,

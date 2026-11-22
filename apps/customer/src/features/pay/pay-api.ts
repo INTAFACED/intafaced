@@ -105,7 +105,11 @@ import { P2P_DISPUTES_GET, P2P_DISPUTES_OPEN, P2P_DISPUTES_APPEND_EVIDENCE } fro
 import { PAY_MERCHANT_ME } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedures';
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
-import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
+import {
+  IDENTITY_API_KEYS_REVOKE,
+  IDENTITY_API_KEYS_CREATE,
+  IDENTITY_API_KEYS_LIST,
+} from '@intafaced/contracts/identity-api-keys-procedures';
 import { BANK_TRANSFERS_QUOTE, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
 import { callAs } from '../../shared/api';
 
@@ -1573,7 +1577,7 @@ export function createBusinessPayApi(
     async keys(signal?: AbortSignal) {
       const checked = await merchant(signal);
       if (!checked.ok) return checked;
-      return api.query('identity', 'apiKeys.list', { limit: 200 }, z.array(s.keySchema), { signal });
+      return api.call(IDENTITY_API_KEYS_LIST, { limit: 200 }, { signal });
     },
     async createSandboxKey(name: string, scopes: string[]) {
       const denied = access('pay:read');
