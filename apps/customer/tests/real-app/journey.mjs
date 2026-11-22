@@ -117,10 +117,17 @@ globalThis.fetch = (input, init) => {
  * Each page's coverage of the customer app: Chromium's precise coverage with call counts, started before the page's
  * first navigation and read without a gap at every test's end and before the page or its context closes (CDP
  * Profiler.takePreciseCoverage reads and resets the counts). A page the app opened by itself (a popup) starts counting
- * only once it is seen, and a page that closed or lost its session before it was read can't be read whole: both mark
- * the record incomplete, which the map reads as reaching every source.
+ * only once it is seen, so one that asked the customer app for anything before then (its URL, or a request seen for it,
+ * askedEarly) may have run customer code no count holds; it, and a page that closed or lost its session before it was
+ * read, can't be read whole: each marks the record incomplete, which the map reads as reaching every source. A popup
+ * that asked the customer app for nothing first ran none of its code before its count began (only the customer app's
+ * scripts are placed), so it marks nothing. (Failure it prevents: J-merchant-02 and J-merchant-02-payouts open a
+ * founder console file as a blob: tab, and every record of theirs was incomplete (popup) in all three main runs the
+ * touched-journeys map was built from on 22 Nov 2026, 44964720047, 44960297816 and 44959368996, so every pull request ran
+ * them.)
  */
-const covered = new Map(); // page -> { cdp, file }
+const covered = new Map(); // page -> { cdp, gone, started }
+const askedEarly = new WeakSet(); // pages that asked the customer app for something before their coverage started
 async function startCoverage(page, { opened = false } = {}) {
   if (covered.has(page)) return;
   const entry = { cdp: null, gone: false };
@@ -136,7 +143,8 @@ async function startCoverage(page, { opened = false } = {}) {
     entry.cdp.on('close', () => {
       if (!entry.gone) reach.incomplete(reachFile, 'detached');
     });
-    if (opened) reach.incomplete(reachFile, 'popup');
+    entry.started = true;
+    if (opened && (askedEarly.has(page) || reach.servesCustomer(page.url()))) reach.incomplete(reachFile, 'popup');
   } catch {
     reach.incomplete(reachFile, 'noStart');
   }
@@ -191,6 +199,11 @@ function watchContext(context) {
   context.on('request', (req) => {
     recordSignIn(req.url(), req.postData() ?? undefined);
     noted(() => reach.request(reachFile, req.url(), req.method()));
+    noted(() => {
+      if (!reach.servesCustomer(req.url())) return;
+      const page = req.frame().page(); // throws for a service worker's request, which no page made
+      if (!covered.get(page)?.started) askedEarly.add(page);
+    });
   });
   context.on('page', (page) => {
     if (!(creating.get(context) > 0)) void startCoverage(page, { opened: true });

@@ -36,5 +36,6 @@ merges it with `gh pr merge <n> --squash --match-head-commit <sha>`. The layer's
 
 The call-records codemod (`tooling/codemod/call-records/`, its `callAs` runs among them) rewrites the call sites in the
 same rooms. A redraw changes markup and kit parts only, never a call expression (`api.query`, `api.call`, `callAs`, a
-read hook's arguments). Merge main into the layer branch at least once a day, and at once whenever a call-records run
-lands on main. A conflict at a call site is settled by re-running that codemod on the branch, never by hand.
+read hook's arguments). Merge main into the layer branch and push that merge to it directly, never by a PR, whose squash
+drops main as a parent (Doctrine gates refuses one), at least once a day, and at once whenever a call-records run lands
+on main. A conflict at a call site is settled by re-running that codemod on the branch, never by hand.

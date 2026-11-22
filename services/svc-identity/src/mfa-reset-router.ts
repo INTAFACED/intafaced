@@ -1,11 +1,14 @@
 import { z } from 'zod';
-import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
-import { mfaResetCancelSchema, mfaResetStatusSchema, mfaResetViewSchema } from '@intafaced/contracts/identity';
+import { publicProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
+import { mfaResetViewSchema } from '@intafaced/contracts/identity';
 import type { AuthService } from './auth/auth-service.js';
 import { MfaResetError } from './auth/mfa-reset.js';
 import { SecurityStepUpError, toSecurityStepUpTrpc } from './auth/security-step-up.js';
 import { toTrpcError } from './router.js';
 import { userCopy } from './user-copy.js';
+import { IDENTITY_MFA_RESET_STATUS, IDENTITY_MFA_RESET_CANCEL } from '@intafaced/contracts/identity-mfa-reset-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 /**
  * A blank setting or switched-off mail is 412, a wrong or spent code 401, a lockout 429 with its seconds; a delegated
@@ -59,26 +62,29 @@ export function createMfaResetRouter(auth: AuthService) {
             return mapError(err);
           }
         }),
-      status: scopedProcedure('identity:read')
-        .output(mfaResetStatusSchema)
-        .query(async ({ ctx }) => {
+      status: mountRecord(
+        IDENTITY_MFA_RESET_STATUS,
+        async ({ ctx }) => {
           try {
             return { waiting: await auth.mfaResetStatus(ctx.principal.userId) };
           } catch (err) {
             return mapError(err);
           }
-        }),
-      cancel: scopedProcedure('identity:write')
-        .input(z.object({}).strict().optional())
-        .output(mfaResetCancelSchema)
-        .mutation(async ({ ctx }) => {
+        },
+        codedRefusal,
+      ),
+      cancel: mountRecord(
+        IDENTITY_MFA_RESET_CANCEL,
+        async ({ ctx }) => {
           try {
             refuseDelegated(ctx.principal);
             return await auth.mfaResetCancel({ userId: ctx.principal.userId, sessionId: ctx.principal.sid });
           } catch (err) {
             return mapError(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

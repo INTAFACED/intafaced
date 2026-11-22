@@ -70,7 +70,6 @@ const NOT_YET = new Set([
   'bisect-main.mjs',
   'brief-score-guard.mjs',
   'ci-review.mjs',
-  'factory-switch.mjs',
   'journey-list-guard.mjs',
   'journeys-revert.mjs',
   'judge-down.mjs',

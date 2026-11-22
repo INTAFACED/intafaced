@@ -80,6 +80,7 @@
  *                                                              env's TITLE and GITHUB_HEAD_REF when not given, which is
  *                                                              how real-app-journeys.yml's touch step passes them)
  */
+import { runJobsSync } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { githubFetch, githubToken } from './github-fetch.mjs';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -131,6 +132,8 @@ export const JOURNEY_CI = [
   'tooling/ci/api-budget.mjs',
   // The seal's scripts and main-first.mjs call GitHub through it.
   'tooling/ci/github-fetch.mjs',
+  // Every reader of a run's jobs reads them through it, in pages GitHub answers after a re-run.
+  'tooling/ci/run-jobs.mjs',
   // real-app-journeys.yml's `Main's journeys first` job runs it.
   'tooling/ci/main-first.mjs',
   // Main trust's post-merge job runs it after each journeys run on main, and main-bisect.yml's journeys revert jobs.
@@ -953,7 +956,7 @@ function reuseMain() {
         r?.status === 'completed' &&
         DISPATCH_TITLE.test(String(r.display_title ?? ''))
       ) {
-        const jobs = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?per_page=100`)).jobs ?? [];
+        const jobs = runJobsSync(`repos/${repo}/actions/runs/${Number(r.id)}/jobs`, (p) => JSON.parse(ghApi(p))) ?? [];
         if (jobs.some((j) => SHARD_JOB.test(String(j?.name)) && ['success', 'failure'].includes(j?.conclusion))) ranShards.add(r.id);
       }
     const journeyFiles = checkoutJourneyFiles();
@@ -1019,7 +1022,7 @@ function readPicks(repo, sha, runs, self) {
         const arts = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/artifacts?name=${PICK_ARTIFACT}&per_page=20`)).artifacts;
         let touch = null;
         try {
-          touch = touchStarted(JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?filter=latest&per_page=100`)).jobs);
+          touch = touchStarted(runJobsSync(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?filter=latest`, (p) => JSON.parse(ghApi(p))));
         } catch {}
         const art = currentPickArtifact(r, arts, touch);
         if (!art) continue;
@@ -1126,4 +1129,10 @@ async function main() {
   } else console.log('none: no journeys run executes or reads what this change touches');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main();
+// Not awaited at the top level: main() imports tooling-reach.mjs, which imports this file, and that import would wait on
+// this file's own evaluation, which would wait on main(), a cycle that never settles (node exits 13).
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
+  main().catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  });

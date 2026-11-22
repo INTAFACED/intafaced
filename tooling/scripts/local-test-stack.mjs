@@ -1842,9 +1842,14 @@ async function startTestChain(secrets) {
   await installTestBridge().catch((err) => fail(`installing the TEST bridge failed: ${err.message}`));
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
-  if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
-  // Only once the new chain answers and is seeded: a start that fails before this leaves the services and rows as they were.
-  return renewed ? forgetOldChain(secrets) : [];
+  return afterSeed({ seeded, renewed, forget: () => forgetOldChain(secrets) });
+}
+
+/** A failed seed stops the start; only a new chain that answers and is seeded forgets the old one's rows, so a start that
+ *  fails before this leaves the services and rows as they were. `stop` is the script's `fail` (a test passes its own). */
+export function afterSeed({ seeded, renewed, forget, stop = fail }) {
+  if (seeded.status !== 0) stop(`seeding the TEST chain failed:\n${seeded.output}`);
+  return renewed ? forget() : [];
 }
 
 async function rpcChainId() {

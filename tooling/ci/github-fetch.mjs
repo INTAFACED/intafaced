@@ -8,6 +8,7 @@
  * header (`Bearer undefined`, a caller's `githubToken()` with no token) is dropped.
  */
 import { execFile } from 'node:child_process';
+import { BUDGET_TITLE, isBudgetResponse, resetWait, waitLine } from './api-budget.mjs';
 
 const API = 'https://api.github.com/';
 
@@ -24,7 +25,23 @@ function tokenOf(headers = {}) {
   return t && t !== 'undefined' && t !== 'null' ? t : null;
 }
 
-export async function githubFetch(url, init = {}) {
+/**
+ * One call. When GitHub answers that the hourly budget is spent and the step allows a wait (api-budget.mjs resetWait,
+ * API_BUDGET_WAIT_MIN), it waits for the reset and asks once more; that answer is returned as it is, so a caller still
+ * fails closed on a budget that stays spent or a reset too far off.
+ */
+export async function githubFetch(url, init = {}, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now } = {}) {
+  const res = await fetchOnce(url, init);
+  if (!isBudgetResponse(res)) return res;
+  const reset = res.headers.get('x-ratelimit-reset');
+  const ms = resetWait(reset, { now: now() });
+  if (ms === null) return res;
+  console.log(`::notice title=${BUDGET_TITLE}::${waitLine(ms, reset)}`);
+  await sleep(ms);
+  return fetchOnce(url, init);
+}
+
+async function fetchOnce(url, init) {
   if (hasToken() || tokenOf(init.headers)) return fetch(url, init);
   const href = String(url);
   if (!href.startsWith(API)) throw new Error(`githubFetch: ${href} is not a GitHub API address`);
