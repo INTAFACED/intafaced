@@ -1,10 +1,11 @@
-import { z } from 'zod';
-import { publicProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
-import { freezeLinkRedeemSchema } from '@intafaced/contracts/identity';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { AuthService } from './auth/auth-service.js';
 import { FreezeLinkError } from './auth/freeze-link.js';
 import { toTrpcError } from './router.js';
 import { userCopy } from './user-copy.js';
+import { IDENTITY_FREEZE_LINK_REDEEM } from '@intafaced/contracts/identity-freeze-link-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 /**
  * Top-level `freezeLink` (I-account-lifecycle-08, J-identity-11 #2). `redeem` is the signed-out page a security notice's
@@ -13,10 +14,9 @@ import { userCopy } from './user-copy.js';
 export function createFreezeLinkRouter(auth: Pick<AuthService, 'redeemFreezeLink'>) {
   return router({
     freezeLink: router({
-      redeem: publicProcedure
-        .input(z.object({ token: z.string().max(200) }).strict())
-        .output(freezeLinkRedeemSchema)
-        .mutation(async ({ input }) => {
+      redeem: mountRecord(
+        IDENTITY_FREEZE_LINK_REDEEM,
+        async ({ input }) => {
           try {
             const done = await auth.redeemFreezeLink({ token: input.token });
             return { frozen: true as const, since: done.since.toISOString(), firstUse: done.firstUse, frozenNow: done.frozenNow };
@@ -26,7 +26,9 @@ export function createFreezeLinkRouter(auth: Pick<AuthService, 'redeemFreezeLink
             }
             throw toTrpcError(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

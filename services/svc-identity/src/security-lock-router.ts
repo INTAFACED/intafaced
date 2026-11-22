@@ -1,11 +1,14 @@
-import { z } from 'zod';
-import { securityLockSchema } from '@intafaced/contracts/identity';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { SecurityLockError, type SecurityLock } from './auth/security-lock.js';
 import { SecurityStepUpError, toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
 import { userCopy } from './user-copy.js';
-
-const changeSchema = securityLockSchema.extend({ changed: z.boolean() }).strict();
+import {
+  IDENTITY_SECURITY_LOCK_READ,
+  IDENTITY_SECURITY_LOCK_SET,
+  IDENTITY_SECURITY_LOCK_REQUEST_UNLOCK,
+} from '@intafaced/contracts/identity-security-lock-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 function mapError(err: unknown): never {
   if (err instanceof SecurityLockError) {
@@ -36,9 +39,9 @@ function refuseDelegated(principal: { kid?: string | null | undefined; sub_accou
 export function createSecurityLockRouter(lock: SecurityLock, stepUp: SecurityStepUp) {
   return router({
     securityLock: router({
-      read: scopedProcedure('identity:read')
-        .output(securityLockSchema)
-        .query(async ({ ctx }) => {
+      read: mountRecord(
+        IDENTITY_SECURITY_LOCK_READ,
+        async ({ ctx }) => {
           try {
             const view = await lock.read(ctx.principal.userId);
             if (!view) throw new SecurityLockError('identity.security_lock_not_found');
@@ -46,22 +49,24 @@ export function createSecurityLockRouter(lock: SecurityLock, stepUp: SecuritySte
           } catch (err) {
             return mapError(err);
           }
-        }),
-      set: scopedProcedure('identity:write')
-        .input(z.object({}).strict().optional())
-        .output(changeSchema)
-        .mutation(async ({ ctx }) => {
+        },
+        codedRefusal,
+      ),
+      set: mountRecord(
+        IDENTITY_SECURITY_LOCK_SET,
+        async ({ ctx }) => {
           try {
             refuseDelegated(ctx.principal);
             return await lock.lock(ctx.principal.userId, { kind: 'self', userId: ctx.principal.userId });
           } catch (err) {
             return mapError(err);
           }
-        }),
-      requestUnlock: scopedProcedure('identity:write')
-        .input(z.object({ clientRequestId: z.string().min(1).max(128), stepUpApprovalId: z.string().min(1).max(128).nullish() }).strict())
-        .output(changeSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        codedRefusal,
+      ),
+      requestUnlock: mountRecord(
+        IDENTITY_SECURITY_LOCK_REQUEST_UNLOCK,
+        async ({ ctx, input }) => {
           try {
             refuseDelegated(ctx.principal);
             lock.assertUnlockConfigured();
@@ -78,7 +83,9 @@ export function createSecurityLockRouter(lock: SecurityLock, stepUp: SecuritySte
           } catch (err) {
             return mapError(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

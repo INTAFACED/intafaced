@@ -1,9 +1,10 @@
 import { StatusTag } from '@intafaced/ui';
-import { kycCapabilitiesOutputSchema, type KycCapabilityState } from '@intafaced/contracts/identity-kyc-capabilities';
+import { type KycCapabilityState } from '@intafaced/contracts/identity-kyc-capabilities';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { verificationCapabilitiesCopy as copy } from './verification-capabilities-copy';
+import { IDENTITY_KYC_CAPABILITIES_GET } from '@intafaced/contracts/identity-kyc-procedures';
 
 // Not requested is no status at all, so it is plain text, never a tag that reads as something under way.
 const tagOf: Record<Exclude<KycCapabilityState, 'unrequested'>, 'pending' | 'filled' | 'cancelled'> = {
@@ -23,7 +24,7 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'kyc.capabilities.get', undefined, kycCapabilitiesOutputSchema, { signal }),
+    (signal) => api.call(IDENTITY_KYC_CAPABILITIES_GET, undefined, { signal }),
     `verification-capabilities:${userId}:${recordsKey}`,
   );
   const body = () => {

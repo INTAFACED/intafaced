@@ -1,11 +1,13 @@
 /** `subAccounts.getFeatures` and `subAccounts.setFeatures`. Own sub-account, session only. */
-import { z } from 'zod';
-import { protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
-import { SUB_ACCOUNT_KINDS } from '../auth/auth-service.js';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
-import { SUB_ACCOUNT_FEATURES, SubAccountFeatureError, type SubAccountFeatureService } from './sub-account-features.js';
-
-const feature = z.enum(SUB_ACCOUNT_FEATURES);
+import { SubAccountFeatureError, type SubAccountFeatureService } from './sub-account-features.js';
+import {
+  IDENTITY_SUB_ACCOUNTS_GET_FEATURES,
+  IDENTITY_SUB_ACCOUNTS_SET_FEATURES,
+} from '@intafaced/contracts/identity-sub-accounts-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 function toTrpc(err: unknown): never {
   if (err instanceof TRPCError) throw err;
@@ -30,32 +32,27 @@ export function createSubAccountFeatureProcedures(service: SubAccountFeatureServ
     return service;
   };
   return {
-    getFeatures: protectedProcedure
-      .input(z.object({ subAccountId: z.string().guid() }).strict())
-      .output(
-        z.object({
-          kind: z.enum(SUB_ACCOUNT_KINDS),
-          frozen: z.boolean(),
-          published: z.boolean(),
-          features: z.array(z.object({ feature, offered: z.boolean(), enabled: z.boolean() })),
-        }),
-      )
-      .query(async ({ ctx, input }) => {
+    getFeatures: mountRecord(
+      IDENTITY_SUB_ACCOUNTS_GET_FEATURES,
+      async ({ ctx, input }) => {
         try {
           return await required().get({ ...actor(ctx.principal), subAccountId: input.subAccountId });
         } catch (err) {
           toTrpc(err);
         }
-      }),
-    setFeatures: protectedProcedure
-      .input(z.object({ subAccountId: z.string().guid(), feature, enabled: z.boolean() }).strict())
-      .output(z.object({ feature, enabled: z.boolean(), changed: z.boolean() }))
-      .mutation(async ({ ctx, input }) => {
+      },
+      codedRefusal,
+    ),
+    setFeatures: mountRecord(
+      IDENTITY_SUB_ACCOUNTS_SET_FEATURES,
+      async ({ ctx, input }) => {
         try {
           return await required().set({ ...actor(ctx.principal), ...input });
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
   };
 }

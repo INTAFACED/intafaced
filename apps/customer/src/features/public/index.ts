@@ -2,5 +2,5 @@ export { feeTierFetcher, feeTierSchema, type FeeTier, type FeeTierPass } from '.
 export { helpHref } from './help-guards';
 export { kbArticleText } from './kb-text';
 export { maintenancePhase } from './notices-api';
-export { SHARE_SURFACES, type ShareSurface } from './share-visit';
+export { type ShareSurface } from './share-visit';
 export { countryOptions } from './sign-up';
