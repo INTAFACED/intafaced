@@ -1,4 +1,14 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { z } from 'zod';
 import {
   AGENTS_TEAM_ROLES,
@@ -115,10 +125,24 @@ function Grid({ headers, children, label }: { headers: readonly string[]; childr
             ))}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody>{Children.map(children, (row) => labelled(row, headers))}</tbody>
       </table>
     </div>
   );
+}
+
+type Cell = ReactElement<{ children?: ReactNode; 'data-label'?: string }>;
+
+/**
+ * A phone stacks each row and names each value by its column (the kit's lt-table reads `data-label`), so each cell of
+ * a row takes its column's words; a row header (`th`) keeps its own.
+ */
+function labelled(row: ReactNode, headers: readonly string[]): ReactNode {
+  if (!isValidElement<{ children?: ReactNode }>(row)) return row;
+  const cells = Children.toArray(row.props.children).map((cell, i) =>
+    isValidElement(cell) && cell.type === 'td' ? cloneElement(cell as Cell, { 'data-label': headers[i] }) : cell,
+  );
+  return cloneElement(row, undefined, ...cells);
 }
 
 /** The room's sections, each a link to its part of the page. */
