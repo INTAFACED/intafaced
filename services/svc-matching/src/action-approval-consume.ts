@@ -3,17 +3,15 @@
  * Two names in one body are attribution at most. Blank IDENTITY_URL refuses.
  */
 import { createHash } from 'node:crypto';
-import {
-  actionApprovalConsumeInputSchema,
-  actionApprovalSchema,
-  createIdentityApprovalClient as createSharedApprovalClient,
-  founderAttestationVerdict,
-  type ActionApproval,
-  type ActionApprovalConsumeInput,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type FounderApprovalSubject,
+import type {
+  ActionApproval,
+  ActionApprovalConsumeInput,
+  ServiceAuthMode,
+  ServiceSigner,
+  FounderApprovalSubject,
 } from '@intafaced/contracts';
+import { actionApprovalConsumeInputSchema, actionApprovalSchema, founderAttestationVerdict } from '@intafaced/contracts/action-approval';
+import { createIdentityApprovalClient as createSharedApprovalClient } from '@intafaced/contracts/action-approval-client';
 
 export const ACTION_APPROVAL_UNWIRED = 'action_approval.identity_unwired' as const;
 export const ACTION_APPROVAL_MISSING = 'action_approval.missing' as const;

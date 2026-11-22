@@ -11,7 +11,7 @@
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
-import { serviceCallSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { FIX_ADAPTER_STATUS } from '@intafaced/contracts/fix-procedures';
 import { callHttpRecord } from '@intafaced/contracts/procedure-http';
 import type { HttpTransport, ProcedureRecord } from '@intafaced/contracts/procedure';

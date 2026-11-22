@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import {
   navigatorAskInputSchema,
   navigatorAskResultSchema,

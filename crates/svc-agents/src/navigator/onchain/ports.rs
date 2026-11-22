@@ -89,10 +89,19 @@ pub trait Sender: Send + Sync {
     fn send(&self, call: &SessionCall) -> Result<String, SendError>;
 }
 
+/// One wallet the person linked by their own signature, as identity lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedWallet {
+    /// Lower-case `0x` address.
+    pub address: String,
+    /// When it was linked, as identity wrote it.
+    pub linked_at: String,
+}
+
 /// `LinkedWallets`, as identity answers it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Linked {
-    Usable(Vec<String>),
+    Usable(Vec<LinkedWallet>),
     AccountInactive,
 }
 
@@ -474,7 +483,10 @@ pub fn linked_of(v: &Json) -> Option<Linked> {
                             if keys_are(w, &["address", "linkedAt"])
                                 && zod_datetime(t, false).is_some() =>
                         {
-                            Some(address)
+                            Some(LinkedWallet {
+                                address,
+                                linked_at: t.clone(),
+                            })
                         }
                         _ => None,
                     }
@@ -616,7 +628,10 @@ mod tests {
         ));
         assert_eq!(
             usable.ok().as_ref().and_then(linked_of),
-            Some(Linked::Usable(vec![a.clone()]))
+            Some(Linked::Usable(vec![LinkedWallet {
+                address: a.clone(),
+                linked_at: "2026-11-01T00:00:00.000Z".to_owned(),
+            }]))
         );
         let upper = json::parse(&format!(
             r#"{{"state":"usable","wallets":[{{"address":"{}","linkedAt":"2026-11-01T00:00:00.000Z"}}]}}"#,

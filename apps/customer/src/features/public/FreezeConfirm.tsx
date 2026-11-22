@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { freezeLinkRedeemSchema } from '@intafaced/contracts/identity';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, RefusalBox } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { Failed } from './Failed';
 import { freezeConfirmCopy } from './freeze-confirm-copy';
+import { IDENTITY_FREEZE_LINK_REDEEM } from '@intafaced/contracts/identity-freeze-link-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Done = { since: string; firstUse: boolean; frozenNow: boolean };
@@ -38,7 +38,7 @@ export function FreezeConfirm() {
     if (busy) return;
     setBusy(true);
     setRefusal(null);
-    const answer = await api.mutate('identity', 'freezeLink.redeem', { token }, freezeLinkRedeemSchema);
+    const answer = await api.call(IDENTITY_FREEZE_LINK_REDEEM, { token });
     if (!mounted.current) return;
     setBusy(false);
     if (answer.ok) setDone({ since: answer.data.since, firstUse: answer.data.firstUse, frozenNow: answer.data.frozenNow });

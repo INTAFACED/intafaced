@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { distributionsMineSchema, type DistributionKind, type DistributionRecord } from '@intafaced/contracts/campaigns-catalogue';
+import { type DistributionKind, type DistributionRecord } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, DataTable, Failure, Loading, Page } from '../../shared/ui';
 import { dividendsCopy as copy } from './dividends-copy';
 import './dividends.css';
+import { CAMPAIGNS_DISTRIBUTION_MINE } from '@intafaced/contracts/campaigns-distribution-procedures';
 
 /**
  * The dividend records room, /uc/paydividends (CM-airdrop-campaigns-01, J-campaigns-13 #1 #2 #3). Airdrops: each one the
@@ -18,10 +19,7 @@ export function Dividends() {
   const [kind, setKind] = useState<DistributionKind>(() =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('kind') === 'dividend' ? 'dividend' : 'airdrop',
   );
-  const records = useResource(
-    (signal) => api.query('campaigns', 'distribution.mine', { kind }, distributionsMineSchema, { signal }),
-    `distributions-${kind}`,
-  );
+  const records = useResource((signal) => api.call(CAMPAIGNS_DISTRIBUTION_MINE, { kind }, { signal }), `distributions-${kind}`);
   return <DividendsView kind={kind} onKind={setKind} records={records.resource} retry={records.reload} />;
 }
 

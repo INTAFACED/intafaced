@@ -188,12 +188,39 @@ export function SectionTabs<T extends string>({
   );
 }
 
+export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'children'> & {
+  /** Called with the box's new state; the native `onChange` still gets the event. */
+  onCheckedChange?: (checked: boolean) => void;
+} & (
+    | {
+        /** The words beside the box. */
+        label: React.ReactNode;
+        children?: never;
+      }
+    | {
+        /** The words beside the box. A box whose words don't name it alone (a column of "Allowed" ticks) also takes an `aria-label`. */
+        children?: React.ReactNode;
+        label?: never;
+      }
+  );
+
 /** A tick with its words, one row: the box, then the label. Every other attribute goes to the native checkbox. */
-export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: React.ReactNode }) {
+export function Checkbox({ label, children, onCheckedChange, onChange, ...input }: CheckboxProps) {
   return (
     <label className="lt-field">
-      <input {...input} type="checkbox" />
-      <span>{label}</span>
+      <input
+        {...input}
+        type="checkbox"
+        onChange={
+          onChange || onCheckedChange
+            ? (e) => {
+                onChange?.(e);
+                onCheckedChange?.(e.target.checked);
+              }
+            : undefined
+        }
+      />
+      <span>{label ?? children}</span>
     </label>
   );
 }

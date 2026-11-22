@@ -4,6 +4,16 @@ import { ACADEMY_APPOINT_AMBASSADOR } from '@intafaced/contracts/academy-appoint
 import { ACADEMY_FREEZE_AMBASSADOR } from '@intafaced/contracts/academy-freeze-ambassador-procedures';
 import { ACADEMY_OPEN_RESIDENCIES } from '@intafaced/contracts/academy-open-residencies-procedures';
 import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-residency-procedures';
+import { PAY_DEPOSIT_CREDIT } from '@intafaced/contracts/pay-deposit-procedures';
+import {
+  IDENTITY_KYC_HISTORY_FOR,
+  IDENTITY_KYC_SELFIE_LIST_FOR,
+  IDENTITY_KYC_PENDING,
+  IDENTITY_KYC_REJECT,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
+  IDENTITY_KYC_CAPABILITIES_GET_FOR,
+  IDENTITY_KYC_CAPABILITIES_SET,
+} from '@intafaced/contracts/identity-kyc-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -97,9 +107,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'KYC pending queue',
     summary: 'List KYC records waiting for an operator decision.',
-    edgeModule: 'identity',
-    procedure: 'kyc.pending',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_PENDING),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -133,9 +141,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'KYC reject',
     summary:
       'Reject a pending KYC record with a reason from the owner list; the customer sees the reason and what to do. Grants nothing. Requires MFA on the token.',
-    edgeModule: 'identity',
-    procedure: 'kyc.reject',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_KYC_REJECT),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -158,9 +164,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'KYC case history',
     summary: "One person's verification cases, newest first: state, each step, the reject reason and the note shown to them.",
-    edgeModule: 'identity',
-    procedure: 'kyc.historyFor',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_HISTORY_FOR),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -175,9 +179,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'Proof of address',
     summary:
       "One person's proof-of-address submissions, newest first: document type, country, date issued, status, and a flag when the country differs from the approved residence.",
-    edgeModule: 'identity',
-    procedure: 'kyc.proofOfAddress.listFor',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -192,9 +194,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'Selfies',
     summary:
       "One person's selfies, newest first, for the manual comparison with the ID photo (the automatic face match is not connected): status, and whether it came from a phone hand-off.",
-    edgeModule: 'identity',
-    procedure: 'kyc.selfie.listFor',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_SELFIE_LIST_FOR),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -209,9 +209,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'KYC capabilities',
     summary:
       "One person's custody, transfer and trade capabilities: unrequested, pending, active or switched off, with the level that grants each.",
-    edgeModule: 'identity',
-    procedure: 'kyc.capabilities.getFor',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_CAPABILITIES_GET_FOR),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -223,9 +221,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'KYC capability off',
     summary:
       'Switch one capability off for good (inactive, terminal) with a code from the owner reason list. Needs a four-eyes approval bound to the person, the capability and the code. Requires MFA on the token.',
-    edgeModule: 'identity',
-    procedure: 'kyc.capabilities.set',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_KYC_CAPABILITIES_SET),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -398,9 +394,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Operator deposit credit',
     summary: 'Credit a user from a rail boundary. Moves value. MFA + admin:treasury on the token.',
-    edgeModule: 'pay',
-    procedure: 'deposit.credit',
-    kind: 'mutation',
+    ...toolOf(PAY_DEPOSIT_CREDIT),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,

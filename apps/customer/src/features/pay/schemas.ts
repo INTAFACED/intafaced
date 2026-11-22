@@ -103,7 +103,7 @@ export type PostOfferInput = {
   /** The ad's own id, chosen once per form; the post's key names it too. */
   offerId?: string;
 };
-export const merchantSchema = z.object({
+const merchantSchema = z.object({
   id,
   userId: id,
   mode: z.enum(['gateway', 'psp', 'payfac']),

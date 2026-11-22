@@ -1,4 +1,4 @@
-import { TRPCError, router } from '@intafaced/contracts';
+import { TRPCError, router } from '@intafaced/contracts/trpc';
 import {
   DEX_AUTH_CHALLENGE,
   DEX_AUTH_LOGOUT,

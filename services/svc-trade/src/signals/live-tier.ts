@@ -2,7 +2,9 @@
  * The webhook creator's live verification tier, read on every alert (signals/signal-desk.ts), so an alert never places
  * on the tier the webhook's stored grant carries from its create.
  */
-import { accountStateSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { accountStateSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { Principal } from '@intafaced/auth';
 import { SignalError } from './signal-desk.js';
 

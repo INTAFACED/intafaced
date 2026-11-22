@@ -33,7 +33,7 @@ async function emptySearch(page) {
   const main = page.locator('main');
   await main.getByRole('textbox', { name: 'Search answers' }).fill(WORDS);
   await main.getByRole('button', { name: 'Search', exact: true }).click();
-  const empty = main.locator('.help__empty');
+  const empty = main.getByTestId('help-empty');
   await expect(empty.getByText('No matches')).toBeVisible();
   return empty;
 }

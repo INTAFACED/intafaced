@@ -5,11 +5,12 @@ import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import { referrerChangeCopy as copy } from './referrer-change-copy';
+import { IDENTITY_AFFILIATES_MY_REBIND, IDENTITY_AFFILIATES_WITHDRAW_REBIND } from '@intafaced/contracts/identity-affiliates-procedures';
 
 // The person's reviewed referrer change (CM-referral-01, J-campaigns-05 #5 and #6): the latest request and its state,
 // and, after a link attach was refused, the offer to ask for one. A second person decides; this screen never does.
 // hand-declared-ok: svc-identity's affiliates procedures have no browser-safe schema in packages/contracts yet
-export const rebindSchema = z.object({
+const rebindSchema = z.object({
   requestId: z.string().uuid(),
   state: z.enum(['submitted', 'under_review', 'approved', 'rejected', 'withdrawn', 'expired']),
   fromReferrerId: z.string().uuid().nullable(),
@@ -36,10 +37,7 @@ const OPEN = new Set<Rebind['state']>(['submitted', 'under_review']);
 export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
   const { api } = useSession();
   const { t, requestedLocale } = copy.useCopy();
-  const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'affiliates.myRebind', undefined, rebindSchema.nullable(), { signal }),
-    'referral-rebind',
-  );
+  const { resource, reload } = useResource((signal) => api.call(IDENTITY_AFFILIATES_MY_REBIND, undefined, { signal }), 'referral-rebind');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<Refusal | null>(null);
@@ -57,7 +55,7 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
   }
   const request = (token: string) =>
     send(() => api.mutate('identity', 'affiliates.requestRebind', { token, reason: reason.trim() }, rebindSchema));
-  const withdraw = (requestId: string) => send(() => api.mutate('identity', 'affiliates.withdrawRebind', { requestId }, rebindSchema));
+  const withdraw = (requestId: string) => send(() => api.call(IDENTITY_AFFILIATES_WITHDRAW_REBIND, { requestId }));
 
   const latest = resource.status === 'ready' ? resource.data : null;
   // A request saved but not yet filed is filed by asking again, so only one under review hides the offer.

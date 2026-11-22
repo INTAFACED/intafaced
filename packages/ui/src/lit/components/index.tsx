@@ -189,10 +189,18 @@ function FieldNotes({ id, hint, error }: { id: string; hint?: string; error?: st
   );
 }
 
-export type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string };
+export type TextAreaProps = Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange' | 'children'> & {
+  label: string;
+  /** The line under the box: a hint. */
+  hint?: string;
+  /** Why what was typed is refused, under the box, announced. */
+  error?: string;
+  /** The text as it now reads. */
+  onChange?: (value: string) => void;
+};
 
 /** Several lines of text with a label, hint and typed error: Field's twin for answers and descriptions. */
-export function TextArea({ label, hint, error, id, className, rows = 5, ...rest }: TextAreaProps) {
+export function TextArea({ label, hint, error, onChange, id, className, rows = 5, ...rest }: TextAreaProps) {
   const auto = React.useId();
   const inputId = id ?? auto;
   return (
@@ -204,20 +212,26 @@ export function TextArea({ label, hint, error, id, className, rows = 5, ...rest 
         rows={rows}
         aria-invalid={error ? true : rest['aria-invalid']}
         aria-describedby={describedByOf({ own: rest['aria-describedby'], id: inputId, hint, error })}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
       />
       <FieldNotes id={inputId} hint={hint} error={error} />
     </div>
   );
 }
 
-export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children'> & {
+/** One choice of a Select: its value alone (shown as itself), its value and words, or the pair `[value, words]`. */
+export type SelectOption = string | { value: string; label: string } | readonly [string, string];
+
+export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'onChange' | 'children'> & {
   label: string;
   hint?: string;
   error?: string;
+  /** The value now chosen. */
+  onChange?: (value: string) => void;
 } & (
     | {
-        /** Each choice as its value and the words shown for it, in order. */
-        options: ReadonlyArray<readonly [string, string]>;
+        /** Each choice, in order. */
+        options: readonly SelectOption[];
         children?: never;
       }
     | {
@@ -227,8 +241,14 @@ export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'c
       }
   );
 
+function optionOf(o: SelectOption): readonly [string, string] {
+  if (typeof o === 'string') return [o, o];
+  if ('value' in o) return [o.value, o.label];
+  return o;
+}
+
 /** A choice from a short list: the native select, drawn as the kit's field (label above, hint below, typed error). */
-export function Select({ label, hint, error, options, children, id, className, ...rest }: SelectProps) {
+export function Select({ label, hint, error, options, children, onChange, id, className, ...rest }: SelectProps) {
   const auto = React.useId();
   const selectId = id ?? auto;
   return (
@@ -239,9 +259,10 @@ export function Select({ label, hint, error, options, children, id, className, .
         id={selectId}
         aria-invalid={error ? true : rest['aria-invalid']}
         aria-describedby={describedByOf({ own: rest['aria-describedby'], id: selectId, hint, error })}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
       >
         {options
-          ? options.map(([value, words]) => (
+          ? options.map(optionOf).map(([value, words]) => (
               <option key={value} value={value}>
                 {words}
               </option>
@@ -254,7 +275,24 @@ export function Select({ label, hint, error, options, children, id, className, .
 }
 
 /** The kit's one checkbox (b2-basics), here too so a room takes every control from `@intafaced/ui/lit`. */
-export { Checkbox } from './b2-basics.js';
+export { Checkbox, type CheckboxProps } from './b2-basics.js';
+
+export type RadioProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'children'> & {
+  /** The words beside the button; they name it. Buttons of one choice share a `name` inside a `fieldset`. */
+  children: React.ReactNode;
+  /** Called when this button becomes the chosen one. */
+  onSelect?: () => void;
+};
+
+/** One answer of a short choice, one row: the browser's own radio button in the kit's accent, its words beside it. */
+export function Radio({ children, onSelect, className, ...rest }: RadioProps) {
+  return (
+    <label className={clsx('lt-field', className)}>
+      <input {...rest} type="radio" onChange={(e) => e.target.checked && onSelect?.()} />
+      <span>{children}</span>
+    </label>
+  );
+}
 
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };

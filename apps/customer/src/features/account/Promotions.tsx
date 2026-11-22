@@ -28,6 +28,8 @@ import {
   type ShareOriginal,
 } from './promotions-guards';
 import './promotions.css';
+import { callAs } from '../../shared/api';
+import { IDENTITY_AFFILIATES_CREATE_SHARE, IDENTITY_AFFILIATES_REVOKE_SHARE } from '@intafaced/contracts/identity-affiliates-procedures';
 
 type Intent = {
   owner: string;
@@ -281,10 +283,10 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
         // has no particular-token/CAS input; the frozen snapshot is separate.
         const answer =
           intent.kind === 'create'
-            ? await intent.client.mutate('identity', 'affiliates.createShare', {}, currentLinkReply(intent.owner), {
+            ? await callAs(intent.client, IDENTITY_AFFILIATES_CREATE_SHARE, undefined, currentLinkReply(intent.owner), {
                 signal: controller.signal,
               })
-            : await intent.client.mutate('identity', 'affiliates.revokeShare', {}, currentRevocationReply(intent.owner), {
+            : await callAs(intent.client, IDENTITY_AFFILIATES_REVOKE_SHARE, undefined, currentRevocationReply(intent.owner), {
                 signal: controller.signal,
               });
         if (!same(intent)) return;

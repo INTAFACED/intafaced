@@ -3,8 +3,9 @@ import { BrandIris, Panel } from '@intafaced/ui';
 import { isServiceNotConnected, type ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
-import { canTryAgain, rawCodeOf } from './failure-rules';
+import { canTryAgain, failureRawCode } from './failure-words';
 export { Panel };
+export { canTryAgain };
 
 export function Button({
   variant = 'primary',
@@ -79,7 +80,6 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
     </div>
   );
 }
-export { canTryAgain } from './failure-rules';
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
   if (isServiceNotConnected(result.code)) {
@@ -95,7 +95,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
       </div>
     );
   }
-  const rawCode = rawCodeOf(result);
+  const rawCode = failureRawCode(result);
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
     const words = refusalCopy(result.code ?? rawCode);

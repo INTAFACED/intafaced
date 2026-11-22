@@ -1,5 +1,5 @@
 import { requireMfa } from '@intafaced/auth';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { ScreeningDeskError } from './desk-errors.js';
 import { screeningDeskToTrpcError } from './desk-errors.js';
 import {

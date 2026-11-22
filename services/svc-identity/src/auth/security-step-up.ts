@@ -11,7 +11,8 @@
  * second table. The approval is gone once spent, so the guarded call must be idempotent on its own
  * business key; a retry then needs a new approval and returns the stored result.
  */
-import { bindCustomerStepUp, doorForScope, type ActionApprovalConsumeInput, type SamePersonActionType } from '@intafaced/contracts';
+import type { ActionApprovalConsumeInput, SamePersonActionType } from '@intafaced/contracts';
+import { bindCustomerStepUp, doorForScope } from '@intafaced/contracts/customer-step-up';
 import { TRPCError } from '@trpc/server';
 import type { Sql } from 'postgres';
 import { userCopy } from '../user-copy.js';

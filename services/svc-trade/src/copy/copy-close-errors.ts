@@ -3,7 +3,7 @@
  * left to close (CB-copy-09). Kept apart from `CopyErrorCode` so the closed copy union is not widened here; the
  * router maps them with `copyCloseTrpcError`.
  */
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 
 export const COPY_CLOSE_ERROR_STATUS = {
   /** The amount asked is above what is open on that copied position. */

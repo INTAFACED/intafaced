@@ -1,0 +1,1314 @@
+{
+  "cases": [
+    {
+      "name": "policy",
+      "path": "merchant.policy",
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "moneyWriteTools": [
+            "ledger.post",
+            "ledger.hold",
+            "pay.refund",
+            "pay.capture",
+            "pay.route.change",
+            "bank.transfer",
+            "trade.order",
+            "p2p.release"
+          ],
+          "moneyDeny": { "tools": 8, "hasLedgerPost": 1, "hasPayRouteChange": 1 },
+          "moneyDenyStatusLine": "tools=8 ledger_post=1 pay_route_change=1",
+          "moneyDenyExport": "tools,ledger_post,pay_route_change\n8,1,1",
+          "watchRefuseReasons": ["no_metrics", "stale", "pay_plane_dark"],
+          "watchRefuse": { "codes": 3, "hasNoMetrics": 1, "hasPayPlaneDark": 1, "hasStale": 1 },
+          "liveMetricsRefuseReason": "no_live_metrics",
+          "darkPayPlaneRefuseReason": "pay_plane_dark",
+          "inventsApprovalRate": false,
+          "allowedTask": "merchant.watch"
+        }
+      }
+    },
+    {
+      "name": "watch: plane omitted",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "pay_plane_dark" } }
+    },
+    {
+      "name": "watch: plane dark",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "dark",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "pay_plane_dark" } }
+    },
+    {
+      "name": "watch: the board, default threshold",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "card-mc", "approvalRate": "0.90", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "sepa", "approvalRate": "0.85", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 3,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "card-visa", "approvalRate": "0.70", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: a threshold",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "card-mc", "approvalRate": "0.90", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "threshold": "0.95",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 2,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [
+            { "railId": "card-visa", "approvalRate": "0.70", "attempts": 100, "threshold": "0.95", "kind": "below_threshold" },
+            { "railId": "card-mc", "approvalRate": "0.90", "attempts": 100, "threshold": "0.95", "kind": "below_threshold" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "watch: threshold 1",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "1", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": "0.999", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "threshold": "1",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 2,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "b", "approvalRate": "0.999", "attempts": 100, "threshold": "1", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: threshold 1.000",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "1.0", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": "0", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "threshold": "1.000",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 2,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "b", "approvalRate": "0", "attempts": 100, "threshold": "1.000", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: threshold 0",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "0",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 1,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": []
+        }
+      }
+    },
+    {
+      "name": "watch: threshold \"1.01\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "1.01",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \".5\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": ".5",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \"0.\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "0.",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \"01\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "01",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \"1.5\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "1.5",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \"abc\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "abc",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \"\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \" 0.5\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": " 0.5",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \"0.5 \"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "0.5 ",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \"1e-1\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "1e-1",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: threshold \"-0\"",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "threshold": "-0",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: a rate one ulp under the threshold reads equal",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          {
+            "railId": "a",
+            "approvalRate": "0.84999999999999999999",
+            "attempts": 100,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          { "railId": "b", "approvalRate": "0.8499999999999999", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "threshold": "0.85",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 2,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [
+            { "railId": "b", "approvalRate": "0.8499999999999999", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "watch: no points",
+      "path": "merchant.watch",
+      "input": { "points": [], "payPlane": "live", "now": "2026-11-19T00:00:00.000Z" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "empty", "userMessageKey": "agents.merchant.empty" } }
+    },
+    {
+      "name": "watch: an allowlist",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "c", "approvalRate": "0.95", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "railAllowlist": ["a", "c", "zz"],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 3,
+          "skippedStale": 0,
+          "skippedIncomplete": 1,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: an empty allowlist",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "railAllowlist": [],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 1,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: an allowlist matching nothing",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "railAllowlist": ["zz"],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "empty", "userMessageKey": "agents.merchant.empty" } }
+    },
+    {
+      "name": "watch: an allowlist leaving out a hole",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": null, "attempts": null, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "railAllowlist": ["a"],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 2,
+          "skippedStale": 0,
+          "skippedIncomplete": 1,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: a null rate",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": null, "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: null attempts",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": "0.5", "attempts": null, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: negative attempts",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": -1, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: zero attempts only",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "0.0", "attempts": 0, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": "0.0", "attempts": 0, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: zero attempts beside an alert",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "0.0", "attempts": 0, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": "0.5", "attempts": 10, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 2,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 1,
+          "alerts": [{ "railId": "b", "approvalRate": "0.5", "attempts": 10, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: a raised floor",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "0.5", "attempts": 9, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": "0.5", "attempts": 10, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "c", "approvalRate": "0.95", "attempts": 10, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "minAttempts": 10,
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 3,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 1,
+          "alerts": [{ "railId": "b", "approvalRate": "0.5", "attempts": 10, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: a bad rate",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5x", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: a rate over 1",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "1.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: a bad rate under a low sample",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "nope", "attempts": 0, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: stale",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:00:00.000Z", "maxAgeMs": 60000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "stale" } }
+    },
+    {
+      "name": "watch: stale beside fresh",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:00:00.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "stale" } }
+    },
+    {
+      "name": "watch: stale and a hole",
+      "path": "merchant.watch",
+      "input": {
+        "points": [
+          { "railId": "a", "approvalRate": null, "attempts": null, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "b", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:00:00.000Z", "maxAgeMs": 120000 }
+        ],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "no_metrics" } }
+    },
+    {
+      "name": "watch: in the future",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-19T00:00:00.001Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "stale" } }
+    },
+    {
+      "name": "watch: exactly at its age",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:58:00.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 1,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: one ms past its age",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:57:59.999Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "stale" } }
+    },
+    {
+      "name": "watch: a time Date.parse reads loosely",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "Nov 18 2026 23:59:00 GMT", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 1,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: a space for the T",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 1,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: an unparsed time",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "yesterday", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.merchant.unavailable", "reason": "stale" } }
+    },
+    {
+      "name": "watch: the clock, no now",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:59.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 1,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: a now with microseconds",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-11-19T00:00:00.123456Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "watchedAt": "2026-11-19T00:00:00.123Z",
+          "considered": 1,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "skippedLowSample": 0,
+          "alerts": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "threshold": "0.85", "kind": "below_threshold" }]
+        }
+      }
+    },
+    {
+      "name": "watch: a now past the month end",
+      "path": "merchant.watch",
+      "input": {
+        "points": [{ "railId": "a", "approvalRate": "0.5", "attempts": 100, "asOf": "2026-02-28T23:59:00.000Z", "maxAgeMs": 120000 }],
+        "payPlane": "live",
+        "now": "2026-02-30T00:00:00Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"origin\": \"string\",\n    \"code\": \"invalid_format\",\n    \"format\": \"datetime\",\n    \"pattern\": \"/^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d:[0-5]\\\\d(?:\\\\.\\\\d+)?(?:Z))$/\",\n    \"path\": [\n      \"now\"\n    ],\n    \"message\": \"Invalid ISO datetime\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "watch: a key may read",
+      "path": "merchant.watch",
+      "input": { "points": [], "payPlane": "live", "now": "2026-11-19T00:00:00.000Z" },
+      "tier": "basic",
+      "scopes": ["agents:read"],
+      "laws": null,
+      "answer": { "data": { "status": "empty", "userMessageKey": "agents.merchant.empty" } }
+    },
+    {
+      "name": "runSession: dark",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "dark",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "pay_plane_dark",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: dark, fat fixture rates",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "dark",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "railId": "card-mc", "approvalRate": "0.98", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "threshold": "0.85"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "pay_plane_dark",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live, no port: body points are not live truth",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live, no port, no points",
+      "path": "merchant.runSession",
+      "input": { "plane": "live", "points": [] },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: a key may not run",
+      "path": "merchant.runSession",
+      "input": { "plane": "dark", "points": [] },
+      "tier": "basic",
+      "scopes": ["agents:read"],
+      "laws": null,
+      "answer": { "error": { "code": "FORBIDDEN", "message": "Scope \"agents:execute\" is required" } }
+    },
+    {
+      "name": "runSession: live port: pay down",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": { "throws": true },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: pay 503 refusal",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": { "status": 503, "body": { "ok": false, "reason": "no_live_metrics" } },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: pay 404 with points",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": {
+        "status": 404,
+        "body": {
+          "ok": true,
+          "points": [
+            { "railId": "card-visa", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+          ]
+        }
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: pay 500",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": { "status": 500, "body": {} },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: a refusal body on 200",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": { "status": 200, "body": { "ok": false, "reason": "no_live_metrics" } },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: no points",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": { "status": 200, "body": { "ok": true, "points": [] } },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: points not a list",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "points": {
+            "a": { "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+          }
+        }
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: ok not true",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": {
+        "status": 200,
+        "body": {
+          "ok": "true",
+          "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }]
+        }
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: no ok",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": {
+        "status": 200,
+        "body": {
+          "points": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }]
+        }
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: a list body",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": {
+        "status": 200,
+        "body": [{ "railId": "a", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }]
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: a string body",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": { "status": 200, "body": "ok" },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: a null body",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": { "status": 200, "body": null },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live port: a short secret cannot sign",
+      "path": "merchant.runSession",
+      "input": {
+        "plane": "live",
+        "points": [
+          { "railId": "card-visa", "approvalRate": "0.99", "attempts": 10000, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "port": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "points": [
+            { "railId": "card-visa", "approvalRate": "0.70", "attempts": 100, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+          ]
+        },
+        "secret": "placeholder-short"
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_metrics",
+          "userMessageKey": "agents.merchant.unavailable",
+          "pointsRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    }
+  ]
+}

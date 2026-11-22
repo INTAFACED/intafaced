@@ -49,6 +49,7 @@
  *                                              get a fresh head (heldTick; FACTORY_APP_KEY, after each journeys run on main)
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
+import { runJobs } from './run-jobs.mjs';
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
 import { JOURNEY_TEST, journeyOf } from './journey-seal.mjs';
 import { budgetSpentUntil, refusalDetail } from './refusal.mjs';
@@ -463,19 +464,6 @@ async function gh(method, path, body, raw = false) {
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-// A run's jobs in pages of JOBS_PAGE. GitHub answered 502 on every try for the 71 jobs of run 44350969050's attempt 2
-// at per_page=100 and 200 at 50 (18 Nov 2026), and that one 502 stopped every tick of Main trust for every pull request,
-// main's dead runs among them (factory red project-state#2548). Pages also keep a run of more than one page whole.
-export const JOBS_PAGE = 50;
-export async function runJobs(getPage) {
-  const out = [];
-  for (let page = 1; ; page++) {
-    const { json } = await getPage(page);
-    out.push(...(json?.jobs ?? []));
-    if ((json?.jobs ?? []).length < JOBS_PAGE || out.length >= (json?.total_count ?? 0)) return out;
-  }
-}
-
 /** A refused request (gh above): it stops the tick. */
 export const isRefusal = (e) => /^GitHub (403|429) on /.test(e?.message ?? '');
 
@@ -511,8 +499,8 @@ export function githubIo(repo) {
     headRuns: async (sha) =>
       (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?head_sha=${sha}&per_page=100`)).json.workflow_runs,
     jobs: (run) =>
-      runJobs((page) =>
-        gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=${JOBS_PAGE}&page=${page}`),
+      runJobs(`/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs`, async (p) => (await gh('GET', p)).json).then(
+        (jobs) => jobs ?? [],
       ),
     // GET /rate_limit spends no budget.
     budget: async () => (await gh('GET', '/rate_limit')).json.resources.core,
