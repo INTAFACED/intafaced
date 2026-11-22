@@ -232,7 +232,7 @@ for (const [name, corrupt] of [
     const s = await network(context);
     s['kyc.status'] = (r) => reply(r, { tier: 'basic', records: corrupt(s.rows) });
     await login(page);
-    await expect(page.locator('[data-testid="failure"]')).toBeVisible();
+    await expect(records(page).getByTestId('failure')).toBeVisible();
     await expect(records(page)).not.toContainText(a);
     expect(count(s)).toBe(0);
   });
@@ -242,7 +242,7 @@ test('failed GET hides selection, retry is read only, and independent request re
   await page.getByRole('button', { name: 'Inspect record ' + a, exact: true }).click();
   s['kyc.status'] = (r) => fail(r);
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('[data-testid="failure"]')).toBeVisible();
+  await expect(records(page).getByTestId('failure')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Selected record', exact: true })).toHaveCount(0);
   await review(page);
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -309,11 +309,11 @@ test('unknown A → native Help/return → B exactly one reviewed POST → A ori
   const original = await journal(page);
   const saved = JSON.parse(original);
   expect(Object.keys(saved[0]).sort()).toEqual(['createdAt', 'kind', 'owner', 'requestId']);
-  await page.getByRole('link', { name: 'Verification help →', exact: true }).click();
+  await page.getByRole('link', { name: 'Verification help', exact: true }).click();
   await nativeReturn(page);
   await expect(originals(page)).toContainText(saved[0].requestId);
   await expect(page.locator('form button[type="submit"]')).toBeDisabled();
-  await page.getByRole('link', { name: 'Get support →', exact: true }).click();
+  await page.getByRole('link', { name: 'Get support', exact: true }).click();
   await nativeReturn(page);
   expect(await journal(page)).toBe(original);
   await signOut(page);
@@ -381,7 +381,7 @@ test('remount after known cleanup failure knows only durable unknown; cannot fin
   }, key);
   await submit(page);
   await expect(originals(page)).toContainText('Local record still saved');
-  await page.getByRole('link', { name: 'Verification help →', exact: true }).click();
+  await page.getByRole('link', { name: 'Verification help', exact: true }).click();
   await nativeReturn(page);
   await expect(originals(page)).toContainText('Original result unknown');
   await expect(page.getByRole('button', { name: 'Finish local record', exact: true })).toHaveCount(0);
@@ -444,7 +444,7 @@ test('late reply after native route departure keeps durable original and cannot 
   await submit(page);
   await expect.poll(() => count(s)).toBe(1);
   const before = await journal(page);
-  await page.getByRole('link', { name: 'Verification help →', exact: true }).click();
+  await page.getByRole('link', { name: 'Verification help', exact: true }).click();
   hold.release();
   await nativeReturn(page);
   await expect(originals(page)).toContainText('Original result unknown');
@@ -584,7 +584,7 @@ test('unknown320 plus failed current GET retains original; retry only reads', as
   const before = await journal(page);
   s['kyc.status'] = (r) => fail(r);
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('[data-testid="failure"]')).toBeVisible();
+  await expect(records(page).getByTestId('failure')).toBeVisible();
   await expect(records(page)).not.toContainText(a);
   await shot(page, 'unknown320-failed-current-read');
   delete s['kyc.status'];
