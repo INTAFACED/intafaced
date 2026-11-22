@@ -15,6 +15,7 @@ import {
   Figure,
   LegalSlot,
   Logo,
+  Radio,
   Rail,
   RefusalBox,
   RiskMoment,
@@ -154,6 +155,17 @@ describe('components', () => {
     expect(out).toMatch(/^<label class="lt-field"><span>Role<\/span><select>/);
     expect(out).toContain('<option value="a">a</option><option value="b" selected="">Bee</option>');
     expect(out).toContain('<small>Pick one</small>');
+  });
+
+  it('Radio is a native radio button named by its words, one of a shared name', () => {
+    const out = html(
+      <Radio name="scope" value="all" checked readOnly>
+        All components
+      </Radio>,
+    );
+    expect(out).toBe(
+      '<label class="lt-field"><input readOnly="" type="radio" name="scope" checked="" value="all"/><span>All components</span></label>',
+    );
   });
 
   it('Checkbox is a native tick box named by its words or its own label', () => {
