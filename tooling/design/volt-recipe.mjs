@@ -70,7 +70,7 @@ const stringValue = (a) => (a.value?.type === 'Literal' && typeof a.value.value 
 /** The old kit's parts (`@intafaced/ui`) and the kit's twin for each: `to` names it and `move` turns one tag's
  * attributes into edits, or says why that tag needs judgement; `why` says why a part has no twin. A part not here
  * is left whole. */
-export const PARTS = {
+const PARTS = {
   Button: {
     to: 'Button',
     move(attrs, ctx) {
