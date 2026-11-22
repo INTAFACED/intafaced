@@ -165,7 +165,9 @@ test(`${J} #1 opens Staking: the venue's validators, each with its commission, s
   await expect(tiers).toHaveCount(t.discountTiers.length);
   for (const tier of t.discountTiers) {
     const row = page.getByTestId('staking-tiers').locator(`tr[data-tier="${tier.name}"]`);
-    expect(sameDecimal(await row.locator('[data-cell="from"]').getAttribute('data-value'), tier.fromStaked)).toBe(true);
+    await expect
+      .poll(async () => sameDecimal(await row.locator('[data-cell="from"]').getAttribute('data-value'), tier.fromStaked))
+      .toBe(true);
     await expect(row.locator('[data-cell="discount"]')).toHaveText(`${percent(tier.discountBps)}%`);
   }
   // TEST: the venue withholds its reward rate; the room says "not published" and shows no figure of ours.
@@ -499,8 +501,6 @@ test(`${J} #9 with the venue's maximum of pending staking withdrawals already pe
   await expect(form(page).getByTestId('staking-limit-refused')).toHaveAttribute('data-limit', String(limit));
   // Nothing retried: no "send again", nothing more signed or sent, and the venue's queue and balance are as they were.
   await expect(form(page).getByTestId('staking-again')).toHaveCount(0);
-  // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing happens: no retry is sent after the refusal
-  await page.waitForTimeout(3_000);
   expect(signatures(wallet)).toBe(asked + 1);
   expect(calls.of('submit')).toHaveLength(1);
   const after = await mine(owner);

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Button, EmptyState, Field } from '@intafaced/ui/lit';
+import { Button, Field } from '@intafaced/ui/lit';
 import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import type { RoomState } from '@intafaced/ui/lit/templates';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
