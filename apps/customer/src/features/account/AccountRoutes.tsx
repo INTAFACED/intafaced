@@ -14,7 +14,7 @@ import { OAuthConsent } from './OAuthConsent';
 import { ApiKeys } from './ApiKeys';
 import { Compromised } from './Compromised';
 import { StaffAccess } from './StaffAccess';
-import { ApiKeyCreate } from './ApiKeyCreate';
+import { ApiKeyCreateRoom } from './api-key-create/ApiKeyCreateRoom';
 import { ApiKeyDetail, keyIdFromPath } from './ApiKeyDetail';
 import { TradingPermissions } from '../trade';
 import './account.css';
@@ -35,7 +35,7 @@ function AccountRooms({ path }: { path: string }) {
   if (clean === '/uc/safe/compromised') return <Compromised />;
   if (clean === '/uc/safe/staff-access') return <StaffAccess />;
   if (clean === '/uc/safe/api-keys') return <ApiKeys />;
-  if (clean === '/uc/safe/api-keys/new') return <ApiKeyCreate />;
+  if (clean === '/uc/safe/api-keys/new') return <ApiKeyCreateRoom />;
   const keyId = keyIdFromPath(path);
   if (keyId) return <ApiKeyDetail key={keyId} keyId={keyId} />;
   if (clean === '/uc/trading-permissions') return <TradingPermissions />;

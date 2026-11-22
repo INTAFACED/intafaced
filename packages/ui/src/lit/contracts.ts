@@ -286,6 +286,8 @@ export const components = {
   Switch: 'Glass disc knob toggle',
   Segmented: 'Ranges, Buy/Sell, Simple/Pro',
   Field: 'Input with label, hint and typed error',
+  TextArea: 'Several lines of text with label, hint and typed error',
+  Select: 'One choice from a list, with label, hint and typed error',
   DecimalField: 'Field for a decimal string (money, quantities): refuses an invalid keystroke, cleans a paste to its precision',
   ChoiceGroup: 'One choice of several, as radios each with its label and hint',
   AlertDialog: 'Confirm dialog (role alertdialog) on the glass sheet layer; no Close of its own, the room brings its choices',

@@ -2,7 +2,7 @@ import type { Refusal } from '@intafaced/ui/lit';
 import { isServiceNotConnected, type ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
-import { canTryAgain, embeddedKey, RAW_CODE } from './ui';
+import { canTryAgain, rawCodeOf } from './failure-rules';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -32,7 +32,7 @@ export function useFailureView(result: Failed): FailureView {
       retryable: false,
       retryLabel,
     };
-  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
+  const rawCode = rawCodeOf(result);
   const uncertain = result.reason === 'uncertain';
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code; a write that may have gone through is never called refused.

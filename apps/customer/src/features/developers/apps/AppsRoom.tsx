@@ -15,7 +15,7 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Shown = { name: string; secret: string | null; replay: boolean };
 
 /** The service's own `oauth.*` code in the person's words; any other refusal says it was refused and shows its code. */
-export function Refused({ failure, t }: { failure: Refusal; t: T }) {
+function Refused({ failure, t }: { failure: Refusal; t: T }) {
   const code = failure.code;
   const key = refusalCopyKey(code);
   const known = key ? t(key) : t('otherRefusal');
