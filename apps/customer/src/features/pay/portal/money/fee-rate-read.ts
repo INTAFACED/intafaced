@@ -16,7 +16,7 @@ export function ratePercent(rate: string): string {
 }
 
 /** The last 30 whole UTC days, ending after today. Both bounds are required by the service. */
-export function rateWindow(now: number): { from: string; to: string } {
+function rateWindow(now: number): { from: string; to: string } {
   const day = 86_400_000;
   const start = Math.floor(now / day) * day;
   return { from: new Date(start - 29 * day).toISOString(), to: new Date(start + day).toISOString() };

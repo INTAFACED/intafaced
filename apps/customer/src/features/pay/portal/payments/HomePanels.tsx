@@ -156,4 +156,4 @@ function CheckoutSummary({ settings }: { settings: CheckoutSettings }) {
   );
 }
 
-export { CheckoutSettingsPage, CheckoutSettingsView } from './CheckoutSettings';
+export { CheckoutSettingsView } from './CheckoutSettings';

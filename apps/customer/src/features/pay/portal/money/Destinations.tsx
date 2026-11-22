@@ -37,7 +37,7 @@ export function referenceProblem(kind: 'crypto' | 'bank', ref: string): 'empty' 
 export const normaliseReference = (ref: string): string => ref.replace(/\s+/g, '');
 
 /** `/pay/payouts/destinations`: where your payouts can go. Full numbers and addresses are never shown again once saved. */
-export function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const [said, setSaid] = useState<string | null>(null);
   const list = useServerList(

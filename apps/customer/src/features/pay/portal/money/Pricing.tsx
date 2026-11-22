@@ -29,7 +29,7 @@ import type {
 } from '@intafaced/contracts/merchant-control';
 
 /** `/pay/pricing`: what INTAFACED charges this account, read-only, with a calculator that uses the same engine as live payments. */
-export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = portalCopy.useCopy();
   const { access, merchant: merchantRead, reloadMerchant } = useMerchantAccess();
   const account = merchantRead.status === 'ready' ? merchantRead.data : null;

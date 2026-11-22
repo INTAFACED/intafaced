@@ -34,7 +34,7 @@ type Words = ReturnType<typeof mc.useCopy>['t'];
 const kindName = (t: Words, kind: string) => t(`limitKind_${kind}` as 'limitKind_daily_intake');
 
 /** `/pay/limits`: your tier, how much of each limit is used and when it resets, and how to ask for more. */
-export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const test = useTestMode();
   const control = useResource((s) => portal.control(merchantId, s), `money:control:${merchantId}`);

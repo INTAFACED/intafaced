@@ -7,7 +7,7 @@ import type { EffectiveRate } from './fee-rate-schema';
 import { rateText, useEffectiveFeeRates } from './fee-rate-read';
 
 export { effectiveRateSchema, type EffectiveRate } from './fee-rate-schema';
-export { ratePercent, rateText, rateWindow, useEffectiveFeeRates } from './fee-rate-read';
+export { ratePercent, rateText } from './fee-rate-read';
 
 /** The rates the service sent, one line per asset. Two assets are never mixed into one figure. */
 export function EffectiveRatesList({ rates, children }: { rates: readonly EffectiveRate[]; children?: ReactNode }) {

@@ -24,7 +24,7 @@ import type { CheckoutSettings } from './schemas';
 import { walletCopy } from './wallet-copy';
 
 /** `/pay/checkout`: the checkout profile as the service holds it now, and a way for the owner to add a new one. */
-export function CheckoutSettingsPage({
+function CheckoutSettingsPage({
   portal,
   merchantId,
   authority,
