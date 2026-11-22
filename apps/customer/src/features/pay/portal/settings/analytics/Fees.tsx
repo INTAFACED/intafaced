@@ -1,16 +1,16 @@
-import { EmptyState } from '../../../ui-kit';
-import { PaySection } from '../../../components';
-import { NotLiveCard } from '../../chrome/NotLiveCard';
+// volt-room: /pay/analytics/fees
+// volt-room: portal:analytics-fees
+import type { ReactNode } from 'react';
+import { KeyValue } from '@intafaced/ui/lit/templates';
 import { reason } from '../../chrome/copy';
-import { PortalFailure, PortalLoading } from '../../components';
-import { EntityList } from '../../ui/EntityList';
-import { EffectiveFeeRates } from '../../ui/FeeRate';
-import { EffectiveRatesList, type EffectiveRate } from '../../money/fee-rate';
+import { rateText } from '../../money/fee-rate-read';
+import type { EffectiveRate } from '../../money/fee-rate-schema';
 import { mc as moneyCopy } from '../../money/copy';
-import { Freshness } from '../../ui/Freshness';
+import { uiCopy } from '../../ui/copy';
 import { useDayText } from '../../ui/DateTime';
-import { KpiStrip } from '../../ui/Kpi';
-import { MoneyText } from '../../ui/MoneyText';
+import { effectiveFeeRate } from '../../ui/format';
+import { Empty, EntityList, Failure, Freshness, KpiStrip, Loading, MoneyText, NotLive, Section } from '../../volt/parts';
+import { MonitorRoom } from '../../volt/MonitorRoom';
 import { isNotLive, notLiveReason } from '../../refusal';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
@@ -30,8 +30,13 @@ type Loaded = {
   conversionCost: unknown;
 };
 
+/** `/pay/analytics/fees` on the monitor template: what the business's payments cost, for the account the access resolved. */
+export function FeesRoom({ api, test }: { api: SettingsBApi; test: boolean }) {
+  return <MonitorRoom>{({ merchantId }) => ({ panels: <Fees api={api} merchantId={merchantId} test={test} /> })}</MonitorRoom>;
+}
+
 /** What your payments cost: gross, fees taken, net and refunds, by day or week. The rate is shown only when INTAFACED has stored it. */
-export function Fees({
+function Fees({
   api,
   merchantId,
   test = false,
@@ -94,18 +99,18 @@ export function FeesView({
     <div className="lt-stack">
       <AnalyticsControls state={state} assets={loaded ? assetsOf(loaded.points) : []} />
       {!resource ? (
-        <p className="lt-muted" role="status">
+        <p className="lt-hint" role="status">
           {t('pickDates')}
         </p>
       ) : resource.status === 'loading' ? (
-        <PortalLoading rows={4} />
+        <Loading rows={4} />
       ) : resource.status === 'failed' ? (
         isNotLive(resource.failure) ? (
-          <NotLiveCard variant="page" reason={notLiveReason(resource.failure)} title={t('feesOffTitle')} needs="merchantAnalytics.fees">
+          <NotLive reason={notLiveReason(resource.failure)} title={t('feesOffTitle')} needs="merchantAnalytics.fees">
             {t('feesOffBody')}
-          </NotLiveCard>
+          </NotLive>
         ) : (
-          <PortalFailure result={resource.failure} retry={reload} />
+          <Failure result={resource.failure} retry={reload} />
         )
       ) : (
         <FeesBody data={resource.data} state={state} test={test} />
@@ -123,7 +128,7 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
     return (
       <>
         <Freshness asOf={data.freshness.asOf} lagSeconds={data.freshness.lagSeconds ?? 0} />
-        <EmptyState title={t('feesEmptyTitle')}>{t('feesEmptyBody')}</EmptyState>
+        <Empty title={t('feesEmptyTitle')}>{t('feesEmptyBody')}</Empty>
       </>
     );
   const totals = feeTotals(points);
@@ -133,7 +138,7 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
     : '';
   const href = `/pay/settlements?${filter}${state.asset ? `&asset=${encodeURIComponent(state.asset)}` : ''}`;
   const lines = (rows: Array<{ assetCode: string; total: string }>) => (
-    <span className="pp-stack">
+    <span className="lt-stack">
       {rows.map((r) => (
         <MoneyText key={r.assetCode} value={r.total} asset={r.assetCode} test={test} />
       ))}
@@ -145,7 +150,7 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
     <>
       <Freshness asOf={data.freshness.asOf} lagSeconds={data.freshness.lagSeconds ?? 0} />
       {!open && (
-        <p className="pp-callout" role="status">
+        <p className="lt-held" role="status">
           {t('cutShort')}
         </p>
       )}
@@ -158,41 +163,77 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
           { label: t('tileRefunded'), period, href, value: open ? lines(totals.refunded) : '—' },
         ]}
       />
-      <PaySection title={t('rateTitle')}>
+      <Section title={t('rateTitle')}>
         {data.rates ? (
           <EffectiveRatesList rates={data.rates}>
-            <p className="muted pp-note">{mt('rateWindowShown')}</p>
+            <p className="lt-hint">{mt('rateWindowShown')}</p>
           </EffectiveRatesList>
         ) : rate ? (
           <p>{t('rateIs', { rate })}</p>
         ) : open ? (
           <EffectiveFeeRates gross={totals.gross} fees={totals.fees} />
         ) : (
-          <NotLiveCard reason={reason('reasonDetail')} title={t('rateOffTitle')} needs="fee rule snapshots aggregated">
+          <NotLive reason={reason('reasonDetail')} title={t('rateOffTitle')} needs="fee rule snapshots aggregated">
             {t('rateOffBody')}
-          </NotLiveCard>
+          </NotLive>
         )}
-      </PaySection>
-      <PaySection title={t('feesTableTitle')} description={t('feesTableBody')}>
+      </Section>
+      <Section title={t('feesTableTitle')} description={t('feesTableBody')}>
         <EntityList
           label={t('feesTableTitle')}
           rows={points}
           rowKey={(p) => `${p.period}:${p.assetCode}`}
           columns={[
-            { header: state.bucket === 'week' ? t('colWeek') : t('colDay'), cell: (p) => dayText(p.period) },
+            {
+              header: state.bucket === 'week' ? t('colWeek') : t('colDay'),
+              cell: (p) => (state.bucket === 'week' ? t('weekOf', { date: dayText(p.period) }) : dayText(p.period)),
+            },
             { header: t('colAsset'), cell: (p) => p.assetCode },
             { header: t('tileGross'), cell: (p) => <MoneyText value={p.gross} asset={p.assetCode} test={test} /> },
             { header: t('tileFees'), cell: (p) => <MoneyText value={p.fees} asset={p.assetCode} test={test} /> },
             { header: t('tileNet'), cell: (p) => <MoneyText value={p.net} asset={p.assetCode} test={test} /> },
             { header: t('tileRefunded'), cell: (p) => <MoneyText value={p.refunded} asset={p.assetCode} test={test} /> },
           ]}
-          card={(p) => ({
-            title: state.bucket === 'week' ? t('weekOf', { date: dayText(p.period) }) : dayText(p.period),
-            time: t('feesOf', { asset: p.assetCode }),
-            amount: <MoneyText value={p.fees} asset={p.assetCode} test={test} />,
-          })}
         />
-      </PaySection>
+      </Section>
     </>
+  );
+}
+
+/** The rates the service sent, one line per asset (`EffectiveRatesList` in `../../money/fee-rate`, drawn with the kit). */
+function EffectiveRatesList({ rates, children }: { rates: readonly EffectiveRate[]; children?: ReactNode }) {
+  const { t } = moneyCopy.useCopy();
+  if (rates.length === 0) return <p className="lt-hint">{t('rateNone')}</p>;
+  return (
+    <div className="lt-stack">
+      <KeyValue label={t('rateListLabel')} rows={rates.map((r) => ({ label: r.assetCode, value: rateText(t, r), ltr: true }))} />
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The effective fee rate per asset: fees taken ÷ gross, exact decimal math, never a mix of assets (`EffectiveFeeRates` in
+ * the portal's old fee-rate part, drawn with the kit). Both lists come from reads the page already made.
+ */
+function EffectiveFeeRates({
+  gross,
+  fees,
+}: {
+  gross: readonly { assetCode: string; total: string }[];
+  fees: readonly { assetCode: string; total: string }[];
+}) {
+  const { t } = uiCopy.useCopy();
+  return (
+    <div className="lt-stack">
+      <KeyValue
+        label={t('rateLabel')}
+        rows={gross.map((g) => {
+          const rate = effectiveFeeRate(fees.find((f) => f.assetCode === g.assetCode)?.total ?? '0', g.total);
+          return { label: g.assetCode, value: rate ?? '—', note: rate === null ? t('rateNone') : undefined };
+        })}
+      />
+      <p className="lt-hint">{t('rateHow')}</p>
+    </div>
   );
 }

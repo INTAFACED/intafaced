@@ -8,61 +8,8 @@ import { p2pChatCopy } from './p2p-chat-copy';
 import { p2pDepth } from './p2p-depth-copy';
 import { TradeStatus } from './P2PDepth';
 import { TraderName, useTraders } from './Trader';
+import { FailureText } from './p2p-failure-text';
 import { ChatStore, MAX_CHAT_TEXT, chatTime, senderRole, type ChatState, type PendingMessage, type ServiceFailure } from './p2p-chat-model';
-
-type ChatT = ReturnType<typeof p2pChatCopy.useCopy>['t'];
-
-/** The plain sentence for a kind of refusal. No service text and no code ever reaches the customer. */
-export function failureText(t: ChatT, kind: ServiceFailure): string {
-  switch (kind) {
-    case 'signIn':
-      return t('failSignIn');
-    case 'notParty':
-      return t('failNotParty');
-    case 'readOnly':
-      return t('failReadOnly');
-    case 'verify':
-      return t('failVerify');
-    case 'region':
-      return t('failRegion');
-    case 'textRequired':
-      return t('failTextRequired');
-    case 'attachment':
-      return t('failAttachment');
-    case 'self':
-      return t('failSelf');
-    case 'conflict':
-      return t('failConflict');
-    case 'inProgress':
-      return t('failInProgress');
-    case 'unconfirmed':
-      return t('failUnconfirmed');
-    case 'noService':
-      return t('failNoService');
-    case 'viewChanged':
-      return t('failViewChanged');
-    case 'generic':
-      return t('failGeneric');
-  }
-}
-
-/** A refusal in words, with the way forward when there is one (verification is a page of its own). */
-export function FailureText({ kind }: { kind: ServiceFailure }) {
-  const { t } = p2pChatCopy.useCopy();
-  return (
-    <>
-      {failureText(t, kind)}
-      {kind === 'verify' ? (
-        <>
-          {' '}
-          <a className="lt-link" href="/verification">
-            {t('failVerifyLink')}
-          </a>
-        </>
-      ) : null}
-    </>
-  );
-}
 
 /** Sending the same words again cannot help after these; the person edits or drops the message instead. */
 const NOT_RETRIABLE: ReadonlySet<ServiceFailure> = new Set(['notParty', 'textRequired', 'attachment', 'region', 'verify', 'self']);
