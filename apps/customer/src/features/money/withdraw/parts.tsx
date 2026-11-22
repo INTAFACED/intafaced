@@ -21,7 +21,7 @@ export function FailureNote({ result, retry }: { result: Extract<ApiResult<unkno
           {w.action.label}
         </a>
       )}
-      {w.reference && <small>{w.reference}</small>}
+      {w.reference && <small data-testid="money-reference">{w.reference}</small>}
       {w.retry && retry && (
         <Button tone="secondary" onClick={retry}>
           {w.retry}
@@ -34,7 +34,11 @@ export function FailureNote({ result, retry }: { result: Extract<ApiResult<unkno
 /** Data on its way, in `Loading`'s words. */
 export function LoadingLine() {
   const { t } = uiCopy.useCopy();
-  return <p role="status">{t('loading')}…</p>;
+  return (
+    <p role="status" data-testid="loading">
+      {t('loading')}…
+    </p>
+  );
 }
 
 /** A control that is on the screen but cannot be used, with the reason next to it in plain words. */
