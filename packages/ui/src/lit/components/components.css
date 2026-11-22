@@ -622,3 +622,31 @@
 .lit-gate__card [data-part='body'] {
   color: var(--lit-text-2);
 }
+
+/* Freshness: a shape and a word, never colour alone */
+.lit-fresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  white-space: nowrap;
+}
+.lit-fresh-mark {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+.lit-fresh[data-fresh='live'] {
+  color: var(--lit-accent-text);
+}
+.lit-fresh[data-fresh='live'] .lit-fresh-mark {
+  background: currentColor;
+}
+.lit-fresh[data-fresh='stale'] {
+  color: var(--lit-warn-text);
+}
+.lit-fresh[data-fresh='unknown'] .lit-fresh-mark {
+  border-style: dashed;
+}
