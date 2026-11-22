@@ -53,7 +53,7 @@ export function focusScroll(
  * Whether `el` took focus the way a keyboard user sees it (`:focus-visible`), not from a pointer press. An engine that does
  * not know the selector counts as keyboard focus, so the bar fix still runs there.
  */
-export function keyboardFocus(el: Pick<Element, 'matches'>): boolean {
+export function keyboardFocus(el: { matches(selectors: string): boolean }): boolean {
   try {
     return el.matches(':focus-visible');
   } catch {
