@@ -317,7 +317,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/token/governance': { template: 'record-list' },
   '/token/economy': { template: 'monitor' },
   '/token/burn': { template: 'record-list' },
-  '/token/governance/:proposalId': { template: 'reading' },
+  '/token/governance/:proposalId': { template: 'reading', migrated: { file: 'features/more/token-proposal/TokenProposalRoom.tsx' } },
   '/mining/workers': { template: 'record-list' },
   '/mining/shares': { template: 'record-list' },
   '/mining/rewards': { template: 'record-list' },
