@@ -403,6 +403,14 @@ import {
 
 import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from './identity-account-directory-procedures.js';
 
+import {
+  IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+  IDENTITY_ACCOUNT_COMPROMISED_MINE,
+  IDENTITY_ACCOUNT_COMPROMISED_START,
+  IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+  IDENTITY_ACCOUNT_SAFETY_READ,
+} from './identity-account-procedures.js';
+
 import { IDENTITY_ACTION_APPROVAL_LIST } from './identity-action-approval-procedures.js';
 
 import {
@@ -1768,6 +1776,14 @@ const part_identity_account_controls_procedures: readonly ProcedureRecord[] = [
 
 const part_identity_account_directory_procedures: readonly ProcedureRecord[] = [IDENTITY_ACCOUNT_DIRECTORY_HANDLES];
 
+const part_identity_account_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+  IDENTITY_ACCOUNT_COMPROMISED_MINE,
+  IDENTITY_ACCOUNT_COMPROMISED_START,
+  IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+  IDENTITY_ACCOUNT_SAFETY_READ,
+];
+
 const part_identity_action_approval_procedures: readonly ProcedureRecord[] = [IDENTITY_ACTION_APPROVAL_LIST];
 
 const part_identity_action_approval_records: readonly ProcedureRecord[] = [
@@ -2828,6 +2844,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_account_closure_procedures,
   ...part_identity_account_controls_procedures,
   ...part_identity_account_directory_procedures,
+  ...part_identity_account_procedures,
   ...part_identity_action_approval_procedures,
   ...part_identity_action_approval_records,
   ...part_identity_affiliates_procedures,

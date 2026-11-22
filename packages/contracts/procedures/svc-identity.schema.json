@@ -1,6 +1,379 @@
 {
   "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
   "procedures": {
+    "identity.account.compromised.markReviewed": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "account.compromised.markReviewed",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "item": {
+            "type": "string",
+            "enum": ["devices", "addresses"]
+          }
+        },
+        "required": ["item"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "item": {
+            "type": "string",
+            "enum": ["devices", "addresses"]
+          },
+          "reviewedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["item", "reviewedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "item": "devices"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.account.compromised.mine": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "account.compromised.mine",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "case": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "openedAt": {
+                    "type": "string"
+                  },
+                  "sessionsEnded": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "keysEnded": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "checklist": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "item": {
+                          "type": "string",
+                          "enum": ["password", "second_factor", "devices", "api_keys", "addresses"]
+                        },
+                        "doneAt": {
+                          "type": ["string", "null"]
+                        }
+                      },
+                      "required": ["item", "doneAt"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "notes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": ["stolen_funds"]
+                        },
+                        "body": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["id", "kind", "body", "createdAt"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["id", "openedAt", "sessionsEnded", "keysEnded", "checklist", "notes"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["case"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "identity.account.compromised.reportStolenFunds": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "account.compromised.reportStolenFunds",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "clientRequestId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 100
+          }
+        },
+        "required": ["body", "clientRequestId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "noteId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": ["noteId", "changed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "body": "USDC",
+            "clientRequestId": "ethereum"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.account.compromised.start": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "account.compromised.start",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["password"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "openedAt": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": ["caseId", "openedAt", "changed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "password": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.account.safety.read": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "account.safety.read",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "extraControls": {
+            "type": "object",
+            "properties": {
+              "minimum": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "controls": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["known_locations", "trusted_contacts", "secret_qr", "video_fallback"]
+                }
+              },
+              "allowance": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^(?:0|[1-9]\\d{0,17})(?:\\.\\d{1,8})?$"
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "enum": ["USDT", "USDC"]
+                      }
+                    },
+                    "required": ["amount", "assetId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updatedAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["minimum", "controls", "allowance", "updatedAt"],
+            "additionalProperties": false
+          },
+          "location": {
+            "type": "object",
+            "properties": {
+              "consent": {
+                "type": "boolean"
+              },
+              "changedAt": {
+                "type": ["string", "null"]
+              },
+              "signals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "region": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["region", "at"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["consent", "changedAt", "signals"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["extraControls", "location"],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "allowance_amount_holds": {
+          "at": "output.extraControls.allowance.amount",
+          "says": "more than zero"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "identity.accountAppeal.mine": {
       "service": "svc-identity",
       "module": "identity",
