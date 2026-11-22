@@ -22,6 +22,7 @@ export function reasonOf(why) {
     [/no refusal reader this file can import/, 'service has no exported refusal reader (one file per service)'],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
     [/named by a template/, 'service or call named by a template'],
+    [/sends one input value to \d+ records/, 'one input sent to each of a closed set of calls'],
     [/builds the schema/, "schema built by the caller's own function"],
     [/own schema checks the answer/, 'caller schema checks the answer (.refine and the like)'],
     [/no accepted input found|no refused input/, 'no sample inputs'],

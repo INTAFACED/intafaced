@@ -75,7 +75,7 @@ jobs:
   gates:
     name: Doctrine gates
     runs-on: ubuntu-24.04
-    timeout-minutes: 10 # healthy run: about 5 to 6 min, the tooling tests about 4 of it (22 Nov)
+    timeout-minutes: 10 # healthy run: about 4 min, the tooling tests (four files at once) about 3 of it (22 Nov)
     permissions:
       contents: read
       actions: read # the journey baseline guard downloads the journeys runs' reports on main
@@ -309,7 +309,7 @@ jobs:
 
   fast-gates:
     # Every Doctrine gate but the tooling tests (and the three that plant files in the tree), all at once: a red one is
-    # named about two minutes after the push, not after the tooling tests' four. The pre-push hook ran these before each
+    # named about two minutes after the push, not after the tooling tests' three. The pre-push hook ran these before each
     # push until 22 Nov; on the box, under a dozen builders, that was 3 to 4 minutes of a 7-minute push (project-state
     # #3676). The Doctrine gates job above runs the whole list again and is the one the seal requires, so this job only
     # says it sooner.
