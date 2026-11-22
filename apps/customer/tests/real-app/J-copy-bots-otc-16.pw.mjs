@@ -466,6 +466,11 @@ test(`${J} #3 sets a target savings pool: each run routes the bought asset to fl
   const box = await openManage(page, { newest: true });
   await box.getByLabel('Send what I buy to', { exact: true }).selectOption('Flexible savings', UNBUILT);
   await box.getByRole('button', { name: 'Save', exact: true }).click();
+  const coins = state('markets').map((m) => m.base);
+  const held = async () => Promise.all(coins.map(async (c) => (await venueBalance(state('owner'), c)).total));
+  const before = await held();
   const routed = await nextSlot(ruleId, 2);
   expect(routed.slots.at(-1).savingsKey).toMatch(new RegExp(`^recurring:${ruleId}:`));
+  // Routed to savings, what the run bought leaves the venue account: the TEST venue holds no more of each coin than before.
+  expect(await held()).toEqual(before);
 });
