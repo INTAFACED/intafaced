@@ -13,7 +13,6 @@
   "/status/unsubscribe",
   "/support/guest/verify",
   "/developers/sandbox/:sandboxId/keys/new",
-  "/home",
   "/money/activity",
   "/money/activity/:id",
   "/money/balance/:asset",
