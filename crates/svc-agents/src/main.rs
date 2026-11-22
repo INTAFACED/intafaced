@@ -53,10 +53,12 @@ use svc_agents::own::Own;
 use svc_agents::own::automation::{AutoRuns, Cadence, tick_schedules};
 use svc_agents::own::background::{self as own_background, Settings as OwnBackground};
 use svc_agents::own::catalog::parse_own_templates;
+use svc_agents::own::controls::memory::Retention;
 use svc_agents::own::desk::{SupportDesk, SupportDeskHttp};
 use svc_agents::own::gates::parse_policy_baseline;
+use svc_agents::runtime::chain_balance::{ChainBalance, PaymentToken, RpcChainBalance};
 use svc_agents::runtime::eligibility::parse_tier_laws;
-use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
+use svc_agents::runtime::funds::{BalancesHttp, FUNDS_READ_DEADLINE_MS, PersonFunds};
 use svc_agents::runtime::{Rt, Runtime};
 use svc_agents::self_freeze::IdentitySelfFreezeRead;
 use svc_agents::team::Team;
@@ -360,8 +362,8 @@ fn metering(
 }
 
 /// The runtime as `index.ts` builds it: a spend gate, the funds read as `teamFunds` over `paymentMethodFunds` (how
-/// each person pays from svc-bank while `BANK_URL` is set, else the ledger's balance; a wallet payment method is the
-/// own-controls slice's and reads unread), the transcript's retention, the overage grace and the tier laws.
+/// each person pays from svc-bank while `BANK_URL` is set, else the ledger's balance; a wallet payment method is read from
+/// the chain under one deadline), the transcript's retention, the overage grace and the tier laws.
 fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let s2s = s2s_from_env(
@@ -400,6 +402,20 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
                 signer("svc-ledger"),
                 fetch.clone(),
             )),
+            // Identity's list of a person's linked wallets; unset IDENTITY_URL reads unread.
+            wallets: env
+                .str("IDENTITY_URL")
+                .filter(|u| !u.is_empty())
+                .map(|url| {
+                    Arc::new(LinkedWalletsHttp::new(
+                        url,
+                        signer("svc-identity"),
+                        fetch.clone(),
+                    ))
+                        as Arc<dyn svc_agents::navigator::onchain::ports::LinkedWallets>
+                }),
+            chain: payment_chain(env, fetch),
+            deadline_ms: FUNDS_READ_DEADLINE_MS,
         })),
         transcript_retention_days: env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS").unwrap_or(0),
         overage_grace: grace,
@@ -417,6 +433,28 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
                 )) as Box<dyn svc_agents::self_freeze::SelfFreezeRead>
             }),
     })
+}
+
+/// The payment token's chain reader (`index.ts` `paymentChain`): all four owner values, or none, and a wallet payment
+/// method then refuses `payment_token_unset`.
+fn payment_chain(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Option<Arc<dyn ChainBalance>> {
+    let rpc_url = env
+        .str("AGENTS_PAYMENT_RPC_URL")
+        .filter(|u| !u.is_empty())?;
+    let chain_id = env.int("AGENTS_PAYMENT_CHAIN_ID")?;
+    let token_address = env
+        .str("AGENTS_PAYMENT_TOKEN_ADDRESS")
+        .filter(|a| !a.is_empty())?;
+    let token_decimals = u32::try_from(env.int("AGENTS_PAYMENT_TOKEN_DECIMALS")?).ok()?;
+    Some(Arc::new(RpcChainBalance::new(
+        PaymentToken {
+            rpc_url: rpc_url.to_owned(),
+            chain_id,
+            token_address: token_address.to_owned(),
+            token_decimals,
+        },
+        fetch.clone(),
+    )))
 }
 
 /// The navigator as `index.ts` builds it: svc-trade's public REST while `TRADE_URL` is set, svc-identity's session
@@ -567,6 +605,14 @@ fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
             steps: env.int("AGENTS_BACKGROUND_TEST_STEPS"),
             step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),
         },
+        retention: Retention::from_env(|k| env.int(k)),
+        linked_wallets: identity.map(|url| {
+            Arc::new(LinkedWalletsHttp::new(
+                url,
+                signer("svc-identity"),
+                fetch.clone(),
+            )) as Arc<dyn svc_agents::navigator::onchain::ports::LinkedWallets>
+        }),
     })
 }
 

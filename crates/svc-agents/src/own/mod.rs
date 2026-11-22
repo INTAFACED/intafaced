@@ -29,6 +29,7 @@ pub mod assistant;
 pub mod automation;
 pub mod background;
 pub mod catalog;
+pub mod controls;
 pub mod desk;
 pub mod evals;
 pub mod gates;
@@ -42,6 +43,8 @@ pub mod slice;
 pub mod store;
 pub mod test_runs;
 pub mod tool_try;
+
+use std::sync::Arc;
 
 use service_kit::trpc::TrpcError;
 
@@ -168,6 +171,10 @@ pub struct Own {
     pub cadence: automation::Cadence,
     /// The owner's values for background test runs: blank refuses a new one `agents.background_unset`.
     pub background: background::Settings,
+    /// `AGENTS_RETENTION_*_DAYS`: a blank period reads "not set" and refuses a write that needs it.
+    pub retention: controls::memory::Retention,
+    /// Identity's list of the person's linked wallets (`IDENTITY_URL`): absent reads unread.
+    pub linked_wallets: Option<Arc<dyn crate::navigator::onchain::ports::LinkedWallets>>,
 }
 
 impl Own {
@@ -182,6 +189,8 @@ impl Own {
             support_desk: None,
             cadence: automation::Cadence::default(),
             background: background::Settings::default(),
+            retention: controls::memory::Retention::default(),
+            linked_wallets: None,
         }
     }
 }

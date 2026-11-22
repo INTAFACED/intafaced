@@ -464,6 +464,16 @@ impl AgentsDoor {
                     own: &self.own,
                 },
             ),
+            Slice::OwnControls => crate::own::controls::slice::handle(
+                ctx,
+                &crate::own::controls::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
             Slice::Team => crate::team::slice::handle(
                 ctx,
                 &crate::team::slice::Deps {
