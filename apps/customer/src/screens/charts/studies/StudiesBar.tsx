@@ -14,7 +14,7 @@ import { useSession } from '../../../features/session/session';
 import { useDeviceSetting } from '../../../features/trade/hooks';
 import type { DeskMarket } from '../../trade/desk/market';
 import { useChartCandles, type ChartInterval } from '../../trade/chart/candles';
-import { Button, Checkbox } from '@intafaced/ui/lit';
+import { Button, Checkbox, Tag } from '@intafaced/ui/lit';
 import type { ChartHost } from '../chart-host';
 import { pendingCommand, type GroupCommand } from '../group-commands';
 import { ALL_INTERVALS, intervalLabel } from '../workbench';
@@ -516,9 +516,7 @@ export function StudiesBar({
                       {!here ? (
                         <>
                           {' '}
-                          <span className="lit-tag" data-tone="warn">
-                            {word('Hidden on this interval')}
-                          </span>
+                          <Tag tone="warn">{word('Hidden on this interval')}</Tag>
                         </>
                       ) : null}
                     </span>
