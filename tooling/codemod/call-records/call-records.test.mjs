@@ -313,6 +313,14 @@ test('the report sorts each hand reason into the kind one script change or one d
     reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
     'helper name clash (a rerun places it)',
   );
+  assert.equal(
+    reasonOf("r: s comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it"),
+    'schema from a package that depends on contracts (it stays)',
+  );
+  assert.equal(
+    reasonOf('r: s comes from @intafaced/money-math, which contracts does not depend on'),
+    'answer or input schema from another package or generic',
+  );
   assert.equal(reasonOf('something new'), 'other');
 });
 
@@ -942,6 +950,42 @@ test('a name a service file re-exports is followed to where it is declared, rena
   assert.deepEqual(b.problems, []);
   assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: local is re-exported as renamed']);
   assert.deepEqual(closureOf(repo, [root(3)]).problems, ['r: keyField is imported as passed']);
+});
+
+test('a generic helper moves with its own type parameter; a package import moves when contracts depends on it, and one that depends on contracts stays, named', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-outside-'));
+  const put = (path, lines) => {
+    mkdirSync(dirname(join(repo, path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  put('packages/contracts/src/wire.ts', ['export const unused = 1;']);
+  put('packages/contracts/package.json', [JSON.stringify({ dependencies: { zod: '^4', '@intafaced/config': 'workspace:*' } })]);
+  put('packages/cyc/package.json', [JSON.stringify({ dependencies: { '@intafaced/contracts': 'workspace:*' } })]);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { sideSchema } from '@intafaced/cyc';",
+    "import { cfgSchema } from '@intafaced/config';",
+    'function wireEnum<T extends string>(values: readonly [T, ...T[]]) { return z.enum(values as [T, ...T[]]); }',
+    "const a = z.object({ state: wireEnum(['ON', 'OFF'] as const), cfg: cfgSchema });",
+    'const b = z.object({ side: sideSchema });',
+    'const c = z.object({ t: z.custom<T>() });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const root = (i) => ({ p, node: p.program.body[4 + i].declarations[0].init, where: 'r' });
+  const a = closureOf(repo, [root(0)]);
+  assert.deepEqual(a.problems, []);
+  assert.deepEqual(
+    a.moved.map((m) => m.name),
+    ['wireEnum'],
+  );
+  assert.deepEqual(
+    [...a.fromPackages].map(([s, n]) => [s, [...n]]),
+    [['@intafaced/config', ['cfgSchema']]],
+  );
+  assert.deepEqual(closureOf(repo, [root(1)]).problems, [
+    "r: sideSchema comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it",
+  ]);
+  assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: T is not declared anywhere it can be read'], 'a T no helper declares stays');
 });
 
 test("portable: a door answer's Date becomes its ISO string; a mounted service's stays named", async () => {
