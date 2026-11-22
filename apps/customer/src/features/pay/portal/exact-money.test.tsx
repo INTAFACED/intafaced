@@ -15,6 +15,11 @@ vi.mock('../components', async (original) => {
   const real = await original<typeof import('../components')>();
   return { ...real, ReviewedAction: ({ review }: { review?: ReactNode }) => <div data-review>{review}</div> };
 });
+// The same for the kit's reviewed action, which the flow rooms' door (`flow/review.tsx`) wraps.
+vi.mock('../review/ReviewedAction', async (original) => {
+  const real = await original<typeof import('../review/ReviewedAction')>();
+  return { ...real, ReviewedAction: ({ review }: { review?: ReactNode }) => <div data-review>{review}</div> };
+});
 
 import { ApprovalDecision, CancelRequest } from './money/Approvals';
 import { DisputeDetailView } from './payments/Disputes';
@@ -22,6 +27,7 @@ import { Money } from './components';
 import { ExactMoneyContext } from './presentation';
 import { ExactMoneyScope } from './ui/ExactMoneyScope';
 import { PortalReview } from './ui/PortalReview';
+import { PortalReview as FlowReview } from './flow/review';
 import type { PortalApi } from './api';
 import type { Approval, DisputeDetail } from './schemas';
 
@@ -94,6 +100,17 @@ describe('money in a review is exact, wherever it was opened from', () => {
     );
     expect(out).toContain(AMOUNT);
   });
+  it("the flow rooms' door wraps any review body in the exact scope too", () => {
+    const out = renderToString(
+      <FlowReview
+        title="Go"
+        description="d"
+        review={<Money value={AMOUNT} asset="USDT" />}
+        perform={async () => ({ ok: true, data: 1 })}
+      />,
+    );
+    expect(out).toContain(AMOUNT);
+  });
 });
 
 describe('money in a list stays compact', () => {
@@ -130,9 +147,12 @@ describe('one door for confirmations', () => {
       const full = join(dir, name);
       return statSync(full).isDirectory() ? files(full) : /\.(ts|tsx)$/.test(name) ? [full] : [];
     });
-  it('lets only ui/PortalReview.tsx import ReviewedAction', () => {
+  // Two doors, each tested above to wrap its review in the exact scope: the old dialog's and the flow rooms' kit one.
+  it('lets only ui/PortalReview.tsx and flow/review.tsx import ReviewedAction', () => {
     const offenders = files(root)
-      .filter((file) => !file.endsWith('ui/PortalReview.tsx') && !file.endsWith('exact-money.test.tsx'))
+      .filter(
+        (file) => !file.endsWith('ui/PortalReview.tsx') && !file.endsWith('flow/review.tsx') && !file.endsWith('exact-money.test.tsx'),
+      )
       .filter((file) => /\bReviewedAction\b/.test(readFileSync(file, 'utf8')));
     expect(offenders.map((f) => f.slice(root.length))).toEqual([]);
   });

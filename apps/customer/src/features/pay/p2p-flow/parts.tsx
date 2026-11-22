@@ -1,15 +1,18 @@
 import { useAmountOverflow } from '../../../shared/amount-overflow';
 import { useId, type ReactNode } from 'react';
-import { Button, EmptyState, RefusalBox } from '@intafaced/ui/lit';
-import { KeyValue, Sheet, Skeleton, StatusChip, Tabs } from '@intafaced/ui/lit/templates';
+import { Button, EmptyState } from '@intafaced/ui/lit';
+import { KeyValue, Skeleton, StatusChip, Tabs } from '@intafaced/ui/lit/templates';
 import type { MoneyStatus } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import type { Resource } from '../../../shared/resource';
 import { displayAmount } from '../../../shared/money';
-import { uiCopy, uiMessage } from '../../../shared/ui-copy';
-import { payAuthoredMessage, payCopy } from '../copy';
+import { uiCopy } from '../../../shared/ui-copy';
+import { payCopy } from '../copy';
 import { payTimeText } from '../components';
-import { useReviewedAction } from '../reviewed-action';
+import { MutationResult, PayFailure as Failure, ReviewedAction } from '../review/ReviewedAction';
+
+/** The reviewed action, its answer and a refusal: one kit view for every Pay flow room (`../review/`). */
+export { Failure, MutationResult, ReviewedAction };
 
 /**
  * The person-to-person flow rooms' kit views of the Pay parts (`../components.tsx`): the same words, states, ids and
@@ -43,41 +46,6 @@ export function P2PHead({ current }: { current: '/uc/ad' | '/p2p/access' | '' })
         />
       </div>
     </>
-  );
-}
-
-type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-
-function FailureView({ result, retry }: { result: Failed; retry?: () => void }) {
-  const { t, languageFor, requestedLocale } = uiCopy.useCopy();
-  const signIn = result.reason === 'unauthorized';
-  return (
-    <div role={result.reason === 'uncertain' ? 'alert' : 'status'}>
-      <div lang={result.messageCopy ? languageFor(result.messageCopy.key) : undefined}>
-        <RefusalBox
-          refusal={{
-            variant: 'refused',
-            title: t(result.reason),
-            body: result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message,
-            ...(signIn
-              ? { action: { label: t('signIn'), href: `/login?redirect=${encodeURIComponent(location.pathname + location.search)}` } }
-              : {}),
-          }}
-        />
-      </div>
-      {!signIn && retry && result.reason !== 'uncertain' ? <Button onClick={retry}>{t('retry')}</Button> : null}
-    </div>
-  );
-}
-
-/** `PayFailure`: a refused or failed call, in the service's authored words when it has them. */
-export function Failure({ result, retry }: { result: Failed; retry?: () => void }) {
-  const { requestedLocale } = payCopy.useCopy();
-  const authored = payAuthoredMessage(result);
-  return (
-    <div lang={authored === undefined ? 'und' : requestedLocale}>
-      <FailureView result={authored === undefined ? result : { ...result, message: authored }} retry={retry} />
-    </div>
   );
 }
 
@@ -237,24 +205,6 @@ export function Status({ value }: { value: string }) {
   );
 }
 
-/** `MutationResult`: what the service said to an action. */
-export function MutationResult({
-  result,
-  title,
-  refreshed = false,
-}: {
-  result: ApiResult<unknown> | null;
-  title: string;
-  refreshed?: boolean;
-}) {
-  if (!result) return null;
-  return result.ok ? (
-    <p role="status">{payCopy.t(refreshed ? 'theServiceConfirmedTheAction' : 'theServiceConfirmedTheActionRefreshThe', { title })}</p>
-  ) : (
-    <Failure result={result} />
-  );
-}
-
 /** `PayPagination`: how many records the read returned, and the one way to read more. */
 export function Pagination({
   count,
@@ -278,57 +228,6 @@ export function Pagination({
       </p>
       {full && limit < max && <Button onClick={() => setLimit(max)}>{payCopy.t('showRecords', { max })}</Button>}
       {full && limit === max && <p className="lt-hint">{payCopy.t('thisServiceHasNoContinuationCursorThis')}</p>}
-    </div>
-  );
-}
-
-/**
- * `ReviewedAction`: the press opens a review sheet; its button performs once. The state is `useReviewedAction`, the
- * same one the old view runs. None of these rooms' actions moves money, so none asks "Confirm it's you".
- */
-export function ReviewedAction<T>({
-  title,
-  description,
-  review,
-  perform,
-  onConfirmed,
-  disabled = false,
-  disabledReason,
-  variant = 'secondary',
-  ready = true,
-  notReadyReason,
-}: {
-  title: string;
-  description: string;
-  review?: ReactNode;
-  perform: (currentReview: () => boolean) => Promise<ApiResult<T>>;
-  onConfirmed?: (data: T) => void;
-  disabled?: boolean;
-  disabledReason?: string;
-  variant?: 'primary' | 'secondary';
-  ready?: boolean;
-  notReadyReason?: string;
-}) {
-  const { opened, busy, result, uncertain, open, close, confirm } = useReviewedAction({ perform, onConfirmed, disabled, ready });
-  return (
-    <div title={disabled ? disabledReason : undefined}>
-      <Button tone={variant} disabled={disabled || busy || uncertain} onClick={open}>
-        {title}
-      </Button>
-      <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
-      {opened && (
-        <Sheet open title={payCopy.t('review', { title })} dismissible={!busy} onClose={close}>
-          <div data-testid="form-stack">
-            <p className="lt-hint">{description}</p>
-            {review}
-            <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
-            {!ready && notReadyReason ? <p className="lt-hint">{notReadyReason}</p> : null}
-            <Button tone={variant} disabled={!ready || busy || uncertain} onClick={() => void confirm()}>
-              {busy ? payCopy.t('waitingForConfirmation') : title}
-            </Button>
-          </div>
-        </Sheet>
-      )}
     </div>
   );
 }
