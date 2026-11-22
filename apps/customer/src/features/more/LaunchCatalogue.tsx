@@ -68,11 +68,14 @@ export function LaunchCatalogue() {
   const [type, setType] = useState('');
   const [state, setState] = useState('');
   const [limit, setLimit] = useState(PAGE);
+  // The filters hold what the select sent; only a type or state the service names goes on the call.
+  const typeOf = TYPES.find((v) => v === type);
+  const stateOf = STATES.find((v) => v === state);
   const list = useResource(
     (signal) =>
       api.call(
         TOKEN_LAUNCH_EVENTS_LIST,
-        { limit, ...(type ? { type } : {}), ...(state ? { state } : {}) },
+        { limit, ...(typeOf ? { type: typeOf } : {}), ...(stateOf ? { state: stateOf } : {}) },
         {
           signal,
         },
