@@ -2,7 +2,8 @@ import { useId, useState, type FormEvent } from 'react';
 import type { ProtocolVenueBuild, ProtocolVenueSide } from '@intafaced/contracts/protocol-venue-funds';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { Button, DataTable, Failure, Field, Loading, Panel } from '../../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { DataTable, Failure, Loading, Panel } from '../volt/parts';
 import type { createProtocolApi } from '../api';
 import type { protocolCopy } from '../copy';
 import { useWallet, waitMined, type Sequence } from '../wallet/WalletProvider';
@@ -28,9 +29,9 @@ export function VenueFunds({ api, t }: { api: Api; t: Translate }) {
   const account = wallet.status === 'connected' ? wallet.address : null;
   return (
     <Panel title={t('fundsTitle')}>
-      <p className="lt-muted">{t('fundsLead')}</p>
-      <p className="lt-muted">{t('fundsReserved')}</p>
-      {account ? <Connected api={api} t={t} account={account} /> : <p className="lt-muted">{t('fundsConnect')}</p>}
+      <p className="lt-hint">{t('fundsLead')}</p>
+      <p className="lt-hint">{t('fundsReserved')}</p>
+      {account ? <Connected api={api} t={t} account={account} /> : <p className="lt-hint">{t('fundsConnect')}</p>}
     </Panel>
   );
 }
@@ -106,14 +107,14 @@ function Connected({ api, t, account }: { api: Api; t: Translate; account: strin
         {read.assets.map((a) => (
           <tr key={a.side}>
             <td>{symbolOf(a)}</td>
-            <td className="lt-num">{a.total}</td>
-            <td className="lt-num">{a.reserved}</td>
-            <td className="lt-num">{a.free}</td>
+            <td className="lt-mono">{a.total}</td>
+            <td className="lt-mono">{a.reserved}</td>
+            <td className="lt-mono">{a.free}</td>
           </tr>
         ))}
       </DataTable>
-      <p className="lt-muted">{t('fundsAt', { block: read.blockNumber })}</p>
-      <form className="protocol-quote protocol-venue-funds" aria-label={t('fundsForm')} onSubmit={(event) => void build(event)}>
+      <p className="lt-hint">{t('fundsAt', { block: read.blockNumber })}</p>
+      <form className="lt-stack" aria-label={t('fundsForm')} onSubmit={(event) => void build(event)}>
         <fieldset>
           <legend>{t('fundsDirection')}</legend>
           {(['deposit', 'withdraw'] as const).map((k) => (
@@ -139,18 +140,18 @@ function Connected({ api, t, account }: { api: Api; t: Translate; account: strin
           autoComplete="off"
           onChange={(event) => change(() => setAmount(event.target.value))}
         />
-        <Button type="submit" disabled={amount.trim() === '' || built.status === 'building'}>
+        <Button tone="primary" type="submit" disabled={amount.trim() === '' || built.status === 'building'}>
           {built.status === 'building' ? t('fundsBuilding') : t('fundsBuild')}
         </Button>
         {built.status === 'refused' && (
-          <p className="protocol-refuse" role="alert">
+          <p className="lt-refusal" role="alert">
             {built.message}
           </p>
         )}
       </form>
-      <p className="lt-muted">{t('fundsRecovery')}</p>
+      <p className="lt-hint">{t('fundsRecovery')}</p>
       {built.status === 'ready' && (
-        <section aria-label={t('fundsCall')} className="protocol-quote__result">
+        <section aria-label={t('fundsCall')} className="lt-stack">
           <h3>{t('fundsCall')}</h3>
           <p>
             {t('fundsCallLead', {
@@ -165,14 +166,14 @@ function Connected({ api, t, account }: { api: Api; t: Translate; account: strin
             {built.call.calls.map((c, index) => (
               <li key={index}>
                 <p>{t('fundsCallStep', { n: String(index + 1), summary: c.summary })}</p>
-                <dl className="protocol-facts">
+                <dl className="lt-kv">
                   <div>
                     <dt>{t('fundsCallTo')}</dt>
-                    <dd className="lt-num">{c.to}</dd>
+                    <dd className="lt-mono">{c.to}</dd>
                   </div>
                   <div>
                     <dt>{t('fundsCallData')}</dt>
-                    <dd className="lt-num">
+                    <dd className="lt-mono">
                       <code>{c.data}</code>
                     </dd>
                   </div>
@@ -180,7 +181,7 @@ function Connected({ api, t, account }: { api: Api; t: Translate; account: strin
               </li>
             ))}
           </ol>
-          <Button onClick={() => void send(built.call)} disabled={sent.status === 'sending'}>
+          <Button tone="primary" onClick={() => void send(built.call)} disabled={sent.status === 'sending'}>
             {sent.status === 'sending' ? t('fundsSending') : t('fundsSend')}
           </Button>
           {sent.status === 'done' && <p role="status">{sent.line}</p>}

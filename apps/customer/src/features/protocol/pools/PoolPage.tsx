@@ -4,7 +4,7 @@ import { useResource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
 import { isServiceNotConnected, networkLabel } from '../blockers';
 import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from '../explorer/parts';
-import { WatchShell } from '../watch/AddressPage';
+import { WatchShell } from '../watch/WatchShell';
 import { PriceChart } from './PriceChart';
 import { reservesWords } from './PoolsList';
 import { useExplorerWords } from './refusal';
