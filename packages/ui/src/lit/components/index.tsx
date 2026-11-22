@@ -55,9 +55,13 @@ export function Surface({
 }
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  /** primary: the metal pill, one per view. secondary: the dark pill. quiet: text only. */
-  tone?: 'primary' | 'secondary' | 'quiet';
-  size?: 'md' | 'lg';
+  /**
+   * primary: the metal pill, one per view. secondary: the dark pill. quiet: text only. up and down: a desk's Buy and
+   * Sell, in the market's gain and loss colours (with their words, never colour alone).
+   */
+  tone?: 'primary' | 'secondary' | 'quiet' | 'up' | 'down';
+  /** sm: a dense desk or table control. */
+  size?: 'sm' | 'md' | 'lg';
   block?: boolean;
 };
 

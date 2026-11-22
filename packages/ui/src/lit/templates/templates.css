@@ -1308,3 +1308,353 @@
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.25rem;
 }
+
+/* ---- Dense parts: what a desk, a ticket or a table lays out inside its region. Generic: any room may use them. ---- */
+
+/* Columns and rows of parts. */
+.lt-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+.lt-stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-inline-size: 0;
+}
+.lt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.lt-row-between {
+  justify-content: space-between;
+}
+.lt-row-end {
+  justify-content: flex-end;
+}
+.lt-row-nowrap {
+  flex-wrap: nowrap;
+}
+.lt-row-baseline {
+  align-items: baseline;
+}
+.lt-grow {
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+.lt-cols-2,
+.lt-cols-3 {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.lt-cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* A panel inside a region: its head (title and tools on one line), then its body. */
+.lt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+  padding: var(--lit-pad-panel);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+}
+.lt-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.lt-panel-title {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: 600;
+}
+.lt-scroll {
+  max-block-size: 24rem;
+  overflow: auto;
+}
+.lt-scroll-tall {
+  max-block-size: 40rem;
+  overflow: auto;
+}
+
+/* Words beside a control: quieter, smaller, and toned when they say something went well or wrong. */
+.lt-note {
+  margin: 0;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  line-height: var(--lit-type-label-line);
+}
+.lt-note-bad {
+  color: var(--lit-error-text);
+}
+.lt-note-good {
+  color: var(--lit-up-text);
+}
+.lt-note-warn {
+  color: var(--lit-warn-text);
+}
+.lt-quiet {
+  color: var(--lit-text-2);
+}
+.lt-small {
+  font-size: var(--lit-type-label-size);
+}
+.lt-label {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+  letter-spacing: var(--lit-type-micro-tracking);
+  text-transform: uppercase;
+}
+.lt-strong {
+  font-weight: 600;
+}
+.lt-up {
+  color: var(--lit-up-text);
+}
+.lt-down {
+  color: var(--lit-down-text);
+}
+.lt-end {
+  text-align: end;
+}
+
+/* A bordered aside for a notice inside a panel: an account hold, a refusal with its reason, a result. */
+.lt-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: var(--lit-gap-item);
+  border-inline-start: 0.125rem solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-callout-bad {
+  border-inline-start-color: var(--lit-down);
+}
+.lt-callout-good {
+  border-inline-start-color: var(--lit-up);
+}
+.lt-callout-warn {
+  border-inline-start-color: var(--lit-warn-text);
+}
+
+/* A square control holding one icon, with its name in aria-label. */
+.lt-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 2rem;
+  min-block-size: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--lit-radius-control);
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+.lt-icon-button:hover,
+.lt-icon-button[aria-pressed='true'],
+.lt-icon-button[data-popup-open] {
+  color: var(--lit-text-1);
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-icon-button:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* A row of small choices (percent chips, intervals): each a button, pressed when chosen. */
+.lt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.lt-chips > button {
+  min-block-size: 1.75rem;
+  padding-inline: 0.625rem;
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-control);
+  background: none;
+  color: var(--lit-text-2);
+  font: inherit;
+  font-size: var(--lit-type-label-size);
+  cursor: pointer;
+}
+.lt-chips > button[aria-pressed='true'],
+.lt-chips > button[aria-checked='true'],
+.lt-chips > button[data-active] {
+  border-color: var(--lit-accent);
+  color: var(--lit-text-1);
+}
+.lt-chips > button:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* A dense table: desk rows at the row height, figures to the end. */
+.lt-table-dense {
+  font-size: var(--lit-type-label-size);
+}
+.lt-table-dense td {
+  block-size: calc(var(--lit-row-h) * 0.75);
+}
+.lt-table-dense th,
+.lt-table-dense td {
+  padding-inline: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Price levels (an order book, a ladder): a dense grid of figures with a depth meter behind each row. */
+.lt-levels {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  font-size: var(--lit-type-label-size);
+  font-variant-numeric: tabular-nums;
+}
+.lt-level {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: 1.375rem;
+  padding-inline: 0.5rem;
+  border: 0;
+  background: none;
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: end;
+  cursor: pointer;
+}
+.lt-level > :first-child {
+  text-align: start;
+}
+.lt-level:hover {
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-level-head {
+  color: var(--lit-text-2);
+  cursor: default;
+}
+.lt-level-head:hover {
+  background: none;
+}
+.lt-level > .lt-meter {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.lt-level > :not(.lt-meter) {
+  position: relative;
+  z-index: 1;
+}
+/* A native meter drawn as a flat bar from the end edge: depth behind a level, a share of a whole. */
+.lt-meter {
+  inline-size: 100%;
+  block-size: 100%;
+  appearance: none;
+  border: 0;
+  background: none;
+  direction: rtl;
+  pointer-events: none;
+}
+.lt-meter::-webkit-meter-bar {
+  border: 0;
+  background: none;
+}
+.lt-meter::-webkit-meter-optimum-value,
+.lt-meter::-webkit-meter-suboptimum-value,
+.lt-meter::-webkit-meter-even-less-good-value {
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-meter::-moz-meter-bar {
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-meter-up::-webkit-meter-optimum-value,
+.lt-meter-up::-webkit-meter-suboptimum-value,
+.lt-meter-up::-webkit-meter-even-less-good-value {
+  background: color-mix(in srgb, var(--lit-up) 18%, transparent);
+}
+.lt-meter-up::-moz-meter-bar {
+  background: color-mix(in srgb, var(--lit-up) 18%, transparent);
+}
+.lt-meter-down::-webkit-meter-optimum-value,
+.lt-meter-down::-webkit-meter-suboptimum-value,
+.lt-meter-down::-webkit-meter-even-less-good-value {
+  background: color-mix(in srgb, var(--lit-down) 18%, transparent);
+}
+.lt-meter-down::-moz-meter-bar {
+  background: color-mix(in srgb, var(--lit-down) 18%, transparent);
+}
+.lt-meter-inline {
+  block-size: 0.375rem;
+  direction: ltr;
+}
+
+/* Stats in a line (an instrument strip's 24 h figures): a label over its figure. */
+.lt-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem var(--lit-gap-section);
+  margin: 0;
+}
+.lt-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+.lt-stats dt {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+}
+.lt-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A host for a drawn canvas (a chart library): it fills its region and keeps a usable height. */
+.lt-canvas {
+  position: relative;
+  min-block-size: 22rem;
+  inline-size: 100%;
+}
+.lt-canvas-short {
+  min-block-size: 12rem;
+}
+
+/* A list of rows with no bullets. */
+.lt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lt-list-rule > li + li {
+  padding-block-start: 0.25rem;
+  border-block-start: 1px solid var(--lit-line);
+}
+
+/* A desk arranged by the person: the order and widths the room passes (DeskTemplate `arrangement`). */
+@container room (min-width: 1024px) {
+  .lt-desk[data-desk='pro'][data-arranged] {
+    grid-template-columns: var(--lt-desk-columns);
+    grid-template-areas: var(--lt-desk-areas);
+  }
+}
