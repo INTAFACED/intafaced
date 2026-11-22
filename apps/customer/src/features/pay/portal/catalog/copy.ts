@@ -5,7 +5,6 @@ import { defineCopy } from '../../../../shared/i18n';
  * why, what to do next.
  */
 const en = {
-  storesExplain: 'Each store sells online, in person and by invoice, and each product can be turned off in any of them.',
   productsTitle: 'Products',
   productsPurpose: 'What you sell, kept in one catalogue with its type, unit and how it shows on statements.',
   newTitle: 'Add a product',

@@ -2,10 +2,9 @@ import { useRef, useState, type ReactNode } from 'react';
 import { DEVELOPER_ROLES, type DeveloperRole, type DeveloperTeam } from '@intafaced/contracts/api-keys';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Select } from '@intafaced/ui/lit';
+import { Button, Failure, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { RevokeSheet, stateOf, RevokedReason, type Sheet } from './ApiKeys';
-import { Failure, Loading } from './kit-parts';
 import { changeRefusal, developerRoleRequestId, readDeveloperTeam, readMyOrgs, revokeOrgKey, setDeveloperRole } from './developer-keys-api';
 
 const ROLE_REFUSALS = new Set([
@@ -60,28 +59,34 @@ function RoleRow({ team, member, onSaved }: { team: DeveloperTeam; member: Devel
           t('roleOwner')
         ) : (
           <form
-            className="lt-toolbar"
+            className="api-keys__role"
             onSubmit={(event) => {
               event.preventDefault();
               void save(event.currentTarget);
             }}
           >
-            <Select
-              label={t('colRole')}
+            <select
               name="role"
               aria-label={t('colRole')}
               defaultValue={member.developerRole ?? ''}
               disabled={unset || busy}
               data-testid="api-keys__role-select"
-              options={[
-                { value: '', label: t('roleNone') },
-                ...(team.rolesPublished ?? []).map((role) => ({ value: role, label: t(`role.${role}`) })),
-              ]}
-            />{' '}
-            <Button type="submit" tone="secondary" disabled={unset || busy}>
+            >
+              <option value="">{t('roleNone')}</option>
+              {(team.rolesPublished ?? []).map((role) => (
+                <option key={role} value={role}>
+                  {t(`role.${role}`)}
+                </option>
+              ))}
+            </select>{' '}
+            <Button type="submit" variant="secondary" disabled={unset || busy}>
               {t('roleSave')}
             </Button>
-            {said && <p role="alert">{t(said)}</p>}
+            {said && (
+              <p role="alert" className="error-text">
+                {t(said)}
+              </p>
+            )}
           </form>
         )}
       </td>
@@ -130,9 +135,9 @@ function OrgArea({ orgId, at }: { orgId: string; at: (iso: string) => ReactNode 
   }
 
   return (
-    <section data-testid="api-keys__org" data-org-id={orgId} aria-labelledby={`org-${orgId}`}>
+    <section data-testid="api-keys__org" data-org-id={orgId} className="security__card" aria-labelledby={`org-${orgId}`}>
       <h2 id={`org-${orgId}`}>{t('orgTitle', { org: team.orgName })}</h2>
-      <p className="lt-hint">{t('orgIntro')}</p>
+      <p className="muted">{t('orgIntro')}</p>
       {team.rolesPublished === null && (
         <p data-testid="api-keys__roles-unset" role="status">
           {t('rolesNotSet')}
@@ -147,11 +152,11 @@ function OrgArea({ orgId, at }: { orgId: string; at: (iso: string) => ReactNode 
         </p>
       )}
       {refusal ? (
-        <Button tone="primary" disabled aria-describedby={reasonId} data-testid="api-keys__org-create">
+        <Button variant="primary" disabled aria-describedby={reasonId} data-testid="api-keys__org-create">
           {t('orgCreate')}
         </Button>
       ) : (
-        <a className="lt-button lt-button-primary" href={`/uc/safe/api-keys/new?org=${orgId}`} data-testid="api-keys__org-create">
+        <a className="button button--primary" href={`/uc/safe/api-keys/new?org=${orgId}`} data-testid="api-keys__org-create">
           {t('orgCreate')}
         </a>
       )}
@@ -159,8 +164,8 @@ function OrgArea({ orgId, at }: { orgId: string; at: (iso: string) => ReactNode 
       {team.keys.length === 0 ? (
         <p role="status">{t('orgEmpty')}</p>
       ) : (
-        <div>
-          <table data-testid="api-keys__org-table" className="lt-table">
+        <div className="api-keys__table-wrap">
+          <table data-testid="api-keys__org-table" className="api-keys__table">
             <thead>
               <tr>
                 <th scope="col">{t('colName')}</th>
@@ -187,10 +192,10 @@ function OrgArea({ orgId, at }: { orgId: string; at: (iso: string) => ReactNode 
                     </td>
                     <td>{at(key.createdAt)}</td>
                     <td>{state === 'stateRevoked' ? <RevokedReason apiKey={key} /> : t(state)}</td>
-                    <td>
+                    <td className="api-keys__row-action">
                       {!key.revoked && (
                         <Button
-                          tone="secondary"
+                          variant="secondary"
                           disabled={refusal !== null || sheet !== null}
                           aria-describedby={refusal ? reasonId : undefined}
                           onClick={() => {
@@ -212,8 +217,8 @@ function OrgArea({ orgId, at }: { orgId: string; at: (iso: string) => ReactNode 
       {team.myRole === 'owner' && (
         <>
           <h3>{t('teamTitle')}</h3>
-          <div>
-            <table data-testid="api-keys__team" className="lt-table">
+          <div className="api-keys__table-wrap">
+            <table data-testid="api-keys__team" className="api-keys__table">
               <thead>
                 <tr>
                   <th scope="col">{t('colMember')}</th>

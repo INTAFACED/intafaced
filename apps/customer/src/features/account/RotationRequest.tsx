@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiKeyRotateOutput } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Failure } from '../../shared/ui';
 import { useSession } from '../session';
-import { Failure } from './kit-parts';
 import { ShownOnce } from './ApiKeyCreate';
 import { approveRotationRequest, readRotationRequest, type RotationRequestRead } from './developer-keys-api';
 
@@ -85,12 +84,12 @@ export function RotationRequest({ keyId }: { keyId: string }) {
   const request = read?.request;
   if (!request) return failure ? <Failure result={failure} /> : null;
   return (
-    <section aria-labelledby="api-keys__rotation-request">
+    <section aria-labelledby="api-keys__rotation-request" className="security__card">
       <h2 id="api-keys__rotation-request">{t('title')}</h2>
       <p>{t('body', { at: `${when.format(new Date(request.createdAt))} UTC` })}</p>
       <p>{request.overlapSeconds > 0 ? t('overlap', { seconds: request.overlapSeconds }) : t('noOverlap')}</p>
       {failure && <Failure result={failure} />}
-      <Button tone="primary" onClick={() => void approve(request.requestId)} disabled={busy}>
+      <Button onClick={() => void approve(request.requestId)} disabled={busy}>
         {busy ? t('sending') : t('approve')}
       </Button>
     </section>

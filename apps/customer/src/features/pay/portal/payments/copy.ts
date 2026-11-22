@@ -740,8 +740,6 @@ const en = {
   cs_created: 'Checkout added.',
   checkoutSettingsTitle: 'Checkout',
   checkoutSettingsPurpose: 'The checkout your customers see, and the websites it is set up for.',
-  checkoutSettingsExplain:
-    'The look, payment methods and wallet you save here are what your hosted checkout uses from then on. Only a verified business can change them.',
 } as const;
 
 export const paymentsCopy = defineCopy('pay.portal.payments', en);

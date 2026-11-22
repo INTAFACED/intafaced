@@ -1,7 +1,9 @@
+import { DataTable } from '@intafaced/ui';
 import type { Resource } from '../../../../../shared/resource';
+import { PaySection } from '../../../components';
+import { Gate } from '../../components';
 import { teamRoles, type PermissionCatalogue } from '../../schemas';
 import { portalCopy, settingsMessages } from '../copy';
-import { Gate, Grid, Section } from '../../volt/parts';
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
 
@@ -28,35 +30,35 @@ export function RolesCatalogue({ catalogue, retry }: { catalogue: Resource<Permi
   const roleName = (r: string) => t(`role_${r}` as 'role_owner');
   return (
     <>
-      <Section title={t('rolesTitle')} description={t('rolesBody')}>
+      <PaySection title={t('rolesTitle')} description={t('rolesBody')}>
         <Gate resource={catalogue} retry={retry} rows={5}>
           {(data) => (
-            <div>
-              <Grid label={t('rolesTitle')} headers={[t('colRole'), t('colCan')]}>
+            <div className="pp-left">
+              <DataTable label={t('rolesTitle')} headers={[t('colRole'), t('colCan')]}>
                 {data.roles.map((r) => (
                   <tr key={r.role}>
                     <th scope="row">{roleName(r.role)}</th>
                     <td>{r.description}</td>
                   </tr>
                 ))}
-              </Grid>
-              <p className="lt-hint">{t('ownerOnlyNote')}</p>
+              </DataTable>
+              <p className="muted">{t('ownerOnlyNote')}</p>
             </div>
           )}
         </Gate>
-      </Section>
+      </PaySection>
 
-      <Section title={t('catalogueTitle')} description={t('catalogueBody')}>
+      <PaySection title={t('catalogueTitle')} description={t('catalogueBody')}>
         <Gate resource={catalogue} retry={retry} rows={8}>
           {(data) => (
-            <div>
+            <div className="pp-left">
               {data.areas.map((group) => (
-                <Grid key={group.area} label={areaName(group.area, t)} headers={[areaName(group.area, t), ...ROLES.map(roleName)]}>
+                <DataTable key={group.area} label={areaName(group.area, t)} headers={[areaName(group.area, t), ...ROLES.map(roleName)]}>
                   {group.permissions.map((perm) => (
                     <tr key={perm.key} data-permission={perm.key}>
                       <th scope="row">
                         {permissionName(perm.key, t)}
-                        <small className="lt-hint">
+                        <small className="pay-cell-note">
                           {' '}
                           {perm.kind === 'write' ? t('kindWrite') : t('kindRead')}
                           {perm.requires.length > 0 &&
@@ -69,12 +71,12 @@ export function RolesCatalogue({ catalogue, retry }: { catalogue: Resource<Permi
                       ))}
                     </tr>
                   ))}
-                </Grid>
+                </DataTable>
               ))}
             </div>
           )}
         </Gate>
-      </Section>
+      </PaySection>
     </>
   );
 }

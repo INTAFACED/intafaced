@@ -95,61 +95,35 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
-<header class="lt-title-row">
-<div>
-<h1 class="lt-title">Fees</h1>
-<p class="lt-description">What a payment costs.</p>
-</div>
+<div class="if-pay" data-testid="pay-room">
+<div class="pay-grid">
+<header data-testid="pay-hero" class="pay-hero">
+<h1>Fees</h1>
+<p>What a payment costs.</p>
 </header>
-<div class="lt-body">
-<div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav aria-label="Room sections">
-<ul>
-<li>
-<a class="lt-link" href="#pay-room-details">Details</a>
-</li>
-</ul>
-</nav>
-</section>
-<section class="lt-region" data-region="sections" aria-label="Settings">
-<section id="pay-room-details" aria-labelledby="pay-room-details-title">
-<h2 id="pay-room-details-title">Details</h2>
-<dl class="lt-kv">
-<div data-unset="true">
+<section data-testid="pay-card" class="pay-card" aria-label="Fees">
+<div class="pay-body">
+<dl class="pay-quote">
+<div>
 <dt>Send to a person</dt>
-<dd>
-<bdi>Not set</bdi>
-</dd>
+<dd>Not set</dd>
 </div>
-<div data-unset="true">
+<div>
 <dt>Receive by request</dt>
-<dd>
-<bdi>Not set</bdi>
-</dd>
+<dd>Not set</dd>
 </div>
-<div data-unset="true">
+<div>
 <dt>Send abroad</dt>
-<dd>
-<bdi>Not set</bdi>
-</dd>
+<dd>Not set</dd>
 </div>
 </dl>
-</section>
-<p>
-<a class="lt-tab" href="/pay" data-testid="pay-room-back">Back to Pay</a>
-</p>
-</section>
-<section class="lt-region" data-region="explain" aria-label="What this means">
-<div id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-07">
-<p>
-<strong>Not connected</strong>
-</p>
-<p>No fee is published, so none is shown. A fee appears on the payment itself only when one is published.</p>
+<div class="pay-reason" id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-07">
+<p class="pay-reason__title">Not connected</p>
+<p class="pay-reason__body">No fee is published, so none is shown. A fee appears on the payment itself only when one is published.</p>
+</div>
+<a class="pay-recent__link" href="/pay" data-testid="pay-room-back">Back to Pay</a>
 </div>
 </section>
-</div>
 </div>
 </div>
 </main>

@@ -102,7 +102,7 @@ describe('a waiting second-step reset in Security', () => {
     await show(waiting);
     await act(async () => stopButton()!.click());
     await settle();
-    expect(host.querySelector('[data-testid="mfa-reset-delegated"]')!.textContent).toContain('cannot stop a reset');
+    expect(host.querySelector('.error-text')!.textContent).toContain('cannot stop a reset');
     expect(stopButton()).toBeDefined();
   });
 

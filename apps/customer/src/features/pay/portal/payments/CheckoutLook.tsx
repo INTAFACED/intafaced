@@ -1,18 +1,19 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent, type CSSProperties } from 'react';
 import {
   CHECKOUT_DEFAULT_BRAND_COLOR,
   checkoutButtonTextColor,
   type CheckoutBranding,
 } from '@intafaced/contracts/merchant-checkout-branding';
-import { Button, Field } from '@intafaced/ui/lit';
-import { BrandSample } from '@intafaced/ui/lit/templates';
+import { Button } from '@intafaced/ui';
 import { useResource } from '../../../../shared/resource';
+import { Field } from '../../ui-kit';
+import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
 import type { PortalApi } from '../api';
 import { checkImage, imageRequestId, sizeText } from '../catalog/model';
+import { Gate } from '../components';
 import { base64Of } from '../settings/onboarding/Application';
 import { DateTime } from '../ui/DateTime';
-import { Gate, Section } from '../volt/parts';
 import { lookCopy as c } from './look-copy';
 
 /** A logo as the form holds it: the saved one, a newly picked file, or none. */
@@ -42,12 +43,12 @@ export function useMayChangeLook(): { allowed: boolean; unverified: boolean } {
  * A business that never saved one sees the default look with Save. A logo is checked against the published size before
  * it is sent, and the service checks its bytes again.
  */
-export function CheckoutLook({ portal, id }: { portal: PortalApi; id?: string }) {
+export function CheckoutLook({ portal }: { portal: PortalApi }) {
   const { resource, reload } = useResource((s) => portal.checkoutLook(s), 'portal:checkout-look');
   // Kept here, not in the form: a save reloads the look and draws a fresh form, and its answer must stay on screen.
   const [note, setNote] = useState<Note | null>(null);
   return (
-    <Section id={id} title={c.t('title')} description={c.t('purpose')}>
+    <PaySection title={c.t('title')} description={c.t('purpose')}>
       <Gate resource={resource} retry={reload} rows={4}>
         {(branding) => (
           <LookForm
@@ -60,7 +61,7 @@ export function CheckoutLook({ portal, id }: { portal: PortalApi; id?: string })
           />
         )}
       </Gate>
-    </Section>
+    </PaySection>
   );
 }
 
@@ -159,9 +160,9 @@ function LookForm({
 
   const previewColor = colorOk ? color.trim().toLowerCase() : CHECKOUT_DEFAULT_BRAND_COLOR;
   return (
-    <div>
-      <div data-testid="form-stack">
-        <p className="lt-hint" role="status" data-testid="checkout-look-state">
+    <div className="pp-look">
+      <div data-testid="form-stack" className="form-stack pp-form">
+        <p className="muted" role="status" data-testid="checkout-look-state">
           {look.status === 'default' ? (
             c.t('isDefault')
           ) : (
@@ -171,11 +172,11 @@ function LookForm({
           )}
         </p>
         {!may.allowed && (
-          <p className="lt-hint" role="note">
+          <p className="muted pp-note" role="note">
             {c.t(may.unverified ? 'unverified' : 'noWrite')}
           </p>
         )}
-        <div>
+        <div className="form-row">
           <Field
             label={c.t('color')}
             hint={c.t('colorHint')}
@@ -186,18 +187,15 @@ function LookForm({
             onChange={(e) => setColor(e.target.value)}
             error={colorOk ? undefined : c.t('colorInvalid')}
           />
-          <Field
-            label={c.t('colorPicker')}
-            type="color"
-            value={previewColor}
-            disabled={!may.allowed}
-            onChange={(e) => setColor(e.target.value)}
-          />
+          <label className="field pp-look-picker">
+            <span>{c.t('colorPicker')}</span>
+            <input type="color" value={previewColor} disabled={!may.allowed} onChange={(e) => setColor(e.target.value)} />
+          </label>
         </div>
         {rules.logoMaxBytes === null ? (
-          <div>
-            <p>{c.t('logo')}</p>
-            <p className="lt-hint" data-testid="checkout-logo-off">
+          <div className="field">
+            <span>{c.t('logo')}</span>
+            <p className="muted" data-testid="checkout-logo-off">
               {c.t('logoRulesUnset')}
             </p>
           </div>
@@ -211,36 +209,42 @@ function LookForm({
             onChange={(e) => void picked(e)}
           />
         )}
-        <p className="lt-hint">{logo.kind === 'new' ? c.t('logoNew') : logo.kind === 'saved' ? c.t('logoSaved') : c.t('logoNone')}</p>
+        <p className="muted">{logo.kind === 'new' ? c.t('logoNew') : logo.kind === 'saved' ? c.t('logoSaved') : c.t('logoNone')}</p>
         {logo.kind !== 'none' && may.allowed && (
-          <div className="lt-actions">
-            <Button tone="secondary" onClick={() => setLogo({ kind: 'none' })}>
+          <div className="pp-actions">
+            <Button variant="secondary" onClick={() => setLogo({ kind: 'none' })}>
               {c.t('logoRemove')}
             </Button>
           </div>
         )}
         {note && (
-          <p className="lt-hint" role={note.ok ? 'status' : 'alert'}>
+          <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
             {note.text}
           </p>
         )}
-        <div className="lt-actions">
-          <Button tone="primary" disabled={!may.allowed || !colorOk || busy} onClick={() => void save()}>
+        <div className="pp-actions">
+          <Button disabled={!may.allowed || !colorOk || busy} onClick={() => void save()}>
             {busy ? c.t('saving') : c.t('save')}
           </Button>
         </div>
       </div>
-      <BrandSample label={c.t('previewLabel')} accent={previewColor} onAccent={checkoutButtonTextColor(previewColor)}>
-        <figcaption className="lt-hint">{c.t('previewTitle')}</figcaption>
-        {logo.kind !== 'none' && <img className="lt-brand-logo" src={logo.src} alt={c.t('logoAlt')} />}
-        <p className="lt-hint">{c.t('previewEyebrow')}</p>
-        <p>{c.t('previewItem')}</p>
-        <p className="lt-figure">{c.t('previewAmount')}</p>
-        <span className="lt-brand-button" data-testid="checkout-look-button">
-          {c.t('previewButton')}
-        </span>
-        <p className="lt-hint">{c.t('previewNote')}</p>
-      </BrandSample>
+      <figure
+        className="pp-look-preview"
+        aria-label={c.t('previewLabel')}
+        style={{ '--look-accent': previewColor, '--look-on-accent': checkoutButtonTextColor(previewColor) } as CSSProperties}
+      >
+        <figcaption className="muted">{c.t('previewTitle')}</figcaption>
+        <div className="pp-look-card">
+          {logo.kind !== 'none' && <img className="pp-look-logo" src={logo.src} alt={c.t('logoAlt')} />}
+          <p className="pp-look-eyebrow">{c.t('previewEyebrow')}</p>
+          <p className="pp-look-item">{c.t('previewItem')}</p>
+          <p className="pp-look-amount">{c.t('previewAmount')}</p>
+          <span className="pp-look-button" data-testid="checkout-look-button">
+            {c.t('previewButton')}
+          </span>
+        </div>
+        <p className="muted pp-note">{c.t('previewNote')}</p>
+      </figure>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Checkbox } from '@intafaced/ui/lit';
+import { Button } from '../../shared/ui';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { parseQuickSizes, quickSizesText } from './trading-settings';
 import { tradingSettingsCopy } from './trading-settings-copy';
@@ -11,22 +11,26 @@ export function TradingSettings() {
   const [text, setText] = useState(() => quickSizesText(preferences.quickSizes));
   const [note, setNote] = useState<'saved' | 'invalid' | 'tooMany' | null>(null);
   return (
-    <section id="view-trading" aria-label={t('title')}>
+    <section className="section" aria-label={t('title')}>
       <h2>{t('title')}</h2>
-      <p className="lt-hint">{t('lead')}</p>
-      <Checkbox checked disabled aria-describedby="trading-summary-note" readOnly>
-        {t('summary')}
-      </Checkbox>
+      <p className="muted">{t('lead')}</p>
+      <label className="toggle">
+        <input type="checkbox" checked disabled aria-describedby="trading-summary-note" readOnly />
+        <span>{t('summary')}</span>
+      </label>
       <small id="trading-summary-note">{t('summaryLocked')}</small>
-      <Checkbox
-        checked={preferences.resetSizeOnSubmit}
-        onCheckedChange={(checked) => savePreferences({ resetSizeOnSubmit: checked })}
-        aria-describedby="trading-reset-note"
-      >
-        {t('reset')}
-      </Checkbox>
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={preferences.resetSizeOnSubmit}
+          onChange={(event) => savePreferences({ resetSizeOnSubmit: event.target.checked })}
+          aria-describedby="trading-reset-note"
+        />
+        <span>{t('reset')}</span>
+      </label>
       <small id="trading-reset-note">{t('resetHint')}</small>
       <form
+        className="field"
         onSubmit={(event) => {
           event.preventDefault();
           const parsed = parseQuickSizes(text);
@@ -39,7 +43,7 @@ export function TradingSettings() {
           setNote('saved');
         }}
       >
-        <label className="lt-field">
+        <label className="field">
           <span>{t('quickSizes')}</span>
           <input
             value={text}
@@ -55,17 +59,17 @@ export function TradingSettings() {
           />
         </label>
         <small id="trading-sizes-note">{note === 'invalid' || note === 'tooMany' ? t(note) : t('quickSizesHint')}</small>
-        <Button type="submit" tone="secondary">
+        <Button type="submit" variant="secondary">
           {t('save')}
         </Button>
         {note === 'saved' ? (
-          <p role="status" className="lt-hint">
+          <p role="status" className="muted">
             {t('saved')}
           </p>
         ) : null}
       </form>
       <p>
-        <strong>{t('share')}</strong> <span className="lt-hint">{t('shareOff')}</span>
+        <strong>{t('share')}</strong> <span className="muted">{t('shareOff')}</span>
       </p>
     </section>
   );

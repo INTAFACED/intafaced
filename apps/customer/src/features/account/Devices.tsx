@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, EmptyState } from '@intafaced/ui/lit';
-import { Failure, Loading } from './kit-parts';
+import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { devicesCopy as copy } from './devices-copy';
@@ -72,27 +71,31 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
   const folded = devices.filter(idle).length;
   const shown = showIdle ? devices : devices.filter((device) => !idle(device));
   return (
-    <section data-testid="security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__card" className="security__devices security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
-      {note && <p role="status">{note}</p>}
+      {note && (
+        <p className="notice" role="status">
+          {note}
+        </p>
+      )}
       {failure && <Failure result={failure} />}
       {devices.length === 0 ? (
         <EmptyState title={t('empty')} />
       ) : (
-        <ul data-testid="security__rows">
+        <ul data-testid="security__rows" className="security__rows">
           {shown.map((device) => {
             const name = deviceName(device) ?? t('unknownDevice');
             return (
-              <li key={device.familyId} data-testid="security__row">
+              <li key={device.familyId} data-testid="security__row" className="security__row">
                 <div>
                   <strong>{name}</strong>{' '}
                   {device.isCurrent && (
-                    <span data-testid="security__ref" className="lt-ref">
+                    <span data-testid="security__ref" className="security__ref">
                       {t('thisDevice')}
                     </span>
                   )}
-                  <span className="lt-hint">
+                  <span className="muted">
                     {' · '}
                     {t('lastActive', { time: stamp(device.lastUsedAt, timeZone) })}
                     {' · '}
@@ -102,7 +105,7 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
                 </div>
                 {!device.isCurrent && (
                   <Button
-                    tone="secondary"
+                    variant="secondary"
                     disabled={busy}
                     aria-label={t('signOutLabel', { device: name })}
                     onClick={() =>
@@ -121,17 +124,17 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
         </ul>
       )}
       {folded > 0 && (
-        <Button tone="quiet" aria-expanded={showIdle} onClick={() => setShowIdle((value) => !value)}>
+        <Button variant="ghost" aria-expanded={showIdle} onClick={() => setShowIdle((value) => !value)}>
           {showIdle ? t('showFewer') : t('showMore', { count: folded })}
         </Button>
       )}
-      {devices.length >= LIMIT && <p className="lt-hint">{t('window', { limit: LIMIT })}</p>}
-      <div className="lt-actions">
+      {devices.length >= LIMIT && <p className="muted">{t('window', { limit: LIMIT })}</p>}
+      <div className="actions">
         {asking ? (
           <>
             <p>{t('confirmOthers')}</p>
             <Button
-              tone="primary"
+              variant="danger"
               disabled={busy}
               onClick={() =>
                 void run(
@@ -142,16 +145,16 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
             >
               {busy ? t('working') : t('confirm')}
             </Button>
-            <Button tone="quiet" disabled={busy} onClick={() => setAsking(false)}>
+            <Button variant="ghost" disabled={busy} onClick={() => setAsking(false)}>
               {t('cancel')}
             </Button>
           </>
         ) : (
           <>
-            <Button tone="secondary" disabled={busy || others === 0} onClick={() => setAsking(true)}>
+            <Button variant="secondary" disabled={busy || others === 0} onClick={() => setAsking(true)}>
               {t('signOutOthers')}
             </Button>
-            <Button tone="quiet" onClick={reload}>
+            <Button variant="ghost" onClick={reload}>
               {t('refresh')}
             </Button>
           </>

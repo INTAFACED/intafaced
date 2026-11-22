@@ -52,6 +52,35 @@ export function DisabledActions({
   );
 }
 
+/** A real on/off switch. It shows the state the service reports, in words as well as position, and asks before it changes it. */
+export function ChannelSwitch({
+  label,
+  on,
+  state,
+  disabled,
+  onToggle,
+}: {
+  label: ReactNode;
+  on: boolean;
+  state: ReactNode;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="bd-switch-row">
+      <button type="button" role="switch" aria-checked={on} disabled={disabled} className="bd-switch-btn" onClick={onToggle}>
+        <span>{label}</span>
+        <span className="bd-switch-state">
+          {state}
+          <span className="bd-switch" aria-hidden="true">
+            <span className="bd-switch__knob" />
+          </span>
+        </span>
+      </button>
+    </div>
+  );
+}
+
 export function DepthPanel({ title, lead, children, id }: { title: ReactNode; lead?: ReactNode; children: ReactNode; id?: string }) {
   const heading = useId();
   return (

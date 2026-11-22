@@ -1,16 +1,23 @@
-// volt-room: /uc/trading-permissions
 import { useState, type ReactNode } from 'react';
 import { usePolled } from '../../protocol';
 import { defineCopy } from '../../../shared/i18n';
 import { displayAmount, parseAmount } from '../../../shared/money';
-import { Button } from '@intafaced/ui/lit';
-import { SettingsTemplate, Skeleton, type RoomState } from '@intafaced/ui/lit/templates';
+import { Button, DataTable, EmptyState, Loading, Page } from '../../../shared/ui';
 import { useSession } from '../../session';
 import { useVenueMode } from '../use-venue-mode';
 import { draftId, keys, type VenueUp } from '../venue-api';
-import { useOwner, useVenueActions, useVenueApi, type ActionResult } from '../venue/VenueKit';
-import { VENUE_POLL_MS } from '../venue/poll';
-import { AsOfLine, OutcomeLine, TestMark, VenueFrame, WalletBar } from './venue-parts';
+import {
+  AsOfLine,
+  OutcomeLine,
+  TestMark,
+  VENUE_POLL_MS,
+  VenueFrame,
+  WalletBar,
+  useOwner,
+  useVenueActions,
+  useVenueApi,
+  type ActionResult,
+} from '../venue/VenueKit';
 
 // English source only. A venue is named as it reports itself; no partner is named here.
 const copy = defineCopy('trade.trading-permissions', {
@@ -48,9 +55,6 @@ const copy = defineCopy('trade.trading-permissions', {
   revokeRefused: 'Not revoked: {detail}. Nothing was sent; the approval stays as {venue} reports it.',
   revoked: 'Revoked on {venue}: the venue now reports no approval for us.',
   addressNotPublished: 'Our builder address is not published, so no approval can be read or revoked.',
-  sectionsLabel: 'Trading permissions sections',
-  explain:
-    'An approval is the most a venue lets us charge as our builder fee on your orders there, as the venue reports it. A revoke is signed by your main wallet only; nothing is sent without it, and no money moves.',
 });
 type T = ReturnType<typeof copy.useCopy>['t'];
 
@@ -80,110 +84,73 @@ export function TradingPermissions() {
   const { userId } = useSession();
   if (!userId)
     return (
-      <Shell
-        state={{
-          kind: 'empty',
-          title: t('signedOutTitle'),
-          body: t('signedOutBody'),
-          action: { label: t('signIn'), href: `/login?redirect=${encodeURIComponent('/uc/trading-permissions')}` },
-        }}
-      />
+      <Page title={t('title')}>
+        <EmptyState
+          title={t('signedOutTitle')}
+          action={
+            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent('/uc/trading-permissions')}`}>
+              {t('signIn')}
+            </a>
+          }
+        >
+          {t('signedOutBody')}
+        </EmptyState>
+      </Page>
     );
   if (mode.mode === 'checking')
     return (
-      <Shell
-        state={{ kind: 'ready' }}
-        sections={
-          <div role="status">
-            <Skeleton shape="rows" count={2} />
-            <span className="lt-hint">{t('checking')}</span>
-          </div>
-        }
-      />
+      <Page title={t('title')}>
+        <Loading label={t('checking')} />
+      </Page>
     );
-  if (mode.mode === 'off') return <Shell state={{ kind: 'empty', title: t('title'), body: t('venueOff') }} />;
+  if (mode.mode === 'off')
+    return (
+      <Page title={t('title')}>
+        <EmptyState title={t('title')}>{t('venueOff')}</EmptyState>
+      </Page>
+    );
   const status = mode.status;
   return (
     <VenueFrame mode={mode}>
-      <Shell
-        state={{ kind: 'ready' }}
-        sections={
-          <section data-testid="trading-permissions" aria-labelledby="trading-permissions-title">
-            <h2 id="trading-permissions-title">
-              {t('title')} {status.available ? <TestMark test={status.test} /> : null}
-            </h2>
-            <p className="lt-hint">{t('lead')}</p>
-            {status.available ? (
-              <>
-                <WalletBar />
-                <Owned t={t}>{(owner) => <Approvals status={status} owner={owner} />}</Owned>
-              </>
-            ) : (
-              <p className="lt-refusal" role="alert">
-                {t('venueUnavailable', { detail: status.refusal.detail ?? status.refusal.code })}
-              </p>
-            )}
-          </section>
-        }
-      />
+      <Page title={t('title')}>
+        <section data-testid="trading-permissions" className="security__card form-stack" aria-labelledby="trading-permissions-title">
+          <h2 id="trading-permissions-title">
+            {t('title')} {status.available ? <TestMark test={status.test} /> : null}
+          </h2>
+          <p className="muted">{t('lead')}</p>
+          {status.available ? (
+            <>
+              <WalletBar />
+              <Owned t={t}>{(owner) => <Approvals status={status} owner={owner} />}</Owned>
+            </>
+          ) : (
+            <p className="failure" role="alert">
+              {t('venueUnavailable', { detail: status.refusal.detail ?? status.refusal.code })}
+            </p>
+          )}
+        </section>
+      </Page>
     </VenueFrame>
-  );
-}
-
-/** The room on its settings template: the template draws the title; the sections are the room's own. */
-function Shell({ state, sections }: { state: RoomState; sections?: ReactNode }) {
-  const { t } = copy.useCopy();
-  return (
-    <SettingsTemplate
-      title={t('title')}
-      state={state}
-      index={
-        <nav aria-label={t('sectionsLabel')}>
-          <ul>
-            <li>
-              <a className="lt-link" href="#trading-permissions-title">
-                {t('title')}
-              </a>
-            </li>
-          </ul>
-        </nav>
-      }
-      sections={sections ?? null}
-      explain={<p>{t('explain')}</p>}
-    />
   );
 }
 
 function Owned({ t, children }: { t: T; children: (owner: string) => ReactNode }) {
   const owner = useOwner();
-  if (!owner) return <p className="lt-hint">{t('connectFirst')}</p>;
+  if (!owner) return <p className="muted">{t('connectFirst')}</p>;
   return <>{children(owner)}</>;
 }
 
 function Approvals({ status, owner }: { status: VenueUp; owner: string }) {
   const { t } = copy.useCopy();
   const builder = status.builderAddress ?? status.builder?.address ?? null;
-  if (!builder) return <p className="lt-refusal">{t('addressNotPublished')}</p>;
+  if (!builder) return <p className="failure">{t('addressNotPublished')}</p>;
   const published = status.builder?.feeBps ?? null;
   return (
-    <div tabIndex={0} role="region" aria-label={t('title')}>
-      <table className="lt-table">
-        <thead>
-          <tr>
-            {[t('colVenue'), t('colApproved'), t('colPublished'), t('colState'), t('colAction')].map((head) => (
-              <th key={head} scope="col">
-                {head}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {venuesOf(status).map((v) => (
-            <ApprovalRow key={v.id} venue={v} owner={owner} builder={builder} published={published} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable label={t('title')} headers={[t('colVenue'), t('colApproved'), t('colPublished'), t('colState'), t('colAction')]}>
+      {venuesOf(status).map((v) => (
+        <ApprovalRow key={v.id} venue={v} owner={owner} builder={builder} published={published} />
+      ))}
+    </DataTable>
   );
 }
 
@@ -229,7 +196,7 @@ function ApprovalRow({ venue, owner, builder, published }: { venue: VenueRef; ow
         <td>
           {venue.name} <TestMark test={venue.test} />
         </td>
-        <td data-align="end" data-cell="approved">
+        <td className="numeric" data-cell="approved">
           {state === 'unknown'
             ? t('unknown')
             : approved === null
@@ -238,7 +205,7 @@ function ApprovalRow({ venue, owner, builder, published }: { venue: VenueRef; ow
                 ? t('bps', { bps: displayAmount(approved) })
                 : t('none')}
         </td>
-        <td data-align="end" data-cell="published">
+        <td className="numeric" data-cell="published">
           {published === null ? t('notSet') : t('bps', { bps: displayAmount(published) })}
         </td>
         <td data-cell="state">
@@ -248,7 +215,7 @@ function ApprovalRow({ venue, owner, builder, published }: { venue: VenueRef; ow
         <td>
           {state === 'approved' ? (
             <Button
-              tone="secondary"
+              variant="secondary"
               disabled={busy || asking !== null}
               onClick={() => {
                 setResult(null);
@@ -264,13 +231,18 @@ function ApprovalRow({ venue, owner, builder, published }: { venue: VenueRef; ow
         <tr data-venue={venue.id} data-testid="trading-permission-revoke-row">
           <td colSpan={5}>
             {asking !== null ? (
-              <section role="dialog" aria-label={t('revokeTitle', { venue: venue.name })} data-testid="trading-permission-revoke">
+              <section
+                role="dialog"
+                aria-label={t('revokeTitle', { venue: venue.name })}
+                data-testid="trading-permission-revoke"
+                className="form-stack"
+              >
                 <h3>{t('revokeTitle', { venue: venue.name })}</h3>
                 <p data-line="revoke-words">{t('revokeWords', { venue: venue.name, owner })}</p>
-                <Button tone="primary" disabled={busy} onClick={() => void revoke()}>
+                <Button disabled={busy} onClick={() => void revoke()}>
                   {t('revokeInWallet')}
                 </Button>{' '}
-                <Button tone="secondary" disabled={busy} onClick={() => setAsking(null)}>
+                <Button variant="secondary" disabled={busy} onClick={() => setAsking(null)}>
                   {t('cancel')}
                 </Button>
               </section>
@@ -309,13 +281,13 @@ function RevokeOutcome({ t, result, venue, owner }: { t: T; result: ActionResult
     );
   if (result.kind === 'rejected' || result.kind === 'wallet_failed')
     return (
-      <p className="lt-refusal" role="alert" data-testid="trading-permission-refused">
+      <p className="failure" role="alert" data-testid="trading-permission-refused">
         {t('revokeNeedsMain', { venue: venue.name })}
       </p>
     );
   if (result.kind === 'refused')
     return (
-      <p className="lt-refusal" role="alert" data-testid="trading-permission-refused" data-code={result.code ?? ''}>
+      <p className="failure" role="alert" data-testid="trading-permission-refused" data-code={result.code ?? ''}>
         {t('revokeRefused', { venue: venue.name, detail: result.message })}
       </p>
     );

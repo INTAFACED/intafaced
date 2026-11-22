@@ -1,16 +1,13 @@
-// volt-room: /uc/safe/api-keys/:keyId
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyDetail as Detail } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Field } from '@intafaced/ui/lit';
-import { KeyValue, SettingsTemplate } from '@intafaced/ui/lit/templates';
+import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { RevokedReason, stateOf } from './ApiKeys';
-import { Failure, Loading } from './kit-parts';
-import { KeyCallLog, keyCallLogCopy } from './KeyCallLog';
-import { KeyUsage, keyUsageCopy } from './KeyUsage';
+import { KeyCallLog } from './KeyCallLog';
+import { KeyUsage } from './KeyUsage';
 import { RotateKey } from './RotateKey';
 import { RotationRequest } from './RotationRequest';
 import {
@@ -22,6 +19,8 @@ import {
   setDeveloperKeyExpiry,
   type Factor,
 } from './developer-keys-api';
+import './security.css';
+import './api-keys.css';
 
 /** The key id in `/uc/safe/api-keys/:keyId`, or null when the path names none. */
 export function keyIdFromPath(path: string): string | null {
@@ -67,6 +66,7 @@ function ExpiryForm({ detail, onSaved }: { detail: Detail; onSaved: (next: Detai
   return (
     <form
       data-testid="security__card"
+      className="api-keys__form security__card"
       aria-labelledby="api-key-expiry-form"
       noValidate
       onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -76,15 +76,19 @@ function ExpiryForm({ detail, onSaved }: { detail: Detail; onSaved: (next: Detai
     >
       <h2 id="api-key-expiry-form">{t('setExpiryTitle')}</h2>
       <Field label={t('setExpiryLabel')} hint={t('setExpiryHint')} name="expiry" type="date" />
-      {refusal && <p role="alert">{t(refusal)}</p>}
+      {refusal && (
+        <p className="error-text" role="alert">
+          {t(refusal)}
+        </p>
+      )}
       {failure && <Failure result={failure} />}
       {saved && <p role="status">{t('setExpirySaved')}</p>}
-      <div className="lt-actions">
-        <Button tone="primary" type="submit" disabled={busy}>
+      <div className="api-keys__actions">
+        <Button type="submit" disabled={busy}>
           {t('setExpirySave')}
         </Button>
         <Button
-          tone="secondary"
+          variant="secondary"
           disabled={busy}
           onClick={(event) => {
             const form = event.currentTarget.form;
@@ -105,8 +109,6 @@ function ExpiryForm({ detail, onSaved }: { detail: Detail; onSaved: (next: Detai
  */
 export function ApiKeyDetail({ keyId }: { keyId: string }) {
   const { t, languageFor, requestedLocale } = copy.useCopy();
-  const usageTitle = keyUsageCopy.useCopy().t('title');
-  const callLogTitle = keyCallLogCopy.useCopy().t('title');
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readDeveloperKey(api, keyId, signal), `developer-key:${userId}:${keyId}`);
   const [updated, setUpdated] = useState<Detail | null>(null);
@@ -132,65 +134,92 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
   const refused = resource.status === 'failed' ? changeRefusal(resource.failure) : null;
   const detail = updated?.key.id === keyId ? updated : resource.status === 'ready' ? resource.data : null;
 
-  const sections = (
-    <>
+  return (
+    <div className="api-keys" lang={languageFor('detailTitle')}>
+      <header className="api-keys__head">
+        <a className="text-link" href="/uc/safe/api-keys">
+          {t('backToKeys')}
+        </a>
+        <h1>{detail ? <bdi lang="und">{detail.key.name}</bdi> : t('detailTitle')}</h1>
+      </header>
       {resource.status === 'loading' && <Loading label={t('detailLoading')} />}
-      {resource.status === 'failed' && (refused ? <p role="alert">{t(refused)}</p> : <Failure result={resource.failure} retry={reload} />)}
+      {resource.status === 'failed' &&
+        (refused ? (
+          <p className="error-text" role="alert">
+            {t(refused)}
+          </p>
+        ) : (
+          <Failure result={resource.failure} retry={reload} />
+        ))}
       {detail && (
         <>
-          <section data-testid="security__card" id="api-key-detail" aria-label={t('detailRegion')}>
-            <KeyValue
-              rows={[
-                { label: t('colPrefix'), value: <code lang="und">{detail.key.prefix}</code> },
-                { label: t('colMode'), value: t(detail.key.mode === 'live' ? 'modeLive' : 'modeSandbox') },
-                { label: t('colScopes'), value: <bdi lang="und">{detail.key.scopes.join(', ')}</bdi> },
-                {
-                  label: t('colState'),
-                  value: detail.key.revoked ? <RevokedReason apiKey={detail.key} /> : t(stateOf(detail.key, now)),
-                },
-                { label: t('colCreated'), value: at(detail.key.createdAt) },
-                { label: t('colLastUsed'), value: detail.key.lastUsedAt === null ? t('neverUsed') : at(detail.key.lastUsedAt) },
-                {
-                  label: t('fieldExpiry'),
-                  value: (
-                    <span data-testid="api-keys__expiry">
-                      {detail.key.expiresAt === null
-                        ? t('expiryNone')
-                        : Date.parse(detail.key.expiresAt) <= now
-                          ? t('expiryEnded', { day: lastDayUtc(detail.key.expiresAt) })
-                          : t('expiryOn', { day: lastDayUtc(detail.key.expiresAt), at: at(detail.key.expiresAt) })}
-                    </span>
-                  ),
-                },
-                {
-                  label: t('fieldIdle'),
-                  value: (
-                    <span data-testid="api-keys__idle">
-                      {detail.idleExpirySeconds === null ? t('idleUnset') : idleText(detail.idleExpirySeconds)}
-                      <small className="lt-hint">{t(detail.idleExpirySeconds === null ? 'idleUnsetNote' : 'idleSetNote')}</small>
-                    </span>
-                  ),
-                },
-                {
-                  label: t('fieldIpPolicy'),
-                  value: (
-                    <span data-testid="api-keys__ip-policy">
-                      {detail.key.ipAllowlist.length > 0 ? (
-                        <bdi lang="und">{t('ipOnly', { ips: detail.key.ipAllowlist.join(', ') })}</bdi>
-                      ) : detail.requireNonEmptyIpAllowlist ? (
-                        t('ipNone')
-                      ) : (
-                        t('ipAny')
-                      )}
-                      {detail.requireNonEmptyIpAllowlist && detail.key.ipAllowlist.length > 0 && (
-                        <small className="lt-hint">{t('ipRequireNonEmpty')}</small>
-                      )}
-                    </span>
-                  ),
-                },
-                { label: t('fieldSignature'), value: t(detail.key.requireSignature ? 'signatureOn' : 'signatureOff') },
-              ]}
-            />
+          <section data-testid="security__card" className="api-keys__detail security__card" aria-label={t('detailRegion')}>
+            <dl className="api-keys__facts">
+              <div>
+                <dt>{t('colPrefix')}</dt>
+                <dd>
+                  <code lang="und">{detail.key.prefix}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>{t('colMode')}</dt>
+                <dd>{t(detail.key.mode === 'live' ? 'modeLive' : 'modeSandbox')}</dd>
+              </div>
+              <div>
+                <dt>{t('colScopes')}</dt>
+                <dd>
+                  <bdi lang="und">{detail.key.scopes.join(', ')}</bdi>
+                </dd>
+              </div>
+              <div>
+                <dt>{t('colState')}</dt>
+                <dd>{detail.key.revoked ? <RevokedReason apiKey={detail.key} /> : t(stateOf(detail.key, now))}</dd>
+              </div>
+              <div>
+                <dt>{t('colCreated')}</dt>
+                <dd>{at(detail.key.createdAt)}</dd>
+              </div>
+              <div>
+                <dt>{t('colLastUsed')}</dt>
+                <dd>{detail.key.lastUsedAt === null ? t('neverUsed') : at(detail.key.lastUsedAt)}</dd>
+              </div>
+              <div>
+                <dt>{t('fieldExpiry')}</dt>
+                <dd data-testid="api-keys__expiry">
+                  {detail.key.expiresAt === null
+                    ? t('expiryNone')
+                    : Date.parse(detail.key.expiresAt) <= now
+                      ? t('expiryEnded', { day: lastDayUtc(detail.key.expiresAt) })
+                      : t('expiryOn', { day: lastDayUtc(detail.key.expiresAt), at: at(detail.key.expiresAt) })}
+                </dd>
+              </div>
+              <div>
+                <dt>{t('fieldIdle')}</dt>
+                <dd data-testid="api-keys__idle">
+                  {detail.idleExpirySeconds === null ? t('idleUnset') : idleText(detail.idleExpirySeconds)}
+                  <small className="muted api-keys__note">{t(detail.idleExpirySeconds === null ? 'idleUnsetNote' : 'idleSetNote')}</small>
+                </dd>
+              </div>
+              <div>
+                <dt>{t('fieldIpPolicy')}</dt>
+                <dd data-testid="api-keys__ip-policy">
+                  {detail.key.ipAllowlist.length > 0 ? (
+                    <bdi lang="und">{t('ipOnly', { ips: detail.key.ipAllowlist.join(', ') })}</bdi>
+                  ) : detail.requireNonEmptyIpAllowlist ? (
+                    t('ipNone')
+                  ) : (
+                    t('ipAny')
+                  )}
+                  {detail.requireNonEmptyIpAllowlist && detail.key.ipAllowlist.length > 0 && (
+                    <small className="muted api-keys__note">{t('ipRequireNonEmpty')}</small>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>{t('fieldSignature')}</dt>
+                <dd>{t(detail.key.requireSignature ? 'signatureOn' : 'signatureOff')}</dd>
+              </div>
+            </dl>
           </section>
           <KeyUsage keyId={detail.key.id} />
           {stateOf(detail.key, now) === 'stateActive' ? (
@@ -200,46 +229,11 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
               <ExpiryForm detail={detail} onSaved={setUpdated} />
             </>
           ) : (
-            <p className="lt-hint">{t('notLive')}</p>
+            <p className="muted">{t('notLive')}</p>
           )}
           <KeyCallLog keyId={detail.key.id} />
         </>
       )}
-    </>
-  );
-  const index: readonly (readonly [string, string])[] = [
-    ['api-key-detail', t('detailRegion')],
-    ['api-key-usage', usageTitle],
-    ['api-key-expiry-form', t('setExpiryTitle')],
-    ['api-key-call-log', callLogTitle],
-  ];
-
-  return (
-    <div lang={languageFor('detailTitle')}>
-      <SettingsTemplate
-        title={detail ? detail.key.name : t('detailTitle')}
-        state={{ kind: 'ready' }}
-        roomAction={
-          <a className="lt-link" href="/uc/safe/api-keys">
-            {t('backToKeys')}
-          </a>
-        }
-        index={
-          <nav aria-label={t('detailSectionsLabel')}>
-            <ul>
-              {index.map(([id, label]) => (
-                <li key={id}>
-                  <a className="lt-link" href={`#${id}`}>
-                    {label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        }
-        sections={sections}
-        explain={<p>{t('detailExplain')}</p>}
-      />
     </div>
   );
 }

@@ -1,11 +1,9 @@
 import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
-import { Button } from '@intafaced/ui/lit';
-import { Sheet } from '@intafaced/ui/lit/templates';
+import { Button, Dialog, Failure } from '../../shared/ui';
 import { useSession } from '../session';
 import { IDENTITY_REVOKE_ALL_API_KEYS } from '@intafaced/contracts/identity-revoke-all-api-keys-procedures';
-import { Failure } from './kit-parts';
 
 const copy = defineCopy('api-keys-revoke-all', {
   open: 'Revoke all keys',
@@ -59,7 +57,7 @@ export function RevokeAllKeys({ liveKeys, onDone }: { liveKeys: number; onDone: 
       {done && <p role="status">{t('done')}</p>}
       {liveKeys > 0 && (
         <Button
-          tone="secondary"
+          variant="secondary"
           onClick={() => {
             setDone(false);
             setOpen(true);
@@ -69,18 +67,18 @@ export function RevokeAllKeys({ liveKeys, onDone }: { liveKeys: number; onDone: 
         </Button>
       )}
       {open && (
-        <Sheet open title={t('title')} onClose={() => !busy && setOpen(false)}>
+        <Dialog title={t('title')} onClose={() => !busy && setOpen(false)}>
           <p>{t('body')}</p>
           {failure && <Failure result={failure} />}
-          <div className="lt-actions">
-            <Button tone="primary" onClick={() => void revokeAll()} disabled={busy}>
+          <div className="api-keys__actions">
+            <Button onClick={() => void revokeAll()} disabled={busy}>
               {busy ? t('sending') : t('confirm')}
             </Button>
-            <Button tone="secondary" onClick={() => setOpen(false)} disabled={busy}>
+            <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>
               {t('cancel')}
             </Button>
           </div>
-        </Sheet>
+        </Dialog>
       )}
     </>
   );

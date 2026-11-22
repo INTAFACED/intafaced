@@ -4,11 +4,10 @@ import { navigate } from '../../../../app/location';
 import { usePreferences } from '../../../../shared/preferences';
 import { stamp } from '../../../../screens/money/time';
 import { useSession } from '../../../session';
-import { readRequests, removeRequest } from '../personal-model';
+import { contactLabel, contactsFrom, readRequests, readSent, removeRequest, requestPath } from '../personal-model';
 import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefusal } from '../scan';
 import { decodedSegment, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
-import { SETTINGS_ROOM_IDS, SettingsRoom } from './SettingsRooms';
 import { isServerRequestId } from '../requests';
 import { ServerRequestRoom } from '../../../../screens/pay/ServerRequests';
 import { PersonalRecordRoom } from '../../../../screens/pay/PersonalRecordRooms';
@@ -58,6 +57,25 @@ function Rows({ rows }: { rows: ReadonlyArray<readonly [string, ReactNode]> }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/** A control that cannot run yet: visible, off, and tied to the reason on screen. */
+function Off({ children, describedBy }: { children: ReactNode; describedBy: string }) {
+  return (
+    <Button type="button" variant="secondary" size={40} disabled aria-describedby={describedBy}>
+      {children}
+    </Button>
+  );
+}
+
+function Section({ title, empty, off, describedBy }: { title: string; empty: string; off: string; describedBy: string }) {
+  return (
+    <div className="pay-block">
+      <h3 className="pay-section-title">{title}</h3>
+      <p className="pay-empty">{empty}</p>
+      <Off describedBy={describedBy}>{off}</Off>
+    </div>
   );
 }
 
@@ -118,6 +136,62 @@ function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
   );
 }
 
+function ContactsRoom({ slice }: { slice: string }) {
+  const copy = roomsCopy.useCopy();
+  const { t } = copy;
+  const { userId } = useSession();
+  const people = useMemo(() => (userId ? contactsFrom(readSent(userId), 50) : []), [userId]);
+  return (
+    <Frame title={t('contactsTitle')} line={t('contactsLine')}>
+      <div className="pay-block" data-testid="contacts-device">
+        <h3 className="pay-section-title">{t('contactsRecentTitle')}</h3>
+        {people.length === 0 ? (
+          <p className="pay-empty">{t('contactsRecentEmpty')}</p>
+        ) : (
+          <ul className="pay-list">
+            {people.map((person) => (
+              <li key={person.userId} data-testid="contact-row">
+                <div className="pay-list__main">
+                  <span>{contactLabel(person)}</span>
+                  <span className="pay-list__sub">{copy.t('contactsTimes', { count: String(person.times) })}</span>
+                </div>
+                <div className="pay-row-actions">
+                  <Button
+                    variant="secondary"
+                    size={32}
+                    nativeButton={false}
+                    render={<a href={requestPath({ to: person.handle ?? person.userId })} />}
+                  >
+                    {t('contactsPay')}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <Section title={t('contactsSaved')} empty={t('contactsSavedEmpty')} off={t('contactsAdd')} describedBy="pay-room-reason" />
+      <Section title={t('contactsGroups')} empty={t('contactsGroupsEmpty')} off={t('contactsNewGroup')} describedBy="pay-room-reason" />
+      <Section title={t('contactsPools')} empty={t('contactsPoolsEmpty')} off={t('contactsNewPool')} describedBy="pay-room-reason" />
+      <Blocked slice={slice}>{t('contactsReason')}</Blocked>
+    </Frame>
+  );
+}
+
+function GroupRoom({ kind, id, slice }: { kind: 'group' | 'pool'; id: string | null; slice: string }) {
+  const { t } = roomsCopy.useCopy();
+  const pool = kind === 'pool';
+  const rows: Array<readonly [string, string]> = [[t('reference'), id ?? t('notSet')]];
+  if (pool) rows.push([t('poolAmount'), t('notSet')], [t('poolPaid'), t('notSet')]);
+  return (
+    <Frame title={t(pool ? 'poolTitle' : 'groupTitle')} line={t(pool ? 'poolLine' : 'groupLine')}>
+      <Rows rows={rows} />
+      <Section title={t('members')} empty={t('membersEmpty')} off={t('addMember')} describedBy="pay-room-reason" />
+      <Blocked slice={slice}>{t('groupReason')}</Blocked>
+    </Frame>
+  );
+}
+
 function ClaimRoom({ slice }: { slice: string }) {
   const { t } = roomsCopy.useCopy();
   return (
@@ -134,6 +208,44 @@ function ClaimRoom({ slice }: { slice: string }) {
         {t('claimButton')}
       </Button>
       <Blocked slice={slice}>{t('claimReason')}</Blocked>
+    </Frame>
+  );
+}
+
+function FactsRoom({ title, line, facts, reason, slice }: { title: string; line: string; facts: string[]; reason: string; slice: string }) {
+  const { t } = roomsCopy.useCopy();
+  return (
+    <Frame title={title} line={line}>
+      <Rows rows={facts.map((fact): readonly [string, string] => [fact, t('notSet')])} />
+      <Blocked slice={slice}>{reason}</Blocked>
+    </Frame>
+  );
+}
+
+function PreferencesRoom({ slice }: { slice: string }) {
+  const { t } = roomsCopy.useCopy();
+  return (
+    <Frame title={t('preferencesTitle')} line={t('preferencesLine')}>
+      <form className="pay-body" noValidate onSubmit={(event) => event.preventDefault()}>
+        <fieldset className="pay-fieldset" disabled aria-describedby="pay-room-reason">
+          <div className="pay-field">
+            <label className="pay-field__label" htmlFor="pay-pref-source">
+              {t('prefSource')}
+            </label>
+            <select id="pay-pref-source" className="pay-text" defaultValue="">
+              <option value="">{t('notSet')}</option>
+            </select>
+            <p className="pay-hint">{t('prefSourceHint')}</p>
+          </div>
+          <label className="pay-field__label">
+            <input type="checkbox" /> {t('prefFind')}
+          </label>
+          <label className="pay-field__label">
+            <input type="checkbox" /> {t('prefReceipts')}
+          </label>
+        </fieldset>
+      </form>
+      <Blocked slice={slice}>{t('preferencesReason')}</Blocked>
     </Frame>
   );
 }
@@ -293,8 +405,6 @@ function LinkRoom({ id, slice }: { id: string | null; slice: string }) {
 export function PersonalRoom({ match }: { match: PersonalRoomMatch }) {
   const { t } = roomsCopy.useCopy();
   const { session } = useSession();
-  // The settings rooms are on their template, and say sign in there themselves.
-  if (SETTINGS_ROOM_IDS.has(match.room.id)) return <SettingsRoom match={match} />;
   if (!session) {
     const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
     return (
@@ -309,13 +419,42 @@ export function PersonalRoom({ match }: { match: PersonalRoomMatch }) {
 }
 
 function RoomBody({ match }: { match: PersonalRoomMatch }) {
+  const { t } = roomsCopy.useCopy();
   const { room, params } = match;
   const slice = room.slice;
   switch (room.id) {
     case 'request':
       return <RequestRoom id={decodedSegment(params.requestId)} slice={slice} />;
+    case 'contacts':
+      return <ContactsRoom slice={slice} />;
+    case 'group':
+      return <GroupRoom kind="group" id={decodedSegment(params.groupId)} slice={slice} />;
+    case 'pool':
+      return <GroupRoom kind="pool" id={decodedSegment(params.poolId)} slice={slice} />;
     case 'claim':
       return <ClaimRoom slice={slice} />;
+    case 'limits':
+      return (
+        <FactsRoom
+          title={t('limitsTitle')}
+          line={t('limitsLine')}
+          facts={[t('limitsTier'), t('limitsPerPayment'), t('limitsPerDay'), t('limitsUsedToday')]}
+          reason={t('limitsReason')}
+          slice={slice}
+        />
+      );
+    case 'fees':
+      return (
+        <FactsRoom
+          title={t('feesTitle')}
+          line={t('feesLine')}
+          facts={[t('feesSend'), t('feesRequest'), t('feesGlobal')]}
+          reason={t('feesReason')}
+          slice={slice}
+        />
+      );
+    case 'preferences':
+      return <PreferencesRoom slice={slice} />;
     case 'scan':
       return <ScanRoom slice={slice} />;
     case 'link':

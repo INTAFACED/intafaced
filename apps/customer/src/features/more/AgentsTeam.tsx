@@ -1,17 +1,14 @@
-// volt-room: /agents/team
-import { BANK_BUSINESS_LIST } from '@intafaced/contracts/bank-business-procedures';
-import {
-  Children,
-  cloneElement,
-  isValidElement,
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AGENTS_TEAM_ROLES, type AgentsTeamRole, type AgentsTeamView } from '@intafaced/contracts/agents-team';
+import type { ApiResult, RefusalReason } from '../../shared/api';
+import { Checkbox } from '@intafaced/ui';
+import { useResource } from '../../shared/resource';
+import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
+import { useApi, useSession } from '../session';
+import { Select } from './common';
+import { StatRow } from './depth-kit';
+import { agentsTeamCopy } from './agents-team-copy';
+import { BANK_BUSINESS_LIST } from '@intafaced/contracts/bank-business-procedures';
 import { AGENTS_OWN_LIST } from '@intafaced/contracts/agents-own-procedures';
 import {
   AGENTS_TEAM_VIEW,
@@ -27,12 +24,6 @@ import {
   AGENTS_TEAM_USAGE,
 } from '@intafaced/contracts/agents-team-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
-import type { ApiResult, RefusalReason } from '../../shared/api';
-import { Button, Checkbox, EmptyState, Field, Select } from '@intafaced/ui/lit';
-import { KeyValue, SettingsTemplate, Skeleton, type RoomState } from '@intafaced/ui/lit/templates';
-import { useResource } from '../../shared/resource';
-import { useApi, useSession } from '../session';
-import { agentsTeamCopy } from './agents-team-copy';
 
 const ROLES = AGENTS_TEAM_ROLES;
 type Role = AgentsTeamRole;
@@ -117,139 +108,58 @@ const NoteLine = ({ note }: { note: Note | null }) =>
     </p>
   );
 
-/** A table in the kit's look, named as a region so a reader (and a test) finds it by its name. */
-function Grid({ headers, children, label }: { headers: readonly string[]; children: ReactNode; label: string }) {
-  return (
-    <div tabIndex={0} role="region" aria-label={label}>
-      <table className="lt-table">
-        <thead>
-          <tr>
-            {headers.map((head, index) => (
-              <th key={index} scope="col">
-                {head}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>{Children.map(children, (row) => labelled(row, headers))}</tbody>
-      </table>
-    </div>
-  );
-}
-
-type Cell = ReactElement<{ children?: ReactNode; 'data-label'?: string }>;
-
-/**
- * A phone stacks each row and names each value by its column (the kit's lt-table reads `data-label`), so each cell of
- * a row takes its column's words; a row header (`th`) keeps its own.
- */
-function labelled(row: ReactNode, headers: readonly string[]): ReactNode {
-  if (!isValidElement<{ children?: ReactNode }>(row)) return row;
-  const cells = Children.toArray(row.props.children).map((cell, i) =>
-    isValidElement(cell) && cell.type === 'td' ? cloneElement(cell as Cell, { 'data-label': headers[i] }) : cell,
-  );
-  return cloneElement(row, undefined, ...cells);
-}
-
-/** The room's sections, each a link to its part of the page. */
-const SECTIONS = [
-  ['members', 'membersTitle'],
-  ['pool', 'poolTitle'],
-  ['projects', 'projectsTitle'],
-  ['limits', 'limitsTitle'],
-  ['runs', 'runsTitle'],
-  ['approvals', 'approvalsTitle'],
-  ['usage', 'usageTitle'],
-] as const;
-
 /** The agents Team room (/agents/team): one business's agent roles, pool, project limits, runs, approvals and usage. */
 export function AgentsTeam() {
   const api = useApi();
   const { userId } = useSession();
-  const { t } = agentsTeamCopy.useCopy();
+  const { Copy, t } = agentsTeamCopy.useCopy();
   // The businesses are the bank's own: the ones this person is a member of, closed ones included.
   const businesses = useResource((signal) => api.call(BANK_BUSINESS_LIST, { limit: 50 }, { signal }), `agents-team-businesses:${userId}`);
   const [chosen, setChosen] = useState('');
   const list = businesses.resource.status === 'ready' ? businesses.resource.data : [];
   const businessId = list.some((b) => b.id === chosen) ? chosen : (list[0]?.id ?? '');
 
-  if (businesses.resource.status === 'ready' && businessId) {
-    const picker = (
-      <section>
-        <h2>{t('businessTitle')}</h2>
+  if (businesses.resource.status === 'failed') {
+    return (
+      <Panel title={t('businessTitle')}>
+        <p role="alert">
+          <RefusalText failed={businesses.resource.failure} />
+        </p>
+        <Button variant="secondary" onClick={businesses.reload}>
+          <Copy k="retry" />
+        </Button>
+      </Panel>
+    );
+  }
+  if (businesses.resource.status !== 'ready') return <Loading />;
+  if (!businessId) {
+    return (
+      <Panel title={t('businessTitle')}>
+        <EmptyState title={<Copy k="noBusiness" />}>
+          <a href="/bank/business">{t('manageMembers')}</a>
+        </EmptyState>
+      </Panel>
+    );
+  }
+  return (
+    <>
+      <Panel title={t('businessTitle')}>
         <Select
           label={t('businessPick')}
           value={businessId}
           onChange={setChosen}
           options={list.map((b) => ({ value: b.id, label: b.status === 'closed' ? t('businessClosedName', { name: b.name }) : b.name }))}
         />
-      </section>
-    );
-    return <TeamOf key={businessId} businessId={businessId} picker={picker} />;
-  }
-  let state: RoomState;
-  if (businesses.resource.status === 'failed') state = refusedState(t, businesses.resource.failure, t('businessTitle'));
-  else if (businesses.resource.status !== 'ready') state = { kind: 'loading' };
-  else state = { kind: 'empty', title: t('noBusiness'), action: { label: t('manageMembers'), href: '/bank/business' } };
-  return <TeamShell state={state} retry={businesses.resource.status === 'failed' ? businesses.reload : undefined} />;
-}
-
-type T = ReturnType<typeof agentsTeamCopy.useCopy>['t'];
-
-/** A read the room could not make: its title, the room's own words for the code, and the code. */
-function refusedState(t: T, failed: Refusal, title: string, action?: { label: string; href: string }): RoomState {
-  const code = refusalCodeOf(failed);
-  const key = Object.hasOwn(ERR_KEYS, code) ? ERR_KEYS[code as keyof typeof ERR_KEYS] : null;
-  return {
-    kind: 'refused',
-    refusal: {
-      variant: ANSWER_UNKNOWN.has(failed.reason) ? 'unreachable' : 'refused',
-      title,
-      body: key ? t(key) : t('err_other'),
-      reference: code,
-      action,
-    },
-  };
-}
-
-/** The room on its template. A read that failed offers to read again (`retry`), in place. */
-function TeamShell({ state, sections, retry }: { state: RoomState; sections?: ReactNode; retry?: () => void }) {
-  const { t } = agentsTeamCopy.useCopy();
-  return (
-    <SettingsTemplate
-      title={t('title')}
-      description={t('description')}
-      state={state}
-      roomAction={
-        retry ? (
-          <Button tone="secondary" onClick={retry}>
-            {t('retry')}
-          </Button>
-        ) : undefined
-      }
-      index={
-        <nav aria-label={t('sectionsLabel')}>
-          <ul>
-            {SECTIONS.map(([id, key]) => (
-              <li key={id}>
-                <a className="lt-link" href={`#agents-team-${id}`}>
-                  {t(key)}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      }
-      sections={sections ?? null}
-      explain={<p>{t('explain')}</p>}
-    />
+      </Panel>
+      <TeamOf key={businessId} businessId={businessId} />
+    </>
   );
 }
 
-function TeamOf({ businessId, picker }: { businessId: string; picker: ReactNode }) {
+function TeamOf({ businessId }: { businessId: string }) {
   const api = useApi();
   const { userId } = useSession();
-  const { t } = agentsTeamCopy.useCopy();
+  const { Copy, t } = agentsTeamCopy.useCopy();
   const team = useResource((signal) => api.call(AGENTS_TEAM_VIEW, { businessId }, { signal }), `agents-team:${userId}:${businessId}`);
   // The last team read stays on screen while it is read again, so a form keeps what was typed.
   const [shown, setShown] = useState<Team | null>(null);
@@ -258,25 +168,25 @@ function TeamOf({ businessId, picker }: { businessId: string; picker: ReactNode 
     if (team.resource.status === 'failed') setShown(null);
   }, [team.resource]);
 
-  if (team.resource.status === 'failed')
+  if (team.resource.status === 'failed') {
     return (
-      <TeamShell
-        state={refusedState(t, team.resource.failure, t('membersTitle'), { label: t('manageMembers'), href: '/bank/business' })}
-        retry={team.reload}
-      />
+      <Panel title={t('membersTitle')}>
+        <p role="alert">
+          <RefusalText failed={team.resource.failure} />
+        </p>
+        <p>
+          <a href="/bank/business">
+            <Copy k="manageMembers" />
+          </a>
+        </p>
+        <Button variant="secondary" onClick={team.reload}>
+          <Copy k="retry" />
+        </Button>
+      </Panel>
     );
-  if (!shown) return <TeamShell state={{ kind: 'loading' }} />;
-  return (
-    <TeamShell
-      state={{ kind: 'ready' }}
-      sections={
-        <>
-          {picker}
-          <TeamRoom team={shown} reload={team.reload} />
-        </>
-      }
-    />
-  );
+  }
+  if (!shown) return <Loading />;
+  return <TeamRoom team={shown} reload={team.reload} />;
 }
 
 function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
@@ -374,17 +284,16 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
 
   return (
     <>
-      <section id="agents-team-members">
-        <h2>{t('membersTitle')}</h2>
-        <p className="lt-hint">
+      <Panel title={t('membersTitle')}>
+        <p className="muted">
           <Copy k="membersNote" /> <a href="/bank/business">{t('manageMembers')}</a>
         </p>
         {team.canManage ? null : (
-          <p className="lt-hint">
+          <p className="muted">
             <Copy k="readOnly" />
           </p>
         )}
-        <Grid
+        <DataTable
           label={t('membersTitle')}
           headers={[t('colMember'), t('colAccount'), t('colBusinessRole'), ...ROLES.map(roleName), t('colEffective')]}
         >
@@ -401,23 +310,25 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
                   void saveGrant(m.userId, g.role, effect === 'allow' ? value : allow, effect === 'deny' ? value : deny, g.version);
                 return (
                   <td key={g.role}>
-                    <Checkbox
-                      checked={allow}
-                      disabled={locked}
-                      aria-label={t('allowRole', { role: roleName(g.role) })}
-                      onCheckedChange={(on) => toggle('allow', on)}
-                    >
+                    <label>
+                      <Checkbox
+                        checked={allow}
+                        disabled={locked}
+                        aria-label={t('allowRole', { role: roleName(g.role) })}
+                        onCheckedChange={(on) => toggle('allow', on)}
+                      />{' '}
                       <Copy k="allowed" />
-                    </Checkbox>
-                    <Checkbox
-                      checked={deny}
-                      disabled={locked}
-                      aria-label={t('denyRole', { role: roleName(g.role) })}
-                      onCheckedChange={(on) => toggle('deny', on)}
-                    >
+                    </label>
+                    <label>
+                      <Checkbox
+                        checked={deny}
+                        disabled={locked}
+                        aria-label={t('denyRole', { role: roleName(g.role) })}
+                        onCheckedChange={(on) => toggle('deny', on)}
+                      />{' '}
                       <Copy k="denied" />
-                    </Checkbox>
-                    <span className="lt-hint" data-testid={`effective-${g.role}`}>
+                    </label>
+                    <span className="muted" data-testid={`effective-${g.role}`}>
                       {g.deny ? t('denied') : g.allow ? t('allowed') : t('notGranted')}
                     </span>
                   </td>
@@ -426,13 +337,13 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               <td data-testid="effective-roles">{m.effective.length ? m.effective.map(roleName).join(', ') : t('noRoles')}</td>
             </tr>
           ))}
-        </Grid>
+        </DataTable>
         <NoteLine note={rolesNote} />
         <form aria-label={t('grantTitle')} onSubmit={grantToAccount}>
           <h3>
             <Copy k="grantTitle" />
           </h3>
-          <div className="lt-toolbar">
+          <div className="depth-filters">
             <Field label={t('grantAccount')} value={grantTo} disabled={locked} onChange={(e) => setGrantTo(e.target.value)} />
             <Select
               label={t('grantRole')}
@@ -441,27 +352,26 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               options={ROLES.map((role) => ({ value: role, label: roleName(role) }))}
             />
           </div>
-          <Button tone="primary" type="submit" disabled={locked || !grantTo.trim()}>
+          <Button type="submit" disabled={locked || !grantTo.trim()}>
             <Copy k="grant" />
           </Button>
         </form>
-      </section>
+      </Panel>
 
-      <section id="agents-team-pool">
-        <h2>{t('poolTitle')}</h2>
-        <p className="lt-hint">
+      <Panel title={t('poolTitle')}>
+        <p className="muted">
           <Copy k="poolNote" />
         </p>
         {team.pool ? (
-          <KeyValue
-            rows={[
+          <StatRow
+            items={[
               { label: t('poolLimitShown'), value: <span data-testid="pool-limit">{`${team.pool.limit} ${asset}`}</span> },
               { label: t('poolAllocated'), value: <span data-testid="pool-allocated">{`${team.pool.allocated} ${asset}`}</span> },
               { label: t('poolUsed'), value: <span data-testid="pool-used">{`${team.used} ${asset}`}</span> },
             ]}
           />
         ) : (
-          <EmptyState title={t('poolNone')} />
+          <EmptyState title={<Copy k="poolNone" />} />
         )}
         <form aria-label={t('poolTitle')} onSubmit={savePool}>
           <Field
@@ -482,16 +392,15 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
             />
           ))}
           <NoteLine note={poolNote} />
-          <Button tone="primary" type="submit" disabled={locked}>
+          <Button type="submit" disabled={locked}>
             <Copy k="savePool" />
           </Button>
         </form>
-      </section>
+      </Panel>
 
-      <section id="agents-team-projects">
-        <h2>{t('projectsTitle')}</h2>
+      <Panel title={t('projectsTitle')}>
         {team.projects.length ? (
-          <Grid label={t('projectsTitle')} headers={[t('colProject'), t('colLimit'), t('colMembers')]}>
+          <DataTable label={t('projectsTitle')} headers={[t('colProject'), t('colLimit'), t('colMembers')]}>
             {team.projects.map((p) => (
               <tr key={p.id}>
                 <th scope="row">{p.name}</th>
@@ -499,9 +408,9 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
                 <td>{p.memberUserIds.map(name).join(', ')}</td>
               </tr>
             ))}
-          </Grid>
+          </DataTable>
         ) : (
-          <EmptyState title={t('projectsEmpty')} />
+          <EmptyState title={<Copy k="projectsEmpty" />} />
         )}
         <form aria-label={t('newProject')} onSubmit={createProject}>
           <h3>
@@ -520,26 +429,28 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               <Copy k="projectMembers" />
             </legend>
             {team.members.map((m) => (
-              <Checkbox
-                key={m.userId}
-                checked={projectMembers.includes(m.userId)}
-                disabled={locked}
-                onCheckedChange={(on) => setProjectMembers((list) => (on ? [...list, m.userId] : list.filter((id) => id !== m.userId)))}
-              >
+              <label key={m.userId}>
+                <Checkbox
+                  checked={projectMembers.includes(m.userId)}
+                  disabled={locked}
+                  onCheckedChange={(on) => setProjectMembers((list) => (on ? [...list, m.userId] : list.filter((id) => id !== m.userId)))}
+                />{' '}
                 {name(m.userId)}
-              </Checkbox>
+              </label>
             ))}
           </fieldset>
           <NoteLine note={projectNote} />
-          <Button tone="primary" type="submit" disabled={locked}>
+          <Button type="submit" disabled={locked}>
             <Copy k="createProject" />
           </Button>
         </form>
-      </section>
+      </Panel>
 
-      <section id="agents-team-limits">
-        <h2>{t('limitsTitle')}</h2>
-        <Grid label={t('limitsTitle')} headers={[t('colMember'), t('colAccount'), t('colAllocation'), t('colUsed'), t('colProjectLimits')]}>
+      <Panel title={t('limitsTitle')}>
+        <DataTable
+          label={t('limitsTitle')}
+          headers={[t('colMember'), t('colAccount'), t('colAllocation'), t('colUsed'), t('colProjectLimits')]}
+        >
           {team.members.map((m) => {
             const projects = team.projects.filter((p) => p.memberUserIds.includes(m.userId));
             return (
@@ -554,8 +465,8 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               </tr>
             );
           })}
-        </Grid>
-      </section>
+        </DataTable>
+      </Panel>
 
       <TeamRuns businessId={businessId} onRun={reload} />
       <HeldActions team={team} name={name} />
@@ -623,9 +534,8 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
   }
 
   return (
-    <section id="agents-team-runs" aria-label={t('runsTitle')}>
-      <h2>{t('runsTitle')}</h2>
-      <p className="lt-hint">
+    <Panel title={t('runsTitle')} aria-label={t('runsTitle')}>
+      <p className="muted">
         <Copy k="runsNote" />
       </p>
       {mine.resource.status === 'failed' ? (
@@ -633,14 +543,9 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
           <RefusalText failed={mine.resource.failure} />
         </p>
       ) : agents.length === 0 ? (
-        <EmptyState
-          title={t('runsNoAgent')}
-          action={
-            <a className="lt-link" href="/agents/new">
-              {t('runsMakeAgent')}
-            </a>
-          }
-        />
+        <EmptyState title={<Copy k="runsNoAgent" />}>
+          <a href="/agents/new">{t('runsMakeAgent')}</a>
+        </EmptyState>
       ) : (
         <>
           <Select
@@ -653,17 +558,17 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
             <form aria-label={t('runsTitle')} onSubmit={run}>
               <p data-testid="run-session">{t('runSession', { session })}</p>
               <Field label={t('runAsk')} value={ask} disabled={busy} onChange={(e) => setAsk(e.target.value)} />
-              <div className="lt-actions">
-                <Button tone="primary" type="submit" disabled={busy || !ask.trim()}>
+              <div className="actions">
+                <Button type="submit" disabled={busy || !ask.trim()}>
                   <Copy k="run" />
                 </Button>
-                <Button tone="secondary" disabled={busy} onClick={() => void close()}>
+                <Button variant="secondary" disabled={busy} onClick={() => void close()}>
                   <Copy k="runClose" />
                 </Button>
               </div>
             </form>
           ) : (
-            <Button tone="primary" disabled={busy || !chosen} onClick={() => void open()}>
+            <Button disabled={busy || !chosen} onClick={() => void open()}>
               <Copy k="runOpen" />
             </Button>
           )}
@@ -676,7 +581,7 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
         </section>
       ) : null}
       <NoteLine note={note} />
-    </section>
+    </Panel>
   );
 }
 
@@ -719,9 +624,8 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
   }
 
   return (
-    <section id="agents-team-approvals" aria-label={t('approvalsTitle')}>
-      <h2>{t('approvalsTitle')}</h2>
-      <p className="lt-hint">
+    <Panel title={t('approvalsTitle')} aria-label={t('approvalsTitle')}>
+      <p className="muted">
         <Copy k="approvalsNote" />
       </p>
       {held.resource.status === 'failed' ? (
@@ -729,7 +633,7 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
           <RefusalText failed={held.resource.failure} />
         </p>
       ) : rows.length ? (
-        <Grid label={t('heldTitle')} headers={[t('colAction'), t('colCreator'), t('colTool'), t('colStatus'), t('colApprover')]}>
+        <DataTable label={t('heldTitle')} headers={[t('colAction'), t('colCreator'), t('colTool'), t('colStatus'), t('colApprover')]}>
           {rows.map((row) => (
             <tr key={row.id}>
               <th scope="row">
@@ -744,23 +648,23 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
                 {row.approvedBy ? (
                   name(row.approvedBy)
                 ) : (
-                  <Button tone="secondary" disabled={busy} onClick={() => void approve(row.id)}>
+                  <Button variant="secondary" disabled={busy} onClick={() => void approve(row.id)}>
                     <Copy k="approve" />
                   </Button>
                 )}
               </td>
             </tr>
           ))}
-        </Grid>
+        </DataTable>
       ) : (
-        <EmptyState title={t('heldEmpty')} />
+        <EmptyState title={<Copy k="heldEmpty" />} />
       )}
       {agent ? (
         <form aria-label={t('proposeTitle')} onSubmit={propose}>
           <h3>
             <Copy k="proposeTitle" />
           </h3>
-          <div className="lt-toolbar">
+          <div className="depth-filters">
             <Select
               label={t('runsAgent')}
               value={agent.id}
@@ -769,13 +673,13 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
             />
             <Select label={t('proposeTool')} value={chosenTool} onChange={setTool} options={agent.tools} />
           </div>
-          <Button tone="primary" type="submit" disabled={busy || !chosenTool || held.resource.status !== 'ready'}>
+          <Button type="submit" disabled={busy || !chosenTool || held.resource.status !== 'ready'}>
             <Copy k="propose" />
           </Button>
         </form>
       ) : null}
       <NoteLine note={note} />
-    </section>
+    </Panel>
   );
 }
 
@@ -788,9 +692,8 @@ function TeamUsage({ team, name }: { team: Team; name: (userId: string) => strin
     `agents-team-usage:${team.businessId}:${team.used}`,
   );
   return (
-    <section id="agents-team-usage" aria-label={t('usageTitle')}>
-      <h2>{t('usageTitle')}</h2>
-      <p className="lt-hint">
+    <Panel title={t('usageTitle')} aria-label={t('usageTitle')}>
+      <p className="muted">
         <Copy k="usageNote" />
       </p>
       {usage.resource.status === 'failed' ? (
@@ -798,11 +701,11 @@ function TeamUsage({ team, name }: { team: Team; name: (userId: string) => strin
           <RefusalText failed={usage.resource.failure} />
         </p>
       ) : usage.resource.status !== 'ready' ? (
-        <Skeleton shape="rows" />
+        <Loading />
       ) : (
         <UsageTable data={usage.resource.data} name={name} />
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -810,7 +713,7 @@ function UsageTable({ data, name }: { data: ProcedureOutput<typeof AGENTS_TEAM_U
   const { Copy, t } = agentsTeamCopy.useCopy();
   return (
     <>
-      <Grid
+      <DataTable
         label={t('usageTitle')}
         headers={[t('colMember'), t('colWindows'), t('colTask'), t('colTokens'), t('colTaskCost'), t('colSealedTotal')]}
       >
@@ -824,12 +727,12 @@ function UsageTable({ data, name }: { data: ProcedureOutput<typeof AGENTS_TEAM_U
             <td data-testid="usage-member-total">{`${m.sealedTotal} ${data.assetId}`}</td>
           </tr>
         ))}
-      </Grid>
+      </DataTable>
       <p>
         <Copy k="usageTotal" /> <span data-testid="usage-total">{`${data.sealedTotal} ${data.assetId}`}</span>
       </p>
       <h3>{t('windowsTitle')}</h3>
-      <p className="lt-hint">
+      <p className="muted">
         <Copy k="windowsNote" />
       </p>
       {data.windows.length === 0 ? (
@@ -837,7 +740,7 @@ function UsageTable({ data, name }: { data: ProcedureOutput<typeof AGENTS_TEAM_U
           <Copy k="windowsEmpty" />
         </p>
       ) : (
-        <Grid
+        <DataTable
           label={t('windowsTitle')}
           headers={[t('colWindowMember'), t('colWindowCost'), t('colWindowOwedBy'), t('colWindowPaid'), t('colWindowKey')]}
         >
@@ -858,7 +761,7 @@ function UsageTable({ data, name }: { data: ProcedureOutput<typeof AGENTS_TEAM_U
               </td>
             </tr>
           ))}
-        </Grid>
+        </DataTable>
       )}
     </>
   );

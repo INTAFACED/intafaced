@@ -8,12 +8,12 @@ import { Approvals } from './Approvals';
 import { LinkButton } from './common';
 import { mc } from './copy';
 import { Conversion, ConversionDetail, ConversionNew } from './Conversion';
-import { DestinationsRoom } from './Destinations';
-import { LimitsRoom } from './Limits';
+import { Destinations } from './Destinations';
+import { Limits } from './Limits';
 import { MerchantMoney } from './Money';
 import { PayoutDetailPage, Payouts } from './Payouts';
 import { PayoutNew } from './PayoutNew';
-import { PricingRoom } from './Pricing';
+import { Pricing } from './Pricing';
 import { RefundDetail, RefundNew, Refunds } from './Refunds';
 import { SettlementDetailPage, Settlements } from './Settlements';
 import { Statement } from './Statement';
@@ -186,8 +186,15 @@ export const moneyRooms: RoomTable = {
       action: go('/pay/payouts/new', t('actPayOut')),
     }),
     here: '/pay/payouts',
-    ownTitle: true,
-    render: (_route, { portal }) => <DestinationsRoom portal={portal} />,
+    render: (_route, { portal }) => (
+      <WithAccount>
+        {({ merchantId }) => (
+          <Requires need="settlements.read">
+            <Destinations portal={portal} merchantId={merchantId} />
+          </Requires>
+        )}
+      </WithAccount>
+    ),
   },
   payout: {
     header: () => ({ title: t('pagePayout'), purpose: t('purposePayout') }),
@@ -216,8 +223,7 @@ export const moneyRooms: RoomTable = {
   },
   pricing: {
     header: () => ({ title: t('pagePricing'), purpose: t('purposePricing') }),
-    ownTitle: true,
-    render: (_route, { portal }) => <PricingRoom portal={portal} />,
+    render: (_route, { portal }) => <WithAccount>{({ merchantId }) => <Pricing portal={portal} merchantId={merchantId} />}</WithAccount>,
   },
   limits: {
     header: () => ({
@@ -225,7 +231,6 @@ export const moneyRooms: RoomTable = {
       purpose: t('purposeLimits'),
       action: go('/pay/limits#request', t('actRequestIncrease')),
     }),
-    ownTitle: true,
-    render: (_route, { portal }) => <LimitsRoom portal={portal} />,
+    render: (_route, { portal }) => <WithAccount>{({ merchantId }) => <Limits portal={portal} merchantId={merchantId} />}</WithAccount>,
   },
 };

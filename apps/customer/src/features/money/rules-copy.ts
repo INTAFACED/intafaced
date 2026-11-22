@@ -1,9 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
-  sectionsLabel: 'Rules sections',
-  explain:
-    'A reminder rule says how long before each standing order runs you hear about it; a run that fails is always noticed, with no rule. Both are sent on the channels your notification choices allow. A rule that moves money by itself is refused: the bank has not published its terms.',
   title: 'Rules and notifications',
   description: 'Reminders before your standing orders run, failure notices, and rules that move money by themselves.',
   open: 'Rules and notifications',
@@ -70,9 +67,6 @@ const en = {
 } as const;
 
 const es: Record<keyof typeof en, string> = {
-  sectionsLabel: 'Secciones de reglas',
-  explain:
-    'Una regla de aviso indica con cuánta antelación a cada orden permanente te avisamos; un pago que falla siempre se notifica, sin regla. Ambos se envían por los canales que permiten tus preferencias de notificación. Una regla que mueve dinero por sí sola se rechaza: el banco no ha publicado sus condiciones.',
   title: 'Reglas y notificaciones',
   description: 'Recordatorios antes de que se ejecuten tus órdenes permanentes, avisos de fallo y reglas que mueven dinero solas.',
   open: 'Reglas y notificaciones',
@@ -139,9 +133,6 @@ const es: Record<keyof typeof en, string> = {
 };
 
 const fr: Record<keyof typeof en, string> = {
-  sectionsLabel: 'Sections des règles',
-  explain:
-    'Une règle de rappel indique combien de temps avant chaque virement permanent vous êtes prévenu ; un virement qui échoue est toujours signalé, sans règle. Les deux sont envoyés sur les canaux que vos choix de notification permettent. Une règle qui déplace de l’argent seule est refusée : la banque n’a pas publié ses conditions.',
   title: 'Règles et notifications',
   description: 'Rappels avant l’exécution de vos virements permanents, avis d’échec et règles qui déplacent de l’argent seules.',
   open: 'Règles et notifications',

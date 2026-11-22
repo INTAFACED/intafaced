@@ -3,19 +3,76 @@ import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
 import {
   SANDBOX_CARD_TEST_VALUES,
   SANDBOX_NAME_MAX,
+  type SandboxBalance,
   type SandboxDetail,
   type SandboxKeyCreateOutput,
   type SandboxList,
 } from '@intafaced/contracts/developer-sandboxes';
 import { Button } from '@intafaced/ui';
 import { DataTable, EmptyState, Failure, Field, Loading, Page } from '../../../shared/ui';
+import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
-import { sandboxCopy } from './sandbox-copy';
-import { SandboxNotFound, SandboxPage, useSandbox } from './SandboxRoom';
-import { BaseUrl, Refused, type Refusal, type T } from './sandbox-parts';
-import { KEY_PRESETS, createSandbox, createSandboxKey, readSandboxes, sandboxRoute, type KeyPreset } from './sandbox-api';
+import { sandboxCopy, sandboxRefusalKey } from './sandbox-copy';
+import {
+  KEY_PRESETS,
+  createSandbox,
+  createSandboxKey,
+  fundSandbox,
+  readSandbox,
+  readSandboxBalance,
+  resetSandbox,
+  readSandboxes,
+  sandboxRoute,
+  type KeyPreset,
+} from './sandbox-api';
 import '../apps/apps.css';
+
+type T = ReturnType<typeof sandboxCopy.useCopy>['t'];
+type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+
+/** A typed refusal in the person's words, with its code kept on the element and shown as the support reference. */
+function Refused({ failure, t }: { failure: Refusal; t: T }) {
+  const key = sandboxRefusalKey(failure.code);
+  if (!key && !failure.code) return <Failure result={failure} />;
+  return (
+    <div role="alert" className="apps-refused" data-code={failure.code}>
+      <strong>{t('refusedHeading')}</strong>
+      <p>{key ? t(key) : t('otherRefusal')}</p>
+      <p className="muted">
+        {t('codeLabel')}: <code lang="und">{failure.code}</code>
+      </p>
+    </div>
+  );
+}
+
+function BaseUrl({ baseUrl, t }: { baseUrl: string | null; t: T }) {
+  return (
+    <>
+      {baseUrl ? (
+        <p>
+          {t('baseUrlLabel')}:{' '}
+          <code lang="und" data-testid="sandbox-base-url">
+            {baseUrl}
+          </code>
+        </p>
+      ) : (
+        <p className="muted" data-testid="sandbox-base-url-unset">
+          {t('baseUrlUnset')}
+        </p>
+      )}
+      <p>
+        <a className="text-link" href="/developers/sandbox/test-values">
+          {t('testValuesLink')}
+        </a>
+      </p>
+    </>
+  );
+}
+
+/** Revoked, past its end date (the door refuses it as expired), or active. */
+const keyState = (key: SandboxDetail['keys'][number], now = Date.now()) =>
+  key.revoked ? 'stateRevoked' : key.expiresAt !== null && Date.parse(key.expiresAt) <= now ? 'stateExpired' : 'stateActive';
 
 const day = (iso: string) => <time dateTime={iso}>{iso.slice(0, 10)}</time>;
 
@@ -130,6 +187,14 @@ function SandboxList() {
   );
 }
 
+function useSandbox(id: string) {
+  const { api, userId } = useSession();
+  return useResource(
+    (signal) => (userId ? readSandbox(api, id, signal) : Promise.resolve({ ok: true as const, data: null })),
+    `developer-sandbox:${userId ?? 'out'}:${id}`,
+  );
+}
+
 function SandboxRead({ id, children }: { id: string; children: (detail: SandboxDetail, reload: () => void) => JSX.Element }) {
   const { t } = sandboxCopy.useCopy();
   const { userId } = useSession();
@@ -167,6 +232,138 @@ function SandboxRead({ id, children }: { id: string; children: (detail: SandboxD
     return shell(<Failure result={resource.failure} retry={reload} />);
   }
   return resource.data ? children(resource.data, reload) : shell(<Loading label={t('loading')} />);
+}
+
+/**
+ * The sandbox's TEST funds, from the pay service's sandbox store: the balance, what each Fund adds and the resets used
+ * today (each "not set" while the owner's setting is blank), Fund and Reset. Every figure is TEST and never real money.
+ */
+function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
+  const { api, userId } = useSession();
+  const { resource, reload } = useResource(
+    (signal) => readSandboxBalance(api, sandboxId, signal),
+    `developer-sandbox-balance:${userId ?? 'out'}:${sandboxId}`,
+  );
+  // The balance a press answered, for this sandbox only; a refusal drops it and reads again.
+  const [answered, setAnswered] = useState<SandboxBalance | null>(null);
+  const latest = answered?.sandboxId === sandboxId ? answered : null;
+  // While a refusal's re-read is under way, the figures last shown stay on screen.
+  const [shown, setShown] = useState<SandboxBalance | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<{ kind: 'done'; text: string } | { kind: 'refused'; failure: Refusal } | null>(null);
+  const fresh = latest ?? (resource.status === 'ready' ? resource.data : null);
+  const read = fresh ?? (shown?.sandboxId === sandboxId ? shown : null);
+
+  async function press(action: 'fund' | 'reset') {
+    if (busy || !userId || !read) return;
+    setBusy(true);
+    setSaid(null);
+    const result = action === 'fund' ? await fundSandbox(api, userId, read) : await resetSandbox(api, userId, read);
+    setBusy(false);
+    if (!result.ok) {
+      setSaid({ kind: 'refused', failure: result });
+      setShown(read);
+      setAnswered(null);
+      reload();
+      return;
+    }
+    const { replayed, ...balance } = result.data;
+    setAnswered(balance);
+    let text = t('pressReplayed');
+    if (!replayed) text = action === 'fund' ? t('funded', { amount: balance.fundAmount ?? '', asset: balance.asset }) : t('resetDone');
+    setSaid({ kind: 'done', text });
+  }
+
+  return (
+    <section aria-labelledby="sandbox-funds">
+      <h2 id="sandbox-funds">{t('fundsHeading')}</h2>
+      <p className="muted">{t('fundsLead')}</p>
+      {resource.status === 'failed' && !latest ? <Failure result={resource.failure} retry={reload} /> : null}
+      {read ? (
+        <dl className="apps-facts">
+          <dt>{t('balanceLabel')}</dt>
+          <dd data-testid="sandbox-balance" data-balance={read.amount}>
+            {read.amount} {read.asset} {read.label}
+          </dd>
+          <dt>{t('fundAmountLabel')}</dt>
+          <dd data-testid="sandbox-fund-amount">
+            {read.fundAmount === null ? <span className="muted">{t('notSet')}</span> : `${read.fundAmount} ${read.asset} TEST`}
+          </dd>
+          <dt>{t('resetsLabel')}</dt>
+          <dd data-testid="sandbox-resets">
+            {read.resetsPerDay === null ? (
+              <span className="muted">{t('notSet')}</span>
+            ) : (
+              t('resetsOf', { used: String(read.resetsToday), cap: String(read.resetsPerDay) })
+            )}
+          </dd>
+        </dl>
+      ) : resource.status === 'loading' ? (
+        <Loading label={t('balanceLoading')} />
+      ) : null}
+      <div className="apps-actions">
+        <Button variant="secondary" disabled={busy || !read} onClick={() => void press('fund')}>
+          {t('fund')}
+        </Button>
+        <Button variant="secondary" disabled={busy || !read} onClick={() => void press('reset')}>
+          {t('reset')}
+        </Button>
+      </div>
+      {said?.kind === 'done' ? <p role="status">{said.text}</p> : null}
+      {said?.kind === 'refused' ? <Refused failure={said.failure} t={t} /> : null}
+    </section>
+  );
+}
+
+/** /developers/sandbox/<id>: one sandbox, its address and its keys. */
+function SandboxPage({ id }: { id: string }) {
+  const { t } = sandboxCopy.useCopy();
+  return (
+    <SandboxRead id={id}>
+      {(detail) => (
+        <Page
+          eyebrow={t('title')}
+          title={<bdi lang="und">{detail.sandbox.name}</bdi>}
+          actions={
+            <a className="button button--primary" href={`/developers/sandbox/${detail.sandbox.id}/keys/new`}>
+              {t('newKey')}
+            </a>
+          }
+        >
+          <div className="apps-room" data-testid="developers-sandbox-detail">
+            <a className="text-link" href="/developers/sandbox">
+              ← {t('back')}
+            </a>
+            <BaseUrl baseUrl={detail.baseUrl} t={t} />
+            <Funds sandboxId={detail.sandbox.id} t={t} />
+            <section aria-labelledby="sandbox-keys">
+              <h2 id="sandbox-keys">{t('keysHeading')}</h2>
+              {detail.keys.length === 0 ? (
+                <p>{t('noKeys')}</p>
+              ) : (
+                <DataTable label={t('keysHeading')} headers={[t('colKey'), t('colPrefix'), t('colScopes'), t('colState')]}>
+                  {detail.keys.map((key) => (
+                    <tr key={key.id} data-key-id={key.id} data-mode={key.mode}>
+                      <td>
+                        <bdi lang="und">{key.name}</bdi>
+                      </td>
+                      <td>
+                        <code lang="und">{key.prefix}</code>
+                      </td>
+                      <td>
+                        <code lang="und">{key.scopes.join(' ')}</code>
+                      </td>
+                      <td>{t(keyState(key))}</td>
+                    </tr>
+                  ))}
+                </DataTable>
+              )}
+            </section>
+          </div>
+        </Page>
+      )}
+    </SandboxRead>
+  );
 }
 
 type Made = SandboxKeyCreateOutput & { key: string };
@@ -296,6 +493,24 @@ function NewSandboxKey({ id }: { id: string }) {
   );
 }
 
+function Unknown() {
+  const { t } = sandboxCopy.useCopy();
+  return (
+    <Page eyebrow={t('eyebrow')} title={t('notFoundTitle')}>
+      <EmptyState
+        title={t('notFoundTitle')}
+        action={
+          <a className="text-link" href="/developers/sandbox">
+            {t('back')}
+          </a>
+        }
+      >
+        {t('notFoundBody')}
+      </EmptyState>
+    </Page>
+  );
+}
+
 const TEST_VALUE_NAME = {
   decline: 'valueDecline',
   acquirer_outage: 'valueOutage',
@@ -358,6 +573,5 @@ export function SandboxRoutes({ path }: { path: string }) {
   if (route.kind === 'test-values') return <TestValues />;
   if (route.kind === 'sandbox') return <SandboxPage id={route.id} />;
   if (route.kind === 'new-key') return <NewSandboxKey id={route.id} />;
-  // An address under the room's own path with no sandbox id it knows: the room's own not-found state.
-  return <SandboxNotFound />;
+  return <Unknown />;
 }

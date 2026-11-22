@@ -2,9 +2,6 @@ import { defineCopy } from '../../../shared/i18n';
 
 // P-ads-merchant-18 and -19: the payment methods a person gets paid with in P2P, and the catalogue they come from.
 const en = {
-  sectionsLabel: 'Payment methods sections',
-  explain:
-    'Each method you add or remove is confirmed with a passkey or an authenticator code. Saved details never come back whole: the list shows your own labels, Show details reads them masked, and a buyer sees them only on an order placed with you.',
   stepUpWhy: 'Buyers pay to the methods you save, so each one you add or remove needs a fresh check that it’s you.',
   stepUpCode: 'Authenticator code',
   stepUpCodeHint: 'The 6 digits your authenticator app shows now.',
@@ -90,9 +87,6 @@ const en = {
 } as const;
 
 const es: Record<keyof typeof en, string> = {
-  sectionsLabel: 'Secciones de métodos de pago',
-  explain:
-    'Cada método que añades o quitas se confirma con una llave de acceso o un código del autenticador. Los datos guardados nunca vuelven completos: la lista muestra tus propias etiquetas, Ver datos los lee enmascarados y un comprador los ve solo en un pedido hecho contigo.',
   stepUpWhy: 'Los compradores pagan a los métodos que guardas, así que añadir o quitar uno pide comprobar de nuevo que eres tú.',
   stepUpCode: 'Código del autenticador',
   stepUpCodeHint: 'Los 6 dígitos que muestra ahora tu app de autenticación.',
@@ -181,9 +175,6 @@ const es: Record<keyof typeof en, string> = {
 };
 
 const fr: Record<keyof typeof en, string> = {
-  sectionsLabel: 'Sections des moyens de paiement',
-  explain:
-    'Chaque moyen que vous ajoutez ou retirez est confirmé par une clé d’accès ou un code d’authentification. Les coordonnées enregistrées ne reviennent jamais en entier : la liste affiche vos propres libellés, Voir les coordonnées les lit masquées, et un acheteur ne les voit que sur une commande passée avec vous.',
   stepUpWhy:
     'Les acheteurs paient vers les moyens que vous enregistrez : en ajouter ou en retirer un demande une nouvelle vérification que c’est bien vous.',
   stepUpCode: 'Code de l’authentificateur',

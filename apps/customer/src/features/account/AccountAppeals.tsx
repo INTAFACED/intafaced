@@ -3,8 +3,7 @@ import type { AccountRestriction } from '@intafaced/contracts/identity-account-s
 import { APPEAL_TEXT_MAX, type Appeal } from '@intafaced/contracts/identity-appeals';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button } from '@intafaced/ui/lit';
-import { Failure, Loading } from './kit-parts';
+import { Failure, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { appealsCopy as copy } from './appeals-copy';
@@ -57,7 +56,7 @@ export function AccountAppeals({ restrictions }: { restrictions: readonly Accoun
   if (resource.status === 'failed' && resource.failure.code === 'identity.delegated_refused') return null;
   if (resource.status === 'failed')
     return (
-      <section data-testid="account-appeals">
+      <section className="account-appeals" data-testid="account-appeals">
         <h3>
           <Copy k="readFailed" />
         </h3>
@@ -101,7 +100,7 @@ export function AccountAppeals({ restrictions }: { restrictions: readonly Accoun
   }
 
   return (
-    <section aria-labelledby="account-appeals-title" data-testid="account-appeals">
+    <section className="account-appeals stack" aria-labelledby="account-appeals-title" data-testid="account-appeals">
       <h3 id="account-appeals-title">
         <Copy k="title" />
       </h3>
@@ -118,32 +117,30 @@ export function AccountAppeals({ restrictions }: { restrictions: readonly Accoun
         </p>
       )}
       {appealable && mine.windowDays !== null && !openOne && (
-        <form onSubmit={(e) => void send(e)} data-testid="account-appeals__form" noValidate>
-          <div className="lt-field">
-            <label htmlFor="appeal-text">
-              <Copy k="textLabel" />
-            </label>
-            <textarea
-              id="appeal-text"
-              name="appeal-text"
-              maxLength={APPEAL_TEXT_MAX}
-              value={text}
-              onChange={(e) => setText(e.currentTarget.value)}
-              aria-describedby="appeal-text-hint"
-              aria-invalid={empty || undefined}
-            />
-            <small id="appeal-text-hint">
-              <Copy k="textHint" params={{ max: String(APPEAL_TEXT_MAX) }} />
-            </small>
-          </div>
+        <form className="stack" onSubmit={(e) => void send(e)} data-testid="account-appeals__form" noValidate>
+          <label htmlFor="appeal-text">
+            <Copy k="textLabel" />
+          </label>
+          <textarea
+            id="appeal-text"
+            name="appeal-text"
+            maxLength={APPEAL_TEXT_MAX}
+            value={text}
+            onChange={(e) => setText(e.currentTarget.value)}
+            aria-describedby="appeal-text-hint"
+            aria-invalid={empty || undefined}
+          />
+          <small id="appeal-text-hint">
+            <Copy k="textHint" params={{ max: String(APPEAL_TEXT_MAX) }} />
+          </small>
           {empty && (
             <p role="alert">
               <Copy k="textEmpty" />
             </p>
           )}
-          <Button tone="primary" type="submit" disabled={busy}>
+          <button type="submit" className="button" disabled={busy}>
             <Copy k={busy ? 'sending' : 'send'} />
-          </Button>
+          </button>
         </form>
       )}
       {refusal && (

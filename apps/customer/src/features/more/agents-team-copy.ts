@@ -3,9 +3,6 @@ import { defineCopy } from '../../shared/i18n';
 const en = {
   title: 'Team',
   description: "Agent roles, the business pool, project limits, runs, approvals and usage for your business's team.",
-  sectionsLabel: 'Team sections',
-  explain:
-    'A deny always wins over an allow. A team run spends from the business pool, inside the member’s allocation and every project limit they are on; an action an agent holds waits for a second approver.',
   businessTitle: 'Business',
   businessPick: 'Business',
   businessClosedName: '{name} (closed)',

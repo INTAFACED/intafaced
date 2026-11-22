@@ -1,9 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ApiClient } from '../../shared/api';
 import type { JournalRead } from '../../shared/minimal-original-journal';
-import { Button } from '@intafaced/ui/lit';
-import { Sheet } from '@intafaced/ui/lit/templates';
-import { Loading } from './kit-parts';
+import { Button, Dialog, Loading } from '../../shared/ui';
 import { currentRoute, subscribeRoute } from '../../shared/route-watch';
 import { readApiKeyRecords, type ApiKeyRecord, type ApiKeyReadWindow } from './api-key-records-api';
 import {
@@ -422,7 +420,7 @@ export function useApiKeyRevocation(options: Options) {
 }
 
 export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiKeyRevocation> }) {
-  const { Copy, t } = copy.useCopy();
+  const { Copy } = copy.useCopy();
   const { saved, known, dialog, currentState } = action;
   const outcome = useRef<HTMLHeadingElement>(null);
   useLayoutEffect(() => {
@@ -447,7 +445,7 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
         ? 'api.revoke.no.change'
         : 'api.revoke.denied';
   const refs = (original: ApiKeyRevokeOriginal) => (
-    <dl>
+    <dl className="api-key-revoke__refs">
       <div>
         <dt>
           <Copy k="api.revoke.key.id" />
@@ -469,8 +467,8 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
   return (
     <>
       {known && (
-        <div data-testid="api-key-revoke--known" role="status">
-          <h3 ref={outcome} data-testid="api-key-revoke__outcome-heading" tabIndex={-1}>
+        <div className="api-key-revoke api-key-revoke--known" role="status">
+          <h3 ref={outcome} className="api-key-revoke__outcome-heading" tabIndex={-1}>
             <Copy k={proofTitle} />
           </h3>
           <p>
@@ -485,18 +483,18 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
             />
           </p>
           {known.proof === 'marked-revoked' && (
-            <p className="lt-hint">
+            <p className="muted">
               <Copy k="api.revoke.token.limit" />
             </p>
           )}
           {known.proof === 'no-matching-change' && (
-            <p className="lt-hint">
+            <p className="muted">
               <Copy k="api.revoke.no.change.limit" />
             </p>
           )}
           {refs(known.original)}
           {action.refreshRequired && (
-            <p className="lt-hint">
+            <p className="muted">
               <Copy k="api.revoke.refresh.next" />
             </p>
           )}
@@ -505,10 +503,10 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
               <h4>
                 <Copy k="api.revoke.cleanup.title" />
               </h4>
-              <p className="lt-hint">
+              <p className="muted">
                 <Copy k="api.revoke.cleanup.body" />
               </p>
-              <Button tone="secondary" onClick={() => void action.cleanup()}>
+              <Button variant="secondary" onClick={() => void action.cleanup()}>
                 <Copy k="api.revoke.cleanup.retry" />
               </Button>
             </>
@@ -516,22 +514,22 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
         </div>
       )}
       {!known && saved?.read.status === 'present' && (
-        <div data-testid="api-key-revoke--unknown" role="status">
-          <h3 ref={outcome} data-testid="api-key-revoke__outcome-heading" tabIndex={-1}>
+        <div className="api-key-revoke api-key-revoke--unknown" role="status">
+          <h3 ref={outcome} className="api-key-revoke__outcome-heading" tabIndex={-1}>
             <Copy k="api.revoke.unknown" />
           </h3>
           <p>
             <Copy k="api.revoke.unknown.body" />
           </p>
           {refs(saved.read.value)}
-          <p className="lt-hint">
+          <p className="muted">
             <Copy k="api.revoke.blocked.body" />
           </p>
-          <div data-testid="api-key-revoke__current">
+          <div className="api-key-revoke__current">
             <h4>
               <Copy k="api.revoke.current.title" />
             </h4>
-            <Button tone="secondary" disabled={currentState?.status === 'loading'} onClick={() => void action.readCurrent()}>
+            <Button variant="secondary" disabled={currentState?.status === 'loading'} onClick={() => void action.readCurrent()}>
               <Copy k="api.revoke.current.read" />
             </Button>
             {currentState?.status === 'loading' && <Loading label={<Copy k="api.records.loading" />} />}
@@ -550,21 +548,21 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
                 />
               </p>
             )}
-            <p className="lt-hint">
+            <p className="muted">
               <Copy k="api.revoke.current.limit" />
             </p>
           </div>
         </div>
       )}
       {saved?.read.status === 'unreadable' && (
-        <div data-testid="api-key-revoke--unavailable" role="status">
-          <h3 ref={known ? undefined : outcome} data-testid="api-key-revoke__outcome-heading" tabIndex={-1}>
+        <div className="api-key-revoke api-key-revoke--unavailable" role="status">
+          <h3 ref={known ? undefined : outcome} className="api-key-revoke__outcome-heading" tabIndex={-1}>
             <Copy k="api.revoke.unavailable" />
           </h3>
-          <p className="lt-hint">
+          <p className="muted">
             <Copy k="api.revoke.unavailable.body" />
           </p>
-          <Button tone="secondary" onClick={action.retryRead}>
+          <Button variant="secondary" onClick={action.retryRead}>
             <Copy k="api.revoke.retry.local" />
           </Button>
         </div>
@@ -575,13 +573,13 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
         </p>
       )}
       {dialog && (
-        <Sheet open title={t('api.revoke.review.title')} onClose={action.close}>
-          <div data-testid="api-key-revoke__review">
-            <p className="lt-hint">
+        <Dialog title={<Copy k="api.revoke.review.title" />} onClose={action.close}>
+          <div className="api-key-revoke__review">
+            <p className="muted">
               <Copy k="api.revoke.review.source" />
             </p>
             <h3>{dialog.review.target.name ? <bdi lang="und">{dialog.review.target.name}</bdi> : <Copy k="api.records.unnamed" />}</h3>
-            <dl>
+            <dl className="api-key-revoke__refs">
               <div>
                 <dt>
                   <Copy k="api.revoke.key.id" />
@@ -623,7 +621,7 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
             <p>
               <Copy k="api.revoke.consequence" />
             </p>
-            <p className="lt-hint">
+            <p className="muted">
               <Copy k="api.revoke.token.limit" />
             </p>
             {dialog.phase === 'sending' && <Loading label={<Copy k="api.revoke.sending" />} />}
@@ -632,18 +630,18 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
                 <Copy k={known ? proofTitle : saved?.read.status === 'present' ? 'api.revoke.unknown' : 'api.revoke.admission.refused'} />
               </p>
             )}
-            <div className="lt-actions" data-testid="api-key-revoke__actions">
+            <div className="api-key-revoke__actions">
               {dialog.phase === 'review' && (
-                <Button tone="primary" onClick={() => void action.confirm()}>
+                <Button onClick={() => void action.confirm()}>
                   <Copy k="api.revoke.confirm" />
                 </Button>
               )}
-              <Button tone="secondary" onClick={action.close}>
+              <Button variant="secondary" onClick={action.close}>
                 <Copy k={dialog.phase === 'review' ? 'api.revoke.cancel' : 'api.revoke.close'} />
               </Button>
             </div>
           </div>
-        </Sheet>
+        </Dialog>
       )}
     </>
   );

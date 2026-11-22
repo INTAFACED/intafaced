@@ -1,6 +1,6 @@
 export { createMoneyClient } from './client';
-export { EligibilityStatement } from './eligibility/Eligibility';
+export { DepthPanel, Fact } from './DepthParts';
+export { EligibilityStatement } from './Eligibility';
 export { StepUpConfirm } from './StepUpConfirm';
-export { StepUpInline } from './bank-settings/StepUpInline';
-export { StepUpSheet } from './bank-settings/StepUpSheet';
+export { WithdrawStepUp } from './WithdrawStepUp';
 export { useSupportedAssets } from './supported-assets-reads';

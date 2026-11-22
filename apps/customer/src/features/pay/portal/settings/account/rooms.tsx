@@ -5,16 +5,15 @@ import { readyAccess, useMerchantAccess } from '../../access/MerchantAccess';
 import { Gate } from '../../components';
 import type { RoomTable } from '../../rooms-model';
 import { Activity } from '../activity/Activity';
-import { ComplianceRoom } from '../onboarding/Compliance';
+import { Compliance } from '../onboarding/Compliance';
 import { Onboarding } from '../onboarding/Onboarding';
-import { BusinessSettingsRoom } from '../profile/BusinessSettings';
+import { BusinessSettings } from '../profile/BusinessSettings';
 import { Security } from '../security/Security';
-import { InvitationsOnly, TeamRoom } from '../team/Team';
+import { InvitationsOnly, Team } from '../team/Team';
 import { NoBusiness } from '../../access/NoBusiness';
 import { Network } from '../network/Network';
 import { NetworkChild } from '../network/NetworkChild';
-import { PermissionsRoom as PermissionsSettings } from '../network/Permissions';
-import { LinkButton } from '../../volt/parts';
+import { Permissions } from '../network/Permissions';
 import { extensionCopy, portalCopy, settingsCopy } from '../copy';
 import type { PortalApi } from '../../api';
 import { accountCopy } from './copy';
@@ -44,7 +43,8 @@ function NetworkChildRoom({ portal, child }: { portal: PortalApi; child: string 
   return <WithAccount>{() => <NetworkChild portal={portal} childId={child} mode={mode} />}</WithAccount>;
 }
 function PermissionsRoom({ portal }: { portal: PortalApi }) {
-  return <PermissionsSettings portal={portal} mode={useMode()} />;
+  const mode = useMode();
+  return <WithAccount>{({ merchantId }) => <Permissions portal={portal} merchantId={merchantId} mode={mode} />}</WithAccount>;
 }
 
 /** The pages the account package owns: setup, business details, team, security, activity and the platform network. */
@@ -53,28 +53,25 @@ export const accountRooms: RoomTable = {
     header: () => ({
       title: extensionCopy.t('complianceTitle'),
       purpose: extensionCopy.t('compliancePurpose'),
-      action: (
-        <LinkButton href="/pay/onboarding/verification" tone="primary">
-          {extensionCopy.t('verificationAction')}
-        </LinkButton>
-      ),
+      action: link('/pay/onboarding/verification', extensionCopy.t('verificationAction'), 'primary'),
     }),
-    ownTitle: true,
-    render: (_route, { portal }) => <ComplianceRoom portal={portal} />,
+    render: (_route, { portal }) => (
+      <WithAccount>{({ merchantId, role }) => <Compliance portal={portal} merchantId={merchantId} role={role} />}</WithAccount>
+    ),
   },
   settings: {
     header: () => ({
       title: accountCopy.t('businessTitle'),
       purpose: accountCopy.t('businessPurpose'),
     }),
-    ownTitle: true,
-    render: (_route, { portal }) => <BusinessSettingsRoom portal={portal} />,
+    render: (_route, { portal }) => (
+      <WithAccount>{({ merchantId }) => <BusinessSettings portal={portal} merchantId={merchantId} />}</WithAccount>
+    ),
   },
   'settings-security': {
     header: () => ({ title: settingsCopy.t('securityTitle'), purpose: settingsCopy.t('securityPurpose') }),
     here: '/pay/settings/security',
-    ownTitle: true,
-    render: () => <Security />,
+    render: () => <WithAccount>{() => <Security />}</WithAccount>,
   },
   onboarding: {
     withoutBusiness: 'render',
@@ -104,14 +101,13 @@ export const accountRooms: RoomTable = {
       ),
   },
   team: {
-    header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: <LinkButton href="#invite">{t('actInvite')}</LinkButton> }),
+    header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: link('#invite', t('actInvite')) }),
     withoutBusiness: ({ portal }) => (
       <NoBusiness>
         <InvitationsOnly portal={portal} />
       </NoBusiness>
     ),
-    ownTitle: true,
-    render: (_route, { portal }) => <TeamRoom portal={portal} />,
+    render: (_route, { portal }) => <WithAccount>{() => <Team portal={portal} />}</WithAccount>,
   },
   activity: {
     header: () => ({ title: settingsCopy.t('activityTitle'), purpose: settingsCopy.t('activityPurpose') }),
@@ -128,7 +124,6 @@ export const accountRooms: RoomTable = {
   },
   permissions: {
     header: () => ({ title: settingsCopy.t('permissionsTitle'), purpose: settingsCopy.t('permissionsPurpose') }),
-    ownTitle: true,
     render: (_route, { portal }) => <PermissionsRoom portal={portal} />,
   },
 };

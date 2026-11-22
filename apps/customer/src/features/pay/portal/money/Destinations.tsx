@@ -1,18 +1,18 @@
-// volt-room: /pay/payouts/destinations
-// volt-room: portal:payout-destinations
 import { useState } from 'react';
-import { Field } from '@intafaced/ui/lit';
+import { Field } from '../../ui-kit';
 import { useResource } from '../../../../shared/resource';
+import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
+import { PortalFailure, PortalLoading, SelectField } from '../components';
 import type { PortalApi } from '../api';
 import { isNotLive } from '../refusal';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { DateTime } from '../ui/DateTime';
+import { Freshness } from '../ui/Freshness';
+import { KpiStrip } from '../ui/Kpi';
+import { PortalReview } from '../ui/PortalReview';
 import { useServerList } from '../ui/useServerList';
-import { Failure, Freshness, KpiStrip, Loading, Section, SelectField } from '../volt/parts';
-import { Review as PortalReview } from '../volt/Review';
-import { SettingsRoom } from '../volt/SettingsRoom';
-import { ListBody, TestBanner } from './kit-parts';
+import { ListBody, TestBanner } from './common';
 import { mc } from './copy';
 import { describeDestination, railWords, sameMasked } from './destination';
 import { defaultDestination, destinationKindOfRail } from './model';
@@ -37,7 +37,7 @@ export function referenceProblem(kind: 'crypto' | 'bank', ref: string): 'empty' 
 export const normaliseReference = (ref: string): string => ref.replace(/\s+/g, '');
 
 /** `/pay/payouts/destinations`: where your payouts can go. Full numbers and addresses are never shown again once saved. */
-function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+export function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const [said, setSaid] = useState<string | null>(null);
   const list = useServerList(
@@ -55,7 +55,7 @@ function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: s
   const defaultRow = defaultDestination(rows);
   const count = list.state.status === 'ready' ? (list.state.hasMore ? t('mnCountNewest', { n: rows.length }) : String(rows.length)) : '—';
   return (
-    <>
+    <div className="stack">
       <TestBanner />
       <Freshness asOf={readAt} />
       <KpiStrip
@@ -81,32 +81,41 @@ function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: s
           { label: t('dstScreening'), period: t('mnPeriodNow'), href: '/pay/payouts/destinations', value: t('notRecorded'), size: 'text' },
         ]}
       />
-      <Section id={SECTION.saved} title={t('dstTable')}>
-        <ListBody
-          state={list.state}
-          retry={() => list.reload()}
-          onMore={list.loadMore}
-          empty={{ title: t('dstEmptyTitle'), body: t('dstEmptyBody') }}
-          label={t('dstTable')}
-          rowKey={(d) => d.id}
-          columns={[
-            { header: t('mnColDestination'), cell: (d) => describeDestination(t, d.kind, d.destinationMasked, d.railId) },
-            { header: t('dstStatus'), cell: (d) => <DestinationState item={d} /> },
-            {
-              header: t('dstDefault'),
-              cell: (d) => (isDefaultDestination(d) ? <strong>{t('dstDefaultYes')}</strong> : <span>{t('dstDefaultNo')}</span>),
-            },
-            { header: t('dstScreening'), cell: () => <span>{t('notRecorded')}</span> },
-            { header: t('mnColAdded'), cell: (d) => <DateTime value={d.createdAt} /> },
-            {
-              header: t('dstLastUsed'),
-              cell: (d) => (d.lastUsedAt ? <DateTime value={d.lastUsedAt} /> : <span>{t('mnNever')}</span>),
-            },
-          ]}
-        />
-      </Section>
+      <ListBody
+        state={list.state}
+        retry={() => list.reload()}
+        onMore={list.loadMore}
+        empty={{ title: t('dstEmptyTitle'), body: t('dstEmptyBody') }}
+        label={t('dstTable')}
+        rowKey={(d) => d.id}
+        columns={[
+          { header: t('mnColDestination'), cell: (d) => describeDestination(t, d.kind, d.destinationMasked, d.railId) },
+          { header: t('dstStatus'), cell: (d) => <DestinationState item={d} /> },
+          {
+            header: t('dstDefault'),
+            cell: (d) =>
+              isDefaultDestination(d) ? <strong>{t('dstDefaultYes')}</strong> : <span className="muted">{t('dstDefaultNo')}</span>,
+          },
+          { header: t('dstScreening'), cell: () => <span className="muted">{t('notRecorded')}</span> },
+          { header: t('mnColAdded'), cell: (d) => <DateTime value={d.createdAt} /> },
+          {
+            header: t('dstLastUsed'),
+            cell: (d) => (d.lastUsedAt ? <DateTime value={d.lastUsedAt} /> : <span className="muted">{t('mnNever')}</span>),
+          },
+        ]}
+        card={(d) => ({
+          title: describeDestination(t, d.kind, d.destinationMasked, d.railId),
+          time: <DateTime value={d.createdAt} />,
+          status: (
+            <span>
+              <DestinationState item={d} />
+              {isDefaultDestination(d) && <strong> · {t('dstDefaultYes')}</strong>}
+            </span>
+          ),
+        })}
+      />
       {said && (
-        <p className="lt-hint" role="status">
+        <p className="pp-callout" role="status">
           {said}
         </p>
       )}
@@ -120,28 +129,7 @@ function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: s
         listState={list.state.status === 'ready' ? 'ready' : list.state.status === 'loading' ? 'loading' : 'failed'}
         onAdded={list.reload}
       />
-    </>
-  );
-}
-
-/** Where the page's index links to. */
-const SECTION = { saved: 'destinations-saved', manage: 'destinations-manage', add: 'destinations-add' };
-
-/** `/pay/payouts/destinations` on the settings template: the index of its parts, what it means, and the page for the account. */
-export function DestinationsRoom({ portal }: { portal: PortalApi }) {
-  const { t } = mc.useCopy();
-  return (
-    <SettingsRoom
-      need="settlements.read"
-      sections={[
-        { id: SECTION.saved, label: t('dstTable') },
-        { id: SECTION.manage, label: t('dstManageTitle') },
-        { id: SECTION.add, label: t('dstAddTitle') },
-      ]}
-      explain={<p>{t('destinationsExplain')}</p>}
-    >
-      {({ merchantId }) => <Destinations portal={portal} merchantId={merchantId} />}
-    </SettingsRoom>
+    </div>
   );
 }
 
@@ -251,13 +239,13 @@ function ManageDestinations({
   const { can } = useMerchantAccess();
   const owner = can('owner');
   return (
-    <Section id={SECTION.manage} title={t('dstManageTitle')} description={t('dstManageBody')}>
-      <ul aria-label={t('dstManageLabel')}>
+    <PaySection title={t('dstManageTitle')} description={t('dstManageBody')}>
+      <ul className="pp-manage" aria-label={t('dstManageLabel')} style={{ listStyle: 'none', padding: 0, margin: 0 }}>
         {rows.map((d) => {
           const name = describeDestination(t, d.kind, d.destinationMasked, d.railId);
           const isDefault = isDefaultDestination(d);
           const review = (
-            <dl data-testid="pp-facts" className="lt-kv">
+            <dl data-testid="pp-facts" className="pp-facts">
               <div>
                 <dt>{t('mnColDestination')}</dt>
                 <dd>{name}</dd>
@@ -271,11 +259,11 @@ function ManageDestinations({
             </dl>
           );
           return (
-            <li key={d.id}>
-              <p>
+            <li key={d.id} className="pp-actions" style={{ justifyContent: 'space-between', gap: 12, padding: '8px 0' }}>
+              <span>
                 {name} · <DestinationState item={d} /> {isDefault && <strong>· {t('dstDefaultYes')}</strong>}
-              </p>
-              <div className="lt-actions">
+              </span>
+              <span className="pp-actions">
                 {d.state === 'unverified' && (
                   <VerifyDestination
                     portal={portal}
@@ -330,13 +318,13 @@ function ManageDestinations({
                     onChanged();
                   }}
                 />
-              </div>
+              </span>
             </li>
           );
         })}
       </ul>
-      {!owner && <p className="lt-hint">{t('dstManageOwnerOnly')}</p>}
-    </Section>
+      {!owner && <p className="muted pp-note">{t('dstManageOwnerOnly')}</p>}
+    </PaySection>
   );
 }
 
@@ -354,14 +342,14 @@ export function SaveReview({
 }) {
   const { t } = mc.useCopy();
   return (
-    <dl data-testid="pp-facts" className="lt-kv">
+    <dl data-testid="pp-facts" className="pp-facts">
       <div>
         <dt>{t('dstRail')}</dt>
         <dd>{railWords(t, railId)}</dd>
       </div>
       <div>
         <dt>{kind === 'bank' ? t('dstRefBankLabel') : t('dstRefCryptoLabel')}</dt>
-        <dd data-testid="pp-mono" className="lt-mono">
+        <dd data-testid="pp-mono" className="pp-mono pp-wrap">
           {sentRef}
         </dd>
       </div>
@@ -439,17 +427,17 @@ function AddDestination({
   const block = saveBlock({ owner, listState, hasRail: rail !== null, problem });
   const why = block ? t(block) : null;
   return (
-    <Section id={SECTION.add} title={t('dstAddTitle')} description={t('dstAddBody')}>
+    <PaySection title={t('dstAddTitle')} description={t('dstAddBody')}>
       {rails.resource.status === 'loading' ? (
-        <Loading rows={1} />
+        <PortalLoading rows={1} />
       ) : rails.resource.status === 'failed' ? (
         isNotLive(rails.resource.failure) ? null : (
-          <Failure result={rails.resource.failure} retry={rails.reload} />
+          <PortalFailure result={rails.resource.failure} retry={rails.reload} />
         )
       ) : options.length === 0 ? (
-        <p className="lt-hint">{t('dstNoRails')}</p>
+        <p className="muted">{t('dstNoRails')}</p>
       ) : (
-        <form data-testid="form-stack" noValidate onSubmit={(e) => e.preventDefault()}>
+        <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
           <SelectField
             label={t('dstRail')}
             value={rail?.id ?? ''}
@@ -498,12 +486,12 @@ function AddDestination({
             }}
           />
           {saved && (
-            <p className="lt-hint" role="status">
+            <p className="pp-callout" role="status">
               {saved === 'replaced' ? t('dstReplaced') : t('dstSavedUnverified')}
             </p>
           )}
         </form>
       )}
-    </Section>
+    </PaySection>
   );
 }

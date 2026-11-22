@@ -126,29 +126,16 @@
 </nav>
 </div>
 <div data-testid="pp" class="plo-content pp">
-<div class="lt-room" data-template="settings" data-state="refused" data-mode="simple">
-<header class="lt-title-row">
+<header data-testid="plo-heading" class="plo-heading">
 <div>
-<h1 class="lt-title">Business</h1>
-<p class="lt-description">Your business details, who changed them, and what is waiting for review.</p>
-</div>
-<div class="lt-room-action">
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+<h1>Business</h1>
+<p>Your business details, who changed them, and what is waiting for review.</p>
 </div>
 </header>
-<div class="lt-body">
-<div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="sections" aria-label="Settings" data-holds-state="">
-<div class="lt-refusal" data-refusal="unreachable" role="alert">
-<p class="lt-refusal-title">We could not connect</p>
-<p class="lt-refusal-body">We could not reach the service. Check your connection and try again.</p>
-</div>
-</section>
-<section class="lt-region" data-region="explain" aria-label="What this means">
-<p>Some changes to your business details wait for review before they take effect. Every change is recorded with who made it.</p>
-</section>
-</div>
-</div>
+<div data-testid="failure" class="failure" role="status">
+<h3>We could not connect</h3>
+<p>We could not reach the service. Check your connection and try again.</p>
+<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
 </div>
 </div>
 </div>

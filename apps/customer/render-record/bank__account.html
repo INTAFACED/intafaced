@@ -97,82 +97,73 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
-<header class="lt-title-row">
+<div data-testid="page" class="page">
+<header data-testid="page-heading" class="page-heading">
 <div>
-<h1 class="lt-title">Your bank account</h1>
-<p class="lt-description">Onboarding, requests and reviews from the bank partner, closing the account and your data.</p>
+<p class="eyebrow">Money / Bank</p>
+<h1>Your bank account</h1>
+<p class="muted">Onboarding, requests and reviews from the bank partner, closing the account and your data.</p>
 </div>
-<div class="lt-room-action">
-<a class="lt-button lt-button-secondary" href="/bank">Bank overview</a>
+<div class="actions">
+<a class="button button--secondary" href="/bank">
+<span lang="en" dir="ltr" data-i18n="customer.money.rooms.bank.overview">Bank overview</span>
+</a>
 </div>
 </header>
-<div class="lt-body">
-<div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav class="lt-tabs" aria-label="Bank rooms">
-<a href="/bank" class="lt-tab" aria-current="page">Overview</a>
-<a href="/bank/spaces" class="lt-tab">Spaces</a>
-<a href="/bank/transfers" class="lt-tab">Transfers</a>
-<a href="/bank/earn" class="lt-tab">Earn</a>
-<a href="/bank/loans" class="lt-tab">Loans</a>
-<a href="/bank/cards" class="lt-tab">Cards</a>
-<a href="/bank/ramps" class="lt-tab">Ramps</a>
-<a href="/bank/analytics" class="lt-tab">Analytics</a>
-<a href="/bank/business" class="lt-tab">Business</a>
+<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
+<a href="/bank" aria-current="page">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
+</a>
+<a href="/bank/spaces">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
+</a>
+<a href="/bank/transfers">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
+</a>
+<a href="/bank/earn">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
+</a>
+<a href="/bank/loans">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
+</a>
+<a href="/bank/cards">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
+</a>
+<a href="/bank/ramps">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
+</a>
+<a href="/bank/analytics">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
+</a>
+<a href="/bank/business">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
+</a>
 </nav>
-<nav aria-label="Bank account sections">
-<ul>
-<li>
-<a class="lt-link" href="#bank-account-onboarding">Onboarding</a>
-</li>
-<li>
-<a class="lt-link" href="#bank-account-requests">Information requests</a>
-</li>
-<li>
-<a class="lt-link" href="#bank-account-reviews">Periodic reviews</a>
-</li>
-<li>
-<a class="lt-link" href="#bank-account-closure">Close your bank account</a>
-</li>
-<li>
-<a class="lt-link" href="#bank-account-data">Your data</a>
-</li>
-</ul>
-</nav>
+<div class="bd-stack" data-testid="bank-account">
+<section class="bd-panel" aria-labelledby="_r_3_">
+<h3 id="_r_3_">Onboarding</h3>
+<p role="alert" class="error-text" data-code="">This could not be read from the bank: No services run in the look gate.</p>
 </section>
-<section class="lt-region" data-region="sections" aria-label="Settings">
-<div data-testid="bank-account">
-<section aria-labelledby="_r_3_" id="bank-account-onboarding">
-<h2 id="_r_3_">Onboarding</h2>
-<p role="alert" data-code="">This could not be read from the bank: No services run in the look gate.</p>
+<section class="bd-panel" aria-labelledby="_r_4_">
+<h3 id="_r_4_">Information requests</h3>
+<p class="money-caption">What  asks you for. Answer each one with one file before its deadline.</p>
+<p role="alert" class="error-text" data-code="">This could not be read from the bank: No services run in the look gate.</p>
 </section>
-<section aria-labelledby="_r_4_" id="bank-account-requests">
-<h2 id="_r_4_">Information requests</h2>
-<p class="lt-hint">What  asks you for. Answer each one with one file before its deadline.</p>
-<p role="alert" data-code="">This could not be read from the bank: No services run in the look gate.</p>
+<section class="bd-panel" aria-labelledby="_r_5_">
+<h3 id="_r_5_">Periodic reviews</h3>
+<p class="money-caption"> checks your account details from time to time.</p>
+<p role="alert" class="error-text" data-code="">This could not be read from the bank: No services run in the look gate.</p>
 </section>
-<section aria-labelledby="_r_5_" id="bank-account-reviews">
-<h2 id="_r_5_">Periodic reviews</h2>
-<p class="lt-hint"> checks your account details from time to time.</p>
-<p role="alert" data-code="">This could not be read from the bank: No services run in the look gate.</p>
+<section class="bd-panel" aria-labelledby="_r_6_">
+<h3 id="_r_6_">Close your bank account</h3>
+<p class="money-caption">Closing asks  to pay out what the account holds to the destination you name. While it is closing, no money moves in or out.</p>
+<p role="alert" class="error-text" data-code="">This could not be read from the bank: No services run in the look gate.</p>
 </section>
-<section aria-labelledby="_r_6_" id="bank-account-closure">
-<h2 id="_r_6_">Close your bank account</h2>
-<p class="lt-hint">Closing asks  to pay out what the account holds to the destination you name. While it is closing, no money moves in or out.</p>
-<p role="alert" data-code="">This could not be read from the bank: No services run in the look gate.</p>
+<section class="bd-panel" aria-labelledby="_r_7_">
+<h3 id="_r_7_">Your data</h3>
+<p class="money-caption">Ask  for a copy of the data it holds about your bank account.</p>
+<p role="alert" class="error-text" data-code="">This could not be read from the bank: No services run in the look gate.</p>
 </section>
-<section aria-labelledby="_r_7_" id="bank-account-data">
-<h2 id="_r_7_">Your data</h2>
-<p class="lt-hint">Ask  for a copy of the data it holds about your bank account.</p>
-<p role="alert" data-code="">This could not be read from the bank: No services run in the look gate.</p>
-</section>
-</div>
-</section>
-<section class="lt-region" data-region="explain" aria-label="What this means">
-<p>Every step, requirement, deadline, cap and window here is the bank partner’s own, read as it stands now. An answer goes to the partner as it is sent; closing restricts the account until the partner pays out what it holds, and a data request is recorded with the partner’s reference.</p>
-</section>
-</div>
 </div>
 </div>
 </div>

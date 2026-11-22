@@ -638,10 +638,10 @@ test('native visible screen passes serious and critical accessibility checks', a
 test('known outcome updates an already mounted nonsecret polite status', async ({ context, page }) => {
   await network(context);
   await login(page);
-  await expect(page.locator('[data-testid="subaccounts__announcement"]')).toHaveText('');
+  await expect(page.locator('.subaccounts__announcement')).toHaveText('');
   await page.evaluate(() => {
     window.statusUpdates = [];
-    const region = document.querySelector('[data-testid="subaccounts__announcement"]');
+    const region = document.querySelector('.subaccounts__announcement');
     new MutationObserver(() => window.statusUpdates.push(region.textContent)).observe(region, {
       childList: true,
       characterData: true,
@@ -649,10 +649,8 @@ test('known outcome updates an already mounted nonsecret polite status', async (
     });
   });
   await create(page);
-  await expect(page.locator('[data-testid="subaccounts__announcement"]')).toHaveText(
-    'The service created the original strategy subaccount.',
-  );
-  await expect(page.locator('[data-testid="subaccounts__announcement"]')).toHaveAttribute('aria-live', 'polite');
+  await expect(page.locator('.subaccounts__announcement')).toHaveText('The service created the original strategy subaccount.');
+  await expect(page.locator('.subaccounts__announcement')).toHaveAttribute('aria-live', 'polite');
   const messages = await page.evaluate(() => window.statusUpdates);
   expect(messages).toContain('The service created the original strategy subaccount.');
   expect(messages.join(' ')).not.toContain('Private purpose');

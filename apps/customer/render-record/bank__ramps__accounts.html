@@ -97,78 +97,84 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
-<header class="lt-title-row">
+<div data-testid="page" class="page">
+<header data-testid="page-heading" class="page-heading">
 <div>
-<h1 class="lt-title">Linked bank accounts</h1>
-<p class="lt-description">Your own accounts at other banks, to add money from and to cash out to.</p>
+<p class="eyebrow">Money / Bank</p>
+<h1>Linked bank accounts</h1>
+<p class="muted">Your own accounts at other banks, to add money from and to cash out to.</p>
 </div>
 </header>
-<div class="lt-body">
-<div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav class="lt-tabs" aria-label="Bank rooms">
-<a href="/bank" class="lt-tab">Overview</a>
-<a href="/bank/spaces" class="lt-tab">Spaces</a>
-<a href="/bank/transfers" class="lt-tab">Transfers</a>
-<a href="/bank/earn" class="lt-tab">Earn</a>
-<a href="/bank/loans" class="lt-tab">Loans</a>
-<a href="/bank/cards" class="lt-tab">Cards</a>
-<a href="/bank/ramps" class="lt-tab" aria-current="page">Ramps</a>
-<a href="/bank/analytics" class="lt-tab">Analytics</a>
-<a href="/bank/business" class="lt-tab">Business</a>
+<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
+<a href="/bank">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
+</a>
+<a href="/bank/spaces">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
+</a>
+<a href="/bank/transfers">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
+</a>
+<a href="/bank/earn">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
+</a>
+<a href="/bank/loans">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
+</a>
+<a href="/bank/cards">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
+</a>
+<a href="/bank/ramps" aria-current="page">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
+</a>
+<a href="/bank/analytics">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
+</a>
+<a href="/bank/business">
+<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
+</a>
 </nav>
-<nav aria-label="Linked account sections">
-<ul>
-<li>
-<a class="lt-link" href="#linked-accounts-list">Your linked accounts</a>
-</li>
-<li>
-<a class="lt-link" href="#linked-accounts-add">Link a bank account</a>
-</li>
-</ul>
-</nav>
-<a class="lt-link" href="/bank/ramps">Back to cash and crypto</a>
-</section>
-<section class="lt-region" data-region="sections" aria-label="Settings">
-<section aria-labelledby="_r_3_" id="linked-accounts-list">
-<h2 id="_r_3_">Your linked accounts</h2>
-<p class="lt-hint">Each account with its state. An account can be used only once the bank has verified it.</p>
-<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
-<h3 class="lt-refusal-title">Can’t connect right now</h3>
-<p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+<div class="bd-stack">
+<section class="bd-panel" aria-labelledby="_r_3_">
+<h3 id="_r_3_">Your linked accounts</h3>
+<p class="money-caption">Each account with its state. An account can be used only once the bank has verified it.</p>
+<div data-testid="failure" class="failure" role="status">
+<h3>
+<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
+</h3>
+<p>No services run in the look gate.</p>
+<button type="button" class="button button--secondary ">
+<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
+</button>
 </div>
 </section>
-<section aria-labelledby="_r_4_" id="linked-accounts-add">
-<h2 id="_r_4_">Link a bank account</h2>
-<p class="lt-hint">The account must be in your name. It stays unverified, and cannot be used, until the bank verifies it.</p>
-<form novalidate="" aria-label="Link a bank account">
-<div class="lit-field-control">
-<label for="_r_5_">Name for this account</label>
-<input maxlength="64" autocomplete="off" id="_r_5_" aria-describedby="_r_5_-hint" value="">
-<span id="_r_5_-hint" data-part="hint">Up to 64 characters, such as "Salary account".</span>
-</div>
-<div class="lit-field-control">
-<label for="_r_6_">Account holder</label>
-<input maxlength="140" autocomplete="name" id="_r_6_" aria-describedby="_r_6_-hint" value="">
-<span id="_r_6_-hint" data-part="hint">Your name as your bank shows it.</span>
-</div>
-<div class="lit-field-control">
-<label for="_r_7_">IBAN</label>
-<input maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" id="_r_7_" aria-describedby="_r_7_-hint" value="">
-<span id="_r_7_-hint" data-part="hint">Two letters, two check digits and the account number. Spaces are fine.</span>
-</div>
-<div class="lt-actions">
-<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Link account</button>
+<section class="bd-panel" aria-labelledby="_r_4_">
+<h3 id="_r_4_">Link a bank account</h3>
+<p class="money-caption">The account must be in your name. It stays unverified, and cannot be used, until the bank verifies it.</p>
+<form class="bd-stack" novalidate="" aria-label="Link a bank account">
+<label class="field" for="field-_r_5_">
+<span id="field-_r_5_-label">Name for this account</span>
+<input maxlength="64" autocomplete="off" id="field-_r_5_" aria-labelledby="field-_r_5_-label" aria-invalid="false" aria-describedby="field-_r_5_-help" value="">
+<small id="field-_r_5_-help" class="">Up to 64 characters, such as "Salary account".</small>
+</label>
+<label class="field" for="field-_r_6_">
+<span id="field-_r_6_-label">Account holder</span>
+<input maxlength="140" autocomplete="name" id="field-_r_6_" aria-labelledby="field-_r_6_-label" aria-invalid="false" aria-describedby="field-_r_6_-help" value="">
+<small id="field-_r_6_-help" class="">Your name as your bank shows it.</small>
+</label>
+<label class="field" for="field-_r_7_">
+<span id="field-_r_7_-label">IBAN</span>
+<input maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" id="field-_r_7_" aria-labelledby="field-_r_7_-label" aria-invalid="false" aria-describedby="field-_r_7_-help" value="">
+<small id="field-_r_7_-help" class="">Two letters, two check digits and the account number. Spaces are fine.</small>
+</label>
+<div class="actions">
+<button type="submit" class="button button--primary ">Link account</button>
 </div>
 </form>
 </section>
-</section>
-<section class="lt-region" data-region="explain" aria-label="What this means">
-<p>A linked account is your own account at another bank, where cash outs are paid. Every account starts unverified and only a banking partner can verify one; linking and removing each ask you to confirm it is you.</p>
-</section>
-</div>
+<p>
+<a class="text-link" href="/bank/ramps">Back to cash and crypto</a>
+</p>
 </div>
 </div>
 </div>

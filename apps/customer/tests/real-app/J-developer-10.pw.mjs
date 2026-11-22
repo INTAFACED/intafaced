@@ -207,7 +207,7 @@ test(`${J} #2 adds an endpoint when the cap is blank: cap-unset; with a cap the 
   await add.getByRole('button', { name: 'Add endpoint' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Add endpoint' }).click();
   expect((await created).status()).toBe(200);
-  const secret = page.getByTestId('secret-reveal');
+  const secret = page.locator('section.pp-secret');
   await expect(secret.getByRole('heading', { name: 'Signing secret for the new endpoint' })).toBeVisible();
   const row = (await hooksRead('list', { limit: 50 })).items.find((e) => e.url === url);
   expect(row, 'the endpoint is written').toMatchObject({ status: 'active' });
@@ -278,12 +278,12 @@ test(`${J} #5 rolls the signing secret with overlap: shown once, two signatures 
   const answer = await (await rolled).json();
   const fresh = (Array.isArray(answer) ? answer[0] : answer).result.data.secret;
   expect(fresh).toMatch(/^[0-9a-f]{64}$/);
-  const reveal = page.getByTestId('secret-reveal');
+  const reveal = page.locator('section.pp-secret');
   await expect(reveal.getByRole('heading', { name: 'New signing secret for this endpoint' })).toBeVisible();
   await expect(reveal.locator('code')).toHaveText(fresh);
   // Shown once: the page forgets it on reload, and no read of the endpoint carries it.
   await page.reload();
-  await expect(page.getByTestId('secret-reveal')).toHaveCount(0);
+  await expect(page.locator('section.pp-secret')).toHaveCount(0);
   await expect(page.getByText(fresh)).toHaveCount(0);
   const row = await endpointRow(endpoints.live.id);
   expect(JSON.stringify(row)).not.toContain(fresh);

@@ -82,7 +82,7 @@ describe('Membership on Account (W-balances-04)', () => {
   it('identity unreachable: a refusal with retry, never a tier', async () => {
     await show({ ok: false, reason: 'error', code: 'identity.unavailable', message: 'down' });
     expect(host.querySelector('[data-testid="membership"]')).toBeNull();
-    expect(host.querySelector('[data-testid="failure"]')).not.toBeNull();
+    expect(host.querySelector('.failure')).not.toBeNull();
   });
 
   it('an answer that breaks the schema is a refusal, never a tier', async () => {
@@ -95,7 +95,7 @@ describe('Membership on Account (W-balances-04)', () => {
       },
     });
     expect(host.querySelector('[data-tier]')).toBeNull();
-    expect(host.querySelector('[data-testid="failure"]')).not.toBeNull();
+    expect(host.querySelector('.failure')).not.toBeNull();
   });
 
   it('the schema refuses an answer that invents a current tier or drops the code', () => {

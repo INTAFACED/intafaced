@@ -57,9 +57,6 @@ const en = {
   'identity.delegated_refused': 'Sign in with your own account to do this.',
 
   back: 'All sandboxes',
-  sectionsLabel: 'Sandbox sections',
-  explain:
-    'A sandbox key works only at the sandbox address. Fund adds the owner’s TEST amount and Reset puts every balance back to zero, as often as the owner’s daily limit allows; no figure here is real money.',
   keysHeading: 'Keys for this sandbox',
   colKey: 'Key',
   colPrefix: 'Starts with',

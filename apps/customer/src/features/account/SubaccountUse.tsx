@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
-import { Button } from '@intafaced/ui/lit';
+import { Button } from '../../shared/ui';
 
 const copy = defineCopy('account.subaccounts.use', {
   use: 'Use this sub-account',
@@ -21,7 +21,7 @@ export function SubaccountUse({ subAccountId }: { subAccountId: string }) {
   const { session, enterSubAccount } = useSession();
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
-  if (session?.subAccountId === subAccountId) return <span>{t('using')}</span>;
+  if (session?.subAccountId === subAccountId) return <span className="subaccounts__status">{t('using')}</span>;
   async function use() {
     setBusy(true);
     setRefused(null);
@@ -32,7 +32,7 @@ export function SubaccountUse({ subAccountId }: { subAccountId: string }) {
   return (
     <>
       <Button
-        tone="secondary"
+        variant="secondary"
         aria-label={t('useTarget', { id: subAccountId })}
         disabled={busy || !session || Boolean(session.subAccountId)}
         onClick={() => void use()}
@@ -40,7 +40,7 @@ export function SubaccountUse({ subAccountId }: { subAccountId: string }) {
         {t('use')}
       </Button>
       {refused && (
-        <p role="alert">
+        <p role="alert" className="notice">
           {t('refused')} <span lang="und">{refused.message}</span>{' '}
           {refused.code && <span lang="zxx">{t('reference', { code: refused.code })}</span>}
         </p>

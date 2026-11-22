@@ -1,24 +1,22 @@
-// volt-room: /uc/safe/api-keys
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyRecord } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Field, Tag } from '@intafaced/ui/lit';
-import { SettingsTemplate, Sheet as KitSheet } from '@intafaced/ui/lit/templates';
+import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
-import { apiVersionCopy } from './api-version-copy';
-import { Failure, Loading } from './kit-parts';
 import { changeRefusal, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
 import { OrgKeys } from './OrgKeys';
 import { ApiVersionPanel } from './ApiVersionPanel';
 import { RevokeAllKeys } from './ApiKeysRevokeAll';
+import './security.css';
+import './api-keys.css';
 
 /** What to do with a key, said once on the list and once on the create form. */
 export function KeySafety() {
   const { t } = copy.useCopy();
   return (
-    <section data-testid="security__card" aria-labelledby="api-keys-safety">
+    <section data-testid="security__card" className="api-keys__safety security__card" aria-labelledby="api-keys-safety">
       <h2 id="api-keys-safety">{t('safetyTitle')}</h2>
       <ul>
         <li>{t('safetyOnePurpose')}</li>
@@ -36,9 +34,9 @@ export function KeySafety() {
 function ConnectedApps() {
   const { t } = copy.useCopy();
   return (
-    <section data-testid="security__card" aria-labelledby="api-keys-apps">
+    <section data-testid="security__card" className="api-keys__apps security__card" aria-labelledby="api-keys-apps">
       <h2 id="api-keys-apps">{t('appsTitle')}</h2>
-      <p className="lt-hint">{t('appsEmpty')}</p>
+      <p className="muted">{t('appsEmpty')}</p>
     </section>
   );
 }
@@ -58,7 +56,7 @@ export function revokedByKey(key: ApiKeyRecord): ApiKeysPlainKey {
 export function RevokedReason({ apiKey }: { apiKey: ApiKeyRecord }) {
   const { t } = copy.useCopy();
   return (
-    <span>
+    <span className="api-keys__reason">
       {t(revokedByKey(apiKey))}
       {apiKey.revokeReason && (
         <>
@@ -84,8 +82,9 @@ export type Sheet = {
 export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClose: () => void; onSubmit: (reason: string) => void }) {
   const { t } = copy.useCopy();
   return (
-    <KitSheet open title={t('revokeTitle')} onClose={onClose}>
+    <Dialog title={t('revokeTitle')} onClose={onClose}>
       <form
+        className="api-keys__revoke"
         noValidate
         onSubmit={(event: FormEvent<HTMLFormElement>) => {
           event.preventDefault();
@@ -97,18 +96,22 @@ export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClos
         </p>
         <p>{t('revokeBody')}</p>
         <Field label={t('revokeReason')} hint={t('revokeReasonHint')} name="reason" autoComplete="off" />
-        {sheet.refusal && <p role="alert">{t(sheet.refusal)}</p>}
+        {sheet.refusal && (
+          <p className="error-text" role="alert">
+            {t(sheet.refusal)}
+          </p>
+        )}
         {sheet.failure && <Failure result={sheet.failure} />}
-        <div className="lt-actions">
-          <Button type="submit" tone="primary" disabled={sheet.busy}>
+        <div className="api-keys__actions">
+          <Button type="submit" variant="danger" disabled={sheet.busy}>
             {sheet.busy ? t('revoking') : t('revokeConfirm')}
           </Button>
-          <Button tone="secondary" disabled={sheet.busy} onClick={onClose}>
+          <Button variant="secondary" disabled={sheet.busy} onClick={onClose}>
             {t('revokeKeep')}
           </Button>
         </div>
       </form>
-    </KitSheet>
+    </Dialog>
   );
 }
 
@@ -120,7 +123,6 @@ export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClos
  */
 export function ApiKeys() {
   const { t, languageFor, requestedLocale } = copy.useCopy();
-  const versionTitle = apiVersionCopy.useCopy().t('title');
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readDeveloperKeys(api, signal), `developer-keys:${userId}`);
   // The names of the sub-accounts keys are bound to; a key whose sub-account is not listed shows its id instead.
@@ -173,15 +175,22 @@ export function ApiKeys() {
     }
   }
 
-  const sections = (
-    <>
+  return (
+    <div className="api-keys" lang={languageFor('title')}>
+      <header className="api-keys__head">
+        <h1>{t('title')}</h1>
+        <p className="muted">{t('intro')}</p>
+        <a className="button button--primary" href="/uc/safe/api-keys/new">
+          {t('create')}
+        </a>
+      </header>
       <KeySafety />
       {notice && <p role="status">{t(notice)}</p>}
       {resource.status === 'loading' && <Loading label={t('loading')} />}
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
       {resource.status === 'ready' && (
         <>
-          <section data-testid="security__card" aria-labelledby="api-keys-cap" role="status">
+          <section data-testid="security__card" className="api-keys__cap security__card" aria-labelledby="api-keys-cap" role="status">
             <h2 id="api-keys-cap">{t('capTitle')}</h2>
             <p>
               {resource.data.cap.limit === null
@@ -201,8 +210,8 @@ export function ApiKeys() {
           {resource.data.keys.length === 0 ? (
             <p role="status">{t('empty')}</p>
           ) : (
-            <div>
-              <table data-testid="api-keys__table" className="lt-table">
+            <div className="api-keys__table-wrap">
+              <table data-testid="api-keys__table" className="api-keys__table">
                 <thead>
                   <tr>
                     <th scope="col">{t('colName')}</th>
@@ -224,13 +233,15 @@ export function ApiKeys() {
                     return (
                       <tr key={key.id} data-key-id={key.id}>
                         <th scope="row">
-                          <a className="lt-link" href={`/uc/safe/api-keys/${key.id}`}>
+                          <a className="text-link" href={`/uc/safe/api-keys/${key.id}`}>
                             <bdi lang="und">{key.name}</bdi>
                           </a>
                           {key.kind === 'agent' && (
                             <>
                               {' '}
-                              <Tag data-testid="api-keys__agent">{t('agentBadge')}</Tag>
+                              <span data-testid="api-keys__agent" className="badge">
+                                {t('agentBadge')}
+                              </span>
                             </>
                           )}
                         </th>
@@ -257,10 +268,10 @@ export function ApiKeys() {
                         <td>{key.expiresAt === null ? t('noEnd') : at(key.expiresAt)}</td>
                         <td>{key.lastUsedAt === null ? t('neverUsed') : at(key.lastUsedAt)}</td>
                         <td>{state === 'stateRevoked' ? <RevokedReason apiKey={key} /> : t(state)}</td>
-                        <td>
+                        <td className="api-keys__row-action">
                           {!key.revoked && (
                             <Button
-                              tone="secondary"
+                              variant="secondary"
                               disabled={sheet !== null}
                               onClick={() => {
                                 setNotice(null);
@@ -284,44 +295,6 @@ export function ApiKeys() {
       <OrgKeys at={at} />
       <ConnectedApps />
       {sheet && <RevokeSheet sheet={sheet} onClose={() => !sheet.busy && setSheet(null)} onSubmit={(reason) => void revoke(reason)} />}
-    </>
-  );
-
-  return (
-    <div lang={languageFor('title')}>
-      <SettingsTemplate
-        title={t('title')}
-        description={t('intro')}
-        state={{ kind: 'ready' }}
-        roomAction={
-          <a className="lt-button lt-button-primary" href="/uc/safe/api-keys/new">
-            {t('create')}
-          </a>
-        }
-        index={
-          <nav aria-label={t('sectionsLabel')}>
-            <ul>
-              {INDEX.map(([id, label]) => (
-                <li key={id}>
-                  <a className="lt-link" href={`#${id}`}>
-                    {label === 'versionTitle' ? versionTitle : t(label)}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        }
-        sections={sections}
-        explain={<p>{t('explain')}</p>}
-      />
     </div>
   );
 }
-
-/** The room's sections, each a link to its heading. */
-const INDEX = [
-  ['api-keys-safety', 'safetyTitle'],
-  ['api-keys-cap', 'capTitle'],
-  ['api-version-title', 'versionTitle'],
-  ['api-keys-apps', 'appsTitle'],
-] as const;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useReducer, type FormEvent } from 'react';
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Field } from '../../shared/ui';
 import { useSession } from '../session';
 import { MAX_INPUT_LENGTH, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
@@ -77,23 +77,23 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
     <section
       id="password"
       data-testid="security__password"
-
+      className="security__password security__card"
       aria-label={t('title')}
       lang={languageFor('title')}
     >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       {state.phase === 'changed' ? (
-        <div>
-          <p data-testid="notice" className="lt-hint" role="status">
+        <div className="stack">
+          <p data-testid="notice" className="notice" role="status">
             {t('changed')}
           </p>
-          <Button tone="secondary" onClick={() => dispatch({ type: 'again' })}>
+          <Button variant="secondary" onClick={() => dispatch({ type: 'again' })}>
             {t('again')}
           </Button>
         </div>
       ) : (
-        <form ref={form} method="post" onSubmit={(event) => void submit(event)} noValidate>
+        <form ref={form} method="post" className="stack" onSubmit={(event) => void submit(event)} noValidate>
           <Field
             label={t('currentField')}
             name="current-password"
@@ -126,11 +126,11 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
             data-security-sensitive="true"
           />
           {problemText && (
-            <p className="lt-hint" role="alert">
+            <p className="error-text" role="alert">
               {problemText}
             </p>
           )}
-          <Button tone="primary" type="submit" disabled={sending}>
+          <Button type="submit" disabled={sending}>
             {sending ? t('sending') : t('submit')}
           </Button>
         </form>

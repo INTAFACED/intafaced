@@ -9,8 +9,6 @@ const en = {
   reference: 'Reference',
   notSet: 'Not set',
   blockedTitle: 'Not connected',
-  sectionsLabel: 'Room sections',
-  detailsTitle: 'Details',
   // Request detail
   requestTitle: 'Payment request',
   requestLine: 'A request you made on this device.',
@@ -130,7 +128,6 @@ const en = {
   // Preferences
   preferencesTitle: 'Pay preferences',
   preferencesLine: 'How you pay and get paid.',
-  preferencesSection: 'Paying and getting paid',
   prefSource: 'Pay from',
   prefSourceHint: 'The balance a payment comes out of first.',
   prefFind: 'Let people find me by name, email or phone',

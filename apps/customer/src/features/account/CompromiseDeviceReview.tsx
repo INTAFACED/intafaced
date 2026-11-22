@@ -2,8 +2,7 @@ import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { usePreferences } from '../../shared/preferences';
-import { Button } from '@intafaced/ui/lit';
-import { Failure } from './kit-parts';
+import { Button, Failure } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { defineCopy } from '../../shared/i18n';
 import { useCompromiseCase } from './Compromised';
@@ -49,7 +48,7 @@ export function CompromiseDeviceReview() {
     <section
       id="devices"
       data-testid="devices__compromise-review"
-
+      className="security__card"
       aria-labelledby="devices-compromise-review"
       lang={languageFor('title')}
     >
@@ -60,13 +59,13 @@ export function CompromiseDeviceReview() {
       ) : (
         <>
           <p>{t('body')}</p>
-          <Button tone="primary" disabled={busy} onClick={() => void review()}>
+          <Button disabled={busy} onClick={() => void review()}>
             {t('ask')}
           </Button>
         </>
       )}
       <p>
-        <a className="lt-link" href="/uc/safe/compromised">
+        <a className="text-link" href="/uc/safe/compromised">
           {t('back')}
         </a>
       </p>

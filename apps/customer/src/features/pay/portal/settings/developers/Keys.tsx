@@ -1,22 +1,23 @@
-// volt-room: /pay/developer
-// volt-room: /pay/developer/keys
-// volt-room: portal:developer-keys
 import { useState } from 'react';
+import { Button } from '@intafaced/ui';
+import { EmptyState, Field } from '../../../ui-kit';
+import { PaySection } from '../../../components';
+import { Gate, SelectField, PortalLoading } from '../../components';
+import { EntityList } from '../../ui/EntityList';
 import { DateTime } from '../../ui/DateTime';
+import { PortalReview } from '../../ui/PortalReview';
+import { StatusChip, ToneChip } from '../../ui/StatusChip';
 import { useUrlParam } from '../../hooks';
 import { useResource, type Resource } from '../../../../../shared/resource';
+import { Checkbox } from '@intafaced/ui';
 import type { SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
-import { DeveloperRoom } from './DeveloperRoom';
 import { keyScopes, isPayKey } from './model';
 import { SecretReveal, type Revealed } from './SecretReveal';
 import type { ApiKey } from './schemas';
 import { useMerchantAccess, readyAccess } from '../../access/MerchantAccess';
-import { Button, Checkbox, Field } from '@intafaced/ui/lit';
-import { Empty, EntityList, Gate, Loading, Section, SelectField, StatusChip, ToneChip } from '../../volt/parts';
-import { Review } from '../../volt/Review';
 
-function Keys({ api, scopes }: { api: SettingsBApi; scopes: readonly string[] }) {
+export function Keys({ api, scopes }: { api: SettingsBApi; scopes: readonly string[] }) {
   const keys = useResource((signal) => api.keysList(signal), 'dev:keys');
   const approved = readyAccess(useMerchantAccess())?.kybStatus === 'approved';
   return <KeysView resource={keys.resource} reload={keys.reload} api={api} scopes={scopes} approved={approved} />;
@@ -26,11 +27,11 @@ export function KeyRevoke({ api, apiKey, onDone }: { api: Pick<SettingsBApi, 'ke
   const { t } = c.useCopy();
   if (apiKey.revoked) return null;
   return (
-    <Review
+    <PortalReview
       title={t('revokeKey')}
       description={t('revokeEffect')}
       review={
-        <dl className="lt-kv">
+        <dl className="pay-details">
           <div>
             <dt>{t('colName')}</dt>
             <dd>
@@ -68,21 +69,21 @@ export function KeysView({
   const [status, setStatus] = useUrlParam('status');
   const [revealed, setRevealed] = useState<Revealed>(null);
   return (
-    <div>
-      <p className="lt-hint">
+    <div className="stack">
+      <p className="pp-callout">
         <strong>{t('testOnlyTitle')}</strong> {approved ? t('testOnlyBodyApproved') : t('testOnlyBody')}
       </p>
       {revealed && <SecretReveal {...revealed} onHide={() => setRevealed(null)} />}
-      <Section
+      <PaySection
         title={t('keysTitle')}
         description={t('keysBody')}
         action={
-          <Button tone="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={reload}>
             {t('refresh')}
           </Button>
         }
       >
-        <div className="lt-toolbar" role="search" aria-label={t('keysTitle')}>
+        <div className="pp-filter-row" role="search" aria-label={t('keysTitle')}>
           <Field label={t('search')} value={q} onChange={(e) => setQ(e.target.value)} hint={t('searchInList')} />
           <SelectField
             label={t('colStatus')}
@@ -96,7 +97,7 @@ export function KeysView({
           />
         </div>
         {resource.status === 'loading' ? (
-          <Loading />
+          <PortalLoading />
         ) : (
           <Gate resource={resource} retry={reload}>
             {(all) => {
@@ -108,22 +109,22 @@ export function KeysView({
               );
               return (
                 <>
-                  <p className="lt-hint" role="status">
+                  <p className="muted pp-count" role="status">
                     {mine.length >= 200 ? t('newestKeys', { n: rows.length }) : t('keysCount', { shown: rows.length, total: mine.length })}
                   </p>
                   {rows.length === 0 ? (
-                    <Empty
+                    <EmptyState
                       title={mine.length ? t('noKeysMatch') : t('noKeysTitle')}
                       action={
                         mine.length ? undefined : (
-                          <a className="lt-link" href="#create">
+                          <a className="text-link" href="#create">
                             {t('createKeyAction')}
                           </a>
                         )
                       }
                     >
                       {mine.length ? t('noKeysMatchBody') : t('noKeysBody')}
-                    </Empty>
+                    </EmptyState>
                   ) : (
                     <EntityList
                       label={t('keysTitle')}
@@ -136,7 +137,7 @@ export function KeysView({
                           cell: (k) => (
                             <>
                               <strong>{k.name}</strong>
-                              <small className="lt-hint">
+                              <small className="pay-cell-note">
                                 <code>{k.prefix}</code>
                               </small>
                             </>
@@ -146,16 +147,35 @@ export function KeysView({
                         { header: t('colPermissions'), cell: (k) => k.scopes.join(', ') },
                         {
                           header: t('colLastUsed'),
-                          cell: (k) =>
-                            k.lastUsedAt ? <DateTime value={k.lastUsedAt} /> : <span className="lt-hint">{t('neverUsed')}</span>,
+                          cell: (k) => (k.lastUsedAt ? <DateTime value={k.lastUsedAt} /> : <span className="muted">{t('neverUsed')}</span>),
                         },
                         { header: t('colProtection'), cell: (k) => <KeyProtection apiKey={k} /> },
                         { header: t('colStatus'), cell: (k) => <StatusChip entity="key" value={k.revoked ? 'revoked' : 'active'} /> },
                         {
-                          header: <span className="lt-sr">{t('colActions')}</span>,
+                          header: <span className="pp-sr">{t('colActions')}</span>,
                           cell: (k) => <KeyRevoke api={api} apiKey={k} onDone={reload} />,
                         },
                       ]}
+                      card={(k) => ({
+                        title: (
+                          <>
+                            {k.name} <code>{k.prefix}</code>
+                          </>
+                        ),
+                        time: (
+                          <>
+                            {k.lastUsedAt ? (
+                              <>
+                                {t('usedAt')} <DateTime value={k.lastUsedAt} />
+                              </>
+                            ) : (
+                              t('neverUsed')
+                            )}
+                            {!k.revoked && <> · {protectionLine(k, t)}</>}
+                          </>
+                        ),
+                        status: <StatusChip entity="key" value={k.revoked ? 'revoked' : 'active'} />,
+                      })}
                     />
                   )}
                 </>
@@ -163,7 +183,7 @@ export function KeysView({
             }}
           </Gate>
         )}
-      </Section>
+      </PaySection>
       <div id="create">
         <CreateKey
           api={api}
@@ -183,17 +203,23 @@ type T = ReturnType<typeof c.useCopy>['t'];
 const ipsLine = (k: ApiKey, t: T): string =>
   k.ipAllowlist.length === 0 ? t('protIpsNone') : k.ipAllowlist.length === 1 ? t('protIpsOne') : t('protIps', { n: k.ipAllowlist.length });
 
+/** How the key is protected, in words: whether requests must be signed and which addresses may use it. Never a secret. */
+function protectionLine(k: ApiKey, t: T): string {
+  const ips = ipsLine(k, t);
+  return `${k.requireSignature ? t('protSigned') : t('protNotSigned')} · ${ips}`;
+}
+
 /** The saved signing and allowed-address state of one key, as shown on its row. */
 export function KeyProtection({ apiKey }: { apiKey: ApiKey }) {
   const { t } = c.useCopy();
-  if (apiKey.revoked) return <span className="lt-hint">{t('protRevoked')}</span>;
+  if (apiKey.revoked) return <span className="muted">{t('protRevoked')}</span>;
   return (
-    <span>
+    <span className="pp-protection">
       <ToneChip
         tone={apiKey.requireSignature ? 'done' : 'progress'}
         label={apiKey.requireSignature ? t('protSigned') : t('protNotSigned')}
       />
-      <small className="lt-hint">
+      <small className="pay-cell-note">
         {ipsLine(apiKey, t)}
         {apiKey.requireNonEmptyIpAllowlist ? ` · ${t('protIpRequired')}` : ''}
       </small>
@@ -224,13 +250,13 @@ export function CreateKey({
   const nameError = name.length > 0 && (trimmed.length < 1 || trimmed.length > 64) ? t('errKeyName') : undefined;
   const blocked = offered.length === 0;
   return (
-    <Section title={t('createKeyTitle')} description={t('createKeyBody')}>
+    <PaySection title={t('createKeyTitle')} description={t('createKeyBody')}>
       {blocked && (
-        <p className="lt-hint" role="status">
+        <p className="pp-callout" role="status">
           {t('createKeyOwnerOnly')}
         </p>
       )}
-      <div data-testid="form-stack">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <Field
           label={t('keyNameLabel')}
           hint={t('keyNameHint')}
@@ -240,28 +266,29 @@ export function CreateKey({
           disabled={blocked}
           onChange={(e) => setName(e.target.value)}
         />
-        <fieldset disabled={blocked}>
+        <fieldset className="pp-fieldset" disabled={blocked}>
           <legend>{t('colPermissions')}</legend>
           {keyScopes.map((scope) => (
-            <Checkbox
-              key={scope}
-              checked={picked.includes(scope)}
-              disabled={!offered.includes(scope)}
-              data-disabled={offered.includes(scope) ? undefined : ''}
-              onCheckedChange={(on) => setChosen(on ? [...new Set([...chosen, scope])] : chosen.filter((x) => x !== scope))}
-            >
-              <strong>{scope}</strong> <small className="lt-hint">{t(`scope_${scope.replace(':', '_')}` as 'scope_pay_read')}</small>
-            </Checkbox>
+            <label key={scope} className="pp-check">
+              <Checkbox
+                checked={picked.includes(scope)}
+                disabled={!offered.includes(scope)}
+                onCheckedChange={(on) => setChosen(on ? [...new Set([...chosen, scope])] : chosen.filter((x) => x !== scope))}
+              />
+              <span>
+                <strong>{scope}</strong> <small className="muted">{t(`scope_${scope.replace(':', '_')}` as 'scope_pay_read')}</small>
+              </span>
+            </label>
           ))}
         </fieldset>
-        <Review
+        <PortalReview
           title={t('createKeyAction')}
           variant="primary"
           description={t('createKeyReview')}
           disabled={blocked || !trimmed || Boolean(nameError) || picked.length === 0}
           disabledReason={blocked ? t('createKeyOwnerOnly') : t('createKeyNeeds')}
           review={
-            <dl className="lt-kv">
+            <dl className="pay-details">
               <div>
                 <dt>{t('colName')}</dt>
                 <dd>{trimmed}</dd>
@@ -283,16 +310,6 @@ export function CreateKey({
           }}
         />
       </div>
-    </Section>
-  );
-}
-
-/** `/pay/developer/keys` on the settings template. */
-export function KeysRoom({ scopes }: { scopes: readonly string[] }) {
-  const { t } = c.useCopy();
-  return (
-    <DeveloperRoom room="developer-keys" explain={<p>{t('keysExplain')}</p>}>
-      {(api) => <Keys api={api} scopes={scopes} />}
-    </DeveloperRoom>
+    </PaySection>
   );
 }

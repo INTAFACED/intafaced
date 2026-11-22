@@ -1,28 +1,30 @@
-// volt-room: /pay/compliance
-// volt-room: portal:compliance
 import type { ReactNode } from 'react';
 import type { z } from 'zod';
 import type { MerchantActivation } from '@intafaced/contracts/merchant-activation';
+import { Button } from '@intafaced/ui';
 import { useResource, type Resource } from '../../../../../shared/resource';
+import { PaySection } from '../../../components';
+import { Chip, Gate, ListShell, MoreFooter } from '../../components';
 import { useCursorList, type ListState } from '../../hooks';
 import type { PortalApi } from '../../api';
 import { kybCurrentSchema, type KybEvent, type MemberRole } from '../../schemas';
+import { CopyReference } from '../../ui/CopyReference';
 import { DateTime } from '../../ui/DateTime';
+import { Freshness } from '../../ui/Freshness';
+import { Timeline } from '../../ui/Timeline';
 import { useReadAt } from '../../hooks';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
-import { SettingsRoom } from '../../volt/SettingsRoom';
+import { Blocker } from '../account/ui';
 import { extensionCopy as c, portalCopy } from '../copy';
-import { kybWord } from './kyb-word';
+import { kybWord } from './Onboarding';
 import { BusinessCategory } from './Category';
 import { InformationRequests } from './Requests';
-import { Chip, CopyReference, Freshness, Gate, ListShell, MoreFooter, NotLive, Section, Timeline } from '../../volt/parts';
-import { Button } from '@intafaced/ui/lit';
 
 type Kyb = z.infer<typeof kybCurrentSchema>;
 
 /** `/pay/compliance`: where your business verification stands and what INTAFACED still needs. Screening results are never shown here. */
-function Compliance({ portal, merchantId, role }: { portal: PortalApi; merchantId: string; role: MemberRole }) {
+export function Compliance({ portal, merchantId, role }: { portal: PortalApi; merchantId: string; role: MemberRole }) {
   const current = useResource((signal) => portal.kybCurrent(signal), 'portal:compliance-current');
   const activation = useResource((signal) => portal.activation(signal), 'portal:compliance-activation');
   const history = useCursorList(
@@ -76,11 +78,11 @@ export function ComplianceView({
   const at = useReadAt(current.status === 'ready', current);
   const activationAt = useReadAt(activation.status === 'ready', activation);
   return (
-    <div>
-      <Section
+    <div className="stack">
+      <PaySection
         title={c.t('currentRecord')}
         action={
-          <Button tone="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={reload}>
             {c.t('refresh')}
           </Button>
         }
@@ -88,7 +90,7 @@ export function ComplianceView({
         <Gate resource={current} retry={reload}>
           {(record) => (
             <>
-              <dl data-testid="pp-facts" className="lt-kv">
+              <dl data-testid="pp-facts" className="pp-facts">
                 <div>
                   <dt>{c.t('verificationStatus')}</dt>
                   <dd>
@@ -107,17 +109,17 @@ export function ComplianceView({
                 </div>
               </dl>
               <Freshness asOf={at} />
-              <p className="lt-hint">{t('compNotScreening')}</p>
+              <p className="pp-callout">{t('compNotScreening')}</p>
               <p>
-                <a className="lt-link" href="/pay/onboarding/verification">
+                <a className="text-link" href="/pay/onboarding/verification">
                   {c.t('verificationAction')}
                 </a>
               </p>
             </>
           )}
         </Gate>
-      </Section>
-      <Section title={c.t('activationTitle')} description={c.t('activationBody')}>
+      </PaySection>
+      <PaySection title={c.t('activationTitle')} description={c.t('activationBody')}>
         <Gate resource={activation} retry={retryActivation ?? reload} rows={2}>
           {(a) => (
             <>
@@ -126,15 +128,15 @@ export function ComplianceView({
             </>
           )}
         </Gate>
-      </Section>
+      </PaySection>
       {category}
       {requests}
-      <Section title={t('compNextTitle')} description={t('compNextBody')}>
-        <NotLive reason={notLive('reasonDocuments')} needs="document check provider" title={t('docsHeading')}>
+      <PaySection title={t('compNextTitle')} description={t('compNextBody')}>
+        <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={t('docsHeading')}>
           {t('docsBlocked')}
-        </NotLive>
-      </Section>
-      <Section title={c.t('complianceHistory')} description={t('compHistoryBody')}>
+        </Blocker>
+      </PaySection>
+      <PaySection title={c.t('complianceHistory')} description={t('compHistoryBody')}>
         <ListShell
           state={history}
           retry={reload}
@@ -142,7 +144,7 @@ export function ComplianceView({
             title: c.t('complianceEmpty'),
             body: t('compEmptyBody'),
             action: (
-              <a className="lt-link" href="/pay/onboarding/verification">
+              <a className="text-link" href="/pay/onboarding/verification">
                 {c.t('verificationAction')}
               </a>
             ),
@@ -162,7 +164,7 @@ export function ComplianceView({
             </>
           )}
         </ListShell>
-      </Section>
+      </PaySection>
     </div>
   );
 }
@@ -171,7 +173,7 @@ export function ComplianceView({
 export function ActivationFacts({ activation }: { activation: MerchantActivation }) {
   return (
     <>
-      <dl data-testid="pp-activation" className="lt-kv">
+      <dl data-testid="pp-activation" className="pp-facts">
         <div>
           <dt>{c.t('activationLabel')}</dt>
           <dd>{c.t(activation.activation === 'confirmed' ? 'activationConfirmed' : 'activationUnconfirmed')}</dd>
@@ -192,17 +194,7 @@ export function ActivationFacts({ activation }: { activation: MerchantActivation
         </div>
       </dl>
       {activation.activation === 'unconfirmed' ? <p>{c.t(`activationWhy_${activation.reason}`)}</p> : null}
-      <p className="lt-hint">{c.t('activationNotScreening')}</p>
+      <p className="muted">{c.t('activationNotScreening')}</p>
     </>
-  );
-}
-
-/** `/pay/compliance` on the settings template. */
-export function ComplianceRoom({ portal }: { portal: PortalApi }) {
-  const { t } = accountCopy.useCopy();
-  return (
-    <SettingsRoom explain={<p>{t('complianceExplain')}</p>}>
-      {({ merchantId, role }) => <Compliance portal={portal} merchantId={merchantId} role={role} />}
-    </SettingsRoom>
   );
 }

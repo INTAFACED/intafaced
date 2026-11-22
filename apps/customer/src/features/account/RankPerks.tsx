@@ -4,14 +4,14 @@ import { currentReturnLocation } from '../../app/location';
 import { authoredRefusal, type ApiClient } from '../../shared/api';
 import { readContract, type ContractData, type ContractProcedure } from '../../shared/contract-call';
 import type { Resource } from '../../shared/resource';
-import { Button } from '@intafaced/ui/lit';
-import { Loading } from './kit-parts';
+import { Button, Loading } from '../../shared/ui';
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { useSession, type Session } from '../session';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { formatXp, rankGetFor, rankPerksGet } from './rank-perks-api';
 import { rankPerksCopy as copy } from './rank-perks-copy';
+import './rank-perks.css';
 
 type ReadContext = { api: ApiClient; owner: string | null; session: Session | null; href: string; departure: number };
 
@@ -102,19 +102,16 @@ export function RankPerks() {
     if (resource.status !== 'failed') return null;
     const failure = resource.failure;
     return (
-      <div className="lt-refusal" data-testid="rank-perks__failure" role="status">
-        <h3 className="lt-refusal-title">
+      <div className="rank-perks__failure" role="status">
+        <h3>
           <Copy k={half === 'rank' ? 'failedRank' : 'failedPerks'} />
         </h3>
-        <p
-          className="lt-refusal-body"
-          lang={failure.messageCopy ? uiCopy.forLocale(requestedLocale).languageFor(failure.messageCopy.key) : 'und'}
-        >
+        <p lang={failure.messageCopy ? uiCopy.forLocale(requestedLocale).languageFor(failure.messageCopy.key) : 'und'}>
           {failure.messageCopy ? uiMessage(failure.messageCopy, requestedLocale) : failure.message}
         </p>
         {failure.reason === 'unauthorized' ? (
           <a
-            className="lt-link"
+            className="text-link"
             href={`/login?redirect=${encodeURIComponent(currentReturnLocation())}`}
             onClick={(event) => {
               event.currentTarget.href = `/login?redirect=${encodeURIComponent(currentReturnLocation())}`;
@@ -123,7 +120,7 @@ export function RankPerks() {
             <Copy k="signIn" />
           </a>
         ) : (
-          <Button tone="secondary" onClick={retry}>
+          <Button variant="secondary" onClick={retry}>
             <Copy k={half === 'rank' ? 'retryRank' : 'retryPerks'} />
           </Button>
         )}
@@ -133,13 +130,13 @@ export function RankPerks() {
   const value = rank.resource.status === 'ready' ? rank.resource.data : null;
   const benefit = perks.resource.status === 'ready' ? perks.resource.data : null;
   return (
-    <section id="rank-perks" data-testid="rank-perks" aria-label={t('title')}>
-      <section data-testid="rank-perks__rank" aria-labelledby={`${id}-rank`}>
-        <header className="lt-title-row">
+    <section data-testid="rank-perks" className="rank-perks" aria-label={t('title')}>
+      <section className="rank-perks__rank" aria-labelledby={`${id}-rank`}>
+        <header className="rank-perks__heading">
           <h2 id={`${id}-rank`}>
             <Copy k="rank" />
           </h2>
-          <Button tone="secondary" disabled={rank.resource.status === 'loading'} onClick={rank.reload}>
+          <Button variant="secondary" disabled={rank.resource.status === 'loading'} onClick={rank.reload}>
             <Copy k="refreshRank" />
           </Button>
         </header>
@@ -147,11 +144,10 @@ export function RankPerks() {
         {failed(rank.resource, 'rank', rank.reload)}
         {value && (
           <>
-            {/* J-academy-05 finds the rank and the perks by these test ids. */}
-            <p data-testid="rank-perks__number">
+            <p className="rank-perks__number">
               <Copy k="rankValue" params={{ count: value.rank }} />
             </p>
-            <dl>
+            <dl className="rank-perks__counts">
               {(['xp', 'seasonXp', 'nextRankAt'] as const).map((field) => (
                 <div key={field}>
                   <dt>
@@ -161,7 +157,7 @@ export function RankPerks() {
                 </div>
               ))}
             </dl>
-            <p className="lt-hint">
+            <p className="rank-perks__updated">
               <Copy k="updated" />{' '}
               <time dateTime={value.updatedAt} lang={requestedLocale}>
                 {stamp(value.updatedAt, timeZone)}
@@ -170,22 +166,22 @@ export function RankPerks() {
           </>
         )}
       </section>
-      <section data-testid="rank-perks__perks" aria-labelledby={`${id}-perks`}>
-        <header className="lt-title-row">
+      <section className="rank-perks__perks" aria-labelledby={`${id}-perks`}>
+        <header className="rank-perks__heading">
           <h2 id={`${id}-perks`}>
             <Copy k="perks" />
           </h2>
-          <Button tone="secondary" disabled={perks.resource.status === 'loading'} onClick={perks.reload}>
+          <Button variant="secondary" disabled={perks.resource.status === 'loading'} onClick={perks.reload}>
             <Copy k="refreshPerks" />
           </Button>
         </header>
-        <p className="lt-hint">
+        <p className="rank-perks__boundary">
           <Copy k="separate" />
         </p>
         {perks.resource.status === 'loading' && <Loading label={<Copy k="loadingPerks" />} />}
         {failed(perks.resource, 'perks', perks.reload)}
         {benefit && (
-          <dl data-testid="rank-perks__rows">
+          <dl className="rank-perks__rows">
             <div>
               <dt>
                 <Copy k="fee" />
@@ -196,7 +192,7 @@ export function RankPerks() {
             </div>
           </dl>
         )}
-        <p className="lt-hint">
+        <p className="rank-perks__boundary">
           <Copy k="boundary" />
         </p>
       </section>

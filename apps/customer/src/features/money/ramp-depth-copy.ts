@@ -1,9 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
-  sectionsLabel: 'Cash and crypto sections',
-  explain:
-    'Adding money and cashing out each need a partner: what is connected in this build is named above, and anything not connected stays on the screen with the reason. Your history lists every request you made, with the status the bank last reported.',
   providerTitle: 'Payment provider',
   providerLead: 'Cash in and cash out run through a payment provider. This is what is connected right now.',
   providerCrypto: 'Crypto cash-out',
@@ -49,9 +46,6 @@ const en = {
   outDestinationBad: 'Enter the wallet address exactly, with no spaces.',
 } as const;
 const es = {
-  sectionsLabel: 'Secciones de efectivo y cripto',
-  explain:
-    'Añadir dinero y retirar necesitan un socio cada uno: arriba se indica qué está conectado en esta versión, y lo que no lo está sigue en pantalla con el motivo. Tu historial muestra cada solicitud que hiciste, con el último estado que informó el banco.',
   providerTitle: 'Proveedor de pagos',
   providerLead: 'Ingresar y retirar dinero pasa por un proveedor de pagos. Esto es lo que está conectado ahora mismo.',
   providerCrypto: 'Retirada de cripto',
@@ -97,9 +91,6 @@ const es = {
   outDestinationBad: 'Escribe la dirección de la cartera exacta, sin espacios.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
-  sectionsLabel: 'Sections espèces et crypto',
-  explain:
-    'Ajouter de l’argent et retirer nécessitent chacun un partenaire : ce qui est connecté dans cette version est indiqué ci-dessus, et ce qui ne l’est pas reste à l’écran avec la raison. Votre historique liste chaque demande faite, avec le dernier statut indiqué par la banque.',
   providerTitle: 'Prestataire de paiement',
   providerLead: 'Les dépôts et retraits passent par un prestataire de paiement. Voici ce qui est connecté en ce moment.',
   providerCrypto: 'Retrait en crypto',

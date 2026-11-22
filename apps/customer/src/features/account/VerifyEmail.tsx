@@ -3,8 +3,7 @@ import { z } from 'zod';
 import { useSession } from '../session';
 import { fetchMe } from '../../data/identity';
 import type { ApiResult } from '../../shared/api';
-import { Button, Field } from '@intafaced/ui/lit';
-import { Failure } from './kit-parts';
+import { Button, Failure, Field } from '../../shared/ui';
 import { verifyEmailCopy } from './verify-email-copy';
 import { IDENTITY_AUTH_REQUEST_EMAIL_CONFIRMATION } from '@intafaced/contracts/identity-auth-procedures';
 
@@ -115,7 +114,7 @@ export function VerifyEmail() {
   if (status === 'unknown') return null;
   if (status === 'verified') {
     return (
-      <section aria-label={t('label')}>
+      <section className="subaccounts__identity" aria-label={t('label')}>
         <p role="status">{t('verified')}</p>
       </section>
     );
@@ -136,7 +135,7 @@ export function VerifyEmail() {
           ? t(code as 'vendor.email')
           : null;
   return (
-    <section aria-labelledby="verify-email-title">
+    <section className="notice verify-email" aria-labelledby="verify-email-title">
       <h2 id="verify-email-title">{t('title')}</h2>
       <p>{t('body')}</p>
       {sent && <p role="status">{t('sent')}</p>}
@@ -152,7 +151,7 @@ export function VerifyEmail() {
       {/* The code field stays, so a code mailed before a reload or a later visit can still be typed; it goes only when
           no mail can be sent at all. */}
       {code !== 'vendor.email' && code !== 'auth.email_confirm_unwired' && (
-        <form className="lt-toolbar" onSubmit={(event) => void enter(event)}>
+        <form className="verify-email__code" onSubmit={(event) => void enter(event)}>
           <Field
             label={t('code')}
             name="code"
@@ -162,16 +161,16 @@ export function VerifyEmail() {
             required
             disabled={busy !== null}
           />
-          <Button tone="primary" type="submit" disabled={busy !== null}>
+          <Button type="submit" disabled={busy !== null}>
             {busy === 'code' ? t('confirming') : t('confirm')}
           </Button>
         </form>
       )}
-      <Button tone={sent ? 'secondary' : 'primary'} onClick={() => void send()} disabled={busy !== null}>
+      <Button variant={sent ? 'secondary' : undefined} onClick={() => void send()} disabled={busy !== null}>
         {busy === 'send' ? t('sending') : t('send')}
       </Button>{' '}
       {sent && (
-        <Button tone="secondary" onClick={() => void check()} disabled={busy !== null}>
+        <Button variant="secondary" onClick={() => void check()} disabled={busy !== null}>
           {busy === 'check' ? t('checking') : t('check')}
         </Button>
       )}

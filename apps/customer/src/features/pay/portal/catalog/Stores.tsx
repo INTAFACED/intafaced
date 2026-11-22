@@ -1,16 +1,17 @@
-// volt-room: /pay/settings/stores
-// volt-room: portal:settings-stores
 import { useState } from 'react';
+import { Button } from '@intafaced/ui';
 import type { MerchantStore } from '@intafaced/contracts/merchant-stores';
+import { EmptyState, Field } from '../../ui-kit';
+import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
+import { MoreFooter, PortalFailure, PortalLoading, SelectField } from '../components';
 import { useReadAt, useUrlParam } from '../hooks';
 import { useBodyRequestId } from '../payments/invoice-model';
+import { EntityList } from '../ui/EntityList';
+import { Freshness } from '../ui/Freshness';
 import { useServerList } from '../ui/useServerList';
 import { useMayAddProducts } from './access';
 import { catalogCopy as c } from './copy';
-import { SettingsRoom } from '../volt/SettingsRoom';
-import { Button, Field } from '@intafaced/ui/lit';
-import { Empty, EntityList, Failure, Freshness, Loading, MoreFooter, Section, SelectField } from '../volt/parts';
 
 /** The time zone this browser runs in: a sensible first choice for a store's own. */
 const browserZone = () => {
@@ -56,7 +57,7 @@ export function Stores({ portal }: { portal: PortalApi }) {
 
   const action = (row: MerchantStore) => (
     <Button
-      tone="secondary"
+      variant="secondary"
       disabled={busy !== null}
       aria-label={t(row.status === 'active' ? 'storeArchiveName' : 'storeReopenName', { name: row.name })}
       onClick={() => void toggle(row)}
@@ -66,7 +67,7 @@ export function Stores({ portal }: { portal: PortalApi }) {
   );
 
   return (
-    <div>
+    <div className="stack">
       <Freshness asOf={readAt} />
       {may.allowed && status === 'active' && <StoreCreate portal={portal} onAdded={() => list.reload()} />}
       <SelectField
@@ -79,18 +80,18 @@ export function Stores({ portal }: { portal: PortalApi }) {
         ]}
       />
       {note && (
-        <p className="lt-hint" role={note.ok ? 'status' : 'alert'}>
+        <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
           {note.text}
         </p>
       )}
-      {list.state.status === 'loading' && <Loading />}
-      {list.state.status === 'failed' && <Failure result={list.state.failure} retry={() => list.reload()} />}
+      {list.state.status === 'loading' && <PortalLoading />}
+      {list.state.status === 'failed' && <PortalFailure result={list.state.failure} retry={() => list.reload()} />}
       {list.state.status === 'ready' &&
         (list.state.items.length === 0 && !list.state.hasMore ? (
           status === 'archived' ? (
-            <Empty title={t('storesEmptyArchivedTitle')}>{t('storesEmptyArchivedBody')}</Empty>
+            <EmptyState title={t('storesEmptyArchivedTitle')}>{t('storesEmptyArchivedBody')}</EmptyState>
           ) : (
-            <Empty title={t('storesEmptyTitle')}>{t(may.allowed ? 'storesEmptyBody' : 'storesEmptyReadOnly')}</Empty>
+            <EmptyState title={t('storesEmptyTitle')}>{t(may.allowed ? 'storesEmptyBody' : 'storesEmptyReadOnly')}</EmptyState>
           )
         ) : (
           <>
@@ -105,6 +106,14 @@ export function Stores({ portal }: { portal: PortalApi }) {
                 { header: t('storeColStatus'), cell: (row) => t(`storeStatus_${row.status}`) },
                 ...(may.allowed ? [{ header: t('storeColAction'), cell: action }] : []),
               ]}
+              card={(row) => ({
+                title: row.name,
+                status: (
+                  <>
+                    {t(`storeStatus_${row.status}`)} {may.allowed && action(row)}
+                  </>
+                ),
+              })}
             />
             <MoreFooter state={list.state} onMore={list.loadMore} />
           </>
@@ -147,8 +156,8 @@ function StoreCreate({ portal, onAdded }: { portal: PortalApi; onAdded: () => vo
   }
 
   return (
-    <Section title={t('storeAdd')} description={t('storesPurpose')}>
-      <div data-testid="form-stack">
+    <PaySection title={t('storeAdd')} description={t('storesPurpose')}>
+      <div data-testid="form-stack" className="form-stack pp-form">
         <Field
           label={t('storeName')}
           hint={t('storeNameHint')}
@@ -166,26 +175,16 @@ function StoreCreate({ portal, onAdded }: { portal: PortalApi; onAdded: () => vo
           onChange={(e) => setTimezone(e.target.value)}
         />
         {note && (
-          <p className="lt-hint" role={note.ok ? 'status' : 'alert'}>
+          <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
             {note.text}
           </p>
         )}
-        <div className="lt-actions">
-          <Button tone="primary" disabled={busy} onClick={() => void save()}>
+        <div className="pp-actions">
+          <Button variant="primary" disabled={busy} onClick={() => void save()}>
             {busy ? t('storeSaving') : t('storeSave')}
           </Button>
         </div>
       </div>
-    </Section>
-  );
-}
-
-/** `/pay/settings/stores` on the settings template: every role reads; the page gates adding and archiving. */
-export function StoresRoom({ portal }: { portal: PortalApi }) {
-  const { t } = c.useCopy();
-  return (
-    <SettingsRoom need="products.read" explain={<p>{t('storesExplain')}</p>}>
-      {() => <Stores portal={portal} />}
-    </SettingsRoom>
+    </PaySection>
   );
 }

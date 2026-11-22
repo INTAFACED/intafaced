@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button } from '@intafaced/ui/lit';
-import { Failure, Loading } from './kit-parts';
+import { Button, Failure, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { mfaResetWaitingCopy as copy } from './mfa-reset-waiting-copy';
@@ -61,12 +60,16 @@ export function MfaResetWaiting() {
     return (
       <section
         data-testid="security__card"
-
+        className="security__mfa-reset security__card"
         aria-label={t('title')}
         lang={languageFor('title')}
       >
         <h2>{t('title')}</h2>
-        {note && <p role="status">{t(note)}</p>}
+        {note && (
+          <p className="notice" role="status">
+            {t(note)}
+          </p>
+        )}
         <Failure result={resource.failure} retry={reload} />
       </section>
     );
@@ -76,7 +79,7 @@ export function MfaResetWaiting() {
   return (
     <section
       data-testid="security__card"
-
+      className="security__mfa-reset security__card"
       aria-label={t('title')}
       lang={languageFor('title')}
     >
@@ -86,20 +89,24 @@ export function MfaResetWaiting() {
           <p role="alert">
             <strong>{t('body', { time: stamp(waiting.completesAt, timeZone) })}</strong>
           </p>
-          <p className="lt-hint">{t('asked', { time: stamp(waiting.waitingSince, timeZone) })}</p>
+          <p className="muted">{t('asked', { time: stamp(waiting.waitingSince, timeZone) })}</p>
           <p>{t('notYou')}</p>
         </>
       )}
-      {note && <p role="status">{t(note)}</p>}
+      {note && (
+        <p className="notice" role="status">
+          {t(note)}
+        </p>
+      )}
       {failure && <Failure result={failure} />}
       {delegated && (
-        <p className="lt-refusal" role="alert" data-testid="mfa-reset-delegated">
+        <p className="error-text" role="alert">
           {t('refusedDelegated')}
         </p>
       )}
       {waiting && (
-        <div className="lt-actions">
-          <Button tone="primary" disabled={busy} onClick={() => void stop()}>
+        <div className="row">
+          <Button disabled={busy} onClick={() => void stop()}>
             {busy ? t('stopping') : t('stop')}
           </Button>
         </div>

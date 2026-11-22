@@ -5,14 +5,16 @@ import type {
   CheckoutMethodRule,
   CheckoutMethods as CheckoutMethodsView,
 } from '@intafaced/contracts/merchant-checkout-methods';
-import { Button, Checkbox, Field } from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui';
 import { compareDecimal } from '../../../../data/decimal';
 import { useResource } from '../../../../shared/resource';
 import { ServiceOffNotice } from '../../../../shared/service-off';
+import { Field } from '../../ui-kit';
+import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
 import { imageRequestId } from '../catalog/model';
+import { Gate } from '../components';
 import { DateTime } from '../ui/DateTime';
-import { Gate, Section } from '../volt/parts';
 import { useMayChangeLook } from './CheckoutLook';
 import { methodsCopy as c } from './methods-copy';
 
@@ -60,21 +62,21 @@ const ruleOf = (d: Draft): CheckoutMethodRule => {
  * on, and optional limits per method. A method with no rail says what it needs and is never offered as payable. Below,
  * the preview asks the hosted page's own rule what a customer in a country paying a currency would be offered.
  */
-export function CheckoutMethods({ portal, ids }: { portal: PortalApi; ids?: { methods: string; preview: string } }) {
+export function CheckoutMethods({ portal }: { portal: PortalApi }) {
   const { resource, reload } = useResource((s) => portal.checkoutMethods(s), 'portal:checkout-methods');
   const [note, setNote] = useState<Note | null>(null);
   return (
     <>
-      <Section id={ids?.methods} title={c.t('title')} description={c.t('purpose')}>
+      <PaySection title={c.t('title')} description={c.t('purpose')}>
         <Gate resource={resource} retry={reload} rows={4}>
           {(methods) => (
             <MethodsForm key={methods.version} methods={methods} portal={portal} onSaved={reload} note={note} setNote={setNote} />
           )}
         </Gate>
-      </Section>
-      <Section id={ids?.preview} title={c.t('previewTitle')} description={c.t('previewPurpose')}>
+      </PaySection>
+      <PaySection title={c.t('previewTitle')} description={c.t('previewPurpose')}>
         <OfferPreview portal={portal} />
-      </Section>
+      </PaySection>
     </>
   );
 }
@@ -134,8 +136,8 @@ function MethodsForm({
   }
 
   return (
-    <div data-testid="form-stack">
-      <p className="lt-hint" role="status" data-testid="checkout-methods-state">
+    <div data-testid="form-stack" className="form-stack pp-form">
+      <p className="muted" role="status" data-testid="checkout-methods-state">
         {methods.status === 'default' ? (
           c.t('isDefault')
         ) : (
@@ -145,51 +147,59 @@ function MethodsForm({
         )}
       </p>
       {!may.allowed && (
-        <p className="lt-hint" role="note">
+        <p className="muted pp-note" role="note">
           {c.t(may.unverified ? 'unverified' : 'noWrite')}
         </p>
       )}
-      <ol aria-label={c.t('title')}>
+      <ol className="pp-methods" aria-label={c.t('title')}>
         {drafts.map((d, i) => {
           const view = about.get(d.method);
           const label = c.t(`method_${d.method}`);
           return (
-            <li key={d.method} data-method={d.method}>
-              <Checkbox
-                checked={d.enabled}
-                disabled={!may.allowed || busy}
-                aria-label={c.t('on', { method: label })}
-                onCheckedChange={(enabled) => change(i, { enabled })}
-              >
-                {label}
-              </Checkbox>
-              <div className="lt-actions">
-                <Button
-                  tone="secondary"
-                  aria-label={c.t('up', { method: label })}
-                  disabled={!may.allowed || busy || i === 0}
-                  onClick={() => move(i, -1)}
-                >
-                  ↑
-                </Button>
-                <Button
-                  tone="secondary"
-                  aria-label={c.t('down', { method: label })}
-                  disabled={!may.allowed || busy || i === drafts.length - 1}
-                  onClick={() => move(i, 1)}
-                >
-                  ↓
-                </Button>
+            <li key={d.method} className="pp-method" data-method={d.method}>
+              <div className="pp-method-head">
+                <label className="pp-check">
+                  <input
+                    type="checkbox"
+                    checked={d.enabled}
+                    disabled={!may.allowed || busy}
+                    aria-label={c.t('on', { method: label })}
+                    onChange={(e) => change(i, { enabled: e.target.checked })}
+                  />
+                  <span className="pp-method-name">{label}</span>
+                </label>
+                <span className="pp-actions pp-method-order">
+                  <Button
+                    variant="secondary"
+                    size={32}
+                    aria-label={c.t('up', { method: label })}
+                    disabled={!may.allowed || busy || i === 0}
+                    onClick={() => move(i, -1)}
+                  >
+                    ↑
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size={32}
+                    aria-label={c.t('down', { method: label })}
+                    disabled={!may.allowed || busy || i === drafts.length - 1}
+                    onClick={() => move(i, 1)}
+                  >
+                    ↓
+                  </Button>
+                </span>
               </div>
-              <p className="lt-hint">{c.t(view?.currencies === 'crypto' ? 'forCrypto' : 'forFiat')}</p>
+              <p className="muted">{c.t(view?.currencies === 'crypto' ? 'forCrypto' : 'forFiat')}</p>
               {view?.connection.state === 'not_connected' ? (
                 <ServiceOffNotice code={view.connection.notice} action={label} role="note" />
               ) : (
-                <p data-testid={`method-available-${d.method}`}>{c.t('available')}</p>
+                <p className="pp-confirmed" data-testid={`method-available-${d.method}`}>
+                  {c.t('available')}
+                </p>
               )}
-              <fieldset>
-                <legend className="lt-hint">{c.t('limits', { method: label })}</legend>
-                <div>
+              <fieldset className="pp-method-limits">
+                <legend className="muted">{c.t('limits', { method: label })}</legend>
+                <div className="form-row">
                   <Field
                     label={c.t('ruleAsset')}
                     value={d.ruleAsset}
@@ -212,19 +222,19 @@ function MethodsForm({
                     onChange={(e) => change(i, { maxAmount: e.target.value })}
                   />
                 </div>
-                <p className="lt-hint">{problems[i] ? <strong>{problems[i]}</strong> : c.t('limitsHint')}</p>
+                <small className={problems[i] ? 'text-down-text' : 'muted'}>{problems[i] ?? c.t('limitsHint')}</small>
               </fieldset>
             </li>
           );
         })}
       </ol>
       {note && (
-        <p className="lt-hint" role={note.ok ? 'status' : 'alert'}>
+        <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
           {note.text}
         </p>
       )}
-      <div className="lt-actions">
-        <Button tone="primary" disabled={!may.allowed || !valid || busy} onClick={() => void save()}>
+      <div className="pp-actions">
+        <Button disabled={!may.allowed || !valid || busy} onClick={() => void save()}>
           {busy ? c.t('saving') : c.t('save')}
         </Button>
       </div>
@@ -259,8 +269,8 @@ function OfferPreview({ portal }: { portal: PortalApi }) {
   }
 
   return (
-    <form data-testid="form-stack" onSubmit={(e) => void check(e)}>
-      <div>
+    <form data-testid="form-stack" className="form-stack pp-form" onSubmit={(e) => void check(e)}>
+      <div className="form-row">
         <Field
           label={c.t('country')}
           hint={c.t('countryHint')}
@@ -284,13 +294,13 @@ function OfferPreview({ portal }: { portal: PortalApi }) {
           error={amountOk ? undefined : c.t('ruleAmountInvalid')}
         />
       </div>
-      <div className="lt-actions">
-        <Button type="submit" tone="secondary" disabled={busy || !countryOk || !currencyOk || !amountOk}>
+      <div className="pp-actions">
+        <Button type="submit" variant="secondary" disabled={busy || !countryOk || !currencyOk || !amountOk}>
           {busy ? c.t('checking') : c.t('check')}
         </Button>
       </div>
       {answer && !answer.ok && (
-        <p className="lt-hint" role="alert">
+        <p className="pp-callout" role="alert">
           {answer.text}
         </p>
       )}
@@ -298,16 +308,16 @@ function OfferPreview({ portal }: { portal: PortalApi }) {
         <div data-testid="checkout-methods-offer" aria-live="polite">
           <h4>{c.t('offered')}</h4>
           {answer.offer.offered.length === 0 ? (
-            <p className="lt-hint">{c.t('nothingOffered')}</p>
+            <p className="muted">{c.t('nothingOffered')}</p>
           ) : (
-            <ol>
+            <ol className="pp-methods">
               {answer.offer.offered.map((o) => (
-                <li key={o.method} data-method={o.method}>
-                  <strong>{c.t(`method_${o.method}`)}</strong>
+                <li key={o.method} className="pp-method" data-method={o.method}>
+                  <span className="pp-method-name">{c.t(`method_${o.method}`)}</span>
                   {o.connection.state === 'not_connected' ? (
                     <ServiceOffNotice code={o.connection.notice} action={c.t(`method_${o.method}`)} role="note" />
                   ) : (
-                    <p>{c.t('available')}</p>
+                    <p className="pp-confirmed">{c.t('available')}</p>
                   )}
                 </li>
               ))}
@@ -316,9 +326,9 @@ function OfferPreview({ portal }: { portal: PortalApi }) {
           {answer.offer.leftOut.length > 0 && (
             <>
               <h4>{c.t('leftOut')}</h4>
-              <ul>
+              <ul className="pp-methods">
                 {answer.offer.leftOut.map((l) => (
-                  <li key={l.method} data-method={l.method}>
+                  <li key={l.method} className="muted" data-method={l.method}>
                     {c.t(`method_${l.method}`)}: {c.t(`why_${l.reason}`)}
                   </li>
                 ))}

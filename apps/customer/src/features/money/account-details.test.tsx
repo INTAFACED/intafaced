@@ -5,7 +5,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { AccountDetailsBody, AccountDetailsList } from './AccountDetails';
-import { EligibilityBody, EligibilityView, isRegion } from './eligibility/Eligibility';
+import { EligibilityBody, EligibilityView, isRegion } from './Eligibility';
 import { accountDetailsRowSchema, bankReads, eligibilitySchema, type AccountDetailsRow, type Eligibility } from './contracts';
 import { classifyRefusal } from '../../data/refusal-codes';
 import { refusalCopy } from '../../data/refusals';

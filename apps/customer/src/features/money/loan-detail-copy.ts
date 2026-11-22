@@ -1,11 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
-  sectionsLabel: 'Loan sections',
-  explain:
-    'Every figure here is the bank’s own answer for this loan: the terms written when it opened, what it would take to clear it now, a projection of interest that is not a schedule, each day’s interest with any correction, the bank’s check against the ledger, and the monthly statement.',
-  readFailedTitle: 'Your loans could not be read',
-  notYoursTitle: 'Loan not found',
   title: 'Loan details',
   description: 'The payoff quote, a projection of interest and the monthly statement for one of your loans.',
   open: 'Payoff quote, projection and statement',
@@ -118,11 +113,6 @@ const en = {
 } as const;
 
 const es: Record<keyof typeof en, string> = {
-  sectionsLabel: 'Secciones del préstamo',
-  explain:
-    'Cada cifra aquí es la respuesta del banco para este préstamo: las condiciones fijadas al abrirlo, lo que costaría cancelarlo ahora, una proyección de intereses que no es un calendario, los intereses de cada día con cualquier corrección, la comprobación del banco frente al libro mayor y el extracto mensual.',
-  readFailedTitle: 'No se pudieron leer tus préstamos',
-  notYoursTitle: 'Préstamo no encontrado',
   title: 'Detalles del préstamo',
   description: 'La cotización de cancelación, una proyección de intereses y el extracto mensual de uno de tus préstamos.',
   open: 'Cotización de cancelación, proyección y extracto',
@@ -238,11 +228,6 @@ const es: Record<keyof typeof en, string> = {
 };
 
 const fr: Record<keyof typeof en, string> = {
-  sectionsLabel: 'Sections du prêt',
-  explain:
-    'Chaque chiffre ici est la réponse de la banque pour ce prêt : les conditions fixées à l’ouverture, ce qu’il faudrait pour le solder maintenant, une projection des intérêts qui n’est pas un échéancier, les intérêts de chaque jour avec toute correction, le contrôle de la banque face au grand livre et le relevé mensuel.',
-  readFailedTitle: 'Vos prêts n’ont pas pu être lus',
-  notYoursTitle: 'Prêt introuvable',
   title: 'Détails du prêt',
   description: 'Le devis de remboursement, une projection des intérêts et le relevé mensuel de l’un de vos prêts.',
   open: 'Devis de remboursement, projection et relevé',

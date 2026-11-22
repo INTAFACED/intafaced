@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Field } from '@intafaced/ui/lit';
-import { Failure, Loading } from './kit-parts';
+import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { securityLockCopy as copy } from './security-lock-copy';
@@ -110,7 +109,7 @@ export function SecurityLock() {
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed') {
     return (
-      <section data-testid="security__lock" aria-label={t('title')} lang={languageFor('title')}>
+      <section data-testid="security__lock" className="security__lock security__card" aria-label={t('title')} lang={languageFor('title')}>
         <h2>{t('title')}</h2>
         <p>{t('body')}</p>
         <Failure result={resource.failure} retry={reload} />
@@ -121,11 +120,11 @@ export function SecurityLock() {
   if (!state) return null;
   const stage = lockStage(state);
   return (
-    <section data-testid="security__lock" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__lock" className="security__lock security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
-      <p className="lt-hint">{t('scope')}</p>
-      <p data-testid="security__lock-state" role="status">
+      <p className="muted">{t('scope')}</p>
+      <p data-testid="security__lock-state" className="security__lock-state" role="status">
         <strong>
           {stage === 'open'
             ? t('open')
@@ -136,40 +135,44 @@ export function SecurityLock() {
                 : t('locked', { time: stamp(state.lockedAt!, timeZone) })}
         </strong>
       </p>
-      {stage !== 'open' && <p className="lt-hint">{t('waitNote')}</p>}
+      {stage !== 'open' && <p className="muted">{t('waitNote')}</p>}
       {note && (
-        <p data-testid="notice" role="status">
+        <p data-testid="notice" className="notice" role="status">
           {note}
         </p>
       )}
       {failure && <Failure result={failure} />}
-      {problem && mode === 'view' && <p role="alert">{t(problem)}</p>}
+      {problem && mode === 'view' && (
+        <p className="error-text" role="alert">
+          {t(problem)}
+        </p>
+      )}
       {mode === 'view' ? (
-        <div className="lt-actions">
+        <div className="row">
           {stage === 'open' && (
-            <Button tone="secondary" disabled={busy} onClick={() => open('lock')}>
+            <Button variant="secondary" disabled={busy} onClick={() => open('lock')}>
               {t('lock')}
             </Button>
           )}
           {stage === 'locked' && (
-            <Button tone="secondary" disabled={busy} onClick={() => open('unlock')}>
+            <Button variant="secondary" disabled={busy} onClick={() => open('unlock')}>
               {t('askUnlock')}
             </Button>
           )}
           {stage === 'unlocking' && (
-            <Button tone="secondary" disabled={busy} onClick={() => void lock(true)}>
+            <Button variant="secondary" disabled={busy} onClick={() => void lock(true)}>
               {busy ? t('working') : t('keepLocked')}
             </Button>
           )}
         </div>
       ) : mode === 'lock' ? (
-        <div>
+        <div className="stack">
           <p>{t('lockReview')}</p>
-          <div className="lt-actions">
-            <Button tone="primary" disabled={busy} onClick={() => void lock(false)}>
+          <div className="row">
+            <Button disabled={busy} onClick={() => void lock(false)}>
               {busy ? t('working') : t('lockConfirm')}
             </Button>
-            <Button tone="quiet" disabled={busy} onClick={() => open('view')}>
+            <Button variant="ghost" disabled={busy} onClick={() => open('view')}>
               {t('cancel')}
             </Button>
           </div>
@@ -177,7 +180,7 @@ export function SecurityLock() {
       ) : (
         <form
           ref={form}
-
+          className="stack"
           noValidate
           aria-label={t('unlockTitle')}
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -195,15 +198,19 @@ export function SecurityLock() {
             disabled={busy}
             data-security-sensitive="true"
           />
-          {problem && <p role="alert">{t(problem)}</p>}
-          <div className="lt-actions">
-            <Button tone="primary" type="submit" disabled={busy}>
+          {problem && (
+            <p className="error-text" role="alert">
+              {t(problem)}
+            </p>
+          )}
+          <div className="row">
+            <Button type="submit" disabled={busy}>
               {busy ? t('working') : t('unlockCode')}
             </Button>
-            <Button tone="secondary" disabled={busy} onClick={() => form.current && void askUnlock('passkey', form.current)}>
+            <Button variant="secondary" disabled={busy} onClick={() => form.current && void askUnlock('passkey', form.current)}>
               {t('unlockPasskey')}
             </Button>
-            <Button tone="quiet" disabled={busy} onClick={() => open('view')}>
+            <Button variant="ghost" disabled={busy} onClick={() => open('view')}>
               {t('cancel')}
             </Button>
           </div>

@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { Button, EmptyState } from '@intafaced/ui/lit';
-import { Sheet } from '@intafaced/ui/lit/templates';
-import { Failure, Loading } from './kit-parts';
+import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
 import { identitySessionCopy as copy } from './identity-session-copy';
 import {
   finishRevoke,
@@ -23,6 +21,7 @@ import {
 } from './identity-session-guards';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
+import './identity-session.css';
 export type { PrivateSessionSource } from './identity-session-guards';
 type Review = { owner: string; seat: IdentitySeat; limit: number; client: ApiClient };
 type Response = { original: Review; marker?: RevokeMarker; answer: ApiResult<{ userId: string; sessionId: string; revoked: boolean }> };
@@ -194,7 +193,7 @@ export function IdentitySessions() {
   /** The one place a raw id earns its place: what Support asks for when a sign-out result is unknown. */
   function supportReference(seatId: string) {
     return (
-      <dl className="lt-kv">
+      <dl className="identity-sessions__context">
         <div>
           <dt>
             <Copy k="supportReference" />
@@ -208,15 +207,15 @@ export function IdentitySessions() {
   const knownGuard =
     result && result.marker?.requestId === journal.marker?.requestId && (result.answer.ok || result.answer.reason !== 'uncertain');
   return (
-    <section data-testid="identity-sessions" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="identity-sessions" className="stack identity-sessions" aria-label={t('title')} lang={languageFor('title')}>
       <h3>
         <Copy k="title" />
       </h3>
-      <p className="lt-hint">
+      <p className="muted">
         <Copy k="scope" />
       </p>
       {journal.marker && (
-        <section aria-label={t(knownGuard ? 'guardRetained' : 'unknown')}>
+        <section className="stack identity-sessions__unknown" aria-label={t(knownGuard ? 'guardRetained' : 'unknown')}>
           <h3>
             <Copy k={busy ? 'sending' : knownGuard ? 'guardRetained' : 'unknown'} />
           </h3>
@@ -224,16 +223,16 @@ export function IdentitySessions() {
             <Copy k={knownGuard ? 'guardBody' : 'unknownBody'} />
           </p>
           {supportReference(journal.marker.seat.id)}
-          <p className="lt-hint">
+          <p className="muted">
             <Copy k="lookup" />
           </p>
-          <a className="lt-link" href="/support">
+          <a className="text-link identity-sessions__support" href="/support">
             <Copy k="support" />
           </a>
         </section>
       )}
       {(problem || journal.failed) && (
-        <p role="status" className="lt-hint">
+        <p role="status" className="notice">
           <Copy k={journal.failed ? 'storage' : problem!} />
         </p>
       )}
@@ -244,28 +243,35 @@ export function IdentitySessions() {
           <Failure result={resource.failure} retry={reload} />
         </div>
       ) : !resource.data || resource.data.sessions.length === 0 ? (
-        <EmptyState title={t('empty')} body={t('emptyBody')} />
+        <EmptyState title={<Copy k="empty" />}>
+          <Copy k="emptyBody" />
+        </EmptyState>
       ) : (
         <>
-          <ul aria-label={t('table')}>
+          <ul className="identity-sessions__rows" aria-label={t('table')}>
             {(split ? (showOlder ? [...split.recent, ...split.older] : split.recent) : resource.data.sessions).map((seat) => {
               const mine = thisDevice !== null && seat.id.toLowerCase() === thisDevice;
               const started = stamp(seat.lastUsedAt ?? seat.createdAt, timeZone);
               return (
-                <li key={seat.id} data-session-id={seat.id} data-this-device={mine ? 'true' : undefined}>
+                <li className="identity-sessions__row" key={seat.id} data-session-id={seat.id} data-this-device={mine ? 'true' : undefined}>
                   <div>
                     <time dateTime={seat.lastUsedAt ?? seat.createdAt} lang={requestedLocale}>
                       {t('createdLabel', { time: started })}
                     </time>
                     {mine ? (
-                      <span>
+                      <span className="identity-sessions__mine">
                         <Copy k="thisDevice" />
                       </span>
                     ) : null}
                   </div>
                   {/* Signing out the session this browser uses would end this visit: Sign out below does that on purpose. */}
                   {mine ? null : (
-                    <Button tone="secondary" disabled={blocked} aria-label={t('reviewSeat', { time: started })} onClick={() => open(seat)}>
+                    <Button
+                      variant="secondary"
+                      disabled={blocked}
+                      aria-label={t('reviewSeat', { time: started })}
+                      onClick={() => open(seat)}
+                    >
                       <Copy k="reviewAction" />
                     </Button>
                   )}
@@ -275,41 +281,41 @@ export function IdentitySessions() {
           </ul>
           {/* One control. It first unfolds the rows already loaded, then asks the server for the next page. */}
           {moreControl === 'unfold' && split ? (
-            <Button tone="quiet" aria-expanded={false} onClick={() => setShowOlder(true)}>
+            <Button variant="ghost" aria-expanded={false} onClick={() => setShowOlder(true)}>
               <Copy k="showOlder" params={{ count: split.older.length }} />
             </Button>
           ) : moreControl === 'fetch' ? (
-            <Button tone="quiet" disabled={busy} onClick={() => setLimit((value) => Math.min(MAX_LIMIT, value + PAGE))}>
+            <Button variant="ghost" disabled={busy} onClick={() => setLimit((value) => Math.min(MAX_LIMIT, value + PAGE))}>
               <Copy k="more" params={{ count: Math.min(PAGE, MAX_LIMIT - limit) }} />
             </Button>
           ) : moreControl === 'fold' ? (
-            <Button tone="quiet" aria-expanded onClick={() => setShowOlder(false)}>
+            <Button variant="ghost" aria-expanded onClick={() => setShowOlder(false)}>
               <Copy k="hideOlder" />
             </Button>
           ) : null}
         </>
       )}
-      <p className="lt-hint">
+      <p className="muted">
         <Copy k="window" params={{ limit }} />
       </p>
       {journal.marker && (
-        <p className="lt-hint">
+        <p className="muted">
           <Copy k="readOnly" />
         </p>
       )}
       {limit >= MAX_LIMIT && seats && seats.length >= limit ? (
-        <p className="lt-hint">
+        <p className="muted">
           <Copy k="maximumBoundary" />
         </p>
       ) : null}
-      <div className="lt-actions">
-        <Button tone="secondary" disabled={busy} onClick={reload}>
+      <div className="actions">
+        <Button variant="secondary" disabled={busy} onClick={reload}>
           <Copy k="refresh" />
         </Button>
       </div>
       {result &&
         (result.answer.ok ? (
-          <section className="lt-hint" aria-label={t('receipt')}>
+          <section className="stack notice" aria-label={t('receipt')}>
             <h3>
               <Copy k="receipt" />
             </h3>
@@ -331,9 +337,8 @@ export function IdentitySessions() {
           </div>
         ))}
       {review && review.owner === userId && (
-        <Sheet
-          open
-          title={t('review')}
+        <Dialog
+          title={<Copy k="review" />}
           onClose={() => {
             if (!busy) {
               originalReview.current = null;
@@ -341,21 +346,21 @@ export function IdentitySessions() {
             }
           }}
         >
-          <div>
+          <div className="stack">
             <p>
               <Copy k="reviewBody" />
             </p>
-            <p className="lt-hint">
+            <p className="muted">
               <Copy k="scope" />
             </p>
             <p>
               <Copy k="startedAt" params={{ time: stamp(review.seat.createdAt, timeZone) }} />
             </p>
-            <Button tone="primary" disabled={blocked} onClick={() => void revoke()}>
+            <Button variant="danger" disabled={blocked} onClick={() => void revoke()}>
               <Copy k="confirm" />
             </Button>
           </div>
-        </Sheet>
+        </Dialog>
       )}
     </section>
   );

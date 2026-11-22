@@ -1,8 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';
-import { useMerchantAccess } from '../access/MerchantAccess';
-import { useTestMode } from './test-mode';
+import { useMerchantAccess, useOptionalMerchantAccess } from '../access/MerchantAccess';
 import { PortalFailure, PortalLoading, TestTag } from '../components';
 import type { ListState } from '../hooks';
 import { newRequestId } from '../model';
@@ -57,7 +56,11 @@ export function LinkButton({
   );
 }
 
-export { useTestMode } from './test-mode';
+/** True when the account runs on test money: its business is not yet approved, so every figure is practice. */
+export function useTestMode(): boolean {
+  const access = useOptionalMerchantAccess()?.access;
+  return access?.status === 'ready' && access.kybStatus !== null && access.kybStatus !== 'approved';
+}
 
 export function TestBanner() {
   const { t } = mc.useCopy();
