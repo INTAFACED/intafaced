@@ -1,6 +1,6 @@
 import { QUANT_QUOTA_RESOURCES, type QuantQuotaResource } from '@intafaced/contracts/quant-algo';
+import { FailureNote } from '../more';
 import type { ApiResult } from '../../shared/api';
-import { Failure } from '../../shared/ui';
 import { usageCopy } from './usage-copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -33,7 +33,7 @@ export function quotaRefusalOf(
 export function QuotaAwareFailure({ result, retry }: { result: Failed; retry?: () => void }) {
   const { t } = usageCopy.useCopy();
   const quota = quotaRefusalOf(result);
-  if (!quota) return <Failure result={result} retry={retry} />;
+  if (!quota) return <FailureNote result={result} retry={retry} />;
   const body =
     quota.kind === 'exceeded'
       ? t('exceeded', { resource: t(quota.resource).toLowerCase(), used: quota.used, limit: quota.limit })
@@ -45,12 +45,12 @@ export function QuotaAwareFailure({ result, retry }: { result: Failed; retry?: (
       data-testid="quant-quota-refusal"
       data-resource={quota.kind === 'profile_unset' ? '' : quota.resource}
       data-kind={quota.kind}
-      className="failure"
+      className="lt-refusal"
       role="status"
     >
-      <h3>{t('refusedTitle')}</h3>
-      <p>{body}</p>
-      <a className="text-link" href="/quant/strategies">
+      <h3 className="lt-refusal-title">{t('refusedTitle')}</h3>
+      <p className="lt-refusal-body">{body}</p>
+      <a className="lt-link" href="/quant/strategies">
         {t('refusedUsage')}
       </a>
     </div>
