@@ -22,15 +22,18 @@ row already on their template. One PR per batch.
    - `stylesheet`, `inline-style`: delete; the template and the kit's classes carry the layout.
 5. **Prove it:** `node tooling/design/volt-count.mjs --write` drops the batch's rooms from `volt-off-kit.json`;
    `pnpm --filter @intafaced/customer exec vitest run src/app/volt-count.test.ts` shows n rose by the batch and nothing
-   fell. Typecheck, the customer unit tests, and the journeys the batch's rooms reach pass in CI on the PR's head; the
-   CI review judges the before and after pictures. A journey test changes only when the PR names its step and proves
+   fell. Typecheck, the customer unit tests and the Look gate's pictures pass in CI on the batch's head; the journeys
+   the rooms reach pass on the layer's PR into main, where the CI review judges the before and after pictures. A journey test changes only when the PR names its step and proves
    it again. Every `data-testid`, `data-cell` and `data-col` a journey test finds by stays:
    `node --test tooling/design/volt-keep-ids.test.mjs` (run with the tooling tests) names any the batch dropped.
 
-## Beside the call-records codemod
+## A batch on its layer branch
+
+A batch PR goes into its template's layer branch, `volt/<template>`, and runs CI's fast checks only. Never arm it with
+`--auto`, since no ruleset guards a layer branch: its owner merges it once its checks pass (`gh pr checks <n> --watch`,
+then `gh pr merge <n> --squash`). The layer's own PR into main runs everything main requires.
 
 The call-records codemod (`tooling/codemod/call-records/`, its `callAs` runs among them) rewrites the call sites in the
 same rooms. A redraw changes markup and kit parts only, never a call expression (`api.query`, `api.call`, `callAs`, a
-read hook's arguments). Whenever a call-records run lands on main, merge main into the layer branch
-(`volt/<template>`) at once. A conflict at a call site is settled by re-running that codemod on the branch, never by
-hand.
+read hook's arguments). Merge main into the layer branch at least once a day, and at once whenever a call-records run
+lands on main. A conflict at a call site is settled by re-running that codemod on the branch, never by hand.
