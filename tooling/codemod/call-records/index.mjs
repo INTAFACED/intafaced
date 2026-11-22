@@ -5,7 +5,10 @@
 // (`mountRecord`). What it can't move safely it leaves untouched and names. See run.mjs for the whole run.
 //
 //   node tooling/codemod/call-records/index.mjs --module bank [--paths deposits.,global.] [--service svc-bank]
-//        [--file bank-deposit-procedures] [--write]
+//        [--file bank-deposit-procedures] [--callers-only] [--write]
+//
+// --callers-only, for a service whose Rust port is in flight: the records are written from its router as it stands and its
+// callers move to them, but the service and its crate are never touched (the router keeps its own schemas and mounts).
 //
 // Safe to rerun: a call already made through its record is no site, and a record already written is reused.
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -61,10 +64,12 @@ function args(argv) {
     else if (a === '--skip-file') out.skip = JSON.parse(readFileSync(argv[++i], 'utf8'));
     else if (a === '--door') out.door = argv[++i];
     else if (a === '--from-rev') out.fromRev = argv[++i];
+    else if (a === '--callers-only') out.callersOnly = true;
     else throw new Error(`unknown argument ${a}`);
   }
   if (!out.module) throw new Error('--module is required');
   if (Boolean(out.door) !== Boolean(out.fromRev)) throw new Error('--door and --from-rev go together');
+  if (out.callersOnly && out.door) throw new Error('--callers-only is for a port in flight, --door for one switched: not both');
   out.service ??= `svc-${out.module}`;
   return out;
 }
@@ -263,7 +268,9 @@ const inputArg = (s) =>
     ? s.inputProp?.value
     : s.shape === 'ops-entry'
       ? s.dispatchers[0].arguments[4]
-      : s.node.arguments[INPUT_AT[s.shape] ?? 2];
+      : s.shape === 'write-spec'
+        ? undefined // the spec's `input` builds it from the form; the record's input type holds it at the typecheck
+        : s.node.arguments[INPUT_AT[s.shape] ?? 2];
 function noInput(s) {
   const a = inputArg(s);
   return !a || (a.type === 'Identifier' && a.name === 'undefined') || (a.type === 'ObjectExpression' && a.properties.length === 0);
@@ -386,6 +393,8 @@ function build(opts, planned) {
     // Moved declarations: their old home imports them from contracts.
     for (const m of fresh) {
       if (m.inline || !m.q) continue;
+      // Mid-port, the service's own declaration stays where it is: contracts gets a copy, and the router reads its own.
+      if (opts.callersOnly && serviceFiles([m.q.file]).length) continue;
       const b = m.binding;
       const stmt = b.statement;
       if (b.kind === 'var' && b.declaration.declarations.length > 1) {
@@ -402,8 +411,9 @@ function build(opts, planned) {
     for (const r of recs) {
       const { p, node } = r.proc;
       const { reader } = r;
-      // A door serves its records itself (its records test holds it to them): only the callers move.
-      if (opts.door) {
+      // A door serves its records itself (its records test holds it to them), and a service mid-port keeps its router as
+      // it is (callers only): only the callers move.
+      if (opts.door || opts.callersOnly) {
         for (const s of r.sites) rewriteSite(changes, s, r.name, contractsSpec(file), !r.chain.input);
         done.push(r);
         continue;
@@ -463,7 +473,7 @@ function tables(changes, planned, done) {
 
 /** The schema a caller parses the answer with, or undefined. */
 export function schemaArgOf(s) {
-  if (s.shape === 'desk-read' || s.shape === 'ops-entry') return undefined;
+  if (s.shape === 'desk-read' || s.shape === 'ops-entry' || s.shape === 'write-spec') return undefined;
   const a = s.node.arguments;
   if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
   if (s.shape === 'payCall') return s.reader ? undefined : a[4]?.arguments?.[0];
@@ -608,6 +618,12 @@ export function rewriteSite(changes, s, name, spec, takesNone) {
     f.tables.get(s.table).moved.push({ s, edit, takesNone });
     return;
   }
+  if (s.shape === 'write-spec') {
+    // `procedure: 'x.y'` becomes `record: RECORD`: the dialog sends a spec by its record (features/money/write-flow.ts).
+    changes.edit(s.file, n.start, n.end, `record: ${name}`);
+    changes.imp(s.file, spec, name);
+    return;
+  }
   // One value of a call named by a `? :` or a closed set: written once every value has its record (`fanIn`).
   if (s.fan) return fanBranch(changes, s, name, spec, takesNone);
   changes.edit(s.file, n.start, n.end, callText(changes, s, name, takesNone));
@@ -648,7 +664,9 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
       importText,
       '',
       MARK,
-      `/** ${svc} \`${area}.*\`, one record per call: ${svc} mounts each (\`mountRecord\`) and every app caller calls it by its record. */`,
+      opts.callersOnly
+        ? `/** ${svc} \`${area}.*\`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */`
+        : `/** ${svc} \`${area}.*\`, one record per call: ${svc} mounts each (\`mountRecord\`) and every app caller calls it by its record. */`,
       '',
     );
     lines.push(`const base = { service: '${svc}', module: '${opts.module}', transport: 'trpc' } as const;`, '');
@@ -700,7 +718,10 @@ function writeSchemas(opts, file, closure, pending) {
   const decls = closure.moved.map((m) => `${m.inline ? m.text.replace(/\nconst /, '\nexport const ') : m.text}\n`).join('\n');
   if (fresh) {
     const head = [...imports].map(([spec, names]) => `import { ${[...names].join(', ')} } from '${spec}';`).join('\n');
-    return `${head}\n\n${MARK}\n/** The schemas ${opts.service}'s records share, moved from the service so the records and every caller read one copy. */\n\n${decls}`;
+    const why = opts.callersOnly
+      ? `copied from the service's router while its Rust port is in flight (the router keeps its own until the port's switch)`
+      : 'moved from the service so the records and every caller read one copy';
+    return `${head}\n\n${MARK}\n/** The schemas ${opts.service}'s records share, ${why}. */\n\n${decls}`;
   }
   return `${mergeImports(pending ?? readFileSync(file, 'utf8'), imports)}\n${decls}`;
 }
@@ -1188,15 +1209,41 @@ function withRouterFrom(opts, fn) {
  */
 export function portInFlight(service, root = REPO) {
   if (!existsSync(join(root, 'crates', service)) || !existsSync(join(root, 'services', service))) return null;
-  return `${service}'s Rust port is in flight (crates/${service} is beside services/${service}): the codemod does not rewrite its TypeScript router while it is. Leave its calls by name; once its switch deletes services/${service}, run this with --door and --from-rev, as for svc-academy.`;
+  return `${service}'s Rust port is in flight (crates/${service} is beside services/${service}): the codemod does not rewrite its TypeScript router while it is. Move only its callers with --callers-only, or leave its calls by name; once its switch deletes services/${service}, run this with --door and --from-rev, as for svc-academy.`;
+}
+
+/**
+ * Whether this run may go, as `{ code, why }` when it may not: a service mid-port runs only with --callers-only, and
+ * --callers-only only for a service mid-port (anything else takes the whole run, router and all).
+ */
+export function portRefusal(opts, root = REPO) {
+  const inFlight = portInFlight(opts.service, root);
+  if (inFlight && !opts.callersOnly) return { code: 3, why: inFlight };
+  if (!inFlight && opts.callersOnly)
+    return { code: 2, why: `--callers-only is for a service whose Rust port is in flight, and ${opts.service}'s is not: run without it` };
+  return null;
+}
+
+/** The files of `files` inside a service or its crate (`services/svc-*`, `crates/svc-*`), which a callers-only run never touches. */
+export function serviceFiles(files, root = REPO) {
+  return files.filter((f) => /^(services|crates)\/svc-[^/]+\//.test(relative(root, resolve(root, f))));
+}
+
+/** A callers-only run that would touch a service or its crate stops, naming the files. */
+export function holdCallersOnly(files, root = REPO) {
+  const bad = serviceFiles(files, root);
+  if (bad.length)
+    throw new Error(
+      `--callers-only touched a service mid-port, which it never may:\n${bad.map((f) => relative(root, resolve(root, f))).join('\n')}`,
+    );
 }
 
 function main() {
   const opts = args(process.argv.slice(2));
-  const refused = portInFlight(opts.service);
+  const refused = portRefusal(opts);
   if (refused) {
-    console.error(refused);
-    process.exit(3);
+    console.error(refused.why);
+    process.exit(refused.code);
   }
   withRouterFrom(opts, () => report(opts));
 }
@@ -1220,7 +1267,12 @@ function report(opts) {
     })),
     problems: result.problems,
   };
-  if (opts.write) summary.touched = write(result).map((f) => relative(REPO, f));
+  if (opts.callersOnly) holdCallersOnly([...result.changes.files.keys(), ...result.created.keys()]);
+  if (opts.write) {
+    const touched = write(result);
+    if (opts.callersOnly) holdCallersOnly(touched);
+    summary.touched = touched.map((f) => relative(REPO, f));
+  }
   if (opts.json) writeFileSync(opts.json, JSON.stringify(summary, null, 2));
   console.log(JSON.stringify({ ...summary, hand: summary.hand.length, handSample: summary.hand.slice(0, 15) }, null, 2));
 }

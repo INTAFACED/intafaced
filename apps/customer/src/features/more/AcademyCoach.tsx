@@ -8,6 +8,7 @@ import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button } from '../../shared/ui';
 import { academyCoachCopy as copy } from './academy-coach-copy';
+import { AGENTS_ROUTES_LIST } from '@intafaced/contracts/agents-routes-procedures';
 
 /** The Coach's routing task (svc-agents `COACH_TASK`): its published price is the cost line shown before asking. */
 const COACH_TASK = 'coach.answer';
@@ -35,16 +36,6 @@ const coachResult = z.discriminatedUnion('status', [
   z.object({ status: z.literal('refused'), code: z.string().min(1) }),
 ]);
 type CoachResult = z.infer<typeof coachResult>;
-const routeList = z.array(
-  z.object({
-    task: z.string(),
-    maxOutputTokens: z.number().int().positive().safe(),
-    inputPerMillion: z.string().nullable(),
-    outputPerMillion: z.string().nullable(),
-    assetId: z.string().min(1),
-    engine,
-  }),
-);
 
 type CopyKey =
   | 'advice'
@@ -108,7 +99,7 @@ export function AcademyCoach({ lessonSlug }: { lessonSlug?: string }) {
   const fieldId = useId();
   const [question, setQuestion] = useState('');
   const [asked, setAsked] = useState<Asked>({ kind: 'idle' });
-  const routes = useResource((signal) => api.query('agents', 'routes.list', undefined, routeList, { signal }), `coach-routes:${userId}`);
+  const routes = useResource((signal) => api.call(AGENTS_ROUTES_LIST, undefined, { signal }), `coach-routes:${userId}`);
   const route = routes.resource.status === 'ready' ? (routes.resource.data.find((r) => r.task === COACH_TASK) ?? null) : undefined;
   const parts = (value: string, asset: string): readonly FigurePart[] => [
     ...formatNumberToParts(value, language),
