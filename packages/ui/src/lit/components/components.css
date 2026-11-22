@@ -1016,6 +1016,13 @@
   font-weight: 500;
   color: var(--lit-text-1);
 }
+/* The chart's attribution: a link on its own line under the plot, outside the plot's image, always shown. */
+.lt-link.lt-chart-attribution {
+  flex: none;
+  align-self: flex-start;
+  margin-block-start: 0.25rem;
+  font-size: var(--lit-type-micro-size);
+}
 
 /* ---- charts widget: a menu item drawn as a plain button (a list of choices inside a popover, role menuitem) ---- */
 button.lt-menu-item {

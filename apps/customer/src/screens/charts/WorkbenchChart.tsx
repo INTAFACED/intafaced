@@ -4,8 +4,10 @@
  * the colour scheme, older history in front of the loaded bars, a moved view for "go to date", keyboard zoom and pan,
  * and hands a `ChartHost` to the add-ons drawn on top (studies, drawings).
  *
- * TradingView attribution stays on (`layout.attributionLogo: true`), as the licence asks. Colours come from the app's
- * tokens (`--if-*`), never from literals here.
+ * TradingView attribution stays, as the licence asks, but drawn by us beside the plot rather than by the engine inside
+ * it: the plot host is an image (role="img"), and an image may hold no link. So the engine's own logo is off
+ * (`layout.attributionLogo: false`) and `ChartAttribution` draws the same words and link next to it, in every chart.
+ * Colours come from the app's tokens (`--if-*`), never from literals here.
  */
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useCentredBar, useChartOptionsInPlace, useChartStage, useMainSeriesBars, useMainSeriesLines } from '../../shared/chart-stage';
@@ -106,6 +108,30 @@ export interface WorkbenchChartProps {
 
 const NO_LINES: readonly PriceLine[] = [];
 
+/** The engine's own attribution, as its vendored file draws it: the logo's title and the link it opens. */
+export const ATTRIBUTION_WORDS = 'Charting by TradingView';
+const ATTRIBUTION_LINK = 'https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart';
+
+/** The link the engine's logo opens: its address, with the page it sits on as the source, exactly as the engine adds it. */
+export function attributionHref(page: { hostname: string; pathname: string }): string {
+  return page.hostname ? `${ATTRIBUTION_LINK}&utm_source=${page.hostname}${page.pathname}` : ATTRIBUTION_LINK;
+}
+
+/** The chart's attribution, a visible link beside the plot and outside its image. */
+export function ChartAttribution() {
+  return (
+    <a
+      data-testid="wc-attribution"
+      className="lt-link lt-chart-attribution"
+      href={attributionHref(window.location)}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {ATTRIBUTION_WORDS}
+    </a>
+  );
+}
+
 export function WorkbenchChart({
   candles,
   chartStyle: style,
@@ -156,7 +182,7 @@ export function WorkbenchChart({
           textColor: c.text,
           fontFamily: getComputedStyle(el).fontFamily,
           fontSize: 12,
-          attributionLogo: true,
+          attributionLogo: false,
           panes: { separatorColor: c.border, separatorHoverColor: c.border, enableResize: true },
         },
         grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
@@ -337,6 +363,7 @@ export function WorkbenchChart({
           </div>
         ) : null}
       </div>
+      <ChartAttribution />
       {children?.(host, candles)}
     </div>
   );
