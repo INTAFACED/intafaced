@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AuthError, hasScope, requireScope } from '@intafaced/auth';
-import { scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { AgentsRouterDeps } from '../router.js';
 import { envCoachGrounding } from './grounded-session.js';
 import { COACH_REFUSAL_CODES, createCoachRunStore, runCoachAnswer, type CoachRefusalCode } from './coach-run.js';

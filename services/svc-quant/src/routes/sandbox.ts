@@ -1,5 +1,5 @@
 import { QUANT_SANDBOX_SYNTAX, QUANT_SANDBOX_UNWIRED, QuantError } from '../errors.js';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { QUANT_SANDBOX_CAPABILITIES, QUANT_SANDBOX_RUN } from '@intafaced/contracts/quant-sandbox-procedures';
 import { requireIdempotencyKey } from '../studio/keys.js';

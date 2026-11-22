@@ -8,7 +8,8 @@
  * stores nothing, so there is no key and nothing to retry. It takes no free text and echoes only the validated pair.
  */
 import { z } from 'zod';
-import { PREVIEW_REFUSAL_CODE, previewRefusal, router, TRPCError } from '@intafaced/contracts';
+import { PREVIEW_REFUSAL_CODE, previewRefusal } from '@intafaced/contracts/preview-refusal';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { previewActInputSchema } from '@intafaced/contracts/quant-call-schemas';
 import { QUANT_PREVIEW_ACT } from '@intafaced/contracts/quant-preview-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';

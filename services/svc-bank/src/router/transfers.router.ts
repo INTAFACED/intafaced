@@ -1,13 +1,11 @@
 import { assertPartnerAnswering, assertPartnerOffers, partnerFeeKnown } from '../partner/test-partner.js';
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
-  serviceProcedureFor,
   BANK_INTERNAL_WITHDRAWAL_CALLERS,
   bankInternalWithdrawalInputSchema,
   bankInternalWithdrawalSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-internal-withdrawal';
+import { router, scopedProcedure, serviceProcedureFor } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { activityFailure } from '../activity/activity.router.js';
 import { assertSelf } from '../assert-self.js';

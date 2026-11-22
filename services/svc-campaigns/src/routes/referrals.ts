@@ -1,4 +1,4 @@
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { myInviteesInputSchema, myInviteesSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { CampaignsError } from '../codes.js';
 import { guard, mapError } from './kit.js';

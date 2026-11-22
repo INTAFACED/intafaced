@@ -1,4 +1,6 @@
-import { s2sFromEnv, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { z } from 'zod';
 import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import { createHash } from 'node:crypto';

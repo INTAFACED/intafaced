@@ -1,6 +1,6 @@
 import { z } from 'zod';
+import type { IdentityAccountControlInput, Context } from '@intafaced/contracts';
 import {
-  scopedProcedure,
   accountControlInputSchema,
   identityAccountControlInputSchema,
   accountControlLookupInputSchema,
@@ -42,13 +42,8 @@ import {
   serviceOperatorEntitlementInputSchema,
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
-  router,
-  protectedProcedure,
-  serviceProcedure,
-  TRPCError,
-  type IdentityAccountControlInput,
-  type Context,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
+import { scopedProcedure, router, protectedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { FounderControlError, founderEntitlementChangeSchema, type FounderControls } from './founder-controls.js';
 import type { AccountLimitsDesk } from './account-limits.js';
 import type { CustomerDetailsDesk } from './customer-details.js';

@@ -8,7 +8,8 @@
  * `false` there, so the notice is gone for them the moment the programme changes their standing.
  */
 import { z } from 'zod';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { NOTICE_AUDIENCES } from '@intafaced/contracts/notify-call-schemas';
 
 export type NoticeAudience = (typeof NOTICE_AUDIENCES)[number];

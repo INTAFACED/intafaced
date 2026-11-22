@@ -99,6 +99,19 @@ describe('the off-kit rule', () => {
     );
   });
 
+  it('reads data-style as data, and still finds a style= beside it', () => {
+    const dir = plant({
+      'room/Room.tsx': [
+        `import { DeskTemplate } from '@intafaced/ui/lit/templates';`,
+        `export const Room = ({ s }) => <DeskTemplate><div data-style={s} /></DeskTemplate>;`,
+        `export const Off = () => <div style={{ color: 'red' }} />;`,
+      ].join('\n'),
+    });
+    expect(offKitFindings(join(dir, 'room/Room.tsx')).map((f) => `${f.kind} ${f.at.split('/').slice(-1)[0]}`)).toEqual([
+      'inline-style Room.tsx:3',
+    ]);
+  });
+
   it('passes a part from outside the folder that is drawn only from the kit, and fails one that is not', () => {
     const dir = plant({
       'room/Room.tsx': [

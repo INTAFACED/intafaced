@@ -8,7 +8,8 @@
  */
 
 import postgres from 'postgres';
-import { createSqlWarehouseLagProbe, type WarehouseLagProbe } from '@intafaced/contracts';
+import type { WarehouseLagProbe } from '@intafaced/contracts';
+import { createSqlWarehouseLagProbe } from '@intafaced/contracts/ops-analytics-warehouse';
 
 export type WarehouseLagSqlClient = {
   unsafe(sql: string): Promise<unknown> | unknown;

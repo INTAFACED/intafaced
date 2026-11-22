@@ -1,4 +1,4 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { ProtocolEmbeddedWalletRefusal } from '@intafaced/contracts/protocol-embedded-wallet';
 import { gasSponsorFromSetting, type GasSponsorSetting } from './gas-sponsor.js';
 import { PROTOCOL_EMBEDDED_WALLET_CREATE, PROTOCOL_EMBEDDED_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';

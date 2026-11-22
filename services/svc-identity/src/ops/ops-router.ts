@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { AccountDirectoryError, HANDLES_CAP, accountCounts, accountHandles, searchAccounts } from './account-directory.js';
 import { OperatorApiKeyError, revokeApiKeyForUser } from './operator-api-keys.js';

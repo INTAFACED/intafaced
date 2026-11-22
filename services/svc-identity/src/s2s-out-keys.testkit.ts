@@ -1,12 +1,7 @@
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
-import {
-  createServiceSigner,
-  createServiceVerifier,
-  verifyServiceRequest,
-  type Keyring,
-  type ServiceAuthMode,
-  type ServiceName,
-} from '@intafaced/contracts';
+import type { Keyring, ServiceAuthMode, ServiceName } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
+import { createServiceSigner, createServiceVerifier } from '@intafaced/contracts/service-keys';
 
 /**
  * Runtime keys for the outgoing-call tests: svc-identity signs, the named callee verifies with the contracts verifier

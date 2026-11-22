@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { PayHaltError } from './halts/store.js';
 import { PayError } from './payment-service.js';

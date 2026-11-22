@@ -77,8 +77,8 @@ const { installShims } = await import('../scripts/tsc.mjs');
 console.log(`tsc: ${installShims(worktree)} node_modules/.bin/tsc files point at tooling/scripts/tsc.mjs`);
 
 // The Rust toolchain rust-toolchain.toml pins, so `pnpm rust:check` needs no step by hand. rustup installs it once per
-// machine (a no-op when it is there). Without rustup the install above still stands: the line to run is printed, and
-// only a push that changes Rust is refused for it (.githooks/pre-push).
+// machine (a no-op when it is there). Without rustup the install above still stands and the line to run is printed; CI's
+// Rust job judges every push that changes Rust.
 const rustup = spawnSync('rustup', ['toolchain', 'install'], { cwd: worktree, stdio: ['ignore', 'inherit', 'inherit'] });
 if (rustup.error)
   console.warn(

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { publicJurisdictionProcedure, router, TRPCError } from '@intafaced/contracts';
+import { publicJurisdictionProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { DEX_HEALTH, DEX_QUOTE, dexRouteSchema } from '@intafaced/contracts/dex-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { parseAmount } from '@intafaced/ledger-client/money';

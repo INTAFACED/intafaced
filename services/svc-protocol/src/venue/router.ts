@@ -1,4 +1,5 @@
-import { ASSET_LINK_NOT_TOKEN, router, TRPCError, VENUE_BAD_AMOUNT, VENUE_INSUFFICIENT_FREE, VENUE_UNSET } from '@intafaced/contracts';
+import { ASSET_LINK_NOT_TOKEN, VENUE_BAD_AMOUNT, VENUE_INSUFFICIENT_FREE, VENUE_UNSET } from '@intafaced/contracts/protocol-venue-funds';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   PROTOCOL_VENUE_ASSET_LINK_REVIEW,

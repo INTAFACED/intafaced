@@ -1,4 +1,4 @@
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { createPreviewRouter } from './preview/preview.js';
 import { createQuantCore, type QuantRouterDeps } from './routes/core.js';
 import { healthRoutes } from './routes/health.js';

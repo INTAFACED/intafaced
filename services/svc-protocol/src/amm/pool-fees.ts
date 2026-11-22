@@ -1,13 +1,12 @@
 import type { Address, PublicClient } from 'viem';
+import type { ProtocolPoolFees } from '@intafaced/contracts';
 import {
   FEE_SHARE_TOTAL_BPS,
   PROTOCOL_FEE_POLICY_FIELDS,
   PROTOCOL_FEE_POLICY_UNSET,
   PROTOCOL_NOT_FACTORY_POOL,
-  router,
-  TRPCError,
-  type ProtocolPoolFees,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-fees';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { PROTOCOL_AMM_POOL_FEES, PROTOCOL_AMM_REQUEST_PROTOCOL_FEE } from '@intafaced/contracts/protocol-amm-procedures';
 import { mountProtocolRecord } from '../record-mount.js';
 import { chainRefusal, classifyChainError, isZeroAddress } from '../chain/availability.js';
