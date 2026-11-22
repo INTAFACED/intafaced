@@ -266,7 +266,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/academy/rooms/messages': { template: 'record-list' },
   '/academy/rooms/messages/:conversationId': { template: 'reading' },
   '/academy/certificates/verify/:code': { template: 'flow' },
-  '/campaigns/:campaignId': { template: 'catalogue' },
+  '/campaigns/:campaignId': { template: 'catalogue', migrated: { file: 'features/more/campaign-detail/CampaignDetailRoom.tsx' } },
   '/academy/:slug': { template: 'reading' },
   '/market/strategy': { template: 'flow' },
   '/academy': { template: 'catalogue' },

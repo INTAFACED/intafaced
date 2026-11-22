@@ -16,7 +16,7 @@ import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
-import { CampaignDetail } from './campaign-catalogue';
+import { CampaignDetail } from './campaign-detail/CampaignDetailRoom';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { DropRoom } from './DropRoom';
 import { Launch, Mining } from './AvailabilityRooms';
@@ -128,8 +128,7 @@ function MoreRooms({ path }: { path: string }) {
     description = <campaignCatalogueCopy.Copy k="mineTitle" />;
     content = <Campaigns initial="Mine" />;
   } else if (/^\/campaigns\/cmp_[A-Za-z0-9-]+$/.test(p)) {
-    title = <campaignCatalogueCopy.Copy k="detailTitle" />;
-    content = <CampaignDetail key={p} campaignId={decodeURIComponent(p.slice('/campaigns/'.length))} />;
+    volt = <CampaignDetail key={p} campaignId={decodeURIComponent(p.slice('/campaigns/'.length))} />;
   } else if (p === '/campaigns/drops') {
     volt = <DropRoom />;
   } else if (p === '/launch' || p === '/uc/innovation/myorders') {
