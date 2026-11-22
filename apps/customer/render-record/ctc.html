@@ -126,12 +126,12 @@
 <span lang="en" dir="ltr" data-i18n="pay.surface.tradingAccess">Trading access</span>
 </a>
 </nav>
-<div class="stack">
+<div class="lt-stack">
 <section data-testid="pay-section" class="pay-section">
 <header>
 <div>
 <h2>Before you trade</h2>
-<p class="muted">Each requirement for taking an ad, as the service checks it right now.</p>
+<p class="lt-muted">Each requirement for taking an ad, as the service checks it right now.</p>
 </div>
 </header>
 <div aria-label="Before you trade" role="region" data-testid="p2p-eligibility">
@@ -157,7 +157,7 @@
 <div>
 <h2>Offer board</h2>
 </div>
-<a class="text-link" href="/uc/ad/create">
+<a class="lt-link" href="/uc/ad/create">
 <span lang="en" dir="ltr" data-i18n="pay.surface.createOffer">Create offer →</span>
 </a>
 </header>
@@ -175,13 +175,13 @@
 <span id="field-_r_3_-label">Asset</span>
 <input maxlength="16" id="field-_r_3_" aria-labelledby="field-_r_3_-label" aria-invalid="false" class="h-10 w-full min-w-0 rounded-sm border border-transparent bg-field px-3 text-base font-normal text-fg placeholder:text-fg-2 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-40 aria-invalid:border-down-text" value="">
 </label>
-<label class="field">
+<label class="lt-field">
 <span lang="en" dir="ltr" data-i18n="pay.surface.fiatCurrency">Fiat currency</span>
 <select>
 <option value="">All currencies</option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span lang="en" dir="ltr" data-i18n="pay.surface.makerSide">Maker side</span>
 <select>
 <option value="">Buy and sell</option>
@@ -189,7 +189,7 @@
 <option value="buy">Buying asset</option>
 </select>
 </label>
-<label class="field">Payment method<select>
+<label class="lt-field">Payment method<select>
 <option value="">Any method</option>
 </select>
 </label>
@@ -197,12 +197,12 @@
 <span id="field-_r_4_-label">Amount in fiat</span>
 <input inputmode="decimal" maxlength="40" id="field-_r_4_" aria-labelledby="field-_r_4_-label" aria-invalid="false" class="h-10 w-full min-w-0 rounded-sm border border-transparent bg-field px-3 text-base font-normal text-fg placeholder:text-fg-2 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-40 aria-invalid:border-down-text" value="">
 </label>
-<label class="field">Sort<select>
+<label class="lt-field">Sort<select>
 <option value="price_asc">Price: lowest first</option>
 <option value="price_desc">Price: highest first</option>
 </select>
 </label>
-<button type="submit" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">
+<button type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="pay.surface.applyFilters">Apply filters</span>
 </button>
 </form>
@@ -233,22 +233,22 @@
 </div>
 </div>
 </div>
-<p class="muted">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.window">Showing open offers. Paused and older offers aren’t listed. Your own offers are marked “Your offer”; you can’t place orders on them.</span>
 </p>
-<button type="button" tabindex="0" data-slot="button" data-variant="ghost" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-10 px-5 text-base rounded-pill">
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.refreshMarket">Refresh offers</span>
 </button>
 <details class="p2p-offer-known">
 <summary>
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.known">Open a specific offer</span>
 </summary>
-<form class="form-stack">
+<form class="lt-stack">
 <label data-slot="field" class="flex min-w-0 flex-col gap-1.5 text-sm font-medium text-fg-2 " for="field-_r_5_">
 <span id="field-_r_5_-label">Offer ID</span>
 <input maxlength="36" id="field-_r_5_" aria-labelledby="field-_r_5_-label" aria-invalid="false" class="h-10 w-full min-w-0 rounded-sm border border-transparent bg-field px-3 text-base font-normal text-fg placeholder:text-fg-2 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-40 aria-invalid:border-down-text" value="">
 </label>
-<button type="submit" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">
+<button type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.inspect">Inspect current offer</span>
 </button>
 </form>
