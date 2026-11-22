@@ -30,6 +30,17 @@ const en = {
   feeSaverUse: 'Order {sequence}, {when}',
   validationFeeSaver:
     'This code gives a fee-saver coupon from {campaign}: {pct}% off our builder fee on {orders} venue orders. Claim by {claimBy}; use by {useBy}.',
+  kind_fee_rebate: 'Fee rebate coupon:',
+  feeRebateDoes:
+    'pays {pct}% of our builder fee back on each of your venue fills, to your connected wallet {delay} after the fill, up to {face} {asset} in all; never the venue’s own fee.',
+  feeRebateAccruals: 'Fills it accrued on',
+  feeRebateAccrual: '{amount} {asset} back of a {fee} {asset} builder fee, filled {when}; paid from {payable}',
+  validationFeeRebate:
+    'This code gives a fee rebate coupon from {campaign}: {pct}% of our builder fee back on each venue fill, paid {delay} after it, up to {amount} {asset}. Claim by {claimBy}; use by {useBy}.',
+  delaySeconds: '{n} seconds',
+  delayMinutes: '{n} minutes',
+  delayHours: '{n} hours',
+  delayNone: 'straight away',
   useBy: 'Use by {when}',
   expiredAt: 'Expired {when}',
   amount: 'Amount to redeem',
@@ -70,7 +81,7 @@ const en = {
   'campaigns.voucher_invalid': 'This code cannot be claimed. Check it and try again.',
   'campaigns.voucher_window_unset': 'This voucher’s claim-by or use-by date is not set, so it cannot be claimed.',
   'campaigns.voucher_expired': 'This voucher’s use-by date has passed. Nothing was redeemed.',
-  'campaigns.voucher_not_cash': 'This coupon lowers our builder fee on your orders; it is not redeemed for cash. Nothing was redeemed.',
+  'campaigns.voucher_not_cash': 'This coupon works on our builder fee on your orders; it is not redeemed for cash. Nothing was redeemed.',
   'campaigns.voucher_amount_invalid': 'Type an amount above zero.',
   'campaigns.voucher_exceeds_remaining': 'That is more than is left on this voucher. Nothing was redeemed.',
   'campaigns.voucher_sequence_invalid': 'This voucher changed since it was read. It has been read again; try once more.',
