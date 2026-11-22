@@ -235,6 +235,8 @@ pub struct BankDoor {
     spaces: crate::spaces::Wiring,
     /// Slice `transfers`'s identity reads, bus and owner values (`transfers::Wiring`); none until handed in.
     transfers: crate::transfers::Wiring,
+    /// Slice `earn`'s owner values (`earn::Settings`); identity and the ledger are the slices' above.
+    earn: crate::earn::Settings,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -281,6 +283,7 @@ impl BankDoor {
             partner: crate::partner::router::Wiring::none(),
             spaces: crate::spaces::Wiring::none(),
             transfers: crate::transfers::Wiring::none(),
+            earn: crate::earn::Settings::default(),
             test_age_open: false,
         })
     }
@@ -312,6 +315,25 @@ impl BankDoor {
             w: &self.transfers,
             now: self.now(),
         })
+    }
+
+    /// `f` given slice `earn`'s dependencies at `now`: what a call, a job or a recovery pass hands the slice.
+    pub fn earn_deps<T>(&self, now: Instant, f: impl FnOnce(&crate::earn::Deps<'_>) -> T) -> T {
+        f(&crate::earn::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody_layer: &self.partner.custody_layer,
+            recipients: self.transfers.recipients.as_ref(),
+            approvals: self.transfers.approvals.as_ref(),
+            settings: &self.earn,
+            now,
+        })
+    }
+
+    /// Slice `earn`'s owner values, built by the binary from the environment.
+    pub fn with_earn(mut self, settings: crate::earn::Settings) -> BankDoor {
+        self.earn = settings;
+        self
     }
 
     /// Slice `partner`'s wiring, built by the binary from the environment.
@@ -371,6 +393,23 @@ impl BankDoor {
                 ctx,
             )
             .unwrap_or_else(|| Err(not_ported(Slice::Transfers))),
+            Slice::Earn => {
+                let user = ctx
+                    .principal
+                    .map(|p| p.user_id.as_str())
+                    .unwrap_or_default();
+                self.earn_deps(ctx.now, |d| {
+                    crate::earn::router::answer(d, user, ctx.call.path, &ctx.input)
+                })
+                .map(|r| {
+                    r.map(Some).map_err(|e| {
+                        crate::errors::to_trpc(e, || {
+                            service_kit::approvals::random_uuid().unwrap_or_default()
+                        })
+                    })
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::Earn)))
+            }
             other => Err(not_ported(other)),
         }
     }
