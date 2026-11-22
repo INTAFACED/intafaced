@@ -1,11 +1,5 @@
-import {
-  QUANT_BAR_SIZES,
-  type QuantBacktestResult,
-  type QuantCheck,
-  type QuantCheckThresholds,
-  type QuantMetric,
-  type QuantSampleSection,
-} from '@intafaced/contracts';
+import type { QuantBacktestResult, QuantCheck, QuantCheckThresholds, QuantMetric, QuantSampleSection } from '@intafaced/contracts';
+import { QUANT_BAR_SIZES } from '@intafaced/contracts/quant-algo';
 import { formatAmount, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
 import { percent } from './metrics.js';
 

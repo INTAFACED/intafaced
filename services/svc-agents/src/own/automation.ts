@@ -1,13 +1,7 @@
 import type { Sql } from 'postgres';
-import {
-  OWN_AGENT_AUTOMATION_LIMITS,
-  OWN_AGENT_TRIGGER_SUBJECTS,
-  type OwnAgentAutoRun,
-  type OwnAgentCadence,
-  type OwnAgentSchedule,
-  type OwnAgentTrigger,
-  asAssetId,
-} from '@intafaced/contracts';
+import type { OwnAgentAutoRun, OwnAgentCadence, OwnAgentSchedule, OwnAgentTrigger } from '@intafaced/contracts';
+import { OWN_AGENT_AUTOMATION_LIMITS, OWN_AGENT_TRIGGER_SUBJECTS } from '@intafaced/contracts/agents-own';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import { SUBJECT_PREFIX } from '@intafaced/events';
 import { formatAmount, MoneyError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError, MeteredReplayError } from '../errors.js';

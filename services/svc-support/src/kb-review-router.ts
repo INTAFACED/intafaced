@@ -1,12 +1,12 @@
 import { TRPCError } from '@trpc/server';
+import { SUPPORT_KB_SECTION_UNKNOWN } from '@intafaced/contracts/support-kb-library';
 import {
   SUPPORT_KB_DRAFT_UNKNOWN,
   SUPPORT_KB_NOT_APPROVED,
   SUPPORT_KB_NOT_IN_REVIEW,
   SUPPORT_KB_SAME_OPERATOR,
-  SUPPORT_KB_SECTION_UNKNOWN,
   SUPPORT_KB_TEMPLATE_STALE,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-kb-review';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   SUPPORT_DESK_KB_APPROVE,

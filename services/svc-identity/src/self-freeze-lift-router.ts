@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { SelfFreezeLiftError, type SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
 import { userCopy } from './user-copy.js';

@@ -1,4 +1,5 @@
-import { officialChannelListSchema, type OfficialChannelList } from '@intafaced/contracts';
+import type { OfficialChannelList } from '@intafaced/contracts';
+import { officialChannelListSchema } from '@intafaced/contracts/support-official-channels';
 import { SUPPORT_OFFICIAL_CHANNELS } from '@intafaced/contracts/support-official-channels-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { supportRefusal } from './record-refusal.js';

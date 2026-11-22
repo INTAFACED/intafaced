@@ -4,7 +4,8 @@
  * Unset PAY_URL = honest `no_live_metrics`. Empty or 503 body = same refuse.
  */
 
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { ApprovalRatePoint } from './watch.js';
 import type { PayMetricsPort } from './pay-metrics-port.js';
 

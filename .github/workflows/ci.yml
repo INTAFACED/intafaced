@@ -156,10 +156,15 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR: ${{ github.event.pull_request.number }}
           # Check 7 reads this pull request's earlier heads' failed Tests jobs (actions: read above).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Main's copy runs in a worktree of main, so every import it has is main's too (rules-from-main.test.mjs).
+        # The event holds the description as it was at the push, so a re-run reads today's: a Test-change line added after
+        # a red counts on a re-run, with no empty commit (the event's copy stays if the read fails).
         run: |
+          live=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '.body // ""') && PR_BODY=$live && export PR_BODY
+          echo "description: ${#PR_BODY} characters, read at $(date -u +%H:%M:%S)"
           guard=tooling/ci/test-diff-guard.mjs
           if git cat-file -e "origin/main:$guard" 2>/dev/null; then
             git worktree add --detach "$RUNNER_TEMP/diff-rules" origin/main
@@ -712,6 +717,27 @@ jobs:
       - name: Every infrastructure-backed suite actually ran
         if: always()
         run: node tooling/ci/infra-verdict.mjs
+
+      # Save each package's Maven repository that test-infra restored (#9531), only from a passing job that ran that
+      # package's Maven tests (its surefire reports exist), so the saved repository holds every plugin its tests need.
+      - name: Save sbe-codec's Maven repository
+        if: success() && hashFiles('packages/sbe-codec/target/surefire-reports/TEST-*.xml') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            packages/sbe-codec/.tools/m2
+            !packages/sbe-codec/.tools/m2/**/*.lastUpdated
+            !packages/sbe-codec/.tools/m2/**/resolver-status.properties
+          key: maven-repo-sbe-codec-${{ runner.os }}-${{ hashFiles('packages/sbe-codec/pom.xml') }}
+      - name: Save svc-fix's Maven repository
+        if: success() && hashFiles('services/svc-fix/target/surefire-reports/TEST-*.xml') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            services/svc-fix/.tools/m2
+            !services/svc-fix/.tools/m2/**/*.lastUpdated
+            !services/svc-fix/.tools/m2/**/resolver-status.properties
+          key: maven-repo-svc-fix-${{ runner.os }}-${{ hashFiles('services/svc-fix/pom.xml') }}
 
   # The look gate on the rooms a pull request changes (#9325; look-pr.yml): before and after pictures for the CI review,
   # and red when the head adds a finding on a new-look page. Only when the change draws a Customer room or the kit

@@ -1,6 +1,5 @@
+import { supportCommentSchema } from '@intafaced/contracts/support';
 import {
-  publicProcedure,
-  supportCommentSchema,
   supportGuestCreateInputSchema,
   supportGuestCreateResultSchema,
   supportGuestReplyInputSchema,
@@ -8,7 +7,8 @@ import {
   supportGuestThreadSchema,
   supportGuestVerifyInputSchema,
   supportGuestVerifyResultSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-guest';
+import { publicProcedure } from '@intafaced/contracts/trpc';
 import type { GuestRequests } from './guest-requests.js';
 import { SupportError } from './support-service.js';
 
