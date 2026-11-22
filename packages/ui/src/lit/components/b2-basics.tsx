@@ -1,6 +1,6 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, Tabs, SectionTabs, Disclosure, Checkbox, Dialog, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, Tabs, SectionTabs, Disclosure, Checkbox, Dialog, QrCode, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
@@ -285,6 +285,19 @@ export function Dialog({
       </header>
       <div className="lt-sheet-body">{children}</div>
     </dialog>
+  );
+}
+
+/**
+ * A QR code someone scans: the drawn modules as one path (`d`) on a `size`-unit square, named for a screen reader. It is
+ * always dark on light, in every theme and scheme, because scanners need that contrast; the link it holds is shown
+ * beside it in words by the room.
+ */
+export function QrCode({ label, size, d }: { label: string; size: number; d: string }) {
+  return (
+    <svg className="lt-qr" viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label} shapeRendering="crispEdges">
+      <path className="lt-qr-dark" d={d} />
+    </svg>
   );
 }
 

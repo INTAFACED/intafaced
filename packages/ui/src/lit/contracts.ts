@@ -311,6 +311,7 @@ export const components = {
     '(B2) Table with a phone row form (rows become stacked cards under compact); sortable headers (aria-sort), row and cell data marks, and window virtualisation for long lists',
   Sheet: '(B2) Bottom sheet on phone, side sheet on computer; a glass layer',
   Dialog: '(B2) A modal dialog in the middle of the screen, named by its title: a review before a step, or one short task',
+  QrCode: '(B2) A QR code to scan, named, always dark on light for scanners',
   Stepper: '(B2) Steps of a flow',
   Skeleton: '(B2) Loading placeholder shaped like the content, never a flash of "no records"',
   KeyValue: '(B2) Label and value rows (review, receipt, details)',
