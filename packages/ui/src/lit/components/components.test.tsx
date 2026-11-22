@@ -475,3 +475,111 @@ describe('b2 controls the desk rooms use', () => {
     expect(html(<B2.FreshnessChip asOf={at} now={at + 500} staleAfterMs={10_000} refused />)).toContain('>Refused<');
   });
 });
+
+describe('b2 parts carry what the spot desk needs, so it uses them and no second kit', () => {
+  it('Select takes its name from the page, a size, help, and options listed but refused', () => {
+    const out = html(
+      <B2.Select
+        labelledBy="tif-label"
+        describedBy="tif-note"
+        title="How long it rests"
+        size="sm"
+        className="lt-grow"
+        value="GTC"
+        options={[
+          { value: 'GTC', label: 'Good till cancelled', data: { 'data-tif': 'GTC' } },
+          { value: 'FOK', label: 'Fill or kill · not offered by this venue', disabled: true, title: 'Not offered' },
+        ]}
+      />,
+    );
+    expect(out).toContain('<div class="lt-select lt-grow">');
+    expect(out).toContain('aria-labelledby="tif-label"');
+    expect(out).toContain('aria-describedby="tif-note"');
+    expect(out).toContain('title="How long it rests"');
+    expect(out).toContain('data-size="sm"');
+    expect(out).not.toContain('aria-label=');
+    expect(out).toContain('>Good till cancelled<');
+  });
+
+  it('in-page Tabs may go unnamed and take a layout class; a TabPanel carries a class and a test id', () => {
+    const tabs = html(
+      <B2.Tabs id="bt" items={[{ label: 'Order book', value: 'book' }]} value="book" onChange={() => undefined} className="lt-grow" />,
+    );
+    expect(tabs).toContain('<div class="lt-tabs lt-grow" role="tablist">');
+    const panel = html(
+      <B2.TabPanel id="bt" value="book" current="book" className="lt-stack" testId="dk-bottom-body">
+        <p>Rows</p>
+      </B2.TabPanel>,
+    );
+    expect(panel).toContain('class="lt-tab-panel lt-stack"');
+    expect(panel).toContain('data-testid="dk-bottom-body"');
+    expect(
+      html(
+        <B2.TabPanel id="bt" value="book" current="tape">
+          <p>Rows</p>
+        </B2.TabPanel>,
+      ),
+    ).toBe('');
+  });
+
+  it('Sheet carries a test id and says Close in the room’s words', () => {
+    const out = html(
+      <B2.Sheet open={false} title="Account" closeLabel="Schließen" closeLang="de" testId="venue-account" onClose={() => undefined}>
+        <p>Body</p>
+      </B2.Sheet>,
+    );
+    expect(out).toContain('data-testid="venue-account"');
+    expect(out).toContain('<button type="button" class="lt-button lt-button-secondary" lang="de">Schließen</button>');
+  });
+
+  it('Checkbox may keep its name for assistive tech only (a row’s pick box)', () => {
+    expect(html(<B2.Checkbox label="Select order a-1" hideLabel checked={false} onChange={() => undefined} />)).toBe(
+      '<label class="lt-field"><input type="checkbox"/><span class="lt-sr">Select order a-1</span></label>',
+    );
+  });
+
+  it('DecimalInput with a tick draws its steppers, and its Max and BBO keys when asked', () => {
+    const out = html(
+      <B2.DecimalInput
+        label="Price"
+        unit="USDT"
+        value="10"
+        tick="0.01"
+        precision={2}
+        stepLabels={{ up: 'Raise price', down: 'Lower price' }}
+        onMax={() => undefined}
+        onBbo={() => undefined}
+        onValueChange={() => undefined}
+      />,
+    );
+    expect(out).toContain('<span class="lt-field-steps">');
+    expect(out).toContain('aria-label="Raise price"');
+    expect(out).toContain('aria-label="Lower price"');
+    expect(out).toContain('class="lt-field-key">BBO</button>');
+    expect(out).toContain('class="lt-field-key">Max</button>');
+    const read = html(<B2.DecimalInput label="Price" value="10" tick="0.01" precision={2} readOnly onValueChange={() => undefined} />);
+    expect(read).not.toContain('lt-field-steps');
+    expect(html(<B2.DecimalInput label="Size" value="1" precision={2} onValueChange={() => undefined} />)).not.toContain('lt-field-steps');
+  });
+
+  it('Table marks its rows and cells, draws dense rows and scrolls in a labelled region', () => {
+    const out = html(
+      <Table
+        caption="Balances"
+        dense
+        scroll
+        columns={[
+          { key: 'free', label: 'Free', align: 'end', cell: (r: { asset: string }) => r.asset, cellMarks: () => ({ 'data-cell': 'free' }) },
+        ]}
+        rows={[{ asset: 'BTC' }]}
+        rowKey={(r) => r.asset}
+        rowMarks={(r) => ({ 'data-asset': r.asset })}
+      />,
+    );
+    expect(out).toMatch(
+      /^<div class="lt-table-scroll" tabindex="0" role="region" aria-label="Balances"><table class="lt-table lt-table-dense"/,
+    );
+    expect(out).toContain('<tr data-asset="BTC" data-row="">');
+    expect(out).toContain('<td data-cell="free" data-label="Free" data-align="end">');
+  });
+});

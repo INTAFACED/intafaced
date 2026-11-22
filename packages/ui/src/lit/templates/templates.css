@@ -1998,3 +1998,41 @@ button.lt-tab:focus-visible {
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
 }
+
+/* A decimal field's steppers (a tick up, a tick down) and its Max and BBO keys, after the unit. */
+.lt-field-steps {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+.lt-field-steps > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.25rem;
+  block-size: 1rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+
+.lt-field-key {
+  flex: none;
+  min-block-size: 24px; /* look-drift-allow: WCAG 2.5.8 counts 24 CSS pixels; a rem is smaller at the root here */
+  padding-inline: 0.625rem;
+  border: 0;
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-solid-bg-sunken);
+  color: var(--lit-text-2);
+  font: inherit;
+  font-size: var(--lit-type-micro-size);
+  cursor: pointer;
+}
+
+.lt-field-key:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
