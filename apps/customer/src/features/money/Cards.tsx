@@ -6,7 +6,7 @@ import { displayAmount } from '../../shared/money';
 import { currentOwnerRecord, ReportedTime, useBankView } from './bank-context';
 import { cardCopy } from './card-copy';
 import { bps, Continuation, funds, ResourceView, Section, usePageLimit, type ActionSpec, useBankRecord } from './components';
-import type { bankReads, cardSchema } from './contracts';
+import type { cardSchema } from './contracts';
 import { t as copyText, Text } from './copy';
 import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from './card-controls';

@@ -2,18 +2,6 @@
 import { z } from 'zod';
 import { decimalSchema as money, signedDecimalSchema } from '../../shared/money';
 
-const productSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  debtAssetId: z.string(),
-  collateralAssetId: z.string(),
-  quoteAssetId: z.string(),
-  aprBps: z.number().int(),
-  maxLtvBps: z.number().int(),
-  marginCallLtvBps: z.number().int(),
-  liquidationLtvBps: z.number().int(),
-  minPrincipal: money,
-});
 export const loanSchema = z.object({
   id: z.string(),
   productId: z.string(),

@@ -4,9 +4,6 @@ import { decimalSchema as money } from '../../shared/money';
 import { linkedAccountSchema } from './contracts-accounts';
 import { BANK_TRANSFERS_LIST_SCHEDULES, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
 
-/** The partner bank's move of money it holds for the person (OWNER 226): its id, and the partner's name for itself. */
-const partnerMoveSchema = z.object({ id: z.string().min(1), label: z.string().min(1) }).passthrough();
-
 export const scheduleSchema = z.object({
   id: z.string(),
   assetId: z.string(),

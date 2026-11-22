@@ -3,7 +3,7 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { parseAmount } from '../../shared/money';
 import { Button } from '../../shared/ui';
-import { bankReads, type loanSchema } from './contracts';
+import type { loanSchema } from './contracts';
 import { amount, bps, type ActionSpec } from './components';
 import { loanCopy } from './loan-copy';
 import './loan.css';
