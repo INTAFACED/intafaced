@@ -18,7 +18,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utc = (iso: string) => iso.slice(0, 19).replace('T', ' ');
 
 /**
- * Live approval (RC-algo-dev-01; J-algo-dev-16 #4), on the owner's strategy page and on a teammate's view of it. The owner
+ * Live approval (RC-algo-dev-01; J-algo-dev-16 #4, J-algo-dev-06 #3), on the owner's strategy page and on a teammate's view of it. The owner
  * sets the account's policy and asks for a review of a version; a teammate approves or rejects it. Whether the newest
  * version may go live is the service's reading, and the live runner refuses a start the same way.
  */
@@ -56,6 +56,10 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
 
   const view = (data: QuantApprovalState) => {
     const pending = data.approvals.find((row) => row.decision === 'pending' && row.current);
+    // Any change to the version or its risk settings voids its reviews: with the rule on and none still counting, the
+    // panel asks again.
+    const ofVersion = data.approvals.filter((row) => row.strategyVersion === data.version);
+    const again = data.policy.required === true && !data.live.allowed && ofVersion.length > 0 && !ofVersion.some((row) => row.current);
     return (
       <>
         <p data-testid="quant-approval-policy" data-required={data.policy.required === null ? '' : String(data.policy.required)}>
@@ -82,6 +86,11 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
         <p data-testid="quant-approval-live" data-allowed={data.live.allowed} data-code={data.live.code ?? ''} data-version={data.version}>
           {data.live.allowed ? t('apLiveAllowed', { version: data.version }) : t('apLiveBlocked', { version: data.version })}
         </p>
+        {again && (
+          <p role="status" data-testid="quant-approval-again" data-version={data.version}>
+            {t('apAgain', { version: data.version })}
+          </p>
+        )}
         {owner && (
           <Button
             disabled={busy}

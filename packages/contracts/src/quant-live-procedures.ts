@@ -19,6 +19,7 @@ const STATUS = {
   'quant.database_url_unset': 'PRECONDITION_FAILED',
   'quant.database_pool_max_unset': 'PRECONDITION_FAILED',
   'quant.live_disabled': 'PRECONDITION_FAILED',
+  'quant.approval_required': 'PRECONDITION_FAILED',
   'quant.live_deploy_unavailable': 'PRECONDITION_FAILED',
   'quant.live_plan_unsupported': 'BAD_REQUEST',
   'trade.order_type_unsupported': 'BAD_REQUEST',
@@ -60,8 +61,9 @@ export const QUANT_LIVE_CHECK = defineProcedure({
 });
 
 /**
- * The wizard's Deploy. With the platform's live switch off it refuses `quant.live_disabled` before anything is written:
- * no deploy intent exists. A version the runner can't trade refuses with the compile check's code; with both clear it
+ * The wizard's Deploy. A version the account's second-approver rule holds back refuses `quant.approval_required`; with
+ * the platform's live switch off it refuses `quant.live_disabled`. Both refuse before anything is written: no deploy
+ * intent exists. A version the runner can't trade refuses with the compile check's code; with both clear it
  * refuses `quant.live_deploy_unavailable`. It never answers: the amount is the TEST move the person's wallet would sign.
  */
 export const QUANT_LIVE_DEPLOY = defineProcedure({
@@ -69,7 +71,13 @@ export const QUANT_LIVE_DEPLOY = defineProcedure({
   name: 'quant.live.deploy',
   kind: 'mutation',
   path: 'live.deploy',
-  refusals: refuse('quant.live_disabled', 'quant.live_plan_unsupported', 'trade.order_type_unsupported', 'quant.live_deploy_unavailable'),
+  refusals: refuse(
+    'quant.approval_required',
+    'quant.live_disabled',
+    'quant.live_plan_unsupported',
+    'trade.order_type_unsupported',
+    'quant.live_deploy_unavailable',
+  ),
   input: z.object({ strategyId, strategyVersion, amount: z.string().max(40), ...accountField }),
   output: z.never(),
   samples: [
