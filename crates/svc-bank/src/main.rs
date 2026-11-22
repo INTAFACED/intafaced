@@ -549,8 +549,13 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
 }
 
 /// Slice `bills`' wiring from the environment, one part each.
-fn bills_wiring(_env: &BankEnv) -> Result<bills::Wiring, String> {
-    Ok(bills::Wiring::none())
+fn bills_wiring(env: &BankEnv) -> Result<bills::Wiring, String> {
+    let mut w = bills::Wiring::none();
+    // `composeRailSendsArea`: `payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS`, the owner's window, blank refuses.
+    w.rail_sends = bills::rail_sends::Wiring {
+        cooling_hours: env.str("BANK_PAYEE_COOLING_HOURS").map(str::to_owned),
+    };
+    Ok(w)
 }
 
 /// Slice `automations`' wiring from the environment. Only the parts ported here; the others are `none()` until theirs.
