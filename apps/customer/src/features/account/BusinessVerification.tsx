@@ -29,7 +29,7 @@ export function BusinessVerification() {
                   <strong>{copy.t(step.title)}</strong> <span className="lt-hint">{copy.t(step.body)}</span>
                 </span>{' '}
                 <a className="lt-link" href={step.path}>
-                  {copy.t('open')} →
+                  {copy.t('open')}
                 </a>
               </li>
             ))}
@@ -52,7 +52,7 @@ export function BusinessVerification() {
             <h2 id="identbusiness-personal">{copy.t('personalTitle')}</h2>
             <p>{copy.t('personalBody')}</p>
             <a className="lt-link" href="/verification">
-              {copy.t('personalAction')} →
+              {copy.t('personalAction')}
             </a>
           </section>
         </div>
