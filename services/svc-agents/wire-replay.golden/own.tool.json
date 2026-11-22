@@ -34,7 +34,7 @@
     },
     "own.tool.try valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\"}}}"
     },
     "own.tool.try absent anon": {
       "status": 401,
@@ -54,7 +54,7 @@
     },
     "own.tool.try absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\"}}}"
     },
     "own.tool.try wrong-type anon": {
       "status": 401,
@@ -74,7 +74,7 @@
     },
     "own.tool.try wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\"}}}"
     },
     "own.tool.try empty anon": {
       "status": 401,
@@ -94,7 +94,7 @@
     },
     "own.tool.try empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\"}}}"
     },
     "own.tool.try extra-key anon": {
       "status": 401,
@@ -114,7 +114,7 @@
     },
     "own.tool.try extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.tool.try\",\"requestId\":\"<request>\"}}}"
     }
   }
 }
