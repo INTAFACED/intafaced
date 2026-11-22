@@ -6,7 +6,9 @@
  * (tooling/lint/oxlint-plugin-garden/kit-look-rules.js). Their counts per file of apps/customer/src live in
  * apps/customer/kit-ceilings.json. kit-ceilings.test.mjs fails when a file's count passes its ceiling (a file with no entry
  * has a ceiling of zero), when a ceiling is above the file's count (stale: lower it), and when the file raises a ceiling or
- * adds a file that main's copy does not hold. A file git sees as renamed or moved since main (`git diff -M`) is the same file:
+ * adds a file that main's copy does not hold (main's copy where this change forked from it, so a layer behind main is
+ * judged on its own edits). On a batch PR into a Volt layer (`volt/<template>`) a stale ceiling does not fail, so no batch
+ * edits this shared file; the layer's PR into main holds it exact, after one `--write` on the layer. A file git sees as renamed or moved since main (`git diff -M`) is the same file:
  * its new path inherits its old path's ceiling, so a move that keeps or lowers its count passes. The lint ratchet separately
  * fails a change whose touched files gain a finding.
  *
@@ -82,10 +84,11 @@ const inherited = (table, file, renames) => table[file] ?? (renames[file] !== un
 /**
  * What breaks the ceilings: [{ kind: 'over'|'stale'|'raised', rule, file, count, ceiling, was }].
  * `over`: a count above its ceiling (no entry is a ceiling of 0). `stale`: a ceiling above its count. `raised`: a ceiling
- * above main's (`base`), or a file main's copy does not hold. `base` null skips the raised check. `renames`
+ * above main's (`base`), or a file main's copy does not hold. `base` null skips the raised check. `staleAllowed` (a batch
+ * into a Volt layer, intoVoltLayer) passes a stale ceiling. `renames`
  * ({ <new path>: <old path> }, from renamesSince) lets a moved file's ceiling be judged against main's for its old path.
  */
-export function judge(counts, ceilings, base = null, renames = {}) {
+export function judge(counts, ceilings, base = null, renames = {}, staleAllowed = false) {
   const out = [];
   for (const rule of RULES) {
     const have = counts[rule] ?? {};
@@ -94,7 +97,7 @@ export function judge(counts, ceilings, base = null, renames = {}) {
       const count = have[file] ?? 0;
       const ceiling = cap[file] ?? 0;
       if (count > ceiling) out.push({ kind: 'over', rule, file, count, ceiling });
-      else if (ceiling > count) out.push({ kind: 'stale', rule, file, count, ceiling });
+      else if (ceiling > count && !staleAllowed) out.push({ kind: 'stale', rule, file, count, ceiling });
     }
     if (!base) continue;
     const was = base[rule] ?? {};
@@ -131,6 +134,16 @@ export function lowered(counts, ceilings, renames = {}) {
   const up = judge(counts, moved).filter((p) => p.kind === 'over');
   if (up.length) throw new Error(`refused: these would raise a ceiling\n${up.map(describe).join('\n')}`);
   return Object.fromEntries(RULES.map((r) => [r, counts[r] ?? {}]));
+}
+
+/** Whether this run judges a batch PR into a Volt layer branch (`volt/<template>`), read from the PR's base branch. */
+export const intoVoltLayer = (env = process.env) => (env.GITHUB_BASE_REF ?? '').startsWith('volt/');
+
+/** The commit this change forked from `ref` at (`git merge-base`), or `ref` itself when the history is too shallow to say. */
+export function forkPoint(ref, cwd = ROOT) {
+  if (!ref) return ref;
+  const base = spawnSync('git', ['merge-base', ref, 'HEAD'], { cwd, encoding: 'utf8' });
+  return base.status === 0 && base.stdout.trim() ? base.stdout.trim() : ref;
 }
 
 export const readCeilings = (root = ROOT) => JSON.parse(readFileSync(join(root, CEILINGS), 'utf8'));
