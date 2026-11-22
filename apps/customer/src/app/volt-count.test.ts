@@ -122,6 +122,81 @@ describe('the off-kit rule', () => {
   });
 });
 
+describe('a part drawn through a barrel', () => {
+  const plant = (files: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), 'volt-barrel-'));
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(join(dir, name, '..'), { recursive: true });
+      writeFileSync(join(dir, name), text);
+    }
+    return dir;
+  };
+  const room = (imports: string, draws: string) =>
+    `import { DeskTemplate } from '@intafaced/ui/lit/templates';\n${imports}\nexport const Room = () => <DeskTemplate>${draws}</DeskTemplate>;\n`;
+  const clean = (name: string) => `import { Tag } from '@intafaced/ui/lit';\nexport const ${name} = () => <Tag className="lt-chip" />;\n`;
+  const dirty = (name: string) => `export const ${name} = () => <div className="flex gap-2" />;\n`;
+  const kinds = (dir: string) => offKitFindings(join(dir, 'room/Room.tsx')).map((f) => `${f.kind} ${f.at.split('/').slice(-1)[0]}`);
+
+  it("fails a room that draws an off-kit part through a folder's index.ts, naming the part and where it is off", () => {
+    const dir = plant({
+      'room/Room.tsx': room(`import { Board, boardCopy } from '../parts';`, '<Board />'),
+      'parts/index.ts': `export { boardCopy } from './copy';\nexport { Board } from './Board';\n`,
+      'parts/copy.ts': `export const boardCopy = {};\n`,
+      'parts/Board.tsx': dirty('Board'),
+    });
+    const found = offKitFindings(join(dir, 'room/Room.tsx'));
+    expect(kinds(dir)).toEqual(['outside-component Room.tsx:2']);
+    expect(found[0]!.text).toMatch(
+      /^Board from \.\.\/parts \(.*parts\/Board\.tsx\), which draws off the kit: own-class at .*Board\.tsx:1$/,
+    );
+  });
+
+  it('passes a room whose barrel part is drawn only from the kit, and judges only the names it imports', () => {
+    const dir = plant({
+      'room/Room.tsx': room(`import { Board } from '../parts/index';`, '<Board />'),
+      'parts/index.ts': `export { Board } from './Board';\nexport { Other } from './Other';\n`,
+      'parts/Board.tsx': clean('Board'),
+      'parts/Other.tsx': dirty('Other'),
+    });
+    expect(kinds(dir)).toEqual([]);
+  });
+
+  it('follows export * and export { A as B }, through a second barrel', () => {
+    const dir = plant({
+      'room/Room.tsx': room(`import { Starred, Renamed, Fine } from '../parts';`, '<Starred /><Renamed /><Fine />'),
+      'parts/index.ts': `export * from './more';\nexport { Inner as Renamed } from './Inner';\nexport * from './Fine';\n`,
+      'parts/more/index.ts': `export * from './Starred';\n`,
+      'parts/more/Starred.tsx': dirty('Starred'),
+      'parts/Inner.tsx': dirty('Inner'),
+      'parts/Fine.tsx': clean('Fine'),
+    });
+    const found = offKitFindings(join(dir, 'room/Room.tsx'));
+    expect(found.map((f) => f.text.split(' ')[0])).toEqual(['Starred', 'Renamed']);
+    expect(found[0]!.text).toContain('more/Starred.tsx');
+    expect(found[1]!.text).toContain('parts/Inner.tsx');
+  });
+
+  it('fails a part a barrel re-exports from the old kit', () => {
+    const dir = plant({
+      'room/Room.tsx': room(`import { Card } from '../parts';`, '<Card />'),
+      'parts/index.ts': `export { Card } from '@intafaced/ui';\n`,
+    });
+    expect(offKitFindings(join(dir, 'room/Room.tsx'))[0]!.text).toMatch(
+      /^Card from \.\.\/parts, which draws off the kit: old-kit at .*index\.ts:1 \(@intafaced\/ui\)$/,
+    );
+  });
+
+  it('ends a cycle of barrels, and of a part that imports the room back', () => {
+    const dir = plant({
+      'room/Room.tsx': room(`import { Missing, Board } from '../a';`, '<Missing /><Board />'),
+      'a/index.ts': `export * from '../b';\nexport { Board } from './Board';\n`,
+      'b/index.ts': `export * from '../a';\n`,
+      'a/Board.tsx': `import { Room } from '../room/Room';\nimport { Missing } from '../b';\nexport const Board = () => <div className="card" />;\n`,
+    });
+    expect(kinds(dir)).toEqual(['outside-component Room.tsx:2']);
+  });
+});
+
 describe('batches side by side', () => {
   const plantTree = (files: Record<string, string>) => {
     const dir = mkdtempSync(join(tmpdir(), 'volt-batches-'));

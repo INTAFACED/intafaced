@@ -10,7 +10,6 @@ import {
   OWN_AGENT_POLICY_ACTIONS,
   OWN_AGENT_POLICY_EFFECTS,
   OWN_AGENT_POLICY_SCOPES,
-  ownAgentAccessSchema,
   ownAgentPolicySchema,
   type OwnAgentAccess,
   type OwnAgent,
@@ -19,6 +18,7 @@ import {
   type OwnAgentPolicyEffect,
   type OwnAgentPolicyScope,
 } from '@intafaced/contracts/agents-own';
+import { AGENTS_OWN_POLICY_GET, AGENTS_OWN_ACCESS_GET, AGENTS_OWN_ACCESS_GRANT } from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Access page (AG-spend-02, J-agents-08 #1 #2): the person's allow and deny rules by action and account,
@@ -50,10 +50,7 @@ function Refused({ failed }: { failed: Failed }) {
 export function AccessPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentAccessCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.policy.get', { id: agent.id }, ownAgentPolicySchema, { signal }),
-    `own-policy:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_POLICY_GET, { id: agent.id }, { signal }), `own-policy:${agent.id}`);
   return (
     <Panel title={t('accessTitle')} role="region" aria-label={t('accessTitle')}>
       <Read resource={loaded.resource} retry={loaded.reload}>
@@ -97,10 +94,7 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
     (signal) => (owner ? venue.subAccounts(owner, signal) : Promise.resolve({ ok: true as const, data: null })),
     `venue-subs:${owner ?? 'none'}`,
   );
-  const stored = useResource(
-    (signal) => api.query('agents', 'own.access.get', { id: agent.id }, ownAgentAccessSchema, { signal }),
-    `own-access:${agent.id}`,
-  );
+  const stored = useResource((signal) => api.call(AGENTS_OWN_ACCESS_GET, { id: agent.id }, { signal }), `own-access:${agent.id}`);
   const [access, setAccess] = useState<OwnAgentAccess | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
   const [endsIn, setEndsIn] = useState('');
@@ -117,12 +111,14 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
     setRefused(null);
     try {
       const subAccounts = listed.value.filter((s) => chosen.has(s.subAccount));
-      const res = await api.mutate(
-        'agents',
-        'own.access.grant',
-        { id: agent.id, grantKey, venueId, owner, subAccounts, endsInDays: endsIn.trim() === '' ? null : endsIn.trim() },
-        ownAgentAccessSchema,
-      );
+      const res = await api.call(AGENTS_OWN_ACCESS_GRANT, {
+        id: agent.id,
+        grantKey,
+        venueId,
+        owner,
+        subAccounts,
+        endsInDays: endsIn.trim() === '' ? null : endsIn.trim(),
+      });
       if (!res.ok) return setRefused(res);
       setAccess(res.data);
       setGrantKey(crypto.randomUUID());
