@@ -32,7 +32,7 @@ import { VoltStack } from '../../screens/home/VoltStack';
 import type { HomePortfolio } from '../../screens/home/deps';
 import { MobileTabs } from '../TopBar';
 import { useResolvedColours } from '../../shared/resolved-colours';
-import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, StepsAndSpark, TypeRoles } from './KitParts';
+import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, SmallCandles, StepsAndSpark, TypeRoles } from './KitParts';
 import './kit.css';
 
 /**
@@ -509,8 +509,13 @@ export default function VoltKit() {
         </div>
       </Block>
 
-      <Block id="candles" title="The candle chart" note="TEST hourly candles, with volume and moving averages.">
+      <Block
+        id="candles"
+        title="The candle chart"
+        note="TEST hourly candles, with volume and moving averages. Below, the small one for a pool or a token: placed by time, so a quiet stretch is a gap, and its empty line."
+      >
         <CandleChart />
+        <SmallCandles />
       </Block>
 
       <Block id="book" title="The order book" note="TEST levels: asks above the price, bids below, the depth bar behind each row.">

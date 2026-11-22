@@ -1,9 +1,11 @@
-import { Button } from '../../shared/ui';
-import type { Space } from './client';
-import { amount, date, NoRows, ResourceView, Section, type ActionSpec, useBankRecord } from './components';
-import type { sorterListSchema } from './contracts';
-import { sorterCopy } from './sorter-copy';
-import { bpToPercent, percentToBp, sorterLegs } from './sorter-model';
+import { Button } from '@intafaced/ui/lit';
+import type { Space } from '../client';
+import { amount, date, type ActionSpec, useBankRecord } from '../components';
+import { NoRows, BankSection as Section } from '../bank-frame/BankFrame';
+import { ReadView as ResourceView } from '../../../shared/read-state';
+import type { sorterListSchema } from '../contracts';
+import { sorterCopy } from '../sorter-copy';
+import { bpToPercent, percentToBp, sorterLegs } from '../sorter-model';
 import type { z } from 'zod';
 import { BANK_SORTER_LIST, BANK_SORTER_RUNS } from '@intafaced/contracts/bank-sorter-procedures';
 
@@ -74,7 +76,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
             const sorted = new Set(sorters.map((sorter) => sorter.assetId));
             return (
               <>
-                <p className="lt-muted" data-testid="income-sorter-terms" data-state={terms.state}>
+                <p className="lt-hint" data-testid="income-sorter-terms" data-state={terms.state}>
                   {terms.state === 'not_set'
                     ? t('termsUnset')
                     : /^0(\.0+)?$/.test(terms.minCredit)
@@ -92,7 +94,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
                     .map((assetId) => (
                       <Button
                         key={assetId}
-                        variant="secondary"
+                        tone="secondary"
                         onClick={() => setUp(assetId)}
                         disabled={terms.state === 'not_set' || !named.some((space) => space.assetId === assetId)}
                       >
@@ -100,7 +102,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
                       </Button>
                     ))}
                 </div>
-                {terms.state === 'set' && !named.length && <p className="lt-muted">{t('noSpaces')}</p>}
+                {terms.state === 'set' && !named.length && <p className="lt-hint">{t('noSpaces')}</p>}
               </>
             );
           }}
@@ -119,18 +121,18 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
   const spaceName = (spaceId: string) => sorter.legs.find((leg) => leg.spaceId === spaceId)?.spaceName || nameOf(spaceId);
   const status = (value: 'pending' | 'settled' | 'rejected') => t(value);
   return (
-    <article className="money-record" data-testid="income-sorter-card" data-asset={sorter.assetId} data-id={sorter.id}>
+    <article className="lt-stack" data-testid="income-sorter-card" data-asset={sorter.assetId} data-id={sorter.id}>
       <header>
         <h3>{t('sorts', { asset: sorter.assetId })}</h3>
-        <Button variant="ghost" onClick={stop}>
+        <Button tone="quiet" onClick={stop}>
           {t('stop')}
         </Button>
       </header>
-      <ul className="money-list">
+      <ul className="lt-rows">
         {sorter.legs.map((leg) => (
           <li key={leg.spaceId} data-archived={leg.archived || undefined}>
             {t('leg', { share: bpToPercent(leg.shareBp), space: spaceName(leg.spaceId) })}
-            {leg.archived && <span className="lt-muted"> {t('archived', { space: spaceName(leg.spaceId) })}</span>}
+            {leg.archived && <span className="lt-hint"> {t('archived', { space: spaceName(leg.spaceId) })}</span>}
           </li>
         ))}
         {total < 10_000 && <li>{t('rest', { share: bpToPercent(10_000 - total) })}</li>}
@@ -140,14 +142,14 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
         {(rows) =>
           rows.length ? (
             rows.map((run) => (
-              <div key={run.id} className="money-record" data-testid="income-sorter-run" data-credit={run.creditTxId}>
+              <div key={run.id} className="lt-stack" data-testid="income-sorter-run" data-credit={run.creditTxId}>
                 <p>{t('run', { amount: amount(run.creditAmount, sorter.assetId), date: date(run.creditPostedAt) })}</p>
                 {run.skippedReason && (
-                  <p className="lt-muted" data-skipped={run.skippedReason}>
+                  <p className="lt-hint" data-skipped={run.skippedReason}>
                     {t(run.skippedReason === 'below_minimum' ? 'skippedSmall' : 'skippedTerms')}
                   </p>
                 )}
-                <ul className="money-list">
+                <ul className="lt-rows">
                   {run.legs.map((leg) => (
                     <li key={leg.position} data-status={leg.status}>
                       {t('runLeg', {
@@ -161,7 +163,7 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
               </div>
             ))
           ) : (
-            <p className="lt-muted">{t('noRuns')}</p>
+            <p className="lt-hint">{t('noRuns')}</p>
           )
         }
       </ResourceView>

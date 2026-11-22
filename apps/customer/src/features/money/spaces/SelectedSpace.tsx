@@ -1,16 +1,16 @@
 import type { ReactNode } from 'react';
-import { Failure, Loading } from '../../shared/ui';
-import type { Resource } from '../../shared/resource';
-import type { Space } from './client';
-import { funds } from './components';
-import { stamp } from '../../screens/money/time';
-import { Text } from './copy';
-import { usePreferences } from '../../shared/preferences';
+import { ReadFailure as Failure, ReadLoading as Loading } from '../../../shared/read-state';
+import type { Resource } from '../../../shared/resource';
+import type { Space } from '../client';
+import { funds } from '../components';
+import { stamp } from '../../../screens/money/time';
+import { Text } from '../copy';
+import { usePreferences } from '../../../shared/preferences';
 import { GoalProgress } from './GoalAndMovement';
 import { EarlyUnlock } from './SpaceLock';
 import { BillsPotState } from './BillsPot';
-import { currentSpace, type SpaceContext } from './space-context';
-import { spaceCopy } from './space-copy';
+import { currentSpace, type SpaceContext } from '../space-context';
+import { spaceCopy } from '../space-copy';
 
 export function SelectedSpace({
   context,
@@ -45,13 +45,13 @@ export function SelectedSpace({
   return (
     <section
       data-testid="money-selected-space"
-      className="money-selected-space"
+      className="lt-stack"
       aria-label={t('selected')}
       lang={languageFor('selected')}
       dir={directionFor('selected')}
     >
       <header>
-        <p className="money-selected-label">
+        <p className="lt-hint">
           <Copy k="selected" />
         </p>
         {space && (
@@ -59,7 +59,7 @@ export function SelectedSpace({
             <h2 lang="und" dir="auto">
               {space.name}
             </h2>
-            <p className="lt-muted">
+            <p className="lt-hint">
               <Copy k={space.kind === 'primary' ? 'primary' : 'named'} />
             </p>
           </>
@@ -69,7 +69,7 @@ export function SelectedSpace({
             <h2>
               <Copy k={refused} />
             </h2>
-            <p className="lt-muted">
+            <p className="lt-hint">
               <Copy k={`${refused}Note`} />
             </p>
           </>
@@ -77,16 +77,16 @@ export function SelectedSpace({
       </header>
       {space ? (
         <>
-          <div className="money-selected-quantity">
+          <div className="lt-stack">
             <p>
               <Copy k="quantity" />
             </p>
-            <strong className="lt-num" lang="zxx" dir="ltr">
+            <strong className="lt-mono" lang="zxx" dir="ltr">
               {quantity.slice(0, -(space.assetId.length + 1))} <span lang="und">{space.assetId}</span>
             </strong>
           </div>
-          <dl className="money-selected-details">
-            <div className="money-selected-reference">
+          <dl className="lt-kv">
+            <div>
               <dt>
                 <Text k="rooms.space.reference" />
               </dt>
@@ -101,7 +101,7 @@ export function SelectedSpace({
                 </details>
               </dd>
             </div>
-            <div className="money-selected-lock">
+            <div>
               <dt>
                 <Text k="rooms.bank.lock" />
               </dt>
@@ -117,7 +117,7 @@ export function SelectedSpace({
                 )}
               </dd>
               {space.lockedUntil && Date.parse(space.lockedUntil) > Date.now() && (
-                <dd className="lt-muted">
+                <dd className="lt-hint">
                   <Copy k="lockedNote" />
                 </dd>
               )}
@@ -125,13 +125,13 @@ export function SelectedSpace({
             <EarlyUnlock space={space} />
             <BillsPotState space={space} />
           </dl>
-          <div className="money-selected-actions">
+          <div className="lt-stack">
             {actions(space)}
-            <p className="lt-muted">
+            <p className="lt-hint">
               <Copy k="transferNote" />
             </p>
           </div>
-          <dl className="money-selected-goal">
+          <dl className="lt-kv">
             <div>
               <dt>
                 <Text k="rooms.target" />
@@ -145,7 +145,7 @@ export function SelectedSpace({
                   </span>
                 )}
               </dd>
-              <dd className="lt-muted">
+              <dd className="lt-hint">
                 <Copy k="goalNote" />
               </dd>
             </div>
@@ -156,7 +156,7 @@ export function SelectedSpace({
       ) : (
         <>
           {reference && (
-            <dl className="money-selected-details">
+            <dl className="lt-kv">
               <div>
                 <dt>
                   <Text k="rooms.space.reference" />

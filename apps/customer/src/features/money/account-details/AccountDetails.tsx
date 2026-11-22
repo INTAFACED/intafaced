@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Failure, Loading } from '../../shared/ui';
-import type { Resource } from '../../shared/resource';
-import { CopyButton } from '../../screens/account/CopyButton';
-import { useSession } from '../session';
-import { useBankRead } from './components';
-import type { AccountDetailSet, AccountDetailsRow } from './contracts';
-import { accountDetailsCopy } from './account-details-copy';
-import { DepthPanel, DisabledAction } from './DepthParts';
+import { Select } from '@intafaced/ui/lit';
+import type { Resource } from '../../../shared/resource';
+import { ReadFailure, ReadLoading } from '../../../shared/read-state';
+import { useSession } from '../../session';
+import { useBankRead } from '../components';
+import type { AccountDetailSet, AccountDetailsRow } from '../contracts';
+import { accountDetailsCopy } from '../account-details-copy';
+import { CopyValue, DisabledAction, Panel } from './parts';
 
 /**
  * The account numbers a bank transfer to the customer uses, one block per currency (BK-acct-03). Every value is the banking
@@ -15,13 +15,13 @@ import { DepthPanel, DisabledAction } from './DepthParts';
  */
 
 type FieldKey = 'accountNumber' | 'sortCode' | 'routingNumber' | 'bsb' | 'iban' | 'bic';
-export const DETAIL_FIELDS: readonly FieldKey[] = ['accountNumber', 'sortCode', 'routingNumber', 'bsb', 'iban', 'bic'];
+const DETAIL_FIELDS: readonly FieldKey[] = ['accountNumber', 'sortCode', 'routingNumber', 'bsb', 'iban', 'bic'];
 
 function SetView({ set }: { set: AccountDetailSet }) {
   const { t } = accountDetailsCopy.useCopy();
   return (
     <div className="lt-stack" data-testid="account-details-set">
-      <dl className="bd-facts">
+      <dl className="lt-kv">
         {DETAIL_FIELDS.map((key) => {
           const value = set[key];
           if (value === null) return null;
@@ -32,7 +32,7 @@ function SetView({ set }: { set: AccountDetailSet }) {
                 <span lang="und" data-withdrawal-private>
                   {value}
                 </span>{' '}
-                <CopyButton value={value} label={t('copy', { label: t(key) })} />
+                <CopyValue value={value} label={t('copy', { label: t(key) })} />
               </dd>
             </div>
           );
@@ -54,7 +54,7 @@ function SetView({ set }: { set: AccountDetailSet }) {
 
 export function AccountDetailsList({ rows, heading: Heading = 'h3' }: { rows: readonly AccountDetailsRow[]; heading?: 'h3' | 'h4' }) {
   const { t } = accountDetailsCopy.useCopy();
-  if (rows.length === 0) return <p className="lt-muted">{t('detailsEmpty')}</p>;
+  if (rows.length === 0) return <p className="lt-hint">{t('detailsEmpty')}</p>;
   const stateKey = {
     unavailable: 'stateUnavailable',
     pending_user: 'statePending',
@@ -67,7 +67,7 @@ export function AccountDetailsList({ rows, heading: Heading = 'h3' }: { rows: re
         <section key={row.currency} aria-label={row.currency} data-testid={`account-details-${row.currency}`}>
           <Heading>{row.currency}</Heading>
           <p role="status">
-            {t(stateKey[row.state])} {row.blocker && <small className="lt-muted">{t('blocker', { code: row.blocker })}</small>}
+            {t(stateKey[row.state])} {row.blocker && <small className="lt-ref">{t('blocker', { code: row.blocker })}</small>}
           </p>
           {row.sets.map((set) => (
             <SetView key={set.id} set={set} />
@@ -81,15 +81,15 @@ export function AccountDetailsList({ rows, heading: Heading = 'h3' }: { rows: re
 
 export function AccountDetailsBody({ resource, reload }: { resource: Resource<{ currencies: AccountDetailsRow[] }>; reload: () => void }) {
   const { t } = accountDetailsCopy.useCopy();
-  if (resource.status === 'loading') return <Loading />;
+  if (resource.status === 'loading') return <ReadLoading />;
   if (resource.status === 'failed' && resource.failure.code === 'bank.company_account_unwired') {
     return (
       <p role="status" data-testid="account-details-company">
-        {t('companyUnwired')} <small className="lt-muted">{t('blocker', { code: resource.failure.code })}</small>
+        {t('companyUnwired')} <small className="lt-ref">{t('blocker', { code: resource.failure.code })}</small>
       </p>
     );
   }
-  if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
+  if (resource.status === 'failed') return <ReadFailure result={resource.failure} retry={reload} />;
   return <AccountDetailsList rows={resource.data.currencies} />;
 }
 
@@ -99,9 +99,9 @@ export function AccountDetailsPanel() {
   // The profile in view goes with the read: the bank proves it is held, and a business has no details of its own.
   const read = useBankRead('accountDetails.list', { profile: profiles.active });
   return (
-    <DepthPanel title={t('detailsTitle')} lead={t('detailsLead')}>
+    <Panel title={t('detailsTitle')} lead={t('detailsLead')}>
       <AccountDetailsBody resource={read.resource} reload={read.reload} />
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -123,17 +123,12 @@ export function AccountDetailsByCurrency() {
   const chosen = rows.find((row) => row.currency === currency);
   return (
     <div className="lt-stack" data-testid="receive-details">
-      <label>
-        {t('receiveCurrency')}{' '}
-        <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
-          <option value="">{t('receiveChoose')}</option>
-          {rows.map((row) => (
-            <option key={row.currency} value={row.currency}>
-              {row.currency}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Select
+        label={t('receiveCurrency')}
+        value={currency}
+        onChange={setCurrency}
+        options={[{ value: '', label: t('receiveChoose') }, ...rows.map((row) => row.currency)]}
+      />
       {chosen && <AccountDetailsList rows={[chosen]} heading="h4" />}
     </div>
   );

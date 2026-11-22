@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import type { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
-import { Button, Failure, Loading } from '../../shared/ui';
-import { parseAmount } from '../../shared/money';
-import { amount, bps, funds, NoRows, positiveMoney, Section, type ActionSpec, useBankRecord } from './components';
-import { bankWrites, type poolSchema, type positionSchema } from './contracts';
-import { earnCopy } from './earn-copy';
-import { useSession } from '../session';
-import { instantSavingsCopy } from './instant-savings-copy';
+import type { ApiResult } from '../../../shared/api';
+import { Button } from '@intafaced/ui/lit';
+import { ReadFailure as Failure, ReadLoading as Loading } from '../../../shared/read-state';
+import { parseAmount } from '../../../shared/money';
+import { amount, bps, funds, positiveMoney, type ActionSpec, useBankRecord } from '../components';
+import { NoRows, BankSection as Section } from '../bank-frame/BankFrame';
+import { bankWrites, type poolSchema, type positionSchema } from '../contracts';
+import { earnCopy } from '../earn-copy';
+import { useSession } from '../../session';
+import { instantSavingsCopy } from '../instant-savings-copy';
 import { BANK_EARN_POOLS, BANK_EARN_POSITIONS, BANK_EARN_INTEREST_HISTORY } from '@intafaced/contracts/bank-earn-procedures';
 
 type Pool = z.infer<typeof poolSchema>;
@@ -59,7 +61,7 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
     if (pools.resource.status === 'loading') return <Loading />;
     if (pools.resource.status === 'failed') {
       return pools.resource.failure.code === 'bank.earn_rate_unset' ? (
-        <p className="lt-muted" data-testid="instant-savings-rate" data-state="unset">
+        <p className="lt-hint" data-testid="instant-savings-rate" data-state="unset">
           {t('rateUnset')}
         </p>
       ) : (
@@ -73,21 +75,21 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
     return (
       <>
         {flexible.map((pool) => (
-          <article className="money-record" key={pool.id} data-testid="instant-savings-pool" data-pool={pool.id} data-asset={pool.assetId}>
+          <article className="lt-stack" key={pool.id} data-testid="instant-savings-pool" data-pool={pool.id} data-asset={pool.assetId}>
             <header>
               <div>
                 <h3 lang="und" dir="auto">
                   {pool.name}
                 </h3>
-                <p className="lt-muted">{t('minimum', { amount: amount(pool.minDeposit, pool.assetId) })}</p>
+                <p className="lt-hint">{t('minimum', { amount: amount(pool.minDeposit, pool.assetId) })}</p>
               </div>
               <strong data-testid="instant-savings-rate" data-state="set" data-bps={pool.aprBps}>
                 {t('rate', { rate: bps(pool.aprBps) })}
               </strong>
             </header>
-            <p className="lt-muted">{t('rateNote')}</p>
+            <p className="lt-hint">{t('rateNote')}</p>
             <div className="lt-actions">
-              <Button variant="secondary" onClick={() => openSavings(pool)}>
+              <Button tone="secondary" onClick={() => openSavings(pool)}>
                 {t('open')}
               </Button>
             </div>
@@ -170,41 +172,41 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
     <section data-testid="instant-savings-mine" aria-label={t('yours', { asset: pool.assetId })}>
       <h4>{t('yours', { asset: pool.assetId })}</h4>
       {positions.length ? (
-        <ul className="money-list">
+        <ul className="lt-rows">
           {positions.map((position) => (
             <li key={position.id} data-testid="instant-savings-position" data-position={position.id}>
               <span>
-                {t('saved')}: <span className="lt-num">{funds(position.principal, position.assetId)}</span>
+                {t('saved')}: <span className="lt-mono">{funds(position.principal, position.assetId)}</span>
               </span>{' '}
-              <Button variant="ghost" onClick={() => withdraw(position)}>
+              <Button tone="quiet" onClick={() => withdraw(position)}>
                 {t('withdraw')}
               </Button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="lt-muted">{t('nothingSaved')}</p>
+        <p className="lt-hint">{t('nothingSaved')}</p>
       )}
       {history.resource.status === 'loading' && <Loading />}
       {history.resource.status === 'failed' && <Failure result={history.resource.failure} retry={history.reload} />}
       {earned && (
         <>
-          <dl className="money-selected-details">
+          <dl className="lt-kv">
             <div>
               <dt>{t('earned')}</dt>
-              <dd className="lt-num" data-testid="instant-savings-earned" data-amount={earned.total}>
+              <dd className="lt-mono" data-testid="instant-savings-earned" data-amount={earned.total}>
                 {funds(earned.total, pool.assetId)}
               </dd>
-              <dd className="lt-muted">{t('earnedNote')}</dd>
+              <dd className="lt-hint">{t('earnedNote')}</dd>
               {earned.unitemisedDays > 0 && (
-                <dd className="lt-muted" data-testid="instant-savings-unitemised">
+                <dd className="lt-hint" data-testid="instant-savings-unitemised">
                   {t('unitemised', { count: earned.unitemisedDays })}
                 </dd>
               )}
             </div>
           </dl>
           <h4>{t('days')}</h4>
-          {earned.days.length ? <Days pool={pool} days={earned.days} /> : <p className="lt-muted">{t('noDays')}</p>}
+          {earned.days.length ? <Days pool={pool} days={earned.days} /> : <p className="lt-hint">{t('noDays')}</p>}
         </>
       )}
     </section>
@@ -220,7 +222,7 @@ function Days({ pool, days }: { pool: Pool; days: Day[] }) {
   const oldest = days[days.length - 1]!.date;
   return (
     <>
-      <ul className="money-list">
+      <ul className="lt-rows">
         {days.map((day) => (
           <li key={day.date} data-testid="instant-savings-day" data-date={day.date} data-amount={day.amount} data-bps={day.rateBps}>
             {t('day', { date: calendarDay(day.date), amount: funds(day.amount, pool.assetId), rate: bps(day.rateBps) })}
@@ -231,7 +233,7 @@ function Days({ pool, days }: { pool: Pool; days: Day[] }) {
         (earlier ? (
           <EarlierDays pool={pool} before={oldest} />
         ) : (
-          <Button variant="ghost" onClick={() => setEarlier(true)}>
+          <Button tone="quiet" onClick={() => setEarlier(true)}>
             {t('earlier')}
           </Button>
         ))}
@@ -244,9 +246,5 @@ function EarlierDays({ pool, before }: { pool: Pool; before: string }) {
   const page = useBankRecord(BANK_EARN_INTEREST_HISTORY, { poolId: pool.id, limit: DAYS_SHOWN, before });
   if (page.resource.status === 'loading') return <Loading />;
   if (page.resource.status === 'failed') return <Failure result={page.resource.failure} retry={page.reload} />;
-  return page.resource.data.days.length ? (
-    <Days pool={pool} days={page.resource.data.days} />
-  ) : (
-    <p className="lt-muted">{t('noEarlier')}</p>
-  );
+  return page.resource.data.days.length ? <Days pool={pool} days={page.resource.data.days} /> : <p className="lt-hint">{t('noEarlier')}</p>;
 }

@@ -2,8 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Space } from './client';
-import type { sorterListSchema, sorterRunSchema } from './contracts';
+import type { Space } from '../client';
+import type { sorterListSchema, sorterRunSchema } from '../contracts';
 import type { z } from 'zod';
 
 /**
@@ -12,14 +12,14 @@ import type { z } from 'zod';
  * holds only live spaces.
  */
 
-vi.mock('../../shared/preferences', async (original) => {
-  const real = await original<typeof import('../../shared/preferences')>();
+vi.mock('../../../shared/preferences', async (original) => {
+  const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 let list: z.infer<typeof sorterListSchema>;
 let runs: z.infer<typeof sorterRunSchema>[] = [];
-vi.mock('./components', async (original) => {
-  const real = await original<typeof import('./components')>();
+vi.mock('../components', async (original) => {
+  const real = await original<typeof import('../components')>();
   // The room reads by its records now: each record's read is served from the same answers, by its path.
   const useBankRead = (procedure: string) => ({
     resource: { status: 'ready', data: procedure === 'sorter.list' ? list : runs },
@@ -88,7 +88,7 @@ async function mount() {
 describe('IncomeSorter', () => {
   it('names an archived target from the bank and says its share stays in the account', async () => {
     await mount();
-    const legs = [...host.querySelectorAll('[data-testid="income-sorter-card"] > ul.money-list > li')].map((li) => ({
+    const legs = [...host.querySelectorAll('[data-testid="income-sorter-card"] > ul.lt-rows > li')].map((li) => ({
       text: li.textContent,
       archived: li.getAttribute('data-archived'),
     }));

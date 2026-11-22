@@ -1,7 +1,8 @@
-import { currentPreferences } from '../../shared/preferences';
-import { displayAmount } from '../../shared/money';
-import { goalChartCopy } from './goal-chart-copy';
-import { goalShare, movementShares } from './goal-progress';
+import { Meter } from '@intafaced/ui/lit/templates';
+import { currentPreferences } from '../../../shared/preferences';
+import { displayAmount } from '../../../shared/money';
+import { goalChartCopy } from '../goal-chart-copy';
+import { goalShare, movementShares } from '../goal-progress';
 
 /** A bar for a space that has a saving target: "0 of 0.01 BTC". Skipped when balances are hidden or there is no usable target. */
 export function GoalProgress({ balance, target, assetId }: { balance: string; target: string | null; assetId: string }) {
@@ -10,19 +11,9 @@ export function GoalProgress({ balance, target, assetId }: { balance: string; ta
   if (!share || target === null || currentPreferences().hideBalances) return null;
   const text = t('goalProgress', { current: displayAmount(balance), target: displayAmount(target), asset: assetId });
   return (
-    <div className="money-goal" lang={languageFor('goalLabel')}>
-      <div
-        className="money-bar"
-        role="progressbar"
-        aria-label={t('goalLabel')}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.floor(share.basisPoints / 100)}
-        aria-valuetext={text}
-      >
-        <span className="money-bar__fill" style={{ width: `${share.basisPoints / 100}%`, minWidth: share.basisPoints > 0 ? 2 : 0 }} />
-      </div>
-      <p className="lt-muted lt-num">
+    <div className="lt-stack" lang={languageFor('goalLabel')}>
+      <Meter label={t('goalLabel')} value={Math.floor(share.basisPoints / 100)} text={text} />
+      <p className="lt-hint lt-mono">
         {text}
         {share.reached ? ` · ${t('goalReached')}` : ''}
       </p>
@@ -43,25 +34,20 @@ export function MovementBars({ inflow, outflow, net, assetId }: { inflow: string
     { key: 'outflow', label: t('outflow'), value: outflow, width: shares.outflow },
   ] as const;
   return (
-    <figure className="money-movement-chart" lang={languageFor('chartTitle')}>
+    <figure className="lt-stack" lang={languageFor('chartTitle')}>
       <figcaption>{t('chartTitle')}</figcaption>
-      <div className="money-movement-chart__bars" aria-hidden="true">
+      <div className="lt-stack" aria-hidden="true">
         {rows.map((row) => (
-          <div className="money-movement-chart__row" key={row.key}>
+          <div className="lt-stack" key={row.key}>
             <span>{row.label}</span>
-            <div className="money-bar">
-              <span
-                className={`money-bar__fill money-bar__fill--${row.key}`}
-                style={{ width: `${row.width / 100}%`, minWidth: row.width > 0 ? 2 : 0 }}
-              />
-            </div>
-            <strong className="lt-num">
+            <Meter label={row.label} value={row.width / 100} text={`${displayAmount(row.value)} ${assetId}`} />
+            <strong className="lt-mono">
               {displayAmount(row.value)} {assetId}
             </strong>
           </div>
         ))}
       </div>
-      <table className="money-visually-hidden">
+      <table className="lt-sr">
         <caption>{t('chartTable')}</caption>
         <thead>
           <tr>
@@ -80,7 +66,7 @@ export function MovementBars({ inflow, outflow, net, assetId }: { inflow: string
           ))}
         </tbody>
       </table>
-      <p className="lt-muted">{t('chartCaption')}</p>
+      <p className="lt-hint">{t('chartCaption')}</p>
     </figure>
   );
 }
