@@ -1,3 +1,4 @@
+// volt-room: /bank/statements
 import { FlowTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { useBankNav } from '../bank-nav';
 import { statementCentreCopy } from '../statement-centre-copy';

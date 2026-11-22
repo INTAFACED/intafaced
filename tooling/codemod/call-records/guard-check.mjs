@@ -51,6 +51,16 @@ export function withCheck(access, check) {
  * refusal reader and the check's export. Undefined when neither can be had (the call stays, named).
  */
 export function partsFor(readers, file, guard, readerOf) {
+  // A wrapped check (wrapped-check.mjs) is written at the mount, so it never comes from the file's own parts.
+  if (guard.check?.inline) {
+    const reader = readerOf();
+    if (!reader || guard.check.file !== file) return undefined;
+    return {
+      name: `{ refusalOf: ${reader.name}, checks: { ${guard.check.name}: ${guard.check.inline} } }`,
+      file,
+      imports: reader.file === file ? [] : [{ file: reader.file, name: reader.name }],
+    };
+  }
   const declared = readers.find((r) => r.parts && r.file === file);
   if (declared) return declared;
   const check = guard.check;

@@ -165,9 +165,13 @@ test("CI's bootstrap script names the database it makes, so a run can make its o
   assert.match(script, /--dbname intafaced_test/);
 });
 
-// Planted gates runs, in gates.mjs's and tooling-tests.mjs's own output shapes (the timeout line is #8219's from the replay).
-const TIMEOUT_LINE =
-  'TOOLING TESTS FAILED — exit 1 (spawnSync /opt/homebrew/Cellar/node@22/22.23.5/bin/node ETIMEDOUT), no TAP summary across 74 files.';
+// Planted gates runs, in gates.mjs's and tooling-tests.mjs's own output shapes (the timeout lines are what #8219's
+// false red, a loaded Mac's limit, prints since the tooling tests run several files at once and each has its own limit).
+const TIMEOUT_LINE = [
+  'TOOLING TESTS FAILED — 2 of 168 files: 0 failed, 0 cancelled, 1201 passed, in 300 s.',
+  '  ✖ tooling/scripts/local-test-market.test.mjs: stopped after 180 s, its limit (a test that never ends, or a server left running)',
+  '  ✖ tooling/scripts/local-test-stack.test.mjs: not run: the whole run reached its limit first',
+].join('\n');
 const gatesRun = (lines) => {
   const f = join(mkdtempSync(join(tmpdir(), 'gates-')), 'gates.mjs');
   writeFileSync(f, `process.stdout.write(${JSON.stringify(lines.join('\n') + '\n')}); process.exit(1);\n`);
@@ -181,20 +185,22 @@ test("a planted timeout of the tooling tests here is 'not checked here, CI will'
   const { v, shown } = gatesRun([RED('tooling-tests'), '', '✖ 1 of 33 DOCTRINE GATE(S) FAILED', 'ok 1 - a', 'ok 2 - b', TIMEOUT_LINE]);
   assert.equal(v.ok, true);
   assert.match(v.notChecked, /not checked here, CI will/);
-  assert.match(shown, /ETIMEDOUT/, 'what the gates printed is still shown');
+  assert.match(shown, /stopped after 180 s/, 'what the gates printed is still shown');
 });
 
 test('a planted failing tooling test refuses, timeout or not; so does any other red gate', () => {
   const failed = gatesRun([
     RED('tooling-tests'),
     'not ok 3 - planted',
-    'TOOLING TESTS FAILED — exit 1, 1 failed, 0 cancelled, 2 passed across 1 files.',
+    'TOOLING TESTS FAILED — 1 of 1 files: 1 failed, 0 cancelled, 2 passed, in 3 s.',
   ]);
   assert.equal(failed.v.ok, false);
   const failedThenTimedOut = gatesRun([RED('tooling-tests'), 'ok 1 - a', 'not ok 2 - planted', TIMEOUT_LINE]);
   assert.equal(failedThenTimedOut.v.ok, false, 'a test that failed before the stop is a real red');
   const another = gatesRun([RED('tooling-tests'), RED('boundary-fetch'), TIMEOUT_LINE]);
   assert.equal(another.v.ok, false, 'another red gate beside the timeout is red');
+  const crashed = gatesRun([RED('tooling-tests'), `${TIMEOUT_LINE}\n  ✖ tooling/ci/x.test.mjs: exit 1`]);
+  assert.equal(crashed.v.ok, false, 'a file that crashed beside the stopped ones is a real red');
   const manifest = gatesRun(['✖ GATE MANIFEST BROKEN', TIMEOUT_LINE]);
   assert.equal(manifest.v.ok, false);
 });

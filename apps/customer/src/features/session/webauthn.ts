@@ -1,15 +1,9 @@
 import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { sessionSchema, type Session } from './session';
+import { credentialDescriptor, authenticationOptions } from '@intafaced/contracts/identity-call-schemas';
+import { IDENTITY_AUTH_STEP_UP_OPTIONS } from '@intafaced/contracts/identity-auth-procedures';
 
-const credentialDescriptor = z.object({ id: z.string(), type: z.literal('public-key'), transports: z.array(z.string()).optional() });
-const authenticationOptions = z.object({
-  challenge: z.string(),
-  timeout: z.number().optional(),
-  rpId: z.string().optional(),
-  allowCredentials: z.array(credentialDescriptor).optional(),
-  userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
-});
 const registrationOptions = z.object({
   challenge: z.string(),
   rp: z.object({ id: z.string().optional(), name: z.string() }),
@@ -195,7 +189,7 @@ const passkeyFailure = (code: string, reason: Failed['reason'] = 'error'): Faile
 export async function requestPasskeyAssertion(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<PasskeyAssertion>> {
   if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials?.get)
     return passkeyFailure('portal.passkey_unavailable', 'not_supported');
-  const options = await api.mutate('identity', 'auth.stepUpOptions', {}, authenticationOptions, { signal });
+  const options = await api.call(IDENTITY_AUTH_STEP_UP_OPTIONS, undefined, { signal });
   if (!options.ok) return options;
   return signAssertion(options.data, signal);
 }

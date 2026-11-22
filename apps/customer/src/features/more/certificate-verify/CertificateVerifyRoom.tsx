@@ -1,3 +1,4 @@
+// volt-room: /academy/certificates/verify/:code
 import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, RefusalBox, Skeleton, StatusChip } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';

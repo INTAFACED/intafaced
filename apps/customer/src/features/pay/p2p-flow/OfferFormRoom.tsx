@@ -1,3 +1,5 @@
+// volt-room: /uc/ad/create
+// volt-room: /uc/ad/update
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import { payCopy } from '../copy';

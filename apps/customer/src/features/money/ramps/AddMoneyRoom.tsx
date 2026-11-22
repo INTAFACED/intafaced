@@ -1,3 +1,4 @@
+// volt-room: /bank/ramps/new
 import { FlowTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { WalletProvider } from '../../protocol';
 import { addMoneyCopy } from '../add-money-copy';

@@ -1,3 +1,4 @@
+// volt-room: /market/strategy
 import { useState, type ReactNode } from 'react';
 import { Button, EmptyState, Field } from '@intafaced/ui/lit';
 import { FlowTemplate, Skeleton, Table, Tabs, type RoomState } from '@intafaced/ui/lit/templates';

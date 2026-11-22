@@ -1,3 +1,4 @@
+// volt-room: portal:product-new
 // volt-room: /pay/products/new
 import { useState, type ChangeEvent } from 'react';
 import { useRelease } from '../../../../shared/outside';

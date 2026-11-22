@@ -1,3 +1,4 @@
+// volt-room: /support/guest/verify
 import { useState } from 'react';
 import { SUPPORT_GUEST_REQUEST_PATH } from '@intafaced/contracts/support-guest';
 import { Button, RefusalBox } from '@intafaced/ui/lit';

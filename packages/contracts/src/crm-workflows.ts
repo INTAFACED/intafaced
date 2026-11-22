@@ -9,6 +9,7 @@ import {
   crmOpportunitySchema,
   outreachContactCaptureSchema,
 } from './outreach-crm.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
@@ -399,7 +400,7 @@ export const crmWorkflowAuditSchema = z
     ]),
     reason,
     occurredAt: timestamp,
-    facts: z.record(z.string(), z.unknown()),
+    facts: z.record(z.string(), jsonValueSchema),
   })
   .strict();
 export const crmWorkflowAuditListInputSchema = z

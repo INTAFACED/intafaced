@@ -648,6 +648,7 @@ fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
         reviewer_model: env.str("AGENTS_REVIEWER_MODEL").map(str::to_owned),
         approval_ttl_seconds: env.int("AGENTS_APPROVAL_TTL_SECONDS"),
         support_desk,
+        token_lifetime_minutes: env.int("AGENTS_OWN_TOKEN_LIFETIME_MINUTES"),
         cadence: Cadence {
             min_interval_minutes: env.int("AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES"),
             daily_limit: env.int("AGENTS_SCHEDULE_DAILY_LIMIT"),
