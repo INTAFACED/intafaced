@@ -1,7 +1,7 @@
 // node --test tooling/ci/journey-touch.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,7 @@ import {
   ROOT_DEPLOY_FILE,
   RUN_FILE,
   STACK_FILE,
+  UNPLACED,
   PICK_ARTIFACT,
   afterReuse,
   checkoutJourneyTexts,
@@ -1151,6 +1152,26 @@ test('--json --files-from: a pull request file list, judged against this checkou
   assert.deepEqual([files.mode, files.files], ['files', ['J-bank-13.pw.mjs']], 'a journey test file: only it');
   assert.equal(run(['.github/workflows/ci.yml', 'services/svc-bank/src/a.test.ts']).mode, 'none', 'nothing a journeys run reads');
   assert.equal(run(['apps/customer/tests/real-app/J-zzz-99.pw.mjs']).mode, 'none', 'a journey file the head removed runs nothing');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// 22 Nov 2026: tooling no rule places made the CLI import tooling-reach.mjs, which imports this file back; with main()
+// awaited at the top level the import waited on this file's own evaluation, so the run exited 13 and the journeys run
+// fell back to the CANARY while the seal demanded the bounded set (#9640).
+test('--json --files-from: tooling no rule places is judged, not left unsettled (the tooling-reach import cycle)', () => {
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  for (const path of ['tooling/design/volt-count.mjs', 'tooling/design/RECIPE.md']) {
+    assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI scans the tooling reach`);
+    const f = join(dir, 'changed.txt');
+    writeFileSync(f, `${path}\n`);
+    const r = spawnSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', f], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 120_000,
+    });
+    assert.equal(r.status, 0, `${path}: exit ${r.status}\n${r.stderr}`);
+    assert.ok(['none', 'files'].includes(JSON.parse(r.stdout).mode), r.stdout);
+  }
   rmSync(dir, { recursive: true, force: true });
 });
 
