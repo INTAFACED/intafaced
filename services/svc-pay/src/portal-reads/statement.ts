@@ -374,7 +374,7 @@ function ambiguousLine(draft: Draft): Lined {
   };
 }
 
-/** How far a dispute's or refund's event may sit from its ledger posting and still name its keys. */
+/** How far a dispute's, refund's or payout's event may sit from its ledger posting and still name its keys. */
 const STATEMENT_DISPUTE_CLOCK_MARGIN_MS = 15 * 60_000;
 
 /**
@@ -501,10 +501,19 @@ async function readStatementWindow(
      GROUP BY e.payload->>'disputeId', p.currency
     HAVING bool_or(e.event IN ('chargeback.opening_planned', 'disputed') AND e.ts < ${to})
        AND max(e.ts) >= ${new Date(from.getTime() - STATEMENT_DISPUTE_CLOCK_MARGIN_MS)}`;
+  // A payout reconciled later settles or reverses inside a window long after
+  // its admission. So, as for disputes, a payout is a candidate when it was
+  // admitted before `to` and its admission or any outcome of it is at or after
+  // `from`, less the clock margin. Each outcome is written at or after the
+  // ledger posting it follows.
   const payouts = await sql<Array<{ settlement_id: string; attempt: number; asset_id: string }>>`
-    SELECT settlement_id, attempt, asset_id FROM pay.payout_admissions
-     WHERE merchant_id = ${input.merchantId}
-       AND admitted_at >= ${from} AND admitted_at < ${to}`;
+    SELECT a.settlement_id, a.attempt, a.asset_id FROM pay.payout_admissions a
+     WHERE a.merchant_id = ${input.merchantId}
+       AND a.admitted_at < ${to}
+       AND GREATEST(
+             a.admitted_at,
+             (SELECT max(o.occurred_at) FROM pay.payout_outcomes o WHERE o.admission_id = a.id)
+           ) >= ${new Date(from.getTime() - STATEMENT_DISPUTE_CLOCK_MARGIN_MS)}`;
 
   const keys: Array<{ key: string; assetId: string; settlementId: string | null }> = [];
   for (const row of captures) keys.push({ key: `payment.capture:${row.id}`, assetId: row.currency, settlementId: null });
