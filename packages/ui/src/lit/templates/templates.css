@@ -1566,3 +1566,17 @@ button.lt-row-link {
   block-size: auto;
   padding-block: var(--lit-gap-item);
 }
+
+/* A chart's zero line, dashed and quiet, and the axis words at its two ends. */
+.lt-chart-zero {
+  stroke: var(--lit-line-strong);
+  stroke-dasharray: 6 6;
+}
+
+.lt-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
