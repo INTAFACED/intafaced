@@ -169,9 +169,15 @@ fn serve() -> BankDoor {
         },
         env,
         now: door::system_now,
-        store: svc_bank::db::Store::Down("no database".to_owned()),
+        // The replay's `sql` is a stub that refuses every query with its own name.
+        store: svc_bank::db::Store::Down("replay stub: sql".to_owned()),
     })
     .unwrap()
+    // The replay's `activity` options: the cursor secret, which a statement is signed with too.
+    .with_activity(svc_bank::activity::Wiring {
+        cursor_secret: Some(INTERNAL.to_owned()),
+        ..svc_bank::activity::Wiring::none()
+    })
 }
 
 /// `encodePrincipal` of the replay's principal, signed for the caller's region.

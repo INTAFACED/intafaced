@@ -6,6 +6,8 @@
 mod activity_analytics_db;
 #[path = "activity_calendar_db.rs"]
 mod activity_calendar_db;
+#[path = "activity_statements_db.rs"]
+mod activity_statements_db;
 #[path = "activity_work_items_db.rs"]
 mod activity_work_items_db;
 #[path = "closure_body.rs"]
