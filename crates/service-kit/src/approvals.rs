@@ -1,7 +1,9 @@
 //! svc-identity's `actionApproval.consume`, as `createIdentityApprovalClient` in
-//! `packages/contracts/src/action-approval-client.ts` calls it for a service that passes no S2S signer.
+//! `packages/contracts/src/action-approval-client.ts` calls it.
 //!
-//! One POST of the checked consume input, signed with the shared secret, bounded by a 5 s timeout. The reply counts
+//! One POST of the checked consume input, bounded by a 5 s timeout. It is signed with the shared secret, or, once the
+//! service passes its own key ([`IdentityClient::with_key`], the TypeScript's `s2s` option), as
+//! `serviceCallSigner({ service, audience: 'svc-identity', legacySecret, s2s })` signs it. The reply counts
 //! only when it is an action approval, `CONSUMED`, and echoes the request (approval, operation, payload hash, target,
 //! version). Any other reply refuses as `action_approval.consume_failed` ([`ConsumeError::Refused`]); a call that got
 //! no reply, or an input out of bounds, is what `fetch` or zod threw ([`ConsumeError::Thrown`]). Each service maps
@@ -11,7 +13,7 @@ use std::sync::Arc;
 
 use crate::http::{Fetch, HttpRequest};
 use crate::json::{self, Json};
-use crate::s2s::{self, js_length};
+use crate::s2s::{self, CallSigner, Mode, ServiceSigner, js_length};
 use crate::time::zod_datetime;
 use sha2::{Digest, Sha256};
 
@@ -71,13 +73,15 @@ pub enum ConsumeError {
 /// The service's clock in whole seconds, for the signature's timestamp.
 pub type Seconds = fn() -> i64;
 
-/// `createIdentityApprovalClient({ service, baseUrl, internalSecret, fail })`.
+/// `createIdentityApprovalClient({ service, baseUrl, internalSecret, fail, s2s })`.
 pub struct IdentityClient {
     url: String,
     service: String,
     secret: String,
     fetch: Arc<dyn Fetch>,
     now: Seconds,
+    /// `authHeadersFor`: present only when the service passed its key; absent keeps the shared secret alone.
+    keyed: Option<CallSigner>,
 }
 
 /// `z.string().min(1).max(max)`, lengths in UTF-16 code units.
@@ -282,22 +286,53 @@ impl IdentityClient {
             secret: secret.to_owned(),
             fetch,
             now,
+            keyed: None,
         }
+    }
+
+    /// The `s2s` option: with a key, every consume is signed by it for svc-identity (in dual mode with the shared
+    /// secret beside it); `None` leaves the client on the shared secret, as before.
+    #[must_use]
+    pub fn with_key(mut self, s2s: Option<(Arc<ServiceSigner>, Mode)>) -> IdentityClient {
+        self.keyed = s2s.map(|key| {
+            let mut signer =
+                CallSigner::new(&self.service, "svc-identity", &self.secret, Some(key));
+            signer.clock = Arc::new(self.now);
+            signer
+        });
+        self
+    }
+
+    /// The headers `authHeadersFor(payload, { method: 'POST', url: new URL(target), contentType })` or
+    /// `serviceAuthHeadersForBody(service, internalSecret, payload)` give.
+    fn auth_headers(&self, payload: &str, target: &str) -> Result<s2s::Headers, ConsumeError> {
+        let Some(signer) = &self.keyed else {
+            return s2s::legacy_headers(&self.service, &self.secret, payload, (self.now)())
+                .map_err(ConsumeError::Thrown);
+        };
+        // `new URL(target)`: the signature covers `pathname + search`.
+        let url =
+            url::Url::parse(target).map_err(|_| ConsumeError::Thrown("Invalid URL".to_owned()))?;
+        let path = match url.query().filter(|q| !q.is_empty()) {
+            Some(q) => format!("{}?{q}", url.path()),
+            None => url.path().to_owned(),
+        };
+        signer
+            .sign(payload, "POST", &path, "application/json")
+            .map_err(ConsumeError::Thrown)
     }
 
     /// `consume(input)`: the consumed approval, or why there is none.
     pub fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, ConsumeError> {
         let payload = consume_payload(input)?;
+        let target = format!("{}/trpc/actionApproval.consume", self.url);
         let mut headers = vec![("content-type".to_owned(), "application/json".to_owned())];
-        headers.extend(
-            s2s::legacy_headers(&self.service, &self.secret, &payload, (self.now)())
-                .map_err(ConsumeError::Thrown)?,
-        );
+        headers.extend(self.auth_headers(&payload, &target)?);
         let res = self
             .fetch
             .fetch(&HttpRequest {
                 method: "POST".to_owned(),
-                url: format!("{}/trpc/actionApproval.consume", self.url),
+                url: target,
                 headers,
                 body: Some(payload),
                 timeout_ms: Some(IDENTITY_CONSUME_TIMEOUT_MS),
