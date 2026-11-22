@@ -13,7 +13,6 @@ import {
   SegmentedControl,
 } from '@intafaced/ui';
 import type { Listing } from '../../../features/trade/trade-api';
-import type { z } from 'zod';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import type { TRADE_ALGO_CREATE_TWAP } from '@intafaced/contracts/trade-algo-procedures';
 import { useTicker } from '../../../data';

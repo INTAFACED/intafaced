@@ -25,7 +25,6 @@ import {
 import { z } from 'zod';
 import {
   LEADER_MODES,
-  algoPolicySchema,
   botListRowSchema,
   copiedMarketSchema,
   copiedPositionSchema,

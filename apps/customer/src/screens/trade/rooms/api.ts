@@ -7,8 +7,6 @@
 import { z } from 'zod';
 import { decimalSchema } from '../../../shared/money';
 import {
-  algoListSchema,
-  algoPolicySchema,
   deskStatusSchema,
   rfqBoardSchema,
   optionsPolicySchema,
