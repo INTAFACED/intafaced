@@ -169,6 +169,7 @@ fn serve() -> BankDoor {
         },
         env,
         now: door::system_now,
+        store: svc_bank::db::Store::Down("no database".to_owned()),
     })
     .unwrap()
 }
@@ -229,6 +230,13 @@ fn mask(body: &str) -> String {
             end += if bytes[end] == b'\\' { 2 } else { 1 };
         }
         out = format!("{}<stack>{}", &out[..at + key.len()], &after[end..]);
+    }
+    let reference = "Bank operation failed (ref ";
+    if let Some(at) = out.find(reference) {
+        let start = at + reference.len();
+        if let Some(len) = out[start..].find(')') {
+            out = format!("{}<ref>{}", &out[..start], &out[start + len..]);
+        }
     }
     out
 }

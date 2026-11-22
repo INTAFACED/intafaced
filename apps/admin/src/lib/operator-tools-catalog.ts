@@ -14,6 +14,8 @@ import {
   IDENTITY_KYC_CAPABILITIES_GET_FOR,
   IDENTITY_KYC_CAPABILITIES_SET,
 } from '@intafaced/contracts/identity-kyc-procedures';
+import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
+import { TOKEN_MINT_EPOCH } from '@intafaced/contracts/token-mint-epoch-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -413,9 +415,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'token',
     label: 'Mint emission epoch',
     summary: 'Mint next epoch (or a named epoch). Refuses when EMISSIONS_ENABLED=false.',
-    edgeModule: 'token',
-    procedure: 'mintEpoch',
-    kind: 'mutation',
+    ...toolOf(TOKEN_MINT_EPOCH),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,
@@ -426,9 +426,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'token',
     label: 'Distribute revenue window',
     summary: 'Hand-invoked yield settlement. Amounts are typed by the operator — no houseFees auto-read.',
-    edgeModule: 'token',
-    procedure: 'distributeRevenue',
-    kind: 'mutation',
+    ...toolOf(TOKEN_DISTRIBUTE_REVENUE),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,

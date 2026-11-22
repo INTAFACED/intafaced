@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { API_VERSION_HEADER, LATEST_API_VERSION } from '@intafaced/contracts/api-versions';
-import { Button, Field } from '../../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { ReadingTemplate, SelectField, TextAreaField } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../session';
 import { readSandboxes } from '../sandbox/sandbox-api';
 import { explorerCopy } from './explorer-copy';
@@ -105,103 +106,99 @@ export function ExplorerPage({ title }: { title: string }) {
   }
 
   return (
-    <div className="pub-page" data-testid="explorer">
-      <header className="pub-heading">
-        <h1>{title}</h1>
-        <p className="muted">{t('lead')}</p>
-      </header>
-      <form noValidate onSubmit={(event) => void send(event)}>
-        <Field
-          label={t('keyLabel')}
-          hint={t('keyHint')}
-          name="key"
-          type="password"
-          autoComplete="off"
-          value={key}
-          onChange={(event) => setKey(event.currentTarget.value)}
-        />
-        {key.trim() && (
-          <p data-testid="explorer-key-mode" role="status">
-            {t(sandbox ? 'keySandbox' : 'keyLive')}
-          </p>
-        )}
-        <label className="field" htmlFor="explorer-route">
-          <span>{t('requestLabel')}</span>
-          <select
-            id="explorer-route"
-            name="route"
-            value={routeId}
-            onChange={(event) => choose(event.currentTarget.value as ExplorerRoute['id'])}
-          >
-            {EXPLORER_ROUTES.map((r) => (
-              <option key={r.id} value={r.id}>
-                {`${t(`route.${r.id}`)} · ${r.method} ${r.path.split('?')[0]}`}
-              </option>
-            ))}
-          </select>
-        </label>
-        {route.merchant && (
-          <Field
-            label={t('merchantLabel')}
-            hint={t('merchantHint')}
-            name="merchantId"
-            autoComplete="off"
-            value={merchantId}
-            onChange={(event) => {
-              const next = event.currentTarget.value;
-              setMerchantId(next);
-              if (route.body) setBody(JSON.stringify(route.body(next), null, 2));
-            }}
-          />
-        )}
-        {route.body && (
-          <label className="field" htmlFor="explorer-body">
-            <span>{t('bodyLabel')}</span>
-            <textarea
-              id="explorer-body"
-              name="body"
-              rows={10}
-              spellCheck={false}
-              aria-describedby="explorer-body-hint"
-              value={body}
-              onChange={(event) => setBody(event.currentTarget.value)}
-            />
-            <small id="explorer-body-hint" className="muted">
-              {t('bodyHint')}
-            </small>
-          </label>
-        )}
-        <h2>{t('codeTitle')}</h2>
-        <pre data-testid="explorer-code" dir="ltr">
-          <code lang="und">{code}</code>
-        </pre>
-        <Button type="submit" disabled={busy}>
-          {busy ? t('sending') : t('send')}
-        </Button>
-      </form>
-      {answer && (
-        <section data-testid="explorer-answer" aria-labelledby="explorer-answer-title">
-          <h2 id="explorer-answer-title">{t('resultTitle')}</h2>
-          {answer.kind === 'said' && <p role="alert">{t(answer.key)}</p>}
-          {answer.kind === 'failed' && <p role="alert">{t('resultFailed')}</p>}
-          {answer.kind === 'answered' && (
-            <>
-              <p data-testid="explorer-status" role="status">
-                {t('resultStatus', { status: answer.status })}
-              </p>
-              {answer.code && (
-                <p data-testid="explorer-refused" role="alert">
-                  {t('resultRefused', { code: answer.code })}
-                  {answer.message ? ` ${answer.message}` : ''}
+    <div data-testid="explorer">
+      <ReadingTemplate
+        title={title}
+        description={t('lead')}
+        state={{ kind: 'ready' }}
+        body={
+          <div className="lt-stack">
+            <form className="lt-stack" noValidate onSubmit={(event) => void send(event)}>
+              <Field
+                label={t('keyLabel')}
+                hint={t('keyHint')}
+                name="key"
+                type="password"
+                autoComplete="off"
+                value={key}
+                onChange={(event) => setKey(event.currentTarget.value)}
+              />
+              {key.trim() && (
+                <p data-testid="explorer-key-mode" role="status">
+                  {t(sandbox ? 'keySandbox' : 'keyLive')}
                 </p>
               )}
-              <pre data-testid="explorer-body" dir="ltr">
-                <code lang="und">{answer.text}</code>
+              <SelectField
+                id="explorer-route"
+                label={t('requestLabel')}
+                name="route"
+                value={routeId}
+                onChange={(next) => choose(next as ExplorerRoute['id'])}
+                options={EXPLORER_ROUTES.map((r) => ({
+                  value: r.id,
+                  label: `${t(`route.${r.id}`)} · ${r.method} ${r.path.split('?')[0]}`,
+                }))}
+              />
+              {route.merchant && (
+                <Field
+                  label={t('merchantLabel')}
+                  hint={t('merchantHint')}
+                  name="merchantId"
+                  autoComplete="off"
+                  value={merchantId}
+                  onChange={(event) => {
+                    const next = event.currentTarget.value;
+                    setMerchantId(next);
+                    if (route.body) setBody(JSON.stringify(route.body(next), null, 2));
+                  }}
+                />
+              )}
+              {route.body && (
+                <TextAreaField
+                  id="explorer-body"
+                  label={t('bodyLabel')}
+                  hint={t('bodyHint')}
+                  name="body"
+                  rows={10}
+                  spellCheck={false}
+                  value={body}
+                  onChange={setBody}
+                />
+              )}
+              <h2>{t('codeTitle')}</h2>
+              <pre className="lt-code" data-testid="explorer-code" dir="ltr">
+                <code lang="und">{code}</code>
               </pre>
-            </>
-          )}
-        </section>
-      )}
+              <Button type="submit" tone="primary" disabled={busy}>
+                {busy ? t('sending') : t('send')}
+              </Button>
+            </form>
+            {answer && (
+              <section data-testid="explorer-answer" aria-labelledby="explorer-answer-title">
+                <h2 id="explorer-answer-title">{t('resultTitle')}</h2>
+                {answer.kind === 'said' && <p role="alert">{t(answer.key)}</p>}
+                {answer.kind === 'failed' && <p role="alert">{t('resultFailed')}</p>}
+                {answer.kind === 'answered' && (
+                  <>
+                    <p data-testid="explorer-status" role="status">
+                      {t('resultStatus', { status: answer.status })}
+                    </p>
+                    {answer.code && (
+                      <p data-testid="explorer-refused" role="alert">
+                        {t('resultRefused', { code: answer.code })}
+                        {answer.message ? ` ${answer.message}` : ''}
+                      </p>
+                    )}
+                    <pre className="lt-code" data-testid="explorer-body" dir="ltr">
+                      <code lang="und">{answer.text}</code>
+                    </pre>
+                  </>
+                )}
+              </section>
+            )}
+          </div>
+        }
+      />
     </div>
   );
 }

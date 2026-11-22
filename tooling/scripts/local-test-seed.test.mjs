@@ -7,11 +7,13 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import os from 'node:os';
+import { registerHooks } from 'node:module';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   FUNDS_LABEL,
   GuardError,
+  openLocal,
   LOAN_RESERVE_AMOUNT,
   LOAN_RESERVE_FUNDING_ID,
   MAX_AGE_DAYS,
@@ -48,10 +50,10 @@ import {
   toWire,
   unseedAll,
 } from './local-test-seed.mjs';
+import { DEFAULT_SYMBOLS } from './local-test-market.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..');
-const scriptPath = path.join(here, 'local-test-seed.mjs');
 const SCALE = 10n ** 18n;
 const PROD_URL = 'postgres://prod:secret@db.prod.example.com:5432/intafaced';
 
@@ -791,10 +793,8 @@ test('house: exact amounts, deterministic ids, second apply is a ledger no-op, h
 });
 
 test('house inventory stocks both sides of the stack default markets', () => {
-  const marketSrc = readFileSync(path.join(here, 'local-test-market.mjs'), 'utf8');
-  const found = marketSrc.match(/const DEFAULT_SYMBOLS = (\[[^\]]+\])/);
-  assert.ok(found, 'DEFAULT_SYMBOLS missing');
-  const symbols = JSON.parse(found[1].replaceAll("'", '"'));
+  const symbols = DEFAULT_SYMBOLS;
+  assert.ok(Array.isArray(symbols) && symbols.length > 0, 'the market maker names its default markets');
   const stocked = new Set(TEST_HOUSE_INVENTORY.map((row) => row.assetId));
   for (const symbol of symbols) {
     // A perpetual names its settle asset after a colon (`BTC/USDT:USDT`); every asset it names is stocked.
@@ -895,27 +895,164 @@ test('without --state the seed reads the stack state rule: LOCAL_STACK_STATE, as
   });
 });
 
+/**
+ * Run the real stack wiring (openLocal) with every module it loads from the repo and `postgres` replaced by recording
+ * stand-ins, so the test sees what it builds, which connections it opens, which SQL it sends and where it posts.
+ */
+async function openLocalRecorded(plan) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'local-test-seed-wiring-'));
+  const seen = (globalThis.__seedWiring = { loaded: [], built: [], sql: [], calls: [], connections: [] });
+  const stubs = {
+    'packages/ledger-client/dist/index.js': `export const recipes = { from: 'packages/ledger-client' };
+      export const userAvailable = () => 'userAvailable'; export const parseAmount = (x) => x; export const formatAmount = (x) => x;`,
+    'packages/contracts/dist/index.js': `export const serviceAuthHeadersForBody = (caller) => ({ 'x-caller': caller });`,
+    'services/svc-bank/dist/earn/earn-service.js': `export class EarnService { constructor(sql, ledger) { this.sql = sql; globalThis.__seedWiring.built.push(['EarnService', sql.url]); } }`,
+    'services/svc-bank/dist/loans/loan-service.js': `export class LoanService { constructor(sql, ledger, deps) { this.sql = sql; globalThis.__seedWiring.built.push(['LoanService', sql.url]); } }`,
+    'services/svc-p2p/dist/instrument-service.js': `export class InstrumentService {
+      constructor(sql) { globalThis.__seedWiring.built.push(['InstrumentService', sql.url]); }
+      registerMethodSchema(input) { globalThis.__seedWiring.calls.push(['registerMethodSchema', input]); return { methodId: input.methodId }; }
+      setMethodSchemaEnabled(...args) { globalThis.__seedWiring.calls.push(['setMethodSchemaEnabled', ...args]); return { enabled: args[2] }; } }`,
+  };
+  const files = {};
+  for (const [rel, src] of Object.entries(stubs)) {
+    files[rel] = path.join(dir, rel.replaceAll('/', '__'));
+    writeFileSync(files[rel], src);
+  }
+  files.postgres = path.join(dir, 'postgres.cjs');
+  writeFileSync(
+    files.postgres,
+    `module.exports = function postgres(url) {
+      const seen = globalThis.__seedWiring;
+      seen.connections.push(url);
+      const sql = (first, ...values) => {
+        if (!Array.isArray(first) || !first.raw) return { list: first };
+        const text = first.join('?').replace(/\\s+/g, ' ').trim();
+        seen.sql.push({ url, text });
+        return Promise.resolve(/RETURNING id/.test(text) ? [{ id: 'row-1' }] : []);
+      };
+      sql.url = url;
+      sql.begin = async (fn) => fn(sql);
+      sql.end = async () => {};
+      return sql;
+    };`,
+  );
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === 'postgres' && context.parentURL?.includes('/services/svc-bank/')) {
+        seen.loaded.push('postgres (svc-bank)');
+        return { url: pathToFileURL(files.postgres).href, format: 'commonjs', shortCircuit: true };
+      }
+      for (const rel of Object.keys(stubs)) {
+        if (specifier === pathToFileURL(path.join(repo, rel)).href) {
+          seen.loaded.push(rel);
+          return { url: pathToFileURL(files[rel]).href, shortCircuit: true };
+        }
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  try {
+    return {
+      deps: await openLocal(plan),
+      seen,
+      ledgerClient: await import(pathToFileURL(files['packages/ledger-client/dist/index.js']).href),
+    };
+  } finally {
+    hooks.deregister();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("the stack wiring uses the services' own code, posts only ledger-client recipes to the marker's ledger, and closes rows, never deletes", async () => {
+  const stateDir = tmp();
+  const plan = {
+    stateDir,
+    bankUrl: 'postgres://svc_bank:pw@127.0.0.1:15460/intafaced_local_test',
+    p2pUrl: 'postgres://svc_p2p:pw@127.0.0.1:15460/intafaced_local_test',
+    ledgerUrl: 'http://127.0.0.1:14501',
+    internal: 'fixture-internal',
+  };
+  const saved = { DATABASE_URL: process.env.DATABASE_URL, LEDGER_URL: process.env.LEDGER_URL, fetch: globalThis.fetch };
+  process.env.DATABASE_URL = PROD_URL;
+  process.env.LEDGER_URL = 'https://ledger.prod.example.com';
+  const posted = [];
+  globalThis.fetch = async (url, init) => {
+    posted.push([String(url), init.method, JSON.parse(init.body)]);
+    return new Response(JSON.stringify({ result: { data: { ok: true } } }), { status: 200 });
+  };
+  try {
+    const { deps, seen, ledgerClient } = await openLocalRecorded(plan);
+    // The services' own code, built: svc-bank's earn and loan services and svc-p2p's instrument service.
+    assert.deepEqual(seen.loaded.sort(), [
+      'packages/contracts/dist/index.js',
+      'packages/ledger-client/dist/index.js',
+      'postgres (svc-bank)',
+      'services/svc-bank/dist/earn/earn-service.js',
+      'services/svc-bank/dist/loans/loan-service.js',
+      'services/svc-p2p/dist/instrument-service.js',
+    ]);
+    assert.deepEqual(seen.built, [
+      ['EarnService', plan.bankUrl],
+      ['LoanService', plan.bankUrl],
+      ['InstrumentService', plan.p2pUrl],
+    ]);
+    assert.equal(deps.earn.constructor.name, 'EarnService');
+    assert.equal(deps.loans.constructor.name, 'LoanService');
+    await deps.instruments.registerMethodSchema({ methodId: 'm' });
+    await deps.instruments.setMethodSchemaEnabled('m', 'XX', false, 'low_demand');
+    assert.deepEqual(seen.calls, [
+      ['registerMethodSchema', { methodId: 'm' }],
+      ['setMethodSchemaEnabled', 'm', 'XX', false, 'low_demand'],
+    ]);
+    // Money moves only through packages/ledger-client recipes.
+    assert.equal(deps.recipes, ledgerClient.recipes);
+    // Only the plan's loopback database and ledger: DATABASE_URL and LEDGER_URL in the environment are never used.
+    assert.deepEqual(seen.connections, [plan.bankUrl, plan.p2pUrl]);
+    await deps.ledger.post({ idempotencyKey: 'k' });
+    await deps.ledger.balance({ account: 'a' });
+    assert.deepEqual(
+      posted.map(([url, method]) => [url, method]),
+      [
+        [`${plan.ledgerUrl}/trpc/post`, 'POST'],
+        [`${plan.ledgerUrl}/trpc/balance`, 'POST'],
+      ],
+    );
+    // Unseed closes the TEST rows and keeps them.
+    assert.equal(await deps.closePools(['TEST pool']), 1);
+    assert.equal(await deps.closeProducts(['TEST product']), 1);
+    await deps.readPools(['TEST pool']);
+    await deps.readProducts(['TEST product']);
+    await deps.readPoolById('pool-1');
+    const texts = seen.sql.map((q) => q.text);
+    assert.ok(
+      texts.some((t) => t.startsWith("UPDATE bank.earn_pools SET status = 'closed'")),
+      texts.join('\n'),
+    );
+    assert.ok(
+      texts.some((t) => t.startsWith("UPDATE bank.loan_products SET status = 'closed'")),
+      texts.join('\n'),
+    );
+    assert.equal(
+      texts.some((t) => /\bDELETE\b/i.test(t)),
+      false,
+      'the seed never deletes a row',
+    );
+    assert.ok(seen.sql.every((q) => q.url === plan.bankUrl));
+    await deps.close();
+  } finally {
+    for (const k of ['DATABASE_URL', 'LEDGER_URL']) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    globalThis.fetch = saved.fetch;
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('money tables are decimal strings and the seed does not touch service trees', () => {
   for (const row of TEST_HOUSE_INVENTORY) assert.equal(typeof row.amount, 'string');
   for (const row of TEST_EARN) assert.equal(typeof row.reserve, 'string');
   assert.equal(typeof LOAN_RESERVE_AMOUNT, 'string');
-  const src = readFileSync(scriptPath, 'utf8');
-  assert.match(src, /services\/svc-bank\/dist\/earn\/earn-service\.js/);
-  assert.match(src, /services\/svc-bank\/dist\/loans\/loan-service\.js/);
-  assert.match(src, /services\/svc-p2p\/dist\/instrument-service\.js/);
-  assert.match(src, /createPool\(/);
-  assert.match(src, /createProduct\(/);
-  assert.match(src, /registerMethodSchema\(/);
-  assert.match(src, /setMethodSchemaEnabled\(/);
-  assert.match(src, /earnPoolFund\(/);
-  assert.match(src, /loanReserveFund\(/);
-  assert.match(src, /marketMakerSeedFund\(/);
-  assert.match(src, /SET status = 'closed'/);
-  assert.doesNotMatch(src, /DELETE FROM/);
-  assert.doesNotMatch(src, /env\.DATABASE_URL/);
-  assert.doesNotMatch(src, /env\.LEDGER_URL/);
-  assert.doesNotMatch(src, /native_asset_not_earnable/);
-  assert.doesNotMatch(src, /assertPolicyCoherent/);
   const wire = toWire(
     {
       idempotencyKey: 'k',

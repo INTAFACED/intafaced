@@ -140,7 +140,7 @@ describe('course outline (AC-course-structure-02)', () => {
 
   it('types each item, gives a locked one its reason as text and no link, and marks the open one', () => {
     const out = html(<CourseOutlineView outline={{ slug: 'markets', items }} current="b" />);
-    expect(out).toMatch(/<a href="\/academy\/b" aria-current="page"/);
+    expect(out).toMatch(/<a [^>]*href="\/academy\/b" aria-current="page"/);
     expect(out).not.toContain('href="/academy/c"');
     expect(out).not.toContain('href="/academy/d"');
     expect(out).toContain('Locked: complete B first.');
@@ -211,7 +211,7 @@ describe('Complete and continue, Undo, and a locked item (AC-progress-01, AC-rel
   it('a locked lesson links each earlier item by title, and says so in words when Academy names none', () => {
     const out = html(<LockedItemNotice missing={['b']} lessons={[{ slug: 'b', title: 'Bee' } as never]} />);
     expect(out).toContain('This item is locked');
-    expect(out).toMatch(/<a class="text-link" href="\/academy\/b" lang="und">Bee<\/a>/);
+    expect(out).toMatch(/<a [^>]*href="\/academy\/b" lang="und">Bee<\/a>/);
     expect(html(<LockedItemNotice missing={[]} lessons={[]} />)).toContain('an earlier item must be completed first');
   });
 });

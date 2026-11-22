@@ -640,7 +640,13 @@
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"windowId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
     "ok {\"sessionId\":\"33333333-3333-4333-8333-333333333333\",\"windowId\":\" \"}",
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"windowId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
-    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received number\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"windowId\"],\"message\":\"Invalid input: expected string, received null\"}]"
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received number\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"windowId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"guid\",\"pattern\":\"/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/\",\"path\":[\"endpointId\"],\"message\":\"Invalid GUID\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"endpointId\"],\"message\":\"Invalid input: expected string, received number\"},{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"limit\"],\"message\":\"Invalid input: expected number, received null\"}]",
+    "issues [{\"code\":\"too_big\",\"maximum\":9007199254740991,\"note\":\"Integers must be within the safe integer range.\",\"origin\":\"int\",\"inclusive\":true,\"path\":[\"limit\"],\"message\":\"Too big: expected int to be <=9007199254740991\"},{\"origin\":\"number\",\"code\":\"too_big\",\"maximum\":100,\"inclusive\":true,\"path\":[\"limit\"],\"message\":\"Too big: expected number to be <=100\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"endpointId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"url\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"url\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"endpointId\"],\"message\":\"Invalid input: expected string, received number\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"url\"],\"message\":\"Invalid input: expected string, received null\"}]"
   ],
   "bases": [
     "{\"agentId\":\" \"}",
@@ -789,6 +795,9 @@
     "{\"sessionId\":\"33333333-3333-4333-8333-333333333333\"}",
     "{\"sessionId\":\"33333333-3333-4333-8333-333333333333\",\"windowId\":\" \"}",
     "{\"sessionId\":\"33333333-3333-4333-8333-333333333333\"}",
-    "{\"limit\":1}"
+    "{\"limit\":1}",
+    "{\"endpointId\":\"33333333-3333-4333-8333-333333333333\",\"runId\":\"33333333-3333-4333-8333-333333333333\",\"limit\":1}",
+    "{\"limit\":1}",
+    "{\"endpointId\":\"33333333-3333-4333-8333-333333333333\",\"url\":\" \"}"
   ]
 }

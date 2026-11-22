@@ -2332,7 +2332,8 @@ test("#1574 ci-jobs-seal: CI's own Start the seal job still going does not hold 
 // (intafaced#7707: "which reds main already had couldn't be read (fetch failed)" on two seal attempts in a row).
 test('getTried: a dropped request or a 503 is tried again, a 403 is not, and the last failure still fails closed', async () => {
   const waits = [];
-  const sleep = async (ms) => void waits.push(ms);
+  // A stand-in that records each wait instead of waiting.
+  const noteWait = async (ms) => void waits.push(ms);
   const answers = (list) => {
     let i = 0;
     const calls = [];
@@ -2347,36 +2348,73 @@ test('getTried: a dropped request or a 503 is tried again, a 403 is not, and the
   const dropped = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
 
   const once = answers([dropped, 503, 200]);
-  assert.equal((await getTried('u', {}, { fetchImpl: once.fetchImpl, sleep })).status, 200);
+  assert.equal((await getTried('u', {}, { fetchImpl: once.fetchImpl, sleep: noteWait })).status, 200);
   assert.equal(once.calls.length, 3, 'a dropped request and a 503 are both tried again');
   assert.deepEqual(waits, [3000, 6000]);
 
   const refused = answers([403, 200]);
-  assert.equal((await getTried('u', {}, { fetchImpl: refused.fetchImpl, sleep })).status, 403, 'a refusal stands');
+  assert.equal((await getTried('u', {}, { fetchImpl: refused.fetchImpl, sleep: noteWait })).status, 403, 'a refusal stands');
   assert.equal(refused.calls.length, 1, 'a 403 is never tried again');
   const limited = answers([429, 200]);
-  assert.equal((await getTried('u', {}, { fetchImpl: limited.fetchImpl, sleep })).status, 429);
+  assert.equal((await getTried('u', {}, { fetchImpl: limited.fetchImpl, sleep: noteWait })).status, 429);
   assert.equal(limited.calls.length, 1, 'a 429 is never tried again');
 
   const down = answers([dropped]);
-  await assert.rejects(getTried('u', {}, { fetchImpl: down.fetchImpl, sleep }), /fetch failed \(ECONNRESET\) after 3 tries/);
+  await assert.rejects(getTried('u', {}, { fetchImpl: down.fetchImpl, sleep: noteWait }), /fetch failed \(ECONNRESET\) after 3 tries/);
   assert.equal(down.calls.length, 3, 'three tries, then the error stands');
   const busy = answers([503]);
   assert.equal(
-    (await getTried('u', {}, { fetchImpl: busy.fetchImpl, sleep })).status,
+    (await getTried('u', {}, { fetchImpl: busy.fetchImpl, sleep: noteWait })).status,
     503,
     'the last 503 is returned, and api() throws on it',
   );
   assert.equal(busy.calls.length, 3);
 });
 
-test('planted: the seal reads GitHub through getTried, not one bare fetch', () => {
-  const src = readFileSync(new URL('./journey-seal.mjs', import.meta.url), 'utf8');
-  const apiBody = /async function api\(path, token[^)]*\) \{\n {2}const res = await (\w+)\(/.exec(src)?.[1];
-  assert.equal(apiBody, 'getTried', 'api() makes its GET through getTried');
-  assert.match(src, /async text\(path, ref\) \{\n.*\n {6}const res = await getTried\(/, 'text() makes its GET through getTried');
-  const bare = src.replace(/(async function api\(path, token[^)]*\) \{\n {2}const res = await )getTried\(/, '$1fetch(');
-  assert.notEqual(/async function api\(path, token[^)]*\) \{\n {2}const res = await (\w+)\(/.exec(bare)?.[1], 'getTried');
+test('planted: the seal reads GitHub through getTried, not one bare fetch', async () => {
+  const { makeIo } = await import('./journey-seal.mjs');
+  const dropped = () => Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
+  const real = globalThis.fetch;
+  const asked = [];
+  // Each address: dropped on the way once, then answered. A bare fetch would throw on the first.
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    asked.push([u, init?.headers?.accept]);
+    if (asked.filter(([a]) => a === u).length === 1) throw dropped();
+    if (u.includes('/contents/')) return new Response('the file', { status: 200 });
+    return new Response(JSON.stringify({ workflow_runs: [{ id: 1 }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const io = makeIo(REPO, 'x');
+    const [runs, text] = await Promise.all([io.mainRuns(), io.text('docs/a b.md', HEAD)]);
+    assert.deepEqual(runs, [{ id: 1 }], 'api() makes its GET through getTried');
+    assert.equal(text, 'the file', 'text() makes its GET through getTried');
+    assert.equal(asked.length, 4, 'each GET was tried again once');
+    assert.equal(
+      asked.find(([u]) => u.includes('/contents/'))?.[0],
+      `https://api.github.com/repos/${REPO}/contents/docs/a%20b.md?ref=${HEAD}`,
+    );
+    assert.equal(asked.find(([u]) => u.includes('/contents/'))?.[1], 'application/vnd.github.raw+json');
+  } finally {
+    globalThis.fetch = real;
+  }
+  // A refusal is not tried again, and still fails closed; a file that isn't there is null.
+  asked.length = 0;
+  globalThis.fetch = async (url) => {
+    asked.push([String(url)]);
+    return String(url).includes('/contents/') && String(url).includes('gone')
+      ? new Response('', { status: 404 })
+      : new Response('{"message":"Forbidden"}', { status: 403 });
+  };
+  try {
+    const io = makeIo(REPO, 'x');
+    await assert.rejects(io.mainRuns(), /403/);
+    await assert.rejects(io.text('docs/a.md', HEAD), /HTTP 403/);
+    assert.equal(await io.text('docs/gone.md', HEAD), null);
+    assert.equal(asked.length, 3, 'a 403 or a 404 is asked once');
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 // ---- The revert main-bisect opens runs narrow (project-state #1786 item 5) ----
@@ -3044,4 +3082,204 @@ test('moneyInput: the files the money rule and the baseline are read from', () =
     assert.equal(moneyInput(p), true, p);
   for (const p of ['apps/admin/src/a.ts', 'package.json', 'apps/admin/sub/package.json', 'docs/roadmap/other.json'])
     assert.equal(moneyInput(p), false, p);
+});
+
+// ---- A pure revert merges on main's other checks (intafaced #9603, 22 Nov 2026) ----
+// Planted in a real repository, so each case is a real commit and GitHub's answers are git's: the revert main-bisect
+// opens of main's newest merge passes the seal with a red journeys run on its head and is not waited on; one extra
+// changed line, in the culprit's file or another, and a revert of an older merge whose file main changed since, are
+// judged in full (that red run fails them).
+test('a pure revert of a merge on main passes the seal and is not waited on; one extra line or an older merge is judged in full', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { AUTO_REVERT_AUTHOR, readPureRevert, readGoing } = await import('./journey-seal.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'pure-revert-'));
+  try {
+    const g = (...args) =>
+      execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+    const A = 'services/svc-support/src/chat.ts';
+    const B = 'services/svc-support/src/other.ts';
+    const put = (f, lines) => {
+      execFileSync('mkdir', ['-p', join(dir, f, '..')]);
+      writeFileSync(join(dir, f), `${lines.join('\n')}\n`);
+    };
+    const ten = (p) => Array.from({ length: 10 }, (_, i) => `${p}${i}`);
+    g('init', '-q', '-b', 'main');
+    put(A, ten('a'));
+    put(B, ten('b'));
+    g('add', '.');
+    g('commit', '-qm', 'base');
+    put(
+      A,
+      ten('a').map((l, i) => (i === 2 ? 'culprit' : l)),
+    );
+    g('commit', '-qam', 'culprit (#1)');
+    const culprit = g('rev-parse', 'HEAD');
+    put(
+      B,
+      ten('b').map((l, i) => (i === 5 ? 'later' : l)),
+    );
+    g('commit', '-qam', 'a later merge on another file (#2)');
+    const later = g('rev-parse', 'HEAD');
+    const revertOn = (base, extra) => {
+      g('checkout', '-q', '--detach', base);
+      g('revert', '--no-edit', culprit);
+      if (extra) {
+        execFileSync('sh', ['-c', `echo extra >> ${JSON.stringify(join(dir, extra))}`]);
+        g('commit', '-q', '--amend', '--no-edit', '-a');
+      }
+      const sha = g('rev-parse', 'HEAD');
+      g('checkout', '-q', 'main');
+      return sha;
+    };
+    const pure = revertOn(later);
+    const extraInCulpritFile = revertOn(later, A);
+    const extraElsewhere = revertOn(later, B);
+    // The compare API: status and files from `base` to `head` (git's merge base, as GitHub's three dots).
+    const compare = async (base, head) => {
+      const b = g('rev-parse', base);
+      const h = g('rev-parse', head);
+      let status = b === h ? 'identical' : 'ahead';
+      try {
+        g('merge-base', '--is-ancestor', b, h);
+      } catch {
+        status = 'diverged';
+      }
+      return {
+        status,
+        files: g('diff', '--name-only', `${b}...${h}`)
+          .split('\n')
+          .filter(Boolean)
+          .map((filename) => ({ filename })),
+      };
+    };
+    const commitOf = async (sha) => ({
+      sha,
+      parents: g('rev-list', '--parents', '-n', '1', sha)
+        .split(' ')
+        .slice(1)
+        .map((s) => ({ sha: s })),
+      files: g('show', '--name-only', '--format=', sha)
+        .split('\n')
+        .filter(Boolean)
+        .map((filename) => ({ filename })),
+    });
+    const pathsOf = (head) => g('diff', '--name-only', `main...${head}`).split('\n').filter(Boolean);
+    const pullAt = (head, over = {}) => ({
+      number: 9,
+      state: 'open',
+      title: 'ci: revert #1, which turned main red (run 5)',
+      body: '',
+      base: { ref: 'main', sha: g('rev-parse', 'main') },
+      head: { sha: head, ref: `revert/auto-${culprit.slice(0, 10)}`, repo: { full_name: REPO } },
+      user: { login: AUTO_REVERT_AUTHOR, type: 'Bot' },
+      ...over,
+    });
+    const ioFor = (pull) => ({
+      pull: async () => pull,
+      pullCommits: async () => [
+        { commit: { message: g('log', '-1', '--format=%B', pull.head.sha) }, parents: [{ sha: g('rev-parse', `${pull.head.sha}^`) }] },
+      ],
+      commit: commitOf,
+      compare,
+      files: async () => pathsOf(pull.head.sha),
+      text: async () => null,
+      journeyFiles: async () => new Set(['J-p2p-01.pw.mjs']),
+      runs: async (h) => [run(1, { head_sha: h })],
+      reportOf: reports({ 1: { states: { 'J-p2p-01#1': 'failed' }, ran: CANARY } }),
+      verdictOf: async () => dirty,
+    });
+    const seal = (pull) => sealPull({ repo: REPO, number: 9, sha: pull.head.sha, io: ioFor(pull) });
+    const scope = (pull) => readPureRevert({ io: ioFor(pull), repo: REPO, pull, number: 9, paths: pathsOf(pull.head.sha) });
+
+    // The planted pure revert: the seal passes with its journeys run red, says why, and names main's full run.
+    const ok = await seal(pullAt(pure));
+    assert.equal(ok.ok, true, ok.lines.join('\n'));
+    assert.match(
+      ok.lines.join('\n'),
+      new RegExp(`a pure revert of ${culprit.slice(0, 10)}: .*main's full journeys run after the merge judges it`),
+    );
+    assert.equal((await scope(pullAt(pure))).ok, true);
+
+    // Judged in full: each fails the seal on that red run, and says why it is not a pure revert.
+    const full = async (pull, why, label) => {
+      const v = await seal(pull);
+      assert.equal(v.ok, false, label);
+      assert.equal(v.fullOk, false, `${label}: the journeys verdict judged it`);
+      assert.match((await scope(pull)).why, why, label);
+    };
+    await full(pullAt(extraInCulpritFile), /1 of the reverted files differ from before/, 'one extra line in the culprit file');
+    await full(
+      pullAt(extraElsewhere),
+      /changes 1 file\(s\) the reverted commit didn't \(services\/svc-support\/src\/other\.ts\)/,
+      'one extra line in another file',
+    );
+    await full(pullAt(pure, { user: { login: 'ZenYoda3', type: 'User' } }), /not opened by/, 'a person opened it');
+    const byHand = pullAt(pure, { head: { ...pullAt(pure).head, ref: 'revert/by-hand' } });
+    assert.equal(await scope(byHand), null, "off main-bisect's branch: not this route");
+    assert.equal((await seal(byHand)).fullOk, false, "off main-bisect's branch: judged in full");
+
+    // An older merge: main changes the culprit's file after it. The revert opened before that, and one made on top of it
+    // (git applies it cleanly: other lines), are both judged in full.
+    put(
+      A,
+      ten('a').map((l, i) => (i === 2 ? 'culprit' : i === 8 ? 'changed since' : l)),
+    );
+    g('commit', '-qam', 'a later merge on the same file (#3)');
+    const stale = await seal(pullAt(pure));
+    assert.equal(stale.ok, false, 'opened before main changed its file');
+    assert.match((await scope(pullAt(pure))).why, /main changed 1 of its files since/);
+    const onTop = revertOn('main');
+    assert.equal((await seal(pullAt(onTop))).ok, false, 'made on top of the later change');
+    assert.match((await scope(pullAt(onTop))).why, /main changed 1 of its files since/);
+
+    // The wait (readGoing): a pure revert's running journeys run is not waited for; once main changed its file, it is.
+    g('reset', '-q', '--hard', later);
+    const going = async (pull) => {
+      const get = async (path) => {
+        if (path.includes('/pulls/9/files')) return pathsOf(pull.head.sha).map((filename) => ({ filename }));
+        if (path.includes('/pulls/9/commits')) return ioFor(pull).pullCommits();
+        const c = /\/commits\/([0-9a-f]{40})\?/.exec(path);
+        if (c) return commitOf(c[1]);
+        const m = /\/compare\/([^.]+)\.\.\.([^?]+)\?/.exec(path);
+        if (m) return compare(m[1], m[2]);
+        if (path.includes('/runs?head_sha='))
+          return { workflow_runs: path.includes('real-app-journeys') ? [{ id: 4, head_sha: pull.head.sha, status: 'in_progress' }] : [] };
+        if (path.includes('/jobs')) return { jobs: [], total_count: 0 };
+        throw new Error(`unread ${path}`);
+      };
+      return readGoing({ get, repo: REPO, sha: pull.head.sha, pulls: [pull] });
+    };
+    assert.deepEqual(await going(pullAt(pure)), [], 'a pure revert: its journeys run is not waited for');
+    assert.match(
+      (await going(pullAt(extraElsewhere))).join('\n'),
+      /run 4 \(in_progress\)/,
+      'not pure: the seal waits for its journeys run',
+    );
+
+    // Its parent had the culprit's file changed, and main changed it back since: the merge base disagrees with main on
+    // that file, so the head is not `git revert` on main even with the file restored and main's file as the culprit's.
+    put(
+      A,
+      ten('a').map((l, i) => (i === 2 ? 'culprit' : i === 8 ? 'moved' : l)),
+    );
+    g('commit', '-qam', 'a merge that moves the file (#4)');
+    put(A, ten('a'));
+    g('commit', '-qam', `Revert "x"\n\nThis reverts commit ${culprit}.`);
+    const handMade = g('rev-parse', 'HEAD');
+    g('reset', '-q', '--hard', 'HEAD^');
+    put(
+      A,
+      ten('a').map((l, i) => (i === 2 ? 'culprit' : l)),
+    );
+    g('commit', '-qam', 'a merge that moves it back (#5)');
+    assert.match((await scope(pullAt(handMade))).why, /its commit's parent has 1 of the reverted files changed since/);
+    assert.equal((await seal(pullAt(handMade))).fullOk, false, 'a parent off main state of the file: judged in full');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

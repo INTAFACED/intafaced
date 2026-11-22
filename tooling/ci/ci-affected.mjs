@@ -164,7 +164,18 @@ export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url
  * (crates/svc-tax/tests/procedure_samples.rs, refusal_coverage.rs; crates/svc-academy/tests/procedure_records.rs). Another
  * service's records reach no crate, so a change to them runs no Rust job.
  */
-const RUST_READS = new Set(['docker-compose.apps.yml']);
+const RUST_READS = new Set([
+  'docker-compose.apps.yml',
+  // crates/svc-matching/tests/bus.rs: each engine event's subject is the one the catalog declares.
+  'packages/events/src/catalog.ts',
+  // crates/svc-matching/tests/boot.rs: the scrape job that reads matching's /metrics.
+  'tooling/infra/prometheus.yaml',
+  // crates/svc-matching/tests/ported_f_conformance.rs: the shared-conformance ADR and exchange-contract's enums.
+  'docs/adr/2026-09-18-matching-shared-conformance.md',
+  'packages/exchange-contract/src/schemas.ts',
+  // crates/svc-agents/tests/boot.rs: the compose pins' env names are the ones .env.example documents.
+  '.env.example',
+]);
 /** Source the Rust ledger's recorded tables come from (crates/svc-ledger/scripts/record-posting.mjs, checked in the Rust job). */
 const RUST_READS_UNDER = ['packages/ledger-client/src/'];
 const RECORDS_FILE = /^packages\/[^/]+\/procedures\/([^/]+)\.schema\.json$/;

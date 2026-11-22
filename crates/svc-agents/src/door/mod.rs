@@ -5,7 +5,8 @@
 //!
 //! 1. the call is found and its method checked;
 //! 2. who may call: a scoped call needs a signed-in caller (`protectedProcedure`), then `scopedProcedure`'s guards in
-//!    their order (a service on the request refused for a person's call, the scope with its interactive-only and
+//!    their order (a service on the request refused for a person's call, a key or a sub-account on a person-only call
+//!    refused with the call's own code, the scope with its interactive-only and
 //!    two-factor rules, the region for the `agents` module); a service call needs a verified service, one the call
 //!    lists (`serviceProcedureFor`) or svc-agents itself (`requireSettleService`);
 //! 3. the call's own middleware before its input: a person-only check (a key or a sub-account refused with the call's
@@ -92,7 +93,7 @@ pub struct Post {
     pub lacks_identity_write: bool,
 }
 
-/// Which slice of the port owns a call's handler (`PORT.md`, `## Slices`). `Door` is answered here (`health`).
+/// Which slice of the port owns a call's handler (`README.md`, `## Slices`). `Door` is answered here (`health`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Slice {
     Door,
@@ -109,10 +110,11 @@ pub enum Slice {
     OwnRuns,
     OwnControls,
     OwnSharing,
+    Webhooks,
 }
 
 impl Slice {
-    pub const ALL: [Slice; 14] = [
+    pub const ALL: [Slice; 15] = [
         Slice::Door,
         Slice::Gateway,
         Slice::Runtime,
@@ -127,9 +129,10 @@ impl Slice {
         Slice::OwnRuns,
         Slice::OwnControls,
         Slice::OwnSharing,
+        Slice::Webhooks,
     ];
 
-    /// The slice's name in `PORT.md`.
+    /// The slice's name in `README.md`.
     pub fn name(self) -> &'static str {
         match self {
             Slice::Door => "door",
@@ -146,6 +149,7 @@ impl Slice {
             Slice::OwnRuns => "own-runs",
             Slice::OwnControls => "own-controls",
             Slice::OwnSharing => "own-sharing",
+            Slice::Webhooks => "webhooks",
         }
     }
 }
@@ -311,6 +315,8 @@ pub struct AgentsDoor {
     advisors: Advisors,
     own: Own,
     team: Team,
+    /// The run webhooks (`webhooks`); none, every webhook call refuses `agents.webhooks_unwired`.
+    webhooks: Option<crate::webhooks::RunWebhooks>,
 }
 
 /// The system clock.
@@ -360,6 +366,7 @@ impl AgentsDoor {
             advisors: config.advisors,
             own: config.own,
             team: config.team,
+            webhooks: None,
         })
     }
 
@@ -367,6 +374,17 @@ impl AgentsDoor {
     pub fn with_edge_key(mut self, key: EdgeKey) -> AgentsDoor {
         self.edge_key = Some(key);
         self
+    }
+
+    /// The door with the run webhooks (`webhooks`); without them every webhook call refuses by name.
+    pub fn with_webhooks(mut self, webhooks: crate::webhooks::RunWebhooks) -> AgentsDoor {
+        self.webhooks = Some(webhooks);
+        self
+    }
+
+    /// The run webhooks, when wired.
+    pub fn webhooks(&self) -> Option<&crate::webhooks::RunWebhooks> {
+        self.webhooks.as_ref()
     }
 
     /// The door with the factories' live ports (\`factories\`); without them every live run refuses.
@@ -410,7 +428,7 @@ impl AgentsDoor {
         &self.own
     }
 
-    /// The slices' answers: the door's own call and every ported slice (each is, so none answers "not ported" here).
+    /// The slices' answers: the door's own call and every slice.
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
             Slice::Door => Ok(Some(Json::obj([
@@ -509,6 +527,9 @@ impl AgentsDoor {
                     team: &self.team,
                 },
             ),
+            Slice::Webhooks => {
+                crate::webhooks::slice::handle(ctx, &self.store, self.webhooks.as_ref())
+            }
         }
     }
 
@@ -570,6 +591,13 @@ impl AgentsDoor {
                 };
                 if g.person && service.is_some() {
                     return Err(forbidden(SESSION_REQUIRED));
+                }
+                // The person's own call: a key or a sub-account is told so before the scope, never to ask for a
+                // scope no key can hold (`scopedProcedure`'s `ownSession`, J-agents-12 #3).
+                if let Pre::PersonOnly(code) = call.pre
+                    && delegated(p)
+                {
+                    return Err(forbidden(code));
                 }
                 access::require_scope(p, g.scope).map_err(TrpcError::guard)?;
                 if g.module {

@@ -29,6 +29,7 @@ import type { ApiResult } from '../../../../shared/api';
 import { checkSubscriptionOriginal, createSubscriptionWithRecovery, replaySubscriptionCreate } from './subscription-recovery';
 import { definite } from './not-available';
 import { SubscriptionPriceFact, SubscriptionPricePicker, subscriptionPriceLabel } from '../catalog/SubscriptionPrice';
+import { PAY_SUBSCRIPTION_RESUME } from '@intafaced/contracts/pay-subscription-procedures';
 
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
@@ -644,10 +645,9 @@ function SubscriptionActions({
                 perform={async () => {
                   try {
                     if (action === 'resume') {
-                      const result = await pay.mutate(
-                        'subscription.resume',
+                      const result = await pay.mutateRecord(
+                        PAY_SUBSCRIPTION_RESUME,
                         { subscriptionId: s.id },
-                        z.object({ subscription: subscriptionSchema, projectedEnd: z.string().nullable() }),
                         'pay:write',
                         `subscription:${s.id}`,
                         'active',

@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
-import { StateBlock, Switch } from './deps';
+import { Switch } from '@intafaced/ui/lit';
+import { LoadFailed, Loading, StateTag } from './parts';
 import { centreCopy } from './centre-copy';
 import { CATEGORY_CHANNELS, CATEGORY_IDS, type CategoryChannel, type CategoryId, type CategoryPrefRow } from './notify-api';
 import { useCategoryPrefs, type CategoryWrite } from './use-category-prefs';
@@ -36,17 +37,14 @@ export function CategoryGrid() {
   const base = useId();
   const { load, reload, set } = useCategoryPrefs();
   const [notice, setNotice] = useState<CategoryWrite | null>(null);
-  if (load.status === 'loading') return <StateBlock kind="loading" rows={4} rowHeight={48} label={copy.t('catTitle')} />;
-  if (load.status === 'failed')
-    return <StateBlock kind="error" title={copy.t('catLoadFailed')} onRetry={reload} retryLabel={copy.t('tryAgain')} />;
+  if (load.status === 'loading') return <Loading label={copy.t('catTitle')} rows={4} />;
+  if (load.status === 'failed') return <LoadFailed title={copy.t('catLoadFailed')} onRetry={reload} retryLabel={copy.t('tryAgain')} />;
   return (
     <section aria-labelledby={`${base}-title`}>
-      <h2 className="nf-h2" id={`${base}-title`}>
-        {copy.t('catTitle')}
-      </h2>
-      <p className="nf-intro">{copy.t('catIntro')}</p>
+      <h2 id={`${base}-title`}>{copy.t('catTitle')}</h2>
+      <p className="lt-hint">{copy.t('catIntro')}</p>
       <CategoryTable rows={load.rows} onSet={(category, channel, enabled) => void set(category, channel, enabled).then(setNotice)} />
-      <p className="nf-note" role="status">
+      <p className="lt-hint" role="status">
         {notice === 'saved'
           ? copy.t('saved')
           : notice === 'locked'
@@ -70,8 +68,8 @@ export function CategoryTable({
   const copy = centreCopy.useCopy();
   const cell = (category: CategoryId, channel: CategoryChannel) => rows.find((row) => row.category === category && row.channel === channel);
   return (
-    <div data-testid="nf-card" className="nf-card nf-tablewrap" role="region" aria-label={copy.t('catTitle')} tabIndex={0}>
-      <table className="nf-table">
+    <div data-testid="nf-card" role="region" aria-label={copy.t('catTitle')} tabIndex={0}>
+      <table className="lt-table">
         <thead>
           <tr>
             <th scope="col">{copy.t('tableTopic')}</th>
@@ -86,19 +84,15 @@ export function CategoryTable({
           {CATEGORY_IDS.map((category) => (
             <tr key={category}>
               <th scope="row">
-                <span data-testid="nf-title" className="nf-title">
-                  {copy.t(CATEGORY[category][0])}
-                </span>
-                <span data-testid="nf-body" className="nf-body nf-body--wrap">
-                  {copy.t(CATEGORY[category][1])}
-                </span>
+                <span data-testid="nf-title">{copy.t(CATEGORY[category][0])}</span>
+                <span data-testid="nf-body">{copy.t(CATEGORY[category][1])}</span>
               </th>
               {CATEGORY_CHANNELS.map((channel) => {
                 const row = cell(category, channel);
                 if (!row)
                   return (
                     <td key={channel}>
-                      <span className="nf-pill">{copy.t('cellUnavailable')}</span>
+                      <StateTag>{copy.t('cellUnavailable')}</StateTag>
                     </td>
                   );
                 const kind = cellKind(row);
@@ -106,16 +100,12 @@ export function CategoryTable({
                 return (
                   <td key={channel}>
                     <Switch
-                      aria-label={label}
+                      label={label}
                       checked={row.enabled}
                       disabled={kind !== 'free'}
-                      onCheckedChange={(enabled: boolean) => onSet(category, channel, enabled)}
+                      onChange={(enabled: boolean) => onSet(category, channel, enabled)}
                     />
-                    {kind === 'free' ? null : (
-                      <span data-testid="nf-body" className="nf-body nf-body--wrap">
-                        {copy.t(CELL_REASON[kind])}
-                      </span>
-                    )}
+                    {kind === 'free' ? null : <span data-testid="nf-body">{copy.t(CELL_REASON[kind])}</span>}
                   </td>
                 );
               })}

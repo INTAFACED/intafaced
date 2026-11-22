@@ -319,13 +319,13 @@ test(`${J} #5 a reply moves the request back to "Open" and the team sees it; a r
   };
   const first = `TEST ${J} ${RUN} here is my answer`;
   await reply(first);
-  await expect(main.locator('.support-status').first()).toHaveText('Open');
+  await expect(main.getByTestId('support-status').first()).toHaveText('Open');
   expect(JSON.stringify(await lead('query', 'listComments', { ticketId: ticket.id, limit: 500 }))).toContain(first);
 
   await lead('mutation', 'setStatus', { ticketId: ticket.id, status: 'resolved', note: `TEST ${J} #5 solved` });
   const again = `TEST ${J} ${RUN} it is back`;
   await reply(again);
-  await expect(main.locator('.support-status').first()).toHaveText('Open');
+  await expect(main.getByTestId('support-status').first()).toHaveText('Open');
   // The same request: its earlier replies are still on it, and no second request was made.
   await expect(main.getByText(first)).toBeVisible();
   expect((await mine(shared.who)).filter((r) => r.subject === ticket.subject)).toHaveLength(1);
@@ -395,7 +395,7 @@ test(`${J} #8 solved with no mail sender set: the in-app prompt shows and the ra
   // The in-app prompt shows on the request, with the form to answer it.
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
-  await expect(main.locator('.support-rate-ask')).toHaveText(
+  await expect(main.getByTestId('support-rate-ask')).toHaveText(
     'This request is solved. Tell us how it went by rating it below. It takes one tap and you can add a note.',
   );
   await expect(main.getByRole('combobox', { name: 'Your score' })).toBeVisible();

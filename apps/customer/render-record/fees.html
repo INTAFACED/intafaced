@@ -19,33 +19,53 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page" data-room="fees">
-<header class="pub-heading">
-<h1>Trading fees</h1>
-<p>What you pay to trade spot, by pair group and tier. A fee is a share of the value traded, taken from what you receive.</p>
-<p>
-<a class="text-link" href="/fees/my-tier">See your own tier and the volume counted toward the next one →</a>
-</p>
+<div data-room="fees">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Trading fees</h1>
+<p class="lt-description">What you pay to trade spot, by pair group and tier. A fee is a share of the value traded, taken from what you receive.</p>
+</div>
 </header>
-<section class="pub-card" aria-labelledby="fees-venue" data-fees="venue">
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="meta" aria-label="Details">
+<p>
+<a class="lt-link lt-link-alone" href="/fees/my-tier">See your own tier and the volume counted toward the next one <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
+</p>
+</section>
+<section class="lt-region" data-region="body" aria-label="Article">
+<section aria-labelledby="fees-venue" data-fees="venue">
 <h2 id="fees-venue">On the venue: what each trade pays </h2>
 <p>Your orders are placed on the venue. It charges its own maker or taker fee on each fill, and our builder fee is added on top, as its own line. A spot buy carries no builder fee; a spot sell and both sides of a perpetual do.</p>
 <p role="alert" data-fees="venue-unread">The venue’s fees could not be read just now, so none is shown.</p>
 </section>
-<p role="alert">The fee schedule did not load. <button type="button" class="text-link">Try again</button>
+<p role="alert">The fee schedule did not load. <button type="button" class="lt-link">Try again</button>
 </p>
-<section class="pub-card" aria-labelledby="fees-maker-taker">
+</section>
+<section class="lt-region" data-region="related" aria-label="Related">
+<section aria-labelledby="fees-maker-taker">
 <h2 id="fees-maker-taker">Maker and taker</h2>
 <p>A maker order rests on the book and waits for someone to trade with it. A taker order trades with an order already on the book. The order ticket shows which one your order is, and its rate, before you send it.</p>
-<a class="text-link" href="/exchange">Go to the spot desk →</a>
+<a class="lt-link lt-link-alone" href="/exchange">Go to the spot desk <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
 </section>
-<section class="pub-card" aria-labelledby="fees-network" data-fees="network">
+<section aria-labelledby="fees-network" data-fees="network">
 <h2 id="fees-network">Network fee</h2>
 <p>
 <strong>Network fee on withdrawals: not set here</strong>
 </p>
 <p>Sending a coin out of your account costs a fee set for each network, separate from any trading fee. It is shown on the withdrawal before you send.</p>
 </section>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">

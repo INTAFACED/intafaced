@@ -68,7 +68,7 @@ test(`${J} #2 filters by category and language: the filters apply to what the st
   const clear = form.getByRole('button', { name: 'Clear filters' });
   await expect(clear).toBeVisible();
   await expect(page.getByText(EMPTY)).toBeVisible();
-  await expect(page.locator('.news-list li')).toHaveCount(0);
+  await expect(page.locator('[data-news-list] li')).toHaveCount(0);
   await form.getByRole('textbox', { name: 'Symbol' }).fill('btc');
   await expect(form.getByRole('textbox', { name: 'Symbol' })).toHaveValue('BTC');
   await expect(applied).toHaveText('Filtered by Category Crypto · Language English · Symbol BTC. 0 of 0 stored items match.');
@@ -104,7 +104,7 @@ test(`${J} #3 opens the economic calendar and highlights events: the layout with
   await expect(form.getByRole('combobox', { name: 'Country' })).toBeEnabled();
   // The store holds no events, so the filtered calendar reads empty, with no table of made-up releases.
   await expect(page.getByText(EMPTY)).toBeVisible();
-  await expect(page.locator('.news-table')).toHaveCount(0);
+  await expect(page.locator('[data-news-table]')).toHaveCount(0);
 });
 
 test(`${J} #4 opens a symbol's news widget on the chart: the widget with the same notice`, async ({ page }) => {

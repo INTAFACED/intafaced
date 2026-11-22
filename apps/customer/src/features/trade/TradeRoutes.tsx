@@ -15,6 +15,7 @@ import { RiskControl } from './risk/RiskControl';
 import { PositionsRoom } from './positions/PositionsRoom';
 import { TradingAccountRoom } from './account/TradingAccountRoom';
 import { VaultsRoom } from './vaults/VaultsRoom';
+import { StakingRoom } from './staking/StakingRoom';
 import { OrderDetailRoom } from './orders/OrderDetailRoom';
 import { OrderHistoryRoom } from './orders/OrderHistoryRoom';
 import { LeadApplyRoom } from './lead-apply/LeadApplyRoom';
@@ -61,6 +62,7 @@ export function TradeRoutes({ path }: { path: string }) {
   if (pathname === '/trade/positions') return <PositionsRoom path={path} />;
   if (pathname === '/trade/account') return <TradingAccountRoom />;
   if (pathname === '/trade/vaults') return <VaultsRoom />;
+  if (pathname === '/trade/staking') return <StakingRoom />;
   if (pathname === '/trade/screener') return <ScreenerRoom />;
   if (pathname === '/copy/lead/apply') return <LeadApplyRoom />;
   const analytics = /^\/trade\/analytics\/([^/]+)$/.exec(pathname);

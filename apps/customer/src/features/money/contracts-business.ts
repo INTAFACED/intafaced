@@ -1,7 +1,7 @@
 /** The business bank: members, roles, approvals and recipient lookup. */
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
-import { businessListSchema, businessSchema } from '../session';
+import { businessSchema } from '../session';
 
 export { businessSchema } from '../session';
 const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
@@ -28,22 +28,17 @@ export const pendingApprovalSchema = approvalSchema.extend({
   receiverOwnerHandleReason: z.enum(['handle_unresolved']).nullable(),
   receiverOwnerName: z.string().nullable(),
 });
-const teamSchema = z.object({
+/** The team as the business room reads it: members only, without the pending controls the record also carries. */
+export const teamSchema = z.object({
   members: z.array(z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema, handle: z.string() })),
 });
-const recipientSpaceSchema = z.discriminatedUnion('found', [
-  z.object({ found: z.literal(false) }),
-  z.object({ found: z.literal(true), handle: z.string(), assetId: z.string(), spaceId: z.string().guid().nullable() }),
-]);
+
+/** The caller's own stricter answers for `business.pending` and `business.myRole`: only the three roles this room knows. */
+export const pendingApprovalsSchema = z.array(pendingApprovalSchema);
+export const myRoleSchema = z.object({ role: memberRoleSchema });
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const businessReads = {
-  'business.list': businessListSchema,
-  'business.pending': z.array(pendingApprovalSchema),
-  'business.members': teamSchema,
-  'business.myRole': z.object({ role: memberRoleSchema }),
-  'business.resolveRecipientSpace': recipientSpaceSchema,
-} as const;
+export const businessReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const businessWrites = {

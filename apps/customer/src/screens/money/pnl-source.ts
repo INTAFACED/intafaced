@@ -15,7 +15,8 @@ import {
 } from '@intafaced/contracts/tax-procedures';
 import { LOT_METHODS, type LotBook, type LotMethod, type MissingBasis } from './pnl-model';
 import type { PnlOverTime } from './pnl-time-model';
-import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, bankValueOverTimeSchema, type BankValueOverTime } from './value-time-model';
+import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, type BankValueOverTime } from './value-time-model';
+import { BANK_PORTFOLIO_VALUE_OVER_TIME } from '@intafaced/contracts/bank-portfolio-procedures';
 
 const LOT_BOOK_INTERVAL = 60_000;
 
@@ -120,7 +121,7 @@ export function useValueOverTime(ask: { from: string; to?: string } | null): Loa
       return env.poller.source<BankValueOverTime>(
         `bank-value-over-time:${env.userId}:${from}:${to ?? 'now'}`,
         async (signal) => {
-          const result = await env.api.query('bank', 'portfolio.valueOverTime', input, bankValueOverTimeSchema, { signal });
+          const result = await env.api.call(BANK_PORTFOLIO_VALUE_OVER_TIME, input, { signal });
           if (result.ok) return result;
           const down = VALUE_DOWN.find((code) => result.code === code || result.message.includes(code));
           return down ? { ok: false, reason: result.reason, code: down, status: 409 } : result;

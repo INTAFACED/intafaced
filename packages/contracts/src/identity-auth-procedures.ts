@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { signInChallengeSchema } from './identity-signin-challenge.js';
+import { loggedOutEverywhereSchema } from './identity-account-room.js';
 import {
   ACCOUNT_TYPES,
   loginCodeAccepted,
@@ -8,6 +9,7 @@ import {
   sessionOutput,
   signUpAccepted,
   socialProviderName,
+  authenticationOptions,
 } from './identity-call-schemas.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -440,4 +442,32 @@ export const IDENTITY_AUTH_SUB_ACCOUNT_SESSION = defineProcedure({
     { verdict: 'accept', input: { subAccountId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
+});
+
+/**
+ * WebAuthn options for step-up (passkey withdraw). Challenge kind is
+ * `step-up` so a passwordless-login assertion cannot be reused here.
+ */
+export const IDENTITY_AUTH_STEP_UP_OPTIONS = defineProcedure({
+  ...base,
+  name: 'identity.auth.stepUpOptions',
+  kind: 'mutation',
+  path: 'auth.stepUpOptions',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: NO_INPUT,
+  output: authenticationOptions,
+  samples: [{ verdict: 'accept' }],
+});
+
+export const IDENTITY_AUTH_LOGOUT_ALL = defineProcedure({
+  ...base,
+  name: 'identity.auth.logoutAll',
+  kind: 'mutation',
+  path: 'auth.logoutAll',
+  access: { caller: 'person' },
+  refusals: {},
+  input: NO_INPUT,
+  output: loggedOutEverywhereSchema,
+  samples: [{ verdict: 'accept' }],
 });

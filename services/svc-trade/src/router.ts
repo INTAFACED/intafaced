@@ -27,7 +27,7 @@ import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/a
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
-import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
+import { orderSideSchema, timeInForceSchema } from '@intafaced/contracts/order-enums';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
@@ -57,19 +57,7 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
-import {
-  applyToLeadAnswer,
-  leadCopiersAnswer,
-  leadEarningsAnswer,
-  leadEligibilityAnswer,
-  leadLevelAnswer,
-  leadMissionsAnswer,
-  leadTradesAnswer,
-  myLeadAnswer,
-  myLeadApplicationAnswer,
-  platformPausesAnswer,
-  refusedAlwaysAnswer,
-} from './copy/lead-answers.js';
+import { refusedAlwaysAnswer } from './copy/lead-answers.js';
 import { signalsRouter } from './signals/router.js';
 import type { SignalDesk } from './signals/signal-desk.js';
 import type { PlatformPauseDesk } from './copy/platform-pauses.js';
@@ -78,17 +66,11 @@ import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
 import {
-  copyCheckVenueFollowAnswer,
-  copyCloseCopiedPositionAnswer,
   copyCopiedPositionsAnswer,
-  copyFollowAnswer,
   copyFollowPositionsAnswer,
-  copyGrantSessionKeyAnswer,
   copyLeaderProfileAnswer,
-  copyLeaderTradesAnswer,
   copyListLeadersAnswer,
   copyListMyFollowsAnswer,
-  copySkipLogAnswer,
 } from './copy/follow-answers.js';
 import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
 import { refusePnlLinkedCopyFee } from './copy/fee-share.js';
@@ -102,22 +84,10 @@ import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { VenueCopyRefusal } from './copy/venue-copy.js';
-import { algoPolicyAnswer, optionsPolicyAnswer } from './desk/answers.js';
-import {
-  firmRfqAnswer,
-  otcAcceptAnswer,
-  otcConvertBoundsAnswer,
-  otcConvertQuoteAnswer,
-  otcDeskStatusAnswer,
-  otcMakersAnswer,
-  otcSettleAnswer,
-  rfqQuoteAnswer,
-} from './otc/answers.js';
+import { optionsPolicyAnswer } from './desk/answers.js';
+import { otcDeskStatusAnswer, rfqQuoteAnswer } from './otc/answers.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
-import { algoCreateInputSchema } from './algo/create-input.js';
-import { MAX_ALGO_SEED } from './algo/schedule.js';
-import { POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -126,7 +96,55 @@ import { supportTradeSummaryRouter } from './support/router.js';
 import { ownVenueActivityRouter, type OwnVenueActivityDeps } from './venue/own-activity-router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
-import { ALGO_STOP_REASONS, type AlgoStopReasonCode } from './algo/stop-reason.js';
+import { decimal, convertQuoteOutput, convertAcceptInput, convertTradeOutput } from '@intafaced/contracts/trade-call-schemas';
+import {
+  TRADE_COPY_MY_LEAD_APPLICATION,
+  TRADE_COPY_LEAD_ELIGIBILITY,
+  TRADE_COPY_APPLY_TO_LEAD,
+  TRADE_COPY_MY_LEAD,
+  TRADE_COPY_LEADER_TRADES,
+  TRADE_COPY_FOLLOW,
+  TRADE_COPY_CHECK_VENUE_FOLLOW,
+  TRADE_COPY_AMEND_FOLLOW,
+  TRADE_COPY_GRANT_SESSION_KEY,
+  TRADE_COPY_KILL_SESSION_KEY,
+  TRADE_COPY_CLOSE_COPIED_POSITION,
+  TRADE_COPY_SKIP_LOG,
+  TRADE_COPY_LEAD_EARNINGS,
+  TRADE_COPY_LEAD_LEVEL,
+  TRADE_COPY_LEAD_MISSIONS,
+  TRADE_COPY_LEAD_TRADES,
+  TRADE_COPY_LEAD_COPIERS,
+  TRADE_COPY_PLATFORM_PAUSES,
+} from '@intafaced/contracts/trade-copy-records';
+import {
+  TRADE_CONVERT_PAIRS,
+  TRADE_CONVERT_LIMITS,
+  TRADE_CONVERT_LIMIT_PLACE,
+  TRADE_CONVERT_LIMIT_CANCEL,
+  TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_QUOTE,
+  TRADE_CONVERT_ACCEPT,
+} from '@intafaced/contracts/trade-convert-procedures';
+import {
+  TRADE_ALGO_PROGRESS,
+  TRADE_ALGO_PREVIEW_TWAP_SIZES,
+  TRADE_ALGO_RESULT,
+  TRADE_ALGO_GET,
+  TRADE_ALGO_PAUSE,
+  TRADE_ALGO_RESUME,
+  TRADE_ALGO_CANCEL,
+  TRADE_ALGO_POLICY,
+  TRADE_ALGO_CREATE_TWAP,
+} from '@intafaced/contracts/trade-algo-procedures';
+import {
+  TRADE_OTC_MAKERS_LIST,
+  TRADE_OTC_ACCEPT,
+  TRADE_OTC_SETTLE,
+  TRADE_OTC_CONVERT_BOUNDS,
+  TRADE_OTC_CONVERT_QUOTE,
+} from '@intafaced/contracts/trade-otc-procedures';
+import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from '@intafaced/contracts/trade-rfq-procedures';
 
 /**
  * svc-trade's API (§5.2).
@@ -148,8 +166,6 @@ import { ALGO_STOP_REASONS, type AlgoStopReasonCode } from './algo/stop-reason.j
  * leaked bot key from moving value off the platform.
  */
 
-/** Unsigned decimal string. Reuses the exchange contract's rule rather than inventing a second one. */
-const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
 const copySignedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amounts are signed decimal strings with at most 18 decimal places');
 
 const copyResultAssetOutput = z
@@ -210,90 +226,6 @@ const copyTrailOutput = z
   })
   .strict();
 
-const convertSourceOutput = z.object({
-  kind: z.literal('book'),
-  symbol: z.string(),
-  asOf: z.string(),
-});
-
-const convertPairsOutput = z.object({
-  assets: z.array(
-    z.object({
-      asset: z.string(),
-      maxPerConvert: z.object({ amount: z.string(), asset: z.string() }).nullable(),
-    }),
-  ),
-  restricted: z.array(z.string()),
-  paused: z.boolean(),
-});
-
-const limitConvertOutput = z.object({
-  id: z.string(),
-  clientLimitId: z.string(),
-  symbol: z.string(),
-  side: z.enum(['buy', 'sell']),
-  fromAsset: z.string(),
-  toAsset: z.string(),
-  amount: decimal,
-  targetRate: decimal,
-  status: z.enum(['placing', 'waiting', 'triggered', 'filled', 'cancelling', 'cancelled', 'ended']),
-  quoteId: z.string().nullable(),
-  fillId: z.string().nullable(),
-  paid: decimal.nullable(),
-  received: decimal.nullable(),
-  endCode: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-const convertQuoteOutput = z.object({
-  quoteId: z.string(),
-  symbol: z.string(),
-  side: orderSideSchema,
-  requestedQty: decimal,
-  filledQty: decimal,
-  bookNotional: decimal,
-  userNotional: decimal,
-  avgPrice: decimal,
-  fullyFilled: z.boolean(),
-  convertSpreadBps: z.number().int(),
-  expiresAt: z.string(),
-  source: convertSourceOutput,
-  inAsset: z.string(),
-  outAsset: z.string(),
-  inAmount: decimal,
-  outAmount: decimal,
-});
-
-const convertTradeOutput = z.object({
-  quoteId: z.string(),
-  fillId: z.string(),
-  takerOrderId: z.string(),
-  makerOrderId: z.string(),
-  symbol: z.string(),
-  side: orderSideSchema,
-  inAsset: z.string(),
-  outAsset: z.string(),
-  inAmount: decimal,
-  outAmount: decimal,
-  fillPrice: decimal,
-  fillNotional: decimal,
-  convertSpreadBps: z.number().int(),
-  source: convertSourceOutput,
-  expiresAt: z.string(),
-  acceptedAt: z.string(),
-  settledAt: z.string(),
-});
-
-const convertAcceptInput = z.object({
-  quoteId: z.string().min(1).max(64),
-  clientConvertId: z.string().min(1).max(48).optional(),
-  symbol: z.string().min(3).optional(),
-  side: orderSideSchema.optional(),
-  qty: decimal.optional(),
-  maxAvgPrice: decimal.optional(),
-});
-
 const standingCaller = z.object({ userId: z.string().guid(), instructionId: z.string().guid() });
 
 /** Only svc-bank may act for a standing instruction; the user id is the signed body's. */
@@ -302,108 +234,6 @@ function requireBankCaller(service: string | null): void {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'standing-instruction convert is callable only by svc-bank' });
   }
 }
-
-/** Shared TWAP parent presentation (create/get/pause/resume/cancel). */
-const algoStopReasonSchema = z
-  .object({
-    code: z.enum(Object.keys(ALGO_STOP_REASONS) as [AlgoStopReasonCode, ...AlgoStopReasonCode[]]),
-    label: z.string(),
-  })
-  .nullable();
-
-const algoParentOutputSchema = z.object({
-  id: z.string(),
-  symbol: z.string(),
-  side: orderSideSchema,
-  kind: z.enum(['twap', 'vwap', 'pov', 'chase']),
-  totalQty: decimal,
-  durationMs: z.number().int(),
-  sliceIntervalMs: z.number().int(),
-  limitPrice: decimal.nullable(),
-  status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
-  slicesPlanned: z.number().int(),
-  nextSliceIndex: z.number().int(),
-  childrenEmitted: z.number().int(),
-  missesRecorded: z.number().int(),
-  haltReason: z.string().nullable(),
-  stopReason: algoStopReasonSchema,
-  participationBps: z.number().int().nullable(),
-  /** POV: what participation is applied to; null for TWAP and VWAP. */
-  povBasis: z.enum(POV_BASES).nullable(),
-  createdAt: z.string(),
-  startedAt: z.string(),
-  nextDueAt: z.string(),
-  /** Projected wall-clock end after last re-space (ADR 2026-08-08). */
-  projectedEndsAt: z.string(),
-  /** Distinguishes user pause from tick outage; null until first stretch. */
-  scheduleStretchReason: z.enum(['user_pause', 'tick_outage']).nullable(),
-  /** Set when the slice sizes are random, fixed by this seed. */
-  randomSeed: z.number().int().nullable(),
-  /** The price the schedule waits for before its first slice; null when it starts at once. */
-  triggerPrice: decimal.nullable(),
-  triggeredAt: z.string().nullable(),
-  awaitingTrigger: z.boolean(),
-  /** Chase: the caller's maximum distance from the start price, in bps; null for other kinds. */
-  chaseMaxDistanceBps: z.number().int().nullable(),
-  /** Chase: the best same-side price read at create, the distance's origin. */
-  chaseStartPrice: decimal.nullable(),
-  /** Chase: the price of the newest child; null before the first child and for other kinds. */
-  chasePrice: decimal.nullable(),
-  /** Chase: how many times the child was re-priced (children placed after the first). */
-  chaseReprices: z.number().int().nullable(),
-});
-
-const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'signed amounts are decimal strings with at most 18 decimal places');
-
-const algoSchedulerOutputSchema = z.object({
-  running: z.boolean().nullable(),
-  reason: z.enum(['jobs_disabled', 'heartbeat_unknown', 'heartbeat_stale', 'jobs_interval_unset']).nullable(),
-});
-
-const algoScheduleHonestySchema = {
-  nextSliceAt: z.string().nullable(),
-  scheduler: algoSchedulerOutputSchema,
-};
-
-const algoGetOutputSchema = algoParentOutputSchema.extend({
-  children: z.array(
-    z.object({
-      orderId: z.string(),
-      sliceIndex: z.number().int(),
-      time: z.string(),
-      qty: decimal,
-      basisQty: decimal.nullable(),
-      price: decimal.nullable(),
-    }),
-  ),
-  misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
-  filledQty: decimal,
-  /** The planned size of every slice, in order, as stored with the parent. */
-  plannedSliceQtys: z.array(decimal),
-  ...algoScheduleHonestySchema,
-});
-
-const algoResultOutputSchema = z.object({
-  quotes: z.array(
-    z.object({
-      quoteAsset: z.string(),
-      filledQty: decimal,
-      notional: decimal,
-      averageFillPrice: decimal.nullable(),
-      feesPaid: z.array(z.object({ asset: z.string(), amount: decimal })).nullable(),
-      feesReason: z.enum(['fee_not_recorded']).nullable(),
-      arrivalPrice: decimal.nullable(),
-      arrivalReason: z.enum(['arrival_not_recorded']).nullable(),
-      shortfall: signedDecimal.nullable(),
-      shortfallMissing: z
-        .object({
-          code: z.literal('missing_input'),
-          fields: z.array(z.enum(['averageFillPrice', 'arrivalPrice'])),
-        })
-        .nullable(),
-    }),
-  ),
-});
 
 const marketOutput = z.object({
   id: z.string().guid(),
@@ -550,45 +380,6 @@ function presentFill(fill: FillRecord) {
  * hold just rejects it again — while an unreachable engine must, because the
  * order may not have been placed at all.
  */
-/** copy.follow's input, and copy.checkVenueFollow's without the agent account. */
-const copyFollowInput = z.object({
-  leaderId: z.string().min(1).max(120).optional(),
-  leaderRef: z.string().min(1).max(80).optional(),
-  region: z.string().min(1).max(16),
-  permittedMarkets: z.array(z.string().min(1).max(64)).min(1).max(64),
-  maxNotionalPerOrder: decimal,
-  maxAggregateExposure: decimal,
-  maxLoss: decimal.optional(),
-  maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
-  maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
-  maxDrawdown: decimal.optional(),
-  maxLeverage: z.union([z.string(), z.number()]).optional(),
-  expiresAt: z.string().datetime(),
-  /** The request's own key: a second press with the same key returns the same follow. */
-  clientRequestId: z.string().min(8).max(120),
-  /** Quote amount each copied order uses. Omitted means no fixed size. */
-  fixedOrderSize: decimal.optional(),
-  /** How each copy is sized; multiplier is accepted and refused (owner decision). Omitted → fixed amount. */
-  sizingMode: z.enum(['fixed_amount', 'smart_sync', 'multiplier']).optional(),
-  /** Most copied into one market, and per owner day. Omitted → not set. */
-  maxPerMarket: decimal.optional(),
-  maxPerDay: decimal.optional(),
-  /**
-   * One of the follower's own open agent accounts: the follow then copies on the venue, each copy a venue order
-   * on that account placed by its agent permission, and nothing is held from a balance of ours (venue-copy.ts).
-   */
-  agentAccountId: z.string().uuid().optional(),
-  leaderSettings: z
-    .object({
-      maxAllocation: decimal.optional(),
-      permittedInstruments: z.array(z.string().min(1).max(64)).max(64).optional(),
-      maxLoss: decimal.optional(),
-      maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
-      maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
-      maxDrawdown: decimal.optional(),
-    })
-    .optional(),
-});
 
 export function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
@@ -1277,23 +1068,12 @@ export function createTradeRouter(
      */
     convert: router({
       /** What can be converted now, each coin with its per-conversion limit or none set (J-cex-spot-11 #1). */
-      pairs: scopedProcedure('trade:read', { module: 'trade' })
-        .output(convertPairsOutput)
-        .query(({ ctx }) => guard(async () => trade.convertPairs(ctx.principal))),
+      pairs: mountRecord(TRADE_CONVERT_PAIRS, ({ ctx }) => guard(async () => trade.convertPairs(ctx.principal)), tradeRefusal),
 
       /** Place a limit convert: the source held until a quote reaches the target rate, then settled once (#8). */
-      limitPlace: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          z.object({
-            symbol: z.string().min(3),
-            side: z.enum(['buy', 'sell']),
-            amount: decimal,
-            targetRate: decimal,
-            clientLimitId: z.string().min(8).max(64),
-          }),
-        )
-        .output(limitConvertOutput)
-        .mutation(({ ctx, input }) =>
+      limitPlace: mountRecord(
+        TRADE_CONVERT_LIMIT_PLACE,
+        ({ ctx, input }) =>
           guard(async () =>
             trade.placeLimitConvert(ctx.principal, {
               symbol: input.symbol,
@@ -1303,38 +1083,29 @@ export function createTradeRouter(
               clientLimitId: input.clientLimitId,
             }),
           ),
-        ),
+        tradeRefusal,
+      ),
 
       /** The caller's limit converts, newest first: waiting, filled, ended and cancelled. */
-      limits: scopedProcedure('trade:read', { module: 'trade' })
-        .output(z.array(limitConvertOutput))
-        .query(({ ctx }) => guard(async () => trade.limitConverts(ctx.principal))),
+      limits: mountRecord(TRADE_CONVERT_LIMITS, ({ ctx }) => guard(async () => trade.limitConverts(ctx.principal)), tradeRefusal),
 
       /** Cancel a waiting limit convert: its hold released once. */
-      limitCancel: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ id: z.string().uuid() }))
-        .output(limitConvertOutput)
-        .mutation(({ ctx, input }) => guard(async () => trade.cancelLimitConvert(ctx.principal, input.id))),
+      limitCancel: mountRecord(
+        TRADE_CONVERT_LIMIT_CANCEL,
+        ({ ctx, input }) => guard(async () => trade.cancelLimitConvert(ctx.principal, input.id)),
+        tradeRefusal,
+      ),
 
       /** How one asset converts to another: a direct market, or a typed refusal such as a two-leg cash route (#11). */
-      route: scopedProcedure('trade:read', { module: 'trade' })
-        .input(z.object({ from: z.string().regex(/^[A-Z0-9]{2,12}$/), to: z.string().regex(/^[A-Z0-9]{2,12}$/) }))
-        .output(z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) }))
-        .query(({ ctx, input }) => guard(async () => trade.convertRoute(ctx.principal, input))),
+      route: mountRecord(
+        TRADE_CONVERT_ROUTE,
+        ({ ctx, input }) => guard(async () => trade.convertRoute(ctx.principal, input)),
+        tradeRefusal,
+      ),
 
-      quote: scopedProcedure('trade:read', { module: 'trade' })
-        .input(
-          z.object({
-            symbol: z.string().min(3),
-            side: orderSideSchema,
-            /** Base amount. Exactly one of `qty` or `quoteQty`; the service refuses both or neither. */
-            qty: decimal.optional(),
-            /** Spend in the quote asset ("spend 100 USDT"), buy only; never charges more than this. */
-            quoteQty: decimal.optional(),
-          }),
-        )
-        .output(convertQuoteOutput)
-        .query(({ ctx, input }) =>
+      quote: mountRecord(
+        TRADE_CONVERT_QUOTE,
+        ({ ctx, input }) =>
           guard(async () =>
             trade.convertQuote(ctx.principal, {
               symbol: input.symbol,
@@ -1343,12 +1114,12 @@ export function createTradeRouter(
               quoteQty: input.quoteQty === undefined ? undefined : parseAmount(input.quoteQty),
             }),
           ),
-        ),
+        tradeRefusal,
+      ),
 
-      accept: scopedProcedure('trade:write', { module: 'trade' })
-        .input(convertAcceptInput)
-        .output(convertTradeOutput)
-        .mutation(({ ctx, input }) =>
+      accept: mountRecord(
+        TRADE_CONVERT_ACCEPT,
+        ({ ctx, input }) =>
           guard(async () =>
             trade.convertAccept(ctx.principal, {
               quoteId: input.quoteId,
@@ -1359,7 +1130,8 @@ export function createTradeRouter(
               maxAvgPrice: input.maxAvgPrice === undefined ? null : parseAmount(input.maxAvgPrice),
             }),
           ),
-        ),
+        tradeRefusal,
+      ),
 
       execute: scopedProcedure('trade:write', { module: 'trade' })
         .input(convertAcceptInput)
@@ -1414,9 +1186,11 @@ export function createTradeRouter(
 
       /** Liquidity-provider directory and multi-select check (CB-otc-01). */
       makers: router({
-        list: scopedProcedure('trade:read', { module: 'trade' })
-          .output(otcMakersAnswer)
-          .query(() => (otc ? otc.listMakers() : listOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY))),
+        list: mountRecord(
+          TRADE_OTC_MAKERS_LIST,
+          () => (otc ? otc.listMakers() : listOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY)),
+          tradeRefusal,
+        ),
         select: scopedProcedure('trade:read', { module: 'trade' })
           .input(z.object({ makerIds: z.array(z.string().max(120)).max(50) }).strict())
           .query(({ input }) =>
@@ -1470,22 +1244,9 @@ export function createTradeRouter(
           }),
         ),
 
-      accept: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          /**
-           * `assertedPrice` is the one price the customer may send, and it can
-           * only ever cause a REFUSAL: it must equal the quoted price or the
-           * accept is rejected as last look. It is never the price that fills.
-           */
-          z
-            .object({
-              quoteId: z.string().guid(),
-              assertedPrice: decimal.optional(),
-            })
-            .strict(),
-        )
-        .output(otcAcceptAnswer)
-        .mutation(({ ctx, input }) =>
+      accept: mountRecord(
+        TRADE_OTC_ACCEPT,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.accept(ctx.principal, {
@@ -1493,43 +1254,36 @@ export function createTradeRouter(
               assertedPrice: input.assertedPrice,
             });
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      settle: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ quoteId: z.string().guid() }).strict())
-        .output(otcSettleAnswer)
-        .mutation(({ ctx, input }) =>
+      settle: mountRecord(
+        TRADE_OTC_SETTLE,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.settle(ctx.principal, { quoteId: input.quoteId });
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** Owner bounds for one-click buy and convert at OTC pricing (CB-otc-12). */
-      convertBounds: scopedProcedure('trade:read', { module: 'trade' })
-        .output(otcConvertBoundsAnswer)
-        .query(() => (otc ? otc.convertBoundsStatus() : { convert: null, oneClickBuy: null })),
+      convertBounds: mountRecord(
+        TRADE_OTC_CONVERT_BOUNDS,
+        () => (otc ? otc.convertBoundsStatus() : { convert: null, oneClickBuy: null }),
+        tradeRefusal,
+      ),
 
       /** Bounds-gated OTC quote for one-click buy / convert. The desk names the price. */
-      convertQuote: scopedProcedure('trade:read', { module: 'trade' })
-        .input(
-          z
-            .object({
-              flow: z.enum(['convert', 'oneClickBuy']),
-              side: orderSideSchema,
-              baseAsset: z.string().min(1).max(32),
-              quoteAsset: z.string().min(1).max(32),
-              qty: decimal,
-            })
-            .strict(),
-        )
-        .output(otcConvertQuoteAnswer)
-        .mutation(({ ctx, input }) =>
+      convertQuote: mountRecord(
+        TRADE_OTC_CONVERT_QUOTE,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.convertQuote(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
     }),
 
     /**
@@ -1567,10 +1321,9 @@ export function createTradeRouter(
           }),
         ),
 
-      accept: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ quoteId: z.string().guid(), assertedPrice: decimal.optional() }).strict())
-        .output(firmRfqAnswer)
-        .mutation(({ ctx, input }) =>
+      accept: mountRecord(
+        TRADE_RFQ_ACCEPT,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.rfqAccept(ctx.principal, {
@@ -1578,27 +1331,28 @@ export function createTradeRouter(
               assertedPrice: input.assertedPrice,
             });
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      expire: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ quoteId: z.string().guid() }).strict())
-        .output(firmRfqAnswer)
-        .mutation(({ ctx, input }) =>
+      expire: mountRecord(
+        TRADE_RFQ_EXPIRE,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.rfqExpire(ctx.principal, { quoteId: input.quoteId });
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      get: scopedProcedure('trade:read', { module: 'trade' })
-        .input(z.object({ quoteId: z.string().guid() }).strict())
-        .output(firmRfqAnswer)
-        .query(({ ctx, input }) =>
+      get: mountRecord(
+        TRADE_RFQ_GET,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.rfqGet(ctx.principal, input.quoteId);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       allocate: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ quoteId: z.string().guid(), allocations: z.array(z.unknown()).min(1) }).strict())
@@ -1632,13 +1386,12 @@ export function createTradeRouter(
      */
     algo: router({
       // The flags this service was started with, so the room shows whether slices are placed (CB-order-controls-03 #1).
-      policy: publicProcedure.output(algoPolicyAnswer).query(() => trade.algoPolicy()),
+      policy: mountRecord(TRADE_ALGO_POLICY, () => trade.algoPolicy(), tradeRefusal),
       ...algoDeskProcedures(trade),
 
-      createTwap: scopedProcedure('trade:write', { module: 'trade' })
-        .input(algoCreateInputSchema)
-        .output(algoParentOutputSchema)
-        .mutation(({ ctx, input }) =>
+      createTwap: mountRecord(
+        TRADE_ALGO_CREATE_TWAP,
+        ({ ctx, input }) =>
           guard(async () => {
             const parent = await trade.createTwap(ctx.principal, {
               symbol: input.symbol,
@@ -1658,12 +1411,12 @@ export function createTradeRouter(
             });
             return presentAlgo(parent);
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      get: scopedProcedure('trade:read')
-        .input(z.object({ algoId: z.string().min(1) }))
-        .output(algoGetOutputSchema)
-        .query(({ ctx, input }) =>
+      get: mountRecord(
+        TRADE_ALGO_GET,
+        ({ ctx, input }) =>
           guard(async () => {
             const parent = await trade.getAlgo(ctx.principal, input.algoId);
             const progress = await trade.algoProgress(ctx.principal, input.algoId);
@@ -1675,21 +1428,13 @@ export function createTradeRouter(
               ...presentScheduleHonesty(parent, progress.scheduler),
             };
           }),
-        ),
+        tradeRefusal,
+      ),
 
       // The slice sizes a TWAP create would plan, so the review shows exactly what the service will place.
-      previewTwapSizes: scopedProcedure('trade:read')
-        .input(
-          z.object({
-            symbol: z.string().min(3),
-            totalQty: decimal,
-            durationMs: z.number().int().min(1_000).max(86_400_000),
-            sliceIntervalMs: z.number().int().min(1_000).max(86_400_000),
-            randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
-          }),
-        )
-        .output(z.object({ sliceQtys: z.array(decimal) }))
-        .query(({ ctx, input }) =>
+      previewTwapSizes: mountRecord(
+        TRADE_ALGO_PREVIEW_TWAP_SIZES,
+        ({ ctx, input }) =>
           guard(async () => {
             const slices = await trade.previewTwapSizes(ctx.principal, {
               symbol: input.symbol,
@@ -1700,43 +1445,38 @@ export function createTradeRouter(
             });
             return { sliceQtys: slices.map(formatAmount) };
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      result: scopedProcedure('trade:read')
-        .input(z.object({ algoId: z.string().min(1) }))
-        .output(algoResultOutputSchema)
-        .query(({ ctx, input }) => guard(async () => trade.algoResult(ctx.principal, input.algoId))),
+      result: mountRecord(
+        TRADE_ALGO_RESULT,
+        ({ ctx, input }) => guard(async () => trade.algoResult(ctx.principal, input.algoId)),
+        tradeRefusal,
+      ),
 
-      progress: scopedProcedure('trade:read')
-        .input(z.object({ algoId: z.string().min(1) }))
-        .output(
-          z.object({
-            parentId: z.string(),
-            status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
-            haltReason: z.string().nullable(),
-            stopReason: algoStopReasonSchema,
-            childrenEmitted: z.number().int(),
-            missesRecorded: z.number().int(),
-            slicesPlanned: z.number().int(),
-            nextSliceIndex: z.number().int(),
-            filledQty: decimal,
-            totalQty: decimal,
-            ...algoScheduleHonestySchema,
-          }),
-        )
-        .query(({ ctx, input }) => guard(async () => trade.algoProgress(ctx.principal, input.algoId))),
+      progress: mountRecord(
+        TRADE_ALGO_PROGRESS,
+        ({ ctx, input }) => guard(async () => trade.algoProgress(ctx.principal, input.algoId)),
+        tradeRefusal,
+      ),
 
-      pause: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ algoId: z.string().min(1) }))
-        .mutation(({ ctx, input }) => guard(async () => presentAlgo(await trade.pauseAlgo(ctx.principal, input.algoId)))),
+      pause: mountRecord(
+        TRADE_ALGO_PAUSE,
+        ({ ctx, input }) => guard(async () => presentAlgo(await trade.pauseAlgo(ctx.principal, input.algoId))),
+        tradeRefusal,
+      ),
 
-      resume: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ algoId: z.string().min(1) }))
-        .mutation(({ ctx, input }) => guard(async () => presentAlgo(await trade.resumeAlgo(ctx.principal, input.algoId)))),
+      resume: mountRecord(
+        TRADE_ALGO_RESUME,
+        ({ ctx, input }) => guard(async () => presentAlgo(await trade.resumeAlgo(ctx.principal, input.algoId))),
+        tradeRefusal,
+      ),
 
-      cancel: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ algoId: z.string().min(1) }))
-        .mutation(({ ctx, input }) => guard(async () => presentAlgo(await trade.cancelAlgo(ctx.principal, input.algoId)))),
+      cancel: mountRecord(
+        TRADE_ALGO_CANCEL,
+        ({ ctx, input }) => guard(async () => presentAlgo(await trade.cancelAlgo(ctx.principal, input.algoId))),
+        tradeRefusal,
+      ),
     }),
 
     /**
@@ -1813,10 +1553,9 @@ export function createTradeRouter(
         .output(copyOpsStatusOutput)
         .query(() => (copy ? copy.opsStatus() : presentCopyOpsStatus(unmountedCopyDeskFacts()))),
 
-      follow: scopedProcedure('trade:write', { module: 'trade' })
-        .input(copyFollowInput)
-        .output(copyFollowAnswer)
-        .mutation(({ ctx, input }) =>
+      follow: mountRecord(
+        TRADE_COPY_FOLLOW,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
               logRefusalSpec('trade.copy_jurisdiction_blank');
@@ -1827,34 +1566,27 @@ export function createTradeRouter(
               ? copy.startVenueFollow(ctx.principal, { ...rest, agentAccountId: agentAccountId.toLowerCase() })
               : copy.startFollow(ctx.principal, rest);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** Edit limits on a follow (J-copy-bots-otc-02): the sizing mode is locked; a blank cap clears it. */
-      amendFollow: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          z.object({
-            followId: z.string().min(1).max(64),
-            sizingMode: z.enum(['fixed_amount', 'smart_sync', 'multiplier']).optional(),
-            maxPerMarket: z.union([decimal, z.literal('')]).optional(),
-            maxPerDay: z.union([decimal, z.literal('')]).optional(),
-          }),
-        )
-        .output(copyFollowAnswer)
-        .mutation(({ ctx, input }) =>
+      amendFollow: mountRecord(
+        TRADE_COPY_AMEND_FOLLOW,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Copy trading is unavailable', 'trade.copy_unavailable');
             return copy.amendFollow(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /**
        * Start copying on the venue, checked and not written (J-copy-bots-otc-01 #5 #7): the wizard asks this before the
        * follower's wallet opens an agent account for the follow, so a refused gate or term writes and signs nothing.
        */
-      checkVenueFollow: scopedProcedure('trade:write', { module: 'trade' })
-        .input(copyFollowInput.omit({ agentAccountId: true }))
-        .output(copyCheckVenueFollowAnswer)
-        .mutation(({ ctx, input }) =>
+      checkVenueFollow: mountRecord(
+        TRADE_COPY_CHECK_VENUE_FOLLOW,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
               logRefusalSpec('trade.copy_jurisdiction_blank');
@@ -1862,7 +1594,8 @@ export function createTradeRouter(
             }
             return copy.checkVenueFollow(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       unfollow: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
@@ -1886,29 +1619,29 @@ export function createTradeRouter(
           }),
         ),
 
-      grantSessionKey: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
-        .output(copyGrantSessionKeyAnswer)
-        .mutation(({ ctx, input }) =>
+      grantSessionKey: mountRecord(
+        TRADE_COPY_GRANT_SESSION_KEY,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
               throw new CopyError('Follow not found', 'trade.copy_not_following');
             }
             return copy.grantSessionKey(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      killSessionKey: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
-        .output(copyFollowAnswer)
-        .mutation(({ ctx, input }) =>
+      killSessionKey: mountRecord(
+        TRADE_COPY_KILL_SESSION_KEY,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
               throw new CopyError('Follow not found', 'trade.copy_not_following');
             }
             return copy.killSessionKey(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       pause: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
@@ -2024,21 +1757,15 @@ export function createTradeRouter(
         ),
 
       /** One listed leader's own spot trades, newest first. Limit is required. */
-      leaderTrades: scopedProcedure('trade:read', { module: 'trade' })
-        .input(
-          z.object({
-            leaderRef: z.string().min(1).max(80),
-            limit: z.number().optional(),
-            cursor: z.string().max(64).optional(),
-          }),
-        )
-        .output(copyLeaderTradesAnswer)
-        .query(({ ctx, input }) =>
+      leaderTrades: mountRecord(
+        TRADE_COPY_LEADER_TRADES,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
             return copy.leaderTrades(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** The caller's copied orders on one of their follows, newest first. */
       followPositions: scopedProcedure('trade:read', { module: 'trade' })
@@ -2063,15 +1790,15 @@ export function createTradeRouter(
         ),
 
       /** The caller's own lead earnings: settled fee-share rows and their sum per asset; never a profit figure (J-copy-bots-otc-06 #3). */
-      leadEarnings: scopedProcedure('trade:read', { module: 'trade' })
-        .input(z.object({ limit: z.number() }))
-        .output(leadEarningsAnswer)
-        .query(({ ctx, input }) =>
+      leadEarnings: mountRecord(
+        TRADE_COPY_LEAD_EARNINGS,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('lead earnings are not mounted', 'trade.copy_unavailable');
             return copy.leadEarnings(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** The caller's own copied venue fills, their fees as the venue reports them, and the lead's share (J-copy-bots-otc-06 #1). */
       myCopyFees: mountRecord(
@@ -2085,14 +1812,15 @@ export function createTradeRouter(
       ),
 
       /** The caller's own lead level: not set while the owner's thresholds are blank; the maximum ratio is never set (J-copy-bots-otc-06 #5). */
-      leadLevel: scopedProcedure('trade:read', { module: 'trade' })
-        .output(leadLevelAnswer)
-        .query(({ ctx }) =>
+      leadLevel: mountRecord(
+        TRADE_COPY_LEAD_LEVEL,
+        ({ ctx }) =>
           guard(async () => {
             if (!copy) throw new CopyError('lead level is not mounted', 'trade.copy_unavailable');
             return copy.leadLevel(ctx.principal);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** A profit pre-deduction or profit-share ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #4). */
       setProfitShare: scopedProcedure('trade:write', { module: 'trade' })
@@ -2115,34 +1843,26 @@ export function createTradeRouter(
         ),
 
       /** Close one copied position, whole or by an amount (CB-copy-10). Once per close. */
-      closeCopiedPosition: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          z.object({
-            followId: z.string().min(1).max(64),
-            // A venue follow's position id is its copy's venue order key (`copy-mirror:<followId>:<client order id>`),
-            // up to the door's 200-character business key.
-            positionId: z.string().min(1).max(200),
-            qty: z.string().min(1).max(64).optional(),
-          }),
-        )
-        .output(copyCloseCopiedPositionAnswer)
-        .mutation(({ ctx, input }) =>
+      closeCopiedPosition: mountRecord(
+        TRADE_COPY_CLOSE_COPIED_POSITION,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
             return copy.closePosition(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** Leader fills this follow did not copy, with the reason id, newest first (CB-copy-11). */
-      skipLog: scopedProcedure('trade:read', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
-        .output(copySkipLogAnswer)
-        .query(({ ctx, input }) =>
+      skipLog: mountRecord(
+        TRADE_COPY_SKIP_LOG,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
             return copy.skipLog(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** Events for the caller's own follow, since the follow began. Limit is required. */
       followEvents: scopedProcedure('trade:read', { module: 'trade' })
@@ -2161,46 +1881,32 @@ export function createTradeRouter(
         ),
 
       /** Apply to lead (CB-copy-12). One open application per person; the same submit again answers it. */
-      applyToLead: scopedProcedure('trade:write', { module: 'trade' })
-        // A blank name reaches the desk, which refuses it with its own code, so the room can say what to fix.
-        .input(z.object({ displayName: z.string().max(200) }))
-        .output(applyToLeadAnswer)
-        .mutation(({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input))),
+      applyToLead: mountRecord(
+        TRADE_COPY_APPLY_TO_LEAD,
+        ({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input)),
+        tradeRefusal,
+      ),
 
       /** What applying to lead is measured by for the caller: whom they follow, the threshold and their venue USDC. */
-      leadEligibility: scopedProcedure('trade:read', { module: 'trade' })
-        .output(leadEligibilityAnswer)
-        .query(({ ctx }) => lead((desk) => desk.eligibility(ctx.principal))),
+      leadEligibility: mountRecord(TRADE_COPY_LEAD_ELIGIBILITY, ({ ctx }) => lead((desk) => desk.eligibility(ctx.principal)), tradeRefusal),
 
       /** The caller's newest lead application, or null. */
-      myLeadApplication: scopedProcedure('trade:read', { module: 'trade' })
-        .output(myLeadApplicationAnswer)
-        .query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
+      myLeadApplication: mountRecord(TRADE_COPY_MY_LEAD_APPLICATION, ({ ctx }) => lead((desk) => desk.mine(ctx.principal)), tradeRefusal),
 
       /** The caller's lead account once approved, or null (CB-copy-18, J-copy-bots-otc-04 #4). */
-      myLead: scopedProcedure('trade:read', { module: 'trade' })
-        .output(myLeadAnswer)
-        .query(({ ctx }) => lead((desk) => desk.myLead(ctx.principal))),
+      myLead: mountRecord(TRADE_COPY_MY_LEAD, ({ ctx }) => lead((desk) => desk.myLead(ctx.principal)), tradeRefusal),
 
       /** The caller's new-trader missions and how far each has come (CB-copy-12, J-copy-bots-otc-04 #3). */
-      leadMissions: scopedProcedure('trade:read', { module: 'trade' })
-        .output(leadMissionsAnswer)
-        .query(({ ctx }) => lead((desk) => desk.missions(ctx.principal))),
+      leadMissions: mountRecord(TRADE_COPY_LEAD_MISSIONS, ({ ctx }) => lead((desk) => desk.missions(ctx.principal)), tradeRefusal),
 
       /** The caller's own lead trades, ongoing and history, with counts (CB-copy-15, J-copy-bots-otc-04 #8). */
-      leadTrades: scopedProcedure('trade:read', { module: 'trade' })
-        .output(leadTradesAnswer)
-        .query(({ ctx }) => lead((desk) => desk.trading.trades(ctx.principal))),
+      leadTrades: mountRecord(TRADE_COPY_LEAD_TRADES, ({ ctx }) => lead((desk) => desk.trading.trades(ctx.principal)), tradeRefusal),
 
       /** The caller's copiers and each one's state (CB-copy-15, J-copy-bots-otc-04 #8). */
-      leadCopiers: scopedProcedure('trade:read', { module: 'trade' })
-        .output(leadCopiersAnswer)
-        .query(({ ctx }) => lead((desk) => desk.trading.copiers(ctx.principal))),
+      leadCopiers: mountRecord(TRADE_COPY_LEAD_COPIERS, ({ ctx }) => lead((desk) => desk.trading.copiers(ctx.principal)), tradeRefusal),
 
       /** The scopes the platform has paused now (CB-ops-03): leads by listing ref, bot types and symbols. */
-      platformPauses: scopedProcedure('trade:read', { module: 'trade' })
-        .output(platformPausesAnswer)
-        .query(() => pauses((desk) => desk.publicPauses())),
+      platformPauses: mountRecord(TRADE_COPY_PLATFORM_PAUSES, () => pauses((desk) => desk.publicPauses()), tradeRefusal),
 
       ops: router({
         /**

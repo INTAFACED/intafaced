@@ -28,15 +28,7 @@ import {
   IDENTITY_KYC_PROFILE_UPLOAD,
 } from '@intafaced/contracts/identity-kyc-profile-procedures';
 import { z } from 'zod';
-import {
-  router,
-  publicProcedure,
-  personProcedure,
-  protectedProcedure,
-  scopedProcedure,
-  serviceProcedure,
-  TRPCError,
-} from '@intafaced/contracts/trpc';
+import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
 import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts/identity';
@@ -188,6 +180,8 @@ import {
   IDENTITY_AUTH_SIGN_UP_RESEND,
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
+  IDENTITY_AUTH_LOGOUT_ALL,
 } from '@intafaced/contracts/identity-auth-procedures';
 import {
   IDENTITY_WAITLIST_WAVES_LIST,
@@ -1955,11 +1949,13 @@ export function createIdentityRouter(
         }),
 
       // The signed-in person only: an API key or a sub-account token must not sign its owner out everywhere.
-      logoutAll: personProcedure()
-        .output(z.object({ revoked: z.number() }))
-        .mutation(async ({ ctx }) => ({
+      logoutAll: mountRecord(
+        IDENTITY_AUTH_LOGOUT_ALL,
+        async ({ ctx }) => ({
           revoked: await auth.logoutAll(ctx.principal.userId),
-        })),
+        }),
+        kycProfileRefusal,
+      ),
 
       /**
        * Change the signed-in user's password. User sessions only (an API key or
@@ -2171,14 +2167,18 @@ export function createIdentityRouter(
        * WebAuthn options for step-up (passkey withdraw). Challenge kind is
        * `step-up` so a passwordless-login assertion cannot be reused here.
        */
-      stepUpOptions: protectedProcedure.mutation(async ({ ctx }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnStepUp(ctx.principal.userId);
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      stepUpOptions: mountRecord(
+        IDENTITY_AUTH_STEP_UP_OPTIONS,
+        async ({ ctx }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnStepUp(ctx.principal.userId);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       stepUp: protectedProcedure
         .input(

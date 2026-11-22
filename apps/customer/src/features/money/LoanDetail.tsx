@@ -4,11 +4,12 @@ import { Button, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { decodeBase64, saveFile, shortFingerprint } from '../../screens/money/statement-model';
-import { amount, bps, date, useBankRead } from './components';
+import { amount, bps, date, useBankRead, useBankRecord } from './components';
 import { loanStatementSchema, type LoanInterestRows, type LoanLedgerCheck, type LoanProjection, type PayoffQuote } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { loanDetailCopy } from './loan-detail-copy';
 import './bank-depth.css';
+import { BANK_LOANS_LIST } from '@intafaced/contracts/bank-loans-procedures';
 
 /**
  * `/bank/loans/detail?loan=<id>` (J-bank-11 #1, #4 and #6, BK-loan-06, LOAN-05): one loan's payoff quote, a
@@ -574,7 +575,7 @@ function StatementPanel({ loanId, assetId }: { loanId: string; assetId: string }
 /** The page: the loan named in the address, read from the person's own loans so its asset is known. */
 export function LoanDetail({ loanId }: { loanId: string | null }) {
   const { t } = loanDetailCopy.useCopy();
-  const loans = useBankRead('loans.list', { limit: 200 }, loanId !== null);
+  const loans = useBankRecord(BANK_LOANS_LIST, { limit: 200 }, loanId !== null);
   if (loanId === null) {
     return (
       <p role="note">

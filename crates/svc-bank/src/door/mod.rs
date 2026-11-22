@@ -16,11 +16,15 @@
 //! 3. the input, read only now and checked by the call's zod schema;
 //! 4. then the call's slice answers.
 //!
+//! The job doors and svc-ops' reads (`jobs`) are answered after the REST doors and before tRPC, as `index.ts` mounts
+//! them beside it.
+//!
 //! Every call is in [`calls::CALLS`], generated from the TypeScript router by running its middlewares on probe callers
 //! (`scripts/record-door.mjs`). `tests/wire_replay.rs` holds the door to the TypeScript's recorded answers.
 
 pub mod calls;
 pub mod inputs;
+pub mod jobs;
 pub mod rest;
 
 use std::collections::BTreeMap;
@@ -34,6 +38,8 @@ use service_kit::schema::Value;
 use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
+
+use crate::db::Store;
 
 pub use calls::Slice;
 
@@ -207,6 +213,8 @@ pub struct DoorConfig {
     pub env: BTreeMap<String, String>,
     /// The clock.
     pub now: fn() -> Instant,
+    /// The `bank` schema, opened once by the binary (`db::open`).
+    pub store: Store,
 }
 
 pub struct BankDoor {
@@ -218,6 +226,13 @@ pub struct BankDoor {
     now: fn() -> Instant,
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
+    store: Store,
+    /// Slice `partner`'s TEST partner, freeze and stand-ins (`partner::router::Wiring`); none until handed in.
+    partner: crate::partner::router::Wiring,
+    /// Slice `spaces`'s ledger and directory reads and owner values (`spaces::Wiring`); none until handed in.
+    spaces: crate::spaces::Wiring,
+    /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
+    test_age_open: bool,
 }
 
 /// The system clock.
@@ -258,7 +273,49 @@ impl BankDoor {
             now: config.now,
             requests: RequestIds::new(),
             edge_key: None,
+            store: config.store,
+            partner: crate::partner::router::Wiring::none(),
+            spaces: crate::spaces::Wiring::none(),
+            test_age_open: false,
         })
+    }
+
+    /// The database every slice reads and writes through.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// `sql.end()`: closes the pool once the server has stopped.
+    pub fn end(&self) {
+        self.store.end();
+    }
+
+    /// The clock the door reads.
+    pub fn now(&self) -> Instant {
+        (self.now)()
+    }
+
+    /// Slice `partner`'s wiring, built by the binary from the environment.
+    pub fn with_partner(mut self, wiring: crate::partner::router::Wiring) -> BankDoor {
+        self.partner = wiring;
+        self
+    }
+
+    /// Slice `spaces`'s wiring, built by the binary from the environment.
+    pub fn with_spaces(mut self, wiring: crate::spaces::Wiring) -> BankDoor {
+        self.spaces = wiring;
+        self
+    }
+
+    /// Opens the TEST age door (`TEST_AGE_DOOR=on`, refused at boot outside dev or test).
+    pub fn with_test_age(mut self, open: bool) -> BankDoor {
+        self.test_age_open = open;
+        self
+    }
+
+    /// Slice `partner`'s wiring.
+    pub fn partner(&self) -> &crate::partner::router::Wiring {
+        &self.partner
     }
 
     /// Also believes principals the edge signed with its key (`EDGE_PRINCIPAL_PUBLIC_KEY`).
@@ -267,13 +324,21 @@ impl BankDoor {
         self
     }
 
-    /// The slices' answers: the door's own call, and "not ported" for the rest.
+    /// The slices' answers: the door's own call, each ported slice's, and "not ported" for the rest.
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
             Slice::Door => Ok(Some(Json::obj([
                 ("ok", Json::Bool(true)),
                 ("service", Json::str("svc-bank")),
             ]))),
+            Slice::CreditPreviews => crate::credit_previews::answer(ctx)
+                .unwrap_or_else(|| Err(not_ported(Slice::CreditPreviews))),
+            Slice::Partner => crate::partner::router::answer(&self.partner, &self.store, ctx)
+                .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
+            Slice::Spaces => {
+                crate::spaces::router::answer(&self.spaces, &self.partner, &self.store, ctx)
+                    .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
+            }
             other => Err(not_ported(other)),
         }
     }
@@ -284,14 +349,42 @@ impl BankDoor {
         self.handle_as(req, &id)
     }
 
-    /// Answers one request under the id the server already gave it.
+    /// Answers one request under the id the server already gave it, from no known peer.
     pub fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
+        self.handle_from(req, request_id, "")
+    }
+
+    /// Answers one request from the TCP peer `peer` (blank when unknown): the loopback TEST doors read it.
+    pub fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
+        if let Some(res) = crate::test_age::answer(self, req, self.test_age_open) {
+            return res;
+        }
+        if let Some(partner) = self.partner.partner.as_ref() {
+            let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
+            let now = (self.now)();
+            if let Some(res) = crate::partner::record::door(
+                partner,
+                req.method,
+                path,
+                peer,
+                || rest::read_body(req),
+                now,
+            ) {
+                return res;
+            }
+        }
         if let Some(res) = rest::answer(self, req) {
+            return res;
+        }
+        if let Some(res) = jobs::answer(self, req) {
             return res;
         }
         let Some((path, query)) = trpc::route(req.url) else {
             return trpc::route_not_found(req);
         };
+        if let Some(res) = rest::trpc_media(req, self.dev) {
+            return res;
+        }
         match self.answer(req, &path, query) {
             Ok(data) => trpc::ok(data),
             Err(e) => trpc::render(&e, &path, request_id, "svc-bank", self.dev),
@@ -299,7 +392,7 @@ impl BankDoor {
     }
 
     /// The verified service on a request, binding the body as `bind` says.
-    fn service(&self, req: &Request<'_>, bind: BodyBind) -> Option<String> {
+    pub(crate) fn service(&self, req: &Request<'_>, bind: BodyBind) -> Option<String> {
         self.services
             .service(req, bind, (self.now)().0.div_euclid(1000))
     }
@@ -447,8 +540,12 @@ impl Door for BankDoor {
         BankDoor::handle_as(self, req, request_id)
     }
 
-    /// `/health` is the server's own `{ ok, service }`, as `index.ts` answers it; `/ready` is the store's (slice
-    /// `store`).
+    fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
+        BankDoor::handle_from(self, req, request_id, peer)
+    }
+
+    /// `/health` is the server's own `{ ok, service }`, as `index.ts` answers it, and `/ready` the app's fixed body,
+    /// read once at boot (`ready::body`).
     fn status(&self, _req: &Request<'_>) -> Option<Response> {
         None
     }

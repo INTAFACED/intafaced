@@ -2,8 +2,9 @@ import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { founderCall } from '@/lib/desk/founder-call';
+import { founderRecordRead } from '@/lib/desk/founder-call';
 import { refusalWords } from '@/lib/compliance-cases/model';
+import { OPS_COMPLIANCE_INBOXES_SET_FAVOURITE, OPS_COMPLIANCE_INBOXES_DEFINE } from '@intafaced/contracts/ops-compliance-procedures';
 
 /**
  * Case room writes as the signed-in founder: favourite an inbox and define a queue (svc-ops `compliance.inboxes.*`). The service
@@ -63,19 +64,15 @@ export async function POST(request: Request) {
 
   const result =
     input.action === 'favourite'
-      ? await founderCall(
+      ? await founderRecordRead(
           session,
-          'ops',
-          'compliance.inboxes.setFavourite',
-          'POST',
+          OPS_COMPLIANCE_INBOXES_SET_FAVOURITE,
           { inboxId: input.inboxId, favourite: input.favourite },
           accepted,
         )
-      : await founderCall(
+      : await founderRecordRead(
           session,
-          'ops',
-          'compliance.inboxes.define',
-          'POST',
+          OPS_COMPLIANCE_INBOXES_DEFINE,
           { name: input.name, version: input.version, entityType: input.entityType, workflow: input.workflow, members: input.members },
           accepted,
         );

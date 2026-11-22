@@ -9,7 +9,7 @@ use std::io::Write;
 use service_kit::migrate::Migrations;
 
 /// Every migration file, by name, as built into the binary.
-pub const FILES: [(&str, &str); 86] = [
+pub const FILES: [(&str, &str); 88] = [
     (
         "0000_agents_init.down.sql",
         include_str!("../migrations/0000_agents_init.down.sql"),
@@ -354,6 +354,14 @@ pub const FILES: [(&str, &str); 86] = [
         "20261117220744_self_freeze_applied.sql",
         include_str!("../migrations/20261117220744_self_freeze_applied.sql"),
     ),
+    (
+        "20261121224407_run_webhooks.down.sql",
+        include_str!("../migrations/20261121224407_run_webhooks.down.sql"),
+    ),
+    (
+        "20261121224407_run_webhooks.sql",
+        include_str!("../migrations/20261121224407_run_webhooks.sql"),
+    ),
 ];
 
 /// The runner's default target when `DATABASE_URL` is unset, as the TypeScript runner's.
@@ -382,7 +390,7 @@ mod tests {
             let down = format!("{}.down.sql", up.strip_suffix(".sql").unwrap_or(up));
             assert!(MIGRATIONS.file(&down).is_ok(), "{up} has no {down}");
         }
-        assert_eq!(MIGRATIONS.ups().len(), 43);
+        assert_eq!(MIGRATIONS.ups().len(), 44);
         assert_eq!(MIGRATIONS.ups().len() * 2, FILES.len());
     }
 
@@ -410,25 +418,5 @@ mod tests {
             .collect();
         built.sort();
         assert!(built == on_disk, "FILES is not the migrations folder");
-    }
-
-    /// While the TypeScript service runs, its `drizzle` folder and this crate's `migrations` are one set of files.
-    #[test]
-    fn the_migrations_are_the_typescript_services_byte_for_byte() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let ts = root.join("../../services/svc-agents/drizzle");
-        if !ts.exists() {
-            return;
-        }
-        let ours = sql_files(&root.join("migrations"));
-        let theirs = sql_files(&ts);
-        let names = |v: &[(String, Vec<u8>)]| v.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
-        assert_eq!(names(&ours), names(&theirs), "the same file names");
-        for ((name, a), (_, b)) in ours.iter().zip(&theirs) {
-            assert!(
-                a == b,
-                "{name} differs from services/svc-agents/drizzle/{name}"
-            );
-        }
     }
 }

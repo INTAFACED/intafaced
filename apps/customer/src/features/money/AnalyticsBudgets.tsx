@@ -2,10 +2,16 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Button, Field } from '../../shared/ui';
 import { defineCopy } from '../../shared/i18n';
 import { useSession } from '../session';
-import { useBankRead } from './components';
-import { bankWrites } from './contracts';
+import { useBankRead, useBankRecord } from './components';
 import { DepthPanel } from './DepthParts';
 import './bank-depth.css';
+import {
+  BANK_ANALYTICS_BUDGETS,
+  BANK_ANALYTICS_LEFT_TO_SPEND,
+  BANK_ANALYTICS_SPEND,
+  BANK_ANALYTICS_BUDGET_ALERT_SHOWN,
+  BANK_ANALYTICS_SET_BUDGET,
+} from '@intafaced/contracts/bank-analytics-procedures';
 
 /** Words for budgets and month comparison in Analytics (BK-acct-08, J-bank-16 #4, #5). */
 export const budgetsCopy = defineCopy('analytics-budgets', {
@@ -56,13 +62,13 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
   const { t } = budgetsCopy.useCopy();
   const { api } = useSession();
   const name = (c: string) => (CATEGORIES.includes(c as Category) ? t(c as Category) : c);
-  const budgets = useBankRead('analytics.budgets', { assetId }, Boolean(assetId));
-  const left = useBankRead('analytics.leftToSpend', { assetId }, Boolean(assetId));
+  const budgets = useBankRecord(BANK_ANALYTICS_BUDGETS, { assetId }, Boolean(assetId));
+  const left = useBankRecord(BANK_ANALYTICS_LEFT_TO_SPEND, { assetId }, Boolean(assetId));
   const month = useMemo(() => {
     const now = new Date();
     return { from: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(), to: now.toISOString() };
   }, []);
-  const spend = useBankRead('analytics.spend', { assetId, ...month }, Boolean(assetId));
+  const spend = useBankRecord(BANK_ANALYTICS_SPEND, { assetId, ...month }, Boolean(assetId));
   const [category, setCategory] = useState<Category>('transfers');
   const [target, setTarget] = useState('');
   const [alertAt, setAlertAt] = useState('');
@@ -78,7 +84,7 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
       if (b.alert !== 'new' || told.current.has(`${b.category}:${b.period}`)) continue;
       told.current.add(`${b.category}:${b.period}`);
       setShownNow((now) => ({ ...now, [b.category]: percentOf(b.progressBps) }));
-      void api.mutate('bank', 'analytics.budgetAlertShown', { assetId, category: b.category }, bankWrites['analytics.budgetAlertShown']);
+      void api.call(BANK_ANALYTICS_BUDGET_ALERT_SHOWN, { assetId, category: b.category });
     }
   }, [rows, api, assetId]);
 
@@ -88,12 +94,7 @@ export function AnalyticsBudgets({ assetId }: { assetId: string }) {
     const share = Math.round(Number(alertAt) * 100);
     setBusy(true);
     setFailure(null);
-    const result = await api.mutate(
-      'bank',
-      'analytics.setBudget',
-      { assetId, category, target, alertBps: share },
-      bankWrites['analytics.setBudget'],
-    );
+    const result = await api.call(BANK_ANALYTICS_SET_BUDGET, { assetId, category, target, alertBps: share });
     setBusy(false);
     if (!result.ok) return setFailure(`${result.message}${result.code ? ` (${result.code})` : ''}`);
     budgets.reload();

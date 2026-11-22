@@ -1,3 +1,5 @@
+// volt-room: /bank/business/payouts
+// volt-room: /bank/business/contractor-join
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { Button } from '@intafaced/ui/lit';
@@ -336,7 +338,11 @@ function Parts({
   });
   const runId = useHeldId();
   const [file, setFile] = useState<File | null>(null);
-  const latest = ready(runs.resource)?.[0] ?? null;
+  // The run this page just imported, from the bank's own answer. Until the list's reload names it, the list still holds
+  // the run before it, whose Confirm would confirm that older run; so the page shows the imported one meanwhile.
+  const [imported, setImported] = useState<BusinessBulkRun | null>(null);
+  const listed = ready(runs.resource);
+  const latest = imported ? (listed?.find((r) => r.id === imported.id) ?? imported) : (listed?.[0] ?? null);
   const people = ready(contractors.resource) ?? [];
   const w = ready(wallet.resource);
 
@@ -352,17 +358,18 @@ function Parts({
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             if (!file) return;
-            void file
-              .text()
-              .then((csv) =>
-                change.run(
-                  'businessPayouts.importRun',
-                  { accountId, runId: runId.id, csv },
-                  businessBulkRunSchema,
-                  () => t('imported'),
-                  runId,
-                ),
-              );
+            void file.text().then((csv) =>
+              change.run(
+                'businessPayouts.importRun',
+                { accountId, runId: runId.id, csv },
+                businessBulkRunSchema,
+                (run) => {
+                  setImported(run);
+                  return t('imported');
+                },
+                runId,
+              ),
+            );
           }}
         >
           <label className="lt-field">

@@ -5,7 +5,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { BlockerWords, QuoteView, RequestRows } from './CashOut';
-import { bankReads, type CashOutQuote, type CashOutRequest } from './contracts';
+import { type CashOutQuote, type CashOutRequest } from './contracts';
+import { BANK_CASH_OUT_QUOTE, BANK_CASH_OUT_REQUESTS } from '@intafaced/contracts/bank-cash-out-procedures';
 
 /** BK-ord-01 screen half (J-bank-03 #1-#3): the cash-out quote with what stands in the way, and the kept requests. */
 
@@ -248,11 +249,16 @@ describe('cash out to a linked bank account', () => {
   });
 
   it('parses the bank’s answers, and refuses a fee that is not a decimal string', () => {
-    expect(bankReads['cashOut.quote'].parse(quote())).toMatchObject({ fee: null, receiveAmount: null });
-    expect(bankReads['cashOut.quote'].safeParse({ ...quote(), fee: 1.5 }).success).toBe(false);
-    expect(bankReads['cashOut.requests'].safeParse([{ ...request(), status: 'held' }]).success).toBe(false);
-    // An older answer without the payout fields still reads, with them blank.
+    expect(BANK_CASH_OUT_QUOTE.output.parse(quote())).toMatchObject({ fee: null, receiveAmount: null });
+    expect(BANK_CASH_OUT_QUOTE.output.safeParse({ ...quote(), fee: 1.5 }).success).toBe(false);
+    expect(BANK_CASH_OUT_REQUESTS.output.safeParse([{ ...request(), status: 'held' }]).success).toBe(false);
+    // The requests list is read by its record, which is the bank's own strict answer: it always carries the payout
+    // fields (null when there is none), so an answer without them is refused, never read as blank.
     const { fee: _fee, payoutRef: _ref, ...older } = request();
-    expect(bankReads['cashOut.requests'].parse([older])[0]).toMatchObject({ fee: null, payoutRef: null });
+    expect(BANK_CASH_OUT_REQUESTS.output.safeParse([older]).success).toBe(false);
+    expect(BANK_CASH_OUT_REQUESTS.output.parse([{ ...request(), fee: null, payoutRef: null }])[0]).toMatchObject({
+      fee: null,
+      payoutRef: null,
+    });
   });
 });

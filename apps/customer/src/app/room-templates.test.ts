@@ -2,10 +2,11 @@
 // The route-to-template registry stays in step with the app's route table (the Volt kit).
 import { describe, expect, it, vi } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
-import { PORTAL_ROOMS } from '../features/pay/portal/routes';
+import { parsePortalRoute, PORTAL_ROOMS } from '../features/pay/portal/routes';
 import { rooms } from './navigation';
 import { renderPart } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
+import { voltMarks } from './volt-count';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -16,9 +17,23 @@ import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-tem
 const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
-/** A route's pattern as a person opens it: a `:pair` is a real market. */
-const opened = (route: string) => route.replace(':pair', 'BTC-USDT');
+/**
+ * A route's pattern as a person opens it: a `:pair` is a real market, a `:runId` a run's id (an agent run's page opens only
+ * on one), an `:id` a help topic address (lower-case letters, digits and dashes). A parameter the router checks the shape of
+ * gets a well-formed TEST value (a campaign id starts `cmp_`; a More record id starts with a letter or digit, more-room-routes.ts).
+ */
+const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
+  ':pair': 'BTC-USDT',
+  ':runId': '00000000-0000-4000-8000-000000000001',
+  ':id': 'test-1',
+  ':campaignId': 'cmp_TEST',
+  ':listingId': 'TEST-listing',
+  ':projectId': 'TEST-launch',
+};
+const opened = (route: string) => route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_PARAMS[param] ?? param);
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
+/** The screen file whose `// volt-room:` line says the room has moved onto its template (volt-count.ts). */
+const marks = voltMarks();
 
 describe('room templates registry', () => {
   it('names only routes that exist, and no alias', () => {
@@ -43,8 +58,11 @@ describe('room templates registry', () => {
   });
 
   it('reports how many rooms are on their template', () => {
-    const all = [...Object.values(ROUTE_TEMPLATES).filter(isRoom), ...Object.values(PORTAL_TEMPLATES)];
-    const migrated = all.filter((e) => e.migrated).length;
+    const all = [
+      ...Object.entries(ROUTE_TEMPLATES).flatMap(([route, e]) => (isRoom(e) ? [route] : [])),
+      ...Object.keys(PORTAL_TEMPLATES).map((page) => `portal:${page}`),
+    ];
+    const migrated = all.filter((key) => marks.has(key)).length;
     expect(migrated).toBeLessThanOrEqual(all.length);
     console.info(`Rooms on their template: ${migrated} of ${all.length}`);
   });
@@ -53,20 +71,24 @@ describe('room templates registry', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
       for (const [room, entry] of Object.entries(ROUTE_TEMPLATES)) {
-        if (!isRoom(entry) || !entry.migrated) continue;
+        const file = marks.get(room)?.[0];
+        if (!isRoom(entry) || !file) continue;
         const html = await renderPart({ name: room, route: opened(room) });
         expect(html.startsWith('<!-- never settled -->'), `${room} settles`).toBe(false);
         const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
-        expect(drawn, `${room} (${entry.migrated.file}) draws the ${entry.template} template`).toContain(entry.template);
+        expect(drawn, `${room} (${file}) draws the ${entry.template} template`).toContain(entry.template);
       }
     } finally {
       vi.useRealTimers();
     }
-    // A portal page has no route of its own in the room table to open; one marked migrated is drawn here first.
-    const portal = Object.entries(PORTAL_TEMPLATES).filter(([, entry]) => entry.migrated);
-    expect(
-      portal.map(([room]) => room),
-      'a migrated merchant portal page: open its /pay address above and check it draws its template',
-    ).toEqual([]);
+    // A portal page has no route of its own in the room table to open: one marked migrated is drawn through its /pay
+    // address above, which must be marked in the same screen file (so the loop has checked it draws its template).
+    const drawnAbove = (page: string, file: string) =>
+      Object.keys(ROUTE_TEMPLATES).some((path) => (marks.get(path) ?? []).includes(file) && parsePortalRoute(path)?.room === page);
+    const portal = Object.keys(PORTAL_TEMPLATES).filter((page) => {
+      const file = marks.get(`portal:${page}`)?.[0];
+      return file !== undefined && !drawnAbove(page, file);
+    });
+    expect(portal, 'a migrated merchant portal page: open its /pay address above and check it draws its template').toEqual([]);
   });
 });

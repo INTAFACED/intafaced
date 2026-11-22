@@ -4,8 +4,9 @@ import type { ApiResult } from '../../shared/api';
 import { Button, Field } from '../../shared/ui';
 import { useSession } from '../session';
 import type { StepUpBegin } from '../account';
-import { ResourceView, useBankRead } from './components';
-import { bankWrites, type cardSchema, type CardWalletTokens } from './contracts';
+import { ResourceView, useBankRecord } from './components';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { type cardSchema, type CardWalletTokens } from './contracts';
 import { DisabledAction, Fact } from './DepthParts';
 import { Refusal } from './CardJourney';
 import { StepUpConfirm } from './StepUpConfirm';
@@ -13,6 +14,14 @@ import { cardDepthCopy } from './card-depth-copy';
 import { cardSecretsCopy } from './card-secrets-copy';
 import { withPlainRefusal } from './money-refusal-copy';
 import './bank-depth.css';
+import {
+  BANK_CARDS_SECRETS_OFFERED,
+  BANK_CARDS_REVEAL,
+  BANK_CARDS_PIN_REVEAL,
+  BANK_CARDS_PIN_SET,
+  BANK_CARDS_WALLET_TOKENS,
+  BANK_CARDS_WALLET_PROVISION,
+} from '@intafaced/contracts/bank-cards-procedures';
 
 /**
  * A card's details, PIN and phone wallets (J-bank-14 #3 #4; BK-cctl-03, BK-cctl-04). Each reveal and each new PIN needs
@@ -26,7 +35,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type Offered = { details: boolean; pin: boolean; wallet: boolean; test: boolean; walletNotOffered: boolean };
 
 export function useSecretsOffered(): Offered | null {
-  const read = useBankRead('cards.secretsOffered', undefined);
+  const read = useBankRecord(BANK_CARDS_SECRETS_OFFERED, undefined);
   return read.resource.status === 'ready' ? read.resource.data : null;
 }
 
@@ -64,7 +73,7 @@ export function CardDetailsReveal({ card, offered }: { card: CardRecord; offered
   const words = useStepUpWords('whyDetails');
   const [asking, setAsking] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [shown, setShown] = useState<z.infer<(typeof bankWrites)['cards.reveal']> | null>(null);
+  const [shown, setShown] = useState<ProcedureOutput<typeof BANK_CARDS_REVEAL> | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   useDropAt(shown?.expiresAt ?? null, () => setShown(null));
   if (!offered?.details || card.status === 'closed') return <DisabledAction label={depth('detailsShow')} reason={depth('detailsReason')} />;
@@ -72,12 +81,7 @@ export function CardDetailsReveal({ card, offered }: { card: CardRecord; offered
   async function reveal(revealId: string, stepUpApprovalId: string | null) {
     setBusy(true);
     setFailure(null);
-    const done = await api.mutate(
-      'bank',
-      'cards.reveal',
-      { cardId: card.id, revealId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) },
-      bankWrites['cards.reveal'],
-    );
+    const done = await api.call(BANK_CARDS_REVEAL, { cardId: card.id, revealId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) });
     setBusy(false);
     setAsking(null);
     if (!done.ok) return setFailure(withPlainRefusal(done));
@@ -147,7 +151,7 @@ export function CardPinPanel({ card, offered }: { card: CardRecord; offered: Off
   const [pin, setPin] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const [shown, setShown] = useState<z.infer<(typeof bankWrites)['cards.pin.reveal']> | null>(null);
+  const [shown, setShown] = useState<ProcedureOutput<typeof BANK_CARDS_PIN_REVEAL> | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   useDropAt(shown?.expiresAt ?? null, () => setShown(null));
   if (!offered?.pin || card.status === 'closed') {
@@ -164,24 +168,14 @@ export function CardPinPanel({ card, offered }: { card: CardRecord; offered: Off
     setFailure(null);
     const approval = stepUpApprovalId ? { stepUpApprovalId } : {};
     if (kind === 'view') {
-      const read = await api.mutate(
-        'bank',
-        'cards.pin.reveal',
-        { cardId: card.id, revealId: id, ...approval },
-        bankWrites['cards.pin.reveal'],
-      );
+      const read = await api.call(BANK_CARDS_PIN_REVEAL, { cardId: card.id, revealId: id, ...approval });
       setBusy(false);
       setAsking(null);
       if (!read.ok) return setFailure(withPlainRefusal(read));
       setShown(read.data);
       return;
     }
-    const set = await api.mutate(
-      'bank',
-      'cards.pin.set',
-      { cardId: card.id, commandId: id, pin, ...approval },
-      bankWrites['cards.pin.set'],
-    );
+    const set = await api.call(BANK_CARDS_PIN_SET, { cardId: card.id, commandId: id, pin, ...approval });
     setBusy(false);
     setAsking(null);
     setPin('');
@@ -271,7 +265,7 @@ export function CardPinPanel({ card, offered }: { card: CardRecord; offered: Off
 /** Add the card to a phone wallet, and the wallets it is in with each one's state. */
 export function CardWalletPanel({ card, offered }: { card: CardRecord; offered: Offered | null }) {
   const depth = cardDepthCopy.useCopy().t;
-  const read = useBankRead('cards.walletTokens', { cardId: card.id }, Boolean(offered?.wallet));
+  const read = useBankRecord(BANK_CARDS_WALLET_TOKENS, { cardId: card.id }, Boolean(offered?.wallet));
   if (!offered?.wallet) {
     // The partner's own no reads as the partner's; otherwise no issuer that adds cards to phone wallets is connected.
     const reason = offered?.walletNotOffered ? depth('walletNotOffered') : depth('walletReason');
@@ -304,12 +298,12 @@ function Wallets({ card, tokens, reload }: { card: CardRecord; tokens: CardWalle
     setFailure(null);
     // In the browser there is no phone wallet to hand a nonce over, so each try sends its own; the card partner's
     // payload is not kept here, and the token row is svc-bank's.
-    const done = await api.mutate(
-      'bank',
-      'cards.walletProvision',
-      { cardId: card.id, provisionId: crypto.randomUUID(), wallet, nonce: crypto.randomUUID() },
-      bankWrites['cards.walletProvision'],
-    );
+    const done = await api.call(BANK_CARDS_WALLET_PROVISION, {
+      cardId: card.id,
+      provisionId: crypto.randomUUID(),
+      wallet,
+      nonce: crypto.randomUUID(),
+    });
     setBusy(false);
     if (!done.ok) return setFailure(withPlainRefusal(done));
     reload();

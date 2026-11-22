@@ -17,9 +17,6 @@
 //!   `core_book_without_the_spread_hitch_a_spread_order_never_rests_or_matches_without_its_legs`.
 //! - `spread-fill-publisher.test.ts`, "index.ts, the file the container runs, wires the publisher into the engine":
 //!   the binary is the `serve` slice's and is not written yet.
-//! - "a reused client order id refuses client_order_id_reuse": `core-tif.ts` claims each client order id per account
-//!   and environment in `submit`, and that claim is the `serve` slice's (its admission), not ported yet. The spread
-//!   order journals its client order id here, so the claim has what it reads.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -1187,6 +1184,25 @@ mod idempotency {
             order.get("clientOrderId"),
             Some(&service_kit::json::Json::str("spread:mm:1"))
         );
+    }
+
+    #[test]
+    fn a_reused_client_order_id_refuses_client_order_id_reuse() {
+        let mut built = listed(&[cal_listing()]);
+        let first = place(
+            &mut built.engine,
+            CAL,
+            &spec(Side::Sell, "1", "150").client_order_id("spread:mm:1"),
+        );
+        assert!(first.accepted);
+        let records = journal_len(&built.engine);
+        let again = place(
+            &mut built.engine,
+            CAL,
+            &spec(Side::Sell, "1", "150").client_order_id("spread:mm:1"),
+        );
+        assert_eq!(code(&again), Some("client_order_id_reuse"));
+        assert_eq!(journal_len(&built.engine), records);
     }
 
     #[test]

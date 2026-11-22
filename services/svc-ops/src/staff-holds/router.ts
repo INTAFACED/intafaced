@@ -1,8 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import {
   staffHoldConfirmInputSchema,
-  staffHoldListInputSchema,
-  staffHoldListSchema,
   staffHoldPlaceInputSchema,
   staffHoldReleaseInputSchema,
   staffHoldResultSchema,
@@ -10,6 +8,9 @@ import {
 import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError, STAFF_HOLD_NOT_FOUND } from '../codes.js';
 import type { StaffHoldDesk } from './desk.js';
+import { OPS_STAFF_HOLDS_LIST } from '@intafaced/contracts/ops-staff-holds-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
@@ -29,16 +30,17 @@ function deskError(err: unknown): never {
  */
 export function createStaffHoldsRouter(desk: StaffHoldDesk) {
   return router({
-    list: scopedProcedure('admin:read', guards)
-      .input(staffHoldListInputSchema)
-      .output(staffHoldListSchema)
-      .query(async ({ input }) => {
+    list: mountRecord(
+      OPS_STAFF_HOLDS_LIST,
+      async ({ input }) => {
         try {
           return await desk.list(input.userId);
         } catch (err) {
           return deskError(err);
         }
-      }),
+      },
+      opsRefusal,
+    ),
     place: scopedProcedure('admin:treasury', guards)
       .input(staffHoldPlaceInputSchema)
       .output(staffHoldResultSchema)
