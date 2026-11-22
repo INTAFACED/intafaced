@@ -1,16 +1,10 @@
 import { TRPCError } from '@trpc/server';
-import {
-  opsCapitalScenarioInputSchema,
-  opsCapitalScenarioSchema,
-  opsCapitalSnapshotSchema,
-  opsCapitalThresholdSetInputSchema,
-  opsCapitalThresholdSetOutputSchema,
-} from '@intafaced/contracts/ops-capital';
-import { router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { router } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import type { CapitalDesk } from './desk.js';
-
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
+import { OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD } from '@intafaced/contracts/ops-capital-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 function deskError(err: unknown): never {
   if (err instanceof OpsError) {
@@ -27,34 +21,38 @@ function deskError(err: unknown): never {
  */
 export function createCapitalRouter(desk: CapitalDesk) {
   return router({
-    snapshot: scopedProcedure('admin:read', guards)
-      .output(opsCapitalSnapshotSchema)
-      .query(async () => {
+    snapshot: mountRecord(
+      OPS_CAPITAL_SNAPSHOT,
+      async () => {
         try {
           return await desk.snapshot();
         } catch (err) {
           return deskError(err);
         }
-      }),
-    scenario: scopedProcedure('admin:read', guards)
-      .input(opsCapitalScenarioInputSchema)
-      .output(opsCapitalScenarioSchema)
-      .query(async ({ input }) => {
+      },
+      opsRefusal,
+    ),
+    scenario: mountRecord(
+      OPS_CAPITAL_SCENARIO,
+      async ({ input }) => {
         try {
           return await desk.scenario(input);
         } catch (err) {
           return deskError(err);
         }
-      }),
-    setThreshold: scopedProcedure('admin:write', guards)
-      .input(opsCapitalThresholdSetInputSchema)
-      .output(opsCapitalThresholdSetOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+      },
+      opsRefusal,
+    ),
+    setThreshold: mountRecord(
+      OPS_CAPITAL_SET_THRESHOLD,
+      async ({ ctx, input }) => {
         try {
           return await desk.setThreshold(ctx.principal.userId, input);
         } catch (err) {
           return deskError(err);
         }
-      }),
+      },
+      opsRefusal,
+    ),
   });
 }

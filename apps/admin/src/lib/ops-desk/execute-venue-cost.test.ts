@@ -25,7 +25,19 @@ const request: DeskRequest = {
   asset: 'USD',
   reason: 'TEST invoice 4471 from the custodian',
 };
-const stored = { key: 'venue-cost:2026-10:custody:2', period: '2026-10', category: 'custody', amount: '1250.5', asset: 'USD', version: 2 };
+// The whole answer svc-ops sends for a stored entry: its record reads every field.
+const stored = {
+  key: 'venue-cost:2026-10:custody:2',
+  period: '2026-10',
+  category: 'custody',
+  amount: '1250.5',
+  asset: 'USD',
+  version: 2,
+  sourceNote: 'TEST invoice 4471 from the custodian',
+  enteredBy: '11111111-1111-4111-8111-111111111111',
+  approverId: '22222222-2222-4222-8222-222222222222',
+  enteredAt: '2026-11-01T00:00:00.000Z',
+};
 
 afterEach(() => vi.unstubAllGlobals());
 
