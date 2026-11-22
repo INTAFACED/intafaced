@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { Button, ChoiceGroup, Field, Select } from '@intafaced/ui/lit';
-import { Checkbox, Sheet } from '@intafaced/ui/lit/templates';
+import { Button, Checkbox, ChoiceGroup, Field, Select } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import type { PersonalPayApi } from '../pay-api';
