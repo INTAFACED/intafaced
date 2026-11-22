@@ -546,6 +546,11 @@
   min-block-size: 1.5rem;
 }
 
+/* Text written with its own line breaks (published terms, a plain-text section): the breaks show, long lines still wrap. */
+.lt-prose-lines {
+  white-space: pre-line;
+}
+
 .lt-actions,
 .lt-equal {
   display: flex;
