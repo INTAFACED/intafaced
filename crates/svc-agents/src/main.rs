@@ -1,10 +1,8 @@
 //! The svc-agents process: `svc-agents` serves; `svc-agents migrate [--down]` applies (or reverses) the agents schema's
 //! migrations.
 //!
-//! Serving starts as `services/svc-agents/src/index.ts` does, as far as the ported slices reach: the pool, the schema
-//! check, the bus, the boot upsert of the agents' guardrails, the door, then the port, then the timers. The TypeScript
-//! service stays the one that runs until the switch; until each slice is ported its calls answer "not ported" (500),
-//! and a timer whose work is not ported does not run.
+//! Serving starts as the TypeScript service's `index.ts` did: the pool, the schema check, the bus, the boot upsert of
+//! the agents' guardrails, the door, then the port, then the timers.
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;

@@ -529,16 +529,6 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
-    "@intafaced/svc-agents#typecheck": {
-      "outputs": [],
-      "dependsOn": ["^build", "@intafaced/i18n#build"],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/i18n/**",
-        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
-        "!$TURBO_ROOT$/**/*.tsbuildinfo"
-      ]
-    },
     "@intafaced/svc-edge#typecheck": {
       "outputs": [],
       "dependsOn": [
