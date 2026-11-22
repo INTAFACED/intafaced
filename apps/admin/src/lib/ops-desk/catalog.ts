@@ -24,6 +24,14 @@ import { QUANT_STUDIO_OPERATOR_LIST } from '@intafaced/contracts/quant-studio-re
 import { ACADEMY_AMBASSADORS } from '@intafaced/contracts/academy-ambassadors-procedures';
 import { ACADEMY_OPEN_RESIDENCIES } from '@intafaced/contracts/academy-open-residencies-procedures';
 import { ACADEMY_SEASONS } from '@intafaced/contracts/academy-seasons-procedures';
+import {
+  P2P_OPS_OFFERS,
+  P2P_OPS_TRADES,
+  P2P_OPS_LATE_SETTLEMENTS,
+  P2P_OPS_COUNTS,
+  P2P_OPS_DISPUTE_RATE24H,
+} from '@intafaced/contracts/p2p-ops-procedures';
+import { P2P_DISPUTES_BACKLOG, P2P_DISPUTES_LIST } from '@intafaced/contracts/p2p-disputes-procedures';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
 export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
@@ -1272,9 +1280,8 @@ function p2pOffers(status: OpsOfferStatus, title: string, note: string): ReadSpe
     id: `p2p.offers-${status}`,
     title,
     note: `${note} The 50 newest; the page may be full, so this is not a total (the counts above are).`,
-    module: 'p2p',
     plainName: `${title.toLowerCase()}`,
-    procedure: 'ops.offers',
+    ...readOf(P2P_OPS_OFFERS),
     input: { status, limit: 50 },
     shape: 'list',
     rowsKey: 'offers',
@@ -1304,9 +1311,8 @@ function p2pTrades(status: OpsTradeStatus, title: string, note: string): ReadSpe
     id: `p2p.trades-${status}`,
     title,
     note: `${note} The 50 newest; the page may be full, so this is not a total (the counts above are).`,
-    module: 'p2p',
     plainName: title.toLowerCase(),
-    procedure: 'ops.trades',
+    ...readOf(P2P_OPS_TRADES),
     input: { status, limit: 50 },
     shape: 'list',
     rowsKey: 'trades',
@@ -1383,8 +1389,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.backlog',
         title: 'Dispute backlog',
         note: 'Counts straight from svc-p2p. "Never seen" is open disputes no human has been served yet.',
-        module: 'p2p',
-        procedure: 'disputes.backlog',
+        ...readOf(P2P_DISPUTES_BACKLOG),
         shape: 'record',
         columns: [
           int('open', 'Open'),
@@ -1400,8 +1405,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.disputes',
         title: 'Open disputes',
         note: 'Reading this list does not mark a dispute as seen. The case detail is in the row: reason, who opened it, how it was opened and its escalations.',
-        module: 'p2p',
-        procedure: 'disputes.list',
+        ...readOf(P2P_DISPUTES_LIST),
         input: { status: 'open', limit: 50 },
         shape: 'list',
         rowsKey: 'disputes',
@@ -1449,8 +1453,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.late',
         title: 'Late or failed settlements',
         note: 'Trades resolved but not yet posted to the ledger. Age is in seconds since the decision.',
-        module: 'p2p',
-        procedure: 'ops.lateSettlements',
+        ...readOf(P2P_OPS_LATE_SETTLEMENTS),
         input: { limit: 100 },
         shape: 'list',
         rowsKey: 'trades',
@@ -1484,9 +1487,8 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.counts',
         title: 'Counts by status',
         note: 'Offers and trades in each status, counted by svc-p2p over all time. A status with none is a real zero.',
-        module: 'p2p',
         plainName: 'P2P counts',
-        procedure: 'ops.counts',
+        ...readOf(P2P_OPS_COUNTS),
         shape: 'record',
         columns: [
           int('offers.active', 'Offers open'),
@@ -1506,9 +1508,8 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.dispute-rate',
         title: 'Disputes against trades, last 24 hours',
         note: 'Disputes opened and trades created in the last 24 hours, and their ratio as svc-p2p states it. With no trade in the window there is no ratio, and none is shown.',
-        module: 'p2p',
         plainName: 'the dispute rate',
-        procedure: 'ops.disputeRate24h',
+        ...readOf(P2P_OPS_DISPUTE_RATE24H),
         shape: 'record',
         columns: [
           int('disputesOpened24h', 'Disputes opened'),

@@ -2,5 +2,7 @@
 import { MATCHING_SUBMIT_ORDER } from './matching-submit-order.js';
 import type { ProcedureRecord } from '@intafaced/contracts/procedure';
 
+const part0: readonly ProcedureRecord[] = [MATCHING_SUBMIT_ORDER];
+
 /** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */
-export const EXCHANGE_PROCEDURES: readonly ProcedureRecord[] = [MATCHING_SUBMIT_ORDER];
+export const EXCHANGE_PROCEDURES: readonly ProcedureRecord[] = [...part0];
