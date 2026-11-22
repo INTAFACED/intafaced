@@ -508,7 +508,8 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         {auditPanel}
       </>
     );
-  else if (slug === 'dex' && tab === 'swap') body = <SwapForm />;
+  // The swap is drawn on the Volt desk template, which carries the room's title: the page draws none of its own there.
+  else if (slug === 'dex' && tab === 'swap') body = <SwapForm title={title} description={description} />;
   else if (slug === 'dex' && tab === 'pools')
     body = (
       <>
@@ -582,29 +583,39 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </>
     );
 
+  const swapDesk = slug === 'dex' && tab === 'swap';
+  const eyebrow = (
+    <>
+      <span>{t('bannerLine')}</span>
+      <span className="badge protocol-pill">{t('bannerPill')}</span>
+    </>
+  );
+  const inner = (
+    <>
+      <Tabs
+        label={t('subnav')}
+        items={tabs.map((entry) => entry.id)}
+        value={tab}
+        onChange={(id) => navigate(id === tabs[0]!.id ? `/${slug}` : `/${slug}/${id}`)}
+        labels={Object.fromEntries(tabs.map((entry) => [entry.id, t(`tab_${entry.id}` as 'tab_status')]))}
+      />
+      {slug === 'dex' && <TokensNav />}
+      {body}
+      <Actions actions={actions} snapshot={snapshot} t={t} />
+    </>
+  );
   return (
     <div className="legacy-room protocol-room" lang={copy.forLocale(language).renderedLocale}>
-      <Page
-        title={title}
-        description={description}
-        eyebrow={
-          <>
-            <span>{t('bannerLine')}</span>
-            <span className="badge protocol-pill">{t('bannerPill')}</span>
-          </>
-        }
-      >
-        <Tabs
-          label={t('subnav')}
-          items={tabs.map((entry) => entry.id)}
-          value={tab}
-          onChange={(id) => navigate(id === tabs[0]!.id ? `/${slug}` : `/${slug}/${id}`)}
-          labels={Object.fromEntries(tabs.map((entry) => [entry.id, t(`tab_${entry.id}` as 'tab_status')]))}
-        />
-        {slug === 'dex' && <TokensNav />}
-        {body}
-        <Actions actions={actions} snapshot={snapshot} t={t} />
-      </Page>
+      {swapDesk ? (
+        <div data-testid="page" className="page">
+          <p className="eyebrow">{eyebrow}</p>
+          {inner}
+        </div>
+      ) : (
+        <Page title={title} description={description} eyebrow={eyebrow}>
+          {inner}
+        </Page>
+      )}
     </div>
   );
 }

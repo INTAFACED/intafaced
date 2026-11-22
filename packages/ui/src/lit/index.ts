@@ -7,3 +7,4 @@ export { flat, lit, litLight, solid, pro, litType, renderLitCss } from './tokens
 export * from './components/index.js';
 export { contrastRatio, deltaE2000, hue, luminance, parseColour, toHex } from './colour.js';
 export * from './components/controls.js';
+export { formatAsOf } from '../components/freshness.js';

@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef, useState } from 'react';
-import { formatAsOf } from '@intafaced/ui';
+import { Button, Field, formatAsOf } from '@intafaced/ui/lit';
+import { DeskTemplate, Sheet } from '@intafaced/ui/lit/templates';
 import {
   PRICE_SETTINGS_UNSET,
   type ProtocolFeeSwapOrder,
@@ -9,7 +10,7 @@ import {
   type ProtocolSwapToken,
 } from '@intafaced/contracts/protocol-swap';
 import { navigate } from '../../../app/location';
-import { Button, Dialog, Failure, Field, Panel } from '../../../shared/ui';
+import { Failure } from '../../../shared/failure';
 import { usePreferences } from '../../../shared/preferences';
 import { useInterval, useMounted, useTimeout } from '../../../shared/outside';
 import { useResource, type Resource } from '../../../shared/resource';
@@ -106,7 +107,7 @@ interface Receipt {
  * person's wallet signs and sends each. The status card follows the swap on the chain. Nothing posts to the ledger and
  * nothing is invented: a blank setting, an unreadable chain or a missing pool refuses in words.
  */
-export function SwapForm() {
+export function SwapForm({ title, description }: { title: string; description?: string }) {
   const { language } = usePreferences();
   const { t } = swapCopy.forLocale(language);
   const wallet = useWallet();
@@ -904,7 +905,7 @@ export function SwapForm() {
   };
 
   const tokenSelect = (id: string, label: string, value: string, set: (value: string) => void) => (
-    <label className="field">
+    <label className="lt-field">
       <span id={id}>{label}</span>
       {/* The chosen token's contract, so a copied name cannot pass for the token it copies. */}
       <select
@@ -922,17 +923,15 @@ export function SwapForm() {
         ))}
       </select>
       {value === NATIVE_VALUE && <small>{t('nativeLine')}</small>}
-      {value && value !== NATIVE_VALUE && <small className="numeric">{t('contract', { address: shortContract(value) })}</small>}
-      {value && value !== NATIVE_VALUE && (
-        <small className="numeric" data-testid={id === ids.pay ? 'price-pay' : 'price-receive'}>
-          {priceLine(value)}
-        </small>
-      )}
+      {value && value !== NATIVE_VALUE && <small className="lt-mono">{t('contract', { address: shortContract(value) })}</small>}
+      {value && value !== NATIVE_VALUE && <small data-testid={id === ids.pay ? 'price-pay' : 'price-receive'}>{priceLine(value)}</small>}
     </label>
   );
   const seconds = expiresAt === null ? null : Math.max(0, Math.ceil((expiresAt - now) / 1000));
 
-  return (
+  // The swap is the desk's ticket; the status card is its orders panel. A swap quotes from pools: there is no instrument
+  // price, chart, book or trades to draw here, so those regions are left unused, never filled with figures. Nothing in the room is a whole-room state: the form always stays.
+  const ticket = (
     <>
       {representation && (
         <RepresentationPanel
@@ -948,39 +947,40 @@ export function SwapForm() {
           }}
         />
       )}
-      <Panel title={t('formTitle')}>
-        <p className="muted">{t('formNote', { network })}</p>
+      <section className="lt-grid">
+        <h2>{t('formTitle')}</h2>
+        <p className="lt-hint">{t('formNote', { network })}</p>
         {pairs.resource.status === 'failed' && <Failure result={pairs.resource.failure} retry={pairs.reload} />}
         {settings.resource.status === 'failed' && <Failure result={settings.resource.failure} retry={settings.reload} />}
         <form
           aria-label={t('formTitle')}
-          className="protocol-quote"
+          className="lt-grid"
           onSubmit={(event) => {
             event.preventDefault();
             void startSwap();
           }}
         >
-          <div role="radiogroup" aria-label={t('mode')} className="protocol-actions">
+          <div role="radiogroup" aria-label={t('mode')} className="lt-actions">
             {(['simple', 'manual'] as const).map((entry) => (
-              <label key={entry} className="field field--check">
+              <label key={entry} className="lt-field">
                 <input type="radio" name="swap-mode" value={entry} checked={mode === entry} onChange={() => choose(entry)} />
-                <span>{t(entry)}</span> <small className="muted">{t(entry === 'simple' ? 'simpleHint' : 'manualHint')}</small>
+                <span>{t(entry)}</span> <small>{t(entry === 'simple' ? 'simpleHint' : 'manualHint')}</small>
               </label>
             ))}
           </div>
-          <div role="radiogroup" aria-label={t('swapKind')} className="protocol-actions">
+          <div role="radiogroup" aria-label={t('swapKind')} className="lt-actions">
             {(['exact_in', 'exact_out'] as const).map((entry) => (
-              <label key={entry} className="field field--check">
+              <label key={entry} className="lt-field">
                 <input type="radio" name="swap-kind" value={entry} checked={kind === entry} onChange={() => setKind(entry)} />
                 <span>{t(entry === 'exact_in' ? 'exactIn' : 'exactOut')}</span>{' '}
-                <small className="muted">{t(entry === 'exact_in' ? 'exactInHint' : 'exactOutHint')}</small>
+                <small>{t(entry === 'exact_in' ? 'exactInHint' : 'exactOutHint')}</small>
               </label>
             ))}
           </div>
           {tokenSelect(ids.pay, t('youPay'), tokenInAddress, setTokenIn)}
           {tokenSelect(ids.receive, t('youReceive'), tokenOutAddress, setTokenOut)}
           {pairs.resource.status === 'ready' && tokens.length === 0 && (
-            <p className="muted" id={ids.note}>
+            <p className="lt-hint" id={ids.note}>
               {t('noTokens', { network })}
             </p>
           )}
@@ -1004,30 +1004,28 @@ export function SwapForm() {
             />
           )}
           {useV2Quote && pathQuote && tokenIn && tokenOut && (
-            <dl className="protocol-facts">
+            <dl className="lt-kv">
               <div>
                 <dt>{t('youGet')}</dt>
-                <dd className="numeric" data-testid="amount-out">
+                <dd data-testid="amount-out">
                   {formatUnits(BigInt(pathQuote.path.amountOut), tokenOut.decimals)} {tokenOut.name}
                 </dd>
               </div>
               {!expired && seconds !== null && (
                 <div>
                   <dt>{t('quoteLife')}</dt>
-                  <dd className="numeric" data-testid="quote-countdown">
-                    {t('refreshesIn', { seconds: String(seconds) })}
-                  </dd>
+                  <dd data-testid="quote-countdown">{t('refreshesIn', { seconds: String(seconds) })}</dd>
                 </div>
               )}
             </dl>
           )}
           {useV2Quote && pathLimits?.maxIn != null && tokenIn && (
-            <p className="numeric" data-testid="maximum-paid">
+            <p data-testid="maximum-paid">
               {t('maximumPaid', { amount: formatUnits(pathLimits.maxIn, tokenIn.decimals), token: tokenIn.name })}
             </p>
           )}
           {useV2Quote && pathQuote && pathLimits && pathQuote.path.kind === 'exact_in' && tokenOut && (
-            <p className="numeric" data-testid="minimum-received">
+            <p data-testid="minimum-received">
               {t('minimumReceived', {
                 amount: formatUnits(pathLimits.minOutPerHop[pathLimits.minOutPerHop.length - 1]!, tokenOut.decimals),
                 token: tokenOut.name,
@@ -1035,7 +1033,7 @@ export function SwapForm() {
             </p>
           )}
           {useV2Quote && pathQuote && pathLimits && pathQuote.path.kind === 'exact_in' && pathQuote.path.pools.length > 1 && (
-            <ol aria-label={t('hopMinimums')} className="numeric">
+            <ol aria-label={t('hopMinimums')}>
               {pathQuote.path.hops.map((hop, index) => {
                 const from = tokens.find((entry) => entry.address.toLowerCase() === hop.tokenIn.toLowerCase());
                 const to = tokens.find((entry) => entry.address.toLowerCase() === hop.tokenOut.toLowerCase());
@@ -1053,19 +1051,17 @@ export function SwapForm() {
             </ol>
           )}
           {quote && tokenOut && !useV2Quote && (
-            <dl className="protocol-facts">
+            <dl className="lt-kv">
               <div>
                 <dt>{t('youGet')}</dt>
-                <dd className="numeric" data-testid="amount-out">
+                <dd data-testid="amount-out">
                   {formatUnits(BigInt(quote.quote.amountOut), tokenOut.decimals)} {tokenOut.name}
                 </dd>
               </div>
               {!expired && seconds !== null && (
                 <div>
                   <dt>{t('quoteLife')}</dt>
-                  <dd className="numeric" data-testid="quote-countdown">
-                    {t('refreshesIn', { seconds: String(seconds) })}
-                  </dd>
+                  <dd data-testid="quote-countdown">{t('refreshesIn', { seconds: String(seconds) })}</dd>
                 </div>
               )}
             </dl>
@@ -1073,13 +1069,13 @@ export function SwapForm() {
           {(quote || pathQuote) && expired && (
             <>
               <p role="status">{t('quoteExpired')}</p>
-              <Button variant="secondary" onClick={() => setRefresh((value) => value + 1)}>
+              <Button tone="secondary" onClick={() => setRefresh((value) => value + 1)}>
                 {t('refreshQuote')}
               </Button>
             </>
           )}
           {minOut !== null && tokenOut && !useV2Quote && (
-            <p className="numeric" data-testid="minimum-received">
+            <p data-testid="minimum-received">
               {t('minimumReceived', { amount: formatUnits(minOut, tokenOut.decimals), token: tokenOut.name })}
             </p>
           )}
@@ -1095,7 +1091,7 @@ export function SwapForm() {
                 onChange={(event) => setSlippage(event.target.value)}
               />
               <Button
-                variant="secondary"
+                tone="secondary"
                 disabled={!routes && !useV2Quote && !(tokenIn && tokenOut)}
                 aria-expanded={routesOpen}
                 title={routes ? undefined : t('routeNeedsQuote')}
@@ -1142,9 +1138,9 @@ export function SwapForm() {
           {tokenIn && !nativeIn && (
             <>
               {noPermit && approvalRoute?.route === 'approve_only' && <p role="note">{t('noPermitNote', { token: tokenIn.name })}</p>}
-              <div role="radiogroup" aria-label={t('allowance')} className="protocol-actions">
+              <div role="radiogroup" aria-label={t('allowance')} className="lt-actions">
                 {(['onchain', 'permit', 'standing'] as const).map((entry) => (
-                  <label key={entry} className="field field--check">
+                  <label key={entry} className="lt-field">
                     <input
                       type="radio"
                       name="swap-allowance"
@@ -1153,13 +1149,13 @@ export function SwapForm() {
                       disabled={entry !== 'onchain' && (!v2 || (entry === 'permit' && noPermit))}
                       onChange={() => setAllowance(entry)}
                     />
-                    <span>{t(`allowance_${entry}`)}</span> <small className="muted">{t(`allowanceHint_${entry}`)}</small>
+                    <span>{t(`allowance_${entry}`)}</span> <small>{t(`allowanceHint_${entry}`)}</small>
                   </label>
                 ))}
               </div>
               {allowance === 'standing' && (
                 <>
-                  <label className="field">
+                  <label className="lt-field">
                     <span id={`${ids.note}-expires`}>{t('allowanceExpires')}</span>
                     <select
                       aria-labelledby={`${ids.note}-expires`}
@@ -1175,11 +1171,9 @@ export function SwapForm() {
                       ))}
                     </select>
                   </label>
-                  <p className="numeric" data-testid="allowance-expiry">
-                    {t('allowanceExpiry', { time: dateTime(Math.floor(now / 1000) + standingSeconds) })}
-                  </p>
+                  <p data-testid="allowance-expiry">{t('allowanceExpiry', { time: dateTime(Math.floor(now / 1000) + standingSeconds) })}</p>
                   {approvalRoute?.standing && (
-                    <p className="numeric">
+                    <p>
                       {t('standingInPlace', {
                         amount: formatUnits(BigInt(approvalRoute.standing.amount), tokenIn.decimals),
                         token: tokenIn.name,
@@ -1188,7 +1182,7 @@ export function SwapForm() {
                     </p>
                   )}
                   {approvalRoute?.standing && !renewStanding && (
-                    <Button variant="secondary" onClick={() => setRenewStanding(true)}>
+                    <Button tone="secondary" onClick={() => setRenewStanding(true)}>
                       {t('renewStanding')}
                     </Button>
                   )}
@@ -1209,9 +1203,7 @@ export function SwapForm() {
                 }}
               />
               {deadlineSeconds !== null && !deadlineProblem && (
-                <p className="numeric" data-testid="deadline">
-                  {t('deadlineLine', { time: dateTime(deadlineSeconds) })}
-                </p>
+                <p data-testid="deadline">{t('deadlineLine', { time: dateTime(deadlineSeconds) })}</p>
               )}
               {deadlineProblem && <p role="alert">{deadlineProblem}</p>}
             </>
@@ -1234,33 +1226,48 @@ export function SwapForm() {
               refusal: payInProblem,
             }}
           />
-          <Button type="submit" disabled={!canSwap}>
+          <Button type="submit" tone="primary" disabled={!canSwap}>
             {t('swap')}
           </Button>
           {shownReason && !overCeiling && shownReason !== feeAlert && shownReason !== pathProblem && shownReason !== deadlineProblem && (
-            <p className="protocol-actions__reason" data-swap-reason>
+            <p className="lt-hint" data-swap-reason>
               {shownReason}
             </p>
           )}
           {problem && <p role="alert">{problem}</p>}
         </form>
         {notice && (
-          <Dialog title={t('manualTitle')} onClose={() => closeNotice(false)}>
+          <Sheet open title={t('manualTitle')} onClose={() => closeNotice(false)}>
             <p>{t('manualBody')}</p>
-            <Button onClick={() => closeNotice(true)}>{t('manualAccept')}</Button>
-          </Dialog>
+            <Button tone="primary" onClick={() => closeNotice(true)}>
+              {t('manualAccept')}
+            </Button>
+          </Sheet>
         )}
-      </Panel>
-      {track && (
-        <SwapStatus
-          track={track}
-          onNewQuote={() => {
-            setTrack(null);
-            setRefresh((value) => value + 1);
-          }}
-        />
-      )}
+      </section>
     </>
+  );
+  return (
+    <DeskTemplate
+      title={title}
+      description={description}
+      mode="pro"
+      state={{ kind: 'ready' }}
+      instrument={undefined}
+      chart={undefined}
+      ticket={ticket}
+      orders={
+        track ? (
+          <SwapStatus
+            track={track}
+            onNewQuote={() => {
+              setTrack(null);
+              setRefresh((value) => value + 1);
+            }}
+          />
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -1283,16 +1290,17 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
   const { language } = usePreferences();
   const { t } = swapCopy.forLocale(language);
   return (
-    <Panel title={t('statusTitle')}>
+    <section>
+      <h2>{t('statusTitle')}</h2>
       <section aria-label={t('statusTitle')}>
         <p role="status" data-swap-state={track.state}>
           {t(`state_${track.state}`)}
         </p>
         {track.state === 'failed' && <p>{track.reason ?? t('failedOther')}</p>}
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <div>
             <dt>{t('paid')}</dt>
-            <dd className="numeric">
+            <dd>
               {track.state === 'failed'
                 ? t('nothingPaid')
                 : track.paidAtMost
@@ -1305,7 +1313,7 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
           </div>
           <div>
             <dt>{t('received')}</dt>
-            <dd className="numeric">
+            <dd>
               {track.received !== undefined
                 ? `${formatUnits(track.received, track.tokenOut.decimals)} ${track.tokenOut.name}`
                 : track.state === 'failed'
@@ -1315,12 +1323,12 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
           </div>
           <div>
             <dt>{t('networkFee')}</dt>
-            <dd className="numeric">{feeShown(track, t)}</dd>
+            <dd>{feeShown(track, t)}</dd>
           </div>
         </dl>
         {track.hash && (
           <a
-            className="text-link"
+            className="lt-link"
             href={`/chain/tx/${track.hash}`}
             onClick={(event) => {
               event.preventDefault();
@@ -1330,8 +1338,12 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
             {t('swapEvent')}
           </a>
         )}
-        {track.state === 'failed' && <Button onClick={onNewQuote}>{t('newQuote')}</Button>}
+        {track.state === 'failed' && (
+          <Button tone="primary" onClick={onNewQuote}>
+            {t('newQuote')}
+          </Button>
+        )}
       </section>
-    </Panel>
+    </section>
   );
 }
