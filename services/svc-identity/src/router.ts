@@ -188,6 +188,7 @@ import {
   IDENTITY_AUTH_SIGN_UP_RESEND,
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
 } from '@intafaced/contracts/identity-auth-procedures';
 import {
   IDENTITY_WAITLIST_WAVES_LIST,
@@ -2171,14 +2172,18 @@ export function createIdentityRouter(
        * WebAuthn options for step-up (passkey withdraw). Challenge kind is
        * `step-up` so a passwordless-login assertion cannot be reused here.
        */
-      stepUpOptions: protectedProcedure.mutation(async ({ ctx }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnStepUp(ctx.principal.userId);
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      stepUpOptions: mountRecord(
+        IDENTITY_AUTH_STEP_UP_OPTIONS,
+        async ({ ctx }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnStepUp(ctx.principal.userId);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       stepUp: protectedProcedure
         .input(
