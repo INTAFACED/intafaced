@@ -1,9 +1,18 @@
 import { useRef, useState } from 'react';
-import { Button, DataTable } from '@intafaced/ui/lit';
-import { displayAmount } from '../../../shared/money';
+import { Button } from '@intafaced/ui/lit';
 import { usePolled } from '../../protocol';
 import { canonicalDecimal, draftId, keys, type AsOf, type VenueBalance } from '../venue-api';
-import { AsOfLine, OutcomeLine, TestMark, VENUE_POLL_MS, keepsDraft, useVenueApi, type ActionResult, type RunAction } from './VenueKit';
+import {
+  AsOfLine,
+  BalanceTable,
+  OutcomeLine,
+  TestMark,
+  VENUE_POLL_MS,
+  keepsDraft,
+  useVenueApi,
+  type ActionResult,
+  type RunAction,
+} from './VenueKit';
 import { venueCopy } from './venue-copy';
 
 /**
@@ -149,22 +158,7 @@ function SubAccountBalances({ owner, subAccount, name }: { owner: string; subAcc
     <div data-testid="venue-sub-account" data-sub-account={subAccount}>
       <h3>{t('Sub-account balances', { name })}</h3>
       {rows.length > 0 ? (
-        <DataTable label={t('Sub-account balances', { name })} headers={[t('Asset'), t('Free'), t('Used'), t('Total')]}>
-          {rows.map((b) => (
-            <tr key={b.asset} data-asset={b.asset}>
-              <td>{b.asset}</td>
-              <td className="lt-num lt-end" data-cell="free">
-                {displayAmount(b.free)}
-              </td>
-              <td className="lt-num lt-end" data-cell="used">
-                {displayAmount(b.locked)}
-              </td>
-              <td className="lt-num lt-end" data-cell="total">
-                {displayAmount(b.total)}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <BalanceTable label={t('Sub-account balances', { name })} rows={rows} />
       ) : read.data ? (
         <p className="lt-quiet">{t('No balances')}</p>
       ) : null}

@@ -2,15 +2,8 @@ import { useState } from 'react';
 import type { VenueStatementJob, VenueUp } from '../../../features/trade/venue-api';
 import { useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { deskCopy } from './copy';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-} from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { refusalCopy } from '../../../data';
 import { sha256Hex, statementRange, todayEnd } from './ledger';
 import { clockMinutes } from './time';
@@ -88,60 +81,60 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
       >
         {t('Statement open')}
       </Button>
-      <AlertDialog open={open} onOpenChange={(next) => setOpen(next)}>
-        {open ? (
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Statement title')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Statement intro', { venue: status.venue.displayName })}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="lt-cols-2">
-              <label className="lt-field">
-                <span>{d('Statement from')}</span>
-                <input type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
-              </label>
-              <label className="lt-field">
-                <span>{d('Statement to')}</span>
-                <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
-              </label>
-            </div>
-            <p className="lt-note">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
-            {asked.status === 'refused' ? (
-              <p className="lt-note lt-note-bad" role="alert">
-                {asked.text}
-              </p>
-            ) : null}
-            {job ? (
-              <p className={jobFailed ? NOTE.bad : NOTE.plain} role="status">
-                {job.status === 'finished' && job.rows
-                  ? t('Statement ready', { orders: job.rows.orders, trades: job.rows.trades, movements: job.rows.movements, id: job.id })
-                  : job.status === 'failed'
-                    ? t('Statement failed', { reason: job.error ? refusalCopy(job.error).title : d('Statement refused') })
-                    : d('Statement pending')}
-              </p>
-            ) : null}
-            {job?.sha256 ? <p className="lt-note lt-ref">{d('Statement fingerprint', { sha: job.sha256 })}</p> : null}
-            {saved ? (
-              <p className="lt-note" role="status">
-                {saved}
-              </p>
-            ) : null}
-            <AlertDialogFooter>
-              <Button tone="secondary" onClick={() => setOpen(false)}>
-                {d('Dead man close')}
+      {open ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Statement title')}
+          description={t('Statement intro', { venue: status.venue.displayName })}
+          onClose={() => setOpen(false)}
+        >
+          <div className="lt-cols-2">
+            <label className="lt-field">
+              <span>{d('Statement from')}</span>
+              <input type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
+            </label>
+            <label className="lt-field">
+              <span>{d('Statement to')}</span>
+              <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
+            </label>
+          </div>
+          <p className="lt-note">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
+          {asked.status === 'refused' ? (
+            <p className="lt-note lt-note-bad" role="alert">
+              {asked.text}
+            </p>
+          ) : null}
+          {job ? (
+            <p className={jobFailed ? NOTE.bad : NOTE.plain} role="status">
+              {job.status === 'finished' && job.rows
+                ? t('Statement ready', { orders: job.rows.orders, trades: job.rows.trades, movements: job.rows.movements, id: job.id })
+                : job.status === 'failed'
+                  ? t('Statement failed', { reason: job.error ? refusalCopy(job.error).title : d('Statement refused') })
+                  : d('Statement pending')}
+            </p>
+          ) : null}
+          {job?.sha256 ? <p className="lt-note lt-ref">{d('Statement fingerprint', { sha: job.sha256 })}</p> : null}
+          {saved ? (
+            <p className="lt-note" role="status">
+              {saved}
+            </p>
+          ) : null}
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => setOpen(false)}>
+              {d('Dead man close')}
+            </Button>
+            {job?.status === 'finished' ? (
+              <Button tone="secondary" onClick={() => void save(job)}>
+                {d('Statement download')}
               </Button>
-              {job?.status === 'finished' ? (
-                <Button tone="secondary" onClick={() => void save(job)}>
-                  {d('Statement download')}
-                </Button>
-              ) : null}
-              <Button loading={asked.status === 'busy'} tone="primary" onClick={() => void ask()}>
-                {job?.status === 'pending' ? d('Statement check again') : d('Statement request')}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            ) : null}
+            <Button loading={asked.status === 'busy'} tone="primary" onClick={() => void ask()}>
+              {job?.status === 'pending' ? d('Statement check again') : d('Statement request')}
+            </Button>
+          </div>
+        </Sheet>
+      ) : null}
     </>
   );
 }

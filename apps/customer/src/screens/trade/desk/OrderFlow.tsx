@@ -338,7 +338,7 @@ function TimeAndSales({
                 data-prints={row.prints}
                 data-bar={row.bar}
               >
-                <meter className="lt-meter" min={0} max={1000} value={row.bar} aria-hidden="true" />
+                <meter className="lt-depth" min={0} max={1000} value={row.bar} aria-hidden="true" />
                 <span role="gridcell">{clockSeconds(row.timestamp, zone)}</span>
                 <span role="gridcell" className={printTone(row.side)} data-side={row.side ?? undefined}>
                   {fmtPrice(row.price, market.tickSize)}

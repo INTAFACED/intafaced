@@ -7,7 +7,8 @@ import { deskCopy } from './copy';
 import { useClosedOrders, useRefreshPrivate } from './data';
 import { HistoryFilters } from './HistoryFilters';
 import { filterHistory, NO_HISTORY_FILTER, type HistoryFilter } from './history-filter';
-import { Amount, Button, StateBlock, Tab as TabsTab, TabList, TabPanel as TabsPanel, TabSet } from '@intafaced/ui/lit';
+import { Amount, Button, StateBlock } from '@intafaced/ui/lit';
+import { TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { fmtAmount, isHiddenPath, type Loadable } from './deps';
 import { floorToLot } from './order-math';
 import { flattenOn, type DeskMarket } from './market';
@@ -87,16 +88,23 @@ export const BottomTabs = memo(function BottomTabs({
   );
 
   return (
-    <TabSet value={tab} onValueChange={(value) => onTab(value as Tab)} className="lt-panel">
+    <div className="lt-panel">
       <div data-testid="dk-bottom-head" className="lt-panel-head">
-        <TabList className="lt-grow" aria-label={t('Orders and trades')}>
-          <TabsTab value="open">{t('Open orders')}</TabsTab>
-          <TabsTab value="history">{t('Order history')}</TabsTab>
-          <TabsTab value="trades">{t('Trade history')}</TabsTab>
-          <TabsTab value="assets">{t('Assets')}</TabsTab>
-          {userId ? <TabsTab value="ledger">{t('Ledger tab')}</TabsTab> : null}
-          <TabsTab value="positions">{t('Positions')}</TabsTab>
-        </TabList>
+        <Tabs
+          id="dk-bottom"
+          className="lt-grow"
+          label={t('Orders and trades')}
+          items={[
+            { value: 'open', label: t('Open orders') },
+            { value: 'history', label: t('Order history') },
+            { value: 'trades', label: t('Trade history') },
+            { value: 'assets', label: t('Assets') },
+            ...(userId ? [{ value: 'ledger', label: t('Ledger tab') }] : []),
+            { value: 'positions', label: t('Positions') },
+          ]}
+          value={tab}
+          onChange={(value) => onTab(value as Tab)}
+        />
         {tab === 'open' && openOrders.status === 'ready' ? (
           <>
             <CancelAll symbol={market.symbol} orders={openOrders.data} onDone={refresh} />
@@ -117,12 +125,12 @@ export const BottomTabs = memo(function BottomTabs({
           </a>
         ) : null}
       </div>
-      <TabsPanel value="open" data-testid="dk-bottom-body">
+      <TabPanel id="dk-bottom" value="open" current={tab} testId="dk-bottom-body">
         <LoadState load={openOrders} thing="orders">
           {(rows) => (rows.length === 0 ? <StateBlock kind="empty" title={t('No open orders')} /> : orderTable(rows, true))}
         </LoadState>
-      </TabsPanel>
-      <TabsPanel value="history" data-testid="dk-bottom-body">
+      </TabPanel>
+      <TabPanel id="dk-bottom" value="history" current={tab} testId="dk-bottom-body">
         <LoadState load={closed} thing="orders">
           {(rows) => {
             if (rows.length === 0) return <StateBlock kind="empty" title={t('No order history')} />;
@@ -135,15 +143,15 @@ export const BottomTabs = memo(function BottomTabs({
             );
           }}
         </LoadState>
-      </TabsPanel>
-      <TabsPanel value="trades" data-testid="dk-bottom-body">
+      </TabPanel>
+      <TabPanel id="dk-bottom" value="trades" current={tab} testId="dk-bottom-body">
         <LoadState load={fills} thing="trades">
           {(rows) =>
             rows.length === 0 ? <StateBlock kind="empty" title={t('No trade history')} /> : <FillsTable rows={rows} precision={precision} />
           }
         </LoadState>
-      </TabsPanel>
-      <TabsPanel value="assets" data-testid="dk-bottom-body">
+      </TabPanel>
+      <TabPanel id="dk-bottom" value="assets" current={tab} testId="dk-bottom-body">
         <LoadState load={balances} thing="assets">
           {(held) => {
             const assets = [market.base, market.quote];
@@ -202,15 +210,15 @@ export const BottomTabs = memo(function BottomTabs({
             );
           }}
         </LoadState>
-      </TabsPanel>
+      </TabPanel>
       {userId ? (
-        <TabsPanel value="ledger" data-testid="dk-bottom-body">
+        <TabPanel id="dk-bottom" value="ledger" current={tab} testId="dk-bottom-body">
           {tab === 'ledger' ? <LedgerTab balances={balances} /> : null}
-        </TabsPanel>
+        </TabPanel>
       ) : null}
-      <TabsPanel value="positions" data-testid="dk-bottom-body">
+      <TabPanel id="dk-bottom" value="positions" current={tab} testId="dk-bottom-body">
         <StateBlock kind="empty" title={t('Positions not applicable')} body={t('Positions not applicable note')} />
-      </TabsPanel>
+      </TabPanel>
       {editing && editingMarket ? (
         editing.type === 'stop_limit' || editing.type === 'stop' ? (
           <StopEdit order={editing} market={editingMarket} onDone={refresh} onClose={() => setEditing(null)} />
@@ -218,6 +226,6 @@ export const BottomTabs = memo(function BottomTabs({
           <EditOrder order={editing} market={editingMarket} onDone={refresh} onClose={() => setEditing(null)} />
         )
       ) : null}
-    </TabSet>
+    </div>
   );
 });

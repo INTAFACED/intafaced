@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
-import { DataTable, StateBlock, Tab, TabList, TabPanel, TabSet } from '@intafaced/ui/lit';
+import { StateBlock } from '@intafaced/ui/lit';
+import { Table, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -178,66 +179,99 @@ export function VenueMarketPanel({
           {chartOrders?.(chart !== null && chart.length > 0 ? host : null)}
         </div>
 
-        <TabSet value={tab} onValueChange={(x) => setTab(x as typeof tab)} data-testid="venue-book-tape">
-          <TabList>
-            <Tab value="book">{t('Order book')}</Tab>
-            <Tab value="tape">{t('Last trades')}</Tab>
-          </TabList>
-          <TabPanel value="book">
+        <div data-testid="venue-book-tape">
+          <Tabs
+            id="venue-book-tape"
+            items={[
+              { value: 'book', label: t('Order book') },
+              { value: 'tape', label: t('Last trades') },
+            ]}
+            value={tab}
+            onChange={(x) => setTab(x as typeof tab)}
+          />
+          <TabPanel id="venue-book-tape" value="book" current={tab}>
             {book.data ? (
-              <DataTable
-                label={t('Order book')}
-                headers={[t('Side'), t('Price col', { quote: market.quoteAsset }), t('Size col', { base: market.baseAsset })]}
-              >
-                {[
+              <Table
+                caption={t('Order book')}
+                dense
+                scroll
+                columns={[
+                  { key: 'side', label: t('Side'), cell: (l) => (l.side === 'bid' ? t('Bid') : t('Ask')) },
+                  {
+                    key: 'price',
+                    label: t('Price col', { quote: market.quoteAsset }),
+                    align: 'end',
+                    cell: (l) => price(l.price),
+                    cellMarks: () => ({ 'data-testid': 'venue-book-price' }),
+                  },
+                  {
+                    key: 'amount',
+                    label: t('Size col', { base: market.baseAsset }),
+                    align: 'end',
+                    cell: (l) => price(l.amount),
+                    cellMarks: () => ({ 'data-testid': 'venue-book-amount' }),
+                  },
+                ]}
+                rows={[
                   ...[...book.data.value.asks].reverse().map((l) => ({ side: 'ask' as const, ...l })),
                   ...book.data.value.bids.map((l) => ({ side: 'bid' as const, ...l })),
-                ].map((l) => (
-                  <tr key={`${l.side}:${l.price}`} data-testid="venue-book-row" data-side={l.side}>
-                    <td>{l.side === 'bid' ? t('Bid') : t('Ask')}</td>
-                    <td className="lt-num lt-end" data-testid="venue-book-price">
-                      {price(l.price)}
-                    </td>
-                    <td className="lt-num lt-end" data-testid="venue-book-amount">
-                      {price(l.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </DataTable>
+                ]}
+                rowKey={(l) => `${l.side}:${l.price}`}
+                rowMarks={(l) => ({ 'data-testid': 'venue-book-row', 'data-side': l.side })}
+              />
             ) : (
               <p className="lt-note" role="status">
                 {t('Reading the venue')}
               </p>
             )}
           </TabPanel>
-          <TabPanel value="tape">
+          <TabPanel id="venue-book-tape" value="tape" current={tab}>
             {tape.data && tape.data.value.length === 0 ? (
               <p className="lt-note">{t('No print')}</p>
             ) : tape.data ? (
-              <DataTable
-                label={t('Last trades')}
-                headers={[t('Time'), t('Side'), t('Price col', { quote: market.quoteAsset }), t('Size col', { base: market.baseAsset })]}
-              >
-                {tape.data.value.map((p) => (
-                  <tr key={p.tradeId} data-testid="venue-tape-row" data-trade-id={p.tradeId} data-side={p.takerSide ?? 'unknown'}>
-                    <td>{new Date(p.tradedAt).toLocaleTimeString('en-GB', { timeZone: zoneName(timeZone), hourCycle: 'h23' })}</td>
-                    <td>{p.takerSide === 'buy' ? t('Taker buy') : p.takerSide === 'sell' ? t('Taker sell') : t('Side not published')}</td>
-                    <td className="lt-num lt-end" data-testid="venue-tape-price">
-                      {price(p.price)}
-                    </td>
-                    <td className="lt-num lt-end" data-testid="venue-tape-amount">
-                      {price(p.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </DataTable>
+              <Table
+                caption={t('Last trades')}
+                dense
+                scroll
+                columns={[
+                  {
+                    key: 'time',
+                    label: t('Time'),
+                    cell: (p: VenuePrint) =>
+                      new Date(p.tradedAt).toLocaleTimeString('en-GB', { timeZone: zoneName(timeZone), hourCycle: 'h23' }),
+                  },
+                  {
+                    key: 'side',
+                    label: t('Side'),
+                    cell: (p) =>
+                      p.takerSide === 'buy' ? t('Taker buy') : p.takerSide === 'sell' ? t('Taker sell') : t('Side not published'),
+                  },
+                  {
+                    key: 'price',
+                    label: t('Price col', { quote: market.quoteAsset }),
+                    align: 'end',
+                    cell: (p) => price(p.price),
+                    cellMarks: () => ({ 'data-testid': 'venue-tape-price' }),
+                  },
+                  {
+                    key: 'amount',
+                    label: t('Size col', { base: market.baseAsset }),
+                    align: 'end',
+                    cell: (p) => price(p.amount),
+                    cellMarks: () => ({ 'data-testid': 'venue-tape-amount' }),
+                  },
+                ]}
+                rows={tape.data.value}
+                rowKey={(p) => p.tradeId}
+                rowMarks={(p) => ({ 'data-testid': 'venue-tape-row', 'data-trade-id': p.tradeId, 'data-side': p.takerSide ?? 'unknown' })}
+              />
             ) : (
               <p className="lt-note" role="status">
                 {t('Reading the venue')}
               </p>
             )}
           </TabPanel>
-        </TabSet>
+        </div>
       </div>
     </section>
   );

@@ -24,8 +24,8 @@ import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { venueOrdersCopy } from '../../../features/trade/orders/venue-orders-copy';
 import { deskCopy } from './copy';
-import { Button, Tab, TabList, TabPanel, TabSet } from '@intafaced/ui/lit';
-import { DeskTemplate } from '@intafaced/ui/lit/templates';
+import { Button } from '@intafaced/ui/lit';
+import { DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useDeviceSetting } from '../../../features/trade/hooks';
 import { ChartTrade, clickAmountOk, type ChartPick, type RefusedChartType } from './ChartTrade';
@@ -347,15 +347,15 @@ export function VenueSpotDesk({
   );
   const ticket = (
     <div className="lt-stack">
-      <TabSet value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="lt-panel">
+      <div data-testid="dk-order" className="lt-panel">
         <div className="lt-panel-head">
-          <TabList aria-label={t('Order type')}>
-            {offeredTypes.map((x) => (
-              <Tab key={x} value={x}>
-                {x === 'limit' ? d('Limit') : d('Market')}
-              </Tab>
-            ))}
-          </TabList>
+          <Tabs
+            id="venue-type"
+            label={t('Order type')}
+            items={offeredTypes.map((x) => ({ value: x, label: x === 'limit' ? d('Limit') : d('Market') }))}
+            value={type}
+            onChange={(value) => setType(value as VenueOrderType)}
+          />
           <NotOfferedTypes market={market} />
         </div>
         <div className="lt-row">
@@ -379,7 +379,7 @@ export function VenueSpotDesk({
           ) : null}
           <VenueSelfTradeSelect market={market} />
         </div>
-        <TabPanel value={type}>
+        <TabPanel id="venue-type" value={type} current={type}>
           <div className="lt-stack">
             {(['buy', 'sell'] as const).map((side) => (
               <VenueSideForm
@@ -405,7 +405,7 @@ export function VenueSpotDesk({
             ))}
           </div>
         </TabPanel>
-      </TabSet>
+      </div>
       <VenueConditionalOrders market={market} owner={owner} venueName={status.venue.displayName} />
       <div className="lt-stack" data-testid="venue-side">
         <FeeCurrencyRow />
@@ -446,18 +446,24 @@ export function VenueSpotDesk({
     </div>
   );
   const bottom = (
-    <TabSet value={tab} onValueChange={(x) => setTab(x as typeof tab)} className="lt-panel" data-testid="venue-bottom">
-      <TabList aria-label={v('Open orders')}>
-        <Tab value="open">{v('Open orders')}</Tab>
-        <Tab value="history">{v('Trade history')}</Tab>
-        <Tab value="positions">{v('Positions')}</Tab>
-      </TabList>
+    <div className="lt-panel" data-testid="venue-bottom">
+      <Tabs
+        id="venue-bottom"
+        label={v('Open orders')}
+        items={[
+          { value: 'open', label: v('Open orders') },
+          { value: 'history', label: v('Trade history') },
+          { value: 'positions', label: v('Positions') },
+        ]}
+        value={tab}
+        onChange={(x) => setTab(x as typeof tab)}
+      />
       <OutcomeLine result={lastResult} owner={owner} />
       <a className="lt-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
         {orders('historyTitle')}
       </a>
       <VenueStatement status={status} owner={owner} />
-      <TabPanel value="open">
+      <TabPanel id="venue-bottom" value="open" current={tab}>
         <OrdersTable
           orders={account.openOrders.data}
           test={status.test}
@@ -506,13 +512,13 @@ export function VenueSpotDesk({
           />
         ) : null}
       </TabPanel>
-      <TabPanel value="history">
+      <TabPanel id="venue-bottom" value="history" current={tab}>
         <FillsTable fills={account.fills.data} test={status.test} symbol={market.symbol} tagOf={tagOf} />
       </TabPanel>
-      <TabPanel value="positions">
+      <TabPanel id="venue-bottom" value="positions" current={tab}>
         <p data-testid="venue-positions-na">{t('Positions not applicable')}</p>
       </TabPanel>
-    </TabSet>
+    </div>
   );
   // No market list or book column: the market panel holds ticker, chart, book and tape; the ticket and account beside it.
   return (

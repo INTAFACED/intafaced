@@ -3,15 +3,8 @@ import { usePreferences } from '../../../shared/preferences';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import { draftId, keys, type VenueUp } from '../../../features/trade/venue-api';
 import { useVenueApi, VENUE_POLL_MS, type ActionResult, type RunAction } from '../../../features/trade/venue/VenueKit';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-} from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { deadManChoices, otherSeconds } from './dead-man';
 import { clockSeconds } from './time';
 import { spotVenueCopy } from './venue-copy';
@@ -111,77 +104,77 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
       <Button tone="secondary" size="sm" aria-haspopup="dialog" data-testid="venue-dead-man" onClick={() => setOpen(true)}>
         {label}
       </Button>
-      <AlertDialog open={open && !signing} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-        {open ? (
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Dead man title')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Dead man intro', { venue: status.venue.displayName })}</AlertDialogDescription>
-            </AlertDialogHeader>
-            {!offered ? (
-              <p className="lt-note lt-note-bad" role="status" data-testid="venue-dead-man-not-offered">
-                {t('Dead man not offered', { venue: status.venue.displayName })}
-              </p>
-            ) : choices.length === 0 ? (
-              <p className="lt-note lt-note-bad" role="status">
-                {t('Dead man not published')}
-              </p>
-            ) : (
-              <fieldset className="lt-field" aria-label={t('Dead man after')}>
-                {choices.map((s) => (
-                  <label key={s} className="lt-field">
-                    <input type="radio" name="venue-dead-man" checked={picked === s && choice !== 'other'} onChange={() => setChoice(s)} />
-                    <span>{t('Dead man seconds', { count: s })}</span>
-                  </label>
-                ))}
-                <label className="lt-field">
-                  <input type="radio" name="venue-dead-man" checked={choice === 'other'} onChange={() => setChoice('other')} />
-                  <span>{t('Dead man other')}</span>
+      {open && !signing ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Dead man title')}
+          description={t('Dead man intro', { venue: status.venue.displayName })}
+          onClose={close}
+        >
+          {!offered ? (
+            <p className="lt-note lt-note-bad" role="status" data-testid="venue-dead-man-not-offered">
+              {t('Dead man not offered', { venue: status.venue.displayName })}
+            </p>
+          ) : choices.length === 0 ? (
+            <p className="lt-note lt-note-bad" role="status">
+              {t('Dead man not published')}
+            </p>
+          ) : (
+            <fieldset className="lt-field" aria-label={t('Dead man after')}>
+              {choices.map((s) => (
+                <label key={s} className="lt-field">
+                  <input type="radio" name="venue-dead-man" checked={picked === s && choice !== 'other'} onChange={() => setChoice(s)} />
+                  <span>{t('Dead man seconds', { count: s })}</span>
                 </label>
-                {choice === 'other' ? (
-                  <input
-                    inputMode="numeric"
-                    aria-label={t('Dead man other seconds')}
-                    value={other}
-                    onChange={(event) => setOther(event.target.value)}
-                  />
-                ) : null}
-              </fieldset>
-            )}
-            {armed && !shown ? (
-              <p className="lt-note" role="status">
-                {t('Dead man armed', { time: clockSeconds(cancelsAt, timeZone) })}
-              </p>
-            ) : null}
-            {shown ? (
-              <p className={NOTE_CLASS[shown.tone]} role={shown.tone === 'good' ? 'status' : 'alert'}>
-                {shown.text}
-              </p>
-            ) : null}
-            <AlertDialogFooter>
-              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
-                {t('Dead man close')}
+              ))}
+              <label className="lt-field">
+                <input type="radio" name="venue-dead-man" checked={choice === 'other'} onChange={() => setChoice('other')} />
+                <span>{t('Dead man other')}</span>
+              </label>
+              {choice === 'other' ? (
+                <input
+                  inputMode="numeric"
+                  aria-label={t('Dead man other seconds')}
+                  value={other}
+                  onChange={(event) => setOther(event.target.value)}
+                />
+              ) : null}
+            </fieldset>
+          )}
+          {armed && !shown ? (
+            <p className="lt-note" role="status">
+              {t('Dead man armed', { time: clockSeconds(cancelsAt, timeZone) })}
+            </p>
+          ) : null}
+          {shown ? (
+            <p className={NOTE_CLASS[shown.tone]} role={shown.tone === 'good' ? 'status' : 'alert'}>
+              {shown.text}
+            </p>
+          ) : null}
+          <div className="lt-actions">
+            <Button tone="secondary" size="md" disabled={busy} onClick={close}>
+              {t('Dead man close')}
+            </Button>
+            {offered && armed ? (
+              <Button loading={busy} tone="secondary" size="md" onClick={() => void send(0)}>
+                {t('Dead man disarm')}
               </Button>
-              {offered && armed ? (
-                <Button loading={busy} tone="secondary" size="md" onClick={() => void send(0)}>
-                  {t('Dead man disarm')}
-                </Button>
-              ) : null}
-              {offered && choices.length > 0 ? (
-                <Button
-                  loading={busy}
-                  tone="primary"
-                  size="md"
-                  disabled={picked === null || !owner}
-                  onClick={() => picked !== null && void send(picked)}
-                >
-                  {armed ? t('Dead man refresh') : t('Dead man arm')}
-                </Button>
-              ) : null}
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            ) : null}
+            {offered && choices.length > 0 ? (
+              <Button
+                loading={busy}
+                tone="primary"
+                size="md"
+                disabled={picked === null || !owner}
+                onClick={() => picked !== null && void send(picked)}
+              >
+                {armed ? t('Dead man refresh') : t('Dead man arm')}
+              </Button>
+            ) : null}
+          </div>
+        </Sheet>
+      ) : null}
     </>
   );
 }

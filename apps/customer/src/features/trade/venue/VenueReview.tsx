@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Dialog } from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { uiCopy } from '../../../shared/ui-copy';
 import { displayAmount, parseAmount } from '../../../shared/money';
 import { draftId, keys, type AsOf, type OrderIntent, type VenuePreview, type VenueUp } from '../venue-api';
@@ -62,7 +63,7 @@ export function ReviewDialog({
   onConfirm,
   onClose,
 }: {
-  title: ReactNode;
+  title: string;
   preview: AsOf<VenuePreview>;
   intent: OrderIntent;
   status: VenueUp;
@@ -101,7 +102,7 @@ export function ReviewDialog({
   }
 
   return (
-    <Dialog title={title} onClose={onClose} closeLabel={ui('closeDialog')} closeLang={uiLanguage('closeDialog')}>
+    <Sheet open title={title} onClose={onClose} closeLabel={ui('closeDialog')} closeLang={uiLanguage('closeDialog')}>
       <div data-testid="venue-review" className="lt-stack">
         <TestMark test={status.test} />
         <dl className="lt-kv">
@@ -183,6 +184,6 @@ export function ReviewDialog({
         <OutcomeLine result={result} owner={owner} />
         {after}
       </div>
-    </Dialog>
+    </Sheet>
   );
 }

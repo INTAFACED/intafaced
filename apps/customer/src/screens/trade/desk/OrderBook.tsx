@@ -2,19 +2,8 @@ import { memo, useEffect, useMemo, useRef, useState, type HTMLAttributes, type R
 import type { OrderBook as WireBook, Trade } from '@intafaced/exchange-contract/schemas';
 import { buildBook, buyShare, type BookRow } from './book-math';
 import { deskCopy } from './copy';
-import {
-  Bone,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  StateBlock,
-  Tab,
-  TabList,
-  TabPanel,
-  TabSet,
-} from '@intafaced/ui/lit';
+import { Bone, StateBlock } from '@intafaced/ui/lit';
+import { Select, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice, refusalCopy, type Loadable, type TickerRow } from '../../../data';
 import { useTape } from './data';
 import { useFlash, useNow, useTickDirection } from './hooks';
@@ -26,7 +15,7 @@ import type { Preferences } from '../../../shared/preferences';
 
 /** Kit classes for each side of the book: bids in the gain colour, asks in the loss colour. */
 const SIDE_TONE = { bid: 'lt-up', ask: 'lt-down' } as const;
-const SIDE_METER = { bid: 'lt-meter lt-meter-up', ask: 'lt-meter lt-meter-down' } as const;
+const SIDE_METER = { bid: 'lt-depth lt-depth-up', ask: 'lt-depth lt-depth-down' } as const;
 const MID_TONE = { up: 'lt-num lt-strong lt-up', down: 'lt-num lt-strong lt-down', none: 'lt-num lt-strong' } as const;
 const midTone = (direction: 'up' | 'down' | null) => MID_TONE[direction ?? 'none'];
 const printTone = (side: Trade['side']) => SIDE_TONE[side === 'buy' ? 'bid' : 'ask'];
@@ -158,8 +147,8 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   }, [view]);
 
   const group = useMemo(() => scaleStep(market.tickSize, places), [market.tickSize, places]);
-  const groupItems = useMemo(
-    () => Object.fromEntries([0, 1, 2].map((p) => [String(p), fmtPrice(scaleStep(market.tickSize, p), scaleStep(market.tickSize, p))])),
+  const groupOptions = useMemo(
+    () => [0, 1, 2].map((p) => ({ value: String(p), label: fmtPrice(scaleStep(market.tickSize, p), scaleStep(market.tickSize, p)) })),
     [market.tickSize],
   );
   const amountDecimals = placesOf(market.lotSize);
@@ -179,7 +168,6 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
     nonce.current += 1;
     onPick({ price: row.price, amount: shift ? row.total : '', nonce: nonce.current });
   };
-  const stepLabel = (value: number) => groupItems[String(value)];
 
   // A grid owns rows only (axe aria-required-children): the notes and the buy and sell share sit after it, and a state
   // with no rows (loading, error, refused) is drawn in its place.
@@ -274,7 +262,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
             role="img"
             aria-label={t('Buy and sell share', { buy: share.buy, sell: share.sell })}
           >
-            <meter className="lt-meter lt-meter-up lt-meter-inline" min={0} max={100} value={share.buy} aria-hidden="true" />
+            <meter className="lt-depth lt-depth-up lt-depth-inline" min={0} max={100} value={share.buy} aria-hidden="true" />
             <span className="lt-row lt-row-between lt-small">
               <span className="lt-up">{t('Buy share', { value: share.buy })}</span>
               <span className="lt-down">{t('Sell share', { value: share.sell })}</span>
@@ -317,18 +305,13 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
             <Glyph top="var(--lit-down-text)" bottom="var(--lit-down-text)" />
           </button>
         </div>
-        <Select items={groupItems} value={String(places)} onValueChange={(value) => setPlaces(parseInt(value ?? '0', 10))}>
-          <SelectTrigger size="sm" aria-label={t('Group prices by')}>
-            <SelectValue>{stepLabel(places)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent align="end">
-            {[0, 1, 2].map((p) => (
-              <SelectItem key={p} value={String(p)}>
-                {stepLabel(p)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Select
+          size="sm"
+          label={t('Group prices by')}
+          value={String(places)}
+          onChange={(value) => setPlaces(parseInt(value, 10))}
+          options={groupOptions}
+        />
       </div>
       {grid ? (
         <div className="lt-stack-tight" role="grid" aria-label={t('Order book')}>
@@ -423,18 +406,21 @@ export const BookPanel = memo(function BookPanel({ market, book, ticker, zone, o
   return (
     <div data-testid="dk-book" className="lt-stack" {...frame}>
       {chrome}
-      <TabSet value={tab} onValueChange={(value) => setTab(value as 'book' | 'trades')}>
-        <TabList>
-          <Tab value="book">{t('Order book')}</Tab>
-          <Tab value="trades">{t('Last trades')}</Tab>
-        </TabList>
-        <TabPanel value="book">
-          <BookView market={market} book={book} ticker={ticker} onPick={onPick} />
-        </TabPanel>
-        <TabPanel value="trades">
-          <Tape market={market} zone={zone} onPickPrice={onPickPrice} active={tab === 'trades'} />
-        </TabPanel>
-      </TabSet>
+      <Tabs
+        id="dk-book"
+        items={[
+          { value: 'book', label: t('Order book') },
+          { value: 'trades', label: t('Last trades') },
+        ]}
+        value={tab}
+        onChange={(value) => setTab(value as 'book' | 'trades')}
+      />
+      <TabPanel id="dk-book" value="book" current={tab}>
+        <BookView market={market} book={book} ticker={ticker} onPick={onPick} />
+      </TabPanel>
+      <TabPanel id="dk-book" value="trades" current={tab}>
+        <Tape market={market} zone={zone} onPickPrice={onPickPrice} active={tab === 'trades'} />
+      </TabPanel>
     </div>
   );
 });

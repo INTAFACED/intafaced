@@ -3,15 +3,8 @@ import { useDataEnv } from '../../../data/hooks';
 import { isTerminalOrder, type Order } from '../../../features/trade/trade-api';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-} from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 
 /** A note's classes by its tone. */
 const NOTE = { good: 'lt-note lt-note-good', bad: 'lt-note lt-note-bad' } as const;
@@ -67,35 +60,35 @@ export function CancelAll({ symbol, orders, onDone }: { symbol: string; orders: 
       <Button tone="secondary" size="sm" onClick={() => setOpen(true)}>
         {t('Cancel all', { count: here.length })}
       </Button>
-      <AlertDialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-        {open ? (
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Cancel all title', { pair: symbol })}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Cancel all intro', { count: here.length, pair: symbol })}</AlertDialogDescription>
-            </AlertDialogHeader>
-            {note ? (
-              <p
-                data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
-                className={NOTE[note.tone]}
-                role={note.tone === 'good' ? 'status' : 'alert'}
-              >
-                {note.text}
-              </p>
-            ) : null}
-            <AlertDialogFooter>
-              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
-                {finished ? t('Edit close') : t('Keep orders')}
+      {open ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Cancel all title', { pair: symbol })}
+          description={t('Cancel all intro', { count: here.length, pair: symbol })}
+          onClose={close}
+        >
+          {note ? (
+            <p
+              data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
+              className={NOTE[note.tone]}
+              role={note.tone === 'good' ? 'status' : 'alert'}
+            >
+              {note.text}
+            </p>
+          ) : null}
+          <div className="lt-actions">
+            <Button tone="secondary" size="md" disabled={busy} onClick={close}>
+              {finished ? t('Edit close') : t('Keep orders')}
+            </Button>
+            {finished ? null : (
+              <Button loading={busy} tone="primary" size="md" onClick={() => void confirm()}>
+                {t('Cancel all confirm')}
               </Button>
-              {finished ? null : (
-                <Button loading={busy} tone="primary" size="md" onClick={() => void confirm()}>
-                  {t('Cancel all confirm')}
-                </Button>
-              )}
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            )}
+          </div>
+        </Sheet>
+      ) : null}
     </>
   );
 }

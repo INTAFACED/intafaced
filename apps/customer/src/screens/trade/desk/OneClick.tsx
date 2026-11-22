@@ -16,15 +16,8 @@ import type { Order } from '../../../features/trade/trade-api';
 import { fitsPlaces } from '../../../features/account/trading-settings';
 import { useDataEnv } from '../../../data/hooks';
 import { useDeskApi } from './data';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-} from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from '../../../data';
 import type { InstantState, InstantWrite } from './instant';
 import type { FlowMarket } from './order-flow';
@@ -102,35 +95,38 @@ function InstantSwitch({ instant, zone }: { instant: InstantControl; zone: Zone 
           {note}
         </span>
       ) : null}
-      <AlertDialog open={asking} onOpenChange={(next) => (next ? setAsking(true) : !saving && setAsking(false))}>
-        {asking ? (
-          <AlertDialogContent data-testid="of-instant-summary">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Instant summary title')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Instant summary intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <ul className="lt-stack-tight">
-              <li>{t('Instant summary sends')}</li>
-              <li>{t('Instant summary market')}</li>
-              <li>{t('Instant summary one click')}</li>
-              <li>{t('Instant summary checks')}</li>
-              <li>{t('Instant summary off')}</li>
-            </ul>
-            <label className="lt-field">
-              <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
-              <span>{t('Instant agree')}</span>
-            </label>
-            <AlertDialogFooter>
-              <Button tone="secondary" size="md" disabled={saving} onClick={() => setAsking(false)}>
-                {t('Instant keep off')}
-              </Button>
-              <Button loading={saving} tone="primary" size="md" disabled={!agreed} onClick={() => void accept()}>
-                {t('Instant turn on')}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+      {asking ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Instant summary title')}
+          description={t('Instant summary intro')}
+          testId="of-instant-summary"
+          onClose={() => {
+            if (!saving) setAsking(false);
+          }}
+        >
+          <ul className="lt-stack-tight">
+            <li>{t('Instant summary sends')}</li>
+            <li>{t('Instant summary market')}</li>
+            <li>{t('Instant summary one click')}</li>
+            <li>{t('Instant summary checks')}</li>
+            <li>{t('Instant summary off')}</li>
+          </ul>
+          <label className="lt-field">
+            <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
+            <span>{t('Instant agree')}</span>
+          </label>
+          <div className="lt-actions">
+            <Button tone="secondary" size="md" disabled={saving} onClick={() => setAsking(false)}>
+              {t('Instant keep off')}
+            </Button>
+            <Button loading={saving} tone="primary" size="md" disabled={!agreed} onClick={() => void accept()}>
+              {t('Instant turn on')}
+            </Button>
+          </div>
+        </Sheet>
+      ) : null}
     </div>
   );
 }
@@ -292,33 +288,34 @@ export function RowCancelView<O extends CancelRow>({
           {state === 'uncertain' ? t('Cancel unsure') : t('Cancel not done')}
         </span>
       ) : null}
-      <AlertDialog open={asking} onOpenChange={(next) => (next ? setAsking(true) : state !== 'busy' && setAsking(false))}>
-        {asking ? (
-          <AlertDialogContent data-testid="of-cancel-review">
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {t(orders.length === 1 ? 'Cancel review title one' : 'Cancel review title many', { n: orders.length })}
-              </AlertDialogTitle>
-              <AlertDialogDescription>{t('Cancel review intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <ul className="lt-stack-tight">
-              {orders.map((order) => (
-                <li key={order.id} data-testid="of-cancel-line" data-order-id={order.id}>
-                  {describe(order)}
-                </li>
-              ))}
-            </ul>
-            <AlertDialogFooter>
-              <Button tone="secondary" size="md" disabled={state === 'busy'} onClick={() => setAsking(false)}>
-                {t('Keep orders')}
-              </Button>
-              <Button loading={state === 'busy'} tone="primary" size="md" onClick={() => void cancel()}>
-                {t(orders.length === 1 ? 'Cancel review confirm one' : 'Cancel review confirm many', { n: orders.length })}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+      {asking ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t(orders.length === 1 ? 'Cancel review title one' : 'Cancel review title many', { n: orders.length })}
+          description={t('Cancel review intro')}
+          testId="of-cancel-review"
+          onClose={() => {
+            if (state !== 'busy') setAsking(false);
+          }}
+        >
+          <ul className="lt-stack-tight">
+            {orders.map((order) => (
+              <li key={order.id} data-testid="of-cancel-line" data-order-id={order.id}>
+                {describe(order)}
+              </li>
+            ))}
+          </ul>
+          <div className="lt-actions">
+            <Button tone="secondary" size="md" disabled={state === 'busy'} onClick={() => setAsking(false)}>
+              {t('Keep orders')}
+            </Button>
+            <Button loading={state === 'busy'} tone="primary" size="md" onClick={() => void cancel()}>
+              {t(orders.length === 1 ? 'Cancel review confirm one' : 'Cancel review confirm many', { n: orders.length })}
+            </Button>
+          </div>
+        </Sheet>
+      ) : null}
     </>
   );
 }

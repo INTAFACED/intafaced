@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Button, Dialog, Field } from '@intafaced/ui/lit';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { uiCopy } from '../../../shared/ui-copy';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
@@ -265,7 +266,7 @@ export function DepositDialog({ route, test, onClose }: { route: DepositRoute | 
   }
 
   return (
-    <Dialog title={t('Deposit title')} onClose={onClose} closeLabel={closeLabel}>
+    <Sheet open title={t('Deposit title')} onClose={onClose} closeLabel={closeLabel}>
       <div className="lt-stack" data-testid="venue-deposit">
         <TestMark test={test} />
         {route ? (
@@ -315,7 +316,7 @@ export function DepositDialog({ route, test, onClose }: { route: DepositRoute | 
           </p>
         ) : null}
       </div>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -385,7 +386,7 @@ export function WithdrawDialog({
 
   return (
     <>
-      <Dialog title={t('Withdraw title')} onClose={onClose} closeLabel={closeLabel}>
+      <Sheet open title={t('Withdraw title')} onClose={onClose} closeLabel={closeLabel}>
         <div className="lt-stack" data-testid="venue-withdraw">
           <TestMark test={test} />
           <Field
@@ -427,9 +428,9 @@ export function WithdrawDialog({
             {t('Withdraw send')}
           </Button>
         </div>
-      </Dialog>
+      </Sheet>
       {stepUp && canonical ? (
-        <Dialog title={s('title')} onClose={() => setStepUp(false)} closeLabel={closeLabel}>
+        <Sheet open title={s('title')} onClose={() => setStepUp(false)} closeLabel={closeLabel}>
           <StepUpConfirm
             request={() => ({
               scope: 'trade.step_up.venue.withdraw',
@@ -449,7 +450,7 @@ export function WithdrawDialog({
             disabled={busy}
             onApproved={(id) => void signed(id)}
           />
-        </Dialog>
+        </Sheet>
       ) : null}
     </>
   );

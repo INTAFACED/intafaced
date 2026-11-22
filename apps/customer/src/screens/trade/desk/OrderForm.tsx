@@ -15,23 +15,8 @@ import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
 import { useDeskApi, useFeeToken, useMyFees, useOpenOrders, useRefreshPrivate } from './data';
 import { feeTokenChoice, type FeeTokenChoice } from './fee-token';
-import {
-  Amount,
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
-  Bone,
-  Button,
-  StateBlock,
-  TabSet,
-  TabList,
-  TabPanel,
-  Tab,
-} from '@intafaced/ui/lit';
+import { Amount, Bone, Button, StateBlock } from '@intafaced/ui/lit';
+import { DecimalInput, Sheet, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPct, fmtPrice, refusalCopy, type Loadable } from './deps';
 import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import { MoreOrderTypes, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
@@ -713,7 +698,7 @@ function SideForm({
   const mine = myFees.status === 'ready' ? (myFees.data[market.symbol] ?? null) : null;
 
   const stopInput = (label: string) => (
-    <AmountInput
+    <DecimalInput
       label={label}
       value={stopPrice}
       onValueChange={(next) => edit(() => setStopPrice(next))}
@@ -746,7 +731,7 @@ function SideForm({
     >
       {isStopTab(type) ? stopInput(t('Stop price')) : null}
       {type === 'bracket' ? (
-        <AmountInput
+        <DecimalInput
           label={t('Entry price')}
           value={price}
           onValueChange={(next) => edit(() => (setPrice(next), setTotalEdit(null)))}
@@ -761,7 +746,7 @@ function SideForm({
           aria-label={t('Entry price')}
         />
       ) : priced ? (
-        <AmountInput
+        <DecimalInput
           label={type === 'oco' ? t('Take profit') : type === 'oto' ? t('Entry price') : t('Price')}
           value={price}
           onValueChange={(next) => edit(() => (setPrice(next), setTotalEdit(null)))}
@@ -776,7 +761,7 @@ function SideForm({
           aria-label={type === 'oco' ? t('Take profit') : type === 'oto' ? t('Entry price') : t('Price')}
         />
       ) : (
-        <AmountInput
+        <DecimalInput
           label={t('Price')}
           value=""
           onValueChange={() => undefined}
@@ -789,7 +774,7 @@ function SideForm({
         />
       )}
       {type === 'bracket' || type === 'oto' ? (
-        <AmountInput
+        <DecimalInput
           label={type === 'oto' ? t('Close price') : t('Take profit')}
           value={takeProfit}
           onValueChange={(next) => edit(() => setTakeProfit(next))}
@@ -804,7 +789,7 @@ function SideForm({
       ) : null}
       {hasExits(type) ? stopInput(t('Stop loss')) : null}
       {isBuyOco(side, type) ? (
-        <AmountInput
+        <DecimalInput
           label={t('Stop loss limit')}
           value={stopLimit}
           onValueChange={(next) => edit(() => (setStopLimit(next), setTotalEdit(null)))}
@@ -817,7 +802,7 @@ function SideForm({
           aria-label={t('Stop loss limit')}
         />
       ) : null}
-      <AmountInput
+      <DecimalInput
         label={t('Amount')}
         value={amount}
         onValueChange={(next) => edit(() => (setAmount(next), setTotalEdit(null)))}
@@ -857,7 +842,7 @@ function SideForm({
           ))}
         </div>
       ) : null}
-      <AmountInput
+      <DecimalInput
         label={priced ? t('Total') : marketBuy ? t('Spend up to') : t('Total estimate')}
         value={total}
         onValueChange={(next) =>
@@ -979,30 +964,27 @@ function SideForm({
         ) : null}
       </div>
 
-      <AlertDialog
-        open={review !== null}
-        onOpenChange={(open) => {
-          if (!open && !busyRef.current) setReview(null);
-        }}
-      >
-        {review ? (
-          <AlertDialogContent className="lt-stack">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{side === 'buy' ? t('Review buy') : t('Review sell')}</AlertDialogTitle>
-              <AlertDialogDescription>{review.changed ? t('Review changed') : t('Review intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <ReviewRows market={market} review={review} side={side} tokenChoice={tokenChoice} />
-            <AlertDialogFooter>
-              <Button tone="secondary" size="md" disabled={busy} onClick={() => setReview(null)}>
-                {t('Cancel')}
-              </Button>
-              <Button tone={side === 'buy' ? 'up' : 'down'} size="md" loading={busy} onClick={() => void confirm()}>
-                {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+      {review !== null ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={side === 'buy' ? t('Review buy') : t('Review sell')}
+          description={review.changed ? t('Review changed') : t('Review intro')}
+          onClose={() => {
+            if (!busyRef.current) setReview(null);
+          }}
+        >
+          <ReviewRows market={market} review={review} side={side} tokenChoice={tokenChoice} />
+          <div className="lt-actions">
+            <Button tone="secondary" size="md" disabled={busy} onClick={() => setReview(null)}>
+              {t('Cancel')}
+            </Button>
+            <Button tone={side === 'buy' ? 'up' : 'down'} size="md" loading={busy} onClick={() => void confirm()}>
+              {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
+            </Button>
+          </div>
+        </Sheet>
+      ) : null}
     </form>
   );
 }
@@ -1469,26 +1451,21 @@ export const OrderPanel = memo(function OrderPanel({
     lead,
   } as const;
   return (
-    <TabSet
-      value={type}
-      onValueChange={(value) => {
-        setType(value as OrderType);
-        // A bracket entry resolves at once unless the trader picks "Rest on the book": resting is never the default.
-        if (value === 'bracket') setTif('IOC');
-        // An OTO buy waits on the book for its price by default; its close is placed when it fills.
-        if (value === 'oto') setTif('GTC');
-      }}
-      data-testid="dk-order"
-      className="lt-panel"
-    >
+    <div data-testid="dk-order" className="lt-panel">
       <div className="lt-row">
-        <TabList aria-label={t('Order type')}>
-          {SPOT_TICKET_ORDER_TYPES.map((kind) => (
-            <Tab key={kind} value={kind}>
-              {t(TYPE_TAB_KEY[kind])}
-            </Tab>
-          ))}
-        </TabList>
+        <Tabs
+          id="dk-type"
+          label={t('Order type')}
+          items={SPOT_TICKET_ORDER_TYPES.map((kind) => ({ value: kind, label: t(TYPE_TAB_KEY[kind]) }))}
+          value={type}
+          onChange={(value) => {
+            setType(value as OrderType);
+            // A bracket entry resolves at once unless the trader picks "Rest on the book": resting is never the default.
+            if (value === 'bracket') setTif('IOC');
+            // An OTO buy waits on the book for its price by default; its close is placed when it fills.
+            if (value === 'oto') setTif('GTC');
+          }}
+        />
         <MoreOrderTypes />
         {market.open ? <TifSelect type={type} tif={tif} onTif={setTif} /> : null}
         {market.open && tif === 'GTD' ? (
@@ -1527,7 +1504,7 @@ export const OrderPanel = memo(function OrderPanel({
           )}
         </div>
       ) : (
-        <TabPanel value={type} className="lt-stack">
+        <TabPanel id="dk-type" value={type} current={type} className="lt-stack">
           {pending.state === 'pending' && !isInFlight(pending.value.id) ? (
             <div data-testid="dk-note--warn" className="lt-callout lt-callout-warn" role="status">
               <p className="lt-strong">{t('Checking your order')}</p>
@@ -1572,6 +1549,6 @@ export const OrderPanel = memo(function OrderPanel({
           )}
         </TabPanel>
       )}
-    </TabSet>
+    </div>
   );
 });

@@ -1,5 +1,6 @@
 import { deskCopy } from './copy';
-import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { Select } from '@intafaced/ui/lit/templates';
 import { isFiltering, NO_HISTORY_FILTER, type HistoryFilter } from './history-filter';
 
 type Key = keyof HistoryFilter;
@@ -36,7 +37,6 @@ export function HistoryFilters({ filter, onFilter }: { filter: HistoryFilter; on
   return (
     <div className="lt-row" role="group" aria-label={t('Order history')}>
       {OPTIONS.map(({ key, values }) => {
-        const items = Object.fromEntries(values.map((value) => [value, word(key, value)]));
         const id = `dk-hfilter-${key}`;
         return (
           <div className="lt-stack-tight" key={key}>
@@ -44,21 +44,12 @@ export function HistoryFilters({ filter, onFilter }: { filter: HistoryFilter; on
               {heading[key]}
             </span>
             <Select
-              items={items}
+              size="sm"
+              labelledBy={id}
               value={filter[key]}
-              onValueChange={(next) => (next && next !== filter[key] ? onFilter({ ...filter, [key]: next } as HistoryFilter) : undefined)}
-            >
-              <SelectTrigger size="sm" aria-labelledby={id}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {values.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {items[value]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(next) => (next !== filter[key] ? onFilter({ ...filter, [key]: next } as HistoryFilter) : undefined)}
+              options={values.map((value) => ({ value, label: word(key, value) }))}
+            />
           </div>
         );
       })}

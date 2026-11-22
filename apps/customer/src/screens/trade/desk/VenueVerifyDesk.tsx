@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { Button, Tab, TabList, TabPanel, TabSet } from '@intafaced/ui/lit';
-import { DeskTemplate } from '@intafaced/ui/lit/templates';
+import { Button } from '@intafaced/ui/lit';
+import { DecimalInput, DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { refusalCopy } from '../../../data';
 import { type VenueUp } from '../../../features/trade/venue-api';
 import { TestMark, VenueHeader } from '../../../features/trade/venue/VenueKit';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
-import { AmountInput } from './deps';
 import { spotVenueCopy } from './venue-copy';
 import type { VenueOrderType, VenueSide } from './venue-desk';
 import { KYC_REQUIRED } from './venue-access';
@@ -59,21 +58,27 @@ export function VenueVerifyDesk({ status, symbol }: { status: VenueUp; symbol: s
     </section>
   );
   const ticket = (
-    <TabSet value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="lt-panel">
+    <div data-testid="dk-order" className="lt-panel">
       <div className="lt-panel-head">
-        <TabList aria-label={t('Order type')}>
-          <Tab value="limit">{d('Limit')}</Tab>
-          <Tab value="market">{d('Market')}</Tab>
-        </TabList>
+        <Tabs
+          id="venue-type"
+          label={t('Order type')}
+          items={[
+            { value: 'limit', label: d('Limit') },
+            { value: 'market', label: d('Market') },
+          ]}
+          value={type}
+          onChange={(value) => setType(value as VenueOrderType)}
+        />
       </div>
-      <TabPanel value={type}>
+      <TabPanel id="venue-type" value={type} current={type}>
         <div className="lt-stack">
           {(['buy', 'sell'] as const).map((side) => (
             <VerifySideForm key={side} side={side} type={type} base={base} quote={quote} />
           ))}
         </div>
       </TabPanel>
-    </TabSet>
+    </div>
   );
   // Every control stays in reach: the order buttons are off with the way to Verify, so the desk is ready, not a gate.
   return (
@@ -109,7 +114,7 @@ function VerifySideForm({ side, type, base, quote }: { side: VenueSide; type: Ve
       aria-label={side === 'buy' ? d('Buy form', { asset: base }) : d('Sell form', { asset: base })}
       onSubmit={(event) => event.preventDefault()}
     >
-      <AmountInput
+      <DecimalInput
         label={d('Price')}
         value={type === 'limit' ? price : ''}
         onValueChange={setPrice}
@@ -120,7 +125,7 @@ function VerifySideForm({ side, type, base, quote }: { side: VenueSide; type: Ve
         placeholder={type === 'market' ? d('Market price word') : undefined}
         aria-label={d('Price')}
       />
-      <AmountInput
+      <DecimalInput
         label={d('Amount')}
         value={amount}
         onValueChange={setAmount}

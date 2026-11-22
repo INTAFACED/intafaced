@@ -10,16 +10,8 @@ import {
   type VenueUp,
 } from '../../../features/trade/venue-api';
 import { useVenueApi, type ActionResult, type RunAction } from '../../../features/trade/venue/VenueKit';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
-  Button,
-} from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { DecimalInput, Sheet } from '@intafaced/ui/lit/templates';
 import { placesOf } from './text';
 import { spotVenueCopy } from './venue-copy';
 
@@ -210,89 +202,92 @@ export function VenueEditOrder({
 
   const pricePlaces = placesOf(market?.tickSize ?? order.price);
   const amountPlaces = placesOf(market?.lotSize ?? order.remaining);
-  return (
-    <AlertDialog open={!signing} onOpenChange={(next) => (next || busy ? null : onClose())}>
-      <AlertDialogContent data-testid="venue-edit">
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t('Edit title', { side: order.side, symbol: order.symbol })}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {t('Edit intro', { amount: displayAmount(order.remaining), price: displayAmount(order.price), id: cloid })}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        {review ? (
-          <div data-testid="venue-replace-review">
-            <p>
-              {t('Replace review', {
-                old: displayAmount(order.price),
-                amount: displayAmount(review.intent.amount),
-                price: displayAmount(review.intent.price),
-              })}
-            </p>
-            <p data-testid="venue-replace-id">{t('Replace id', { id: review.intent.clientOrderKey })}</p>
-            <p data-testid="venue-replace-lock">
-              {t('Replace lock', { lock: `${displayAmount(review.preview.lock.amount)} ${review.preview.lock.asset}` })}
-            </p>
-          </div>
-        ) : (
-          <>
-            <AmountInput
-              label={t('Price')}
-              value={price}
-              onValueChange={(next) => {
-                setPrice(next);
-                setNote(null);
-              }}
-              precision={pricePlaces}
-              aria-label={t('Price')}
-            />
-            <AmountInput
-              label={t('Amount left')}
-              value={amount}
-              onValueChange={(next) => {
-                setAmount(next);
-                setNote(null);
-              }}
-              precision={amountPlaces}
-              aria-label={t('Amount left')}
-            />
-            <p className="lt-note">{samePrice ? (inPlace ? t('Amend in place note') : t('Amend replace note')) : t('New price note')}</p>
-          </>
-        )}
-        {note ? (
-          <p
-            className={NOTE_CLASS[note.tone]}
-            role={note.tone === 'good' ? 'status' : 'alert'}
-            data-testid="venue-edit-note"
-            data-code={note.code ?? ''}
-          >
-            {note.text}
+  return !signing ? (
+    <Sheet
+      open
+      role="alertdialog"
+      title={t('Edit title', { side: order.side, symbol: order.symbol })}
+      description={t('Edit intro', { amount: displayAmount(order.remaining), price: displayAmount(order.price), id: cloid })}
+      testId="venue-edit"
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      {review ? (
+        <div data-testid="venue-replace-review">
+          <p>
+            {t('Replace review', {
+              old: displayAmount(order.price),
+              amount: displayAmount(review.intent.amount),
+              price: displayAmount(review.intent.price),
+            })}
           </p>
-        ) : null}
-        <AlertDialogFooter>
-          <Button tone="secondary" disabled={busy} onClick={onClose}>
-            {t('Close')}
+          <p data-testid="venue-replace-id">{t('Replace id', { id: review.intent.clientOrderKey })}</p>
+          <p data-testid="venue-replace-lock">
+            {t('Replace lock', { lock: `${displayAmount(review.preview.lock.amount)} ${review.preview.lock.asset}` })}
+          </p>
+        </div>
+      ) : (
+        <>
+          <DecimalInput
+            placeholder="0"
+            label={t('Price')}
+            value={price}
+            onValueChange={(next) => {
+              setPrice(next);
+              setNote(null);
+            }}
+            precision={pricePlaces}
+            aria-label={t('Price')}
+          />
+          <DecimalInput
+            placeholder="0"
+            label={t('Amount left')}
+            value={amount}
+            onValueChange={(next) => {
+              setAmount(next);
+              setNote(null);
+            }}
+            precision={amountPlaces}
+            aria-label={t('Amount left')}
+          />
+          <p className="lt-note">{samePrice ? (inPlace ? t('Amend in place note') : t('Amend replace note')) : t('New price note')}</p>
+        </>
+      )}
+      {note ? (
+        <p
+          className={NOTE_CLASS[note.tone]}
+          role={note.tone === 'good' ? 'status' : 'alert'}
+          data-testid="venue-edit-note"
+          data-code={note.code ?? ''}
+        >
+          {note.text}
+        </p>
+      ) : null}
+      <div className="lt-actions">
+        <Button tone="secondary" disabled={busy} onClick={onClose}>
+          {t('Close')}
+        </Button>
+        {review ? (
+          <Button tone="primary" disabled={busy} onClick={() => void confirm()}>
+            {t('Confirm replace')}
           </Button>
-          {review ? (
-            <Button tone="primary" disabled={busy} onClick={() => void confirm()}>
-              {t('Confirm replace')}
-            </Button>
-          ) : samePrice && inPlace ? (
-            <Button tone="primary" disabled={busy || !amountOk} onClick={() => void changeAmount()}>
-              {t('Change amount')}
-            </Button>
-          ) : samePrice ? (
-            <Button tone="primary" disabled={busy || !amountOk} onClick={() => void startReview()}>
-              {t('Review new amount')}
-            </Button>
-          ) : (
-            <Button tone="primary" disabled={busy || !amountOk || price.trim() === ''} onClick={() => void startReview()}>
-              {t('Review new price')}
-            </Button>
-          )}
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
+        ) : samePrice && inPlace ? (
+          <Button tone="primary" disabled={busy || !amountOk} onClick={() => void changeAmount()}>
+            {t('Change amount')}
+          </Button>
+        ) : samePrice ? (
+          <Button tone="primary" disabled={busy || !amountOk} onClick={() => void startReview()}>
+            {t('Review new amount')}
+          </Button>
+        ) : (
+          <Button tone="primary" disabled={busy || !amountOk || price.trim() === ''} onClick={() => void startReview()}>
+            {t('Review new price')}
+          </Button>
+        )}
+      </div>
+    </Sheet>
+  ) : null;
 }
 
 type Scope =
@@ -456,45 +451,39 @@ export function VenueCancelMany({
           </Button>
         </p>
       ) : null}
-      <AlertDialog open={scope !== null && !signing} onOpenChange={(next) => (next ? null : close())}>
-        {scope ? (
-          <AlertDialogContent data-testid="venue-cancel-ask">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{title}</AlertDialogTitle>
-              <AlertDialogDescription>{intro}</AlertDialogDescription>
-            </AlertDialogHeader>
-            {chosen.length > most ? (
-              <p className="lt-note lt-note-bad" role="alert">
-                {t('Cancel too many', { count: chosen.length, most, venue: status.venue.displayName })}
-              </p>
-            ) : null}
-            {lines ? (
-              <ul data-testid="venue-cancel-lines">
-                {lines.map((l) => (
-                  <li key={l.id} data-client-order-id={l.id} data-ok={l.ok ? 'yes' : 'no'}>
-                    {l.text}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {note ? (
-              <p className="lt-note lt-note-bad" role="alert" data-code={note.code ?? ''}>
-                {note.text}
-              </p>
-            ) : null}
-            <AlertDialogFooter>
-              <Button tone="secondary" disabled={busy} onClick={close}>
-                {lines ? t('Close') : t('Keep orders')}
+      {scope !== null && !signing ? (
+        <Sheet open role="alertdialog" title={title} description={intro} testId="venue-cancel-ask" onClose={close}>
+          {chosen.length > most ? (
+            <p className="lt-note lt-note-bad" role="alert">
+              {t('Cancel too many', { count: chosen.length, most, venue: status.venue.displayName })}
+            </p>
+          ) : null}
+          {lines ? (
+            <ul data-testid="venue-cancel-lines">
+              {lines.map((l) => (
+                <li key={l.id} data-client-order-id={l.id} data-ok={l.ok ? 'yes' : 'no'}>
+                  {l.text}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {note ? (
+            <p className="lt-note lt-note-bad" role="alert" data-code={note.code ?? ''}>
+              {note.text}
+            </p>
+          ) : null}
+          <div className="lt-actions">
+            <Button tone="secondary" disabled={busy} onClick={close}>
+              {lines ? t('Close') : t('Keep orders')}
+            </Button>
+            {lines ? null : (
+              <Button tone="primary" disabled={busy || chosen.length === 0 || chosen.length > most} onClick={() => void confirm()}>
+                {t('Confirm cancel', { count: chosen.length })}
               </Button>
-              {lines ? null : (
-                <Button tone="primary" disabled={busy || chosen.length === 0 || chosen.length > most} onClick={() => void confirm()}>
-                  {t('Confirm cancel', { count: chosen.length })}
-                </Button>
-              )}
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            )}
+          </div>
+        </Sheet>
+      ) : null}
     </div>
   );
 }

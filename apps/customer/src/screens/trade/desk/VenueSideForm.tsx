@@ -23,16 +23,8 @@ import { useSignPrepared } from '../futures/VenueProtect';
 import { AgentPermission } from './VenueConditionalOrders';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
-  Button,
-} from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { DecimalInput, Sheet } from '@intafaced/ui/lit/templates';
 import { placesOf } from './text';
 import { spotVenueCopy } from './venue-copy';
 import { UnitFlag } from './VenueOrderOptions';
@@ -436,7 +428,8 @@ export function VenueSideForm({
       onSubmit={(event) => void startReview(event)}
     >
       {type === 'limit' ? (
-        <AmountInput
+        <DecimalInput
+          placeholder="0"
           label={d('Price')}
           value={price}
           onValueChange={(next) => edit(() => setPrice(next))}
@@ -448,7 +441,7 @@ export function VenueSideForm({
           aria-label={d('Price')}
         />
       ) : (
-        <AmountInput
+        <DecimalInput
           label={d('Price')}
           value=""
           onValueChange={() => undefined}
@@ -472,7 +465,7 @@ export function VenueSideForm({
           })
         }
       />
-      <AmountInput
+      <DecimalInput
         label={d('Amount')}
         value={sizedAmount}
         onValueChange={(next) => edit(() => setAmount(next))}
@@ -482,7 +475,7 @@ export function VenueSideForm({
         readOnly={unit === 'quote'}
         aria-label={d('Amount')}
       />
-      <AmountInput
+      <DecimalInput
         label={valueLabel}
         value={unit === 'quote' ? value : (valueOf(amount, sizedAt) ?? '')}
         onValueChange={(next) => edit(() => setValue(next))}
@@ -590,66 +583,63 @@ export function VenueSideForm({
         ) : null}
         {result ? <TicketOutcome result={result} sent={sent} base={market.baseAsset} expireAt={gtd ? expireAt : null} /> : null}
       </div>
-      <AlertDialog
-        open={review !== null}
-        onOpenChange={(open) => {
-          if (!open && !sending.current) setReview(null);
-        }}
-      >
-        {review ? (
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{side === 'buy' ? d('Review buy') : d('Review sell')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Review intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            {moved ? (
-              <p className="lt-note lt-note-bad" role="alert" data-testid="venue-review-moved">
-                {t('Numbers changed')}
-              </p>
-            ) : null}
-            {reviewProblem ? (
-              <p className="lt-note lt-note-bad" role="alert" data-testid="venue-review-refused">
-                {reviewProblem}
-              </p>
-            ) : null}
-            <VenueReviewRows
-              intent={review.intent}
-              preview={review.preview}
-              status={status}
-              approved={builderApproved(account, status)}
-              protectionBps={protectionBps}
-              selfTrade={venueSelfTrade(market)}
-              tag={tag.trim()}
-              expireAt={gtd ? expireAt : null}
-            />
-            {gtd && owner ? (
-              <>
-                <p className="lt-note">{t('Gtd permission')}</p>
-                <AgentPermission owner={owner} />
-              </>
-            ) : null}
-            {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
-              <Button tone="secondary" size="md" onClick={() => void approve()}>
-                {v('Approve in wallet')}
-              </Button>
-            ) : null}
-            <OutcomeLine result={approving} owner={owner} />
-            <AlertDialogFooter>
-              <Button tone="secondary" size="md" onClick={() => setReview(null)}>
-                {t('Cancel')}
-              </Button>
-              <Button
-                tone={side === 'buy' ? 'up' : 'down'}
-                size="md"
-                disabled={carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) !== true}
-                onClick={() => void confirm()}
-              >
-                {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+      {review !== null ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={side === 'buy' ? d('Review buy') : d('Review sell')}
+          description={t('Review intro')}
+          onClose={() => {
+            if (!sending.current) setReview(null);
+          }}
+        >
+          {moved ? (
+            <p className="lt-note lt-note-bad" role="alert" data-testid="venue-review-moved">
+              {t('Numbers changed')}
+            </p>
+          ) : null}
+          {reviewProblem ? (
+            <p className="lt-note lt-note-bad" role="alert" data-testid="venue-review-refused">
+              {reviewProblem}
+            </p>
+          ) : null}
+          <VenueReviewRows
+            intent={review.intent}
+            preview={review.preview}
+            status={status}
+            approved={builderApproved(account, status)}
+            protectionBps={protectionBps}
+            selfTrade={venueSelfTrade(market)}
+            tag={tag.trim()}
+            expireAt={gtd ? expireAt : null}
+          />
+          {gtd && owner ? (
+            <>
+              <p className="lt-note">{t('Gtd permission')}</p>
+              <AgentPermission owner={owner} />
+            </>
+          ) : null}
+          {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
+            <Button tone="secondary" size="md" onClick={() => void approve()}>
+              {v('Approve in wallet')}
+            </Button>
+          ) : null}
+          <OutcomeLine result={approving} owner={owner} />
+          <div className="lt-actions">
+            <Button tone="secondary" size="md" onClick={() => setReview(null)}>
+              {t('Cancel')}
+            </Button>
+            <Button
+              tone={side === 'buy' ? 'up' : 'down'}
+              size="md"
+              disabled={carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) !== true}
+              onClick={() => void confirm()}
+            >
+              {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
+            </Button>
+          </div>
+        </Sheet>
+      ) : null}
     </form>
   );
 }

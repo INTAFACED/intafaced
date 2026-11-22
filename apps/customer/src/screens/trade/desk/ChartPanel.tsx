@@ -7,20 +7,8 @@ import { usePreferences } from '../../../shared/preferences';
 import { CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../chart/candles';
 import { PriceChart, type ChartOrderLine } from '../chart/PriceChart';
 import { deskCopy } from './copy';
-import {
-  Menu,
-  MenuContent,
-  MenuItem,
-  MenuTrigger,
-  refusalCopy,
-  Skeleton,
-  StateBlock,
-  Tabs,
-  TabsList,
-  TabsPanel,
-  TabsTab,
-  type Loadable,
-} from './deps';
+import { Menu, MenuContent, MenuItem, MenuTrigger, refusalCopy, Skeleton, StateBlock, type Loadable } from './deps';
+import { TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import type { DeskMarket } from './market';
 import { placesOf } from './text';
 import { MarketRulesList } from './MarketRules';
@@ -130,19 +118,17 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, 
 
   const moreActive = (MORE_INTERVALS as readonly string[]).includes(interval);
   return (
-    <Tabs
-      value={tab}
-      onValueChange={(value) => setTab(value as 'chart' | 'info')}
-      data-testid="dk-chart"
-      data-featureset={describeFeatureset(FEATURESETS['spot-desk'])}
-      className="lt-panel"
-      ref={panel}
-    >
-      <TabsList>
-        <TabsTab value="chart">{t('Chart')}</TabsTab>
-        <TabsTab value="info">{t('Info')}</TabsTab>
-      </TabsList>
-      <TabsPanel value="chart">
+    <div data-testid="dk-chart" data-featureset={describeFeatureset(FEATURESETS['spot-desk'])} className="lt-panel" ref={panel}>
+      <Tabs
+        id="dk-chart"
+        items={[
+          { value: 'chart', label: t('Chart') },
+          { value: 'info', label: t('Info') },
+        ]}
+        value={tab}
+        onChange={(value) => setTab(value as 'chart' | 'info')}
+      />
+      <TabPanel id="dk-chart" value="chart" current={tab}>
         <div className="lt-stack">
           <div className="lt-row lt-row-between">
             <div className="lt-chips" role="group" aria-label={t('Chart intervals')}>
@@ -192,14 +178,14 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, 
           <div className="lt-canvas">{body}</div>
           {trade}
         </div>
-      </TabsPanel>
-      <TabsPanel value="info">
+      </TabPanel>
+      <TabPanel id="dk-chart" value="info" current={tab}>
         <div data-testid="dk-info" className="lt-stack">
           <h2 className="lt-panel-title">{t('Market rules')}</h2>
           <MarketRulesList market={market} />
           <p className="lt-note">{t('Fee rule')}</p>
         </div>
-      </TabsPanel>
-    </Tabs>
+      </TabPanel>
+    </div>
   );
 });

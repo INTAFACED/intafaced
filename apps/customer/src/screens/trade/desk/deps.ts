@@ -14,16 +14,10 @@ export {
   Pct,
   Price,
   StateBlock,
-  TabSet as Tabs,
-  TabList as TabsList,
-  TabPanel as TabsPanel,
-  Tab as TabsTab,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  AlertDialogClose,
   Bone,
-  AmountInput,
 } from '@intafaced/ui/lit';
 // The desk's loading shapes: Volt draws a placeholder by its shape (rows, figure, chart, form), never a size in pixels.
 export { Skeleton, type SkeletonShape } from '@intafaced/ui/lit/templates';

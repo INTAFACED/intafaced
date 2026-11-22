@@ -3,16 +3,8 @@ import { useDataEnv } from '../../../data/hooks';
 import { draftSchema, type Draft, type Order, type Preview } from '../../../features/trade/trade-api';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
-  Button,
-} from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { DecimalInput, Sheet } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from './deps';
 import type { DeskMarket } from './market';
 import { checkOrder, padDecimals, scaled } from './order-math';
@@ -185,121 +177,120 @@ export function StopEdit({
   const problem = !checked.ok ? problemText(checked.problem, market, t) : null;
   const asset = market.base;
   return (
-    <AlertDialog open onOpenChange={(next) => (next ? undefined : close())}>
-      <AlertDialogContent className="lt-stack">
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t('Edit stop title')}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {t('Edit stop intro', {
-              side: side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
-              kind,
-              amount: fmtAmount(amount, { places: amountPlaces }),
-              asset,
-              stop: fmtPrice(order.stopPrice ?? '', market.tickSize),
-              quote: market.quote,
-            })}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        {review ? (
-          <dl className="lt-kv">
-            <div>
-              <dt>{t('Review stop price')}</dt>
-              <dd className="lt-num">
-                {fmtPrice(order.stopPrice ?? '', market.tickSize)} → {fmtPrice(review.draft.stopPrice ?? '', market.tickSize)}{' '}
-                {market.quote}
-              </dd>
-            </div>
-            <div>
-              <dt>{stopMarket ? t('Review protection price') : t('Review price')}</dt>
-              <dd className="lt-num">
-                {fmtPrice(order.price ?? '', market.tickSize)} → {fmtPrice(review.preview.price ?? '', market.tickSize)} {market.quote}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Review amount')}</dt>
-              <dd className="lt-num">
-                {fmtAmount(review.draft.amount, { places: amountPlaces })} {asset}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Review hold')}</dt>
-              <dd className="lt-num">
-                {fmtAmount(review.preview.holdAmount, { places: 8 })} {review.preview.holdAsset}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Review fee')}</dt>
-              <dd className="lt-num">
-                {fmtAmount(review.preview.estimatedFee, { places: 8 })} {review.preview.feeAsset}
-              </dd>
-            </div>
-          </dl>
-        ) : finished ? null : (
-          <div className="lt-stack">
-            <AmountInput
-              label={t('Stop price')}
-              value={stop}
-              onValueChange={(next) => edit(() => setStop(next))}
+    <Sheet
+      open
+      role="alertdialog"
+      title={t('Edit stop title')}
+      description={t('Edit stop intro', {
+        side: side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
+        kind,
+        amount: fmtAmount(amount, { places: amountPlaces }),
+        asset,
+        stop: fmtPrice(order.stopPrice ?? '', market.tickSize),
+        quote: market.quote,
+      })}
+      onClose={close}
+    >
+      {review ? (
+        <dl className="lt-kv">
+          <div>
+            <dt>{t('Review stop price')}</dt>
+            <dd className="lt-num">
+              {fmtPrice(order.stopPrice ?? '', market.tickSize)} → {fmtPrice(review.draft.stopPrice ?? '', market.tickSize)} {market.quote}
+            </dd>
+          </div>
+          <div>
+            <dt>{stopMarket ? t('Review protection price') : t('Review price')}</dt>
+            <dd className="lt-num">
+              {fmtPrice(order.price ?? '', market.tickSize)} → {fmtPrice(review.preview.price ?? '', market.tickSize)} {market.quote}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Review amount')}</dt>
+            <dd className="lt-num">
+              {fmtAmount(review.draft.amount, { places: amountPlaces })} {asset}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Review hold')}</dt>
+            <dd className="lt-num">
+              {fmtAmount(review.preview.holdAmount, { places: 8 })} {review.preview.holdAsset}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Review fee')}</dt>
+            <dd className="lt-num">
+              {fmtAmount(review.preview.estimatedFee, { places: 8 })} {review.preview.feeAsset}
+            </dd>
+          </div>
+        </dl>
+      ) : finished ? null : (
+        <div className="lt-stack">
+          <DecimalInput
+            placeholder="0"
+            label={t('Stop price')}
+            value={stop}
+            onValueChange={(next) => edit(() => setStop(next))}
+            precision={pricePlaces}
+            tick={market.tickSize}
+            min={market.tickSize}
+            unit={market.quote}
+            autoFocus
+            stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
+            aria-label={t('Stop price')}
+          />
+          {stopMarket ? null : (
+            <DecimalInput
+              placeholder="0"
+              label={t('Price')}
+              value={price}
+              onValueChange={(next) => edit(() => setPrice(next))}
               precision={pricePlaces}
               tick={market.tickSize}
               min={market.tickSize}
               unit={market.quote}
-              autoFocus
               stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
-              aria-label={t('Stop price')}
+              aria-label={t('Price')}
             />
-            {stopMarket ? null : (
-              <AmountInput
-                label={t('Price')}
-                value={price}
-                onValueChange={(next) => edit(() => setPrice(next))}
-                precision={pricePlaces}
-                tick={market.tickSize}
-                min={market.tickSize}
-                unit={market.quote}
-                stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
-                aria-label={t('Price')}
-              />
-            )}
-            <p className="lt-note">{t('Edit stop explain')}</p>
-          </div>
-        )}
-        {review?.changed ? (
-          <p data-testid="dk-note--warn" className="lt-callout lt-callout-warn">
-            {t('Review changed')}
-          </p>
-        ) : null}
-        {review ? (
-          <p data-testid="dk-note--warn" className="lt-callout lt-callout-warn">
-            {t('Edit stop explain')}
-          </p>
-        ) : null}
-        {problem && !review && !finished ? <p className="lt-note">{problem}</p> : null}
-        {unchanged && !finished ? <p className="lt-note">{t('Edit nothing changed')}</p> : null}
-        {note ? (
-          <p
-            data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
-            className={NOTE_CLASS[note.tone]}
-            role={note.tone === 'good' ? 'status' : 'alert'}
-          >
-            {note.text}
-          </p>
-        ) : null}
-        <AlertDialogFooter>
-          <Button tone="secondary" size="md" disabled={busy} onClick={close}>
-            {finished ? t('Edit close') : t('Edit keep order')}
-          </Button>
-          {finished ? null : review ? (
-            <Button tone="primary" size="md" loading={busy} onClick={() => void confirmReplacement()}>
-              {t('Edit confirm replace')}
-            </Button>
-          ) : (
-            <Button tone="primary" size="md" loading={busy} disabled={!checked.ok || unchanged} onClick={() => void reviewReplacement()}>
-              {t('Edit review replace')}
-            </Button>
           )}
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+          <p className="lt-note">{t('Edit stop explain')}</p>
+        </div>
+      )}
+      {review?.changed ? (
+        <p data-testid="dk-note--warn" className="lt-callout lt-callout-warn">
+          {t('Review changed')}
+        </p>
+      ) : null}
+      {review ? (
+        <p data-testid="dk-note--warn" className="lt-callout lt-callout-warn">
+          {t('Edit stop explain')}
+        </p>
+      ) : null}
+      {problem && !review && !finished ? <p className="lt-note">{problem}</p> : null}
+      {unchanged && !finished ? <p className="lt-note">{t('Edit nothing changed')}</p> : null}
+      {note ? (
+        <p
+          data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
+          className={NOTE_CLASS[note.tone]}
+          role={note.tone === 'good' ? 'status' : 'alert'}
+        >
+          {note.text}
+        </p>
+      ) : null}
+      <div className="lt-actions">
+        <Button tone="secondary" size="md" disabled={busy} onClick={close}>
+          {finished ? t('Edit close') : t('Edit keep order')}
+        </Button>
+        {finished ? null : review ? (
+          <Button tone="primary" size="md" loading={busy} onClick={() => void confirmReplacement()}>
+            {t('Edit confirm replace')}
+          </Button>
+        ) : (
+          <Button tone="primary" size="md" loading={busy} disabled={!checked.ok || unchanged} onClick={() => void reviewReplacement()}>
+            {t('Edit review replace')}
+          </Button>
+        )}
+      </div>
+    </Sheet>
   );
 }

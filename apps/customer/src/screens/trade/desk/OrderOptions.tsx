@@ -1,6 +1,7 @@
 import { ChevronDown } from 'lucide-react';
 import { deskCopy } from './copy';
-import { Menu, MenuContent, MenuItem, MenuTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@intafaced/ui/lit';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '@intafaced/ui/lit';
+import { Select } from '@intafaced/ui/lit/templates';
 import type { OrderType } from './order-math';
 import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
 
@@ -42,35 +43,25 @@ const SELF_TRADE = [
 /** What an order does when it would match one of the person's own resting orders. Picked once for both tickets. */
 export function SelfTradeSelect() {
   const { t } = deskCopy.useCopy();
-  const items = Object.fromEntries(SELF_TRADE.map(([mode, key]) => [mode, t(key)]));
   return (
     <div className="lt-field">
       <span className="lt-label" id="dk-stp-label">
         {t('Self trade')}
       </span>
-      <Select items={items} value="cancel_maker">
-        <SelectTrigger
-          size="sm"
-          className="lt-grow"
-          aria-labelledby="dk-stp-label"
-          aria-describedby="dk-stp-note"
-          title={t('Self trade cancel maker help')}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="start">
-          {SELF_TRADE.map(([mode, key]) => (
-            <SelectItem
-              key={mode}
-              value={mode}
-              disabled={mode !== 'cancel_maker'}
-              title={mode === 'cancel_maker' ? t('Self trade cancel maker help') : t('Self trade unavailable')}
-            >
-              {t(key)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Select
+        size="sm"
+        className="lt-grow"
+        labelledBy="dk-stp-label"
+        describedBy="dk-stp-note"
+        title={t('Self trade cancel maker help')}
+        value="cancel_maker"
+        options={SELF_TRADE.map(([mode, key]) => ({
+          value: mode,
+          label: t(key),
+          disabled: mode !== 'cancel_maker',
+          title: mode === 'cancel_maker' ? t('Self trade cancel maker help') : t('Self trade unavailable'),
+        }))}
+      />
       <span className="lt-note" id="dk-stp-note">
         {t('Self trade unavailable')}
       </span>
@@ -101,25 +92,25 @@ export function TagField({ value, onChange }: { value: string; onChange: (next: 
 export function TifSelect({ type, tif, onTif }: { type: OrderType; tif: Tif; onTif: (tif: Tif) => void }) {
   const { t } = deskCopy.useCopy();
   const options = tifsFor(type);
-  const items = Object.fromEntries(options.map((option) => [option, t(tifLabelKey(type, option))]));
   const help = t(`${tifLabelKey(type, tif)} help` as TifHelpKey);
   return (
     <div className="lt-field">
       <span className="lt-label" id="lt-label">
         {t('Time in force')}
       </span>
-      <Select items={items} value={tif} onValueChange={(next) => (next && next !== tif ? onTif(next as Tif) : undefined)}>
-        <SelectTrigger size="sm" className="lt-grow" aria-labelledby="lt-label" title={help}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="end">
-          {options.map((option) => (
-            <SelectItem key={option} value={option} title={t(`${tifLabelKey(type, option)} help` as TifHelpKey)}>
-              {items[option]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Select
+        size="sm"
+        className="lt-grow"
+        labelledBy="lt-label"
+        title={help}
+        value={tif}
+        onChange={(next) => (next !== tif ? onTif(next as Tif) : undefined)}
+        options={options.map((option) => ({
+          value: option,
+          label: t(tifLabelKey(type, option)),
+          title: t(`${tifLabelKey(type, option)} help` as TifHelpKey),
+        }))}
+      />
     </div>
   );
 }

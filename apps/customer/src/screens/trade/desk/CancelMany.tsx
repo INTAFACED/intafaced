@@ -3,15 +3,8 @@ import { useDataEnv } from '../../../data/hooks';
 import { BATCH_CANCEL_MAX, isTerminalOrder, type BatchCancel, type Order } from '../../../features/trade/trade-api';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-} from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { fmtAmount, refusalCopy } from './deps';
 
 /** A note's classes by its tone. */
@@ -161,64 +154,58 @@ export function CancelMany({
       <Button tone="secondary" size="sm" onClick={start}>
         {t('Cancel orders')}
       </Button>
-      <AlertDialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-        {open ? (
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Cancel orders title')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Cancel orders intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            {outcome ? null : (
-              <fieldset className="lt-stack-tight" aria-label={t('Cancel orders title')}>
-                {option(
-                  'selected',
-                  chosen.length > 0 ? t('Cancel scope selected', { count: chosen.length }) : t('Cancel scope selected none'),
-                  chosen.length === 0 || chosen.length > BATCH_CANCEL_MAX,
-                  chosen.length > BATCH_CANCEL_MAX ? t('Cancel batch too many', { max: BATCH_CANCEL_MAX }) : undefined,
-                )}
-                {option('spot', t('Cancel scope spot'), false, t('Cancel scope spot note'))}
-                {option('everything', t('Cancel scope everything'))}
-              </fieldset>
-            )}
-            {outcome?.kind === 'all' ? (
-              <p
-                data-testid={outcome.tone === 'good' ? undefined : 'dk-note--bad'}
-                className={NOTE[outcome.tone]}
-                role={outcome.tone === 'good' ? 'status' : 'alert'}
-              >
-                {outcome.text}
-              </p>
-            ) : null}
-            {outcome?.kind === 'batch' ? (
-              <div role="status">
-                <p
-                  data-testid={outcome.done === outcome.count ? undefined : 'dk-note--bad'}
-                  className={NOTE[toneOf(outcome.done === outcome.count)]}
-                >
-                  {t('Cancel batch summary', { done: outcome.done, count: outcome.count })}
-                </p>
-                <ul className="lt-list lt-list-tight">
-                  {outcome.rows.map((row) => (
-                    <li key={row.key} className={NOTE[row.tone]}>
-                      {row.label}: {row.text}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <AlertDialogFooter>
-              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
-                {outcome ? t('Edit close') : t('Keep orders')}
-              </Button>
-              {outcome ? null : (
-                <Button loading={busy} tone="primary" size="md" disabled={!canConfirm} onClick={() => void confirm()}>
-                  {t('Cancel orders confirm')}
-                </Button>
+      {open ? (
+        <Sheet open role="alertdialog" title={t('Cancel orders title')} description={t('Cancel orders intro')} onClose={close}>
+          {outcome ? null : (
+            <fieldset className="lt-stack-tight" aria-label={t('Cancel orders title')}>
+              {option(
+                'selected',
+                chosen.length > 0 ? t('Cancel scope selected', { count: chosen.length }) : t('Cancel scope selected none'),
+                chosen.length === 0 || chosen.length > BATCH_CANCEL_MAX,
+                chosen.length > BATCH_CANCEL_MAX ? t('Cancel batch too many', { max: BATCH_CANCEL_MAX }) : undefined,
               )}
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+              {option('spot', t('Cancel scope spot'), false, t('Cancel scope spot note'))}
+              {option('everything', t('Cancel scope everything'))}
+            </fieldset>
+          )}
+          {outcome?.kind === 'all' ? (
+            <p
+              data-testid={outcome.tone === 'good' ? undefined : 'dk-note--bad'}
+              className={NOTE[outcome.tone]}
+              role={outcome.tone === 'good' ? 'status' : 'alert'}
+            >
+              {outcome.text}
+            </p>
+          ) : null}
+          {outcome?.kind === 'batch' ? (
+            <div role="status">
+              <p
+                data-testid={outcome.done === outcome.count ? undefined : 'dk-note--bad'}
+                className={NOTE[toneOf(outcome.done === outcome.count)]}
+              >
+                {t('Cancel batch summary', { done: outcome.done, count: outcome.count })}
+              </p>
+              <ul className="lt-list lt-list-tight">
+                {outcome.rows.map((row) => (
+                  <li key={row.key} className={NOTE[row.tone]}>
+                    {row.label}: {row.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div className="lt-actions">
+            <Button tone="secondary" size="md" disabled={busy} onClick={close}>
+              {outcome ? t('Edit close') : t('Keep orders')}
+            </Button>
+            {outcome ? null : (
+              <Button loading={busy} tone="primary" size="md" disabled={!canConfirm} onClick={() => void confirm()}>
+                {t('Cancel orders confirm')}
+              </Button>
+            )}
+          </div>
+        </Sheet>
+      ) : null}
     </>
   );
 }
