@@ -14,7 +14,7 @@ import { useSession } from '../../../features/session/session';
 import { useDeviceSetting } from '../../../features/trade/hooks';
 import type { DeskMarket } from '../../trade/desk/market';
 import { useChartCandles, type ChartInterval } from '../../trade/chart/candles';
-import { Button } from '../deps';
+import { Button, Checkbox } from '@intafaced/ui/lit';
 import type { ChartHost } from '../chart-host';
 import { pendingCommand, type GroupCommand } from '../group-commands';
 import { ALL_INTERVALS, intervalLabel } from '../workbench';
@@ -45,7 +45,6 @@ import { IndicatorDialog, StudySettings, type StudyChanges } from './StudyDialog
 import { useStudyDraw } from './useStudyDraw';
 import { useWords, type StudiesWords } from './words';
 import type { Print } from './math';
-import './studies.css';
 
 export interface StudiesBarProps {
   /** The chart's host. Null until the workbench chart is ready; the studies draw once it is. */
@@ -235,10 +234,10 @@ function StudyRow({
   const { t, word } = words;
   const def = studyDef(study.kind);
   let body: ReactNode = null;
-  if (result === null || result.status === 'loading') body = <span className="st-row-note">{t('Loading')}</span>;
+  if (result === null || result.status === 'loading') body = <span className="lt-note">{t('Loading')}</span>;
   else if (result.status === 'refused')
     body = (
-      <span className="st-row-note" role="status">
+      <span className="lt-note" role="status">
         {reasonText(result, t, word)}
       </span>
     );
@@ -246,26 +245,26 @@ function StudyRow({
     body = (
       <>
         {cursor !== null && (
-          <span className="st-row-values">
+          <span className="lt-row lt-tight">
             {result.series.map((s) => (
-              <span key={s.key} className="st-value" data-series={s.name}>
-                <span className="st-value-name">{word(s.name)}</span> <span className="st-value-text">{valueAt(s, cursor) ?? '—'}</span>
+              <span key={s.key} className="lt-num" data-testid="st-value" data-series={s.name}>
+                <span className="lt-quiet">{word(s.name)}</span> <span data-testid="st-value-text">{valueAt(s, cursor) ?? '—'}</span>
               </span>
             ))}
           </span>
         )}
         {result.facts.map((f) => (
-          <span key={f.name} className="st-fact">
+          <span key={f.name} className="lt-note" data-testid="st-fact">
             {word(f.name)}: {word(f.text)}
           </span>
         ))}
         {result.notes.map((n) => (
-          <span key={`${n.label}:${n.reason}`} className="st-row-note" role="status">
+          <span key={`${n.label}:${n.reason}`} className="lt-note" role="status">
             {word(n.label)}: {reasonText(n, t, word)}
           </span>
         ))}
         {result.table && (
-          <table className="st-table" aria-label={t('Study table')}>
+          <table className="lt-table lt-table-dense" aria-label={t('Study table')}>
             <thead>
               <tr>
                 <th scope="col">{t('Price bin')}</th>
@@ -291,15 +290,18 @@ function StudyRow({
   }
   return (
     <div
-      className="st-row"
+      className="lt-row lt-small"
+      data-testid="st-row"
       data-study={study.id}
       data-pane={result?.status === 'ready' ? (result.series.some((x) => x.pane === 'sub') ? 'sub' : 'overlay') : undefined}
     >
-      <span className="st-row-name">{word(def.name)}</span>
+      <span className="lt-strong">{word(def.name)}</span>
       {result?.status === 'ready' && result.series[0] && (
         <>
           {' '}
-          <span className="st-row-formula">{word(result.series[0].name)}</span>
+          <span className="lt-quiet" data-testid="st-row-formula">
+            {word(result.series[0].name)}
+          </span>
         </>
       )}
       {controls}
@@ -448,13 +450,13 @@ export function StudiesBar({
     const orderIn = (now: StudyStore) =>
       now.studies.map((x) => x.id).filter((id) => subIds.includes(id) && !panesOf(now).onMain.includes(id));
     const button = (label: string, onClick: () => void, disabled = false) => (
-      <button type="button" className="st-pane-button" aria-label={label} title={label} disabled={disabled} onClick={onClick}>
+      <Button tone="quiet" size="sm" aria-label={label} title={label} disabled={disabled} onClick={onClick}>
         {label}
-      </button>
+      </Button>
     );
     return (
       <span
-        className="st-pane"
+        className="lt-row lt-tight"
         role="group"
         aria-label={t('{name} pane', { name })}
         data-pane-state={onMain ? 'main' : collapsed ? 'collapsed' : maximised ? 'maximised' : 'open'}
@@ -495,39 +497,41 @@ export function StudiesBar({
   };
 
   return (
-    <section className="st" aria-label={t('Studies on this chart')} data-testid="studies">
+    <section className="lt-stack" aria-label={t('Studies on this chart')} data-testid="studies">
       {treeSlot &&
         createPortal(
-          // Inside the object tree, so it takes the tree's row styles (drawings.css).
-          <div className="st-tree" data-testid="tree-indicators">
-            <h3 className="dw-tree-title" id={`st-tree-${workbench}`}>
+          // Inside the object tree, drawn as its rows are: the kit's list.
+          <div className="lt-stack-tight" data-testid="tree-indicators">
+            <h3 className="lt-heading" id={`st-tree-${workbench}`}>
               {t('Indicators on this chart')}
             </h3>
-            {store.studies.length === 0 ? <p className="dw-note">{t('No indicators on this chart')}</p> : null}
-            <ul className="dw-rows" aria-labelledby={`st-tree-${workbench}`}>
+            {store.studies.length === 0 ? <p className="lt-note">{t('No indicators on this chart')}</p> : null}
+            <ul className="lt-list lt-list-rule" aria-labelledby={`st-tree-${workbench}`}>
               {store.studies.map((s) => {
                 const here = shownOn(s, interval);
                 return (
-                  <li key={s.id} className="dw-row" data-study-id={s.id} data-study-kind={s.kind} data-shown-here={here}>
-                    <span className="dw-row-name">
+                  <li key={s.id} className="lt-row lt-row-between" data-study-id={s.id} data-study-kind={s.kind} data-shown-here={here}>
+                    <span>
                       {nameOf(s)}
                       {!here ? (
                         <>
                           {' '}
-                          <span className="dw-badge">{word('Hidden on this interval')}</span>
+                          <span className="lt-badge" data-tone="warn">
+                            {word('Hidden on this interval')}
+                          </span>
                         </>
                       ) : null}
                     </span>
-                    <div className="dw-row-actions">
-                      <button type="button" className="dw-link" onClick={() => toggleHere(s.id)}>
+                    <div className="lt-actions">
+                      <button type="button" className="lt-link" onClick={() => toggleHere(s.id)}>
                         {here
                           ? t('Hide on {interval}', { interval: intervalLabel(interval) })
                           : t('Show on {interval}', { interval: intervalLabel(interval) })}
                       </button>
-                      <button type="button" className="dw-link" onClick={() => setEditing(s.id)}>
+                      <button type="button" className="lt-link" onClick={() => setEditing(s.id)}>
                         {t('Edit {name}', { name: nameOf(s) })}
                       </button>
-                      <button type="button" className="dw-link" onClick={() => remove(s.id)}>
+                      <button type="button" className="lt-link" onClick={() => remove(s.id)}>
                         {t('Remove {name}', { name: nameOf(s) })}
                       </button>
                     </div>
@@ -538,16 +542,16 @@ export function StudiesBar({
           </div>,
           treeSlot,
         )}
-      <div className="st-bar">
-        <Button type="button" variant="secondary" onClick={() => setAdding(true)}>
+      <div className="lt-toolbar">
+        <Button tone="secondary" size="sm" onClick={() => setAdding(true)}>
           {t('Indicators')}
         </Button>
-        <div className="st-chips" role="group" aria-label={t('Studies on this chart')}>
+        <div className="lt-chips" role="group" aria-label={t('Studies on this chart')}>
           {store.studies.map((s) => (
             <button
               key={s.id}
               type="button"
-              className="st-chip"
+              data-testid="st-chip"
               data-hidden-here={shownOn(s, interval) ? undefined : true}
               aria-label={t('Settings for {name}', { name: nameOf(s) })}
               onClick={() => setEditing(s.id)}
@@ -556,20 +560,19 @@ export function StudiesBar({
             </button>
           ))}
         </div>
-        <label className="st-check">
-          <input
-            type="checkbox"
-            checked={store.legendAlways}
-            onChange={(event) => setStore((now) => ({ ...now, legendAlways: event.target.checked }))}
-          />
-          <span>{t('Legend always shown')}</span>
-        </label>
-        <button type="button" className="st-toggle" aria-pressed={showWindow} onClick={() => setShowWindow((now) => !now)}>
+        <Checkbox
+          data-testid="st-legend-always"
+          checked={store.legendAlways}
+          onCheckedChange={(checked) => setStore((now) => ({ ...now, legendAlways: checked }))}
+        >
+          {t('Legend always shown')}
+        </Checkbox>
+        <Button tone="secondary" size="sm" data-testid="st-toggle" aria-pressed={showWindow} onClick={() => setShowWindow((now) => !now)}>
           {t('Data window')}
-        </button>
+        </Button>
       </div>
 
-      <div className="st-legend" data-testid="study-legend">
+      <div className="lt-stack-tight" data-testid="study-legend">
         {shown.map((study) => (
           <StudyRow
             key={study.id}
@@ -581,36 +584,44 @@ export function StudiesBar({
           />
         ))}
         {hiddenHere.map((study) => (
-          <div key={study.id} className="st-row" data-study={study.id} data-hidden-here="true">
-            <span className="st-row-name">{word(studyDef(study.kind).name)}</span>
-            <span className="st-row-note">{word('Hidden on this interval')}</span>
+          <div key={study.id} className="lt-row lt-small" data-testid="st-row" data-study={study.id} data-hidden-here="true">
+            <span className="lt-strong">{word(studyDef(study.kind).name)}</span>
+            <span className="lt-note">{word('Hidden on this interval')}</span>
           </div>
         ))}
       </div>
 
       {showWindow && (
         <section
-          className="st-window"
+          className="lt-panel"
           aria-label={t('Data window')}
           data-testid="data-window"
           data-cursor={cursor === null ? undefined : String(cursor)}
         >
           {cursor === null || barAt === undefined ? (
-            <p className="st-note">{t('Move the pointer over the chart to read its values.')}</p>
+            <p className="lt-note">{t('Move the pointer over the chart to read its values.')}</p>
           ) : (
             <>
-              <p className="st-window-time">{t('Values at {time}', { time: timeText(cursor) })}</p>
-              <dl className="st-ohlc">
-                <dt>{t('Open')}</dt>
-                <dd>{barAt.o}</dd>
-                <dt>{t('High')}</dt>
-                <dd>{barAt.h}</dd>
-                <dt>{t('Low')}</dt>
-                <dd>{barAt.l}</dd>
-                <dt>{t('Close')}</dt>
-                <dd>{barAt.c}</dd>
+              <p className="lt-note">{t('Values at {time}', { time: timeText(cursor) })}</p>
+              <dl className="lt-kv lt-num">
+                <div>
+                  <dt>{t('Open')}</dt>
+                  <dd>{barAt.o}</dd>
+                </div>
+                <div>
+                  <dt>{t('High')}</dt>
+                  <dd>{barAt.h}</dd>
+                </div>
+                <div>
+                  <dt>{t('Low')}</dt>
+                  <dd>{barAt.l}</dd>
+                </div>
+                <div>
+                  <dt>{t('Close')}</dt>
+                  <dd>{barAt.c}</dd>
+                </div>
               </dl>
-              <ul className="st-window-list">
+              <ul className="lt-list lt-num">
                 {(results ?? [])
                   .filter((r) => r.result.status === 'ready')
                   .flatMap((r) => (r.result.status === 'ready' ? r.result.series : []))

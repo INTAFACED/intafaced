@@ -319,6 +319,7 @@ export const components = {
   Sparkline: '(B2) A small trend line for a card or a row, named for a screen reader; nothing from fewer than two points',
   Bars: '(B2) Bars (volume, monthly totals)',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
+  SplitGrid: 'One, two or four panels with borders the person drags to resize them (SplitCell, SplitBorder): the chart grid',
 } as const;
 export type ComponentName = keyof typeof components;
 

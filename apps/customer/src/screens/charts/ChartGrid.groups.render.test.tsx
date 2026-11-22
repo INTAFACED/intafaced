@@ -135,7 +135,7 @@ async function open() {
 }
 const q = <T extends Element = HTMLElement>(selector: string, scope: ParentNode = host) => scope.querySelector<T>(selector);
 const slot = (i: number) => q(`[data-cell="${i}"]`)!;
-const chipsOf = (i: number) => [...slot(i).querySelectorAll('.st-chip')].map((node) => node.textContent);
+const chipsOf = (i: number) => [...slot(i).querySelectorAll('[data-testid="st-chip"]')].map((node) => node.textContent);
 const labelled = (scope: ParentNode, text: string) =>
   [...scope.querySelectorAll('label')].find((node) => node.querySelector('span')?.textContent === text)?.querySelector('select') ?? null;
 const choose = (select: HTMLSelectElement | null, value: string) =>
@@ -147,7 +147,8 @@ const setGroup = (i: number, group: string) => choose(labelled(slot(i), 'Group')
 const setMarket = (i: number, symbol: string) => choose(labelled(slot(i), 'Market'), symbol);
 const chooseLayout = (value: string) => choose(labelled(host, 'Layout'), value);
 /** A change in the grid that re-renders every chart: the first sync box toggled. */
-const rerender = () => act(async () => q<HTMLInputElement>('.cg-sync input')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+const rerender = () =>
+  act(async () => q<HTMLInputElement>('[data-testid="cg-sync"] input')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
 /** Adds a study from chart `i`'s Indicators dialog, to every chart of its group when `toGroup` is set. */
 async function addFrom(i: number, search: string, name: string, toGroup: boolean) {
@@ -162,7 +163,7 @@ async function addFrom(i: number, search: string, name: string, toGroup: boolean
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   if (toGroup) {
-    const box = [...document.querySelectorAll('label.st-check')].find((node) => node.textContent?.includes('sync group'))!;
+    const box = [...document.querySelectorAll('label.lt-field')].find((node) => node.textContent?.includes('sync group'))!;
     await act(async () => box.querySelector('input')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   }
   await act(async () =>

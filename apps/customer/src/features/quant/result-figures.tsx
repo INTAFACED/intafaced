@@ -50,11 +50,12 @@ export function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
   };
   return (
     <div data-testid="quant-bar-checks">
-      <p className="muted">{t('checksIntro')}</p>
-      <ul className="quant-checks">
+      <p className="lt-hint">{t('checksIntro')}</p>
+      <ul className="lt-list">
         {checks.map((check) => (
           <li
             key={check.name}
+            className="lt-callout"
             data-testid={`quant-check-${check.name}`}
             data-status={check.status}
             data-threshold={check.threshold ?? ''}
@@ -65,7 +66,7 @@ export function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
               <strong>{t(`s_${check.status}`)}</strong>
             </p>
             <p>{detail(check)}</p>
-            {check.threshold !== null && <p className="muted">{t('checkThreshold', { threshold: check.threshold })}</p>}
+            {check.threshold !== null && <p className="lt-hint">{t('checkThreshold', { threshold: check.threshold })}</p>}
           </li>
         ))}
       </ul>
@@ -99,11 +100,11 @@ export function MetricsTab({ metrics }: { metrics: QuantBacktestMetrics }) {
   ] as const;
   return (
     <div data-testid="quant-bar-metrics">
-      <p className="muted">{t('metricsIntro')}</p>
+      <p className="lt-hint">{t('metricsIntro')}</p>
       {groups.map(([group, figures]) => (
         <section key={group} aria-label={t(group)}>
           <h4>{t(group)}</h4>
-          <dl className="quant-bar-totals">
+          <dl className="lt-kv">
             {Object.entries(figures).map(([key, figure]) => {
               const name = key as MetricKey;
               const view = shown(name, figure as QuantMetric | number);
@@ -111,7 +112,7 @@ export function MetricsTab({ metrics }: { metrics: QuantBacktestMetrics }) {
                 <div key={key} data-testid={`quant-metric-${key}`} data-value={view.value} data-reason={view.reason}>
                   <dt>{t(`m_${name}`)}</dt>
                   <dd lang={view.reason ? undefined : 'zxx'}>{view.text}</dd>
-                  <dd className="muted">{t(`m_${name}_help`)}</dd>
+                  <dd className="lt-hint">{t(`m_${name}_help`)}</dd>
                 </div>
               );
             })}

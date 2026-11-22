@@ -5,7 +5,8 @@
  * no alert.
  */
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogTitle } from './deps';
+import { Checkbox } from '@intafaced/ui/lit';
+import { Sheet, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { chartsCopy } from './copy';
 import type { ChartSettings as Settings } from './chart-settings';
 import { pairOf } from '../trade/desk/market';
@@ -65,37 +66,24 @@ export function ChartSettingsDialog({
   const { t } = chartsCopy.useCopy();
   const [section, setSection] = useState<Section>('symbol');
   const pair = pairOf(symbol);
+  // Drawn only while open, as the dialog always was: nothing of it is in the page while it is shut.
+  if (!open) return null;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="cw-settings" closeLabel={t('Close settings')}>
-        <DialogTitle>{t('Chart settings')}</DialogTitle>
-        <div className="cw-settings-tabs" role="tablist" aria-label={t('Settings sections')}>
-          {SECTIONS.map((id) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              id={`cw-settings-tab-${id}`}
-              aria-selected={section === id}
-              aria-controls="cw-settings-panel"
-              onClick={() => setSection(id)}
-            >
-              {t(SECTION_KEY[id])}
-            </button>
-          ))}
-        </div>
-        <div
-          className="cw-settings-panel"
-          role="tabpanel"
-          id="cw-settings-panel"
-          aria-labelledby={`cw-settings-tab-${section}`}
-          data-section={section}
-        >
+    <Sheet open onClose={() => onOpenChange(false)} title={t('Chart settings')} closeLabel={t('Close settings')}>
+      <Tabs
+        id="cw-settings"
+        label={t('Settings sections')}
+        value={section}
+        onChange={(next) => setSection(next as Section)}
+        items={SECTIONS.map((id) => ({ value: id, label: t(SECTION_KEY[id]) }))}
+      />
+      <TabPanel id="cw-settings" value={section} current={section} className="lt-stack">
+        <div className="lt-stack" data-section={section}>
           {section === 'symbol' && <p>{t('Settings market', { symbol, tick })}</p>}
           {section === 'trading' && (
             <>
               <p>{t('Settings trading text')}</p>
-              <a data-testid="cw-link" className="cw-link" href={`/trade/spot/${pair}`}>
+              <a data-testid="cw-link" className="lt-link" href={`/trade/spot/${pair}`}>
                 {t('Settings trading link', { symbol })}
               </a>
             </>
@@ -103,24 +91,23 @@ export function ChartSettingsDialog({
           {section === 'alerts' && (
             <>
               <p>{t('Settings alerts text')}</p>
-              <a data-testid="cw-link" className="cw-link" href="/notifications?view=alerts">
+              <a data-testid="cw-link" className="lt-link" href="/notifications?view=alerts">
                 {t('Settings alerts link')}
               </a>
             </>
           )}
           {OPTIONS.filter((option) => option.section === section).map((option) => (
-            <label key={option.key} className="cw-check">
-              <input
-                type="checkbox"
-                checked={settings[option.key]}
-                onChange={(event) => onChange({ ...settings, [option.key]: event.target.checked })}
-              />
-              <span>{t(option.label)}</span>
-            </label>
+            <Checkbox
+              key={option.key}
+              checked={settings[option.key]}
+              onCheckedChange={(checked) => onChange({ ...settings, [option.key]: checked })}
+            >
+              {t(option.label)}
+            </Checkbox>
           ))}
-          <p className="cw-settings-note">{t('Settings saved here')}</p>
+          <p className="lt-note">{t('Settings saved here')}</p>
         </div>
-      </DialogContent>
-    </Dialog>
+      </TabPanel>
+    </Sheet>
   );
 }

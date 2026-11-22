@@ -26,6 +26,7 @@ import {
 } from './index.js';
 import * as B2 from './b2-basics.js';
 import { Table, gridKey } from './b2-table.js';
+import { ChartMark } from './b2-controls.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const css = readFileSync(join(here, 'components.css'), 'utf8');
@@ -676,5 +677,19 @@ describe('b2 parts carry what the spot desk needs, so it uses them and no second
     );
     expect(out).toContain('<tr data-asset="BTC" data-row="">');
     expect(out).toContain('<td data-cell="free" data-label="Free" data-align="end">');
+  });
+});
+
+describe('a price alert handle on a drawn chart', () => {
+  it('is a button mark at its price, by the price axis, drawn by the sheet', () => {
+    const out = html(
+      <ChartMark as="button" kind="alert" y={42} aria-label="Move alert">
+        Above 100
+      </ChartMark>,
+    );
+    expect(out).toBe(
+      '<button type="button" aria-label="Move alert" data-mark="alert" class="lt-chart-mark" style="inset-block-start:42px">Above 100</button>',
+    );
+    expect(css).toMatch(/\.lt-chart-mark\[data-mark='alert'\] \{[^}]*inset-inline-end: 4\.5rem;[^}]*pointer-events: auto;/);
   });
 });

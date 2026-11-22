@@ -179,8 +179,15 @@ export const F = {
   },
 };
 
+/** A study's facts as the legend lists them: { name: text }. */
+export async function facts(page, id) {
+  const texts = await page.locator(`[data-study="${id}"]`).getByTestId('st-fact').allTextContents();
+  return Object.fromEntries(texts.map((t) => [t.slice(0, t.indexOf(':')).trim(), t.slice(t.indexOf(':') + 1).trim()]));
+}
+
 /** A study line's shown value at the legend's bar, by the series name the legend writes. */
-const shownValue = (page, id, name) => page.locator(`[data-study="${id}"]`).locator(`[data-series="${name}"] .st-value-text`).first();
+const shownValue = (page, id, name) =>
+  page.locator(`[data-study="${id}"]`).locator(`[data-series="${name}"]`).getByTestId('st-value-text').first();
 
 /**
  * Waits until every listed line of a study shows its worked value to the tick: the shown number is the worked value
