@@ -54,6 +54,15 @@ describe('DecimalField and Freshness', () => {
     expect(free).toMatch(/<button type="button" class="lt-button lt-button-secondary">Close<\/button>/);
   });
 
+  it("Sheet names its Close button in the room's words when given them", () => {
+    const named = renderToStaticMarkup(
+      <Sheet open title="Revisar" onClose={() => {}} closeLabel="Cerrar diálogo">
+        <p>Body</p>
+      </Sheet>,
+    );
+    expect(named).toMatch(/<button type="button" class="lt-button lt-button-secondary">Cerrar diálogo<\/button>/);
+  });
+
   it('Freshness says Live with the as-of time inside the limit, Stale past it, Unknown without a time', () => {
     const at = new Date(NOW - 10_000).toISOString();
     const live = renderToStaticMarkup(<Freshness asOf={at} staleAfterMs={60_000} now={NOW} timeZone="UTC" words={words} />);

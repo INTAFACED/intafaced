@@ -1,6 +1,6 @@
-import { StatusTag } from '@intafaced/ui';
+import { StatusChip } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
-import { PaySection, PayState } from '../components';
+import { Section, State } from '../p2p-flow/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { P2P_ACCESS_ELIGIBILITY } from '@intafaced/contracts/p2p-procedures';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
@@ -38,10 +38,10 @@ export function eligibilityReason(t: CopyT, check: Check): string {
 export function StaySafe() {
   const { t } = eligibilityCopy.useCopy();
   return (
-    <section className="p2p-stay-safe" aria-label={t('safeTitle')} data-testid="p2p-stay-safe">
+    <section aria-label={t('safeTitle')} data-testid="p2p-stay-safe">
       <h4>{t('safeTitle')}</h4>
-      <p className="muted">{t('safeIntro')}</p>
-      <ul className="p2p-risk-points">
+      <p className="lt-hint">{t('safeIntro')}</p>
+      <ul>
         <li>{t('safeRole')}</li>
         <li>{t('safeOutside')}</li>
         <li>{t('safeProhibited')}</li>
@@ -64,27 +64,27 @@ export function P2PEligibilityPanel({ pay, userId, compact = false }: { pay: Per
   const eligibility = useResource((signal) => pay.eligibility(signal), `pay:p2p-eligibility:${userId}`);
   if (compact && eligibility.resource.status === 'ready' && eligibility.resource.data.canTake) return null;
   return (
-    <PaySection title={t('title')} description={compact ? undefined : t('intro')}>
+    <Section title={t('title')} description={compact ? undefined : t('intro')}>
       <div aria-label={t('title')} role="region" data-testid="p2p-eligibility">
-        <PayState resource={eligibility.resource} retry={eligibility.reload}>
+        <State resource={eligibility.resource} retry={eligibility.reload}>
           {(data) => (
             <>
-              <p data-testid={data.canTake ? undefined : 'failure'} className={data.canTake ? 'muted' : 'failure'} role="status">
+              <p data-testid={data.canTake ? undefined : 'failure'} className={data.canTake ? 'lt-hint' : undefined} role="status">
                 {data.canTake ? t('allMet') : t('someUnmet')}
               </p>
-              <ul className="p2p-eligibility">
+              <ul>
                 {data.checks
                   .filter((check) => !compact || check.state !== 'met')
                   .map((check) => (
                     <li key={check.id} data-check={check.id} data-state={check.state}>
                       <strong>{t(`check_${check.id}` as const)}</strong>{' '}
-                      <StatusTag
-                        status={check.state === 'met' ? 'filled' : check.state === 'not_met' ? 'failed' : 'pending'}
+                      <StatusChip
+                        status={check.state === 'met' ? 'done' : check.state === 'not_met' ? 'failed' : 'pending'}
                         label={t(`state_${check.state}` as const)}
                       />
-                      <p className="muted">{eligibilityReason(t, check)}</p>
+                      <p className="lt-hint">{eligibilityReason(t, check)}</p>
                       {check.state === 'not_met' && check.fix ? (
-                        <a className="text-link" href={check.fix}>
+                        <a className="lt-link" href={check.fix}>
                           {check.id === 'verification' ? t('fix_verification') : t('fix_contact')}
                         </a>
                       ) : null}
@@ -93,8 +93,8 @@ export function P2PEligibilityPanel({ pay, userId, compact = false }: { pay: Per
               </ul>
             </>
           )}
-        </PayState>
+        </State>
       </div>
-    </PaySection>
+    </Section>
   );
 }
