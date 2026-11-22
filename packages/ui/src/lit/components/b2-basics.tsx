@@ -142,9 +142,17 @@ export function StatusChip({ status, label, returned = false }: { status: MoneyS
 }
 
 /** A door's room row: links, with the open room marked for assistive tech as well as by look. */
-export function Tabs({ items, current, label }: { items: readonly { label: string; href: string }[]; current: string; label: string }) {
+export function Tabs({
+  items,
+  current,
+  label,
+  ...rest
+}: { items: readonly { label: string; href: string }[]; current: string; label: string } & Omit<
+  React.HTMLAttributes<HTMLElement>,
+  'children' | 'className' | 'style'
+>) {
   return (
-    <nav className="lt-tabs" aria-label={label}>
+    <nav {...rest} className="lt-tabs" aria-label={label}>
       {items.map((t) => (
         <a key={t.href} href={t.href} className="lt-tab" aria-current={t.href === current ? 'page' : undefined}>
           {t.label}

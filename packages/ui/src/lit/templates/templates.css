@@ -825,6 +825,23 @@
   border-style: dashed;
 }
 
+/* A QR code (QrCode): page-coloured modules on a primary-text tile, with a quiet zone. */
+.lt-qr {
+  display: inline-block;
+  padding: var(--lit-gap-item);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+  line-height: 0;
+}
+.lt-qr svg {
+  inline-size: 10rem;
+  block-size: 10rem;
+}
+.lt-qr path {
+  fill: currentColor;
+}
+
 .lt-tabs {
   display: flex;
   gap: calc(var(--lit-gap-item) / 2);
