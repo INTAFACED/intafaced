@@ -1579,7 +1579,18 @@ import {
   TRADE_ADMIN_AGENT_DESK_QUARANTINE,
 } from './trade-admin-procedures.js';
 
-import { TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT } from './trade-algo-procedures.js';
+import {
+  TRADE_ALGO_PROGRESS,
+  TRADE_ALGO_PREVIEW_TWAP_SIZES,
+  TRADE_ALGO_RESULT,
+  TRADE_ALGO_GET,
+  TRADE_ALGO_PAUSE,
+  TRADE_ALGO_RESUME,
+  TRADE_ALGO_CANCEL,
+  TRADE_ALGO_POLICY,
+  TRADE_ALGO_CREATE_TWAP,
+  TRADE_ALGO_LIST,
+} from './trade-algo-procedures.js';
 
 import {
   TRADE_BOTS_GRID_SETUP,
@@ -1600,6 +1611,8 @@ import {
   TRADE_CONVERT_LIMIT_CANCEL,
   TRADE_CONVERT_ROUTE,
   TRADE_CONVERT_LIST,
+  TRADE_CONVERT_QUOTE,
+  TRADE_CONVERT_ACCEPT,
 } from './trade-convert-procedures.js';
 
 import { COPY_MY_COPY_FEES } from './trade-copy-procedures.js';
@@ -1627,7 +1640,13 @@ import {
 
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
 
-import { TRADE_OTC_MAKERS_LIST, TRADE_OTC_ACCEPT, TRADE_OTC_SETTLE, TRADE_OTC_CONVERT_BOUNDS } from './trade-otc-procedures.js';
+import {
+  TRADE_OTC_MAKERS_LIST,
+  TRADE_OTC_ACCEPT,
+  TRADE_OTC_SETTLE,
+  TRADE_OTC_CONVERT_BOUNDS,
+  TRADE_OTC_CONVERT_QUOTE,
+} from './trade-otc-procedures.js';
 
 import {
   RECURRING_CREATE,
@@ -3273,7 +3292,18 @@ const part_trade_admin_procedures: readonly ProcedureRecord[] = [
   TRADE_ADMIN_AGENT_DESK_QUARANTINE,
 ];
 
-const part_trade_algo_procedures: readonly ProcedureRecord[] = [TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT];
+const part_trade_algo_procedures: readonly ProcedureRecord[] = [
+  TRADE_ALGO_PROGRESS,
+  TRADE_ALGO_PREVIEW_TWAP_SIZES,
+  TRADE_ALGO_RESULT,
+  TRADE_ALGO_GET,
+  TRADE_ALGO_PAUSE,
+  TRADE_ALGO_RESUME,
+  TRADE_ALGO_CANCEL,
+  TRADE_ALGO_POLICY,
+  TRADE_ALGO_CREATE_TWAP,
+  TRADE_ALGO_LIST,
+];
 
 const part_trade_bots_procedures: readonly ProcedureRecord[] = [
   TRADE_BOTS_GRID_SETUP,
@@ -3294,6 +3324,8 @@ const part_trade_convert_procedures: readonly ProcedureRecord[] = [
   TRADE_CONVERT_LIMIT_CANCEL,
   TRADE_CONVERT_ROUTE,
   TRADE_CONVERT_LIST,
+  TRADE_CONVERT_QUOTE,
+  TRADE_CONVERT_ACCEPT,
 ];
 
 const part_trade_copy_procedures: readonly ProcedureRecord[] = [COPY_MY_COPY_FEES];
@@ -3326,6 +3358,7 @@ const part_trade_otc_procedures: readonly ProcedureRecord[] = [
   TRADE_OTC_ACCEPT,
   TRADE_OTC_SETTLE,
   TRADE_OTC_CONVERT_BOUNDS,
+  TRADE_OTC_CONVERT_QUOTE,
 ];
 
 const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
