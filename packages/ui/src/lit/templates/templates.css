@@ -594,6 +594,10 @@
   direction: ltr;
   unicode-bidi: isolate;
 }
+/* Code inside a mono block keeps the kit's mono face, not the browser's own `monospace`. */
+.lt-mono :where(code, kbd, samp, pre) {
+  font-family: inherit;
+}
 
 .lt-receipt,
 .lt-review {
