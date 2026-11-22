@@ -414,8 +414,19 @@ impl BankDoor {
             Slice::Partner => crate::partner::router::answer(&self.partner, &self.store, ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
             Slice::Spaces => {
-                crate::spaces::router::answer(&self.spaces, &self.partner, &self.store, ctx)
-                    .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
+                let freeze = |card_id: &str, user: &str| {
+                    self.cards_deps(ctx.now, |d| {
+                        crate::cards::core::freeze_for_holder(d, card_id, user)
+                    })
+                };
+                crate::spaces::router::answer(
+                    &self.spaces,
+                    &self.partner,
+                    &self.store,
+                    ctx,
+                    &freeze,
+                )
+                .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
             }
             Slice::Transfers => crate::transfers::router::answer(
                 &self.transfers,

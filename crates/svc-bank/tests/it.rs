@@ -2,6 +2,8 @@
 //! module here, so a test build links one binary, not one per file (intafaced#9589). Written by
 //! `node tooling/scripts/rust-test-roots.mjs`; do not edit by hand. One file's tests: `--test it -- <file>::`.
 
+#[path = "cards_core_db.rs"]
+mod cards_core_db;
 #[path = "closure_body.rs"]
 mod closure_body;
 #[path = "credit_previews.rs"]

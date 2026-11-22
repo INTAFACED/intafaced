@@ -7,8 +7,8 @@
 //!
 //! What the TypeScript does through another slice is done here the nearest way this slice allows: money a transfer would
 //! move into a pot is booked straight into the stand-in ledger, a business is the rows `business.create` writes, and a
-//! card is the row `cards.issue` writes. Checks that read another slice's work (a debit's lock check, the bills runner,
-//! a card's own status door) stay with that slice. Without `TEST_DATABASE_URL` each test skips; with
+//! card is issued through slice `cards`' own door. Checks that read another slice's work (a debit's lock check, the bills runner)
+//! stay with that slice. Without `TEST_DATABASE_URL` each test skips; with
 //! `REQUIRE_POSTGRES=1` it fails.
 #![allow(
     clippy::unwrap_used,
@@ -31,6 +31,9 @@ use service_kit::s2s::{self, system_seconds};
 use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
 use service_kit::time::Instant;
+use svc_bank::cards::issuer::Issuer;
+use svc_bank::cards::terms::PartnerTerms;
+use svc_bank::cards::{NoRankTier, Settings as CardSettings, Wiring as CardsWiring};
 use svc_bank::door::{self, BankDoor, DoorConfig, Kind, ServiceAuth};
 use svc_bank::partner::TestPartner;
 use svc_bank::partner::custody::{Freeze, FreezeReading};
@@ -255,6 +258,11 @@ fn bank(db: &TestDb, ledger: &Book, o: &Owner) -> Bank {
         custody_layer: "off".to_owned(),
         cash_legs: None,
         pay_in: None,
+    })
+    .with_cards(CardsWiring {
+        issuer: Issuer::sim(PartnerTerms::nothing_reported()),
+        rank: Box::new(NoRankTier),
+        settings: CardSettings::default(),
     })
     .with_spaces(Wiring {
         ledger: Box::new(ledger.clone()),
@@ -2194,7 +2202,7 @@ fn card(db: &TestDb, user: &str, issuer: &str) -> (String, String) {
 }
 
 #[test]
-fn a_holder_may_freeze_the_card_linked_to_the_pot_a_viewer_cannot_and_only_the_owner_links_and_unlinks()
+fn a_holder_freezes_the_card_linked_to_the_pot_and_the_log_names_them_a_viewer_cannot_only_the_owner_links_unlinks_and_unfreezes()
  {
     let Some(db) = db() else { return };
     let ledger = Book::default();
@@ -2207,8 +2215,8 @@ fn a_holder_may_freeze_the_card_linked_to_the_pot_a_viewer_cannot_and_only_the_o
         let made = invited(&b, &pot, handle, role);
         answer(&b, who, "sharedPots.accept", &made).ok();
     }
-    let (card_id, tail) = card(&db, OWNER, "card-sim");
-    let (theirs, _) = card(&db, PARTNER, "card-sim");
+    let (card_id, tail) = issued(&b, OWNER);
+    let (theirs, _) = issued(&b, PARTNER);
     let link = |user: &str, sp: &str, c: &str| {
         call(
             &b,
@@ -2250,29 +2258,44 @@ fn a_holder_may_freeze_the_card_linked_to_the_pot_a_viewer_cannot_and_only_the_o
         &linked
     );
 
-    // A viewer cannot freeze it; a stranger is told the pot is not found. A contributor's freeze passes the pot's
-    // checks, and the card's status is slice `cards`'s to set: until it is ported it answers "not ported".
+    // A viewer cannot freeze it; a stranger is told the pot is not found; a contributor freezes it.
     refused(&freeze(VIEWER), "bank.space_forbidden", "FORBIDDEN");
     refused(&freeze(THIRD), "bank.space_not_found", "NOT_FOUND");
-    let holder = freeze(PARTNER);
+    // Two holders freezing at once freeze it once: one line in the log. The card records a holder froze it, not its owner.
+    std::thread::scope(|s| {
+        let one = s.spawn(|| freeze(PARTNER));
+        let two = s.spawn(|| freeze(PARTNER));
+        one.join().unwrap().ok();
+        two.join().unwrap().ok();
+    });
+    let frozen = freeze(PARTNER).ok();
     assert_eq!(
-        (holder.0, holder.message()),
-        (
-            500,
-            "svc-bank in Rust: the cards slice is not ported".to_owned()
+        frozen.compact(),
+        format!(
+            r#"{{"cardId":"{card_id}","panTail":"{tail}","status":"frozen","frozenBy":"holder"}}"#
         )
     );
-
+    let mine = arr(&call(&b, OWNER, "cards.list", r#"{"limit":10}"#).ok());
+    let row = mine.iter().find(|c| text(c, "id") == card_id).unwrap();
+    assert_eq!(text(row, "status"), "frozen");
     assert_eq!(
-        call(&b, PARTNER, "sharedPots.unlinkCard", &space_id(&pot)).code(),
-        "bank.space_not_found"
+        db.count(&format!(
+            "SELECT count(*) FROM bank.cards WHERE id = '{card_id}' AND frozen_by = 'holder'"
+        )),
+        1
     );
-    assert_eq!(
-        call(&b, OWNER, "sharedPots.unlinkCard", &space_id(&pot))
-            .ok()
-            .compact(),
-        r#"{"unlinked":true}"#
-    );
+    // A member cannot lift it through the card's own door; the owner can, and the log names them too.
+    let lift = |user: &str, status: &str| {
+        call(
+            &b,
+            user,
+            "cards.setStatus",
+            &format!(r#"{{"cardId":"{card_id}","status":"{status}"}}"#),
+        )
+    };
+    assert_eq!(lift(PARTNER, "active").trpc(), "FORBIDDEN");
+    lift(OWNER, "active").ok();
+    call(&b, OWNER, "sharedPots.unlinkCard", &space_id(&pot)).ok();
     assert_eq!(
         call(&b, OWNER, "sharedPots.unlinkCard", &space_id(&pot))
             .ok()
@@ -2280,10 +2303,13 @@ fn a_holder_may_freeze_the_card_linked_to_the_pot_a_viewer_cannot_and_only_the_o
         r#"{"unlinked":true}"#
     );
     refused(&freeze(PARTNER), "bank.card_not_found", "BAD_REQUEST");
+    // Freezing an unlinked card is not the pot's business.
+    lift(OWNER, "frozen").ok();
+
     let entries = arr(&log(&b, VIEWER, &pot, r#","limit":50"#).ok());
     let seen: Vec<_> = entries
         .iter()
-        .take(2)
+        .take(4)
         .map(|e| {
             format!(
                 "{} {} {}",
@@ -2298,10 +2324,64 @@ fn a_holder_may_freeze_the_card_linked_to_the_pot_a_viewer_cannot_and_only_the_o
         seen,
         [
             format!("card_unlinked Olga_Owner {tail}"),
+            format!("card_unfrozen Olga_Owner {tail}"),
+            format!("card_frozen Pia_Partner {tail}"),
             format!("card_linked Olga_Owner {tail}")
         ]
     );
-    assert_eq!(entries[2].get("card"), Some(&Json::Null));
+    assert_eq!(entries[4].get("card"), Some(&Json::Null));
+}
+
+/// `cards.issue` through the door, as the TypeScript's `owner.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '50' })`.
+fn issued(b: &Bank, user: &str) -> (String, String) {
+    let id = uuid();
+    let made = call(
+        b,
+        user,
+        "cards.issue",
+        &format!(r#"{{"cardId":"{id}","assetId":"USDT","perAuthorizationLimit":"50"}}"#),
+    )
+    .ok();
+    (id, text(&made, "panTail"))
+}
+
+#[test]
+fn closing_a_linked_card_unlinks_it_in_the_log_with_who_closed_it() {
+    let Some(db) = db() else { return };
+    let ledger = Book::default();
+    let b = bank(&db, &ledger, &joint(Some("60"), Some("2")));
+    let pot = shared_pot(&b, &ledger);
+    let (card_id, _) = issued(&b, OWNER);
+    call(
+        &b,
+        OWNER,
+        "sharedPots.linkCard",
+        &format!(r#"{{"spaceId":"{}","cardId":"{card_id}"}}"#, pot),
+    )
+    .ok();
+    call(
+        &b,
+        OWNER,
+        "cards.setStatus",
+        &format!(r#"{{"cardId":"{card_id}","status":"closed"}}"#),
+    )
+    .ok();
+    assert_eq!(shared_list(&b, OWNER).get("owned").unwrap().compact(), "[]");
+    let kinds: Vec<_> = arr(&log(&b, OWNER, &pot, r#","limit":50"#).ok())
+        .iter()
+        .map(|e| text(e, "kind"))
+        .collect();
+    assert_eq!(kinds, ["card_unlinked", "card_linked"]);
+    refused(
+        &call(
+            &b,
+            OWNER,
+            "sharedPots.linkCard",
+            &format!(r#"{{"spaceId":"{}","cardId":"{card_id}"}}"#, pot),
+        ),
+        "bank.card_not_active",
+        "BAD_REQUEST",
+    );
 }
 
 #[test]
