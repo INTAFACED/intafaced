@@ -1,4 +1,3 @@
-// volt-room: /trade/spot/:pair
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { ScreenProps } from '../../../app/screen-types';

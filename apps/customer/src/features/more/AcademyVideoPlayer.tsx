@@ -20,6 +20,11 @@ import { academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { LessonVideoLink } from './AcademyReaderParts';
+import { callAs } from '../../shared/api';
+import { ACADEMY_VIDEO_PLAYER } from '@intafaced/contracts/academy-video-player-procedures';
+import { ACADEMY_VIDEO_PLAYBACK } from '@intafaced/contracts/academy-video-playback-procedures';
+import { ACADEMY_VIDEO_PROGRESS_GET, ACADEMY_VIDEO_PROGRESS_SET } from '@intafaced/contracts/academy-video-progress-procedures';
+import { ACADEMY_ITEM_VIDEO } from '@intafaced/contracts/academy-item-video-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type Saved = { positionSeconds: number; completedItems: string[] };
@@ -403,9 +408,9 @@ export function AcademyVideoPlayer({ videoSlug, onCompleted }: { videoSlug: stri
     { userId } = useSession();
   const player = useResource(
     (signal) =>
-      api.query(
-        'academy',
-        'videoPlayer',
+      callAs(
+        api,
+        ACADEMY_VIDEO_PLAYER,
         { slug: videoSlug },
         academyVideoPlayerSchema.refine((p) => p.slug === videoSlug),
         { signal },
@@ -414,9 +419,9 @@ export function AcademyVideoPlayer({ videoSlug, onCompleted }: { videoSlug: stri
   );
   const playback = useResource(
     (signal) =>
-      api.query(
-        'academy',
-        'videoPlayback',
+      callAs(
+        api,
+        ACADEMY_VIDEO_PLAYBACK,
         { slug: videoSlug },
         academyVideoPlaybackSchema.refine((p) => p.slug === videoSlug),
         { signal },
@@ -425,9 +430,9 @@ export function AcademyVideoPlayer({ videoSlug, onCompleted }: { videoSlug: stri
   );
   const position = useResource(
     (signal) =>
-      api.query(
-        'academy',
-        'videoProgress.get',
+      callAs(
+        api,
+        ACADEMY_VIDEO_PROGRESS_GET,
         { videoSlug },
         academyVideoPositionSchema.refine((p) => p.videoSlug === videoSlug),
         { signal },
@@ -440,9 +445,9 @@ export function AcademyVideoPlayer({ videoSlug, onCompleted }: { videoSlug: stri
     async (positionSeconds: number) => {
       const key = `video:${videoSlug}:${opened.current}:${++count.current}`;
       const send = () =>
-        api.mutate(
-          'academy',
-          'videoProgress.set',
+        callAs(
+          api,
+          ACADEMY_VIDEO_PROGRESS_SET,
           { videoSlug, positionSeconds, clientRequestId: key },
           academyVideoPositionSavedSchema.refine((p) => p.videoSlug === videoSlug),
         );
@@ -485,9 +490,9 @@ export function ItemVideo({ itemSlug, onCompleted }: { itemSlug: string; onCompl
     { userId } = useSession();
   const attached = useResource(
     (signal) =>
-      api.query(
-        'academy',
-        'itemVideo',
+      callAs(
+        api,
+        ACADEMY_ITEM_VIDEO,
         { itemSlug },
         academyItemVideoSchema.refine((v) => v.itemSlug === itemSlug),
         { signal },
