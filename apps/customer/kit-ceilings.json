@@ -290,7 +290,6 @@
     "apps/customer/src/screens/trade/copybots/FollowWizard.tsx": 1,
     "apps/customer/src/screens/trade/copybots/GridManage.tsx": 1,
     "apps/customer/src/screens/trade/copybots/RecurringBuy.tsx": 4,
-    "apps/customer/src/screens/trade/copybots/SignalsRoom.tsx": 1,
     "apps/customer/src/screens/trade/copybots/WebhooksRoom.tsx": 1,
     "apps/customer/src/screens/trade/desk/BottomTabs.tsx": 1,
     "apps/customer/src/screens/trade/desk/CancelAll.tsx": 1,

@@ -11,15 +11,15 @@ import {
   Change,
   Dock,
   Field,
-  Choice,
   ChoiceGroup,
-  Select,
   TextArea,
   Figure,
   LegalSlot,
   Logo,
   Rail,
   RefusalBox,
+  EmptyState,
+  Select,
   RiskMoment,
   Surface,
   type DoorLink,
@@ -169,7 +169,7 @@ describe('components', () => {
     expect(html(<RefusalBox refusal={{ variant: 'refused', title: 'No', body: 'Why' }} />)).toContain('role="status"');
   });
 
-  it('Select, TextArea and Choice name their control the way Field does', () => {
+  it('Select, TextArea and ChoiceGroup name their control the way Field does', () => {
     const select = html(
       <Select label="Country" id="c" hint="Where you live" error="Pick one">
         <option value="DE">Germany</option>
@@ -182,12 +182,21 @@ describe('components', () => {
     expect(area).toContain('<label for="t">Your appeal</label>');
     expect(area).toContain('maxLength="10"');
     const group = html(
-      <ChoiceGroup legend="Are you a US person?">
-        <Choice type="radio" name="us" value="no" label="No" />
-      </ChoiceGroup>,
+      <ChoiceGroup
+        legend="Are you a US person?"
+        name="us"
+        options={[{ value: 'no', label: 'No' }]}
+        value={null}
+        onChange={() => undefined}
+        hint="Citizens and residents"
+        disabled
+      />,
     );
     expect(group).toContain('<legend>Are you a US person?</legend>');
-    expect(group).toContain('<label class="lit-choice"><input type="radio" name="us" value="no"/><span>No</span></label>');
+    expect(group).toMatch(
+      /<fieldset class="lit-choices" disabled="" aria-describedby="([^"]+)">.*<span id="\1" data-part="hint">Citizens and residents<\/span>/,
+    );
+    expect(group).toContain('<input type="radio" name="us" value="no"/>');
   });
 
   it('LegalSlot holds no copy of its own, and an unset text shows a refusal in words, never the id', () => {
@@ -249,5 +258,41 @@ describe('components', () => {
     expect(fig).not.toMatch(/lit-figure__marks"[^>]*dir=/);
     const change = html(<Change text="+£45.53 (+0.37%)" dir="up" spoken="up" />);
     expect(change).toContain('<span dir="ltr" data-ltr="">+£45.53 (+0.37%)</span>');
+  });
+});
+
+describe("refusal and empty parts carry the room's own attributes", () => {
+  it('passes a test id and role through, and draws a control as the next step', () => {
+    const out = html(
+      <RefusalBox refusal={{ variant: 'refused', title: 'No', body: 'Why' }} data-testid="failure" role="alert">
+        <button type="button">Try again</button>
+      </RefusalBox>,
+    );
+    expect(out).toMatch(/^<div role="alert" data-testid="failure" class="lit-refusal" data-variant="refused">/);
+    expect(out).toContain('<button type="button">Try again</button>');
+    expect(html(<RefusalBox refusal={{ variant: 'refused', title: 'No', body: 'Why' }} />)).toContain('role="status"');
+    expect(html(<EmptyState title="None" data-testid="empty" />)).toContain('data-testid="empty"');
+  });
+});
+
+describe('Select', () => {
+  it('labels its native select, lists the choices in order and names its hint', () => {
+    const out = html(
+      <Select
+        id="kind"
+        label="Type"
+        hint="What you sell"
+        value="b"
+        onChange={() => undefined}
+        options={[
+          ['a', 'Physical'],
+          ['b', 'Digital'],
+        ]}
+      />,
+    );
+    expect(out).toContain('<label for="kind">Type</label>');
+    expect(out).toMatch(/<select id="kind" aria-describedby="kind-hint">/);
+    expect(out.indexOf('Physical')).toBeLessThan(out.indexOf('Digital'));
+    expect(out).toContain('<span id="kind-hint" data-part="hint">What you sell</span>');
   });
 });

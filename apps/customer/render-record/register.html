@@ -36,28 +36,28 @@
 <span>Step 1</span>
 <h2>Your details</h2>
 <form method="post">
-<fieldset class="lit-choice-group">
+<fieldset class="lit-choices">
 <legend>Account type</legend>
-<label class="lit-choice">
+<label data-part="choice">
 <input type="radio" value="individual" checked="" name="accountType">
-<span>Personal <small class="lt-hint">For you, in your own name.</small>
-</span>
+<span data-part="label">Personal</span>
+<span data-part="hint">For you, in your own name.</span>
 </label>
-<label class="lit-choice">
+<label data-part="choice">
 <input type="radio" value="business" name="accountType">
-<span>Business <small class="lt-hint">For a company. After the code, you go on to business verification.</small>
-</span>
+<span data-part="label">Business</span>
+<span data-part="hint">For a company. After the code, you go on to business verification.</span>
 </label>
 </fieldset>
-<fieldset class="lit-choice-group">
+<fieldset class="lit-choices">
 <legend>Sign up with</legend>
-<label class="lit-choice">
+<label data-part="choice">
 <input type="radio" value="email" checked="" name="channel">
-<span>Email</span>
+<span data-part="label">Email</span>
 </label>
-<label class="lit-choice">
+<label data-part="choice">
 <input type="radio" value="phone" name="channel">
-<span>Phone</span>
+<span data-part="label">Phone</span>
 </label>
 </fieldset>
 <div class="lit-field-control">
@@ -353,21 +353,21 @@
 <option value="ZW">Zimbabwe</option>
 </select>
 </div>
-<fieldset class="lit-choice-group">
+<fieldset class="lit-choices" aria-describedby="_r_5_">
 <legend>Are you a US person?</legend>
-<label class="lit-choice">
+<label data-part="choice">
 <input type="radio" value="yes" name="usPerson">
-<span>Yes, I am a US person</span>
+<span data-part="label">Yes, I am a US person</span>
 </label>
-<label class="lit-choice">
+<label data-part="choice">
 <input type="radio" value="no" name="usPerson">
-<span>No, I am not a US person</span>
+<span data-part="label">No, I am not a US person</span>
 </label>
-<span data-part="hint">A US citizen, a green-card holder or a US resident, wherever you live now.</span>
+<span id="_r_5_" data-part="hint">A US citizen, a green-card holder or a US resident, wherever you live now.</span>
 </fieldset>
 <div class="lit-field-control">
-<label for="_r_5_">Nationality (optional)</label>
-<select name="nationality" id="_r_5_">
+<label for="_r_6_">Nationality (optional)</label>
+<select name="nationality" id="_r_6_">
 <option value="">Same as above, or choose</option>
 <option value="AF">Afghanistan</option>
 <option value="AX">Åland Islands</option>
@@ -645,8 +645,8 @@
 </select>
 </div>
 <div class="lit-field-control">
-<label for="_r_6_">Date of birth</label>
-<input max="2026-10-21" required="" id="_r_6_" type="date" name="dateOfBirth">
+<label for="_r_7_">Date of birth</label>
+<input max="2026-10-21" required="" id="_r_7_" type="date" name="dateOfBirth">
 </div>
 <button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Create account</button>
 </form>

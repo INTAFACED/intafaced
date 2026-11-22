@@ -5,6 +5,7 @@ import { SUBNAV } from './blockers';
 import { WalletRoom } from './wallet/WalletRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
+import { ScanRoom } from './wallet-scan/ScanRoom';
 import { ClaimPage } from './wallet/ClaimPage';
 import { ConventionPage, HoldingPage } from './wallet/PortfolioPanel';
 import { TokenPage } from './tokens/TokenPage';
@@ -44,6 +45,8 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.wallet === 'venue') return <VenueWalletRoom />;
   // The person's own embedded wallet is its own room on the flow template too (J-wallet-22).
   if (route.wallet === 'embedded') return <EmbeddedWalletRoom />;
+  // Scan is its own room on the flow template too (D-portfolio-wallet-05), with the wallet's sections above it.
+  if (route.wallet === 'scan') return <ScanRoom />;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;

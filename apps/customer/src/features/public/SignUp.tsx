@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Button, Choice, ChoiceGroup, Field, RefusalBox, Select } from '@intafaced/ui/lit';
+import { Button, ChoiceGroup, Field, RefusalBox, Select } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
 import { singleFlight } from '../../shared/password';
@@ -46,6 +46,7 @@ export function SignUp() {
   const [accountType, setAccountType] = useState<AccountType>('individual');
   const [channel, setChannel] = useState<Channel>('email');
   const [country, setCountry] = useState('');
+  const [usPerson, setUsPerson] = useState<'yes' | 'no' | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -93,8 +94,6 @@ export function SignUp() {
     const email = field('email');
     const nationality = field('nationality');
     const subdivision = field('subdivision');
-    // Left unanswered, the question is sent as no answer at all, and the service refuses it: never read as no.
-    const usPerson = field('usPerson');
     const input = {
       channel,
       accountType,
@@ -103,6 +102,7 @@ export function SignUp() {
       password: String(data.get('password') ?? ''),
       country: field('country'),
       ...(subdivision ? { subdivision } : {}),
+      // Left unanswered, the question is sent as no answer at all, and the service refuses it: never read as no.
       ...(usPerson === 'yes' ? { usPerson: true } : usPerson === 'no' ? { usPerson: false } : {}),
       ...(nationality ? { nationality } : {}),
       dateOfBirth: field('dateOfBirth'),
@@ -213,36 +213,26 @@ export function SignUp() {
               <h2>{t('step1')}</h2>
               {!pending && (
                 <form ref={form} method="post" onSubmit={start}>
-                  <ChoiceGroup legend={t('accountType')} disabled={busy}>
-                    {(['individual', 'business'] as const).map((kind) => (
-                      <Choice
-                        key={kind}
-                        type="radio"
-                        name="accountType"
-                        value={kind}
-                        checked={accountType === kind}
-                        onChange={() => setAccountType(kind)}
-                        label={
-                          <>
-                            {t(kind)} <small className="lt-hint">{t(kind === 'individual' ? 'individualHint' : 'businessHint')}</small>
-                          </>
-                        }
-                      />
-                    ))}
-                  </ChoiceGroup>
-                  <ChoiceGroup legend={t('channel')} disabled={busy}>
-                    {(['email', 'phone'] as const).map((kind) => (
-                      <Choice
-                        key={kind}
-                        type="radio"
-                        name="channel"
-                        value={kind}
-                        checked={channel === kind}
-                        onChange={() => setChannel(kind)}
-                        label={t(kind)}
-                      />
-                    ))}
-                  </ChoiceGroup>
+                  <ChoiceGroup
+                    legend={t('accountType')}
+                    name="accountType"
+                    disabled={busy}
+                    options={(['individual', 'business'] as const).map((kind) => ({
+                      value: kind,
+                      label: t(kind),
+                      hint: t(kind === 'individual' ? 'individualHint' : 'businessHint'),
+                    }))}
+                    value={accountType}
+                    onChange={setAccountType}
+                  />
+                  <ChoiceGroup
+                    legend={t('channel')}
+                    name="channel"
+                    disabled={busy}
+                    options={(['email', 'phone'] as const).map((kind) => ({ value: kind, label: t(kind) }))}
+                    value={channel}
+                    onChange={setChannel}
+                  />
                   {channel === 'email' ? (
                     <Field
                       label={t('emailField')}
@@ -305,17 +295,18 @@ export function SignUp() {
                       ))}
                     </Select>
                   )}
-                  <ChoiceGroup legend={t('usPerson')} hint={t('usPersonHint')} disabled={busy}>
-                    {(['yes', 'no'] as const).map((answer) => (
-                      <Choice
-                        key={answer}
-                        type="radio"
-                        name="usPerson"
-                        value={answer}
-                        label={t(answer === 'yes' ? 'usPersonYes' : 'usPersonNo')}
-                      />
-                    ))}
-                  </ChoiceGroup>
+                  <ChoiceGroup
+                    legend={t('usPerson')}
+                    name="usPerson"
+                    hint={t('usPersonHint')}
+                    disabled={busy}
+                    options={(['yes', 'no'] as const).map((answer) => ({
+                      value: answer,
+                      label: t(answer === 'yes' ? 'usPersonYes' : 'usPersonNo'),
+                    }))}
+                    value={usPerson}
+                    onChange={setUsPerson}
+                  />
                   <Select label={t('nationality')} name="nationality" disabled={busy} defaultValue="">
                     <option value="">{t('nationalityPick')}</option>
                     {countries.map((c) => (

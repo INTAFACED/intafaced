@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Button, Choice, Field, RefusalBox } from '@intafaced/ui/lit';
-import { FlowTemplate } from '@intafaced/ui/lit/templates';
+import { Button, ChoiceGroup, Field, RefusalBox } from '@intafaced/ui/lit';
+import { Checkbox, FlowTemplate } from '@intafaced/ui/lit/templates';
 import { useDataEnv } from '../../data/hooks';
 import { writeContract } from '../../shared/contract-call';
 import { statusSubscriptionConfirm, statusUnsubscribe } from './status';
@@ -119,25 +119,30 @@ function ManageSubscription({ token, view, onChange, t }: { token: string; view:
       </dl>
       {view.state === 'active' ? (
         <form onSubmit={(event) => void save(event)}>
-          <fieldset>
-            <Choice type="radio" name="scope" checked={all} onChange={() => setAll(true)} label={t('allComponents')} />
-            <Choice type="radio" name="scope" checked={!all} onChange={() => setAll(false)} label={t('pickComponents')} />
-            {!all
-              ? components.map((component) => (
-                  <Choice
-                    key={component.id}
-                    type="checkbox"
-                    name="component"
-                    value={component.id}
-                    checked={picked.includes(component.id)}
-                    onChange={(event) =>
-                      setPicked((now) => (event.target.checked ? [...now, component.id] : now.filter((id) => id !== component.id)))
-                    }
-                    label={component.name}
-                  />
-                ))
-              : null}
-          </fieldset>
+          <ChoiceGroup
+            legend={t('scopeLegend')}
+            name="scope"
+            options={[
+              { value: 'all', label: t('allComponents') },
+              { value: 'pick', label: t('pickComponents') },
+            ]}
+            value={all ? 'all' : 'pick'}
+            onChange={(next) => setAll(next === 'all')}
+          />
+          {!all
+            ? components.map((component) => (
+                <Checkbox
+                  key={component.id}
+                  name="component"
+                  value={component.id}
+                  checked={picked.includes(component.id)}
+                  onChange={(event) =>
+                    setPicked((now) => (event.target.checked ? [...now, component.id] : now.filter((id) => id !== component.id)))
+                  }
+                  label={component.name}
+                />
+              ))
+            : null}
           <Field
             label={t('webhook')}
             hint={t('webhookHint')}

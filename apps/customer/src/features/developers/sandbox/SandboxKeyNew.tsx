@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
 import type { SandboxDetail, SandboxKeyCreateOutput } from '@intafaced/contracts/developer-sandboxes';
-import { Button, Choice, ChoiceGroup, EmptyState, Field, RefusalBox } from '@intafaced/ui/lit';
-import { FlowTemplate } from '@intafaced/ui/lit/templates';
+import { Button, ChoiceGroup, EmptyState, Field, RefusalBox } from '@intafaced/ui/lit';
+import { Checkbox, FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useFailureView } from '../../../shared/failure-view';
 import { useSession } from '../../session';
@@ -191,7 +191,7 @@ function ShownOnce({ made, sandboxId, t }: { made: Made; sandboxId: string; t: T
         {copied === 'yes' ? t('copied') : t('copy')}
       </Button>
       {copied === 'failed' ? <p>{t('copyFailed')}</p> : null}
-      <Choice type="checkbox" checked={stored} onChange={(event) => setStored(event.currentTarget.checked)} label={t('stored')} />
+      <Checkbox checked={stored} onChange={(event) => setStored(event.currentTarget.checked)} label={t('stored')} />
       <Button tone="primary" disabled={!stored} onClick={() => window.location.assign(`/developers/sandbox/${sandboxId}`)}>
         {t('done')}
       </Button>
@@ -252,23 +252,16 @@ function KeyForm({ detail, t }: { detail: SandboxDetail; t: T }) {
       />
       <ChoiceGroup
         legend={t('permissions')}
+        name="preset"
+        options={(Object.keys(KEY_PRESETS) as KeyPreset[]).map((choice) => ({ value: choice, label: t(labels[choice]) }))}
+        value={preset}
+        onChange={setPreset}
         hint={
           <>
             {t(notes[preset])} <code lang="und">{KEY_PRESETS[preset].join(' ')}</code>
           </>
         }
-      >
-        {(Object.keys(KEY_PRESETS) as KeyPreset[]).map((choice) => (
-          <Choice
-            key={choice}
-            type="radio"
-            name="preset"
-            checked={preset === choice}
-            onChange={() => setPreset(choice)}
-            label={t(labels[choice])}
-          />
-        ))}
-      </ChoiceGroup>
+      />
       {refused ? <Refused failure={refused} t={t} /> : null}
       {replayed ? <p role="status">{replayed}</p> : null}
       <Button tone="primary" type="submit" disabled={busy}>
