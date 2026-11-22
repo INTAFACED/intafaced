@@ -97,42 +97,43 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money</p>
-<h1>Withdrawal addresses</h1>
-<p class="muted">Save the addresses you withdraw to. A new address waits out a cooling-off period before money can be sent to it.</p>
+<h1 class="lt-title">Withdrawal addresses</h1>
+<p class="lt-description">Save the addresses you withdraw to. A new address waits out a cooling-off period before money can be sent to it.</p>
 </div>
 </header>
-<div class="withdrawal-page bd-stack">
-<section class="bd-panel" aria-labelledby="_r_3_">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<section aria-labelledby="_r_3_">
 <h3 id="_r_3_">Saved addresses</h3>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_4_">
+<section aria-labelledby="_r_4_">
 <h3 id="_r_4_">Add an address</h3>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
 <p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
+</section>
+<section class="lt-region" data-region="actions" aria-label="Actions">
 <p>
-<a class="text-link" href="/uc/withdraw">Back to Withdraw ↗</a>
+<a class="lt-link" href="/uc/withdraw">Back to Withdraw</a>
 </p>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
 </div>
 </div>
 </div>

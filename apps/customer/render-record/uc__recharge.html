@@ -97,63 +97,58 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money</p>
-<h1>Add money</h1>
-<p class="muted">Pay in crypto to your account. Choose the asset and network, then send to the address shown here.</p>
+<h1 class="lt-title">Add money</h1>
+<p class="lt-description">Pay in crypto to your account. Choose the asset and network, then send to the address shown here.</p>
 </div>
-<div class="actions">
-<a class="text-link" href="/uc/assets">Supported assets and networks ↗</a>
+<div class="lt-room-action">
+<a class="lt-link" href="/uc/assets">Supported assets and networks</a>
 </div>
 </header>
-<nav class="bd-methods" aria-label="Ways to add money">
-<h2 class="bd-methods__title">How do you want to add money?</h2>
-<ul class="bd-methods__list">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<nav aria-label="Ways to add money">
+<h2>How do you want to add money?</h2>
+<ul>
 <li data-method="crypto">
-<div class="bd-method bd-method--here" aria-current="page">
-<strong>Crypto</strong>
-<span class="money-caption">Send from another wallet or exchange to your own address on this page.</span>
-<span class="bd-method__here">You are here</span>
+<div aria-current="page">
+<strong>Crypto</strong> <span class="lt-hint">Send from another wallet or exchange to your own address on this page.</span> <span>You are here</span>
 </div>
 </li>
 <li data-method="card">
-<a class="bd-method" href="/bank/ramps">
-<strong>Card</strong>
-<span class="money-caption">Needs a payment partner, which is not connected.</span>
+<a class="lt-link" href="/bank/ramps">
+<strong>Card</strong> <span class="lt-hint">Needs a payment partner, which is not connected.</span>
 </a>
 </li>
 <li data-method="bank">
-<a class="bd-method" href="/bank/ramps">
-<strong>Bank transfer</strong>
-<span class="money-caption">Needs a payment partner, which is not connected.</span>
+<a class="lt-link" href="/bank/ramps">
+<strong>Bank transfer</strong> <span class="lt-hint">Needs a payment partner, which is not connected.</span>
 </a>
 </li>
 <li data-method="p2p">
-<a class="bd-method" href="/p2p">
-<strong>Person to person</strong>
-<span class="money-caption">Offers, orders and counterparties in the person-to-person room.</span>
+<a class="lt-link" href="/p2p">
+<strong>Person to person</strong> <span class="lt-hint">Offers, orders and counterparties in the person-to-person room.</span>
 </a>
 </li>
 <li data-method="user">
-<a class="bd-method" href="/pay/receive">
-<strong>From an INTAFACED user</strong>
-<span class="money-caption">Share your handle and they can send you money straight away.</span>
+<a class="lt-link" href="/pay/receive">
+<strong>From an INTAFACED user</strong> <span class="lt-hint">Share your handle and they can send you money straight away.</span>
 </a>
 </li>
 </ul>
 </nav>
-<div class="bd-columns">
-<div class="bd-stack">
-<section class="bd-panel" aria-labelledby="_r_3_">
+<section aria-labelledby="_r_3_">
 <h3 id="_r_3_">Asset</h3>
-<label class="field">
+<label class="lt-field">
 <span>Search assets</span>
 <input autocomplete="off" aria-describedby="_r_4_" type="search" value="">
 <small id="_r_4_" role="status">7 of 7 assets</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Asset</span>
 <select>
 <option value="USDT">USDT</option>
@@ -166,72 +161,40 @@
 </select>
 <small>Coins you hold come first.</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Network</span>
 <select disabled="" aria-describedby="_r_5_">
 <option value="">No networks available</option>
 </select>
 <small id="_r_5_">We could not load the networks. Try again.</small>
-<button type="button" class="button button--ghost ">Try again</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Try again</button>
 </label>
 </section>
-<section class="bd-panel" aria-labelledby="_r_6_">
+<section aria-labelledby="_r_6_">
 <h3 id="_r_6_">Your deposit address</h3>
-<div class="bd-address" role="status">
+<div role="status">
 <p>Choose an asset and a network, then confirm below to see your address.</p>
 </div>
-<dl class="bd-facts">
-<div class="bd-fact">
+<dl class="lt-kv">
+<div>
 <dt>Minimum deposit</dt>
 <dd>Not published</dd>
 </div>
-<div class="bd-fact">
+<div>
 <dt>Confirmations needed</dt>
 <dd>Not published</dd>
 </div>
-<div class="bd-fact">
+<div>
 <dt>Time to arrive</dt>
 <dd>Not published</dd>
 </div>
 </dl>
 </section>
-<section class="bd-panel" aria-labelledby="_r_7_">
-<h3 id="_r_7_">Bank transfer details</h3>
-<p class="money-caption">The account numbers a bank transfer to you uses, one set for each currency.</p>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
-</section>
-<section class="bd-panel" aria-labelledby="_r_8_">
-<h3 id="_r_8_">Before you send</h3>
-<ul class="bd-list">
-<li>Send only the asset you chose, on the network you chose. Anything else can be lost for good.</li>
-<li>A deposit under the minimum may not be credited. The minimum for the network you choose is shown with the address, when it is published.</li>
-<li>Deposits appear in your history below once they are credited.</li>
-</ul>
-</section>
-</div>
-<div class="bd-stack">
-<section class="bd-panel" aria-labelledby="_r_9_">
-<h3 id="_r_9_">On its way</h3>
-<p class="money-caption">Deposits seen on the network that are waiting to be credited.</p>
-<div class="empty-state">
-<span class="empty-mark" aria-hidden="true">↗</span>
-<h3>We could not load your deposit records.</h3>
-<button type="button" class="button button--secondary ">Try again</button>
-</div>
-</section>
-<section class="bd-panel" aria-labelledby="_r_10_">
-<h3 id="_r_10_">Deposit records</h3>
-<p class="money-caption">Every crypto deposit to your addresses, with its state, newest first.</p>
-<div class="bd-filter">
-<label class="field">
+<section aria-labelledby="_r_7_">
+<h3 id="_r_7_">Deposit records</h3>
+<p class="lt-hint">Every crypto deposit to your addresses, with its state, newest first.</p>
+<div class="lt-toolbar">
+<label class="lt-field">
 <span>Asset</span>
 <select>
 <option value="">Any</option>
@@ -244,7 +207,7 @@
 <option value="XRP">XRP</option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Status</span>
 <select>
 <option value="">Any</option>
@@ -261,34 +224,33 @@
 <option value="needs_review">Needs review</option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Transaction id</span>
 <input value="">
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Address</span>
 <input value="">
 </label>
 </div>
-<div class="empty-state">
-<span class="empty-mark" aria-hidden="true">↗</span>
-<h3>We could not load your deposit records.</h3>
-<button type="button" class="button button--secondary ">Try again</button>
+<div class="lit-empty">
+<div data-part="title">We could not load your deposit records.</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_11_">
-<h3 id="_r_11_">Your deposits</h3>
-<p class="money-caption">Money credited to your account, newest first.</p>
-<div class="bd-filter">
-<span class="money-caption">Showing USDT only</span>
-<button type="button" class="button button--ghost ">Show all assets</button>
+<section aria-labelledby="_r_8_">
+<h3 id="_r_8_">Your deposits</h3>
+<p class="lt-hint">Money credited to your account, newest first.</p>
+<div class="lt-toolbar">
+<span class="lt-hint">Showing USDT only</span>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Show all assets</button>
 </div>
-<table class="bd-table">
+<table class="lt-table">
 <thead>
 <tr>
 <th scope="col">Date</th>
 <th scope="col">What</th>
-<th scope="col" class="bd-num">Amount</th>
+<th scope="col">Amount</th>
 <th scope="col">Status</th>
 </tr>
 </thead>
@@ -298,9 +260,9 @@
 <time datetime="2026-10-12T10:00:00.000Z" lang="en-GB" dir="auto">12 Oct, 10:00</time>
 </td>
 <td>
-<a class="text-link" href="/money/activity/a8">Deposit</a>
+<a class="lt-link" href="/money/activity/a8">Deposit</a>
 </td>
-<td class="bd-num numeric">+1,000 USDT</td>
+<td class="lt-mono">+1,000 USDT</td>
 <td>Credited</td>
 </tr>
 <tr>
@@ -308,18 +270,49 @@
 <time datetime="2026-10-10T06:00:00.000Z" lang="en-GB" dir="auto">10 Oct, 06:00</time>
 </td>
 <td>
-<a class="text-link" href="/money/activity/a9">Welcome test funds</a>
+<a class="lt-link" href="/money/activity/a9">Welcome test funds</a>
 </td>
-<td class="bd-num numeric">+4,000 USDT</td>
+<td class="lt-mono">+4,000 USDT</td>
 <td>Credited</td>
 </tr>
 </tbody>
 </table>
-<p class="money-caption">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.bank.deposit.total">Total shown: 5,000 USDT</span>
 </p>
-<button type="button" class="button button--secondary ">Load more</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Load more</button>
 </section>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<section aria-labelledby="_r_9_">
+<h3 id="_r_9_">On its way</h3>
+<p class="lt-hint">Deposits seen on the network that are waiting to be credited.</p>
+<div class="lit-empty">
+<div data-part="title">We could not load your deposit records.</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</div>
+</section>
+<section aria-labelledby="_r_10_">
+<h3 id="_r_10_">Before you send</h3>
+<ul>
+<li>Send only the asset you chose, on the network you chose. Anything else can be lost for good.</li>
+<li>A deposit under the minimum may not be credited. The minimum for the network you choose is shown with the address, when it is published.</li>
+<li>Deposits appear in your history below once they are credited.</li>
+</ul>
+</section>
+<section aria-labelledby="_r_11_">
+<h3 id="_r_11_">Bank transfer details</h3>
+<p class="lt-hint">The account numbers a bank transfer to you uses, one set for each currency.</p>
+<div data-testid="failure" role="status">
+<h3>Can’t connect right now</h3>
+<p>No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</div>
+</section>
+</section>
+</div>
 </div>
 </div>
 </div>
