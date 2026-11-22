@@ -2,7 +2,15 @@
 // failing, on small made-up baselines. Runs in the Doctrine gates' tooling tests (tooling/scripts/tooling-tests.mjs).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { judgeBaselineChange, namedRunProblem, liveSteps, isProductCode, runRange, listRuns } from '../ci/journey-baseline-guard.mjs';
+import {
+  judgeBaselineChange,
+  namedRunProblem,
+  liveSteps,
+  isProductCode,
+  runRange,
+  listRuns,
+  needsHistory,
+} from '../ci/journey-baseline-guard.mjs';
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
@@ -248,4 +256,20 @@ test('liveSteps leaves deferred journeys and steps out', () => {
     { id: 'J-b-01', deferred: true, steps: [{ n: 1 }] },
   ]);
   assert.deepEqual([...s], ['J-a-01#1']);
+});
+
+test('needs no history: only money or why changed (the guard passes without listing runs)', () => {
+  const base = { run: run(1719, SHA_A), steps: [unbuilt('J-x-01#1', { money: false, why: 'a' })] };
+  assert.equal(needsHistory(base, { ...base, steps: [unbuilt('J-x-01#1', { money: true, why: 'b' })] }), false);
+});
+
+test('needs history (planted): a state, a step, the run or any other field changes with the money flag', () => {
+  const base = { run: run(1719, SHA_A), steps: [unbuilt('J-x-01#1', { money: false })] };
+  const flip = unbuilt('J-x-01#1', { money: true });
+  assert.equal(needsHistory(base, { ...base, steps: [{ ...flip, state: 'regression' }] }), true);
+  assert.equal(needsHistory(base, { ...base, steps: [flip, unbuilt('J-x-01#2')] }), true);
+  assert.equal(needsHistory(base, { ...base, steps: [] }), true);
+  assert.equal(needsHistory(base, { run: run(1720, SHA_B), steps: [flip] }), true);
+  assert.equal(needsHistory(base, { ...base, steps: [{ ...flip, strengthenedBy: SHA_S }] }), true);
+  assert.equal(needsHistory(base, { ...base, note: 'x', steps: [flip] }), true);
 });
