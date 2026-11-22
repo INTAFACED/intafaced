@@ -13,12 +13,12 @@ import { LessonVideoLink } from '../AcademyReaderParts';
 import { clock, cuePlainText, useVideoPlayer, VIDEO_SPEEDS, type VideoPlayerProps } from '../academy-video-state';
 import { useItemVideo, useVideoReads } from '../AcademyVideoPlayer';
 import { Waiting } from '../volt-parts';
+import { academyLmsCopy } from '../academy-lms-copy';
 
 /** The player: Academy's signed file with our own controls, captions by language, and a transcript that follows playback. */
 function LessonVideoPlayer(props: VideoPlayerProps) {
   const { player, playback } = props;
   const {
-    t,
     id,
     frame,
     media,
@@ -47,6 +47,7 @@ function LessonVideoPlayer(props: VideoPlayerProps) {
     renew,
     mediaEvents,
   } = useVideoPlayer(props);
+  const { t } = academyLmsCopy.useCopy();
   // A save that failed reads as the kit's refusal text.
   const statusClass = status?.kind === 'failed' ? 'lt-refusal-body' : undefined;
   return (

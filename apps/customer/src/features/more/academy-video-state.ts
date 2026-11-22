@@ -61,7 +61,8 @@ export type VideoPlayerProps = {
   onCompleted?: (items: string[]) => void;
 };
 
-/** One player's state and handlers; `save` stores one position, and the player never sends two at once. */
+/** One player's state and handlers (its words come from the caller's own `academyLmsCopy.useCopy()`, so the type stays
+ * writable); `save` stores one position, and the player never sends two at once. */
 export function useVideoPlayer({ player, playback, resumeAt, save, renewLink, onCompleted }: VideoPlayerProps) {
   const { t } = copy.useCopy();
   const id = useId();
@@ -216,7 +217,6 @@ export function useVideoPlayer({ player, playback, resumeAt, save, renewLink, on
     if (media.current) media.current.playbackRate = next;
   };
   return {
-    t,
     id,
     frame,
     media,

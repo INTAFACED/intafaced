@@ -13,6 +13,7 @@ import { useKeepInView } from '../../shared/media-element';
 import { Button, Loading } from '../../shared/ui';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { clock, cuePlainText, useVideoPlayer, VIDEO_SPEEDS, type VideoPlayerProps } from './academy-video-state';
+import { academyLmsCopy } from './academy-lms-copy';
 
 export { VIDEO_SPEEDS, activeCue, clock, cuePlainText, cuesToVtt } from './academy-video-state';
 
@@ -24,7 +25,6 @@ export { VIDEO_SPEEDS, activeCue, clock, cuePlainText, cuesToVtt } from './acade
 export function VideoPlayerView(props: VideoPlayerProps) {
   const { player, playback } = props;
   const {
-    t,
     id,
     frame,
     media,
@@ -53,6 +53,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
     renew,
     mediaEvents,
   } = useVideoPlayer(props);
+  const { t } = academyLmsCopy.useCopy();
 
   return (
     <figure className="academy-video" data-video-player={player.slug} aria-labelledby={`${id}-title`}>
