@@ -651,7 +651,13 @@ fn identity(reply: String) -> (Identity, Arc<FakeIdentity>) {
         reply,
         seen: Mutex::new(Vec::new()),
     });
-    let client = Identity::new("http://identity.test", &"s".repeat(32), fake.clone(), now_s);
+    let client = Identity::new(
+        "http://identity.test",
+        &"s".repeat(32),
+        None,
+        fake.clone(),
+        now_s,
+    );
     (client, fake)
 }
 

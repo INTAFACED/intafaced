@@ -2,10 +2,12 @@ import { useState } from 'react';
 import type { z } from 'zod';
 import { Button } from '../../shared/ui';
 import type { Space } from './client';
-import { date, funds, NoRows, positiveMoney, ResourceView, Section, useBankRead, type ActionSpec } from './components';
+import { date, funds, NoRows, positiveMoney, ResourceView, Section, type ActionSpec, useBankRecord } from './components';
 import type { sharedPotActivitySchema, sharedPotCardSchema, sharedPotsSchema } from './contracts';
 import { maskedPan } from './card-controls';
 import { sharedPotsCopy } from './shared-pots-copy';
+import { BANK_CARDS_LIST } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_SHARED_POTS_LIST, BANK_SHARED_POTS_ACTIVITY } from '@intafaced/contracts/bank-shared-pots-procedures';
 
 type SharedPots = z.infer<typeof sharedPotsSchema>;
 type Person = { userId: string; handle: string | null };
@@ -23,7 +25,7 @@ const HANDLE = /^@?[a-zA-Z0-9_]{3,32}$/;
  */
 export function SharedPots({ spaces, open }: { spaces: Space[]; open: (spec: ActionSpec) => void }) {
   const { t } = sharedPotsCopy.useCopy();
-  const read = useBankRead('sharedPots.list', { limit: LIMIT });
+  const read = useBankRecord(BANK_SHARED_POTS_LIST, { limit: LIMIT });
   const pots = spaces.filter((space) => space.kind === 'named');
   // `bank` is the log's word for a change the bank's own staff made, never a person.
   const name = (person: Person) => (person.userId === 'bank' ? t('theBank') : person.handle ? `@${person.handle}` : t('someone'));
@@ -302,7 +304,7 @@ function SharedWithMe({
 function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; open: (spec: ActionSpec) => void } & Named) {
   const { t } = sharedPotsCopy.useCopy();
   // The person's own cards, read only when they share a pot, to offer one to link.
-  const cards = useBankRead('cards.list', { limit: LIMIT }, rows.length > 0);
+  const cards = useBankRecord(BANK_CARDS_LIST, { limit: LIMIT }, rows.length > 0);
   if (!rows.length) return null;
   const linkable = cards.resource.status === 'ready' ? cards.resource.data.filter((card) => card.status !== 'closed') : [];
   return (
@@ -465,7 +467,7 @@ function Log({ spaceId, name, roleName }: { spaceId: string } & Named) {
 
 function LogEntries({ spaceId, name, roleName }: { spaceId: string } & Named) {
   const { t } = sharedPotsCopy.useCopy();
-  const log = useBankRead('sharedPots.activity', { spaceId, limit: LOG_SHOWN });
+  const log = useBankRecord(BANK_SHARED_POTS_ACTIVITY, { spaceId, limit: LOG_SHOWN });
   const line = (entry: Entry) => {
     const words = {
       actor: name(entry.actor),

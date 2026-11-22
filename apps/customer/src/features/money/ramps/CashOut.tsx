@@ -5,9 +5,16 @@ import type { ApiResult } from '../../../shared/api';
 import { decimalSchema, parseAmount } from '../../../shared/money';
 import { useSession } from '../../session';
 import { cashOutCopy } from '../cash-out-copy';
-import { date, funds, useBankRead } from '../components';
-import { cashOutReceiptSchema, cashOutRequestSchema, type CashOutQuote, type CashOutReceipt, type CashOutRequest } from '../contracts';
+import { date, funds, useBankRead, useBankRecord } from '../components';
+import { type CashOutQuote, type CashOutReceipt, type CashOutRequest } from '../contracts';
 import { FailureNote, Panel, StepUpSheet } from './parts';
+import {
+  BANK_CASH_OUT_REQUESTS,
+  BANK_CASH_OUT_RECEIPT,
+  BANK_CASH_OUT_QUOTE,
+  BANK_CASH_OUT_START,
+} from '@intafaced/contracts/bank-cash-out-procedures';
+import { BANK_LINKED_ACCOUNTS_LIST } from '@intafaced/contracts/bank-linked-accounts-procedures';
 
 /**
  * Cash out to a linked bank account (J-bank-03): the amount, one of the person's linked accounts, and what the bank
@@ -19,6 +26,8 @@ import { FailureNote, Panel, StepUpSheet } from './parts';
  */
 
 type Ask = { assetId: string; amount: string; linkedAccountId: string };
+/** The quote read's input while nothing is asked: the read is off then, so this is never sent. */
+const NO_ASK: Ask = { assetId: '', amount: '', linkedAccountId: '' };
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Key = Parameters<ReturnType<typeof cashOutCopy.useCopy>['t']>[0];
 
@@ -308,9 +317,9 @@ export function RequestRows({ rows, load }: { rows: readonly CashOutRequest[]; l
 function Requests() {
   const { t } = cashOutCopy.useCopy();
   const { api } = useSession();
-  const read = useBankRead('cashOut.requests', { limit: 20 });
+  const read = useBankRecord(BANK_CASH_OUT_REQUESTS, { limit: 20 });
   const { resource } = read;
-  const load: LoadReceipt = (requestId) => api.query('bank', 'cashOut.receipt', { requestId }, cashOutReceiptSchema);
+  const load: LoadReceipt = (requestId) => api.call(BANK_CASH_OUT_RECEIPT, { requestId });
   return (
     <Panel title={t('requestsTitle')} lead={t('requestsLead')}>
       <div data-testid="cash-out-requests">
@@ -331,7 +340,7 @@ export function CashOut() {
   const { t } = cashOutCopy.useCopy();
   const { api, profiles } = useSession();
   const currencies = useBankRead('currencies.list', { profile: profiles.active });
-  const linked = useBankRead('linkedAccounts.list', undefined);
+  const linked = useBankRecord(BANK_LINKED_ACCOUNTS_LIST, undefined);
   const assets = currencies.resource.status === 'ready' ? currencies.resource.data.currencies.map((c) => c.assetId) : [];
   const accounts = linked.resource.status === 'ready' ? linked.resource.data.accounts : [];
   const [assetId, setAssetId] = useState('');
@@ -343,7 +352,7 @@ export function CashOut() {
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [outcome, setOutcome] = useState<CashOutRequest | null>(null);
   const [revision, setRevision] = useState(0);
-  const quote = useBankRead('cashOut.quote', ask, ask !== null);
+  const quote = useBankRecord(BANK_CASH_OUT_QUOTE, ask ?? NO_ASK, ask !== null);
   const assetField = useId();
   const accountField = useId();
 
@@ -464,7 +473,7 @@ export function CashOut() {
         <StepUpSheet
           why={t('confirmWhy')}
           run={async (token) => {
-            const answer = await api.mutate('bank', 'cashOut.start', { requestId, ...ask }, cashOutRequestSchema, { bearer: token });
+            const answer = await api.call(BANK_CASH_OUT_START, { requestId, ...ask }, { bearer: token });
             if (answer.ok) setOutcome(answer.data);
             return answer;
           }}

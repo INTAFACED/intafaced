@@ -14,9 +14,10 @@ import {
 import { rampDepthCopy } from './ramp-depth-copy';
 import { addMoneyCopy } from './add-money-copy';
 import { linkedAccountsCopy } from './linked-accounts-copy';
-import { positiveMoney, useBankRead, type ActionSpec } from './components';
+import { positiveMoney, type ActionSpec, useBankRecord } from './components';
 import { assetSelectField, useHoldings } from './holdings';
 import './bank-depth.css';
+import { BANK_RAMPS_PROGRAMME, BANK_RAMPS_FIAT_SETTLE } from '@intafaced/contracts/bank-ramps-procedures';
 
 const STEP_KEYS = { amount: 'stepAmount', quote: 'stepQuote', review: 'stepReview', status: 'stepStatus' } as const;
 
@@ -39,8 +40,8 @@ export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = rampDepthCopy.useCopy();
   const addMoney = addMoneyCopy.useCopy();
   const linked = linkedAccountsCopy.useCopy();
-  const programme = useBankRead('ramps.programme', undefined);
-  const fiat = useBankRead('ramps.fiatSettle', undefined);
+  const programme = useBankRecord(BANK_RAMPS_PROGRAMME, undefined);
+  const fiat = useBankRecord(BANK_RAMPS_FIAT_SETTLE, undefined);
   const held = useHoldings();
   const info = programme.resource.status === 'ready' ? programme.resource.data : null;
   const gate = rampGate(info);

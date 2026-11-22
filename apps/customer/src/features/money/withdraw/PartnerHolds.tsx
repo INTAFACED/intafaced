@@ -1,8 +1,9 @@
 import { useId } from 'react';
 import { defineCopy } from '../../../shared/i18n';
-import { date, funds, useBankRead } from '../components';
+import { date, funds, useBankRecord } from '../components';
 import type { PartnerHolds as Holds } from '../contracts';
 import { Fact } from './parts';
+import { BANK_PARTNER_HOLDS } from '@intafaced/contracts/bank-partner-holds-procedures';
 
 /** Words for what the partner holds back on Withdraw (J-wallet-01 #3). Every figure here is the partner's own. */
 const partnerHoldsCopy = defineCopy('partner-holds', {
@@ -28,7 +29,7 @@ const partnerHoldsCopy = defineCopy('partner-holds', {
  */
 export function PartnerHolds() {
   const { t } = partnerHoldsCopy.useCopy();
-  const read = useBankRead('partnerHolds', undefined);
+  const read = useBankRecord(BANK_PARTNER_HOLDS, undefined);
   if (read.resource.status === 'loading') return null;
   // A read that failed says so in one line, and leaves the rest of Withdraw as it is.
   if (read.resource.status === 'failed') {

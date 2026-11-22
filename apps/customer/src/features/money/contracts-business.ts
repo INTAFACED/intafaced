@@ -36,12 +36,14 @@ const recipientSpaceSchema = z.discriminatedUnion('found', [
   z.object({ found: z.literal(true), handle: z.string(), assetId: z.string(), spaceId: z.string().guid().nullable() }),
 ]);
 
+/** The caller's own stricter answers for `business.pending` and `business.myRole`: only the three roles this room knows. */
+export const pendingApprovalsSchema = z.array(pendingApprovalSchema);
+export const myRoleSchema = z.object({ role: memberRoleSchema });
+
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const businessReads = {
   'business.list': businessListSchema,
-  'business.pending': z.array(pendingApprovalSchema),
   'business.members': teamSchema,
-  'business.myRole': z.object({ role: memberRoleSchema }),
   'business.resolveRecipientSpace': recipientSpaceSchema,
 } as const;
 
