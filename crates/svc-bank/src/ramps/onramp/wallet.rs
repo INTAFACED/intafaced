@@ -39,14 +39,15 @@ pub fn recover_personal_sign_address(message: &str, signature: &str) -> Option<S
     }
     let mut signature = Signature::from_slice(rs).ok()?;
     let mut parity = bit == 1;
-    if let Some(low) = signature.normalize_s() {
+    let low = signature.normalize_s();
+    if low.to_bytes() != signature.to_bytes() {
         signature = low;
         parity = !parity;
     }
     let id = RecoveryId::new(parity, false);
     let key =
         VerifyingKey::recover_from_prehash(&personal_message_hash(message), &signature, id).ok()?;
-    let point = key.to_encoded_point(false);
+    let point = key.to_sec1_point(false);
     let hash = keccak(point.as_bytes().get(1..)?);
     let tail = hash.get(12..)?;
     Some(format!(
@@ -64,9 +65,7 @@ mod tests {
     fn sign(message: &str, key_hex: &str) -> String {
         let key: Vec<u8> = key_hex.as_bytes().chunks(2).filter_map(hex_byte).collect();
         let key = SigningKey::from_slice(&key).unwrap();
-        let (sig, id) = key
-            .sign_prehash_recoverable(&personal_message_hash(message))
-            .unwrap();
+        let (sig, id) = key.sign_prehash_recoverable(&personal_message_hash(message));
         let mut out = sig.to_bytes().to_vec();
         out.push(id.to_byte() + 27);
         format!(

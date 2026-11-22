@@ -2965,7 +2965,7 @@ fn sign_with(key: &str, message: &str) -> String {
     joined.extend_from_slice(message.as_bytes());
     let digest = Keccak256::digest(&joined);
     let signer = SigningKey::from_slice(&unhex(key)).unwrap();
-    let (sig, rec) = signer.sign_prehash_recoverable(&digest).unwrap();
+    let (sig, rec) = signer.sign_prehash_recoverable(&digest);
     let mut out = sig.to_bytes().to_vec();
     out.push(rec.to_byte() + 27);
     format!(

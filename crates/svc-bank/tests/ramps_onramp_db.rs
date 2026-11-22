@@ -856,7 +856,7 @@ fn personal_sign(message: &str, key_hex: &str) -> String {
     h.update(format!("\x19Ethereum Signed Message:\n{}", message.len()).as_bytes());
     h.update(message.as_bytes());
     let digest = h.finalize();
-    let (sig, id) = key.sign_prehash_recoverable(&digest).unwrap();
+    let (sig, id) = key.sign_prehash_recoverable(&digest);
     let mut out = sig.to_bytes().to_vec();
     out.push(id.to_byte() + 27);
     format!(

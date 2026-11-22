@@ -157,14 +157,15 @@ pub fn recover_personal_sign_address(message: &str, signature: &str) -> Option<S
     }
     let mut signature = Signature::from_slice(bytes.get(..64)?).ok()?;
     let mut parity = bit == 1;
-    if let Some(low) = signature.normalize_s() {
+    let low = signature.normalize_s();
+    if low.to_bytes() != signature.to_bytes() {
         signature = low;
         parity = !parity;
     }
     let id = RecoveryId::new(parity, false);
     let key =
         VerifyingKey::recover_from_prehash(&personal_message_hash(message), &signature, id).ok()?;
-    let point = key.to_encoded_point(false);
+    let point = key.to_sec1_point(false);
     let hash = keccak(point.as_bytes().get(1..)?);
     Some(format!(
         "0x{}",
@@ -513,5 +514,40 @@ mod tests {
         assert_eq!(recover_personal_sign_address("m", "0x12"), None);
         let zero = format!("0x{}", "0".repeat(130));
         assert_eq!(recover_personal_sign_address("m", &zero), None);
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        format!(
+            "0x{}",
+            bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        )
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used, reason = "a test")]
+    fn the_signer_and_its_high_s_twin_recover_the_same_wallet() {
+        // The well-known development key and its wallet.
+        let key =
+            hex_bytes("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80").unwrap();
+        let key = k256::ecdsa::SigningKey::from_slice(&key).unwrap();
+        let wallet = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+        let (sig, id) = key.sign_prehash_recoverable(&personal_message_hash("hello"));
+        let mut low = sig.to_bytes().to_vec();
+        low.push(id.to_byte() + 27);
+        assert_eq!(
+            recover_personal_sign_address("hello", &hex(&low)).as_deref(),
+            Some(wallet)
+        );
+        assert_ne!(
+            recover_personal_sign_address("other", &hex(&low)).as_deref(),
+            Some(wallet)
+        );
+        let (r, s) = sig.split_scalars();
+        let mut high = Signature::from_scalars(r, -*s).unwrap().to_bytes().to_vec();
+        high.push(if id.is_y_odd() { 27 } else { 28 });
+        assert_eq!(
+            recover_personal_sign_address("hello", &hex(&high)).as_deref(),
+            Some(wallet)
+        );
     }
 }
