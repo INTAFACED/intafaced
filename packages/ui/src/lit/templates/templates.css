@@ -1414,6 +1414,17 @@ button.lt-tab {
   font-size: var(--lit-type-label-size);
 }
 
+/* Secondary words at the size around them: the colour only. */
+.lt-muted {
+  color: var(--lit-text-2);
+}
+
+/* Figures that line up in a column: tabular digits, breaking anywhere rather than spilling out of their box. */
+.lt-num {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
 /* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a
    template room, and with no specificity, so a kit component that sets data-dir (Change) keeps its own rules. */
 :where(.lt-room) :where([data-dir='up']) {
