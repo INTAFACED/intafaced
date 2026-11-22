@@ -159,7 +159,7 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
 }
 
 /** Ids a labelled control describes itself by: the caller's own, then its hint, then its error. */
-function describedByOf(own: string | undefined, id: string, hint?: string, error?: string) {
+function describedByOf({ own, id, hint, error }: { own?: string; id: string; hint?: string; error?: string }) {
   return [own, hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(' ') || undefined;
 }
 
@@ -194,7 +194,7 @@ export function TextArea({ label, hint, error, id, className, rows = 5, ...rest 
         id={inputId}
         rows={rows}
         aria-invalid={error ? true : rest['aria-invalid']}
-        aria-describedby={describedByOf(rest['aria-describedby'], inputId, hint, error)}
+        aria-describedby={describedByOf({ own: rest['aria-describedby'], id: inputId, hint, error })}
       />
       <FieldNotes id={inputId} hint={hint} error={error} />
     </div>
@@ -219,7 +219,7 @@ export function Select({ label, options, hint, error, id, className, ...rest }: 
         {...rest}
         id={inputId}
         aria-invalid={error ? true : rest['aria-invalid']}
-        aria-describedby={describedByOf(rest['aria-describedby'], inputId, hint, error)}
+        aria-describedby={describedByOf({ own: rest['aria-describedby'], id: inputId, hint, error })}
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
