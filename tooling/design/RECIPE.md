@@ -30,8 +30,8 @@ row already on their template. One PR per batch.
 ## A batch on its layer branch
 
 A batch PR goes into its template's layer branch, `volt/<template>`, and runs CI's fast checks only. Never arm it with
-`--auto`, since no ruleset guards a layer branch: its owner merges it once its checks pass (`gh pr checks <n> --watch`,
-then `gh pr merge <n> --squash`). The layer's own PR into main runs everything main requires.
+`--auto`, since no ruleset guards a layer branch: its owner calls `watch_pull_request` on it and, on its all-green wake,
+merges it with `gh pr merge <n> --squash --match-head-commit <sha>`. The layer's own PR into main runs everything main requires.
 
 The call-records codemod (`tooling/codemod/call-records/`, its `callAs` runs among them) rewrites the call sites in the
 same rooms. A redraw changes markup and kit parts only, never a call expression (`api.query`, `api.call`, `callAs`, a
