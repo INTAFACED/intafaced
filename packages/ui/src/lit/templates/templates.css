@@ -977,6 +977,8 @@
   text-decoration: none;
   white-space: nowrap;
   border: 1px solid var(--lit-line);
+  /* A tab keeps its width: a row longer than the screen scrolls (.lt-tabs) instead of squeezing tabs over each other. */
+  flex-shrink: 0;
 }
 
 button.lt-tab {
