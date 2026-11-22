@@ -241,6 +241,13 @@
 
 /* ---- the desk: explicit areas for every panel ---- */
 
+/* A desk screen sits straight in the app's main, with no page around it: its own gutter keeps the title and the panels
+   off the window's edge. A desk inside a page (a feature room) already has the page's. */
+.lt-room[data-template='desk']:not(.page .lt-room) {
+  padding-inline: var(--lit-gap-item);
+  padding-block-end: var(--lit-gap-section);
+}
+
 .lt-desk {
   display: grid;
   gap: var(--lit-gap-item);
@@ -295,6 +302,14 @@
       'instrument instrument'
       'chart ticket'
       'orders orders';
+  }
+  /* A desk whose main area has nothing to show (margin before sign-in): its ticket and orders share the width side by
+     side, never a wide empty column beside a narrow one. */
+  .lt-desk[data-desk='pro']:not(:has(> [data-region='pairs'], > [data-region='book'], > [data-region='tape'], > [data-region='chart'])) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'instrument instrument'
+      'ticket orders';
   }
   /* A chart desk (the charts workbench): the charts and the markets list beside them, no book, trades or ticket. */
   .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
@@ -2559,7 +2574,7 @@ button.lt-tab:focus-visible {
   cursor: not-allowed;
 }
 
-/* ---- form and overlay parts (components/controls.tsx; the dialog is the Sheet) and small generic layout ---- */
+/* ---- overlay parts (components/controls.tsx; the dialog is the Sheet) and small generic layout ---- */
 
 /* A tight column: a control with its words, a short list of lines (half the item gap; lt-stack is the item gap). */
 .lt-stack-tight {
@@ -2576,74 +2591,6 @@ button.lt-tab:focus-visible {
 
 .lt-error {
   color: var(--lit-error-text);
-}
-
-.lt-field-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--lit-gap-item);
-  color: var(--lit-text-2);
-  font-size: var(--lit-type-label-size);
-}
-
-.lt-field-error {
-  color: var(--lit-error-text);
-  font-size: var(--lit-type-label-size);
-}
-
-.lt-field-error:empty {
-  display: none;
-}
-
-.lt-input {
-  display: flex;
-  align-items: center;
-  gap: var(--lit-gap-item);
-  min-block-size: var(--lit-control-h);
-  padding-inline: var(--lit-gap-item);
-  border: 1px solid var(--lit-line-strong);
-  border-radius: var(--lit-radius-control);
-  background: var(--lit-solid-bg-raised);
-  color: var(--lit-text-1);
-}
-
-.lt-input:has(input:focus-visible) {
-  outline: 2px solid var(--lit-focus);
-  outline-offset: 2px;
-}
-
-.lt-input[data-invalid] {
-  border-color: var(--lit-down);
-}
-
-.lt-input[data-disabled] {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.lt-input input {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  border: 0;
-  padding: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  outline: none;
-}
-
-.lt-input[data-kind='decimal'] input {
-  font-variant-numeric: tabular-nums;
-}
-
-.lt-input[data-align='end'] input {
-  text-align: end;
-}
-
-.lt-input [data-part='trailing'] {
-  flex: none;
-  color: var(--lit-text-2);
 }
 
 /* A sheet's buttons, at its end. */

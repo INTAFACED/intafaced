@@ -377,11 +377,12 @@ export const FinePrint = ({ className, ...rest }: React.HTMLAttributes<HTMLSpanE
   <span {...rest} className={clsx('lit-fine', className)} />
 );
 
+/** A small tag with words, toned by what it marks (colour is never the only cue: the words say it). */
 export const Tag = ({
   tone,
   className,
   ...rest
-}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' }) => (
+}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' | 'warn' | 'error' }) => (
   <span {...rest} className={clsx('lit-tag', className)} data-tone={tone} />
 );
 

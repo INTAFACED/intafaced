@@ -26,6 +26,7 @@ import {
 } from './index.js';
 import * as B2 from './b2-basics.js';
 import { Table, gridKey } from './b2-table.js';
+import { StateBlock } from './b2-values.js';
 import { ChartMark } from './b2-controls.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -680,6 +681,72 @@ describe('b2 parts carry what the spot desk needs, so it uses them and no second
     );
     expect(out).toContain('<tr data-asset="BTC" data-row="">');
     expect(out).toContain('<td data-cell="free" data-label="Free" data-align="end">');
+  });
+});
+
+describe('kit parts that take copy keep the language of the words they are given', () => {
+  // A German page whose room copy has no German yet for these keys: the words fall back to English, and say so.
+  const onGermanPage = (el: React.ReactElement) => html(<div lang="de">{el}</div>);
+
+  it('a Sheet title that fell back is read in its own language, and names the sheet from that heading', () => {
+    const out = onGermanPage(
+      <B2.Sheet open={false} title="Close this position?" titleLang="en" onClose={() => undefined}>
+        <p>Body</p>
+      </B2.Sheet>,
+    );
+    const id = out.match(/<h2 class="lt-sheet-title" id="([^"]+)" lang="en">Close this position\?<\/h2>/)?.[1];
+    expect(id).toBeTruthy();
+    expect(out).toContain(`aria-labelledby="${id}"`);
+    expect(out).not.toContain('aria-label="Close this position?"');
+  });
+
+  it('a Sheet whose title is in the page language keeps its name as before, with no lang of its own', () => {
+    const out = onGermanPage(
+      <B2.Sheet open={false} title="Position schließen?" onClose={() => undefined}>
+        <p>Body</p>
+      </B2.Sheet>,
+    );
+    expect(out).toContain('aria-label="Position schließen?"');
+    expect(out).toContain('<h2 class="lt-sheet-title">Position schließen?</h2>');
+  });
+
+  it('a failure note says its title and its Try again words in their own languages', () => {
+    const out = onGermanPage(
+      <StateBlock
+        kind="error"
+        title="Couldn’t load trades"
+        titleLang="en"
+        onRetry={() => undefined}
+        retryLabel="Try again"
+        retryLang="en"
+      />,
+    );
+    expect(out).toContain('<p class="lt-state-title" lang="en">Couldn’t load trades</p>');
+    expect(out).toMatch(/<button type="button" class="lit-button"[^>]* lang="en">Try again<\/button>/);
+  });
+
+  it('a failure note with only the kit’s own words claims no language for them', () => {
+    const out = onGermanPage(<StateBlock kind="error" thing="trades" titleLang="en" onRetry={() => undefined} retryLang="en" />);
+    expect(out).not.toMatch(/lt-state-title" lang=/);
+    expect(out).toContain('Couldn&#x27;t load trades.');
+    expect(out).not.toContain(' lang="en">Try again');
+  });
+
+  it('an empty or refused note, and its action, keep their languages', () => {
+    expect(onGermanPage(<StateBlock kind="empty" title="No trades" titleLang="en" />)).toContain(
+      '<h3 class="lt-state-title" lang="en">No trades</h3>',
+    );
+    const refused = onGermanPage(
+      <StateBlock
+        kind="refused"
+        title="Market closed"
+        titleLang="en"
+        body="Opens at 09:00."
+        action={{ label: 'Sign in', href: '/sign-in', lang: 'en' }}
+      />,
+    );
+    expect(refused).toContain('<p class="lt-state-title" lang="en">Market closed</p>');
+    expect(refused).toMatch(/<a class="lit-button"[^>]* href="\/sign-in" lang="en">Sign in<\/a>/);
   });
 });
 

@@ -564,6 +564,40 @@ describe('gallery fixtures are shaped as the API sends them', () => {
   });
 });
 
+describe('the desk on a computer leaves no empty slot beside a panel', () => {
+  const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+  const wide = css.slice(css.indexOf('@container room (min-width: 1024px) {\n  .lt-desk'));
+  // Each pro desk rule in the computer layout: the regions whose absence it needs, and its areas.
+  const rules = [...wide.matchAll(/\.lt-desk\[data-desk='pro'\](:not\(:has\(([^{]*)\)\))? \{([^}]*)\}/g)]
+    .filter((m) => !m[0].includes('[data-arranged]'))
+    .map((m) => ({
+      absent: [...(m[2] ?? '').matchAll(/data-region='([a-z]+)'/g)].map((r) => r[1]!),
+      rows: [...(m[3]!.match(/grid-template-areas:([^;]*);/)?.[1] ?? '').matchAll(/'([^']*)'/g)].map((r) => r[1]!.split(/\s+/)),
+    }));
+  const layoutFor = (present: string[]) => rules.filter((r) => r.absent.every((a) => !present.includes(a))).at(-1)!;
+
+  it.each([
+    ['spot', ['instrument', 'pairs', 'chart', 'book', 'tape', 'ticket', 'orders']],
+    ['a tool desk', ['instrument', 'chart', 'book', 'tape', 'ticket', 'orders']],
+    ['options', ['instrument', 'chart', 'ticket', 'orders']],
+    ['margin signed in', ['instrument', 'chart', 'ticket', 'orders']],
+    ['margin signed out', ['ticket', 'orders']],
+  ])('%s: a row that draws a panel has no empty slot beside it', (_, present) => {
+    expect(rules.length).toBeGreaterThanOrEqual(3);
+    for (const row of layoutFor(present).rows) {
+      if (!row.some((area) => present.includes(area))) continue; // a row of absent regions collapses
+      expect(
+        row.filter((area) => !present.includes(area)),
+        row.join(' '),
+      ).toEqual([]);
+    }
+  });
+
+  it('a desk screen keeps its title and panels off the window edge', () => {
+    expect(css).toMatch(/\.lt-room\[data-template='desk'\]:not\(\.page \.lt-room\) \{\s*padding-inline: var\(--lit-gap-item\);/);
+  });
+});
+
 describe('the room title', () => {
   it('takes a language of its own and is focusable only when the room holds its ref', async () => {
     const { ReadingTemplate } = await import('./templates.js');

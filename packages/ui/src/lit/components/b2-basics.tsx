@@ -184,8 +184,8 @@ export function Tabs(props: TabsProps) {
     0,
     items.findIndex((t) => t.value === value),
   );
-  const move = (event: React.KeyboardEvent, index: number) => {
-    const next = nextTabIndex(index, event.key, items.length);
+  const move = (event: React.KeyboardEvent<HTMLElement>, index: number) => {
+    const next = nextTabIndex(index, readingArrow(event.key, isRightToLeft(event.currentTarget)), items.length);
     if (next === null) return;
     const item = items[next];
     if (!item) return;
@@ -226,6 +226,20 @@ export function nextTabIndex(index: number, key: string, count: number): number 
   if (key === 'Home') return 0;
   if (key === 'End') return count - 1;
   return null;
+}
+
+/**
+ * A key as the row reads it: on a right-to-left page the row reads from the right, so ArrowLeft goes to the next tab and
+ * ArrowRight to the one before. Every other key is itself.
+ */
+export function readingArrow(key: string, rtl: boolean): string {
+  if (!rtl) return key;
+  return key === 'ArrowLeft' ? 'ArrowRight' : key === 'ArrowRight' ? 'ArrowLeft' : key;
+}
+
+/** Whether an element sits in a right-to-left run: the nearest `dir` on it or an ancestor says `rtl`. */
+export function isRightToLeft(el: Pick<Element, 'closest'>): boolean {
+  return el.closest('[dir]')?.getAttribute('dir')?.toLowerCase() === 'rtl';
 }
 
 /** What a keyboard can reach inside a panel. */
@@ -437,12 +451,18 @@ export function Sheet({
   closeButton = role !== 'alertdialog',
   closeLabel,
   closeLang,
+  titleLang,
   footer,
   testId,
   children,
 }: {
   open: boolean;
   title: string;
+  /**
+   * The language of `title`, when the room's copy fell back to another one than the page's: the heading carries it and
+   * names the sheet, so the name is read in the words' own language.
+   */
+  titleLang?: string;
   /** What the sheet asks or does, read out with its name (`aria-describedby`). */
   description?: React.ReactNode;
   onClose: () => void;
@@ -460,6 +480,7 @@ export function Sheet({
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
   const descriptionId = React.useId();
+  const titleId = React.useId();
   const alert = role === 'alertdialog';
   // Focus goes back to what opened the sheet when it closes or goes away, as a modal dialog's should.
   const opener = React.useRef<HTMLElement | null>(null);
@@ -489,7 +510,8 @@ export function Sheet({
       data-testid={testId}
       role={alert ? 'alertdialog' : undefined}
       aria-modal={alert || undefined}
-      aria-label={title}
+      aria-label={titleLang ? undefined : title}
+      aria-labelledby={titleLang ? titleId : undefined}
       aria-describedby={description ? descriptionId : undefined}
       onClose={alert ? undefined : onClose}
       onCancel={(e) => {
@@ -498,7 +520,9 @@ export function Sheet({
       }}
     >
       <header className="lt-sheet-head">
-        <h2 className="lt-sheet-title">{title}</h2>
+        <h2 className="lt-sheet-title" id={titleLang ? titleId : undefined} lang={titleLang}>
+          {title}
+        </h2>
         {closeButton ? (
           <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} lang={closeLang} onClick={onClose}>
             Close
@@ -764,9 +788,18 @@ type DecimalBoxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value'
 };
 
 function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, onKeyDown, ...rest }: DecimalBoxProps) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  const caret = React.useRef<number | null>(null);
+  // After a cleaned keystroke the value changes and the box draws again: put the caret back where the person typed.
+  React.useLayoutEffect(() => {
+    const at = caret.current;
+    caret.current = null;
+    if (at !== null && ref.current && ref.current === document.activeElement) placeCaret(ref.current, at);
+  });
   return (
     <input
       {...rest}
+      ref={ref}
       onKeyDown={(e) => {
         onKeyDown?.(e);
         if (tick === undefined || rest.readOnly || rest.disabled || e.defaultPrevented) return;
@@ -781,8 +814,21 @@ function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, o
       spellCheck={false}
       value={value}
       onChange={(e) => {
-        const next = nextDecimalValue(value, e.currentTarget.value, { precision });
-        if (next !== value) onValueChange(next);
+        const box = e.currentTarget;
+        const raw = box.value;
+        const next = nextDecimalValue(value, raw, { precision });
+        // What was refused or cleaned away sat before the caret: the caret keeps its place in what stays.
+        const at = Math.max(0, (box.selectionStart ?? raw.length) - (raw.length - next.length));
+        if (next !== value) {
+          caret.current = at;
+          onValueChange(next);
+          return;
+        }
+        // A refused keystroke changes no value, so nothing draws again; React puts the old text back once this event
+        // is done, which sends the caret to the end. Put it back after that.
+        queueMicrotask(() => {
+          if (box.isConnected && box.value === value) placeCaret(box, at);
+        });
       }}
       onPaste={(e) => {
         if (rest.readOnly || rest.disabled) return;
@@ -797,6 +843,11 @@ function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, o
       }}
     />
   );
+}
+
+function placeCaret(box: HTMLInputElement, at: number) {
+  const pos = Math.min(at, box.value.length);
+  box.setSelectionRange(pos, pos);
 }
 
 /** The TEST label an illustrative figure or sample list carries (AGENTS.md: an illustrative figure says TEST). */

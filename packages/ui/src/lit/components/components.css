@@ -356,6 +356,12 @@
 .lit-tag[data-tone='neutral'] {
   --lit-tag-c: var(--lit-text-2);
 }
+.lit-tag[data-tone='warn'] {
+  --lit-tag-c: var(--lit-warn-text);
+}
+.lit-tag[data-tone='error'] {
+  --lit-tag-c: var(--lit-error-text);
+}
 .lit-test {
   display: inline-flex;
   align-items: center;
@@ -777,34 +783,6 @@
 }
 .lt-status[data-status='cancelled'],
 .lt-status[data-status='failed'] {
-  color: var(--lit-down-text);
-}
-.lt-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-block-size: 20px;
-  padding-inline: 6px;
-  border-radius: 4px;
-  font-size: var(--lit-type-micro-size);
-  line-height: var(--lit-type-micro-line);
-  white-space: nowrap;
-  background: var(--lit-solid-bg-sunken);
-  color: var(--lit-text-2);
-}
-.lt-badge[data-tone='accent'] {
-  color: var(--lit-accent-text);
-}
-.lt-badge[data-tone='warn'] {
-  color: var(--lit-warn-text);
-}
-.lt-badge[data-tone='error'] {
-  color: var(--lit-error-text);
-}
-.lt-badge[data-tone='up'] {
-  color: var(--lit-up-text);
-}
-.lt-badge[data-tone='down'] {
   color: var(--lit-down-text);
 }
 .lt-state {

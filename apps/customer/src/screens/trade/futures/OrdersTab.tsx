@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Amount, Badge, Button, Price, Segmented } from '@intafaced/ui/lit';
+import { Amount, Tag, Button, Price, Segmented } from '@intafaced/ui/lit';
 import { Table, type Column } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
@@ -51,8 +51,8 @@ export function OrdersTab({
       label: t('Side'),
       cell: (o) => (
         <span className="lt-row">
-          <Badge tone={o.side === 'buy' ? 'up' : 'down'}>{o.side === 'buy' ? t('Buy') : t('Sell')}</Badge>
-          {o.reduceOnly ? <Badge>{t('Reduce only')}</Badge> : null}
+          <Tag tone={o.side === 'buy' ? 'up' : 'down'}>{o.side === 'buy' ? t('Buy') : t('Sell')}</Tag>
+          {o.reduceOnly ? <Tag>{t('Reduce only')}</Tag> : null}
         </span>
       ),
     },

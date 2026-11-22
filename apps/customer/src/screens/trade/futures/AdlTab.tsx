@@ -1,5 +1,5 @@
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Amount, Badge } from '@intafaced/ui/lit';
+import { Amount, Tag } from '@intafaced/ui/lit';
 import { Table, type Column } from '@intafaced/ui/lit/templates';
 import { fmtAmount } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
@@ -30,7 +30,7 @@ export function AdlTab({
     { key: 'bankrupt', label: t('ADL bankrupt'), cell: (e) => <span className="lt-mono">{e.bankruptPositionId}</span> },
     { key: 'candidate', label: t('ADL candidate'), cell: (e) => <span className="lt-mono">{e.candidatePositionId}</span> },
     { key: 'size', label: t('ADL size'), align: 'end', cell: (e) => <Amount value={fmtAmount(e.sizeToReduce, { places: 8 })} /> },
-    { key: 'disclosed', label: t('ADL disclosed'), cell: () => <Badge tone="accent">{t('ADL disclosed')}</Badge> },
+    { key: 'disclosed', label: t('ADL disclosed'), cell: () => <Tag tone="accent">{t('ADL disclosed')}</Tag> },
   ];
 
   const liquidationColumns: Column<Position>[] = [
@@ -38,7 +38,7 @@ export function AdlTab({
     { key: 'side', label: t('Side'), cell: (p) => <SideBadge side={p.side} /> },
     { key: 'size', label: t('Size'), align: 'end', cell: (p) => <Amount value={fmtAmount(p.contracts, { places: 8 })} /> },
     { key: 'when', label: t('Closed at'), cell: (p) => dayTime(p.timestamp, timeZone) },
-    { key: 'status', label: t('Status'), cell: () => <Badge tone="error">{t('Liquidated')}</Badge> },
+    { key: 'status', label: t('Status'), cell: () => <Tag tone="error">{t('Liquidated')}</Tag> },
   ];
 
   return (
