@@ -188,3 +188,113 @@ export function Sheet({
     </dialog>
   );
 }
+
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * One choice from a list, as a button that opens a list: a `combobox` with a `listbox` of `option`s. Focus stays on
+ * the button; the arrow keys, Home and End move through the open list, Enter or Space picks, Escape and Tab close.
+ * A value not among the options is shown as itself, so a choice in force is never hidden.
+ */
+export function Select({
+  label,
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  options: readonly SelectOption[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const id = React.useId();
+  const [open, setOpen] = React.useState(false);
+  const [active, setActive] = React.useState(0);
+  const selected = options.findIndex((o) => o.value === value);
+  const shown = selected >= 0 ? options[selected]!.label : value;
+  const show = () => {
+    setActive(Math.max(0, selected));
+    setOpen(true);
+  };
+  const pick = (index: number) => {
+    const option = options[index];
+    setOpen(false);
+    if (option && option.value !== value) onChange(option.value);
+  };
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    const step = selectKey(event.key, open);
+    if (step === null) return;
+    if (step !== 'close') event.preventDefault();
+    if (step === 'open') show();
+    else if (step === 'close') setOpen(false);
+    else if (step === 'pick') pick(active);
+    else setActive((i) => nextOptionIndex(i, step, options.length));
+  };
+  return (
+    <div className="lt-select">
+      <button
+        type="button"
+        role="combobox"
+        className="lt-select-button"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${id}-list`}
+        aria-activedescendant={open && options.length > 0 ? `${id}-${active}` : undefined}
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : show())}
+        onKeyDown={onKeyDown}
+        onBlur={() => setOpen(false)}
+      >
+        <span>{shown}</span>
+        <span className="lt-select-mark" aria-hidden="true" />
+      </button>
+      {open ? (
+        <ul className="lt-select-list" role="listbox" id={`${id}-list`} aria-label={label}>
+          {options.map((o, i) => (
+            <li
+              key={o.value}
+              id={`${id}-${i}`}
+              role="option"
+              aria-selected={o.value === value}
+              data-active={i === active || undefined}
+              // Keep the focus on the button, so the list closes on blur only when focus really leaves.
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(i)}
+            >
+              {o.label}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+type SelectStep = 'open' | 'close' | 'pick' | 'next' | 'previous' | 'first' | 'last';
+
+/** What a key does to a Select, closed or open; null for a key it leaves alone. */
+export function selectKey(key: string, open: boolean): SelectStep | null {
+  if (!open) return key === 'ArrowDown' || key === 'ArrowUp' || key === 'Enter' || key === ' ' ? 'open' : null;
+  if (key === 'Escape' || key === 'Tab') return 'close';
+  if (key === 'Enter' || key === ' ') return 'pick';
+  if (key === 'ArrowDown') return 'next';
+  if (key === 'ArrowUp') return 'previous';
+  if (key === 'Home') return 'first';
+  if (key === 'End') return 'last';
+  return null;
+}
+
+/** The option a move lands on, held at the ends of the list. */
+export function nextOptionIndex(index: number, step: 'next' | 'previous' | 'first' | 'last', count: number): number {
+  if (count === 0) return 0;
+  if (step === 'first') return 0;
+  if (step === 'last') return count - 1;
+  return Math.min(count - 1, Math.max(0, index + (step === 'next' ? 1 : -1)));
+}

@@ -20,6 +20,7 @@ import {
   Surface,
   type DoorLink,
 } from './index.js';
+import * as B2 from './b2-basics.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const css = readFileSync(join(here, 'components.css'), 'utf8');
@@ -206,5 +207,48 @@ describe('components', () => {
     expect(fig).not.toMatch(/lit-figure__marks"[^>]*dir=/);
     const change = html(<Change text="+£45.53 (+0.37%)" dir="up" spoken="up" />);
     expect(change).toContain('<span dir="ltr" data-ltr="">+£45.53 (+0.37%)</span>');
+  });
+});
+
+describe('b2 controls the desk rooms use', () => {
+  it('Select is a combobox button naming its list, showing the chosen label, and opens a listbox of options', () => {
+    const out = html(
+      <B2.Select
+        label="Market"
+        value="eth"
+        options={[
+          { value: 'btc', label: 'BTC/USDT' },
+          { value: 'eth', label: 'ETH/USDT' },
+        ]}
+        onChange={() => undefined}
+      />,
+    );
+    expect(out).toMatch(/<button[^>]*role="combobox"/);
+    expect(out).toContain('aria-label="Market"');
+    expect(out).toContain('aria-haspopup="listbox"');
+    expect(out).toContain('aria-expanded="false"');
+    expect(out).toContain('ETH/USDT');
+    // Closed, the list is not drawn; a value not among the options is shown as itself.
+    expect(out).not.toContain('role="listbox"');
+    expect(html(<B2.Select label="Schedule" value="a-9" options={[]} onChange={() => undefined} />)).toContain('a-9');
+  });
+
+  it('Select keys: closed, arrows, Enter and Space open; open, they move, pick and close, held at the ends', () => {
+    expect(['ArrowDown', 'ArrowUp', 'Enter', ' '].map((k) => B2.selectKey(k, false))).toEqual(['open', 'open', 'open', 'open']);
+    expect(B2.selectKey('a', false)).toBeNull();
+    expect(['Enter', ' ', 'Escape', 'Tab', 'ArrowDown', 'ArrowUp', 'Home', 'End'].map((k) => B2.selectKey(k, true))).toEqual([
+      'pick',
+      'pick',
+      'close',
+      'close',
+      'next',
+      'previous',
+      'first',
+      'last',
+    ]);
+    expect(B2.nextOptionIndex(2, 'next', 3)).toBe(2);
+    expect(B2.nextOptionIndex(0, 'previous', 3)).toBe(0);
+    expect(B2.nextOptionIndex(1, 'last', 3)).toBe(2);
+    expect(B2.nextOptionIndex(1, 'first', 3)).toBe(0);
   });
 });
