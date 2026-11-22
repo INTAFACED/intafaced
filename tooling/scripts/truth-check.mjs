@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Local agent-rule drift check. Called from .githooks/pre-push.
+ * Local agent-rule drift check. A Doctrine gate (tooling/ci/gates.mjs), run in CI.
  * Not a GitHub workflow. Exit 1 with a plain message. No dependencies.
  *
  *   node tooling/scripts/truth-check.mjs [--root dir]
