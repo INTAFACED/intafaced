@@ -1,8 +1,7 @@
 /**
  * Focus not obscured (WCAG 2.2 SC 2.4.11). The fixed risk band, the top bar and the phone dock cover
  * part of the page; a control that takes focus under them must scroll clear. a11y.css turns the heights
- * below into scroll-padding, which browsers use when they scroll a focused element into view; trackObscuringBars also
- * scrolls a control that takes focus already on screen but under a bar, which browsers leave where it is.
+ * below into scroll-padding, which browsers use when they scroll a focused element into view.
  *
  * A fixed bar says which edge it covers with `data-obscures="top"` or `data-obscures="bottom"`. Their
  * real heights are measured, not assumed, because the risk band grows with text size (200% text must
@@ -28,25 +27,6 @@ export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: numb
     else if (bar.edge === 'bottom') bottom += height;
   }
   return { top, bottom };
-}
-
-/** Space kept between a focused control and a bar that would cover it, so its focus ring shows too. */
-export const FOCUS_CLEARANCE = 8;
-
-/**
- * How far to scroll so a focused box clears the bars: positive scrolls down (the box is under a bottom bar), negative up
- * (under a top bar), 0 when it is clear. `topEdge` is where the top bars end, `bottomEdge` where the bottom bars start,
- * both in viewport pixels from each bar's own box, so a floating bar's offset from the edge counts. A box taller than the
- * space between them keeps its top in view.
- */
-export function focusScroll(
-  box: { top: number; bottom: number },
-  { topEdge, bottomEdge }: { topEdge: number; bottomEdge: number },
-  gap = FOCUS_CLEARANCE,
-): number {
-  if (box.top < topEdge + gap) return box.top - topEdge - gap;
-  if (box.bottom > bottomEdge - gap) return Math.min(box.bottom - bottomEdge + gap, box.top - topEdge - gap);
-  return 0;
 }
 
 /**
@@ -89,27 +69,7 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   mutations.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: [OBSCURES_ATTRIBUTE] });
   observeBars();
 
-  // Browsers do not use scroll-padding when keyboard focus moves to a control that is already inside the viewport, so a
-  // control under the dock stays there (Chromium, look gate on /trade/calendar at 200% text). Scroll it clear here.
-  const clearFocus = (event: FocusEvent): void => {
-    const el = event.target;
-    if (!(el instanceof Element) || bars.length === 0 || el.closest(`[${OBSCURES_ATTRIBUTE}]`)) return;
-    let topEdge = 0;
-    let bottomEdge = window.innerHeight;
-    for (const bar of bars) {
-      const r = bar.getBoundingClientRect();
-      if (r.height <= 0) continue;
-      const edge = bar.getAttribute(OBSCURES_ATTRIBUTE);
-      if (edge === 'top') topEdge = Math.max(topEdge, r.bottom);
-      else if (edge === 'bottom') bottomEdge = Math.min(bottomEdge, r.top);
-    }
-    const dy = focusScroll(el.getBoundingClientRect(), { topEdge, bottomEdge });
-    if (dy !== 0) window.scrollBy({ top: dy, behavior: 'instant' });
-  };
-  root.ownerDocument.addEventListener('focusin', clearFocus);
-
   return () => {
-    root.ownerDocument.removeEventListener('focusin', clearFocus);
     mutations.disconnect();
     resize.disconnect();
     root.style.removeProperty(OBSCURED_TOP_VAR);

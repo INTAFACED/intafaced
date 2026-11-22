@@ -191,6 +191,12 @@
   letter-spacing: var(--lit-type-micro-tracking);
   text-transform: uppercase;
   cursor: pointer;
+  /* Its own padding and centring, so an app stylesheet that resets buttons can't push the words onto the pill's edge. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 12px;
+  text-align: center;
 }
 .lit-segmented button[aria-pressed='true'],
 .lit-segmented button[aria-selected='true'] {
