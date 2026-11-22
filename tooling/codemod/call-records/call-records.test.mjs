@@ -1,7 +1,7 @@
 // The call-records codemod's own pieces, on small inputs (the codemod itself is proven by its runs: run.mjs).
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -1031,7 +1031,8 @@ test('a re-run whose records already exist (no record file changes) skips the fi
   const bin = join(root, 'bin');
   const log = join(root, 'calls.log');
   for (const d of [dir, bin, join(root, 'node_modules/.bin'), join(root, 'packages/contracts/src')]) mkdirSync(d, { recursive: true });
-  writeFileSync(join(dir, 'run.mjs'), readFileSync(new URL('./run.mjs', import.meta.url)));
+  // The real run.mjs, copied to run in the sandbox (its steps are the stubs beside it), never read as text.
+  copyFileSync(new URL('./run.mjs', import.meta.url), join(dir, 'run.mjs'));
   const stub = (body) =>
     `#!/usr/bin/env node\nconst { appendFileSync, writeFileSync } = process.getBuiltinModule('node:fs');\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, process.getBuiltinModule('node:path').basename(process.argv[1]) + ' ' + a.join(' ') + '\\n');\n${body}\n`;
   const flagOut = (flag, json) => `const i = a.indexOf('${flag}'); if (i >= 0) writeFileSync(a[i + 1], '${json}');`;
