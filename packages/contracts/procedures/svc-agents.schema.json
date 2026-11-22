@@ -6665,6 +6665,142 @@
         }
       ]
     },
+    "agents.own.policy.add": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "own.policy.add",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:read",
+        "module": "agents",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "effect": {
+            "type": "string",
+            "enum": ["allow", "deny"]
+          },
+          "action": {
+            "type": "string",
+            "enum": ["place_order", "cancel_order", "amend_order"]
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["all", "main"]
+          }
+        },
+        "required": ["id", "effect", "action", "scope"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rulesRequired": {
+            "type": "boolean"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "effect": {
+                  "type": "string",
+                  "enum": ["allow", "deny"]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["place_order", "cancel_order", "amend_order"]
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": ["all", "main"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "effect", "action", "scope", "createdAt"],
+              "additionalProperties": false
+            }
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": ["place_order", "cancel_order", "amend_order"]
+                },
+                "account": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "main"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^sub:0x[0-9a-f]{40}$"
+                    }
+                  ]
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": ["denied", "allowed", "no_match_refused", "no_rule"]
+                },
+                "ruleId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["action", "account", "outcome", "ruleId"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["rulesRequired", "rules", "decisions"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC",
+            "effect": "allow",
+            "action": "place_order",
+            "scope": "all"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "agents.own.policy.get": {
       "service": "svc-agents",
       "module": "agents",
@@ -6778,6 +6914,258 @@
           "verdict": "accept",
           "input": {
             "id": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "agents.own.policy.remove": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "own.policy.remove",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:read",
+        "module": "agents",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "ruleId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["id", "ruleId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rulesRequired": {
+            "type": "boolean"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "effect": {
+                  "type": "string",
+                  "enum": ["allow", "deny"]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["place_order", "cancel_order", "amend_order"]
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": ["all", "main"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "effect", "action", "scope", "createdAt"],
+              "additionalProperties": false
+            }
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": ["place_order", "cancel_order", "amend_order"]
+                },
+                "account": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "main"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^sub:0x[0-9a-f]{40}$"
+                    }
+                  ]
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": ["denied", "allowed", "no_match_refused", "no_rule"]
+                },
+                "ruleId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["action", "account", "outcome", "ruleId"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["rulesRequired", "rules", "decisions"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC",
+            "ruleId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "agents.own.policy.require": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "own.policy.require",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:read",
+        "module": "agents",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "rulesRequired": {
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "rulesRequired"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rulesRequired": {
+            "type": "boolean"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "effect": {
+                  "type": "string",
+                  "enum": ["allow", "deny"]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["place_order", "cancel_order", "amend_order"]
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": ["all", "main"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "effect", "action", "scope", "createdAt"],
+              "additionalProperties": false
+            }
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": ["place_order", "cancel_order", "amend_order"]
+                },
+                "account": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "main"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^sub:0x[0-9a-f]{40}$"
+                    }
+                  ]
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": ["denied", "allowed", "no_match_refused", "no_rule"]
+                },
+                "ruleId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["action", "account", "outcome", "ruleId"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["rulesRequired", "rules", "decisions"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC",
+            "rulesRequired": true
           }
         },
         {
@@ -8036,6 +8424,197 @@
         }
       ]
     },
+    "agents.own.schedules.cancel": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "own.schedules.cancel",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:execute",
+        "module": "agents",
+        "person": true,
+        "ownSession": "agents.execute_person_only"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "scheduleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["id", "scheduleId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "agentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "repeat": {
+            "type": "string",
+            "enum": ["once", "repeat"]
+          },
+          "intervalMinutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "perRunCap": {
+            "type": ["string", "null"]
+          },
+          "ask": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["active", "completed", "cancelled"]
+          },
+          "nextDueAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "recent": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "runKey": {
+                  "type": "string"
+                },
+                "ordinal": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "eventId": {
+                  "type": ["string", "null"]
+                },
+                "dueAt": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["claimed", "ran", "skipped", "refused", "failed"]
+                },
+                "code": {
+                  "type": ["string", "null"]
+                },
+                "reasonCode": {
+                  "type": ["string", "null"]
+                },
+                "sessionId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "runs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "wakes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "cost": {
+                  "type": ["string", "null"]
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "runKey",
+                "ordinal",
+                "eventId",
+                "dueAt",
+                "state",
+                "code",
+                "reasonCode",
+                "sessionId",
+                "runs",
+                "wakes",
+                "cost",
+                "assetId",
+                "createdAt",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["id", "agentId", "repeat", "intervalMinutes", "perRunCap", "ask", "state", "nextDueAt", "createdAt", "recent"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC",
+            "scheduleId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "agents.own.schedules.create": {
       "service": "svc-agents",
       "module": "agents",
@@ -8239,6 +8818,231 @@
             "intervalMinutes": "USDC",
             "perRunCap": "USDC",
             "ask": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "agents.own.schedules.list": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "own.schedules.list",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:read",
+        "module": "agents",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cadence": {
+            "type": "object",
+            "properties": {
+              "minIntervalMinutes": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dailyLimit": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["minIntervalMinutes", "dailyLimit"],
+            "additionalProperties": false
+          },
+          "schedules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "agentId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "repeat": {
+                  "type": "string",
+                  "enum": ["once", "repeat"]
+                },
+                "intervalMinutes": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "perRunCap": {
+                  "type": ["string", "null"]
+                },
+                "ask": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["active", "completed", "cancelled"]
+                },
+                "nextDueAt": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "recent": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "runKey": {
+                        "type": "string"
+                      },
+                      "ordinal": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "eventId": {
+                        "type": ["string", "null"]
+                      },
+                      "dueAt": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["claimed", "ran", "skipped", "refused", "failed"]
+                      },
+                      "code": {
+                        "type": ["string", "null"]
+                      },
+                      "reasonCode": {
+                        "type": ["string", "null"]
+                      },
+                      "sessionId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "runs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "wakes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "cost": {
+                        "type": ["string", "null"]
+                      },
+                      "assetId": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "runKey",
+                      "ordinal",
+                      "eventId",
+                      "dueAt",
+                      "state",
+                      "code",
+                      "reasonCode",
+                      "sessionId",
+                      "runs",
+                      "wakes",
+                      "cost",
+                      "assetId",
+                      "createdAt",
+                      "updatedAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["id", "agentId", "repeat", "intervalMinutes", "perRunCap", "ask", "state", "nextDueAt", "createdAt", "recent"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["cadence", "schedules"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC"
           }
         },
         {
@@ -11392,6 +12196,200 @@
             "subject": "USDC",
             "perRunCap": "USDC",
             "ask": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "agents.own.triggers.list": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "own.triggers.list",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:read",
+        "module": "agents",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "agentId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "subject": {
+              "type": "string",
+              "enum": ["trade.fill.settled"]
+            },
+            "perRunCap": {
+              "type": ["string", "null"]
+            },
+            "ask": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": ["active", "cancelled"]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "runs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "runKey": {
+                    "type": "string"
+                  },
+                  "ordinal": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "eventId": {
+                    "type": ["string", "null"]
+                  },
+                  "dueAt": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": ["claimed", "ran", "skipped", "refused", "failed"]
+                  },
+                  "code": {
+                    "type": ["string", "null"]
+                  },
+                  "reasonCode": {
+                    "type": ["string", "null"]
+                  },
+                  "sessionId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "runs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "wakes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "cost": {
+                    "type": ["string", "null"]
+                  },
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "runKey",
+                  "ordinal",
+                  "eventId",
+                  "dueAt",
+                  "state",
+                  "code",
+                  "reasonCode",
+                  "sessionId",
+                  "runs",
+                  "wakes",
+                  "cost",
+                  "assetId",
+                  "createdAt",
+                  "updatedAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "deliveries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "eventId": {
+                    "type": "string"
+                  },
+                  "envelopeId": {
+                    "type": "string"
+                  },
+                  "redelivered": {
+                    "type": "boolean"
+                  },
+                  "receivedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["eventId", "envelopeId", "redelivered", "receivedAt"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["id", "agentId", "subject", "perRunCap", "ask", "state", "createdAt", "runs", "deliveries"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC"
           }
         },
         {

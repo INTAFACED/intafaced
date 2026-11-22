@@ -69,11 +69,19 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
     'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
     'services/svc-agents/src/router.ts': [
       "import { z } from 'zod';",
+      "import { schedulesRouter } from './schedules.js';",
       'const idInput = z.object({ id: z.string().min(1) });',
       'const agentOut = z.object({ id: z.string(), name: z.string() });',
       'export function createAgentsRouter() {',
-      "  return router({ own: router({ get: scopedProcedure('agents:read').input(idInput).output(agentOut).query(({ input }) => get(input)) }) });",
+      "  return router({ own: router({ get: scopedProcedure('agents:read').input(idInput).output(agentOut).query(({ input }) => get(input)), schedules: schedulesRouter }) });",
       '}',
+      '',
+    ].join('\n'),
+    // A second router file declaring the same idInput the same way (svc-agents' own/automation-routes.ts).
+    'services/svc-agents/src/schedules.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().min(1) });',
+      "export const schedulesRouter = router({ list: scopedProcedure('agents:read').input(idInput).output(z.array(z.string())).query(() => []) });",
       '',
     ].join('\n'),
     'crates/svc-agents/src/lib.rs': '// the port\n',
@@ -82,6 +90,7 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
       'const agent = z.object({ id: z.string(), name: z.string() });',
       "export const a = (api) => api.query('agents', 'own.get', { id: 'x' }, agent);",
       "export const b = (api) => api.query('agents', 'own.gone', { id: 'x' }, agent);",
+      "export const c = (api) => api.query('agents', 'own.schedules.list', { id: 'x' }, z.array(z.string()));",
       '',
     ].join('\n'),
   };
@@ -91,6 +100,11 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   }
   mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
   mkdirSync(join(root, 'packages/contracts/src'), { recursive: true });
+  // An earlier run already copied the router's idInput into the shared file (svc-agents' own.schedules.list rerun).
+  writeFileSync(
+    join(root, 'packages/contracts/src/agents-call-schemas.ts'),
+    "import { z } from 'zod';\n\n/** Copied by an earlier run. */\nexport const idInput = z.object({ id: z.string().min(1) });\n",
+  );
   execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
   execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
   execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
@@ -108,7 +122,11 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   );
   run('--callers-only', '--write', '--json', join(root, '.git/summary.json'));
   const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
-  assert.deepEqual(summary.records, ['AGENTS_OWN_GET']);
+  assert.deepEqual(
+    summary.records.sort(),
+    ['AGENTS_OWN_GET', 'AGENTS_OWN_SCHEDULES_LIST'],
+    'two router files with one idInput as written clash with nothing',
+  );
   assert.deepEqual(
     summary.hand.map((h) => h.call),
     ['agents own.gone'],
@@ -124,10 +142,16 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   assert.equal(git('status', '--porcelain', '--', 'services', 'crates'), '');
   // The record's input and answer are the router's own declarations, copied as written.
   const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
-  assert.match(shared, /export const idInput = z\.object\(\{ id: z\.string\(\)\.min\(1\) \}\);/);
+  assert.equal(
+    shared.match(/export const idInput = z\.object\(\{ id: z\.string\(\)\.min\(1\) \}\);/g)?.length,
+    1,
+    'the copy already there is the one',
+  );
   assert.match(shared, /export const agentOut = z\.object\(\{ id: z\.string\(\), name: z\.string\(\) \}\);/);
   const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
   assert.match(record, /input: idInput,\s+output: agentOut,/);
+  assert.doesNotMatch(record, /const idInput/, 'the record imports the copy already in the shared file, never declares it again');
+  assert.match(record, /import \{[^}]*\bidInput\b[^}]*\} from ["']\.\/agents-call-schemas\.js["']/);
   assert.match(record, /access: \{ caller: ["']scope["'], scope: ["']agents:read["'] \}/);
 });
 
