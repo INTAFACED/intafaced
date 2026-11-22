@@ -386,6 +386,27 @@ test('planted: only an unbuilt step of main’s baseline, and the tests skipped 
   );
 });
 
+test('planted: a test with no step title red in every run excuses its run; one red in only some runs, or a step skipped after it, does not (project-state#3676)', () => {
+  const every = (over) => build([3, 2, 1].map((id) => stepsRun(id, over)));
+  // TAX's `starts:` red in every run, its steps green: each run counts, with every record of the file.
+  const recs = [rec(TAX, { served: ['tax GET'] }), rec(TAX, { served: ['support GET'] }), rec(TAX, { served: ['edge GET'] })];
+  const red = every({ [TAX]: { fail: ['starts:'], recs } });
+  assert.equal(red.full[TAX], undefined);
+  assert.ok(reachOf(red, 'services', 'services/svc-support').includes(TAX), 'the passing steps’ records are its reach');
+  // Red in two runs, green in the third: flaky, so the red runs don't count; the green run speaks, with its own records.
+  const some = build([
+    stepsRun(3, { [TAX]: { fail: ['starts:'], recs } }),
+    stepsRun(2, { [TAX]: { fail: ['starts:'], recs } }),
+    stepsRun(1),
+  ]);
+  assert.equal(some.full[TAX], undefined);
+  assert.ok(!reachOf(some, 'services', 'services/svc-support').includes(TAX), 'a flaky red run adds nothing');
+  // Red in one run and absent from the others' green runs is the same; red in every run with its steps skipped: full.
+  assert.match(every({ [TAX]: { fail: ['starts:'], skip: ['#'] } }).full[TAX], /no run the map is built from speaks for it/);
+  // A red step beside it still needs its own excuse: #1 is not in the baseline.
+  assert.match(every({ [TAX]: { fail: ['starts:', '#1'] } }).full[TAX], /speaks for it/);
+});
+
 test('planted: a red unbuilt step another run lacks, or a spec with no test, excuses nothing (project-state#1574)', () => {
   // TAX's unbuilt #3 is red in runs 3 and 2, and run 1 has no #3 (its head predates the step): runs 3 and 2 don't count,
   // so what only their records carried is not its reach; run 1 passed whole and speaks for it.
