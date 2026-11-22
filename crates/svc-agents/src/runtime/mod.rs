@@ -16,6 +16,7 @@
 //! - [\`slice\`]: the eighteen calls.
 
 pub mod act;
+pub mod chain_balance;
 pub mod copy_intel;
 pub mod eligibility;
 pub mod funds;

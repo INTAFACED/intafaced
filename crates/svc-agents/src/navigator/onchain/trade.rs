@@ -82,7 +82,7 @@ fn live_key<'a>(
     };
     if !linked
         .iter()
-        .any(|w| w.to_lowercase() == owner.to_lowercase())
+        .any(|w| w.address.to_lowercase() == owner.to_lowercase())
     {
         return Err(no(ACCOUNT_NOT_YOURS));
     }
