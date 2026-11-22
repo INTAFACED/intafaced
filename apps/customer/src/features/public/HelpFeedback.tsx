@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { Button, TextField } from '@intafaced/ui/lit';
-import { CheckField } from '@intafaced/ui/lit/templates';
+import { Button } from '@intafaced/ui/lit';
+import { CheckField, TextAreaField } from '@intafaced/ui/lit/templates';
 import { safeReturnTo } from '../../app/navigation';
 import { useSession } from '../session';
 import { FailureNote, Waiting, sendArticleFeedback, supportRequestHref } from '../more';
@@ -87,7 +87,7 @@ export function HelpFeedback({ articleId, version }: { articleId: string; versio
             void send(false, comment, state.asRequest, state);
           }}
         >
-          <TextField
+          <TextAreaField
             label={t('commentLabel')}
             name="help-feedback-comment"
             value={state.comment}
@@ -95,7 +95,7 @@ export function HelpFeedback({ articleId, version }: { articleId: string; versio
             rows={3}
             aria-invalid={state.missing}
             error={state.missing ? t('requestNeedsComment') : undefined}
-            onChange={(event) => setState({ ...state, comment: event.target.value, missing: false })}
+            onChange={(comment) => setState({ ...state, comment, missing: false })}
           />
           <CheckField
             label={t('sendAsRequest')}

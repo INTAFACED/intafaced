@@ -75,7 +75,7 @@ function RegionalRule() {
   if (view.kind === 'loading') return <ReadLoading rows={1} label={live('loading')} />;
   if (view.kind === 'failed') return <ReadFailed title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />;
   return view.kind === 'set' ? (
-    <p className="lt-prose-lines" data-testid="developers-regional-rule" data-rule-state="set">
+    <p className="lt-pre-line" data-testid="developers-regional-rule" data-rule-state="set">
       {view.rule}
     </p>
   ) : (

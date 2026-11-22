@@ -606,10 +606,6 @@
 }
 
 /* Text written with its own line breaks (published terms, a plain-text section): the breaks show, long lines still wrap. */
-.lt-prose-lines {
-  white-space: pre-line;
-}
-
 .lt-actions,
 .lt-equal {
   display: flex;
@@ -983,7 +979,15 @@
   border: 1px solid var(--lit-line);
 }
 
-.lt-tab[aria-current='page'] {
+button.lt-tab {
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lt-tab[aria-current='page'],
+.lt-tab[aria-pressed='true'],
+.lt-tab[aria-selected='true'] {
   color: var(--lit-text-1);
   background: var(--lit-solid-bg-raised);
   border-color: var(--lit-control-rim-active);
@@ -1183,6 +1187,21 @@
 
 .lt-chart-live {
   fill: var(--lit-accent);
+}
+
+/* Coverage: a time window's track, its covered ranges lit and its gaps left dark. */
+.lt-coverage {
+  position: relative;
+  block-size: 0.75rem;
+  background: var(--lit-secondary-bg);
+  border-radius: calc(var(--lit-radius-control) / 3);
+  overflow: hidden;
+}
+
+.lt-coverage > span {
+  position: absolute;
+  inset-block: 0;
+  background: var(--lit-accent);
 }
 
 .lt-bar {
@@ -1508,10 +1527,8 @@
   overflow-y: auto;
 }
 
-/* Text an owner wrote with its own line breaks (a rulebook section, a policy, a postmortem), shown escaped as typed. */
-.lt-pre {
-  white-space: pre-wrap;
-}
+/* Text an owner wrote with its own line breaks (a policy, a partner's terms), shown escaped as typed with its spaces
+   folded; .lt-pre-wrap keeps the spaces too and breaks a long word (a rulebook section, a postmortem, a message). */
 .lt-pre-line {
   white-space: pre-line;
 }

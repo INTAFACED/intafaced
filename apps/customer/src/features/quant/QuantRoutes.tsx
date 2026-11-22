@@ -10,7 +10,8 @@ import { teamCopy } from './team-copy';
 import { LibraryRoom } from './LibraryRooms';
 import { ListingRoom } from './ListingRoom';
 import { libraryCopy } from './library-copy';
-import { LiveRun, LiveRuns } from './LiveRun';
+import { LiveRun } from './LiveRun';
+import { LiveRunsRoom } from './live-runs/LiveRunsRoom';
 import { liveRunCopy } from './live-run-copy';
 import { EditorRoom, OptimiseRoom, TesterRoom } from './PreviewRooms';
 import { previewCopy } from './preview-copy';
@@ -33,7 +34,8 @@ export interface QuantRoute {
 
 /**
  * The Algo dev rooms under `/quant`; `MoreRoutes` hands the whole prefix here. Null for a path that is not one of them,
- * and for studio, backtest and sandbox, which More's own `quantModeRoute` serves beside their room.
+ * and for studio, backtest and sandbox, which More's own `quantModeRoute` serves beside their room. `bare`: the room is on
+ * its Volt template, which draws its own title row, so More mounts it without the old page frame.
  */
 export function quantRoute(pathname: string, paper: boolean, userId: string | null): QuantRoute | null {
   if (pathname === '/quant') {
@@ -109,7 +111,8 @@ export function quantRoute(pathname: string, paper: boolean, userId: string | nu
     return {
       title: liveRunCopy.t('listTitle'),
       description: liveRunCopy.t('description'),
-      content: <LiveRuns key={userId ?? 'anonymous'} />,
+      content: <LiveRunsRoom key={userId ?? 'anonymous'} />,
+      bare: true,
     };
   }
   const live = /^\/quant\/live\/([0-9a-fA-F-]{36})$/.exec(pathname);
@@ -136,6 +139,7 @@ export function quantRoute(pathname: string, paper: boolean, userId: string | nu
       title: researchCopy.t('dataTitle'),
       description: researchCopy.t('dataIntro'),
       content: <LakeRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   // Every limit a developer's runs meet (J-algo-dev-12 #4).
@@ -144,6 +148,7 @@ export function quantRoute(pathname: string, paper: boolean, userId: string | nu
       title: limitsCopy.t('title'),
       description: limitsCopy.t('description'),
       content: <LimitsRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   if (pathname === '/quant/strategies') {
@@ -151,6 +156,7 @@ export function quantRoute(pathname: string, paper: boolean, userId: string | nu
       title: strategiesCopy.t('title'),
       description: strategiesCopy.t('description'),
       content: <StrategiesRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   return null;

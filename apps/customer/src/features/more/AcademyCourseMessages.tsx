@@ -16,7 +16,7 @@ import { ServiceOffNote } from './service-off-note';
 import { ACADEMY_SEND_COURSE_MESSAGE } from '@intafaced/contracts/academy-send-course-message-procedures';
 import { ACADEMY_COURSE_CONVERSATIONS } from '@intafaced/contracts/academy-course-conversations-procedures';
 import { ACADEMY_OPEN_COURSE_CONVERSATION } from '@intafaced/contracts/academy-open-course-conversation-procedures';
-import { Button, Tag } from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
 import { ReadingTemplate, TextAreaField } from '@intafaced/ui/lit/templates';
 import { AcademySections } from './academy-sections';
 import { t as copyText } from './copy';
@@ -153,52 +153,14 @@ export function AcademyCourseMessagesLink() {
   );
 }
 
-/** `/academy/rooms/messages`: the reader's conversations, newest first, each with its unread marker. */
-export function AcademyCourseInbox() {
+/**
+ * `/academy/rooms/messages`: the reader's conversations, newest first, each with its unread marker. The room that draws
+ * them is academy-inbox/AcademyInboxRoom.tsx.
+ */
+export function useCourseInbox() {
   const api = useApi();
   const { userId } = useSession();
-  const { t } = copy.useCopy();
-  const { language } = usePreferences();
-  const inbox = useResource(
-    (signal) => api.call(ACADEMY_COURSE_CONVERSATIONS, { limit: INBOX_PAGE }, { signal }),
-    `course-inbox:${userId}`,
-  );
-  return (
-    <div>
-      <a className="lt-link" href="/academy/rooms">
-        {t('discussionAll')}
-      </a>
-      <Section title={t('teamMessagesTitle')}>
-        <div data-course-inbox>
-          <p>{t('teamMessagesIntro')}</p>
-          {inbox.resource.status === 'loading' && <Waiting />}
-          {inbox.resource.status === 'failed' && <AcademyRefusal failure={inbox.resource.failure} retry={inbox.reload} />}
-          {inbox.resource.status === 'ready' &&
-            (inbox.resource.data.length === 0 ? (
-              <p role="status">{t('teamMessagesNone')}</p>
-            ) : (
-              <ul>
-                {inbox.resource.data.map((row) => (
-                  <li key={row.id} data-course-inbox-row={row.id} data-unread={String(row.unread)}>
-                    <div>
-                      <a className="lt-link" href={academyMessagesHref(row.id)} lang="und">
-                        {row.courseTitle}
-                      </a>
-                      <div data-testid="academy-lms-meta">
-                        <Tag tone="neutral" data-status={row.unread ? 'open' : 'recorded'}>
-                          {row.unread ? t('teamMessagesUnread') : t('teamMessagesRead')}
-                        </Tag>
-                        <span>{t('teamMessagesLast', { when: formatMoment(row.lastMessageAt, language) })}</span>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ))}
-        </div>
-      </Section>
-    </div>
-  );
+  return useResource((signal) => api.call(ACADEMY_COURSE_CONVERSATIONS, { limit: INBOX_PAGE }, { signal }), `course-inbox:${userId}`);
 }
 
 /**

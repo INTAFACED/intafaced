@@ -1,8 +1,8 @@
 // volt-room: /support/guest/request
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { SUPPORT_GUEST_REQUEST_PATH } from '@intafaced/contracts/support-guest';
-import { Button, Field, Tag, TextField } from '@intafaced/ui/lit';
-import { ReadingTemplate, ServiceOffNotice } from '@intafaced/ui/lit/templates';
+import { Button, Field, Tag } from '@intafaced/ui/lit';
+import { ReadingTemplate, ServiceOffNotice, TextAreaField } from '@intafaced/ui/lit/templates';
 import { useDataEnv } from '../../../data/hooks';
 import { writeContract, type ContractData } from '../../../shared/contract-call';
 import type { ApiResult } from '../../../shared/api';
@@ -157,11 +157,11 @@ export function GuestRequestRoom() {
                 </ol>
                 {thread.comments.length === 0 ? <p className="lt-hint">{t('noReplies')}</p> : null}
                 <form className="lt-stack" onSubmit={(event) => void send(event)}>
-                  <TextField
+                  <TextAreaField
                     label={t('replyField')}
                     lang="und"
                     value={reply}
-                    onChange={(event) => setReply(event.target.value)}
+                    onChange={setReply}
                     maxLength={10000}
                     rows={4}
                     hint={copy.t('characters', { count: reply.length, max: 10000 })}

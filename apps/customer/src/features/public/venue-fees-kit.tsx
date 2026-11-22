@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import { KitWalletProvider, useWallet } from '../protocol';
+import { WalletProvider, useWallet } from '../protocol';
 import { venueCopy, type VenueMode } from '../trade';
 
 /**
@@ -24,9 +24,9 @@ export function FeesVenueFrame({ mode, children }: { mode: Extract<VenueMode, { 
   const status = mode.status;
   const chainId = status.available && status.chainId ? status.chainId : undefined;
   return (
-    <KitWalletProvider chainId={chainId} scope="venue-desk">
+    <WalletProvider chainId={chainId} scope="venue-desk">
       {children}
-    </KitWalletProvider>
+    </WalletProvider>
   );
 }
 

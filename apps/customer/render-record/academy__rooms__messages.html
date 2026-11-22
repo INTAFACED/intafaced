@@ -97,29 +97,32 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Academy</h1>
-<p class="muted">Learn, practise and join hosted sessions.</p>
+<h1 class="lt-title">Academy</h1>
+<p class="lt-description">Learn, practise and join hosted sessions.</p>
 </div>
 </header>
-<div class="more-grid">
-<div class="tabs" role="group" aria-label="Academy sections">
-<button type="button" class="" aria-pressed="false">Learning</button>
-<button type="button" class="" aria-pressed="false">Certificates</button>
-<button type="button" class="selected" aria-pressed="true">Rooms</button>
-<button type="button" class="" aria-pressed="false">Videos</button>
-<button type="button" class="" aria-pressed="false">Programmes</button>
+<div class="lt-body">
+<div class="lt-toolbar">
+<section class="lt-region" data-region="filters">
+<nav class="lt-tabs" aria-label="Academy sections">
+<a href="/academy/learning" class="lt-tab">Learning</a>
+<a href="/academy/certificates" class="lt-tab">Certificates</a>
+<a href="/academy/rooms" class="lt-tab" aria-current="page">Rooms</a>
+<a href="/academy/videos" class="lt-tab">Videos</a>
+<a href="/academy/programmes" class="lt-tab">Programmes</a>
+</nav>
+</section>
 </div>
-<div>
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
 <a class="lt-link" href="/academy/rooms">All course discussions</a>
 <section>
 <h2>Messages to course teams</h2>
 <div data-course-inbox="true">
-<p>Your conversations with the teams of the courses you are enrolled in, newest first.</p>
+<p class="lt-hint">Your conversations with the teams of the courses you are enrolled in, newest first.</p>
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">Can’t connect right now</h3>
 <p class="lt-refusal-body">No services run in the look gate.</p>
@@ -127,7 +130,7 @@
 </div>
 </div>
 </section>
-</div>
+</section>
 </div>
 </div>
 </div>

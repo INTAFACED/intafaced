@@ -88,7 +88,7 @@ export function RulebookView({ load }: { load: Loadable<Rulebook> }) {
               {current.sections.map((s) => (
                 <section key={s.id} id={`rulebook-${s.id}`} data-section={s.title} aria-labelledby={`rulebook-h-${s.id}`}>
                   <h2 id={`rulebook-h-${s.id}`}>{s.title}</h2>
-                  <p className="lt-pre">{s.body}</p>
+                  <p className="lt-pre-wrap">{s.body}</p>
                 </section>
               ))}
             </div>

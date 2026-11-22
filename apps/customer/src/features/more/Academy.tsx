@@ -29,7 +29,8 @@ import { AcademyHub } from './AcademyHub';
 import { AcademyAssignment } from './AcademyAssignment';
 import { AcademyProgrammePage } from './AcademyCourseProgrammes';
 import { AcademyDiscussionCourses, AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
-import { AcademyCourseConversation, AcademyCourseInbox, AcademyCourseMessagesLink } from './AcademyCourseMessages';
+import { AcademyCourseConversation, AcademyCourseMessagesLink } from './AcademyCourseMessages';
+import { AcademyInboxRoom } from './academy-inbox/AcademyInboxRoom';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
 import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
@@ -88,6 +89,8 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
     rememberCertificate(userId, id);
     setSelection({ owner: userId, id });
   }
+  // The course-team inbox is a record list on its Volt template: it draws its own title row and the Academy's tabs.
+  if (route.kind === 'messages' && !route.conversationId) return <AcademyInboxRoom />;
   return (
     <div className="more-grid">
       <Tabs
@@ -120,9 +123,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : route.kind === 'messages' ? (
         route.conversationId ? (
           <AcademyCourseConversation key={route.conversationId} conversationId={route.conversationId} />
-        ) : (
-          <AcademyCourseInbox />
-        )
+        ) : null
       ) : route.kind === 'programme' ? (
         <AcademyProgrammePage key={route.slug} slug={route.slug} />
       ) : route.kind === 'progress' ? (
