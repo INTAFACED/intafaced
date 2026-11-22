@@ -6,6 +6,8 @@
 import * as React from 'react';
 import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
+import { moveFocusByArrow } from './arrow-focus.js';
+import type { DataMarks } from './b2-table.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
@@ -114,18 +116,32 @@ export function Switch({ checked, onChange, label, className, onClick, ...rest }
 }
 
 export type SegmentedProps<T extends string> = {
-  options: readonly { value: T; label: string }[];
+  /** Each pill's words, and its full name where the words are short (`1D` named "One day", also its tooltip). */
+  options: readonly { value: T; label: string; name?: string }[];
   value: T;
   onChange: (v: T) => void;
   label: string;
   className?: string;
+  /** The row's own marks (`data-testid`), where a room's tests find it. */
+  marks?: DataMarks;
 };
 
-export function Segmented<T extends string>({ options, value, onChange, label, className }: SegmentedProps<T>) {
+/**
+ * One choice that is always made (a chart's range, Buy or Sell, Simple or Pro): a named group of pressed buttons
+ * (`aria-pressed`), one pressed at a time. The arrow keys move focus between them (`arrow-focus.ts`).
+ */
+export function Segmented<T extends string>({ options, value, onChange, label, className, marks }: SegmentedProps<T>) {
   return (
-    <div className={clsx('lit-segmented', className)} role="group" aria-label={label}>
+    <div {...marks} className={clsx('lit-segmented', className)} role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
       {options.map((o) => (
-        <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={o.value === value}
+          aria-label={o.name}
+          title={o.name}
+          onClick={() => onChange(o.value)}
+        >
           {o.label}
         </button>
       ))}
@@ -147,11 +163,12 @@ export type ToggleChipsProps<T extends string> = {
 
 /**
  * A row of filter chips: a named group of pressed buttons (`aria-pressed`), one on at a time, wrapping to a second line
- * rather than scrolling. Segmented is for a choice that is always made (a range, Buy or Sell); chips filter a list.
+ * rather than scrolling. Segmented is for a choice that is always made (a range, Buy or Sell); chips filter a list. The
+ * arrow keys move focus between the chips (`arrow-focus.ts`).
  */
 export function ToggleChips<T extends string>({ options, value, onChange, label, clearable = false, className }: ToggleChipsProps<T>) {
   return (
-    <div className={clsx('lit-chips', className)} role="group" aria-label={label}>
+    <div className={clsx('lit-chips', className)} role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
       {options.map((o) => (
         <button
           key={o.value}

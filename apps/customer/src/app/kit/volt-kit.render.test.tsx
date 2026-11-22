@@ -118,6 +118,7 @@ const BLOCKS = [
   'chart',
   'time-line',
   'chart-box',
+  'room-bar',
   'candles',
   'book',
   'people',
@@ -127,6 +128,34 @@ const BLOCKS = [
 ];
 
 describe('the Volt kit page (intafaced issue 9302), with Volt the only look (issue 9315)', () => {
+  it('/kit: the arrow keys move focus between the range pills, wrapping, Home and End to the ends, without pressing one', async () => {
+    await open('/kit');
+    const ranges = host.querySelector('[data-testid="kit-ranges"]')!;
+    const pill = (label: string) => [...ranges.querySelectorAll('button')].find((b) => b.textContent === label)!;
+    const press = (key: string) =>
+      act(() => {
+        (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      });
+    act(() => pill('6M').focus());
+    press('ArrowRight');
+    expect(document.activeElement).toBe(pill('1Y'));
+    press('ArrowLeft');
+    expect(document.activeElement).toBe(pill('6M'));
+    press('End');
+    expect(document.activeElement).toBe(pill('All'));
+    press('ArrowRight');
+    expect(document.activeElement, 'wraps to the first').toBe(pill('1D'));
+    press('Home');
+    expect(document.activeElement).toBe(pill('1D'));
+    expect(pill('1D').getAttribute('aria-pressed'), 'moving focus presses nothing').toBe('true');
+    expect(ranges.querySelectorAll('button[aria-pressed="true"]')).toHaveLength(1);
+    // The bar's sections answer the arrows the same way.
+    const tabs = [...host.querySelectorAll('[data-testid="kit-room-bar"] [role="group"] button')] as HTMLElement[];
+    act(() => tabs[0]!.focus());
+    press('ArrowRight');
+    expect(document.activeElement).toBe(tabs[1]);
+  });
+
   it('/kit draws every block the issue lists, each from the shipped parts, with no switch on the root', async () => {
     expect(html.dataset.look).toBeUndefined();
     expect(html.dataset.direction).toBeUndefined();
@@ -195,6 +224,15 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
       'the library was handed the element and drew into it',
     ).not.toBeNull();
     expect(boxes[1]!.querySelector('[role="status"]')?.textContent, 'the state in its place').toMatch(/^No trades yet/);
+    const bar = block('room-bar').querySelector('.lt-room-bar[data-region="room-bar"][data-testid="kit-room-bar"]');
+    expect(bar, 'the room bar, with its marks').not.toBeNull();
+    expect(bar!.querySelector('[role="group"][aria-label="TEST coin sections"] button[aria-pressed="true"]')?.textContent).toBe('Overview');
+    const ranges = block('room-bar').querySelector('[data-testid="kit-ranges"][role="group"]');
+    expect(
+      [...ranges!.querySelectorAll('button')].map((b) => b.textContent),
+      'the range pills, in order',
+    ).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+    expect(ranges!.querySelectorAll('button[aria-pressed="true"]'), 'one pressed').toHaveLength(1);
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
     const lines = block('time-line').querySelectorAll('figure.lt-timeline');
     expect(lines, 'the line over time, drawn and empty').toHaveLength(2);
