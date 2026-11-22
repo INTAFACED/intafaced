@@ -343,6 +343,12 @@
 }
 .lt-ghost[data-ghost='text'] .lt-ghost-item {
   block-size: 1em;
+  /* A line of words has a width even where nothing around it gives one (a row's end, a figure beside its label). */
+  min-inline-size: 5em;
+}
+/* A figure still on its way is one figure line tall, so the figure takes its place without moving what is below. */
+.lt-figure > .lt-ghost[data-ghost='text'] .lt-ghost-item {
+  block-size: var(--lit-type-figure-line);
 }
 .lt-ghost[data-ghost='text'] .lt-ghost-item:last-child {
   inline-size: 70%;
@@ -359,7 +365,34 @@
 }
 .lt-ghost[data-ghost='keys'] .lt-ghost-item {
   flex: 1;
-  block-size: 3.5rem;
+  /* The keys' own height, so the keys take the placeholders' place without moving what is below. */
+  block-size: var(--lit-control-h);
+}
+
+/* A row of equal tiles, loading or loaded (Home's market cards): a fixed number of columns, two in a narrow room and
+   four from a mid-size one, each row at least one market tile tall (its name line, its trend line, its price line, the
+   change that falls under the price on a narrow tile, and its key), so the grid placeholders and the tiles take one
+   shape and nothing below moves when the data arrives. The placeholders are the kit's grid ghost, laid straight into
+   the row. */
+.lt-tiles {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(
+    calc(var(--lit-type-body-line) * 2 + 3.5rem + var(--lit-type-figure-line) + var(--lit-control-h) + var(--lit-gap-item) * 2),
+    auto
+  );
+}
+.lt-tiles > .lt-ghost {
+  display: contents;
+}
+.lt-tiles > .lt-ghost[data-ghost] .lt-ghost-item {
+  block-size: auto;
+}
+@container room (min-width: 640px) {
+  .lt-tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 /* A hero region that reserves its height (Region's `reserve`): its content, the loading ghost or the loaded figure,
@@ -607,6 +640,19 @@
 }
 .lt-arrow-out {
   --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 5h12v12h-2V8.4L6.4 19 5 17.6 15.6 7H7z'/%3E%3C/svg%3E");
+}
+/* Up and down, beside a change: a triangle that points the way the figure moved (never colour alone). */
+.lt-arrow-up {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 5l8 13H4z'/%3E%3C/svg%3E");
+  inline-size: 0.7em;
+  block-size: 0.7em;
+  vertical-align: 0;
+}
+.lt-arrow-down {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19L4 6h16z'/%3E%3C/svg%3E");
+  inline-size: 0.7em;
+  block-size: 0.7em;
+  vertical-align: 0;
 }
 .lt-arrow-go:dir(rtl),
 .lt-arrow-back:dir(rtl) {
@@ -1227,6 +1273,14 @@ button.lt-tab {
     block-size: 1px;
     overflow: hidden;
     clip-path: inset(50%);
+  }
+  /* The hidden header's names one under another, each as wide as its own words, so its row never reaches past a
+     phone's width and no name spills out of its own box. */
+  .lt-table thead tr {
+    display: block;
+  }
+  .lt-table thead th {
+    display: inline-block;
   }
   .lt-table,
   .lt-table tbody,

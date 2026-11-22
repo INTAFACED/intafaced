@@ -8,8 +8,7 @@
  */
 // hand-declared-ok: svc-bank's cards.list and cards.partnerHeld answers have no browser-safe schema in packages/contracts; this narrows them
 import { useId, useMemo, useState } from 'react';
-import { Button } from '@intafaced/ui/lit';
-import { Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { displayAmount } from '../../shared/money';
 import { useSession } from '../../features/session/session';
 import { StepUpConfirm } from '../../features/money/StepUpConfirm';
@@ -208,7 +207,7 @@ export default function PayYourself({
         <p data-testid="spendable-total">
           {parts.total !== null ? t('spendableTotal', { amount: displayAmount(parts.total) }) : t('spendableNoTotal')}
         </p>
-        <p className="lt-muted">{t('spendableNote')}</p>
+        <p className="lt-hint">{t('spendableNote')}</p>
         <ul>
           {parts.parts.map((part) => (
             <li key={part.id} data-spendable={part.id}>
@@ -222,13 +221,13 @@ export default function PayYourself({
               {part.state === 'read' ? (
                 <>
                   <strong data-part-amount>{displayAmount(part.amount)} USD</strong>{' '}
-                  <span className="lt-muted" data-part-source>
+                  <span className="lt-hint" data-part-source>
                     {part.id === 'partner' ? t('sourcePartner') : part.id === 'venue' ? t('sourceVenue') : t('sourceWallet')}, {t('asOf')}{' '}
                     <At iso={part.asOf} />
                   </span>
                 </>
               ) : (
-                <span className="lt-muted">{part.state === 'reading' ? t('partReading') : t('partUnread')}</span>
+                <span className="lt-hint">{part.state === 'reading' ? t('partReading') : t('partUnread')}</span>
               )}
             </li>
           ))}
@@ -236,7 +235,7 @@ export default function PayYourself({
         {s && onItsWay(s.credits).length > 0 ? (
           <div data-testid="on-its-way">
             <h3>{t('onItsWayTitle')}</h3>
-            <p className="lt-muted">{t('onItsWayNote')}</p>
+            <p className="lt-hint">{t('onItsWayNote')}</p>
             <ul>
               {onItsWay(s.credits).map((c) => (
                 <li key={c.key} data-credit={c.txHash}>
@@ -260,20 +259,20 @@ export default function PayYourself({
         {venue.data ? (
           <p>
             <strong data-locked-amount>{displayAmount(lockedInTrades(venueRows))} USD</strong>{' '}
-            <span className="lt-muted">
+            <span className="lt-hint">
               {t('sourceVenue')}, {t('asOf')} <At iso={venue.data.asOf} />
             </span>
           </p>
         ) : (
-          <p className="lt-muted">{venue.failure ? t('partUnread') : t('partReading')}</p>
+          <p className="lt-hint">{venue.failure ? t('partUnread') : t('partReading')}</p>
         )}
-        <p className="lt-muted">{t('lockedNote')}</p>
+        <p className="lt-hint">{t('lockedNote')}</p>
       </section>
 
       <section aria-label={t('payTitle')} data-testid="pay-yourself" className="lt-stack">
         <h2>{t('payTitle')}</h2>
         {!s ? (
-          <p className="lt-muted">{t('partReading')}</p>
+          <p className="lt-hint">{t('partReading')}</p>
         ) : !payIn ? (
           <p data-testid="pay-in-unset">{t('payInUnset')}</p>
         ) : 'unread' in s.realised ? (
@@ -286,7 +285,7 @@ export default function PayYourself({
               {t('realised', { amount: displayAmount(s.realised.amount) })} ({lastSent ? t('realisedSince') : t('realisedEver')}),{' '}
               {t('asOf')} <At iso={s.realised.asOf} />
             </p>
-            {shownAmount === '' && !ask ? <p className="lt-muted">{t('realisedNone')}</p> : null}
+            {shownAmount === '' && !ask ? <p className="lt-hint">{t('realisedNone')}</p> : null}
             {!ask ? (
               <div className="lt-stack">
                 <Field label={t('amountLabel')} inputMode="decimal" value={shownAmount} onChange={(e) => setAmount(e.target.value)} />
@@ -388,7 +387,7 @@ function FromWallet({
   return (
     <section aria-label={t('fromWalletTitle', { partner })} data-testid="pay-in-route" className="lt-stack">
       <h2>{t('fromWalletTitle', { partner })}</h2>
-      <p className="lt-muted">{t('fromWalletNote', { partner, n: String(payIn.confirmations) })}</p>
+      <p className="lt-hint">{t('fromWalletNote', { partner, n: String(payIn.confirmations) })}</p>
       <dl>
         <div>
           <dt>{t('fromWalletAddress')}</dt>
@@ -429,14 +428,14 @@ function FromWallet({
                     : `${t('statePending')}, ${t('partnerConfirmations', { n: String(c.confirmations), m: String(c.required) })}`}
               </span>
               {', '}
-              <span className="lt-muted" data-credit-source>
+              <span className="lt-hint" data-credit-source>
                 {t('sourcePartner')}, {t('asOf')} <At iso={c.availableAt ?? c.seenAt} />
               </span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="lt-muted" data-testid="pay-in-none">
+        <p className="lt-hint" data-testid="pay-in-none">
           {t('fromWalletNone')}
         </p>
       )}
@@ -479,7 +478,7 @@ function Review({
           {terms && terms.arrivalSeconds !== null ? t('reviewArrivalValue', { seconds: String(terms.arrivalSeconds) }) : t('notPublished')}
         </dd>
       </dl>
-      <p className="lt-muted">{t('reviewSign')}</p>
+      <p className="lt-hint">{t('reviewSign')}</p>
       {children}
     </div>
   );
@@ -582,7 +581,7 @@ function Tracker({
                   {t('stateAvailable')} <At iso={credit.availableAt} />
                 </span>
               ) : (
-                <span className="lt-muted">
+                <span className="lt-hint">
                   {t('partnerConfirmations', { n: String(credit.confirmations), m: String(credit.required) })}
                 </span>
               )}
