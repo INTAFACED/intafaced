@@ -19,22 +19,39 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page" data-room="lab">
-<header class="pub-heading">
-<h1>Lab</h1>
-<p class="muted">Short entries the owner chooses to point at: rooms of the app that are not in the main navigation.</p>
+<div data-room="lab">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Lab</h1>
+<p class="lt-description">Short entries the owner chooses to point at: rooms of the app that are not in the main navigation.</p>
+</div>
 </header>
-<section class="pub-notice" role="status" aria-labelledby="lab-state">
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<section role="status" aria-labelledby="lab-state">
 <h2 id="lab-state">No Lab entry is published</h2>
 <p>What the Lab holds is the owner’s decision, and it has not been made. No entry is shown, and none is made up.</p>
 <p class="service-off lt-service-off" data-not-connected="owner.decision" role="note">Publishing Lab entries needs an owner decision. It is switched off in this build. <span class="lt-service-off-code">owner.decision</span>
 </p>
 </section>
-<section class="pub-card" aria-labelledby="lab-elsewhere">
+</section>
+<section class="lt-region" data-region="related" aria-label="Related">
+<section aria-labelledby="lab-elsewhere">
 <h2 id="lab-elsewhere">Looking for something else?</h2>
 <p>Every room of the app is listed on the home page. Questions go to the help centre.</p>
-<a class="text-link" href="/">See what is inside →</a> <a class="text-link" href="/help">Open the help centre →</a>
+<p class="lt-actions">
+<a class="lt-link" href="/">See what is inside →</a>
+<a class="lt-link" href="/help">Open the help centre →</a>
+</p>
 </section>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">

@@ -19,154 +19,183 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page" data-testid="developers-home">
-<header class="pub-heading">
-<h1>Developers</h1>
-<p class="muted">Connect to Intafaced from your own code. Pick the audience that fits you, then the section you need.</p>
+<div data-testid="developers-home">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Developers</h1>
+<p class="lt-description">Connect to Intafaced from your own code. Pick the audience that fits you, then the section you need.</p>
+</div>
 </header>
-<section class="pub-card" aria-labelledby="dev-access">
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="meta" aria-label="Details">
+<section aria-labelledby="dev-access">
 <h2 id="dev-access">Who gets access</h2>
 <p>Access follows the account and the permissions on its key. No access tiers are published in this build, so none are listed here.</p>
 </section>
-<section class="pub-card" aria-labelledby="dev-search">
+</section>
+<section class="lt-region" data-region="body" aria-label="Article">
+<section aria-labelledby="dev-search">
 <h2 id="dev-search">Search the docs</h2>
-<form role="search" class="pub-form">
-<input aria-label="Search the developer docs" type="search" value="">
-<button type="submit" class="button">Search</button>
+<form role="search" class="lt-actions">
+<div class="lit-field-control">
+<label for="_r_1_">Search the developer docs</label>
+<input aria-label="Search the developer docs" id="_r_1_" type="search" value="">
+</div>
+<button type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Search</button>
 </form>
 </section>
-<section class="pub-card" aria-labelledby="dev-hosts">
+<section aria-labelledby="dev-hosts">
 <h2 id="dev-hosts">Base addresses</h2>
 <p>Where each protocol is reached, in production, in the sandbox and by region.</p>
-<a class="text-link" href="/developers/hosts">Open the table of base addresses →</a>
+<a class="lt-link" href="/developers/hosts">Open the table of base addresses →</a>
 </section>
-<section class="pub-card" aria-labelledby="dev-exchange">
+<section aria-labelledby="dev-exchange">
 <h2 id="dev-exchange">Exchange API</h2>
-<p class="muted">Trade and read market data from your own program.</p>
+<p>
+<small>Trade and read market data from your own program.</small>
+</p>
 <p data-testid="developers-access">Public market data needs no key. Your own orders, balances and positions need a key from your signed-in account, and a key does only what its permissions allow. Withdrawals are never reachable with a key.</p>
 <ul>
 <li>
-<a class="text-link" href="/developers/permissions">Permissions</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/permissions">Permissions</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/authentication">Authentication</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/authentication">Authentication</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/rest">REST conventions</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/rest">REST conventions</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/reference">API reference</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/reference">API reference</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/websocket">WebSocket streams</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/websocket">WebSocket streams</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/rate-limits">Rate limits</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/rate-limits">Rate limits</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/errors">Errors</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/errors">Errors</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/order-types">Order types</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/order-types">Order types</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/bot-policy">Bot policy</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/bot-policy">Bot policy</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/idempotency">Idempotency</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/idempotency">Idempotency</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/versioning">Versioning</a> <span class="muted">Waits for DV-versioning-01</span>
+<a class="lt-link" href="/developers/versioning">Versioning</a> <small>Waits for DV-versioning-01</small>
 </li>
 <li>
-<a class="text-link" href="/developers/changelog">Changelog</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/changelog">Changelog</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/data-terms">Market data terms</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/data-terms">Market data terms</a> <small>Page in this portal</small>
 </li>
 </ul>
 </section>
-<section class="pub-card" aria-labelledby="dev-institutional">
+<section aria-labelledby="dev-institutional">
 <h2 id="dev-institutional">Institutional</h2>
-<p class="muted">Order routing and market data over FIX and other protocols.</p>
+<p>
+<small>Order routing and market data over FIX and other protocols.</small>
+</p>
 <p data-testid="developers-access">FIX sessions are not opened from this portal: FIX access waits for its onboarding and session policy (DV-fix-01). The connectivity options say what is available today.</p>
 <ul>
 <li>
-<a class="text-link" href="/developers/connectivity">Connectivity</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/connectivity">Connectivity</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/fix">FIX</a> <span class="muted">Waits for DV-fix-01</span>
+<a class="lt-link" href="/developers/fix">FIX</a> <small>Waits for DV-fix-01</small>
 </li>
 <li>
-<a class="text-link" href="/developers/protocols">Choosing a protocol</a> <span class="muted">Waits for DV-websocket-01</span>
+<a class="lt-link" href="/developers/protocols">Choosing a protocol</a> <small>Waits for DV-websocket-01</small>
 </li>
 </ul>
 </section>
-<section class="pub-card" aria-labelledby="dev-embedded">
+<section aria-labelledby="dev-embedded">
 <h2 id="dev-embedded">Embedded</h2>
-<p class="muted">Take payments from your own product.</p>
+<p>
+<small>Take payments from your own product.</small>
+</p>
 <p data-testid="developers-access">For merchant accounts: payment keys and webhooks are made inside the merchant portal, and sandboxes in the developer sandbox.</p>
 <ul>
 <li>
-<a class="text-link" href="/developers/webhooks">Webhooks</a> <span class="muted">Published</span>
+<a class="lt-link" href="/developers/webhooks">Webhooks</a> <small>Published</small>
 </li>
 <li>
-<a class="text-link" href="/developers/sandbox">Sandbox</a> <span class="muted">Published</span>
+<a class="lt-link" href="/developers/sandbox">Sandbox</a> <small>Published</small>
 </li>
 <li>
-<a class="text-link" href="/developers/business-cards">Business cards API</a> <span class="muted">Published</span>
+<a class="lt-link" href="/developers/business-cards">Business cards API</a> <small>Published</small>
 </li>
 </ul>
 </section>
-<section class="pub-card" aria-labelledby="dev-broker">
+<section aria-labelledby="dev-broker">
 <h2 id="dev-broker">Broker</h2>
-<p class="muted">Apps that act for other people, with their consent.</p>
+<p>
+<small>Apps that act for other people, with their consent.</small>
+</p>
 <p data-testid="developers-access">A registered app acts for a person only after that person consents to the permissions it asks for.</p>
 <ul>
 <li>
-<a class="text-link" href="/developers/apps">Registered apps</a> <span class="muted">Published</span>
+<a class="lt-link" href="/developers/apps">Registered apps</a> <small>Published</small>
 </li>
 </ul>
 </section>
-<section class="pub-card" aria-labelledby="dev-practice">
+<section aria-labelledby="dev-practice">
 <h2 id="dev-practice">Best practice</h2>
-<p class="muted">Quick starts, libraries and tools.</p>
+<p>
+<small>Quick starts, libraries and tools.</small>
+</p>
 <p data-testid="developers-access">Open to everyone: reading these pages needs no account.</p>
 <ul>
 <li>
-<a class="text-link" href="/developers/quickstart">Quickstart</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/quickstart">Quickstart</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/sdks">Libraries</a> <span class="muted">Waits for DV-tools-01</span>
+<a class="lt-link" href="/developers/sdks">Libraries</a> <small>Waits for DV-tools-01</small>
 </li>
 <li>
-<a class="text-link" href="/developers/cli">Command line</a> <span class="muted">Waits for DV-tools-02</span>
+<a class="lt-link" href="/developers/cli">Command line</a> <small>Waits for DV-tools-02</small>
 </li>
 <li>
-<a class="text-link" href="/developers/mcp">Assistant tools</a> <span class="muted">Waits for DV-tools-02</span>
+<a class="lt-link" href="/developers/mcp">Assistant tools</a> <small>Waits for DV-tools-02</small>
 </li>
 <li>
-<a class="text-link" href="/developers/quant">Strategy API</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/quant">Strategy API</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/explorer">API explorer</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/explorer">API explorer</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/openapi">Machine-readable specs</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/openapi">Machine-readable specs</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/support">Developer support</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/support">Developer support</a> <small>Page in this portal</small>
 </li>
 <li>
-<a class="text-link" href="/developers/status">Service status</a> <span class="muted">Page in this portal</span>
+<a class="lt-link" href="/developers/status">Service status</a> <small>Page in this portal</small>
 </li>
 </ul>
 </section>
-<section class="pub-card" aria-labelledby="dev-merchant">
+</section>
+<section class="lt-region" data-region="related" aria-label="Related">
+<section aria-labelledby="dev-merchant">
 <h2 id="dev-merchant">Taking payments?</h2>
 <p>Merchant developer tools (keys, webhooks, sandbox) are inside the merchant portal.</p>
-<a class="text-link" href="/pay/developer">Open merchant developer tools →</a>
+<a class="lt-link" href="/pay/developer">Open merchant developer tools →</a>
 </section>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">

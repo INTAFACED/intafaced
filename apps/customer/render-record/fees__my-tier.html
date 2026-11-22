@@ -19,22 +19,36 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page" data-room="my-tier">
-<header class="pub-heading">
-<h1>My fee tier</h1>
-<p>The tier your orders are charged at, the trading volume counted toward the next one, and what does not count.</p>
+<div data-room="my-tier">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">My fee tier</h1>
+<p class="lt-description">The tier your orders are charged at, the trading volume counted toward the next one, and what does not count.</p>
+</div>
 </header>
-<p role="alert">Your fee tier did not load. <button type="button" class="text-link">Try again</button>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<p role="alert">Your fee tier did not load. <button type="button" class="lt-link">Try again</button>
 </p>
-<section class="pub-card" aria-labelledby="vip-apply-title" data-tier-page="vip-apply">
+<section aria-labelledby="vip-apply-title" data-tier-page="vip-apply">
 <h2 id="vip-apply-title">Apply for a VIP tier</h2>
 <p>Trading at VIP level somewhere else? Send proof, such as a statement from another venue, and our compliance team reviews it. Your tier stays as it is until they decide.</p>
-<p role="alert">Your applications did not load. <button type="button" class="text-link">Try again</button>
+<p role="alert">Your applications did not load. <button type="button" class="lt-link">Try again</button>
 </p>
 </section>
+</section>
+<section class="lt-region" data-region="related" aria-label="Related">
 <p>
-<a class="text-link" href="/fees">See every rate on the fee schedule →</a>
+<a class="lt-link" href="/fees">See every rate on the fee schedule →</a>
 </p>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">
