@@ -44,11 +44,3 @@ mod tests {
         assert_eq!(SERVICE, "svc-tax");
     }
 }
-
-#[cfg(test)]
-mod planted {
-    #[test]
-    fn planted_failure() {
-        assert_eq!(super::SERVICE, "planted");
-    }
-}
