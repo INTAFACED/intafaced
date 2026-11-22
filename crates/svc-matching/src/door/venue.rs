@@ -54,7 +54,7 @@ fn switch_of(route: &Route) -> Option<(Switch, &'static str, &'static str)> {
 }
 
 /// The answer's body: `accepted`, the market on a market's door, its mode, the two operators, and the refusal.
-fn switch_body(
+pub(super) fn switch_body(
     switch: Switch,
     market_id: &str,
     accepted: bool,

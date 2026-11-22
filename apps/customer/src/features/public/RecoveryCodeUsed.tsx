@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Button } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { sessionSchema } from '../session';
 import { recoveryCodeCopy } from './recovery-code-copy';
 
@@ -29,7 +29,7 @@ export function RecoveryCodeUsed({
 }) {
   const { t, languageFor } = recoveryCodeCopy.useCopy();
   return (
-    <section className="public-auth-recovery-used stack" role="status" aria-labelledby="recovery-used-title">
+    <section role="status" aria-labelledby="recovery-used-title">
       <Heading id="recovery-used-title" lang={languageFor('title')}>
         {t('title')}
       </Heading>
@@ -38,10 +38,10 @@ export function RecoveryCodeUsed({
         <strong>{t('left', { count: left })}</strong>
       </p>
       {left === 0 && <p lang={languageFor('none')}>{t('none')}</p>}
-      <Button variant={left === 0 ? 'secondary' : undefined} onClick={onContinue}>
+      <Button tone={left === 0 ? 'secondary' : 'primary'} onClick={onContinue}>
         {t('continue')}
       </Button>
-      <Button variant={left === 0 ? undefined : 'secondary'} onClick={onSecurity}>
+      <Button tone={left === 0 ? 'primary' : 'secondary'} onClick={onSecurity}>
         {t('security')}
       </Button>
     </section>

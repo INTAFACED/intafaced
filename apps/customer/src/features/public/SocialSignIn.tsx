@@ -2,9 +2,9 @@ import { useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure } from '../../shared/ui';
+import { Button, RefusalBox } from '@intafaced/ui/lit';
 import { socialSignInCopy } from './social-sign-in-copy';
-import './social-sign-in.css';
+import { Failed } from './Failed';
 
 // hand-declared-ok: svc-identity's auth.oauthStart answer has no browser-safe schema in packages/contracts yet
 const startedSchema = z.object({ provider: z.string(), authorizationUrl: z.string().url(), expiresAt: z.string() });
@@ -51,20 +51,17 @@ export function SocialSignIn({ onWallet }: { onWallet?: () => Promise<boolean> }
 
   const code = (WORDED as readonly string[]).includes(refusal?.code ?? '') ? (refusal!.code as (typeof WORDED)[number]) : undefined;
   return (
-    <div className="public-auth-social">
-      <p className="muted">{t('or')}</p>
+    <div>
+      <p>{t('or')}</p>
       {(['social', 'wallet'] as const).map((kind) => (
-        <Button key={kind} variant="secondary" disabled={busy !== null} onClick={() => void start(kind)}>
+        <Button key={kind} tone="secondary" block disabled={busy !== null} onClick={() => void start(kind)}>
           {busy === kind ? t('starting') : t(kind)}
         </Button>
       ))}
       {code ? (
-        <div className="pub-notice" role="alert">
-          <p>{t(code)}</p>
-          <small lang="zxx">{code}</small>
-        </div>
+        <RefusalBox refusal={{ variant: 'refused', title: t(code), body: '', reference: code }} role="alert" />
       ) : (
-        refusal && <Failure result={refusal} />
+        refusal && <Failed result={refusal} />
       )}
     </div>
   );

@@ -206,30 +206,42 @@ export function TextArea({ label, hint, error, id, className, rows = 5, ...rest 
 export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children'> & {
   label: string;
   hint?: string;
-  /** Each choice as its value and the words shown for it, in order. */
-  options: ReadonlyArray<readonly [string, string]>;
-};
+  error?: string;
+} & (
+    | {
+        /** Each choice as its value and the words shown for it, in order. */
+        options: ReadonlyArray<readonly [string, string]>;
+        children?: never;
+      }
+    | {
+        /** Choices that need groups or their own attributes (a language, a disabled prompt), as `<option>`s. */
+        children: React.ReactNode;
+        options?: never;
+      }
+  );
 
-/** A choice from a short list: the native select, drawn as the kit's field (label above, hint below). */
-export function Select({ label, hint, options, id, className, ...rest }: SelectProps) {
+/** A choice from a short list: the native select, drawn as the kit's field (label above, hint below, typed error). */
+export function Select({ label, hint, error, options, children, id, className, ...rest }: SelectProps) {
   const auto = React.useId();
   const selectId = id ?? auto;
-  const describedBy = [rest['aria-describedby'], hint ? `${selectId}-hint` : null].filter(Boolean).join(' ') || undefined;
   return (
     <div className={clsx('lit-field-control', className)}>
       <label htmlFor={selectId}>{label}</label>
-      <select {...rest} id={selectId} aria-describedby={describedBy}>
-        {options.map(([value, words]) => (
-          <option key={value} value={value}>
-            {words}
-          </option>
-        ))}
+      <select
+        {...rest}
+        id={selectId}
+        aria-invalid={error ? true : rest['aria-invalid']}
+        aria-describedby={describedByOf({ own: rest['aria-describedby'], id: selectId, hint, error })}
+      >
+        {options
+          ? options.map(([value, words]) => (
+              <option key={value} value={value}>
+                {words}
+              </option>
+            ))
+          : children}
       </select>
-      {hint && (
-        <span id={`${selectId}-hint`} data-part="hint">
-          {hint}
-        </span>
-      )}
+      <FieldNotes id={selectId} hint={hint} error={error} />
     </div>
   );
 }
@@ -344,18 +356,22 @@ export function Holdings({ items, label, className }: { items: readonly Holding[
 /**
  * A refusal: the blocker in words, the code small, one next step. Neutral, never accent-tinted. `children` holds a
  * next step that is a control rather than a link (Try again); other attributes (a test id, a live role) pass through.
+ * `bodyLang` is the language of the body when it is not the page's (a service's own words).
  */
 export function RefusalBox({
   refusal,
   className,
   children,
+  bodyLang,
   ...rest
-}: { refusal: Refusal } & Omit<React.HTMLAttributes<HTMLDivElement>, 'title'>) {
+}: { refusal: Refusal; bodyLang?: string } & Omit<React.HTMLAttributes<HTMLDivElement>, 'title'>) {
   return (
     <div role="status" {...rest} className={clsx('lit-refusal', className)} data-variant={refusal.variant}>
       <div>
         <div data-part="title">{refusal.title}</div>
-        <div data-part="body">{refusal.body}</div>
+        <div data-part="body" lang={bodyLang}>
+          {refusal.body}
+        </div>
         {refusal.reference && (
           <FinePrint data-part="reference" style={{ display: 'block' }}>
             {refusal.reference}

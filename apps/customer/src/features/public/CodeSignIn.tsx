@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Button, Failure, Field } from '../../shared/ui';
+import { Button, Field, RefusalBox } from '@intafaced/ui/lit';
 import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
 import { singleFlight } from '../../shared/password';
 import { useSession } from '../session';
@@ -11,7 +11,7 @@ import { codeSignInCode, loginCodeAcceptedSchema } from './code-sign-in';
 import { codeSignInCopy } from './code-sign-in-copy';
 import { DeviceApproval } from './DeviceApproval';
 import { RecoveryCodeUsed, signInAnswerSchema } from './RecoveryCodeUsed';
-import '../../shared/public-pages.css';
+import { Failed } from './Failed';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Pending = { flowId: string; name: string; resendAt: number };
@@ -178,14 +178,14 @@ export function CodeSignIn() {
     );
   }
   return (
-    <section className="public-auth-code" aria-labelledby={`${problemId}-title`}>
+    <section aria-labelledby={`${problemId}-title`}>
       <h2 id={`${problemId}-title`}>{pending ? t('checkEmail') : t('title')}</h2>
       {pending ? (
-        <form method="post" className="form-stack" onSubmit={confirm}>
-          <p role="status" className="muted">
+        <form method="post" onSubmit={confirm}>
+          <p role="status" className="lt-hint">
             {t('checkEmailBody', { name: pending.name })}
           </p>
-          {resent && <p className="muted">{t('resent')}</p>}
+          {resent && <p className="lt-hint">{t('resent')}</p>}
           <Field
             label={t('code')}
             name="loginCode"
@@ -199,15 +199,15 @@ export function CodeSignIn() {
           {needsTotp && (
             <Field label={t('totp')} name="loginTotp" autoComplete="off" hint={t('totpHint')} maxLength={64} required disabled={busy} />
           )}
-          <Button type="submit" disabled={busy}>
+          <Button tone="primary" type="submit" disabled={busy}>
             {busy ? t('checking') : t('signIn')}
           </Button>
-          <Button variant="secondary" disabled={busy || wait > 0} onClick={() => void resend()}>
+          <Button tone="secondary" disabled={busy || wait > 0} onClick={() => void resend()}>
             {t('resend')}
           </Button>
-          {wait > 0 && <small className="muted">{t('resendIn', { seconds: wait })}</small>}
+          {wait > 0 && <small className="lt-hint">{t('resendIn', { seconds: wait })}</small>}
           <Button
-            variant="ghost"
+            tone="quiet"
             disabled={busy}
             onClick={() => {
               setPending(null);
@@ -219,28 +219,35 @@ export function CodeSignIn() {
           </Button>
         </form>
       ) : (
-        <form method="post" className="form-stack" onSubmit={request}>
-          <p className="muted">{t('intro')}</p>
+        <form method="post" onSubmit={request}>
+          <p className="lt-hint">{t('intro')}</p>
           <Field label={t('identifier')} name="codeIdentifier" autoComplete="username" maxLength={320} required disabled={busy} />
-          <Button variant="secondary" type="submit" disabled={busy || restoring}>
+          <Button tone="secondary" type="submit" disabled={busy || restoring}>
             {busy ? t('sending') : t('send')}
           </Button>
         </form>
       )}
       {problem ? (
-        <div id={problemId} className="pub-notice" role="alert">
-          <p>{problem}</p>
+        <RefusalBox
+          id={problemId}
+          role="alert"
+          refusal={{
+            variant: 'refused',
+            title: problem,
+            body: '',
+            ...(refusal?.code && refusal.code !== 'codeMissing' ? { reference: refusal.code } : {}),
+          }}
+        >
           {code === 'auth.account_frozen' && (
-            <a className="text-link" href="/help">
+            <a className="lt-link" href="/help">
               {t('stateHelp')}
             </a>
           )}
-          {refusal?.code && refusal.code !== 'codeMissing' && <small lang="zxx">{refusal.code}</small>}
-        </div>
+        </RefusalBox>
       ) : (
         refusal && (
           <div id={problemId}>
-            <Failure result={refusal} />
+            <Failed result={refusal} />
           </div>
         )
       )}

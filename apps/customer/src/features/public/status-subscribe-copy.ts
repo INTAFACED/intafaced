@@ -5,6 +5,7 @@ export const statusSubscribeCopy = defineCopy('public-status-subscribe', {
   title: 'Get status updates',
   lead: 'We email you when a published incident or maintenance notice concerns what you chose. You confirm by a link first; nothing else is sent before that.',
   email: 'Email address',
+  scopeLegend: 'What to send updates about',
   allComponents: 'Everything, including notices that name no component',
   pickComponents: 'Only these components',
   subscribe: 'Subscribe',
