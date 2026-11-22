@@ -70,7 +70,7 @@ function progress(p: AlgoParent, filledQty: string): AlgoProgress {
     nextSliceIndex: p.nextSliceIndex,
     filledQty,
     totalQty: p.totalQty,
-    nextSliceAt: p.nextDueAt,
+    nextSliceAt: p.nextDueAt ?? null,
     scheduler: { running: true, reason: null },
   };
 }
