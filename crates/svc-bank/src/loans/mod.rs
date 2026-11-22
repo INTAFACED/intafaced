@@ -3,6 +3,7 @@
 //! its adapters and the guards on what a mark is good enough for; `apply` the application's calculator and fee line.
 //! `model` holds the rows, `ports` the outside world, `locks` the session locks and `service` the money paths.
 
+pub mod adjustments;
 pub mod apply;
 pub mod locks;
 pub mod model;
