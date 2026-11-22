@@ -470,7 +470,10 @@ test(`${J} #8 opens /money: staked, delegated and unstaking HYPE under Locked, e
   );
   expect(sum).toBe(toUnits(b.total));
   expect(toUnits(b.total)).toBe(toUnits(START) + toUnits(s.rewards.total));
-  await expect(row.locator('[data-cell="total"]')).toContainText(b.total.split('.')[0]);
+  // The row writes the venue's total as a person reads it, grouped (`1,001.5`): the same decimal once the grouping goes.
+  await expect
+    .poll(async () => sameDecimal((await row.locator('[data-cell="total"]').innerText()).replaceAll(',', '').trim(), b.total))
+    .toBe(true);
   expect(await ledgerView(state().who)).toEqual(state().ledger);
 });
 
