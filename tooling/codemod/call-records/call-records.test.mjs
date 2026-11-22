@@ -14,6 +14,7 @@ import {
   portInFlight,
   pruneImports,
   pruneReExports,
+  pruneBuilders,
   pruneSchemas,
   recordName,
   rewriteSite,
@@ -910,6 +911,59 @@ test('a schema const the moved call left unread goes, and the one it read after 
   assert.match(out, /const read = z\.string\(\);/);
   assert.match(out, /^const shared = z\.number\(\);$/m);
   assert.match(out, /const impure = makeSchema\(\);/);
+});
+
+test('a builder or guard object only the moved calls read goes; one still read, exported or not plain stays', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'call-records-builders-')), 'router.ts');
+  writeFileSync(
+    file,
+    [
+      "const guards = { module: 'core-ops' as const, plane: 'fiat' as const };",
+      "const kept = { module: 'core-ops' as const };",
+      'const built = { at: Date.now() };',
+      "export const shown = { module: 'x' };",
+      'export function make() {',
+      "  const reader = scopedProcedure('admin:read', guards);",
+      "  const writer = scopedProcedure('admin:write', kept);",
+      '  return router({ a: writer.query(() => built) });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  pruneBuilders(file);
+  const out = readFileSync(file, 'utf8');
+  assert.doesNotMatch(out, /const (reader|guards) =/);
+  assert.match(out, /const writer = scopedProcedure/);
+  assert.match(out, /const kept = /);
+  assert.match(out, /const built = /);
+  assert.match(out, /export const shown = /);
+});
+
+test('a schema built on an imported schema, and the literal list only it read, go once no one reads them', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'call-records-imported-')), 'screen.tsx');
+  writeFileSync(
+    file,
+    [
+      "import { z } from 'zod';",
+      "import { decimalSchema } from '../money';",
+      "import { makeThing } from '../thing';",
+      "const KINDS = ['a', 'b'] as const;",
+      "const KEPT = ['c'] as const;",
+      'const dead = z.object({ kind: z.enum(KINDS), cap: decimalSchema.nullable() });',
+      'const impure = makeThing().nullable();',
+      'export const use = () => KEPT[0];',
+      '',
+    ].join('\n'),
+  );
+  for (let was = ''; was !== readFileSync(file, 'utf8');) {
+    was = readFileSync(file, 'utf8');
+    pruneSchemas(file);
+    pruneBuilders(file);
+  }
+  const out = readFileSync(file, 'utf8');
+  assert.doesNotMatch(out, /const (dead|KINDS) =/);
+  assert.match(out, /const KEPT = /);
+  assert.match(out, /const impure = makeThing\(\)/);
 });
 
 test('a name a service file re-exports is followed to where it is declared, renamed or not, and a renamed declaration is named', () => {
