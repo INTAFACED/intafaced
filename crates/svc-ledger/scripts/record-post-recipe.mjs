@@ -8,8 +8,9 @@
 // - `tests/fixtures/input-parity.golden.json`: zod's verdict on each `postRecipe` and `postRecipeReply` input there,
 //   and on the record's own samples.
 // - `tests/fixtures/post-recipe-bank.golden.jsonl`: what the door answers each caller for bodies made to reach each
-//   check of svc-bank's recipes (`bankTransfer`, `payReceivedHold`, `payReceivedRelease`, `payReceivedReturn`): its
-//   refusal on the wire, or the post it hands the ledger. Same shape as `post-recipe.golden.jsonl`.
+//   check of svc-bank's recipes (`bankTransfer`, `payReceivedHold`, `payReceivedRelease`, `payReceivedReturn`,
+//   `earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`): its refusal on the wire, or the post it hands the
+//   ledger. Same shape as `post-recipe.golden.jsonl`.
 //
 // The door is `handleS2sPostRecipe` as the deleted service ran it up to `ledger.post` (read it in git history:
 // `git show 653924e16^:services/svc-ledger/src/s2s-http.ts`), over this package's own record, gate and recipes. Before
@@ -140,7 +141,16 @@ const FROZEN = `${CRATE}tests/fixtures/post-recipe.golden.jsonl`;
 
 // ── svc-bank's bodies ──────────────────────────────────────────────────────────────────────────────────────────────
 
-const BANK_RECIPES = ['bankTransfer', 'payReceivedHold', 'payReceivedRelease', 'payReceivedReturn'];
+const BANK_RECIPES = [
+  'bankTransfer',
+  'payReceivedHold',
+  'payReceivedRelease',
+  'payReceivedReturn',
+  'earnDeposit',
+  'earnWithdraw',
+  'earnPoolFund',
+  'earnInterest',
+];
 const CALLERS = [
   { kind: 'bound', service: 'svc-bank' },
   { kind: 'bound', service: 'svc-academy' },
@@ -167,6 +177,19 @@ const TRANSFER = {
 const HOLD = { holdId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', userId: PAYEE, assetId: 'USDC', amount: '12.5' };
 const OUTCOME = { ...HOLD, heldAmount: '12.5' };
 const RETURN = { ...OUTCOME, payerUserId: USER };
+const POOL = '99999999-9999-4999-8999-999999999999';
+const POSITION = { positionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', poolId: POOL, userId: USER, assetId: 'USDT', amount: '100' };
+const FUND = { poolId: POOL, fundingId: 'treasury-2026-11', assetId: 'USDT', amount: '50' };
+const INTEREST = {
+  poolId: POOL,
+  date: '2026-11-22',
+  assetId: 'USDT',
+  payouts: [
+    { userId: USER, amount: '0.013698630136986301' },
+    { userId: PAYEE, amount: '0.5' },
+  ],
+};
+const MAX = `${'9'.repeat(20)}.${'9'.repeat(18)}`;
 
 const AMOUNTS = [
   '0',
@@ -243,6 +266,63 @@ const FIELDS = {
 };
 FIELDS.payReceivedRelease = { ...FIELDS.payReceivedHold, heldAmount: [...AMOUNTS, '5'] };
 FIELDS.payReceivedReturn = { ...FIELDS.payReceivedRelease, payerUserId: [PAYEE, ...IDS] };
+const EARN_ASSETS = FIELDS.payReceivedHold.assetId;
+FIELDS.earnDeposit = { positionId: IDS, poolId: IDS, userId: IDS, assetId: EARN_ASSETS, amount: AMOUNTS };
+FIELDS.earnWithdraw = FIELDS.earnDeposit;
+FIELDS.earnPoolFund = {
+  poolId: IDS,
+  fundingId: ['x', 'a:b', 'a b', '', ' f', 'ü', 'f'.repeat(128), 'f'.repeat(129), 7, null],
+  assetId: EARN_ASSETS,
+  amount: AMOUNTS,
+  from: [{ ownerType: 'house', ownerId: 'fees:bank', assetId: 'USDT', kind: 'available' }],
+};
+const payout = (userId, amount) => ({ userId, amount });
+FIELDS.earnInterest = {
+  poolId: IDS,
+  date: [
+    '2026-02-31',
+    '2026-02-29',
+    '2028-02-29',
+    '2000-02-29',
+    '2100-02-29',
+    '0000-02-29',
+    '2026-04-31',
+    '2026-04-30',
+    '2026-12-31',
+    '2026-13-01',
+    '2026-00-10',
+    '2026-01-00',
+    '2026-01-32',
+    '2026-1-01',
+    '2026-01-01T00:00:00Z',
+    ' 2026-01-01',
+    '2026/01/01',
+    '',
+    20260101,
+    null,
+  ],
+  assetId: EARN_ASSETS,
+  payouts: [
+    [],
+    [payout(USER, '0')],
+    [payout(USER, '1'), payout(PAYEE, '0')],
+    [payout(USER, '1')],
+    [payout(USER, '1'), payout(USER, '2')],
+    [payout(USER, MAX)],
+    [payout(USER, MAX), payout(PAYEE, '0.000000000000000001')],
+    [payout(USER, MAX), payout(PAYEE, MAX)],
+    [payout(USER, '1'), payout(PAYEE, '9'.repeat(21))],
+    ...AMOUNTS.map((a) => [payout(USER, a)]),
+    ...IDS.map((id) => [payout(id, '1')]),
+    [{ userId: USER }],
+    [{ amount: '1' }],
+    [{ ...payout(USER, '1'), extra: 1 }],
+    [null],
+    'x',
+    {},
+    null,
+  ],
+};
 
 const BODIES = [
   // Every key space as svc-bank books it, in the kind that goes with it.
@@ -274,12 +354,25 @@ const BODIES = [
   { recipe: 'payReceivedHold', input: TRANSFER },
   { recipe: 'payReceivedHold', input: OUTCOME },
   { recipe: 'payReceivedRelease', input: RETURN },
+  // The earn recipes' own mix-ups: one's inputs under another's name.
+  { recipe: 'earnPoolFund', input: POSITION },
+  { recipe: 'earnInterest', input: FUND },
+  { recipe: 'earnDeposit', input: FUND },
+  { recipe: 'bankTransfer', input: POSITION },
+  // svc-bank's own shapes: a funding id at its widest, a position in another asset.
+  { recipe: 'earnPoolFund', input: { ...FUND, fundingId: `ops:${'x'.repeat(60)}` } },
+  { recipe: 'earnDeposit', input: { ...POSITION, assetId: 'BTC', amount: '0.000000000000000001' } },
+  { recipe: 'earnWithdraw', input: { ...POSITION, amount: MAX } },
 ];
 for (const [recipe, base] of [
   ['bankTransfer', TRANSFER],
   ['payReceivedHold', HOLD],
   ['payReceivedRelease', OUTCOME],
   ['payReceivedReturn', RETURN],
+  ['earnDeposit', POSITION],
+  ['earnWithdraw', POSITION],
+  ['earnPoolFund', FUND],
+  ['earnInterest', INTEREST],
 ]) {
   BODIES.push({ recipe, input: base });
   for (const [field, values] of Object.entries(FIELDS[recipe])) {
