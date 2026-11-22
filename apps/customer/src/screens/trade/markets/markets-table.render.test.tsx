@@ -67,7 +67,7 @@ describe('the markets table on the kit', () => {
     expect(html).toContain('data-testid="mkt-range__marker"');
     expect(html).toContain('data-testid="mkt-range__ends"');
     expect(html).toContain('aria-label="Trade BTC/USDT"');
-    expect(html).toMatch(/data-dir="down"[^>]*>.*▼/);
+    expect(html).toMatch(/data-dir="down"[^>]*><span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down"><\/span>/);
     // Nothing outside the kit's own classes.
     expect(html).not.toMatch(/class="[^"]*\bmkt-/);
   });

@@ -641,6 +641,19 @@
 .lt-arrow-out {
   --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 5h12v12h-2V8.4L6.4 19 5 17.6 15.6 7H7z'/%3E%3C/svg%3E");
 }
+/* Up and down, beside a change: a triangle that points the way the figure moved (never colour alone). */
+.lt-arrow-up {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 5l8 13H4z'/%3E%3C/svg%3E");
+  inline-size: 0.7em;
+  block-size: 0.7em;
+  vertical-align: 0;
+}
+.lt-arrow-down {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19L4 6h16z'/%3E%3C/svg%3E");
+  inline-size: 0.7em;
+  block-size: 0.7em;
+  vertical-align: 0;
+}
 .lt-arrow-go:dir(rtl),
 .lt-arrow-back:dir(rtl) {
   transform: scaleX(-1);

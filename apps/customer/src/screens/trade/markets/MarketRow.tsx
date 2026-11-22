@@ -107,11 +107,16 @@ function NameCell({ entry, cells }: { entry: Entry; cells: MarketCells }) {
 function ChangeCell({ ticker }: { ticker: TickerRow | undefined }) {
   const change = fmtPct(ticker?.changePct24h);
   const dir = direction(ticker?.changePct24h) ?? 'flat';
-  const glyph = ticker?.changePct24h == null ? '' : dir === 'up' ? '▲' : dir === 'down' ? '▼' : '';
+  // Drawn (the kit's lt-arrow-up / lt-arrow-down), never typed: Volt's faces carry no ▲ ▼ glyphs.
+  const arrow = ticker?.changePct24h == null || dir === 'flat' ? null : dir;
   return (
     <>
       <span data-slot="pct" data-direction={dir} data-dir={dir === 'flat' ? undefined : dir} dir="ltr" data-ltr="">
-        {glyph ? <span aria-hidden="true">{glyph} </span> : null}
+        {arrow ? (
+          <>
+            <span className={`lt-arrow lt-arrow-${arrow}`} aria-hidden="true" data-arrow={arrow} />{' '}
+          </>
+        ) : null}
         {change}
       </span>
       <Since ticker={ticker} />

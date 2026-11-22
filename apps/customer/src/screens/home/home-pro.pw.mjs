@@ -230,7 +230,10 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
   await expect(page.getByTestId('hp-markets').locator('.lt-spark .lt-chart-line').first()).toBeVisible();
   await expect(page.getByTestId('hp-markets').getByTestId('hp-link')).toHaveAttribute('href', '/trade');
   // The 24h-change column is signed; a star is on every row.
-  expect(await texts(page.getByTestId('hp-markets').locator('[data-slot="pct"]'))).toContain('▲ +2.75%');
+  expect(await texts(page.getByTestId('hp-markets').locator('[data-slot="pct"]'))).toContain('+2.75%');
+  await expect(
+    page.getByTestId('hp-markets').locator('[data-slot="pct"]').filter({ hasText: '+2.75%' }).first().locator('.lt-arrow-up'),
+  ).toHaveCount(1);
 
   // Order on the page: summary -> assets -> markets.
   const ys = await page.evaluate(() =>

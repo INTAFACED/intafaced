@@ -24,7 +24,8 @@ function signDirection(text: string | null | undefined): Direction {
   return first === '+' ? 'up' : first === '−' || first === '-' ? 'down' : 'flat';
 }
 
-const GLYPH: Record<Direction, string> = { up: '▲', down: '▼', flat: '' };
+// Up and down are drawn (the kit's lt-arrow-up / lt-arrow-down), never typed: Volt's faces carry no ▲ ▼ glyphs.
+const GLYPH: Record<Direction, boolean> = { up: true, down: true, flat: false };
 const dirOf = (d: Direction) => (d === 'flat' ? undefined : d);
 
 function Figure({
@@ -67,7 +68,11 @@ export function Pct({ value, arrow = false }: { value: string | null | undefined
   const dir = value == null ? 'flat' : signDirection(value);
   return (
     <span data-slot="pct" data-direction={dir} data-dir={dirOf(dir)} dir="ltr" data-ltr="">
-      {arrow && value != null && GLYPH[dir] ? <span aria-hidden="true">{GLYPH[dir]} </span> : null}
+      {arrow && value != null && GLYPH[dir] ? (
+        <>
+          <span className={`lt-arrow lt-arrow-${dir}`} aria-hidden="true" data-arrow={dir} />{' '}
+        </>
+      ) : null}
       {value ?? UNKNOWN}
     </span>
   );
@@ -79,7 +84,11 @@ export function ChangeText({ value, hidden, suffix }: { value: string | null | u
   return (
     <span data-slot="change-text" data-direction={dir}>
       <span dir="ltr" data-ltr="" data-dir={hidden ? undefined : dirOf(dir)}>
-        {!hidden && value != null && GLYPH[dir] ? <span aria-hidden="true">{GLYPH[dir]} </span> : null}
+        {!hidden && value != null && GLYPH[dir] ? (
+          <>
+            <span className={`lt-arrow lt-arrow-${dir}`} aria-hidden="true" data-arrow={dir} />{' '}
+          </>
+        ) : null}
         {hidden ? HIDDEN_MASK : (value ?? UNKNOWN)}
       </span>
       {suffix ? <span className="lt-hint"> {suffix}</span> : null}

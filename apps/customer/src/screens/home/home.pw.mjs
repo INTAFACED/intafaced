@@ -219,13 +219,22 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
 
   // Top movers: up to 6, biggest move first, one per asset.
   expect(await texts(page.getByTestId('home-pill'))).toEqual([
-    'DOGE▼ −4.94%',
-    'BTC▲ +2.75%',
-    'XRP▲ +2.15%',
-    'IFC▼ −2.14%',
-    'SOL▲ +1.75%',
-    'ETH▲ +1.59%',
+    'DOGE −4.94%',
+    'BTC +2.75%',
+    'XRP +2.15%',
+    'IFC −2.14%',
+    'SOL +1.75%',
+    'ETH +1.59%',
   ]);
+  // Each move's arrow is drawn (Volt's faces have no ▲ ▼), pointing the way the price moved, and has a size.
+  expect(
+    await page
+      .getByTestId('home-pill')
+      .locator('[data-arrow]')
+      .evaluateAll((nodes) => nodes.map((n) => n.dataset.arrow)),
+  ).toEqual(['down', 'up', 'up', 'down', 'up', 'up']);
+  expect((await page.getByTestId('home-pill').first().locator('.lt-arrow').boundingBox()).width).toBeGreaterThan(0);
+  await expect(page.getByTestId('home-change').locator('.lt-arrow-up')).toHaveCount(1);
 
   const box = async (selector) => await page.locator(selector).first().boundingBox();
 
