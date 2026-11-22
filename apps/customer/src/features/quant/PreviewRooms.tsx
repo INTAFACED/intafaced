@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
+import { ChevronDown, ChevronRight, Circle, CircleDot } from 'lucide-react';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { DeskTemplate } from '@intafaced/ui/lit/templates';
 import { preservePaperHref } from '../more';
@@ -217,7 +218,12 @@ export function EditorRoom({ paper }: { paper: boolean }) {
                       aria-pressed={state.breakpoints.includes(line)}
                       onClick={() => save({ ...state, breakpoints: toggle(state.breakpoints, line) })}
                     >
-                      {state.breakpoints.includes(line) ? '●' : '○'}
+                      {/* Drawn, not typed: the kit's faces have no ● or ○, so a glyph would fall back to a system font. */}
+                      {state.breakpoints.includes(line) ? (
+                        <CircleDot size={16} aria-hidden="true" />
+                      ) : (
+                        <Circle size={16} aria-hidden="true" />
+                      )}
                     </Button>
                     {opens && (
                       <Button
@@ -226,7 +232,11 @@ export function EditorRoom({ paper }: { paper: boolean }) {
                         aria-expanded={!state.folded.includes(line)}
                         onClick={() => save({ ...state, folded: toggle(state.folded, line) })}
                       >
-                        {state.folded.includes(line) ? '▸' : '▾'}
+                        {state.folded.includes(line) ? (
+                          <ChevronRight size={16} aria-hidden="true" />
+                        ) : (
+                          <ChevronDown size={16} aria-hidden="true" />
+                        )}
                       </Button>
                     )}
                     <code>{text}</code>
