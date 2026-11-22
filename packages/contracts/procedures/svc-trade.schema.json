@@ -6160,6 +6160,114 @@
         }
       ]
     },
+    "trade.convert.list": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "convert.list",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "quoteId": {
+                  "type": "string"
+                },
+                "inAsset": {
+                  "type": "string"
+                },
+                "outAsset": {
+                  "type": "string"
+                },
+                "inAmount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "outAmount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "lifecycle": {
+                  "type": "string",
+                  "enum": ["quoted", "accepted", "settled", "refused", "expired", "unknown"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "acceptedAt": {
+                  "type": ["string", "null"]
+                },
+                "settledAt": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [
+                "quoteId",
+                "inAsset",
+                "outAsset",
+                "inAmount",
+                "outAmount",
+                "lifecycle",
+                "createdAt",
+                "expiresAt",
+                "acceptedAt",
+                "settledAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["rows", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "trade.convert.pairs": {
       "service": "svc-trade",
       "module": "trade",

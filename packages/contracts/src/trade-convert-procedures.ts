@@ -86,3 +86,38 @@ export const TRADE_CONVERT_ROUTE = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+export const lifecycle = z.enum(['quoted', 'accepted', 'settled', 'refused', 'expired', 'unknown']);
+
+export const historyRow = z.object({
+  quoteId: z.string(),
+  inAsset: z.string(),
+  outAsset: z.string(),
+  inAmount: decimal,
+  outAmount: decimal,
+  lifecycle,
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  acceptedAt: z.string().nullable(),
+  settledAt: z.string().nullable(),
+});
+
+export const TRADE_CONVERT_LIST = defineProcedure({
+  ...base,
+  name: 'trade.convert.list',
+  kind: 'query',
+  path: 'convert.list',
+  access: { caller: 'scope', scope: 'trade:read', module: 'trade' },
+  refusals: {},
+  input: z.object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    limit: z.number().int().optional(),
+    cursor: z.string().optional(),
+  }),
+  output: z.object({ rows: z.array(historyRow), nextCursor: z.string().nullable() }),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

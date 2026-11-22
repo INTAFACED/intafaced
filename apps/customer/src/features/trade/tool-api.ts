@@ -9,7 +9,6 @@ import {
   otcStatusSchema,
   otcQuoteSchema,
   positionPreviewSchema,
-  convertHistorySchema,
   copyActionSchema,
   adlDisclosureSchema,
 } from '@intafaced/contracts/trade-tools';
@@ -21,6 +20,7 @@ import {
   TRADE_CONVERT_LIMIT_PLACE,
   TRADE_CONVERT_LIMIT_CANCEL,
   TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_LIST,
 } from '@intafaced/contracts/trade-convert-procedures';
 import { TRADE_ALGO_PROGRESS } from '@intafaced/contracts/trade-algo-procedures';
 import { TRADE_OTC_MAKERS_LIST, TRADE_OTC_ACCEPT, TRADE_OTC_SETTLE } from '@intafaced/contracts/trade-otc-procedures';
@@ -48,7 +48,7 @@ export function createToolApi(api: ApiClient) {
     convertQuote: (input: ConvertQuoteInput) => api.query('trade', 'convert.quote', input, convertQuoteSchema),
     /** The service refuses without a window (92 days at most) and a limit, so the caller always names both. */
     convertList: (input: { from: string; to: string; limit: number; cursor?: string }, signal?: AbortSignal) =>
-      api.query('trade', 'convert.list', input, convertHistorySchema, { signal }),
+      api.call(TRADE_CONVERT_LIST, input, { signal }),
     convertAccept: (quoteId: string, clientConvertId: string) =>
       api.mutate('trade', 'convert.accept', { quoteId, clientConvertId }, convertTradeSchema),
     algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoSchema, { signal }),

@@ -1007,6 +1007,7 @@ import {
   TRADE_CONVERT_LIMIT_PLACE,
   TRADE_CONVERT_LIMIT_CANCEL,
   TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_LIST,
 } from './trade-convert-procedures.js';
 import { COPY_MY_COPY_FEES } from './trade-copy-procedures.js';
 import {
@@ -2001,6 +2002,7 @@ const part4: readonly ProcedureRecord[] = [
   TRADE_CONVERT_LIMIT_PLACE,
   TRADE_CONVERT_LIMIT_CANCEL,
   TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_LIST,
   COPY_MY_COPY_FEES,
   TRADE_COPY_MY_LEAD_APPLICATION,
   TRADE_COPY_LEAD_ELIGIBILITY,
