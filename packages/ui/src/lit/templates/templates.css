@@ -1535,11 +1535,16 @@ button.lt-tab {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-inline-size: 0;
 }
 
+/* The control fills its field and gives way when the row it sits in is narrower than its own width, so a row of fields
+   on a phone, or at twice the text size, never runs past the screen. */
 .lt-field input:not([type='checkbox'], [type='radio']),
 .lt-field select,
 .lt-field textarea {
+  inline-size: 100%;
+  min-inline-size: 0;
   min-block-size: var(--lit-control-h);
   padding-inline: var(--lit-gap-item);
   border: 1px solid var(--lit-line-strong);
@@ -1595,6 +1600,17 @@ button.lt-tab {
   margin: 0;
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
+}
+
+/* Secondary words at the size around them: the colour only. */
+.lt-muted {
+  color: var(--lit-text-2);
+}
+
+/* Figures that line up in a column: tabular digits, breaking anywhere rather than spilling out of their box. */
+.lt-num {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 /* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a
