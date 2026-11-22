@@ -91,7 +91,8 @@ test('planted: a pull request whose own ci.yml skips the tests its change needs 
 test('one red shard of many fails; docs only needs no test job', () => {
   const shards = Array.from({ length: 16 }, (_, i) => `Tests (${i + 1}/16)`);
   const jobs = green(shards).map((j) => (j.name === 'Tests (7/16)' ? { ...j, conclusion: 'failure' } : j));
-  assert.equal(judgeCiJobs({ run: run(1), jobs, files: ['.github/workflows/x.yml'] }).ok, false);
+  // ci.yml defines the test jobs, so a change to it still runs every shard (tooling-reach.json `tests`).
+  assert.equal(judgeCiJobs({ run: run(1), jobs, files: ['.github/workflows/ci.yml'] }).ok, false);
   assert.equal(judgeCiJobs({ run: run(1), jobs: green([]), files: ['docs/a.md'] }).ok, true);
 });
 

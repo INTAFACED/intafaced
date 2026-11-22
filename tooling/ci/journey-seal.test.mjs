@@ -2744,13 +2744,14 @@ test("main's own sealPull planted: main's newest run outside the head's history 
     ...(mainIssues ? { mainIssues: async () => issues } : {}),
   });
   const seal = (o) => sealPull({ repo: REPO, number: 7, sha: HEAD, io: io(o) });
-  const ok = await seal({ files: ['tooling/factory/x.mjs'] });
+  // A path no rule places outside tooling/ (tooling no journeys run reaches runs none: quietTooling): its bounded set runs.
+  const ok = await seal({ files: ['somewhere/new.txt'] });
   assert.equal(ok.ok, true, ok.lines.join('\n'));
   assert.match(ok.lines.join('\n'), /J-wallet-05#3 is red on this head and inherited: it is main's: main's newest finished run 60/);
-  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], issues: [] })).ok, false, 'untracked on main: the PR is held');
-  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], newest: { ...clean, lastPass: {} } })).ok, false, 'green on main: held');
-  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], mainIssues: false })).ok, false, 'no issue reader: as before');
-  const tests = await seal({ files: ['tooling/factory/x.mjs', 'apps/customer/tests/real-app/J-bank-13.pw.mjs'] });
+  assert.equal((await seal({ files: ['somewhere/new.txt'], issues: [] })).ok, false, 'untracked on main: the PR is held');
+  assert.equal((await seal({ files: ['somewhere/new.txt'], newest: { ...clean, lastPass: {} } })).ok, false, 'green on main: held');
+  assert.equal((await seal({ files: ['somewhere/new.txt'], mainIssues: false })).ok, false, 'no issue reader: as before');
+  const tests = await seal({ files: ['somewhere/new.txt', 'apps/customer/tests/real-app/J-bank-13.pw.mjs'] });
   assert.equal(tests.ok, false, 'a PR that changes a test file: the step is its own');
   const shared = await seal({ files: ['tooling/scripts/local-test-world.mjs'] });
   assert.equal(shared.ok, false, 'shared setup: every red counts');
@@ -2758,7 +2759,7 @@ test("main's own sealPull planted: main's newest run outside the head's history 
     repo: REPO,
     number: 7,
     sha: HEAD,
-    io: { ...io({ files: ['tooling/factory/x.mjs'] }), mainIssues: async () => Promise.reject(new Error('HTTP 502')) },
+    io: { ...io({ files: ['somewhere/new.txt'] }), mainIssues: async () => Promise.reject(new Error('HTTP 502')) },
   });
   assert.equal(broken.ok, false, 'unreadable issues fail closed');
 });

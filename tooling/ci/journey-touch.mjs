@@ -121,6 +121,8 @@ export const JOURNEY_CI = [
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
   'tooling/ci/journey-reach-map.mjs',
   'tooling/ci/journey-reach-map.json',
+  // What the journeys run reaches among tooling no rule places (quietTooling).
+  'tooling/ci/tooling-reach.json',
   'tooling/ci/post-merge-trust.mjs',
   'tooling/ci/review-marker.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
@@ -407,7 +409,7 @@ const narrowHelper = (p) => {
 };
 
 /** Text with a path split over `'a', 'b'` arguments or a line of comment joined up, so each spelling reads as one path. */
-const joinedPaths = (t) =>
+export const joinedPaths = (t) =>
   String(t)
     .replace(/['"`]\s*,\s*['"`]/g, '/')
     .replace(/\/[ \t]*\r?\n[ \t]*(?:\/\/|\*)[ \t]*/g, '/');
@@ -481,7 +483,41 @@ function kindOf(p) {
   // A Rust service's crate is that service: the map reads it as the service's own path (CRATE).
   const crate = CRATE.exec(p);
   if (crate) return { kind: 'full', why: PRODUCT, product: true, as: `services/${crate[1]}/${crate[2]}` };
-  return { kind: 'full', why: 'a path no rule places, so the safe default' };
+  return { kind: 'full', why: UNPLACED };
+}
+
+/** Why a path no rule above places is full: the safe default. */
+export const UNPLACED = 'a path no rule places, so the safe default';
+
+/** What tooling-reach.mjs found the journeys run reaching, beside this script (the default branch's, in the journeys
+ *  workflow and the seal). */
+export const TOOLING_REACH_FILE = 'tooling/ci/tooling-reach.json';
+let toolingReach;
+/** The tooling entries the journeys run reaches (tooling-reach.json `journeys`), or null when the file can't be read. */
+export function journeysReach() {
+  if (toolingReach !== undefined) return toolingReach;
+  try {
+    const j = JSON.parse(readFileSync(new URL('./tooling-reach.json', import.meta.url), 'utf8'));
+    toolingReach = Array.isArray(j?.journeys) && j.journeys.every((e) => typeof e === 'string' && e) ? j.journeys : null;
+  } catch {
+    toolingReach = null;
+  }
+  return toolingReach;
+}
+
+/**
+ * A tooling file no rule places that no journeys run reaches (tooling-reach.json, from the repository: nothing the
+ * journeys workflow, its actions, the stack, the seed, tooling/scripts, a journey file or any app, service, package or
+ * crate file names reads it). A change made only of these and of paths that run no journeys runs no journeys
+ * (journeyTouch); beside any other path it stays the safe default, so a pull request that touches product code, the
+ * stack or a journey keeps its pick. A path the file can't speak for (unreadable, or with a character no tracked path
+ * holds) is never quiet. (Failure it prevents: #9552, tooling/design/RECIPE.md and a tooling script, ran 64 journey files
+ * on 18 shards, about 23 minutes a push, on 22 Nov 2026.)
+ */
+export function quietTooling(path, reach = journeysReach()) {
+  const p = String(path);
+  if (!reach || !/^tooling\/[A-Za-z0-9_.@/-]+$/.test(p) || kindOf(p).why !== UNPLACED) return false;
+  return !reach.some((e) => (e.endsWith('/') || e.endsWith('*') ? p.startsWith(e.replace(/[*]$/, '')) : e === p));
 }
 
 /**
@@ -497,6 +533,10 @@ function kindOf(p) {
  * `importers` those journeys); otherwise it is full like any other.
  */
 export function journeyTouch(paths, atHead = () => true, reach = null, named = null) {
+  // Only tooling no journeys run reaches, beside paths that run none: no journeys (quietTooling).
+  const all = [...new Set(paths ?? [])];
+  if (all.length && all.some((p) => quietTooling(p)) && all.every((p) => quietTooling(p) || pathKind(p).kind === 'none'))
+    return { mode: 'none', full: [], files: [] };
   const full = [];
   const product = [];
   const stack = [];
