@@ -192,6 +192,7 @@ import {
   type AdvertiserTermsAcceptance,
   type AdvertiserTermsState,
 } from './advertiser-terms.js';
+import { MAX_EVIDENCE_PER_CALL } from '@intafaced/contracts/p2p-call-schemas';
 
 /**
  * svc-p2p — PEER-TO-PEER TRADING WITH ESCROW (§6.2).
@@ -940,7 +941,6 @@ export interface EvidenceEntry {
 
 /** Caps, enforced here AND by the column's CHECK constraints. */
 export const MAX_EVIDENCE_ENTRIES = 200;
-export const MAX_EVIDENCE_PER_CALL = 10;
 export const MAX_EVIDENCE_ITEM_BYTES = 8_192;
 
 export interface OfferRecord {

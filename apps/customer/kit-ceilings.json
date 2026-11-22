@@ -209,7 +209,7 @@
     "apps/customer/src/features/public/StatusSubscription.tsx": 3,
     "apps/customer/src/features/public/VipApply.tsx": 4,
     "apps/customer/src/features/quant/BacktestRoom.tsx": 2,
-    "apps/customer/src/features/quant/PreviewRooms.tsx": 7,
+    "apps/customer/src/features/quant/PreviewRooms.tsx": 3,
     "apps/customer/src/features/quant/ReportShare.tsx": 2,
     "apps/customer/src/features/quant/RunHistory.tsx": 1,
     "apps/customer/src/features/quant/StrategyNotify.tsx": 2,

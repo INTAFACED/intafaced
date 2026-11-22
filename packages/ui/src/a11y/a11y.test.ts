@@ -237,12 +237,13 @@ describe('focus not obscured', () => {
     expect(OBSCURED_BOTTOM_VAR).toBe('--a11y-obscured-bottom');
   });
 
-  it("counts a floating bottom bar from the screen's foot, so the gap under the phone dock is covered too", () => {
-    // The phone dock: 58 px tall, floating 0.875rem (14 px) above the foot of an 844 px screen.
-    expect(obscuredInsets([{ edge: 'bottom', height: 58, offset: 14 }]).bottom).toBe(72);
-    // A bar flush with the foot covers its own height; a bar not drawn (the dock on a computer) covers nothing.
-    expect(obscuredInsets([{ edge: 'bottom', height: 58, offset: 0 }]).bottom).toBe(58);
-    expect(obscuredInsets([{ edge: 'bottom', height: 0, offset: 900 }]).bottom).toBe(0);
+  it('counts the gap under a bottom bar that floats above the screen edge', () => {
+    // Volt's phone dock: 70px tall, 14px above the bottom of an 844px screen, so it hides the last 84px.
+    expect(obscuredInsets([{ edge: 'bottom', height: 70, offset: 14 }]).bottom).toBe(84);
+    expect(obscuredInsets([{ edge: 'bottom', height: 70, offset: 0 }]).bottom).toBe(70);
+    expect(obscuredInsets([{ edge: 'top', height: 56, offset: 0 }]).top).toBe(56);
+    // A bar not drawn (the dock on a computer) covers nothing.
+    expect(obscuredInsets([{ edge: 'bottom', height: 0, offset: 844 }]).bottom).toBe(0);
     // no layout (a bar whose position is unknown) covers its own height, never NaN
     expect(obscuredInsets([{ edge: 'bottom', height: 61, offset: Number.NaN }]).bottom).toBe(61);
   });

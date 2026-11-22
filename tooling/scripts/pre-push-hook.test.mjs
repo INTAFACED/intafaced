@@ -509,3 +509,137 @@ test('INTAFACED_LOCAL_JOBS bounds rust:check, which still refuses a failing Rust
     p.done();
   }
 });
+
+// A push that brings nothing of its own skips every check (22 Nov: moving seven volt/* layer branches to main took over 30
+// minutes of checks on main's own commits). Each case plants a red Doctrine gate, so a check that runs refuses the push.
+// Main gains a commit on the remote after the branch was pushed, as it does between two syncs of a layer branch.
+function mainGains(p, files) {
+  git(p.work, 'checkout', '-q', 'main');
+  git(p.work, 'merge', '-q', '--ff-only', 'origin/main');
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(p.work, f)), { recursive: true });
+    writeFileSync(join(p.work, f), body);
+  }
+  git(p.work, 'add', '-A');
+  git(p.work, 'commit', '-q', '-m', 'main moves on');
+  git(p.work, 'push', '-q', '--no-verify', 'origin', 'main');
+  git(p.work, 'fetch', '-q', 'origin');
+  git(p.work, 'checkout', '-q', 'feat');
+}
+const SKIPPED = /this push adds nothing beyond origin\/main and what the remote already holds; the checks are skipped/;
+
+test('a branch moved to a commit on main skips every check, even a red one', () => {
+  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  try {
+    git(p.work, 'push', '-q', '--no-verify', 'origin', 'origin/main:refs/heads/volt/layer');
+    mainGains(p, { 'main.txt': 'main\n' });
+    git(p.work, 'checkout', '-q', '--detach', 'origin/main');
+    const started = Date.now();
+    const r = p.push('volt/layer');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, SKIPPED);
+    assert.doesNotMatch(r.out, /gates step/);
+    assert.ok(Date.now() - started < 5_000, `the push took ${Date.now() - started} ms`);
+  } finally {
+    p.done();
+  }
+});
+
+test('a clean merge of main into the pushed branch skips every check, even a red one', () => {
+  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  try {
+    git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/feat');
+    mainGains(p, { 'main.txt': 'main\n' });
+    git(p.work, 'merge', '-q', '--no-edit', 'origin/main');
+    const r = p.push();
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, SKIPPED);
+    assert.doesNotMatch(r.out, /gates step/);
+  } finally {
+    p.done();
+  }
+});
+
+test('a merge with a conflict resolution, or an edit folded into a clean merge, runs every check (planted red gate)', () => {
+  const p = plant({ prettier: 'exit 0', base: gatesStep(1), change: { 'README.md': 'branch\n' } });
+  try {
+    git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/feat');
+    mainGains(p, { 'README.md': 'main\n' });
+    spawnSync('git', ['merge', '-q', '--no-edit', 'origin/main'], { cwd: p.work });
+    writeFileSync(join(p.work, 'README.md'), 'branch and main\n');
+    git(p.work, 'commit', '-q', '-am', 'merge main, resolved');
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.doesNotMatch(r.out, SKIPPED);
+    assert.match(r.out, /gates step: --before-push/);
+    assert.match(r.out, /a Doctrine gate failed — push refused/);
+  } finally {
+    p.done();
+  }
+  // A clean merge with an edit amended into it is not what git's merge gives: it runs the checks too.
+  const q = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  try {
+    git(q.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/feat');
+    mainGains(q, { 'main.txt': 'main\n' });
+    git(q.work, 'merge', '-q', '--no-edit', 'origin/main');
+    writeFileSync(join(q.work, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(q.work, 'commit', '-q', '-a', '--amend', '--no-edit');
+    const e = q.push();
+    assert.equal(e.code, 1, e.out);
+    assert.doesNotMatch(e.out, SKIPPED);
+    assert.match(e.out, /a Doctrine gate failed — push refused/);
+  } finally {
+    q.done();
+  }
+});
+
+test('a new commit on top of a clean merge of main runs every check (planted red gate)', () => {
+  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  try {
+    git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/feat');
+    mainGains(p, { 'main.txt': 'main\n' });
+    git(p.work, 'merge', '-q', '--no-edit', 'origin/main');
+    writeFileSync(join(p.work, 'src', 'b.ts'), 'export const b = 1;\n');
+    git(p.work, 'add', '-A');
+    git(p.work, 'commit', '-q', '-m', 'new work');
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.doesNotMatch(r.out, SKIPPED);
+    assert.match(r.out, /a Doctrine gate failed — push refused/);
+  } finally {
+    p.done();
+  }
+});
+
+test('a lint rise of the branch’s own, then a clean merge of main, still fails the lint ratchet (planted rise)', () => {
+  const p = plant({ prettier: 'exit 0', oxlint: true, base: { ...RATCHET, ...copy([]) } });
+  try {
+    git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/feat');
+    writeFileSync(join(p.work, COPY), copy(["paidOwed: 'Owed, not collected yet',"])[COPY]);
+    git(p.work, 'commit', '-q', '-am', 'a promise of later');
+    mainGains(p, { 'main.txt': 'main\n' });
+    git(p.work, 'merge', '-q', '--no-edit', 'origin/main');
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.doesNotMatch(r.out, SKIPPED);
+    assert.match(r.out, /garden\/no-promise-copy rose from 0 to 1 in the touched files/);
+    assert.match(r.out, /lint-ratchet failed — push refused/);
+  } finally {
+    p.done();
+  }
+});
+
+test('a push to main is refused though it brings nothing new (main moved back to an older commit of its own)', () => {
+  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  try {
+    mainGains(p, { 'main.txt': 'main\n' });
+    const r = (({ status, stdout, stderr }) => ({ code: status, out: `${stdout}${stderr}` }))(
+      spawnSync('git', ['push', '--force', 'origin', 'origin/main~1:refs/heads/main'], { cwd: p.work, encoding: 'utf8', env: BUILDER }),
+    );
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Direct push to main refused/);
+    assert.doesNotMatch(r.out, SKIPPED);
+  } finally {
+    p.done();
+  }
+});
