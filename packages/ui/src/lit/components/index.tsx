@@ -234,8 +234,11 @@ export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'o
       }
   );
 
-const optionOf = (o: SelectOption): readonly [string, string] =>
-  typeof o === 'string' ? [o, o] : 'value' in o ? [o.value, o.label] : (o as readonly [string, string]);
+function optionOf(o: SelectOption): readonly [string, string] {
+  if (typeof o === 'string') return [o, o];
+  if ('value' in o) return [o.value, o.label];
+  return o;
+}
 
 /** A choice from a short list: the native select, drawn as the kit's field (label above, hint below, typed error). */
 export function Select({ label, hint, error, options, children, onChange, id, className, ...rest }: SelectProps) {
