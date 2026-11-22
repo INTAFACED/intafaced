@@ -9,7 +9,8 @@
  */
 
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 export const AFFILIATE_PRODUCER_PATH = '/internal/affiliates/accrue';
 

@@ -1,17 +1,17 @@
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import {
-  merchantTierSummarySchema,
-  type FounderControlAuditListInput,
-  type FounderLimitRequestCloseResult,
-  type MerchantControlProfile,
-  type MerchantLimitIncreaseResult,
-  type MerchantLimitOpen,
-  type MerchantLimitWithdrawResult,
-  type MerchantPricingHistory,
-  type MerchantTierList,
-  type PayCap,
+import type {
+  FounderControlAuditListInput,
+  FounderLimitRequestCloseResult,
+  MerchantControlProfile,
+  MerchantLimitIncreaseResult,
+  MerchantLimitOpen,
+  MerchantLimitWithdrawResult,
+  MerchantPricingHistory,
+  MerchantTierList,
+  PayCap,
 } from '@intafaced/contracts';
+import { merchantTierSummarySchema } from '@intafaced/contracts/merchant-control';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { roleOnMerchant as lookupRoleOnMerchant, type ControlAccessPorts } from './access.js';
 import { listControlAudit, readMerchantAudit, type MerchantAuditEvent } from './audit.js';

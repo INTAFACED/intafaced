@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 
 export type WithdrawalApprovalErrorCode =
   | 'withdrawal_approval.policy_unset'

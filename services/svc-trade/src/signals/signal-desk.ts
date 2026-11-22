@@ -21,7 +21,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { SIGNAL_ALERT_ORDER_FIELDS, signalAlertOrderSchema } from '@intafaced/contracts';
+import { SIGNAL_ALERT_ORDER_FIELDS, signalAlertOrderSchema } from '@intafaced/contracts/trade-signal-alerts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { PlaceUserOrderIntent } from '@intafaced/venue-contracts';
 import type { Principal } from '@intafaced/auth';

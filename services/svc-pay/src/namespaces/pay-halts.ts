@@ -1,4 +1,5 @@
-import { router, TRPCError, payHaltStatusInputSchema, payHaltStatusSchema } from '@intafaced/contracts';
+import { payHaltStatusInputSchema, payHaltStatusSchema } from '@intafaced/contracts/pay-halts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PAY_HALTS_HISTORY,
   PAY_HALTS_OPERATOR_STATUS,

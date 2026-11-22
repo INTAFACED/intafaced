@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { BankServices } from '../bank-service.js';
 import { DD_COLLECTION_STATUSES, DD_FAILURE_FEE_UNSET } from './direct-debits.js';
 

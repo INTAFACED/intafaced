@@ -4,6 +4,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, load, resolveRelative, walk } from './ast.mjs';
+import { checkedUse, withCheck } from './guard-check.mjs';
 
 const LEAF = new Set(['query', 'mutation']);
 
@@ -260,7 +261,6 @@ const ACCESS_OPTS = new Set(['module', 'plane', 'tier', 'person', 'ownSession', 
  */
 const KEPT_GUARDS = new Map([
   ['coachRunProcedure', 'checks agents:execute with its own refusal codes before the person-only check; no record field says that'],
-  ['opsProcedure', "adds svc-campaigns' ops second-factor check (requireOpsMfa); no record field says that"],
   [
     'jobProcedure',
     "is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
@@ -330,6 +330,13 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
       return guardOf(bound.p, bound.node, problems, depth + 1, bound.env);
     }
     if (b.kind === 'var' && b.declarator.init) return guardOf(p, b.declarator.init, problems, depth + 1);
+    // A shared guard of the service's own file that checks more than its scope (`export const opsProcedure = ….use(…)`).
+    if (b.kind === 'import') {
+      const file = resolveRelative(p.file, b.from);
+      const q = file ? load(file) : undefined;
+      const init = q ? exported(q, b.imported) : undefined;
+      if (init && checkedUse(q, init)) return guardOf(q, init, problems, depth + 1);
+    }
     // contracts' protectedProcedure is signedInProcedure() with no module: the same `authed` check and nothing more.
     if (node.name === 'protectedProcedure' && b.kind === 'import' && /^@intafaced\/contracts(\/trpc)?$/.test(b.from ?? ''))
       return { text: "{ caller: 'signedIn' }", base: node };
@@ -341,6 +348,12 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
     return undefined;
   }
   if (node.callee.type === 'MemberExpression') {
+    // A scope guard and one check of the service's own (`.use(({ ctx, next }) => { check(ctx); return next(); })`): the
+    // record names the check (guard-check.mjs).
+    const used = checkedUse(p, node);
+    const base = used ? guardOf(p, used.base, [], depth + 1, env) : undefined;
+    const access = base ? withCheck(base, used.check) : undefined;
+    if (access) return access;
     problems.push(`guard ${calleeName(node)}() chained: not one a record names`);
     return undefined;
   }

@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   OPS_RESOLVE_NOTE_REQUIRED,
   opsAlertAcceptInputSchema,

@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import Fastify from 'fastify';
 import type { Principal } from '@intafaced/auth';
-import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts/edge';
 import { createOutcomeMarket } from './outcomes/outcome-market.js';
 import { memoryOutcomeCatalogue, registerOutcomesRest } from './outcomes-rest.js';
 import { fakeOrder } from './private-rest.js';

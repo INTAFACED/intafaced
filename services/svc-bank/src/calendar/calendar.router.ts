@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { BankServices } from '../bank-service.js';
 import { CALENDAR_ITEM_STATUSES, CALENDAR_MAX_DAYS, CALENDAR_SOURCES } from './calendar.js';
 

@@ -4,7 +4,7 @@
  * Consume GET /internal/sessions/:id — no second store. Never invent live.
  */
 
-import { sessionOwnershipSchema } from '@intafaced/contracts';
+import { sessionOwnershipSchema } from '@intafaced/contracts/identity';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 
 export class SessionRevokedError extends Error {

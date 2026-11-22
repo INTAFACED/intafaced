@@ -46,7 +46,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createDecipheriv } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -178,10 +178,10 @@ const INIT = `(() => {
 
 // Scrollbars hidden too: an overlay scrollbar fades on its own clock, so a shot could catch it half drawn.
 const FREEZE_CSS = `*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; caret-color: transparent !important; } * { scrollbar-width: none !important; }`;
-const HIDE_TEXT_CSS = `* { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; } ::placeholder { color: transparent !important; }`;
+export const HIDE_TEXT_CSS = `* { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; } ::placeholder { color: transparent !important; }`;
 
 /** Text boxes, money figures, controls and font probes, measured in the page. Runs in the browser. */
-function measure({ maxText }) {
+export function measure({ maxText }) {
   // Any computed colour (rgb, color(srgb ...), oklch, a color-mix result) as sRGB 0-255 and alpha 0-1, read back from
   // a canvas so the browser does the conversion.
   const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
@@ -198,7 +198,13 @@ function measure({ maxText }) {
     seenColours.set(s, out);
     return out;
   };
+  // Drawn: the browser's own answer (checkVisibility) of whether it paints the element. It is false with no box (display:
+  // none on it or an ancestor, the hidden attribute), under visibility: hidden, at opacity 0 on it or an ancestor, and in
+  // skipped content: a closed <details> or hidden="until-found", whose boxes getBoundingClientRect still lays out where
+  // they would be if open (#9596's false red). Text off-screen, under a bar or scrolled away is still drawn and judged,
+  // and so is content-visibility: auto, which only defers painting what is off-screen.
   const visible = (el) => {
+    if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return false;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
     const c = getComputedStyle(el);
@@ -331,13 +337,13 @@ async function settle(page) {
  * A generated id (React's useId on the client `_r_…_` or server `_R_…_`, base-ui, Radix) changes between pages and
  * renders, so a control named by it would be listed once per id. Passed into the page as a source string.
  */
-const GENERATED_ID = String.raw`[:«»]|^(?:base-ui|radix)-|^_r_\w*_$`;
+export const GENERATED_ID = String.raw`[:«»]|^(?:base-ui|radix)-|^_r_\w*_$`;
 
 /**
  * Tab through the first stops; a focused box a `data-obscures` bar paints over fails (inside the bar's band and under
  * it in the stacking order). Runs in the browser after each Tab.
  */
-function focusState(generatedId) {
+export function focusState(generatedId) {
   const el = document.activeElement;
   if (!el || el === document.body) return null;
   const r = el.getBoundingClientRect();
@@ -403,6 +409,21 @@ function fontProbes(texts) {
   return picked.slice(0, 40);
 }
 
+/** Text drawn in a fallback instead of its first web font, over a few probes of measure()'s `m.texts`. */
+export async function fontFindings(page, m) {
+  const probes = fontProbes(m.texts);
+  const fonts = await renderedFonts(page, probes);
+  const fontFails = [];
+  for (const i of probes) {
+    const t = m.texts[i];
+    // Nothing drawn is not drawn in the wrong font.
+    if (!(fonts.get(String(i)) ?? []).length) continue;
+    const why = policy.judgeFont({ fontFamily: t.fontFamily, declared: m.declared, platform: fonts.get(String(i)) ?? [] });
+    if (why) fontFails.push(`${t.name} "${t.text}": ${why}`);
+  }
+  return [...new Set(fontFails)].slice(0, 15);
+}
+
 /** The TEST account's answer at the gate's frozen time (fixture-answer.mjs). */
 const fixtureAnswer = (href, method, body, { signedIn }) => answerAt(href, method, body, { signedIn, now: FROZEN.getTime() });
 
@@ -435,6 +456,34 @@ async function prepare(page, target = {}) {
       return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) });
     });
   await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: REFUSAL.code }));
+}
+
+/**
+ * The contrast findings for `texts` (measure()'s), each judged on its worst background pixel in `blank`, the shot taken
+ * with all text hidden (HIDE_TEXT_CSS); `offset` is where a scoped shot starts on the page.
+ */
+export function contrastFindings(texts, blank, offset = { x: 0, y: 0 }) {
+  const contrast = [];
+  const worstOf = (t) => {
+    let worst = { ratio: Infinity };
+    for (const r of t.rects) {
+      const px = crop(blank, { ...r, x: r.x - offset.x, y: r.y - offset.y });
+      if (!px.length) continue;
+      const w = policy.worstContrast(t.colour, px);
+      if (w.ratio < worst.ratio) worst = w;
+    }
+    return worst;
+  };
+  for (const t of texts) {
+    const w = worstOf(t);
+    const min = policy.minimumFor(t);
+    const [r0] = t.rects;
+    if (w.ratio < min)
+      contrast.push(
+        `${t.name} "${t.text}" ${(Math.floor(w.ratio * 100) / 100).toFixed(2)} < ${min} (worst pixel under it rgb(${w.at.join(',')}), box at ${Math.round(r0.x)},${Math.round(r0.y)})`,
+      );
+  }
+  return contrast;
 }
 
 async function check(context, origin, target, vpName, opts) {
@@ -499,26 +548,7 @@ async function check(context, origin, target, vpName, opts) {
       const s = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
       offset = { x: b.x + s.x, y: b.y + s.y };
     }
-    const contrast = [];
-    const worstOf = (t) => {
-      let worst = { ratio: Infinity };
-      for (const r of t.rects) {
-        const px = crop(blank, { ...r, x: r.x - offset.x, y: r.y - offset.y });
-        if (!px.length) continue;
-        const w = policy.worstContrast(t.colour, px);
-        if (w.ratio < worst.ratio) worst = w;
-      }
-      return worst;
-    };
-    for (const t of m.texts) {
-      const w = worstOf(t);
-      const min = policy.minimumFor(t);
-      const [r0] = t.rects;
-      if (w.ratio < min)
-        contrast.push(
-          `${t.name} "${t.text}" ${(Math.floor(w.ratio * 100) / 100).toFixed(2)} < ${min} (worst pixel under it rgb(${w.at.join(',')}), box at ${Math.round(r0.x)},${Math.round(r0.y)})`,
-        );
-    }
+    const contrast = contrastFindings(m.texts, blank, offset);
     add('contrast', contrast.slice(0, 30).concat(contrast.length > 30 ? [`… ${contrast.length - 30} more`] : []));
     add(
       'money',
@@ -527,18 +557,7 @@ async function check(context, origin, target, vpName, opts) {
     add('gpu', gpu.judgeGpu(await page.evaluate(gpu.measureGpu), viewport.height));
     add('targets', m.small.slice(0, 20));
 
-    // rendered font
-    const probes = fontProbes(m.texts);
-    const fonts = await renderedFonts(page, probes);
-    const fontFails = [];
-    for (const i of probes) {
-      const t = m.texts[i];
-      // Nothing drawn (text inside a closed <details>, say) is not drawn in the wrong font.
-      if (!(fonts.get(String(i)) ?? []).length) continue;
-      const why = policy.judgeFont({ fontFamily: t.fontFamily, declared: m.declared, platform: fonts.get(String(i)) ?? [] });
-      if (why) fontFails.push(`${t.name} "${t.text}": ${why}`);
-    }
-    add('font', [...new Set(fontFails)].slice(0, 15));
+    add('font', await fontFindings(page, m));
 
     // focus not obscured
     const focus = [];
@@ -659,7 +678,7 @@ async function pseudoCopy(page) {
  * ellipsis or a line clamp), it spills sideways out of its box over its neighbours, or a box around it that cannot
  * scroll there (a tab list, a clipped row) hides part of it.
  */
-const CLIPPED_COPY = (generatedId) => {
+export const CLIPPED_COPY = (generatedId) => {
   // A generated id (GENERATED_ID): name the box by its tag and class instead.
   const stable = (id) => id && !new RegExp(generatedId, 'i').test(id);
   const name = (el) => {
@@ -678,8 +697,10 @@ const CLIPPED_COPY = (generatedId) => {
     while (el.parentElement && ['inline', 'contents'].includes(getComputedStyle(el).display)) el = el.parentElement;
     const c = getComputedStyle(el);
     const r = el.getBoundingClientRect();
-    // Hidden, or visually hidden for screen readers (a 1 px clipped box): nobody sees it cut.
-    if (c.visibility === 'hidden' || r.width <= 1 || r.height <= 1 || c.clipPath.startsWith('inset(50%')) continue;
+    // Hidden, never drawn (a closed <details>, display: none; as measure()'s visible), or visually hidden for screen
+    // readers (a 1 px clipped box): nobody sees it cut.
+    const drawn = el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+    if (!drawn || c.visibility === 'hidden' || r.width <= 1 || r.height <= 1 || c.clipPath.startsWith('inset(50%')) continue;
     const clamp = c.webkitLineClamp && c.webkitLineClamp !== 'none';
     const wide = (cuts(c.overflowX) || c.textOverflow === 'ellipsis') && el.scrollWidth > el.clientWidth + 1;
     const tall = (cuts(c.overflowY) || clamp) && el.scrollHeight > el.clientHeight + 1;
@@ -1719,7 +1740,10 @@ async function selfTest() {
   console.log(`✓ look-gate --self-test OK (${n} checks)`);
 }
 
-const opts = args(process.argv.slice(2));
-if (opts.selfTest) await selfTest();
-else if (opts.pr) await prMain(opts);
-else await main(opts);
+// Run as a script only: look-gate.test.mjs imports its in-page checks.
+if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
+  const opts = args(process.argv.slice(2));
+  if (opts.selfTest) await selfTest();
+  else if (opts.pr) await prMain(opts);
+  else await main(opts);
+}

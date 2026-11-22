@@ -19,7 +19,7 @@
  * wallet signs. Every other route takes a key under the same rules as the screen.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts';
+import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts/edge';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
 import { VenueWireError, decodeVenueWire, encodeVenueWire, type VenueSignature } from '@intafaced/venue-contracts';
 import { privateRead, privateWrite } from '../../route-inventory.js';
