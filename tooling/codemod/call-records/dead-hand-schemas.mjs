@@ -8,7 +8,7 @@
 //   node tooling/codemod/call-records/dead-hand-schemas.mjs [--write]
 // Prints the entries it deletes (or would, without --write), one `<file>:<line> <name>` a line.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { keyOf, literal, load, walk } from './ast.mjs';
 
