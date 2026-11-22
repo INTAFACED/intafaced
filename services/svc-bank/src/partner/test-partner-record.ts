@@ -127,7 +127,7 @@ export async function answerTestPartnerRecord(
   if (account.subAccount !== null && account.subAccount !== undefined) return [400, { error: 'the partner keeps no sub-accounts' }];
   if (path === '/onboarding') return [200, { label: 'TEST', value: await onboardingLines(partner, account.owner) }];
   if (path === '/account-details') {
-    const currency = (body as { currency?: unknown }).currency;
+    const currency = typeof body === 'object' && body !== null && 'currency' in body ? body.currency : undefined;
     if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency))
       return [400, { error: 'currency (three capital letters) is required' }];
     return [200, { label: 'TEST', value: accountDetailsLines(partner, account.owner, currency) }];
