@@ -2,7 +2,7 @@
 // The route-to-template registry stays in step with the app's route table (the Volt kit).
 import { describe, expect, it, vi } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
-import { PORTAL_ROOMS } from '../features/pay/portal/routes';
+import { PORTAL_ROOMS, parsePortalRoute } from '../features/pay/portal/routes';
 import { rooms } from './navigation';
 import { renderPart } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
@@ -62,11 +62,18 @@ describe('room templates registry', () => {
     } finally {
       vi.useRealTimers();
     }
-    // A portal page has no route of its own in the room table to open; one marked migrated is drawn here first.
+    // A portal page has no route of its own in the room table to open: one marked migrated is drawn above through a /pay
+    // address that opens it, marked migrated on the same template and the same file.
     const portal = Object.entries(PORTAL_TEMPLATES).filter(([, entry]) => entry.migrated);
-    expect(
-      portal.map(([room]) => room),
-      'a migrated merchant portal page: open its /pay address above and check it draws its template',
-    ).toEqual([]);
+    const marked = Object.entries(ROUTE_TEMPLATES).filter(
+      (pair): pair is [string, RoomTemplate & { migrated: { file: string } }] => isRoom(pair[1]) && Boolean(pair[1].migrated),
+    );
+    for (const [room, entry] of portal) {
+      const addresses = marked.filter(([path]) => parsePortalRoute(path)?.room === room);
+      expect(
+        addresses.map(([, row]) => [row.template, row.migrated.file]),
+        `the migrated merchant portal page ${room}: a /pay address that opens it is marked migrated above, so it is drawn there`,
+      ).toContainEqual([entry.template, entry.migrated!.file]);
+    }
   });
 });
