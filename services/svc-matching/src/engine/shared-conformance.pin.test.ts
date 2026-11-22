@@ -16,6 +16,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '../../../..');
 const ADR = join(ROOT, 'docs/adr/2026-09-18-matching-shared-conformance.md');
 const CONTRACT_SCHEMAS = join(ROOT, 'packages/exchange-contract/src/schemas.ts');
+/** An order's side and time in force: contracts owns them, exchange-contract re-exports them. */
+const ORDER_ENUMS = join(ROOT, 'packages/contracts/src/order-enums.ts');
 
 function stripComments(text: string): string {
   return text
@@ -27,7 +29,7 @@ function stripComments(text: string): string {
 
 function enumValues(source: string, exportName: string): string[] {
   const match = source.match(new RegExp(`export const ${exportName} = z\\.enum\\(\\[([^\\]]+)\\]\\)`));
-  expect(match, `${exportName} in exchange-contract`).toBeTruthy();
+  expect(match, `${exportName} declared as a z.enum`).toBeTruthy();
   const inner = match?.[1] ?? '';
   return [...inner.matchAll(/'([^']+)'/g)].flatMap((m) => (m[1] ? [m[1]] : []));
 }
@@ -58,8 +60,8 @@ describe('D-S-06 shared matching conformance pins', () => {
     expect(text).not.toMatch(/self-Accepted/);
   });
 
-  it('TIF enum is one list: exchange-contract === KNOWN_TIF', () => {
-    const schemas = readFileSync(CONTRACT_SCHEMAS, 'utf8');
+  it('TIF enum is one list: the order enums === KNOWN_TIF', () => {
+    const schemas = readFileSync(ORDER_ENUMS, 'utf8');
     const coreTif = readFileSync(join(HERE, 'core-tif.ts'), 'utf8');
     const known = coreTif.match(/export const KNOWN_TIF = \[([^\]]+)\] as const satisfies readonly TimeInForce\[\]/);
     expect(known, 'KNOWN_TIF in core-tif.ts').toBeTruthy();
@@ -71,7 +73,7 @@ describe('D-S-06 shared matching conformance pins', () => {
   });
 
   it('sides are buy/sell only', () => {
-    expect(enumValues(readFileSync(CONTRACT_SCHEMAS, 'utf8'), 'orderSideSchema')).toEqual(['buy', 'sell']);
+    expect(enumValues(readFileSync(ORDER_ENUMS, 'utf8'), 'orderSideSchema')).toEqual(['buy', 'sell']);
   });
 
   it('public order types include take_profit; engine native types do not', () => {
