@@ -174,7 +174,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/pay/contacts/pools/:poolId': { template: 'settings', migrated: { file: 'features/pay/personal/rooms/SettingsRooms.tsx' } },
   '/p2p': { template: 'overview' },
   '/p2p/access': { template: 'flow' },
-  '/p2p/methods': { template: 'settings' },
+  '/p2p/methods': { template: 'settings', migrated: { file: 'features/pay/personal/MethodsRoom.tsx' } },
   '/uc/ad': { template: 'flow' },
   '/uc/ad/create': { template: 'flow' },
   '/uc/ad/update': { template: 'flow' },

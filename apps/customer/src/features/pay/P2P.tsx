@@ -31,7 +31,7 @@ import { OrderReview } from './personal/OrderReview';
 import { OwnCompletion } from './personal/CompletionRates';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
-import { PaymentMethods } from './personal/PaymentMethods';
+import { MethodsRoom } from './personal/MethodsRoom';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -56,6 +56,9 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   const counterparty = params.get('userId') ?? params.get('userid') ?? (current === '/checkuser' ? params.get('id') : null);
   const inspectionReturn = p2pReturn(params.get('returnTo'));
   const inspectionMine = current === '/checkuser' && inspectionReturn.href.split(/[?#]/)[0] === '/uc/ad';
+  // Payment methods is on its settings template, which draws its own title and the P2P rooms.
+  if (showMethods && !tradeId && current !== '/chat' && current !== '/checkuser' && !showOrders && !publish && !showAccess)
+    return <MethodsRoom pay={pay} userId={userId} />;
   return (
     <Page
       eyebrow={payCopy.t('personalPay')}
@@ -172,8 +175,6 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           <OwnCompletion pay={pay} userId={userId} />
           <TradingProgramme pay={pay} userId={userId} />
         </div>
-      ) : showMethods ? (
-        <PaymentMethods pay={pay} userId={userId} />
       ) : showMine ? (
         <P2POffers pay={pay} userId={userId} mine />
       ) : (

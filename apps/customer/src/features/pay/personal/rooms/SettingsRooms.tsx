@@ -7,7 +7,6 @@ import { decodedSegment, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
 
 type T = ReturnType<typeof roomsCopy.useCopy>['t'];
-type Key = Parameters<T>[0];
 
 /** The personal Pay rooms on the settings template: Contacts, a group, a pool, Send limits, Fees and Pay preferences. */
 export const SETTINGS_ROOM_IDS = new Set(['contacts', 'group', 'pool', 'limits', 'fees', 'preferences']);
@@ -168,15 +167,27 @@ function GroupRoom({ kind, id, slice }: { kind: 'group' | 'pool'; id: string | n
   );
 }
 
-function FactsRoom({ title, line, facts, reason, slice }: { title: Key; line: Key; facts: readonly Key[]; reason: Key; slice: string }) {
+function FactsRoom({
+  title,
+  line,
+  facts,
+  reason,
+  slice,
+}: {
+  title: string;
+  line: string;
+  facts: readonly string[];
+  reason: string;
+  slice: string;
+}) {
   const { t } = roomsCopy.useCopy();
   return (
     <Room
-      title={t(title)}
-      line={t(line)}
+      title={title}
+      line={line}
       slice={slice}
-      reason={t(reason)}
-      parts={[{ id: 'details', title: t('detailsTitle'), body: <NotSet t={t} facts={facts.map((fact) => t(fact))} /> }]}
+      reason={reason}
+      parts={[{ id: 'details', title: t('detailsTitle'), body: <NotSet t={t} facts={facts} /> }]}
     />
   );
 }
@@ -232,6 +243,7 @@ function SignIn() {
 
 /** One of the settings rooms, picked by the matched address. */
 export function SettingsRoom({ match }: { match: PersonalRoomMatch }) {
+  const { t } = roomsCopy.useCopy();
   const { session } = useSession();
   if (!session) return <SignIn />;
   const { room, params } = match;
@@ -246,16 +258,22 @@ export function SettingsRoom({ match }: { match: PersonalRoomMatch }) {
     case 'limits':
       return (
         <FactsRoom
-          title="limitsTitle"
-          line="limitsLine"
-          facts={['limitsTier', 'limitsPerPayment', 'limitsPerDay', 'limitsUsedToday']}
-          reason="limitsReason"
+          title={t('limitsTitle')}
+          line={t('limitsLine')}
+          facts={[t('limitsTier'), t('limitsPerPayment'), t('limitsPerDay'), t('limitsUsedToday')]}
+          reason={t('limitsReason')}
           slice={slice}
         />
       );
     case 'fees':
       return (
-        <FactsRoom title="feesTitle" line="feesLine" facts={['feesSend', 'feesRequest', 'feesGlobal']} reason="feesReason" slice={slice} />
+        <FactsRoom
+          title={t('feesTitle')}
+          line={t('feesLine')}
+          facts={[t('feesSend'), t('feesRequest'), t('feesGlobal')]}
+          reason={t('feesReason')}
+          slice={slice}
+        />
       );
     case 'preferences':
       return <PreferencesRoom slice={slice} />;
