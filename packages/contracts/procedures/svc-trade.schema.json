@@ -637,6 +637,1636 @@
         }
       ]
     },
+    "trade.algo.cancel": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "algo.cancel",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "algoId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["algoId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["twap", "vwap", "pov", "chase"]
+          },
+          "totalQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "sliceIntervalMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "limitPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "cancelled", "completed", "halted"]
+          },
+          "slicesPlanned": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "nextSliceIndex": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "childrenEmitted": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "missesRecorded": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "haltReason": {
+            "type": ["string", "null"]
+          },
+          "stopReason": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "cancel_incomplete",
+                      "market_closed",
+                      "mark_unavailable",
+                      "price_band",
+                      "no_liquidity",
+                      "no_volume",
+                      "insufficient_balance",
+                      "account_unavailable",
+                      "order_refused",
+                      "chase_max_distance",
+                      "chase_expired",
+                      "chase_child_unaccounted",
+                      "liquidation",
+                      "delisting",
+                      "position_limit",
+                      "contract_change",
+                      "copied_lead_stop",
+                      "unrecorded"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": ["code", "label"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "participationBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "povBasis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["traded_volume", "opposite_liquidity"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "nextDueAt": {
+            "type": "string"
+          },
+          "projectedEndsAt": {
+            "type": "string"
+          },
+          "scheduleStretchReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["user_pause", "tick_outage"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "randomSeed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggerPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggeredAt": {
+            "type": ["string", "null"]
+          },
+          "awaitingTrigger": {
+            "type": "boolean"
+          },
+          "chaseMaxDistanceBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseStartPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chasePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseReprices": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "symbol",
+          "side",
+          "kind",
+          "totalQty",
+          "durationMs",
+          "sliceIntervalMs",
+          "limitPrice",
+          "status",
+          "slicesPlanned",
+          "nextSliceIndex",
+          "childrenEmitted",
+          "missesRecorded",
+          "haltReason",
+          "stopReason",
+          "participationBps",
+          "povBasis",
+          "createdAt",
+          "startedAt",
+          "nextDueAt",
+          "projectedEndsAt",
+          "scheduleStretchReason",
+          "randomSeed",
+          "triggerPrice",
+          "triggeredAt",
+          "awaitingTrigger",
+          "chaseMaxDistanceBps",
+          "chaseStartPrice",
+          "chasePrice",
+          "chaseReprices"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "algoId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.algo.createTwap": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "algo.createTwap",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.algo_disabled": "BAD_REQUEST",
+        "trade.algo_mark_missing": "BAD_REQUEST",
+        "trade.bots_verification_insufficient": "FORBIDDEN",
+        "trade.bots_verification_level_not_set": "FORBIDDEN",
+        "trade.spot_disabled": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 3
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "totalQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 86400000
+          },
+          "sliceIntervalMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 86400000
+          },
+          "limitPrice": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "clientAlgoId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "subAccountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["twap", "vwap", "pov", "chase"]
+          },
+          "participationBps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "chaseDistanceBps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "povBasis": {
+            "type": "string",
+            "enum": ["traded_volume", "opposite_liquidity"]
+          },
+          "randomSeed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "triggerPrice": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["symbol", "side", "totalQty", "durationMs", "sliceIntervalMs", "clientAlgoId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["twap", "vwap", "pov", "chase"]
+          },
+          "totalQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "sliceIntervalMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "limitPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "cancelled", "completed", "halted"]
+          },
+          "slicesPlanned": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "nextSliceIndex": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "childrenEmitted": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "missesRecorded": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "haltReason": {
+            "type": ["string", "null"]
+          },
+          "stopReason": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "cancel_incomplete",
+                      "market_closed",
+                      "mark_unavailable",
+                      "price_band",
+                      "no_liquidity",
+                      "no_volume",
+                      "insufficient_balance",
+                      "account_unavailable",
+                      "order_refused",
+                      "chase_max_distance",
+                      "chase_expired",
+                      "chase_child_unaccounted",
+                      "liquidation",
+                      "delisting",
+                      "position_limit",
+                      "contract_change",
+                      "copied_lead_stop",
+                      "unrecorded"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": ["code", "label"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "participationBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "povBasis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["traded_volume", "opposite_liquidity"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "nextDueAt": {
+            "type": "string"
+          },
+          "projectedEndsAt": {
+            "type": "string"
+          },
+          "scheduleStretchReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["user_pause", "tick_outage"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "randomSeed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggerPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggeredAt": {
+            "type": ["string", "null"]
+          },
+          "awaitingTrigger": {
+            "type": "boolean"
+          },
+          "chaseMaxDistanceBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseStartPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chasePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseReprices": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "symbol",
+          "side",
+          "kind",
+          "totalQty",
+          "durationMs",
+          "sliceIntervalMs",
+          "limitPrice",
+          "status",
+          "slicesPlanned",
+          "nextSliceIndex",
+          "childrenEmitted",
+          "missesRecorded",
+          "haltReason",
+          "stopReason",
+          "participationBps",
+          "povBasis",
+          "createdAt",
+          "startedAt",
+          "nextDueAt",
+          "projectedEndsAt",
+          "scheduleStretchReason",
+          "randomSeed",
+          "triggerPrice",
+          "triggeredAt",
+          "awaitingTrigger",
+          "chaseMaxDistanceBps",
+          "chaseStartPrice",
+          "chasePrice",
+          "chaseReprices"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "symbol": "USDC",
+            "side": "buy",
+            "totalQty": "1",
+            "durationMs": 1000,
+            "sliceIntervalMs": 1000,
+            "clientAlgoId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.algo.get": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "algo.get",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "algoId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["algoId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["twap", "vwap", "pov", "chase"]
+          },
+          "totalQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "sliceIntervalMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "limitPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "cancelled", "completed", "halted"]
+          },
+          "slicesPlanned": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "nextSliceIndex": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "childrenEmitted": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "missesRecorded": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "haltReason": {
+            "type": ["string", "null"]
+          },
+          "stopReason": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "cancel_incomplete",
+                      "market_closed",
+                      "mark_unavailable",
+                      "price_band",
+                      "no_liquidity",
+                      "no_volume",
+                      "insufficient_balance",
+                      "account_unavailable",
+                      "order_refused",
+                      "chase_max_distance",
+                      "chase_expired",
+                      "chase_child_unaccounted",
+                      "liquidation",
+                      "delisting",
+                      "position_limit",
+                      "contract_change",
+                      "copied_lead_stop",
+                      "unrecorded"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": ["code", "label"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "participationBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "povBasis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["traded_volume", "opposite_liquidity"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "nextDueAt": {
+            "type": "string"
+          },
+          "projectedEndsAt": {
+            "type": "string"
+          },
+          "scheduleStretchReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["user_pause", "tick_outage"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "randomSeed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggerPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggeredAt": {
+            "type": ["string", "null"]
+          },
+          "awaitingTrigger": {
+            "type": "boolean"
+          },
+          "chaseMaxDistanceBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseStartPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chasePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseReprices": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "orderId": {
+                  "type": "string"
+                },
+                "sliceIndex": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "time": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "basisQty": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "price": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["orderId", "sliceIndex", "time", "qty", "basisQty", "price"],
+              "additionalProperties": false
+            }
+          },
+          "misses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sliceIndex": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "time": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string"
+                }
+              },
+              "required": ["sliceIndex", "time", "code"],
+              "additionalProperties": false
+            }
+          },
+          "filledQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "plannedSliceQtys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            }
+          },
+          "nextSliceAt": {
+            "type": ["string", "null"]
+          },
+          "scheduler": {
+            "type": "object",
+            "properties": {
+              "running": {
+                "type": ["boolean", "null"]
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["jobs_disabled", "heartbeat_unknown", "heartbeat_stale", "jobs_interval_unset"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["running", "reason"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "symbol",
+          "side",
+          "kind",
+          "totalQty",
+          "durationMs",
+          "sliceIntervalMs",
+          "limitPrice",
+          "status",
+          "slicesPlanned",
+          "nextSliceIndex",
+          "childrenEmitted",
+          "missesRecorded",
+          "haltReason",
+          "stopReason",
+          "participationBps",
+          "povBasis",
+          "createdAt",
+          "startedAt",
+          "nextDueAt",
+          "projectedEndsAt",
+          "scheduleStretchReason",
+          "randomSeed",
+          "triggerPrice",
+          "triggeredAt",
+          "awaitingTrigger",
+          "chaseMaxDistanceBps",
+          "chaseStartPrice",
+          "chasePrice",
+          "chaseReprices",
+          "children",
+          "misses",
+          "filledQty",
+          "plannedSliceQtys",
+          "nextSliceAt",
+          "scheduler"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "algoId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.algo.list": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "algo.list",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {
+        "trade.algo_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "market": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "totalQty": {
+                  "type": "string"
+                },
+                "filledQty": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["active", "paused", "cancelled", "completed", "halted"]
+                },
+                "created": {
+                  "type": "string"
+                },
+                "nextSliceAt": {
+                  "type": ["string", "null"]
+                },
+                "scheduler": {
+                  "type": "object",
+                  "properties": {
+                    "running": {
+                      "type": ["boolean", "null"]
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["jobs_disabled", "heartbeat_unknown", "heartbeat_stale", "jobs_interval_unset"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["running", "reason"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["id", "kind", "market", "side", "totalQty", "filledQty", "status", "created", "nextSliceAt", "scheduler"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["rows", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.algo.pause": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "algo.pause",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "algoId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["algoId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["twap", "vwap", "pov", "chase"]
+          },
+          "totalQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "sliceIntervalMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "limitPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "cancelled", "completed", "halted"]
+          },
+          "slicesPlanned": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "nextSliceIndex": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "childrenEmitted": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "missesRecorded": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "haltReason": {
+            "type": ["string", "null"]
+          },
+          "stopReason": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "cancel_incomplete",
+                      "market_closed",
+                      "mark_unavailable",
+                      "price_band",
+                      "no_liquidity",
+                      "no_volume",
+                      "insufficient_balance",
+                      "account_unavailable",
+                      "order_refused",
+                      "chase_max_distance",
+                      "chase_expired",
+                      "chase_child_unaccounted",
+                      "liquidation",
+                      "delisting",
+                      "position_limit",
+                      "contract_change",
+                      "copied_lead_stop",
+                      "unrecorded"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": ["code", "label"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "participationBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "povBasis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["traded_volume", "opposite_liquidity"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "nextDueAt": {
+            "type": "string"
+          },
+          "projectedEndsAt": {
+            "type": "string"
+          },
+          "scheduleStretchReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["user_pause", "tick_outage"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "randomSeed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggerPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggeredAt": {
+            "type": ["string", "null"]
+          },
+          "awaitingTrigger": {
+            "type": "boolean"
+          },
+          "chaseMaxDistanceBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseStartPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chasePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseReprices": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "symbol",
+          "side",
+          "kind",
+          "totalQty",
+          "durationMs",
+          "sliceIntervalMs",
+          "limitPrice",
+          "status",
+          "slicesPlanned",
+          "nextSliceIndex",
+          "childrenEmitted",
+          "missesRecorded",
+          "haltReason",
+          "stopReason",
+          "participationBps",
+          "povBasis",
+          "createdAt",
+          "startedAt",
+          "nextDueAt",
+          "projectedEndsAt",
+          "scheduleStretchReason",
+          "randomSeed",
+          "triggerPrice",
+          "triggeredAt",
+          "awaitingTrigger",
+          "chaseMaxDistanceBps",
+          "chaseStartPrice",
+          "chasePrice",
+          "chaseReprices"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "algoId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.algo.policy": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "algo.policy",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "productKind": {
+            "type": "string",
+            "const": "twap"
+          },
+          "capability": {
+            "type": "object",
+            "properties": {
+              "createEnabled": {
+                "type": "boolean"
+              },
+              "jobsEnabled": {
+                "type": "boolean"
+              },
+              "jobsDefault": {
+                "type": "boolean",
+                "const": false
+              },
+              "icebergs": {
+                "type": "string",
+                "const": "out"
+              }
+            },
+            "required": ["createEnabled", "jobsEnabled", "jobsDefault", "icebergs"],
+            "additionalProperties": false
+          },
+          "parentHoldsNoBalance": {
+            "type": "boolean",
+            "const": true
+          },
+          "progressFromChildFillsOnly": {
+            "type": "boolean",
+            "const": true
+          },
+          "cancelIncompleteHalt": {
+            "type": "string",
+            "const": "cancel_incomplete"
+          },
+          "cancelIncompleteCode": {
+            "type": "string",
+            "const": "trade.algo_cancel_incomplete"
+          },
+          "resumeRefusedOnCancelIncomplete": {
+            "type": "boolean",
+            "const": true
+          },
+          "vwapPovImmatureRefused": {
+            "type": "boolean",
+            "const": true
+          },
+          "volumeImmatureCode": {
+            "type": "string",
+            "const": "trade.algo_volume_immature"
+          },
+          "immatureKinds": {
+            "readOnly": true,
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string",
+                "const": "vwap"
+              },
+              {
+                "type": "string",
+                "const": "pov"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "inventsParentFill": {
+            "type": "boolean",
+            "const": false
+          },
+          "inventsVwapCurve": {
+            "type": "boolean",
+            "const": false
+          },
+          "inventsPovVolume": {
+            "type": "boolean",
+            "const": false
+          },
+          "moneyViaLedgerClientOnly": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "productKind",
+          "capability",
+          "parentHoldsNoBalance",
+          "progressFromChildFillsOnly",
+          "cancelIncompleteHalt",
+          "cancelIncompleteCode",
+          "resumeRefusedOnCancelIncomplete",
+          "vwapPovImmatureRefused",
+          "volumeImmatureCode",
+          "immatureKinds",
+          "inventsParentFill",
+          "inventsVwapCurve",
+          "inventsPovVolume",
+          "moneyViaLedgerClientOnly"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "trade.algo.previewTwapSizes": {
       "service": "svc-trade",
       "module": "trade",
@@ -647,7 +2277,9 @@
         "caller": "scope",
         "scope": "trade:read"
       },
-      "refusals": {},
+      "refusals": {
+        "trade.market_not_found": "NOT_FOUND"
+      },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1031,6 +2663,310 @@
           }
         },
         "required": ["quotes"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "algoId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.algo.resume": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "algo.resume",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.algo_resume_extends_too_far": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "algoId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["algoId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["twap", "vwap", "pov", "chase"]
+          },
+          "totalQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "sliceIntervalMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "limitPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "cancelled", "completed", "halted"]
+          },
+          "slicesPlanned": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "nextSliceIndex": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "childrenEmitted": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "missesRecorded": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "haltReason": {
+            "type": ["string", "null"]
+          },
+          "stopReason": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "cancel_incomplete",
+                      "market_closed",
+                      "mark_unavailable",
+                      "price_band",
+                      "no_liquidity",
+                      "no_volume",
+                      "insufficient_balance",
+                      "account_unavailable",
+                      "order_refused",
+                      "chase_max_distance",
+                      "chase_expired",
+                      "chase_child_unaccounted",
+                      "liquidation",
+                      "delisting",
+                      "position_limit",
+                      "contract_change",
+                      "copied_lead_stop",
+                      "unrecorded"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": ["code", "label"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "participationBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "povBasis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["traded_volume", "opposite_liquidity"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "nextDueAt": {
+            "type": "string"
+          },
+          "projectedEndsAt": {
+            "type": "string"
+          },
+          "scheduleStretchReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["user_pause", "tick_outage"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "randomSeed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggerPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggeredAt": {
+            "type": ["string", "null"]
+          },
+          "awaitingTrigger": {
+            "type": "boolean"
+          },
+          "chaseMaxDistanceBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseStartPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chasePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chaseReprices": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "symbol",
+          "side",
+          "kind",
+          "totalQty",
+          "durationMs",
+          "sliceIntervalMs",
+          "limitPrice",
+          "status",
+          "slicesPlanned",
+          "nextSliceIndex",
+          "childrenEmitted",
+          "missesRecorded",
+          "haltReason",
+          "stopReason",
+          "participationBps",
+          "povBasis",
+          "createdAt",
+          "startedAt",
+          "nextDueAt",
+          "projectedEndsAt",
+          "scheduleStretchReason",
+          "randomSeed",
+          "triggerPrice",
+          "triggeredAt",
+          "awaitingTrigger",
+          "chaseMaxDistanceBps",
+          "chaseStartPrice",
+          "chasePrice",
+          "chaseReprices"
+        ],
         "additionalProperties": false
       },
       "samples": [
@@ -5765,6 +7701,164 @@
         }
       ]
     },
+    "trade.convert.accept": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "convert.accept",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.convert_spread_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "clientConvertId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 3
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "qty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAvgPrice": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["quoteId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string"
+          },
+          "fillId": {
+            "type": "string"
+          },
+          "takerOrderId": {
+            "type": "string"
+          },
+          "makerOrderId": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "inAsset": {
+            "type": "string"
+          },
+          "outAsset": {
+            "type": "string"
+          },
+          "inAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "outAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "fillPrice": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "fillNotional": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "convertSpreadBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "book"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "asOf": {
+                "type": "string"
+              }
+            },
+            "required": ["kind", "symbol", "asOf"],
+            "additionalProperties": false
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "acceptedAt": {
+            "type": "string"
+          },
+          "settledAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "quoteId",
+          "fillId",
+          "takerOrderId",
+          "makerOrderId",
+          "symbol",
+          "side",
+          "inAsset",
+          "outAsset",
+          "inAmount",
+          "outAmount",
+          "fillPrice",
+          "fillNotional",
+          "convertSpreadBps",
+          "source",
+          "expiresAt",
+          "acceptedAt",
+          "settledAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "quoteId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "trade.convert.limitCancel": {
       "service": "svc-trade",
       "module": "trade",
@@ -5906,7 +8000,9 @@
         "scope": "trade:write",
         "module": "trade"
       },
-      "refusals": {},
+      "refusals": {
+        "trade.convert_limit_unset": "BAD_REQUEST"
+      },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -6171,7 +8267,9 @@
         "scope": "trade:read",
         "module": "trade"
       },
-      "refusals": {},
+      "refusals": {
+        "trade.convert_list_window_unset": "BAD_REQUEST"
+      },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -6334,6 +8432,157 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "trade.convert.quote": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "convert.quote",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.convert_insufficient_depth": "BAD_REQUEST",
+        "trade.convert_spread_unset": "BAD_REQUEST",
+        "trade.fx_not_spot": "FORBIDDEN",
+        "trade.market_closed": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 3
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "qty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "quoteQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["symbol", "side"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "requestedQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "filledQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "bookNotional": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "userNotional": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "avgPrice": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "fullyFilled": {
+            "type": "boolean"
+          },
+          "convertSpreadBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "book"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "asOf": {
+                "type": "string"
+              }
+            },
+            "required": ["kind", "symbol", "asOf"],
+            "additionalProperties": false
+          },
+          "inAsset": {
+            "type": "string"
+          },
+          "outAsset": {
+            "type": "string"
+          },
+          "inAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "outAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": [
+          "quoteId",
+          "symbol",
+          "side",
+          "requestedQty",
+          "filledQty",
+          "bookNotional",
+          "userNotional",
+          "avgPrice",
+          "fullyFilled",
+          "convertSpreadBps",
+          "expiresAt",
+          "source",
+          "inAsset",
+          "outAsset",
+          "inAmount",
+          "outAmount"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "symbol": "USDC",
+            "side": "buy"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -8986,7 +11235,12 @@
         "scope": "trade:write",
         "module": "trade"
       },
-      "refusals": {},
+      "refusals": {
+        "trade.otc_desk_law_blank": "PRECONDITION_FAILED",
+        "trade.otc_last_look_forbidden": "BAD_REQUEST",
+        "trade.otc_quote_expired": "BAD_REQUEST",
+        "trade.otc_quote_missing": "NOT_FOUND"
+      },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -9139,6 +11393,168 @@
         }
       ]
     },
+    "trade.otc.convertQuote": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "otc.convertQuote",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.otc_desk_law_blank": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "flow": {
+            "type": "string",
+            "enum": ["convert", "oneClickBuy"]
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "baseAsset": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "quoteAsset": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "qty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["flow", "side", "baseAsset", "quoteAsset", "qty"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "flow": {
+            "type": "string",
+            "enum": ["convert", "oneClickBuy"]
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "baseAsset": {
+            "type": "string"
+          },
+          "quoteAsset": {
+            "type": "string"
+          },
+          "qty": {
+            "type": "string"
+          },
+          "midPrice": {
+            "type": "string"
+          },
+          "quotedPrice": {
+            "type": "string"
+          },
+          "midNotional": {
+            "type": "string"
+          },
+          "userNotional": {
+            "type": "string"
+          },
+          "spreadBps": {
+            "type": "number"
+          },
+          "spreadNotional": {
+            "type": "string"
+          },
+          "counterparty": {
+            "type": "string",
+            "enum": ["platform", "maker"]
+          },
+          "counterpartyId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "const": "open"
+          },
+          "rfqId": {
+            "type": "string"
+          },
+          "rfqSeq": {
+            "type": "number"
+          },
+          "makerId": {
+            "type": ["string", "null"]
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "settleWindowMs": {
+            "type": ["number", "null"]
+          }
+        },
+        "required": [
+          "flow",
+          "quoteId",
+          "side",
+          "baseAsset",
+          "quoteAsset",
+          "qty",
+          "midPrice",
+          "quotedPrice",
+          "midNotional",
+          "userNotional",
+          "spreadBps",
+          "spreadNotional",
+          "counterparty",
+          "counterpartyId",
+          "createdAt",
+          "expiresAt",
+          "status",
+          "rfqId",
+          "rfqSeq",
+          "makerId",
+          "test",
+          "settleWindowMs"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "flow": "convert",
+            "side": "buy",
+            "baseAsset": "USDC",
+            "quoteAsset": "USDC",
+            "qty": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "trade.otc.makers.list": {
       "service": "svc-trade",
       "module": "trade",
@@ -9254,7 +11670,10 @@
         "scope": "trade:write",
         "module": "trade"
       },
-      "refusals": {},
+      "refusals": {
+        "trade.otc_desk_law_blank": "PRECONDITION_FAILED",
+        "trade.otc_quote_missing": "NOT_FOUND"
+      },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
