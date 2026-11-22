@@ -147,6 +147,9 @@ const SLICES = {
     'own.consents.*',
   ],
   'own-sharing': ['own.access.*', 'own.coOwners.*', 'own.share.*', 'own.sharedWithMe', 'own.identity.*'],
+  // The run webhooks (J-agents-12 #5). Porting them includes the delivery row the runtime and background slices write
+  // in the transaction that ends a run (`webhooks/run-webhooks.ts` `enqueueRunFinished`), which neither writes yet.
+  webhooks: ['webhook.*'],
 };
 
 function sliceOf(path) {
@@ -223,7 +226,12 @@ async function scopedGuards(path, mw) {
   const region = said(await run(mw, { ...only({}), region: 'US' }));
   const module = region !== null;
   if (module && !region.startsWith('FORBIDDEN ')) throw new Error(`${path}: the region refused as ${region}`);
-  return { scope, person, module };
+  // `ownSession`: a key or a sub-account refused with the call's own code, before the scope, whatever it holds.
+  const key = said(await run(mw, ctx({ principal: principal({ scopes: [], kid: 'key-1' }) })));
+  const sub = said(await run(mw, ctx({ principal: principal({ scopes: [], sub_account: SUB }) })));
+  const ownCode = /^FORBIDDEN (agents\.[a-z_.]+)$/.exec(key ?? '')?.[1] ?? null;
+  if (ownCode !== null && sub !== key) throw new Error(`${path}: an own-session check that says ${key} / ${sub}`);
+  return { guards: { scope, person, module }, ownSession: ownCode };
 }
 
 /** The checks a call runs before its input, from its middlewares in order. */
@@ -236,7 +244,9 @@ async function chainOf(path, proc) {
   if (rest[0] && isAuth(flat(rest[0]))) {
     rest.shift();
     if (!rest[0] || !isScoped(flat(rest[0]))) throw new Error(`${path}: signed in, but not through scopedProcedure`);
-    out.access = { t: 'scope', ...(await scopedGuards(path, rest.shift())) };
+    const { guards, ownSession } = await scopedGuards(path, rest.shift());
+    out.access = { t: 'scope', ...guards };
+    if (ownSession !== null) out.pre = { t: 'person_only', message: ownSession };
   } else if (rest[0] && isServiceFor(flat(rest[0]))) {
     const mw = rest.shift();
     const callers = [];
@@ -247,6 +257,7 @@ async function chainOf(path, proc) {
     out.access = { t: 'settle' };
   }
   if (rest[0] && rest[0]._type !== 'input') {
+    if (out.pre !== null) throw new Error(`${path}: an own-session guard and a middleware of its own`);
     const mw = rest.shift();
     const src = flat(mw);
     if (COACH_RUN.test(src)) out.pre = { t: 'coach_run' };
