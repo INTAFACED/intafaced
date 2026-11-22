@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // The samples step of the call-records codemod: for each record it wrote (still holding its placeholder samples), an
-// input the record accepts and one it refuses, each found by trying candidates against the record's own built schema.
+// input the record accepts, one it refuses, and for each input check it names one that check alone refuses, each found by
+// trying candidates against the record's own built schema.
 // Run after `pnpm --filter @intafaced/contracts build`; it rewrites the placeholder in the record's source file.
 //
 //   node tooling/codemod/call-records/samples.mjs <record file.ts> ...
@@ -12,8 +13,10 @@ import { pathToFileURL } from 'node:url';
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 // The records' own zod: the one @intafaced/contracts resolves.
 const { z } = await import(pathToFileURL(createRequire(join(REPO, 'packages/contracts/package.json')).resolve('zod')).href);
-// The placeholder index.mjs writes, however prettier wrapped it.
-const PLACEHOLDER = /samples: \[\s*\{ verdict: 'accept', input: \{\} \},\s*\{ verdict: 'refuse', input: 42 \},?\s*\]/;
+// The placeholder index.mjs writes, however prettier wrapped it, with one refused placeholder per input check portable.mjs
+// named (`{ verdict: 'refuse', input: 42, by: 'name' }`).
+const PLACEHOLDER =
+  /samples: \[\s*\{ verdict: 'accept', input: \{\} \},\s*\{ verdict: 'refuse', input: 42 \}(?:,\s*\{ verdict: 'refuse', input: 42, by: '[\w.]+' \})*,?\s*\]/;
 
 const STRINGS = [
   'USDC',
@@ -114,6 +117,58 @@ function candidates(schema, depth = 0, key = '') {
 
 const REFUSALS = [42, 'not-an-input', [], null, true, { '': 1 }];
 
+/** Values tried where an input check sits: blanks, short and long strings, numbers and absence. */
+const CHECK_TRIES = [undefined, null, '', ' ', 'x', 'ab', 'x'.repeat(1001), 0, -1, 1, ...STRINGS, [], {}];
+
+/** `v` with the value at `steps` (`.reason`, `[]`) set to `value`, or undefined when the path is not there. */
+function setAt(v, steps, value) {
+  if (!steps.length) return value;
+  const [step, ...rest] = steps;
+  if (step === '[]') {
+    if (!Array.isArray(v) || !v.length) return undefined;
+    const inner = setAt(v[0], rest, value);
+    return inner === undefined && rest.length ? undefined : [inner, ...v.slice(1)];
+  }
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined;
+  if (rest.length && !(step in v)) return undefined;
+  const inner = rest.length ? setAt(v[step], rest, value) : value;
+  if (inner === undefined && rest.length) return undefined;
+  const out = { ...v };
+  if (inner === undefined) delete out[step];
+  else out[step] = inner;
+  return out;
+}
+
+/** `input.items[].reason` after the root as steps: `['items', '[]', 'reason']`. */
+const stepsOf = (at) => [...at.replace(/^input/, '').matchAll(/\.([\w$]+)|\[\]/g)].map((m) => m[1] ?? '[]');
+
+/**
+ * For each input check the record names, an input refused by that check alone: every issue zod raises is its own words
+ * (a custom issue whose message is one of the check's), so the export, which carries the check only by name, accepts it.
+ * Tried from every candidate the schema allows, with the value where the check sits replaced.
+ */
+function checkRefusals(record, bases) {
+  const out = [];
+  for (const [name, check] of Object.entries(record.checks ?? {})) {
+    const says = new Set(check.says.split('; '));
+    const alone = (v) => {
+      const r = record.input.safeParse(v);
+      return !r.success && r.error.issues.every((i) => i.code === 'custom' && says.has(i.message));
+    };
+    let found;
+    for (const at of typeof check.at === 'string' ? [check.at] : check.at) {
+      const steps = stepsOf(at);
+      const tries = bases.flatMap((b) => (steps.length ? CHECK_TRIES.map((t) => setAt(b, steps, t)) : [b]));
+      found = tries.find((v) => v !== undefined && alone(v));
+      if (found !== undefined) break;
+    }
+    if (found === undefined)
+      throw new Error(`${record.name}: no input found that input check ${name} alone refuses; write its samples by hand`);
+    out.push(`{ verdict: 'refuse', by: '${name}', input: ${JSON.stringify(found)} }`);
+  }
+  return out;
+}
+
 /**
  * A Rust door's own accepted input for each call: the `valid` request its wire replay sends (`tests/fixtures/
  * wire-replay.golden.json`), when the operator's answer to it, with the store down, is not a 400. A handler may check
@@ -155,7 +210,8 @@ export function samplesFor(record, doorValid) {
   if (accept === undefined && (doorValid || !ok(undefined)))
     throw new Error(`${record.name}: no accepted input found${doorValid ? ' the door lets through' : ''}; write its samples by hand`);
   const a = accept === undefined ? "{ verdict: 'accept' }" : `{ verdict: 'accept', input: ${JSON.stringify(accept)} }`;
-  return `[${a}, { verdict: 'refuse', input: ${JSON.stringify(refuse)} }]`;
+  const byCheck = checkRefusals(record, [...(accept === undefined ? [] : [accept]), ...tries.filter((v) => v !== undefined)]);
+  return `[${[a, `{ verdict: 'refuse', input: ${JSON.stringify(refuse)} }`, ...byCheck].join(', ')}]`;
 }
 
 async function main() {

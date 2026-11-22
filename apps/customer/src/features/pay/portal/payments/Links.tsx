@@ -467,7 +467,7 @@ function LinkDetail({ selected, now, pay, merchantId, portal, retry }: LinkDetai
 function FetchedLinkDetail({ pay, merchantId, linkId, now, portal, retry }: Omit<LinkDetailProps, 'selected'> & { linkId: string }) {
   const { t } = w3cCopy.useCopy();
   const query = useResource(
-    (signal) => pay.query('merchant.getLink', { merchantId, linkId }, linkRowSchema, signal),
+    (signal) => pay.queryRecord(PAY_MERCHANT_GET_LINK, { merchantId, linkId }, signal),
     `portal:link:${merchantId}:${linkId}`,
   );
   const reload = () => {

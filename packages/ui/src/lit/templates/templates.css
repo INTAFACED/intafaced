@@ -567,6 +567,45 @@
   min-block-size: 1.5rem;
 }
 
+/*
+ * A link's arrow: drawn, never typed. Volt's faces carry no arrow glyphs (→ ← ↗), so a typed one falls back to a system
+ * font. `<span class="lt-arrow lt-arrow-go" aria-hidden="true"></span>` after the words (go on), `lt-arrow-back` before
+ * them (go back), `lt-arrow-out` (opens elsewhere). It takes the text's colour and size; go and back point the reading
+ * way in a right-to-left language.
+ */
+.lt-arrow {
+  display: inline-block;
+  inline-size: 1em;
+  block-size: 1em;
+  vertical-align: -0.125em;
+  background-color: currentColor;
+  mask: var(--lt-arrow-shape) center / contain no-repeat;
+  -webkit-mask: var(--lt-arrow-shape) center / contain no-repeat;
+}
+.lt-arrow-go {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 11h12.2l-5.6-5.6L12 4l8 8-8 8-1.4-1.4 5.6-5.6H4z'/%3E%3C/svg%3E");
+}
+.lt-arrow-back {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z'/%3E%3C/svg%3E");
+}
+.lt-arrow-out {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 5h12v12h-2V8.4L6.4 19 5 17.6 15.6 7H7z'/%3E%3C/svg%3E");
+}
+.lt-arrow-go:dir(rtl),
+.lt-arrow-back:dir(rtl) {
+  transform: scaleX(-1);
+}
+
+/* A link that stands on its own (back to the section, on to the next page): a whole touch target, not a line of text. */
+.lt-link-alone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  /* WCAG 2.5.8's 24 CSS pixels whatever the root size (1.5rem alone drew 22px on /developers/hosts, look gate on ae2755c). */
+  min-block-size: max(1.5rem, 24px); /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels */
+}
+
+/* Text written with its own line breaks (published terms, a plain-text section): the breaks show, long lines still wrap. */
 .lt-actions,
 .lt-equal {
   display: flex;
@@ -615,6 +654,49 @@
   direction: ltr;
   unicode-bidi: isolate;
   /* An address, key or account ID has no spaces: it breaks anywhere rather than spill out of its box on a phone. */
+  overflow-wrap: anywhere;
+}
+
+/* Words a person wrote (a post, a message) keep their own line breaks, and a long word or link breaks rather than
+   widening the room. */
+.lt-pre-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A picture in a room (a posted image, a shared card) fits the room's width, keeps its shape, and is never taller than
+   most of a screen. */
+.lt-media {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: 30rem;
+  block-size: auto;
+  object-fit: contain;
+}
+
+/* Code read as written (a strategy's source, a line comparison): it keeps its lines, wraps rather than widening the room,
+   and scrolls inside its own box. A compared line carries data-op; its + or − mark says the change, the tone repeats it. */
+.lt-code {
+  margin: 0;
+  padding-block: var(--lit-gap-item);
+  padding-inline: var(--lit-gap-item);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  font-family: var(--lit-font-mono);
+  direction: ltr;
+  unicode-bidi: isolate;
+  background: var(--lit-solid-bg-raised);
+  border-radius: var(--lit-radius-control);
+}
+.lt-code [data-op='removed'] {
+  color: var(--lit-down-text);
+}
+.lt-code [data-op='added'] {
+  color: var(--lit-up-text);
+}
+
+/* A long unbroken value (a hash, a signature, a body) breaks anywhere rather than run off a phone's edge. */
+.lt-wrap {
   overflow-wrap: anywhere;
 }
 
@@ -1402,6 +1484,78 @@ button.lt-tab {
 .lt-person:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.25rem;
+}
+
+/* ---- reading rooms: parts stacked in a slot, prose kept as written, a status page's day strip ---- */
+
+/* Parts one under another inside a slot (a card's lines, a form and its outcome). */
+.lt-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+
+/* An outline row set in by its owner-set depth (a course item under a sub-heading): 0 to 2 steps. */
+.lt-indent[data-indent='1'] {
+  margin-inline-start: 1.5rem;
+}
+.lt-indent[data-indent='2'] {
+  margin-inline-start: 3rem;
+}
+
+/* A long text read start to end (a lesson's body): one type step above body text, with room between its lines; a code
+   block in it scrolls inside its own width, and a long word wraps rather than widen the page. */
+.lt-prose {
+  font-size: var(--if-text-md);
+  line-height: 1.625rem;
+}
+.lt-prose p:empty {
+  display: none;
+}
+.lt-prose :is(p, li) {
+  overflow-wrap: anywhere;
+}
+.lt-prose pre {
+  overflow-x: auto;
+  max-inline-size: 100%;
+}
+
+/* A long list that scrolls in a box of its own (a video's transcript following playback), so the page keeps its place. */
+.lt-scroll-block {
+  max-block-size: 12rem;
+  overflow-y: auto;
+}
+
+/* Text an owner wrote with its own line breaks (a policy, a partner's terms), shown escaped as typed with its spaces
+   folded; .lt-pre-wrap keeps the spaces too and breaks a long word (a rulebook section, a postmortem, a message). */
+.lt-pre-line {
+  white-space: pre-line;
+}
+
+/* One mark per day, its state read from data-state; the words are the mark's title and the strip's label. */
+.lt-uptime {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+}
+.lt-uptime > li {
+  inline-size: 0.5rem;
+  block-size: 1.5rem;
+  border: 1px solid var(--lit-line);
+  border-radius: calc(var(--lit-radius-control) / 4);
+}
+.lt-uptime > [data-state='operational'] {
+  background: var(--lit-up);
+}
+.lt-uptime > :is([data-state='degraded'], [data-state='maintenance']) {
+  background: var(--lit-warn-text);
+}
+.lt-uptime > :is([data-state='partial_outage'], [data-state='major_outage']) {
+  background: var(--lit-down);
 }
 
 /* ---- a limit's use, and a sample of someone else's brand ---- */

@@ -21,9 +21,11 @@ import {
   academyCertGrantSchema,
   type AcademyCertGrant,
 } from '@intafaced/contracts/academy-learner-procedures';
-import { AcademyLearning, definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from './AcademyLearning';
+import { AcademyLearning } from './AcademyLearning';
+import { definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from './academy-learning-state';
+import { LessonReaderStack } from './academy-reader/LessonReader';
 import { academyLearningCopy } from './academy-learning-copy';
-import { AcademyCoursePage, AcademyHub } from './AcademyHub';
+import { AcademyHub } from './AcademyHub';
 import { AcademyAssignment } from './AcademyAssignment';
 import { AcademyProgrammePage } from './AcademyCourseProgrammes';
 import { AcademyDiscussionCourses, AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
@@ -31,7 +33,6 @@ import { AcademyCourseConversation, AcademyCourseMessagesLink } from './AcademyC
 import { AcademyInboxRoom } from './academy-inbox/AcademyInboxRoom';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
 import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
-import { AcademyCourseOutline } from './AcademyCourseOutline';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { navigate } from '../../app/location';
 
@@ -111,9 +112,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         label={copyText('academy.academy.sections')}
       />
       {route.kind === 'tab' && route.hub && <AcademyHub />}
-      {route.kind === 'course' ? (
-        <AcademyCoursePage slug={route.slug} signedIn />
-      ) : route.kind === 'assignment' ? (
+      {route.kind === 'assignment' ? (
         <AcademyAssignment key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />
       ) : route.kind === 'discussion' ? (
         route.postId ? (
@@ -130,18 +129,22 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : route.kind === 'progress' ? (
         <AcademyProgress action={action} />
       ) : tab === 'Learning' ? (
-        <>
-          {!slug && <AcademyMyLearning />}
-          {slug && <AcademyCourseOutline key={slug} itemSlug={slug} refresh={action.result} progress={progressMade} />}
-          <AcademyLearning
+        slug ? (
+          <LessonReaderStack
             slug={slug}
             initialPath={initialPath}
             certId={selected}
             chooseCertificate={chooseCertificate}
             action={action}
             onProgress={() => setProgressMade((n) => n + 1)}
+            progress={progressMade}
           />
-        </>
+        ) : (
+          <>
+            <AcademyMyLearning />
+            <AcademyLearning initialPath={initialPath} certId={selected} chooseCertificate={chooseCertificate} action={action} />
+          </>
+        )
       ) : tab === 'Certificates' ? (
         <Certificates selected={selected} setSelected={chooseCertificate} action={action} />
       ) : tab === 'Rooms' ? (

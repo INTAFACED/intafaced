@@ -5,6 +5,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, api as ledgerApi, journeyState, json, signOutBrowser, signUpInBrowser } from './stack.mjs';
 import { signIn, verify } from './desk.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { sameDecimal, venueBalance, venueRecord } from './venue.mjs';
 
 // J-bank-21, in the running app (docs/roadmap/journeys.json): I pay my team and contractors in bulk. Tests titled
 // "J-bank-21 #<n>" prove a step.
@@ -112,9 +114,36 @@ async function business(w, tag) {
   return { own, accountId, name };
 }
 
-/** The business's account at the partner, as the partner reports it. */
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts), as J-bank-03 reads it. */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+
+/** The business's own account on the partner's book (svc-bank business-team.ts businessPartnerAccount). */
+const partnerOwner = (accountId) => `business:${accountId}`;
+
+/**
+ * The business's USDT at the partner: what the partner's own book says it holds, read straight from the TEST partner
+ * bank's record through the outside record read (venue.mjs venueBalance), never through the business's bank API; the
+ * app's figure must equal it, and is returned.
+ */
 async function held(own, accountId) {
-  return ok(await own.query('businessTeam.overview', { accountId })).partner.amount;
+  const theirs = (await venueBalance(partnerOwner(accountId), 'USDT', PARTNER_RECORD)).total;
+  const ours = ok(await own.query('businessTeam.overview', { accountId })).partner.amount;
+  expect(sameDecimal(ours, theirs), `the app shows ${ours}, the partner's book holds ${theirs}`).toBe(true);
+  return ours;
+}
+
+/** Every instruction the partner's own book lists as leaving the business's account (under `key` when given), oldest first. */
+async function partnerSent(accountId, key = null) {
+  const moves = (await venueRecord(partnerOwner(accountId), '/moves', {}, PARTNER_RECORD, null)).value;
+  return moves.filter((m) => m.from.owner === partnerOwner(accountId) && (key === null || m.key === key));
+}
+
+/** The partner's book holds exactly one instruction under `key`: move `id`, `amount` USDT out of the business's account. */
+async function oneAtPartner(accountId, key, id, amount) {
+  const theirs = await partnerSent(accountId, key);
+  expect(theirs).toHaveLength(1);
+  expect(theirs[0]).toMatchObject({ id, key, from: { owner: partnerOwner(accountId), assetId: 'USDT', spaceId: null } });
+  expect(sameDecimal(theirs[0].amount, amount), `the partner's instruction is ${theirs[0].amount}, not ${amount}`).toBe(true);
 }
 
 /**
@@ -224,10 +253,13 @@ test(`${J} #2 funds and confirms the batch: a funding step; at or above the thre
   expect(small.partnerPayees).toBe(2);
   await expect(page.getByTestId('bulk-payees')).toHaveAttribute('data-count', '2');
   expect(await held(own, accountId)).toBe('700');
+  // The partner's own book: one instruction under the run key, the move the run names, the run's 300 out of the business.
+  await oneAtPartner(accountId, small.partnerKey, small.partnerMoveId, '300');
   // Sent once: confirming again answers the same run and the same partner move, and nothing more moves.
   const again = ok(await own.mutate('businessPayouts.confirmRun', { runId: small.id }));
   expect(again).toMatchObject({ status: 'sent', partnerMoveId: small.partnerMoveId });
   expect(await held(own, accountId)).toBe('700');
+  await oneAtPartner(accountId, small.partnerKey, small.partnerMoveId, '300');
 
   // A second run cannot reuse or blank the run key.
   expect(
@@ -256,6 +288,8 @@ test(`${J} #2 funds and confirms the batch: a funding step; at or above the thre
   );
   expect(eur.issues.map((i) => i.code)).toEqual(['asset_mismatch']);
   expect(await own.mutate('businessPayouts.confirmRun', { runId: eur.id })).toMatchObject({ ok: false, code: 'bank.bulk_run_empty' });
+  expect(await partnerSent(accountId, `bank.business.bulk-pay:${eur.id}`)).toEqual([]);
+  expect(await partnerSent(accountId)).toHaveLength(1);
 
   // At the threshold: approval is required before anything is sent.
   await page.reload();
@@ -271,6 +305,8 @@ test(`${J} #2 funds and confirms the batch: a funding step; at or above the thre
     code: 'bank.business_self_approve',
   });
   expect(await held(own, accountId)).toBe('700');
+  // Nothing has reached the partner under the run waiting for approval.
+  expect(await partnerSent(accountId, big.partnerKey)).toEqual([]);
 
   await inBusiness(page, w.approver, name);
   await expect(page.getByTestId('bulk-run')).toHaveAttribute('data-id', big.id);
@@ -280,6 +316,9 @@ test(`${J} #2 funds and confirms the batch: a funding step; at or above the thre
   expect(sent.partnerKey).toBe(`bank.business.bulk-pay:${big.id}`);
   expect(sent.approvals).toHaveLength(1);
   expect(await held(own, accountId)).toBe('200');
+  // Approved: the partner's book now lists that run's one instruction too, two runs and two instructions in all.
+  await oneAtPartner(accountId, sent.partnerKey, sent.partnerMoveId, '500');
+  expect((await partnerSent(accountId)).map((m) => m.key).sort()).toEqual([small.partnerKey, sent.partnerKey].sort());
   await ledgerUnchanged(w);
 });
 
@@ -369,6 +408,7 @@ test(`${J} #4 pays the contractor batch: approval rules apply; the intent row is
   expect(intent.partnerKey).toBe(`bank.business.contractor-batch:${intent.id}`);
   expect(intent.lines).toEqual([expect.objectContaining({ invoiceId, number: 'TEST-INV-41', amount: '500' })]);
   expect(await held(own, accountId)).toBe(FUNDED);
+  expect(await partnerSent(accountId, intent.partnerKey)).toEqual([]);
   expect(await own.mutate('businessPayouts.approveBatch', { batchId: intent.id })).toMatchObject({
     ok: false,
     code: 'bank.business_self_approve',
@@ -385,12 +425,16 @@ test(`${J} #4 pays the contractor batch: approval rules apply; the intent row is
   expect(sent.approvals).toHaveLength(1);
   expect(ok(await own.query('businessPayouts.contractors', { accountId }))[0].invoices[0].status).toBe('paid');
   expect(await held(own, accountId)).toBe('500');
+  // Paid through the partner: its own book lists one instruction under the batch key, the move the batch names, 500 out.
+  await oneAtPartner(accountId, intent.partnerKey, sent.partnerMoveId, '500');
   // Paid once: the same batch again is the same, and nothing more moves.
   expect(ok(await own.mutate('businessPayouts.payBatch', { accountId, batchId: intent.id, invoiceIds: [invoiceId] }))).toMatchObject({
     status: 'sent',
     partnerMoveId: sent.partnerMoveId,
   });
   expect(await held(own, accountId)).toBe('500');
+  await oneAtPartner(accountId, intent.partnerKey, sent.partnerMoveId, '500');
+  expect(await partnerSent(accountId)).toHaveLength(1);
   await ledgerUnchanged(w);
 
   // With no rail: a business whose money no partner bank holds (the approver's own, its bank money not at the TEST
@@ -434,6 +478,8 @@ test(`${J} #4 pays the contractor batch: approval rules apply; the intent row is
   expect(kept[0]).toMatchObject({ status: 'refused', refusalCode: 'rail.bank', total: '500', partnerMoveId: null, sentAt: null });
   expect(kept[0].partnerKey).toBe(`bank.business.contractor-batch:${kept[0].id}`);
   expect(ok(await mine.query('businessPayouts.contractors', { accountId: noRail }))[0].invoices[0].status).toBe('open');
+  // No partner's book lists anything out of that business.
+  expect(await partnerSent(noRail)).toEqual([]);
   expect(await (await ledgerApi(w.approver)).balances()).toEqual(approverLedger);
 });
 
@@ -509,7 +555,10 @@ test(`${J} #5 sets up recurring crypto payroll with payslips and contractor self
     walletAddress: BUSINESS_WALLET.address.toLowerCase(),
     total: '250',
   });
-  // INTAFACED holds no vault: nothing moved at the partner and nothing was posted.
+  // INTAFACED holds no vault: nothing moved at the partner (its own book lists nothing out of the business, none under the
+  // run key, and the same balance) and nothing was posted.
   expect(await held(own, accountId)).toBe(FUNDED);
+  expect(await partnerSent(accountId)).toEqual([]);
+  expect(await partnerSent(accountId, p.runs[0].runKey)).toEqual([]);
   await ledgerUnchanged(w);
 });
