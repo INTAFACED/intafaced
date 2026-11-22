@@ -16,6 +16,7 @@ import {
   Logo,
   Rail,
   RefusalBox,
+  EmptyState,
   RiskMoment,
   Surface,
   type DoorLink,
@@ -206,5 +207,19 @@ describe('components', () => {
     expect(fig).not.toMatch(/lit-figure__marks"[^>]*dir=/);
     const change = html(<Change text="+£45.53 (+0.37%)" dir="up" spoken="up" />);
     expect(change).toContain('<span dir="ltr" data-ltr="">+£45.53 (+0.37%)</span>');
+  });
+});
+
+describe("refusal and empty parts carry the room's own attributes", () => {
+  it('passes a test id and role through, and draws a control as the next step', () => {
+    const out = html(
+      <RefusalBox refusal={{ variant: 'refused', title: 'No', body: 'Why' }} data-testid="failure" role="alert">
+        <button type="button">Try again</button>
+      </RefusalBox>,
+    );
+    expect(out).toMatch(/^<div role="alert" data-testid="failure" class="lit-refusal" data-variant="refused">/);
+    expect(out).toContain('<button type="button">Try again</button>');
+    expect(html(<RefusalBox refusal={{ variant: 'refused', title: 'No', body: 'Why' }} />)).toContain('role="status"');
+    expect(html(<EmptyState title="None" data-testid="empty" />)).toContain('data-testid="empty"');
   });
 });

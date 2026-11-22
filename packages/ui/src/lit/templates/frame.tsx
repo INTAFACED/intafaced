@@ -457,13 +457,15 @@ export function RoomFrame(props: RoomFrameProps) {
             ))}
           </div>
         ) : null}
-        <header className="lt-title-row">
-          <div>
-            <h1 className="lt-title">{title}</h1>
-            {description ? <p className="lt-description">{description}</p> : null}
-          </div>
-          {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
-        </header>
+        {props.framed ? null : (
+          <header className="lt-title-row">
+            <div>
+              <h1 className="lt-title">{title}</h1>
+              {description ? <p className="lt-description">{description}</p> : null}
+            </div>
+            {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
+          </header>
+        )}
         {state.kind === 'ready' && state.stale ? (
           <div className="lt-stale" data-region="stale" role="status">
             <p>

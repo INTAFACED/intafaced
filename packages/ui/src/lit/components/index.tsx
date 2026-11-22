@@ -262,10 +262,18 @@ export function Holdings({ items, label, className }: { items: readonly Holding[
   );
 }
 
-/** A refusal: the blocker in words, the code small, one next step. Neutral, never accent-tinted. */
-export function RefusalBox({ refusal, className }: { refusal: Refusal; className?: string }) {
+/**
+ * A refusal: the blocker in words, the code small, one next step. Neutral, never accent-tinted. `children` holds a
+ * next step that is a control rather than a link (Try again); other attributes (a test id, a live role) pass through.
+ */
+export function RefusalBox({
+  refusal,
+  className,
+  children,
+  ...rest
+}: { refusal: Refusal } & Omit<React.HTMLAttributes<HTMLDivElement>, 'title'>) {
   return (
-    <div className={clsx('lit-refusal', className)} data-variant={refusal.variant} role="status">
+    <div role="status" {...rest} className={clsx('lit-refusal', className)} data-variant={refusal.variant}>
       <div>
         <div data-part="title">{refusal.title}</div>
         <div data-part="body">{refusal.body}</div>
@@ -279,24 +287,26 @@ export function RefusalBox({ refusal, className }: { refusal: Refusal; className
             {refusal.action.label}
           </a>
         )}
+        {children}
       </div>
     </div>
   );
 }
 
+/** Nothing here yet, in words, with at most one next step. Other attributes (a test id) pass through. */
 export function EmptyState({
   title,
   body,
   action,
   className,
+  ...rest
 }: {
   title: string;
   body?: string;
   action?: React.ReactNode;
-  className?: string;
-}) {
+} & Omit<React.HTMLAttributes<HTMLDivElement>, 'title' | 'children'>) {
   return (
-    <div className={clsx('lit-empty', className)}>
+    <div {...rest} className={clsx('lit-empty', className)}>
       <div data-part="title">{title}</div>
       {body && <div>{body}</div>}
       {action}

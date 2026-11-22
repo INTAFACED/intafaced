@@ -138,6 +138,11 @@ export interface RoomProps {
   description?: string;
   /** At most one room action in the title row. */
   roomAction?: React.ReactNode;
+  /**
+   * The shell around the room already draws its title row (the merchant portal's page heading, with its own action),
+   * so the template draws none: `title` then only names the room to assistive tech while it loads.
+   */
+  framed?: boolean;
   state: RoomState;
   mode?: Mode;
   /** Legal moments this room carries (the rules that apply to its moments). */
