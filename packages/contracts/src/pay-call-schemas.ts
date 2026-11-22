@@ -336,7 +336,7 @@ export const fraudReviewRowSchema = z
     paymentId: z.string().nullable(),
     paymentRef: z.string().nullable(),
     amount: z.string(),
-    assetId: z.string().min(1),
+    assetId: brandedAssetIdSchema.min(1),
     status: z.enum(['open', 'claimed', 'allowed', 'declined']),
     reason: z.string(),
     createdAt: z.string().min(1),

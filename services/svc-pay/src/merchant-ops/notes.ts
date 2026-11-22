@@ -2,7 +2,6 @@ import type { Sql } from 'postgres';
 import { MerchantOpsError } from './errors.js';
 import { iso } from './money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
-import { operatorNoteSchema } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * OPERATOR NOTES: founder-only notes, tags and a flag on a merchant (G7).
