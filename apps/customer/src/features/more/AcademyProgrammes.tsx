@@ -11,6 +11,8 @@ import { ACADEMY_SEASONS } from '@intafaced/contracts/academy-seasons-procedures
 import { ACADEMY_STANDINGS } from '@intafaced/contracts/academy-standings-procedures';
 import { ACADEMY_WITHDRAW_RESIDENCY } from '@intafaced/contracts/academy-withdraw-residency-procedures';
 import { ACADEMY_APPLY_RESIDENCY } from '@intafaced/contracts/academy-apply-residency-procedures';
+import { callAs } from '../../shared/api';
+import { ACADEMY_MY_RESIDENCIES } from '@intafaced/contracts/academy-my-residencies-procedures';
 const uuid = z.string().guid(),
   residency = z.object({
     id: uuid,
@@ -32,9 +34,9 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
     [selected, setSelected] = useState('');
   const mine = useResource(
       (signal) =>
-        api.query(
-          'academy',
-          'myResidencies',
+        callAs(
+          api,
+          ACADEMY_MY_RESIDENCIES,
           { limit },
           z
             .array(residency)

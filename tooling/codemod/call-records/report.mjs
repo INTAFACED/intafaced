@@ -4,6 +4,11 @@
 //
 //   node tooling/codemod/call-records/report.mjs [--deep] [--out report.json]
 //
+// Every finding of `garden/no-call-by-name` is one site the codemod finds, and each site is counted once, under the
+// service its call names: planned (a TypeScript router, or a door the Rust crate serves, its router read from the commit
+// before it was deleted), refused (its port in flight, or its plan failed: the reason and the count), or named by why it
+// has no service run (no service of that name; no service named at all). The totals add up to the rule's count.
+//
 // Without --deep it only plans (index.mjs without --write). With --deep it also writes every service's records into
 // this checkout, builds contracts, runs the samples step, typechecks the apps and runs the secret scan, then puts the
 // checkout back exactly as it was. It starts only on a clean tree, as run.mjs does.
@@ -11,6 +16,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { portInFlight } from './index.mjs';
+import { findSites } from './sites.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const here = (f) => join(REPO, 'tooling/codemod/call-records', f);
@@ -47,20 +54,42 @@ export function reasonOf(why) {
   return rules.find(([re]) => re.test(why))?.[1] ?? 'other';
 }
 
+/** The commit that deleted services/<service>: its parent holds the router a door's records are read from. */
+const deletedAt = (service) => git('log', '--diff-filter=D', '-1', '--format=%H', '--', `services/${service}/src/router.ts`).trim();
+
+/**
+ * How one service is planned: `{ door, fromRev }` for a service the Rust door serves now (crates/<service>, its
+ * TypeScript deleted), `{}` for a TypeScript router, `{ refused }` for one the codemod will not run on, or undefined when
+ * no service has that name.
+ */
+export function howToPlan(service, root = REPO, deleted = deletedAt) {
+  const inFlight = portInFlight(service, root);
+  if (inFlight) return { refused: inFlight };
+  if (existsSync(join(root, 'services', service, 'src/router.ts')) || existsSync(join(root, 'services', service, 'src/index.ts')))
+    return {};
+  if (existsSync(join(root, 'crates', service, 'src/door/calls.rs'))) {
+    const rev = deleted(service);
+    return rev
+      ? { door: `crates/${service}`, fromRev: `${rev}^` }
+      : { refused: `crates/${service} has a door but git has no commit deleting services/${service}` };
+  }
+  return undefined;
+}
+
 const services = () =>
   readdirSync(join(REPO, 'services'))
-    .filter(
-      (d) =>
-        d.startsWith('svc-') &&
-        (existsSync(join(REPO, 'services', d, 'src/router.ts')) || existsSync(join(REPO, 'services', d, 'src/index.ts'))),
-    )
+    .filter((d) => d.startsWith('svc-'))
+    .concat(readdirSync(join(REPO, 'crates')).filter((d) => d.startsWith('svc-')))
+    .filter((d, i, all) => all.indexOf(d) === i)
+    .filter((d) => howToPlan(d) !== undefined)
     .sort();
 
-function plan(service, write) {
+function plan(service, write, how = howToPlan(service) ?? {}) {
+  const door = how.door ? ['--door', how.door, '--from-rev', how.fromRev] : [];
   const json = join(tmpdir(), `call-records-report-${process.pid}-${service}.json`);
   const run = spawnSync(
     'node',
-    [here('index.mjs'), '--module', service.slice(4), '--service', service, '--json', json, ...(write ? ['--write'] : [])],
+    [here('index.mjs'), '--module', service.slice(4), '--service', service, '--json', json, ...door, ...(write ? ['--write'] : [])],
     {
       cwd: REPO,
       encoding: 'utf8',
@@ -155,15 +184,41 @@ function main() {
     console.error(`commit or put back these first, so the report can put back exactly what it wrote:\n${dirty}`);
     process.exit(1);
   }
+  // Each site the rule counts, once (a call named by a `? :` or a closed set is one finding, and one site per value).
+  const nodes = new Map();
+  for (const s of findSites(REPO)) if (!nodes.has(s.node)) nodes.set(s.node, s);
+  const named = count([...nodes.values()].map((s) => s.module ?? ''));
   const rows = services().map((service) => {
-    const s = plan(service, false);
+    const how = howToPlan(service);
+    const found = named[service.slice(4)] ?? 0;
+    if (how.refused) return { service, sites: found, refused: how.refused };
+    // A door with no caller left by name: nothing to plan (its crate need not be indexed).
+    if (how.door && !found) return { service, door: how.door, sites: 0, wouldMove: 0, records: 0, left: {} };
+    const s = plan(service, false, how);
     // No tRPC router to read (svc-edge, svc-fix, svc-ws; svc-matching serves REST): no app calls it by name.
-    if (s.error && /no src\/router\.ts|no create\*Router function/.test(s.error)) return { service, sites: 0, noTrpcRouter: true };
-    if (s.error) return { service, error: s.error };
-    return { service, sites: s.sites, wouldMove: s.rewritten, records: s.records.length, left: count(s.hand.map((h) => reasonOf(h.why))) };
+    if (s.error && /no src\/router\.ts|no create\*Router function/.test(s.error)) return { service, sites: found, noTrpcRouter: true };
+    if (s.error) return { service, sites: found, error: s.error };
+    return {
+      service,
+      ...(how.door ? { door: how.door, fromRev: how.fromRev } : {}),
+      sites: s.sites,
+      wouldMove: s.rewritten,
+      records: s.records.length,
+      left: count(s.hand.map((h) => reasonOf(h.why))),
+    };
   });
+  // Sites no service run sees, each kind named: a module no service has, or no module named at all.
+  const planned = new Set(rows.map((r) => r.service.slice(4)));
+  const noService = {};
+  for (const s of nodes.values()) {
+    if (s.module && planned.has(s.module)) continue;
+    const why = s.module
+      ? `names a call where the service goes, which no service is (a client bound to one service, given the call's name first: "${s.module}")`
+      : `names no service: ${s.problem ?? s.shape}`;
+    noService[why] = (noService[why] ?? 0) + 1;
+  }
   // A checkout without its install (`pnpm install`) can't load the parser: every plan fails, and the totals would read 0.
-  const failed = rows.filter((r) => r.error);
+  const failed = rows.filter((r) => r.error && !r.noTrpcRouter);
   if (failed.length === rows.length || failed.length > rows.length / 2) {
     console.error(`the codemod could not plan ${failed.length} of ${rows.length} services (run \`pnpm install\` first):`);
     for (const r of failed.slice(0, 5)) console.error(`  ${r.service}: ${r.error}`);
@@ -178,8 +233,12 @@ function main() {
       git('clean', '-fdq', '--', 'apps', 'services', 'packages/contracts/src');
     }
   }
-  const totals = { sites: 0, wouldMove: 0, left: {} };
+  const totals = { sites: 0, wouldMove: 0, left: {}, refused: {}, noService };
   for (const r of rows) {
+    if (r.refused || r.error) {
+      totals.refused[r.service] = { sites: r.sites, why: r.refused ?? r.error };
+      continue;
+    }
     totals.sites += r.sites ?? 0;
     totals.wouldMove += r.wouldMove ?? 0;
     for (const [k, n] of Object.entries(r.left ?? {})) totals.left[k] = (totals.left[k] ?? 0) + n;
@@ -208,7 +267,10 @@ function main() {
   }
   totals.ruleFindings = Object.values(shapes).reduce((a, b) => a + b, 0);
   totals.byShape = shapes;
-  totals.seenByNoServiceRun = totals.ruleFindings - totals.sites;
+  const refusedSites = Object.values(totals.refused).reduce((a, r) => a + r.sites, 0);
+  const noServiceSites = Object.values(noService).reduce((a, b) => a + b, 0);
+  // What the rule counts and no row above names: 0 when every finding is a site the codemod finds.
+  totals.unnamed = totals.ruleFindings - totals.sites - refusedSites - noServiceSites;
   const report = { at: new Date().toISOString(), head: git('rev-parse', 'HEAD').trim(), totals, ...extra, services: rows };
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify({ totals, ...extra }, null, 2));

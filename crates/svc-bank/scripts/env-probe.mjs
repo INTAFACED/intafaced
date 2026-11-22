@@ -13,7 +13,27 @@ for (const k of Object.keys(process.env)) if (k !== 'PATH' && k !== 'TZ') delete
 Object.assign(process.env, vars);
 try {
   const { env } = await import('../../../services/svc-bank/src/env.ts');
-  process.stdout.write(JSON.stringify({ ok: env }));
+  // `/ready` as `index.ts` builds it from this environment (`bankHttpReady`, the card issuer's and the ramp's
+  // programmes, the convert port's URL check), recorded beside the environment for `src/ready.rs`.
+  const { bankHttpReady } = await import('../../../services/svc-bank/src/ready.ts');
+  const { cardIssuerFor, cardProgrammeOutput } = await import('../../../services/svc-bank/src/cards/issuer.ts');
+  const { rampProgrammeFor } = await import('../../../services/svc-bank/src/ramps/rails.ts');
+  const { usableTradeConvertUrl } = await import('../../../services/svc-bank/src/auto-invest/trade-convert-port.ts');
+  const ready = bankHttpReady({
+    scheduledTransfers: env.SCHEDULED_TRANSFERS_ENABLED,
+    interestAccrual: env.INTEREST_ACCRUAL_ENABLED,
+    loanAccrual: env.LOAN_ACCRUAL_ENABLED,
+    loanRiskSweep: env.LOAN_RISK_SWEEP_ENABLED,
+    autoInvest: env.AUTO_INVEST_ENABLED,
+    loans: env.BANK_LOANS_ENABLED,
+    cards: env.BANK_CARDS_ENABLED,
+    autoInvestConvertWired: usableTradeConvertUrl(env.TRADE_URL),
+    cardProgramme: cardProgrammeOutput(
+      cardIssuerFor(env.BANK_CARD_ISSUER, { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV }).programme,
+    ),
+    rampProgramme: rampProgrammeFor(env.BANK_RAMP_MODE),
+  });
+  process.stdout.write(JSON.stringify({ ok: env, ready }));
 } catch (err) {
   process.stdout.write(JSON.stringify({ refused: err instanceof Error ? err.message : String(err) }));
 }
