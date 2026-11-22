@@ -99,8 +99,7 @@ import { OnboardingBanner } from './OnboardingBanner';
 import { GoalProgress, MovementBars } from './GoalAndMovement';
 import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
 import { RecipientPicker } from './RecipientPicker';
-import { BusinessBank } from './BusinessBank';
-import { businessCopy } from './business-copy';
+import { BusinessBankRoom } from './business-bank/BusinessBankRoom';
 import { RampsRoom } from './ramps/RampsRoom';
 import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
 import type { Payee } from './payees';
@@ -1827,14 +1826,6 @@ function Analytics() {
     </BankPage>
   );
 }
-function Business({ open }: { open: (spec: ActionSpec) => void }) {
-  const { t } = businessCopy.useCopy();
-  return (
-    <BankPage room="Business" title={t('pageTitle')} description={t('lead')}>
-      <BusinessBank open={open} />
-    </BankPage>
-  );
-}
 const bankServices = [
   { href: '/bank/spaces', label: 'nav.spaces', note: 'overview.spaces.note' },
   { href: '/bank/transfers', label: 'nav.transfers', note: 'overview.transfers.note' },
@@ -2186,7 +2177,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/salary':
       return <SalaryPage open={open} />;
     case '/bank/business':
-      return <Business open={open} />;
+      return <BusinessBankRoom open={open} />;
     case '/uc/record':
       return <MoneyActivity />;
     default:

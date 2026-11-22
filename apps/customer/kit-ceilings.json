@@ -52,7 +52,6 @@
     "apps/customer/src/features/money/business-cards/BusinessCardsRoom.tsx": 10,
     "apps/customer/src/features/money/business-payouts/BusinessPayoutsRoom.tsx": 19,
     "apps/customer/src/features/money/business-team/BusinessTeamRoom.tsx": 17,
-    "apps/customer/src/features/money/BusinessPayroll.tsx": 1,
     "apps/customer/src/features/money/Calendar.tsx": 5,
     "apps/customer/src/features/money/CardJourney.tsx": 1,
     "apps/customer/src/features/money/CardOrder.tsx": 8,

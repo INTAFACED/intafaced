@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react';
 import type { z } from 'zod';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { useSession } from '../session';
-import { DepthPanel, DisabledAction } from './DepthParts';
+import { Button, Field, Tag } from '@intafaced/ui/lit';
+import { useSession } from '../../session';
+import { DisabledAction, Failure, Loading, Panel, ResourceView } from '../bank-settings/parts';
 import { RecipientPicker } from './RecipientPicker';
-import type { Payee } from './payees';
-import { businessCopy } from './business-copy';
+import type { Payee } from '../payees';
+import { businessCopy } from '../business-copy';
 import {
   canSend,
   proposalMatches,
@@ -16,12 +16,11 @@ import {
   ROLE_KEY,
   ROLES,
   type Role,
-} from './business-model';
-import { funds, positiveMoney, ResourceView, useBankRead, type ActionSpec } from './components';
-import { bankReads, type businessSchema } from './contracts';
-import { moneyRefusalWords, withPlainRefusal } from './money-refusal-copy';
-import type { Resource } from '../../shared/resource';
-import './bank-depth.css';
+} from '../business-model';
+import { funds, positiveMoney, useBankRead, type ActionSpec } from '../components';
+import { bankReads, type businessSchema } from '../contracts';
+import { moneyRefusalWords, withPlainRefusal } from '../money-refusal-copy';
+import type { Resource } from '../../../shared/resource';
 
 type Business = z.infer<typeof businessSchema>;
 type OwnSpace = { id: string; name: string; assetId: string; balance: string };
@@ -92,15 +91,10 @@ export function PersonFinder({
   }
   if (person)
     return (
-      <div className="bd-recipient bd-recipient--chosen">
-        <span className="bd-avatar" aria-hidden="true">
-          {person.handle.slice(0, 1).toUpperCase()}
-        </span>
-        <div>
-          <strong>{t('sendFound', { handle: person.handle, asset: assetId })}</strong>
-        </div>
+      <div className="lt-toolbar">
+        <strong>{t('sendFound', { handle: person.handle, asset: assetId })}</strong>
         <Button
-          variant="ghost"
+          tone="quiet"
           onClick={() => {
             setText('');
             onChange(null);
@@ -112,7 +106,7 @@ export function PersonFinder({
     );
   return (
     <form
-      className="bd-recipient__search"
+      className="lt-toolbar"
       onSubmit={(event) => {
         event.preventDefault();
         void find();
@@ -132,7 +126,7 @@ export function PersonFinder({
           setProblem(null);
         }}
       />
-      <Button type="submit" variant="secondary" disabled={busy || !text.trim()}>
+      <Button type="submit" tone="secondary" disabled={busy || !text.trim()}>
         {busy ? t('sendFinding') : t('sendFind')}
       </Button>
     </form>
@@ -202,7 +196,7 @@ export function PayPerson({
     if (person) open(personPaymentSpec(copy, account, own, person));
   };
   return (
-    <DepthPanel title={t('sendPersonTitle')} lead={t('sendPersonLead', { asset: account.assetId })}>
+    <Panel level={3} title={t('sendPersonTitle')} lead={t('sendPersonLead', { asset: account.assetId })}>
       {role.status === 'loading' ? (
         <Loading />
       ) : blocked ? (
@@ -212,14 +206,14 @@ export function PayPerson({
       ) : (
         <>
           <PersonFinder accountId={account.id} assetId={account.assetId} person={person} onChange={setPerson} />
-          <div className="actions">
-            <Button onClick={send} disabled={!person}>
+          <div className="lt-actions">
+            <Button tone="primary" onClick={send} disabled={!person}>
               {t('sendMoney')}
             </Button>
           </div>
         </>
       )}
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -239,34 +233,34 @@ export function TeamList({
   onRemove?: (member: Member) => void;
 }) {
   const { t } = businessCopy.useCopy();
-  if (members.length === 0) return <p className="money-caption">{t('teamEmpty')}</p>;
+  if (members.length === 0) return <p className="lt-hint">{t('teamEmpty')}</p>;
   return (
     <>
-      <p className="money-caption">{t('teamCount', { count: members.length })}</p>
-      <ul className="bd-team">
+      <p className="lt-hint">{t('teamCount', { count: members.length })}</p>
+      <ul>
         {members.map((member) => (
-          <li key={member.userId} className="bd-team__row">
+          <li key={member.userId}>
             <div>
               <strong lang="zxx" dir="ltr">
                 @{member.handle}
               </strong>
-              {me !== null && member.userId.toLowerCase() === me.toLowerCase() && <span className="badge">{t('teamYou')}</span>}
+              {me !== null && member.userId.toLowerCase() === me.toLowerCase() && <Tag>{t('teamYou')}</Tag>}
             </div>
             <div>
-              <span className="badge">{t(ROLE_KEY[member.role])}</span>
-              <small className="money-caption">
+              <Tag>{t(ROLE_KEY[member.role])}</Tag>
+              <small className="lt-hint">
                 {t(member.role === 'admin' ? 'roleAdminBody' : member.role === 'maker' ? 'roleMakerBody' : 'roleCheckerBody')}
               </small>
             </div>
             {(onChangeRole || onRemove) && !(me !== null && member.userId.toLowerCase() === me.toLowerCase()) && (
-              <div className="actions" role="group" aria-label={t('memberActionsLabel', { handle: member.handle })}>
+              <div className="lt-actions" role="group" aria-label={t('memberActionsLabel', { handle: member.handle })}>
                 {onChangeRole && (
-                  <Button variant="secondary" onClick={() => onChangeRole(member)}>
+                  <Button tone="secondary" onClick={() => onChangeRole(member)}>
                     {t('changeRole')}
                   </Button>
                 )}
                 {onRemove && (
-                  <Button variant="ghost" onClick={() => onRemove(member)}>
+                  <Button tone="quiet" onClick={() => onRemove(member)}>
                     {t('removeMember')}
                   </Button>
                 )}
@@ -360,7 +354,7 @@ export function TeamPanel({ account, role, open }: { account: Business; role: Ro
     });
   };
   return (
-    <DepthPanel title={t('membersTitle')} lead={t('teamLead')}>
+    <Panel level={3} title={t('membersTitle')} lead={t('teamLead')}>
       {team.resource.status === 'failed' ? (
         <Failure result={withPlainRefusal(team.resource.failure)} retry={team.reload} />
       ) : (
@@ -379,20 +373,20 @@ export function TeamPanel({ account, role, open }: { account: Business; role: Ro
           )}
         </ResourceView>
       )}
-      <h4 className="bd-subhead">{t('addMember')}</h4>
+      <h4>{t('addMember')}</h4>
       {known !== null && known !== 'admin' ? (
         <DisabledAction label={t('addMember')} reason={t('addMemberAdminOnly')} />
       ) : (
         <>
-          <p className="money-caption">{t('addMemberChoose')}</p>
+          <p className="lt-hint">{t('addMemberChoose')}</p>
           <RecipientPicker value={person} onChange={setPerson} />
-          <div className="actions">
-            <Button disabled={!person} onClick={add}>
+          <div className="lt-actions">
+            <Button tone="primary" disabled={!person} onClick={add}>
               {t('addMember')}
             </Button>
           </div>
         </>
       )}
-    </DepthPanel>
+    </Panel>
   );
 }

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { z } from 'zod';
-import { Button } from '../../shared/ui';
-import { useSession } from '../session';
-import { fetchMe } from '../../data/identity';
-import { DepthPanel, Fact } from './DepthParts';
+import { Button, EmptyState, Tag } from '@intafaced/ui/lit';
+import { useSession } from '../../session';
+import { fetchMe } from '../../../data/identity';
+import { Continuation, Fact, Panel, ResourceView } from '../bank-settings/parts';
 import { PayPerson, roleOf, TeamPanel, type RoleState } from './BusinessPeople';
 import { PayrollRun } from './BusinessPayroll';
 import {
@@ -18,25 +18,12 @@ import {
   whoMade,
   type ApprovalAction,
   type Role,
-} from './business-model';
-import { businessCopy } from './business-copy';
-import {
-  amount as exactAmount,
-  Continuation,
-  date,
-  funds,
-  NoRows,
-  positiveMoney,
-  ResourceView,
-  Section,
-  useBankRead,
-  usePageLimit,
-  type ActionSpec,
-} from './components';
-import type { businessSchema, pendingApprovalSchema } from './contracts';
-import { assetSelectField, useHoldings } from './holdings';
-import { t as copyText } from './copy';
-import './bank-depth.css';
+} from '../business-model';
+import { businessCopy } from '../business-copy';
+import { amount as exactAmount, date, funds, positiveMoney, useBankRead, usePageLimit, type ActionSpec } from '../components';
+import type { businessSchema, pendingApprovalSchema } from '../contracts';
+import { assetSelectField, useHoldings } from '../holdings';
+import { t as copyText } from '../copy';
 
 type Business = z.infer<typeof businessSchema>;
 type Approval = z.infer<typeof pendingApprovalSchema>;
@@ -99,15 +86,15 @@ export function ApprovalRow({
       verifyOutcome: verifyApproval('approvalId'),
     });
   return (
-    <article className="money-record bd-approval">
+    <article>
       <header>
         <div>
           <h3>{whoMade(approval, me) === 'you' ? t('proposedByYou') : t('proposedByTeammate')}</h3>
           <p>{date(approval.createdAt)}</p>
         </div>
-        <strong className="numeric">{funds(approval.amount, approval.assetId)}</strong>
+        <strong className="lt-mono">{funds(approval.amount, approval.assetId)}</strong>
       </header>
-      <dl className="bd-facts">
+      <dl className="lt-kv">
         <Fact label={t('makerLabel')}>{maker}</Fact>
         <Fact label={t('fromAccount')}>{label(approval.fromSpaceId)}</Fact>
         <Fact label={t('destinationLabel')}>
@@ -127,9 +114,10 @@ export function ApprovalRow({
         </Fact>
       </dl>
       {actions.length > 0 && (
-        <div className="actions">
+        <div className="lt-actions">
           {actions.includes('approve') && (
             <Button
+              tone="primary"
               onClick={() => act('approve')}
               disabled={blockApprove}
               aria-describedby={blockApprove ? `approve-why-${approval.id}` : undefined}
@@ -138,25 +126,25 @@ export function ApprovalRow({
             </Button>
           )}
           {actions.includes('reject') && (
-            <Button variant="secondary" onClick={() => act('reject')}>
+            <Button tone="secondary" onClick={() => act('reject')}>
               {t('reject')}
             </Button>
           )}
           {actions.includes('cancel') && (
-            <Button variant="secondary" onClick={() => act('cancel')}>
+            <Button tone="secondary" onClick={() => act('cancel')}>
               {whoMade(approval, me) === 'you' ? t('cancel') : t('adminCancel')}
             </Button>
           )}
         </div>
       )}
       {actions.includes('approve') && blockApprove && (
-        <p id={`approve-why-${approval.id}`} className="money-caption" role="status">
+        <p id={`approve-why-${approval.id}`} className="lt-hint" role="status">
           {t('approveBlocked')}
         </p>
       )}
-      {actions.includes('approve') && <p className="money-caption">{t('roleNote')}</p>}
-      {actions.includes('cancel') && whoMade(approval, me) === 'you' && <p className="money-caption">{t('selfApproveNote')}</p>}
-      {actions.includes('cancel') && whoMade(approval, me) !== 'you' && <p className="money-caption">{t('adminCancelNote')}</p>}
+      {actions.includes('approve') && <p className="lt-hint">{t('roleNote')}</p>}
+      {actions.includes('cancel') && whoMade(approval, me) === 'you' && <p className="lt-hint">{t('selfApproveNote')}</p>}
+      {actions.includes('cancel') && whoMade(approval, me) !== 'you' && <p className="lt-hint">{t('adminCancelNote')}</p>}
     </article>
   );
 }
@@ -185,7 +173,7 @@ function Approvals({
   const [limit, setLimit] = usePageLimit();
   const query = useBankRead('business.pending', { accountId, limit });
   return (
-    <DepthPanel title={t('approvalsTitle')} lead={t('approvalsLead')}>
+    <Panel level={3} title={t('approvalsTitle')} lead={t('approvalsLead')}>
       <ResourceView resource={query.resource} reload={query.reload}>
         {(rows) => (
           <>
@@ -202,13 +190,13 @@ function Approvals({
                 />
               ))
             ) : (
-              <NoRows title={t('approvalsEmpty')}>{t('approvalsEmptyBody')}</NoRows>
+              <EmptyState title={t('approvalsEmpty')} body={t('approvalsEmptyBody')} />
             )}
             <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
           </>
         )}
       </ResourceView>
-    </DepthPanel>
+    </Panel>
   );
 }
 
@@ -262,7 +250,7 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
       },
     });
   return (
-    <article className="money-record bd-account">
+    <article>
       <header>
         <div>
           <h3>{account.name}</h3>
@@ -270,41 +258,36 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
             {account.assetId} · {account.status === 'active' ? t('active') : t('closed')}
           </p>
         </div>
-        <span className="badge">{account.status === 'active' ? t('active') : t('closed')}</span>
+        <Tag>{account.status === 'active' ? t('active') : t('closed')}</Tag>
       </header>
-      <dl className="bd-facts">
+      <dl className="lt-kv">
         <Fact label={t('threshold')}>
-          <span className="numeric">{funds(account.spendThreshold, account.assetId)}</span>
+          <span className="lt-mono">{funds(account.spendThreshold, account.assetId)}</span>
         </Fact>
         <Fact label={t('created')}>{date(account.createdAt)}</Fact>
       </dl>
-      <div className="actions">
-        <Button onClick={send} disabled={account.status !== 'active' || own.length < 2 || !mayProposeUnknown}>
+      <div className="lt-actions">
+        <Button tone="primary" onClick={send} disabled={account.status !== 'active' || own.length < 2 || !mayProposeUnknown}>
           {t('sendTargetOwn')}
         </Button>
-        <Button
-          variant="secondary"
-          onClick={() => toggle('person')}
-          aria-expanded={panel === 'person'}
-          disabled={account.status !== 'active'}
-        >
+        <Button tone="secondary" onClick={() => toggle('person')} aria-expanded={panel === 'person'} disabled={account.status !== 'active'}>
           {t('sendTargetPerson')}
         </Button>
         <Button
-          variant="secondary"
+          tone="secondary"
           onClick={() => toggle('payroll')}
           aria-expanded={panel === 'payroll'}
           disabled={account.status !== 'active'}
         >
           {t('payroll')}
         </Button>
-        <Button variant="secondary" onClick={() => toggle('team')} aria-expanded={panel === 'team'}>
+        <Button tone="secondary" onClick={() => toggle('team')} aria-expanded={panel === 'team'}>
           {t('membersTitle')}
         </Button>
       </div>
-      {own.length < 2 && account.status === 'active' && <p className="money-caption">{t('sendNoSpaces')}</p>}
-      {known !== null && !canSend(known) && account.status === 'active' && <p className="money-caption">{t('sendRoleReason')}</p>}
-      {role.status === 'failed' && <p className="money-caption">{t('roleUnreadable')}</p>}
+      {own.length < 2 && account.status === 'active' && <p className="lt-hint">{t('sendNoSpaces')}</p>}
+      {known !== null && !canSend(known) && account.status === 'active' && <p className="lt-hint">{t('sendRoleReason')}</p>}
+      {role.status === 'failed' && <p className="lt-hint">{t('roleUnreadable')}</p>}
       {panel === 'person' && <PayPerson account={account} own={own} role={role} open={open} />}
       {panel === 'payroll' && <PayrollRun account={account} own={own} role={role} open={open} />}
       {panel === 'team' && <TeamPanel account={account} role={role} open={open} />}
@@ -313,8 +296,8 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
   );
 }
 
-/** `/bank/business`: open a company account, pay with a second person's approval, and decide on waiting payments. */
-export function BusinessBank({ open }: { open: (spec: ActionSpec) => void }) {
+/** `/bank/business`'s sections: open a company account, pay with a second person's approval, and decide on waiting payments. */
+export function BusinessSections({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = businessCopy.useCopy();
   const [limit, setLimit] = usePageLimit();
   const query = useBankRead('business.list', { limit });
@@ -350,22 +333,28 @@ export function BusinessBank({ open }: { open: (spec: ActionSpec) => void }) {
     });
   return (
     <>
-      <DepthPanel title={t('openTitle')} lead={t('openLead')}>
-        <div className="actions">
-          <Button onClick={create} disabled={assets.length === 0} aria-describedby={assets.length === 0 ? 'business-open-why' : undefined}>
+      <Panel id="business-open" title={t('openTitle')} lead={t('openLead')}>
+        <div className="lt-actions">
+          <Button
+            tone="primary"
+            onClick={create}
+            disabled={assets.length === 0}
+            aria-describedby={assets.length === 0 ? 'business-open-why' : undefined}
+          >
             {t('openButton')}
           </Button>
         </div>
         {assets.length === 0 && held.resource.status === 'ready' && (
-          <p id="business-open-why" className="money-caption">
+          <p id="business-open-why" className="lt-hint">
             {t('openNoAssets')}
           </p>
         )}
-      </DepthPanel>
-      <Section
+      </Panel>
+      <Panel
+        id="business-accounts"
         title={t('accountsTitle')}
         actions={
-          <Button variant="ghost" onClick={query.reload}>
+          <Button tone="quiet" onClick={query.reload}>
             {t('refresh')}
           </Button>
         }
@@ -376,13 +365,13 @@ export function BusinessBank({ open }: { open: (spec: ActionSpec) => void }) {
               {rows.length ? (
                 rows.map((account) => <AccountCard key={account.id} account={account} spaces={spaces} open={open} />)
               ) : (
-                <NoRows title={t('accountsEmptyTitle')}>{t('accountsEmptyBody')}</NoRows>
+                <EmptyState title={t('accountsEmptyTitle')} body={t('accountsEmptyBody')} />
               )}
               <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
             </>
           )}
         </ResourceView>
-      </Section>
+      </Panel>
     </>
   );
 }

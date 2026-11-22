@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import type { z } from 'zod';
-import { Button, Field, Loading } from '../../shared/ui';
-import { decimalSchema, formatAmount, parseAmount } from '../../shared/money';
-import { DepthPanel, DisabledAction, Fact } from './DepthParts';
-import { businessCopy } from './business-copy';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { decimalSchema, formatAmount, parseAmount } from '../../../shared/money';
+import { DisabledAction, Fact, Loading, Panel } from '../bank-settings/parts';
+import { businessCopy } from '../business-copy';
 import {
   buildPayrollInput,
   canRunPayroll,
@@ -13,11 +13,10 @@ import {
   MAX_PAYROLL_LINES,
   type PayrollLine,
   type PayrollProblem,
-} from './business-model';
+} from '../business-model';
 import { PersonFinder, roleOf, type FoundPerson, type RoleState } from './BusinessPeople';
-import { amount as exactAmount, funds, type ActionSpec } from './components';
-import type { businessSchema } from './contracts';
-import './bank-depth.css';
+import { amount as exactAmount, funds, type ActionSpec } from '../components';
+import type { businessSchema } from '../contracts';
 
 type Business = z.infer<typeof businessSchema>;
 type OwnSpace = { id: string; name: string; assetId: string; balance: string };
@@ -142,46 +141,42 @@ export function PayrollRun({
 
   if (role.status === 'loading')
     return (
-      <DepthPanel title={t('payrollTitle')}>
+      <Panel level={3} title={t('payrollTitle')}>
         <Loading />
-      </DepthPanel>
+      </Panel>
     );
   if (known !== null && !canRunPayroll(known))
     return (
-      <DepthPanel title={t('payrollTitle')} lead={t('payrollLead')}>
+      <Panel level={3} title={t('payrollTitle')} lead={t('payrollLead')}>
         <DisabledAction label={t('payrollReview')} reason={t('payrollRoleReason')} />
-      </DepthPanel>
+      </Panel>
     );
   if (account.status !== 'active')
     return (
-      <DepthPanel title={t('payrollTitle')} lead={t('payrollLead')}>
+      <Panel level={3} title={t('payrollTitle')} lead={t('payrollLead')}>
         <DisabledAction label={t('payrollReview')} reason={t('closed')} />
-      </DepthPanel>
+      </Panel>
     );
   if (!source)
     return (
-      <DepthPanel title={t('payrollTitle')} lead={t('payrollLead')}>
+      <Panel level={3} title={t('payrollTitle')} lead={t('payrollLead')}>
         <DisabledAction label={t('payrollReview')} reason={t('payrollNoSource', { asset: account.assetId })} />
-      </DepthPanel>
+      </Panel>
     );
   return (
-    <DepthPanel title={t('payrollTitle')} lead={t('payrollLead')}>
-      {role.status === 'failed' && <p className="money-caption">{t('roleUnreadable')}</p>}
-      <label className="field">
-        <span>{t('payrollSource')}</span>
-        <select value={source.id} onChange={(event) => setSourceId(event.target.value)}>
-          {own.map((space) => (
-            <option key={space.id} value={space.id}>
-              {`${space.name} · ${funds(space.balance, space.assetId)}`}
-            </option>
-          ))}
-        </select>
-      </label>
-      <h4 className="bd-subhead">{t('payrollAddTitle')}</h4>
+    <Panel level={3} title={t('payrollTitle')} lead={t('payrollLead')}>
+      {role.status === 'failed' && <p className="lt-hint">{t('roleUnreadable')}</p>}
+      <Select
+        label={t('payrollSource')}
+        value={source.id}
+        onChange={setSourceId}
+        options={own.map((space) => ({ value: space.id, label: `${space.name} · ${funds(space.balance, space.assetId)}` }))}
+      />
+      <h4>{t('payrollAddTitle')}</h4>
       <PersonFinder accountId={account.id} assetId={account.assetId} person={person} onChange={setPerson} />
       {person && (
         <form
-          className="bd-recipient__search"
+          className="lt-toolbar"
           onSubmit={(event) => {
             event.preventDefault();
             addLine();
@@ -199,26 +194,26 @@ export function PayrollRun({
               setIssue(null);
             }}
           />
-          <Button type="submit" variant="secondary" disabled={!amount.trim()}>
+          <Button type="submit" tone="secondary" disabled={!amount.trim()}>
             {t('payrollAddLine')}
           </Button>
         </form>
       )}
-      <h4 className="bd-subhead">{t('payrollLines')}</h4>
+      <h4>{t('payrollLines')}</h4>
       {lines.length === 0 ? (
-        <p className="money-caption">{t('payrollNoLines')}</p>
+        <p className="lt-hint">{t('payrollNoLines')}</p>
       ) : (
-        <ul className="bd-team">
+        <ul>
           {lines.map((line) => (
-            <li key={line.toSpaceId} className="bd-team__row">
+            <li key={line.toSpaceId} className="lt-toolbar">
               <strong lang="zxx" dir="ltr">
                 @{line.handle}
               </strong>
-              <span className="numeric" lang="zxx" dir="ltr">
+              <span className="lt-mono" lang="zxx" dir="ltr">
                 {exact(line.amount)}
               </span>
               <Button
-                variant="ghost"
+                tone="quiet"
                 aria-label={t('payrollRemove', { handle: line.handle })}
                 onClick={() => setLines(lines.filter((each) => each.toSpaceId !== line.toSpaceId))}
               >
@@ -228,34 +223,34 @@ export function PayrollRun({
           ))}
         </ul>
       )}
-      <dl className="bd-facts">
+      <dl className="lt-kv">
         <Fact label={t('payrollPeople')}>{lines.length}</Fact>
         <Fact label={t('payrollTotal')}>
-          <span className="numeric" lang="zxx" dir="ltr">
+          <span className="lt-mono" lang="zxx" dir="ltr">
             {total === null ? '—' : exact(formatAmount(total))}
           </span>
         </Fact>
         <Fact label={t('payrollLimit')}>
-          <span className="numeric" lang="zxx" dir="ltr">
+          <span className="lt-mono" lang="zxx" dir="ltr">
             {exact(account.spendThreshold)}
           </span>
         </Fact>
         <Fact label={t('payrollAvailable')}>
-          <span className="numeric" lang="zxx" dir="ltr">
+          <span className="lt-mono" lang="zxx" dir="ltr">
             {exact(source.balance)}
           </span>
         </Fact>
       </dl>
-      <div className="actions">
-        <Button onClick={review} disabled={problem !== null} aria-describedby={problem ? 'payroll-why' : undefined}>
+      <div className="lt-actions">
+        <Button tone="primary" onClick={review} disabled={problem !== null} aria-describedby={problem ? 'payroll-why' : undefined}>
           {t('payrollReview')}
         </Button>
       </div>
       {problem && (
-        <p id="payroll-why" className="money-caption" role="status">
+        <p id="payroll-why" className="lt-hint" role="status">
           {words(problem)}
         </p>
       )}
-    </DepthPanel>
+    </Panel>
   );
 }
