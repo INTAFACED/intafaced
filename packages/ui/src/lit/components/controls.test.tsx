@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Button } from './index.js';
-import { Checkbox, FormField, Input } from './controls.js';
+import { Checkbox, FormField, Input, Stat } from './controls.js';
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const css = readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '../templates/templates.css'), 'utf8');
@@ -40,5 +40,23 @@ describe('the desk form parts', () => {
     const block = css.slice(css.indexOf('/* ---- form and overlay parts'));
     expect(block).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|\bpx\b/i);
     expect(block).not.toMatch(/\b(left|right|top|bottom)\s*:/);
+  });
+});
+
+describe('the headline figure', () => {
+  it('says how fresh it is, in words, with its as-of time', () => {
+    const at = Date.parse('2026-11-22T10:00:00Z');
+    const live = html(<Stat label="Margin posted" value="10.0000 USDT" asOf={at} now={at + 1000} staleAfterMs={30_000} />);
+    expect(live).toContain('role="group"');
+    expect(live).toContain('Live');
+    expect(live).toContain('dateTime="2026-11-22T10:00:00.000Z"');
+    expect(html(<Stat label="Margin posted" value="1" asOf={at} now={at + 60_000} staleAfterMs={30_000} />)).toContain('Stale');
+    expect(html(<Stat label="Margin posted" value={null} refused />)).toContain('Refused');
+  });
+
+  it('an unknown value is the dash, never 0', () => {
+    const out = html(<Stat label="Margin calls" value={null} />);
+    expect(out).toContain('—');
+    expect(out).not.toContain('>0<');
   });
 });

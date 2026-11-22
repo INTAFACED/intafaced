@@ -1,6 +1,6 @@
 /**
  * Volt form and overlay parts a desk needs: a labelled field around one control, a text or money-safe decimal input,
- * a checkbox, a modal dialog and a menu. Behaviour is the old kit's (Base UI for focus, labels and
+ * a checkbox, a modal dialog, a menu and a headline figure with its freshness. Behaviour is the old kit's (Base UI for focus, labels and
  * Escape; `../../components/input-logic.ts` for the decimal rules); the look is only `--lit-*` roles, in
  * `../templates/templates.css` (`lt-input`, `lt-dialog`, `lt-menu`).
  */
@@ -10,6 +10,8 @@ import { Field as FieldPrimitive } from '@base-ui/react/field';
 import { Input as InputPrimitive } from '@base-ui/react/input';
 import { Menu as MenuPrimitive } from '@base-ui/react/menu';
 import { blurDecimalValue, displayDecimal, nextDecimalValue, pastedDecimalValue, stepValueForKey } from '../../components/input-logic.js';
+import { asOfIso, formatAsOf, freshnessOf, type AsOf, type Freshness } from '../../components/freshness.js';
+import { useFreshnessClock } from '../../components/use-freshness-clock.js';
 import { Button } from './index.js';
 
 interface FormFieldContext {
@@ -306,5 +308,75 @@ export function Menu({
         </MenuPrimitive.Positioner>
       </MenuPrimitive.Portal>
     </MenuPrimitive.Root>
+  );
+}
+
+const FRESHNESS: Record<Freshness, { status: 'done' | 'pending' | 'unknown' | 'failed'; word: string }> = {
+  live: { status: 'done', word: 'Live' },
+  stale: { status: 'pending', word: 'Stale' },
+  unknown: { status: 'unknown', word: 'Unknown' },
+  refused: { status: 'failed', word: 'Refused' },
+};
+
+export interface StatProps {
+  label: string;
+  /** Pre-formatted text. null = unknown: the dash, spoken "unknown", never 0. */
+  value: string | null;
+  hint?: string;
+  /** With it (or when refused), a freshness chip with the as-of time sits under the value. */
+  asOf?: AsOf;
+  /** Epoch ms; without it the figure re-checks its own age. */
+  now?: number;
+  staleAfterMs?: number | null;
+  refused?: boolean;
+}
+
+/** One headline figure with its label, its hint and how fresh it is (Live, Stale, Unknown, Refused) in words. */
+export function Stat({ label, value, hint, asOf, now, staleAfterMs, refused }: StatProps) {
+  const id = React.useId();
+  const hasFreshness = asOf != null || refused === true;
+  const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused, enabled: hasFreshness });
+  const freshness = hasFreshness ? freshnessOf({ asOf, now: clock, staleAfterMs, refused }) : undefined;
+  const iso = hasFreshness ? asOfIso(asOf) : null;
+  const shown = iso ? formatAsOf(asOf, { now: clock }) : null;
+  return (
+    <div
+      role="group"
+      aria-labelledby={`${id}-label`}
+      aria-describedby={hint ? `${id}-hint` : undefined}
+      className="lt-stat"
+      data-freshness={freshness}
+    >
+      <span id={`${id}-label`} className="lt-hint">
+        {label}
+      </span>
+      <span className="lt-figure">
+        {value === null ? (
+          <>
+            <span aria-hidden="true">—</span>
+            <span className="lt-sr">unknown</span>
+          </>
+        ) : (
+          value
+        )}
+      </span>
+      {hint ? (
+        <span id={`${id}-hint`} className="lt-hint">
+          {hint}
+        </span>
+      ) : null}
+      {freshness ? (
+        <span role="status" className="lt-chip" data-status={FRESHNESS[freshness].status} data-freshness={freshness}>
+          <span className="lt-chip-mark" aria-hidden="true" />
+          <span data-part="word">{FRESHNESS[freshness].word}</span>
+          {iso && shown ? (
+            <span>
+              {' · as of '}
+              <time dateTime={iso}>{shown}</time>
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+    </div>
   );
 }

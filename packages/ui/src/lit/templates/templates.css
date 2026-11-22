@@ -1485,3 +1485,12 @@
   color: var(--lit-text-disabled);
   cursor: not-allowed;
 }
+
+/* A headline figure: its label, the value, its hint and how fresh it is. */
+.lt-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--lit-gap-item) / 2);
+  min-inline-size: 0;
+}
