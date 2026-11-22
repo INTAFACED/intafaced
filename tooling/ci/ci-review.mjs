@@ -30,6 +30,7 @@
  * answer (either part) is no verdict (the job fails before `Verdict`, so a re-run can try again); only a well-formed
  * FAIL fails a verdict step, which then stands for that head and any head with the same tree (ciReviewVerdict).
  */
+import { runJobs } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, realpathSync, existsSync, readdirSync } from 'node:fs';
@@ -1517,7 +1518,7 @@ export async function readStreak({ repo, number, ref, head, since, own, get = ge
     runs.push(...batch);
     if (batch.length < 100) break;
   }
-  const jobsOf = async (r) => (await json(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=all&per_page=100`)).jobs ?? [];
+  const jobsOf = async (r) => (await runJobs(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=all`, json)) ?? [];
   const logOf = async (job) => {
     const r = await get(`/repos/${repo}/actions/jobs/${job.id}/logs`, 'application/vnd.github+json');
     return r.status === 200 ? findingsInLog(r.text) : [];
