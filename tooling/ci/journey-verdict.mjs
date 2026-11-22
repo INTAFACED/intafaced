@@ -362,8 +362,14 @@ export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {},
  * `target` is the set of journey file names a targeted run ran, or null for a full run; `setAside` is setAsideSteps();
  * `guard` is setAsideGuard() (the money rule when not given): a guarded step is never set aside.
  * `onMain` is runIsOnMain(): only there are the steps that passed only on their retry listed for Main trust's `flaky`
- * issue. Returns { failing, red, setAside, flaky } (setAside: the steps a set-aside kept out of the red, with their state
+ * issue. Returns { failing, red, setAside, flaky, moneyByHead } (setAside: the steps a set-aside kept out of the red, with their state
  * this run; flaky: on main, the steps that failed, then passed on their retry, that no set-aside tracks).
+ * `headMoney` is the money rule at a pull request's own head, which only the merge seal gives (journey-seal.mjs): a step
+ * whose baseline money flag `money` (main's rule) disagrees with is red, marked `mismatch`, unless the head's own rule
+ * agrees with the baseline; then the entry is checked under the baseline's flag and any red the step still gives counts as
+ * money (the stricter of the two), so it is never passed over as inherited. `moneyByHead` lists those steps. (Failure it
+ * prevents: #9539 made apps/admin money on main, so 8 regression steps read "the baseline says money false, the money rule
+ * at this commit says true" on every pull request's seal, #9601's fix and #9603's revert included, and none could merge.)
  */
 export function judge({
   newest,
@@ -376,6 +382,7 @@ export function judge({
   target = null,
   setAside = {},
   onMain = false,
+  headMoney = null,
 }) {
   const inScope = (step, files) => !target || target.has(files[step]);
   const asideNow = (step) => setAside[step]?.active && !(guard[step] ?? true);
@@ -403,10 +410,17 @@ export function judge({
   const runNo = baseline?.run?.number;
   const red = [];
   const kept = [];
+  const moneyByHead = [];
   for (const step of [...failing].sort(byStep)) {
-    const isMoney = money[step] ?? true; // a step missing from journeys.json counts as money
+    const ruled = money[step] ?? true; // a step missing from journeys.json counts as money
     const e = entries.get(step);
-    const no = (why) => red.push({ step, why, money: isMoney });
+    // The head's own rule agrees with the baseline where this rule does not (headMoney above): the stricter flag marks
+    // the step's reds, and the entry is read under the baseline's flag, which the head holds too.
+    const byHead = Boolean(e && headMoney && e.money !== ruled && (headMoney[step] ?? true) === e.money);
+    const isMoney = byHead ? ruled || e.money : ruled;
+    const entryMoney = byHead ? e.money : ruled;
+    if (byHead) moneyByHead.push(step);
+    const no = (why, mark = {}) => red.push({ step, why, money: isMoney, ...mark });
     // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, the run just before this one
     // showed it passing (two failures in a row is broken; an unknown previous result excuses nothing), and its baseline
     // entry (if any) is well formed. Skipped or missing never.
@@ -429,12 +443,13 @@ export function judge({
             : `passed in run ${runNo}, ${newest.states[step] ?? 'missing'} now`,
         );
     } else if (dupes.has(step)) no('listed more than once in the baseline');
-    else if (e.money !== isMoney) no(`the baseline says money ${e.money}, the money rule at this commit says ${isMoney}`);
+    else if (e.money !== entryMoney)
+      no(`the baseline says money ${e.money}, the money rule at this commit says ${ruled}`, { mismatch: true });
     else if (e.state === 'unbuilt') {
       if (passedSince[step] !== undefined)
         no(`called unbuilt, but passed on main in run ${passedSince[step]}, after the baseline's run ${runNo}`);
     } else if (e.state === 'regression') {
-      if (isMoney) no('a money step may be in the baseline only as unbuilt');
+      if (entryMoney) no('a money step may be in the baseline only as unbuilt');
       else {
         const why = issueProblem(e.issue, issues[e.issue]);
         if (why) no(`regression: ${why}`);
@@ -456,7 +471,7 @@ export function judge({
     testsFailing++;
     red.push({ step: k, why: `a test with no step title: passed on main in run ${when}, ${s} now`, money: journeyMoney(k.split('#')[0]) });
   }
-  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps };
+  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps, moneyByHead };
 }
 
 /** A git command's exit: 0 or 1 (a plain no). Any other failure (a missing object, a shallow clone, no git) throws, so a

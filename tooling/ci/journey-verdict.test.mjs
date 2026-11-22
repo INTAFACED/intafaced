@@ -250,6 +250,43 @@ test('red: a regression entry whose issue is not parked with a blocker, or is mo
   assert.match(v.red[0].why, /only as unbuilt/);
 });
 
+test("a money-flag mismatch main's rule made is passed only when the head's own rule agrees with the baseline, and only the stricter way (#9601)", () => {
+  const failingNow = readReport(report(ok('J-a-01 #1'), bad('J-a-02 #1')));
+  const mainSays = { ...money, 'J-a-02#1': true }; // #9539: main's rule now calls a baseline money-false step money
+  const at = (extra) => judge({ newest: failingNow, named, baseline, money: mainSays, issues: { 9: parkedIssue }, ...extra });
+  // Main's rule alone (main's own runs, the journeys verdict): red, and marked so the seal can read the head's rule.
+  const alone = at({});
+  assert.deepEqual(
+    alone.red.map((r) => [r.step, r.why, r.money, r.mismatch]),
+    [['J-a-02#1', 'the baseline says money false, the money rule at this commit says true', true, true]],
+  );
+  // Planted fix (#9601): the head's own rule agrees with the baseline, so the entry is read under its flag: a parked regression.
+  const fixed = at({ headMoney: { ...money, 'J-a-02#1': false } });
+  assert.deepEqual(fixed.red, []);
+  assert.deepEqual(fixed.moneyByHead, ['J-a-02#1']);
+  // The same mismatch on a head that does not fix it, or a step the head's rule doesn't know (money), stays red.
+  for (const headMoney of [{ ...money, 'J-a-02#1': true }, {}]) {
+    const v = at({ headMoney });
+    assert.match(v.red[0]?.why ?? '', /money false, the money rule at this commit says true/);
+    assert.deepEqual(v.moneyByHead, []);
+  }
+  // Agreeing never loosens: a red the step still gives counts as money, so the seal never passes it over as inherited.
+  const closed = { ...parkedIssue, issue: { ...parkedIssue.issue, state: 'closed' } };
+  const still = at({ headMoney: { ...money, 'J-a-02#1': false }, issues: { 9: closed } });
+  assert.deepEqual(
+    still.red.map((r) => [r.step, r.money]),
+    [['J-a-02#1', true]],
+  );
+  assert.match(still.red[0].why, /is closed/);
+  // The other way round: a money-true unbuilt entry main's rule calls non-money is read as unbuilt (a money step) when
+  // the head agrees; a head's rule matching main's changes nothing.
+  const unbuilt = { ...baseline, steps: [{ step: 'J-a-02#1', state: 'unbuilt', money: true }] };
+  const back = judge({ newest: failingNow, named, baseline: unbuilt, money, headMoney: { ...money, 'J-a-02#1': true } });
+  assert.deepEqual(back.red, []);
+  const same = judge({ newest: failingNow, named, baseline, money, headMoney: { ...money, 'J-a-02#1': true }, issues: { 9: parkedIssue } });
+  assert.deepEqual(same.red, [], "a head whose rule disagrees with the baseline where main's agrees is not read by it");
+});
+
 test('red: a step listed twice, or in a state the runbook does not allow', () => {
   const twice = { ...baseline, steps: [...baseline.steps, baseline.steps[0]] };
   assert.match(
