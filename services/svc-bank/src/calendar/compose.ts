@@ -30,6 +30,7 @@ export function composeCalendarArea(
       directDebits: made.directDebits,
       earn: made.earn,
       loans: made.loans,
+      ...(root.testPartner ? { testFailing: (userId: string) => root.testPartner!.switches(userId).calendarSource } : {}),
       log: (source, err) =>
         console.error(
           JSON.stringify({
