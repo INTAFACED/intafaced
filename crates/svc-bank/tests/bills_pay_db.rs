@@ -294,9 +294,12 @@ fn live_bills(rail: &Rail) -> pay::Wiring {
     }
 }
 
+/// Each approval: its action, its payload hash, and whether it was consumed.
+type Approved = BTreeMap<String, (String, String, bool)>;
+
 /// `approvingIdentity()`: identity's same-person consume, once per approval.
 #[derive(Clone, Default)]
-struct Identity(Arc<Mutex<BTreeMap<String, (String, String, bool)>>>);
+struct Identity(Arc<Mutex<Approved>>);
 
 impl Identity {
     fn approve(&self, action: &str, fields: &[(&str, &str)]) -> String {
