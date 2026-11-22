@@ -1,0 +1,46 @@
+[
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "local-test-market.mjs",
+    "verdict": "rewrite",
+    "asserts": "Every TEST spot listing the market maker should quote has a TEST price and is in its default markets, and every one named unquoted has neither, so the charts' untraded market never gets a tape.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker unless named unquoted"
+    },
+    "why": "Imports the maker's own TEST_PRICES and DEFAULT_SYMBOLS (the table and list its run reads) and checks each listing against them."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "local-test-gates.mjs",
+    "verdict": "delete",
+    "asserts": "`apply` publishes the TEST business verification requirements, after the TEST spot listings.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/tests/real-app/J-merchant-02.pw.mjs#the owner chooses the legal entity type; changing it returns the application to Pending and lists what is still needed with a due date"
+    },
+    "why": "Every journeys shard runs `local-test-gates.mjs apply` on a fresh stack, and J-merchant-02 #2 reads the TEST documents those requirements publish (Test proof of identity, Test proof of address), so an apply that stopped publishing them fails it on the running app; the order relative to the spot listings carries no property."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "local-test-gates.mjs",
+    "verdict": "delete",
+    "asserts": "`verify` submits the enrolled founders' own verification requests.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/tests/real-app/J-p2p-01.pw.mjs#the ad board shows each ad’s price, limits, method and maker"
+    },
+    "why": "apply runs verifyAll and then publishP2pMethods as the founders (approverSessions), which throws when svc-p2p refuses a founder without a verified tier, so on a fresh journeys stack whose founders were not submitted apply fails before the TEST methods J-p2p-01 #2 shows are registered (every shard stopped there in run 231, before verify submitted them)."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "local-test-stack.mjs",
+    "verdict": "rewrite",
+    "asserts": "The trade cancel consumer engine-drop reaches is on the stack's own matching stream.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#engine-drop loses exactly one cancel"
+    },
+    "why": "Reads NATS_STREAM_PREFIX from the env the stack hands svc-trade and svc-matching (localTestServiceEnvs) and checks TRADE_CANCELS.stream against both."
+  }
+]

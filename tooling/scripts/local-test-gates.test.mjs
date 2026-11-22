@@ -74,6 +74,7 @@ import {
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
+import { DEFAULT_SYMBOLS, TEST_PRICES } from './local-test-market.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-gates.mjs');
@@ -610,7 +611,6 @@ assert.deepEqual(
 // TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker unless named unquoted, and opened
 // like any spot book.
 {
-  const marketSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs'), 'utf8');
   assert.ok(TEST_SPOT_LISTINGS.some((l) => l.symbol === 'ETH/BTC'));
   for (const symbol of UNQUOTED_TEST_SPOT)
     assert.ok(
@@ -622,11 +622,11 @@ assert.deepEqual(
     assert.equal(l.symbol, `${l.baseAsset}/${l.quoteAsset}`);
     if (UNQUOTED_TEST_SPOT.includes(l.symbol)) {
       // Unquoted on purpose: no TEST price and not in the market maker's defaults.
-      assert.ok(!marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} must stay unquoted`);
-      assert.doesNotMatch(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+      assert.equal(Object.hasOwn(TEST_PRICES, l.symbol), false, `${l.symbol} must stay unquoted`);
+      assert.equal(DEFAULT_SYMBOLS.includes(l.symbol), false, `${l.symbol} is not in the market maker's defaults`);
     } else {
-      assert.ok(marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} has a TEST price`);
-      assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+      assert.ok(TEST_PRICES[l.symbol]?.start, `${l.symbol} has a TEST price`);
+      assert.ok(DEFAULT_SYMBOLS.includes(l.symbol), `${l.symbol} is in the market maker's defaults`);
     }
     assert.deepEqual(
       openableMarkets([{ ...base, symbol: l.symbol, test: true, schedule: l.schedule ?? 'crypto-24x7' }]).map((m) => m.symbol),
@@ -678,8 +678,6 @@ assert.deepEqual(
   const docs = (name) => TEST_KYB_ENTITY_TYPES.find((t) => t.entityType === name).documentKeys;
   assert.notDeepEqual(docs('private_company'), docs('sole_proprietorship'));
   assert.ok(TEST_KYB_UPLOAD_RULES.maxBytes >= 1 && TEST_KYB_UPLOAD_RULES.contentTypes.length >= 1);
-  const gatesSrc = readFileSync(script, 'utf8');
-  assert.match(gatesSrc, /await seedSpotTestListings\(ctx\);\n\s*await seedPayKybRequirements\(ctx\);/);
 }
 
 // Tier planning: nobody with an approved full or institutional record is touched.
@@ -766,10 +764,9 @@ assert.equal(refusalText({ json: null, text: 'plain' }), 'plain');
   assert.equal(await founderSession(ctx, 'a'), await founderSession(ctx, 'a'));
   rmSync(stateDir, { recursive: true, force: true });
 }
-// verify submits founders' requests; populate (which approves only its friend) does not.
+// populate (which approves only its friend) does not submit the founders' requests. That verify does is held by every
+// journeys shard: its `apply` publishes the P2P methods as the founders, which svc-p2p refuses without their verified tier.
 {
-  const src = readFileSync(script, 'utf8');
-  assert.match(src, /submitOwnedAccounts\(ctx, before, \{ founders: true \}\)/);
   const world = readFileSync(resolve(here, 'local-test-world.mjs'), 'utf8');
   assert.match(world, /gates\.submitOwnedAccounts\(gctx, before\);/);
 }
@@ -1029,8 +1026,13 @@ for (const [args, usage] of [
     [TRADE_CANCELS.durable],
     "trade's cancel consumer is the one named",
   );
-  const prefix = /const STREAM_PREFIX = '([A-Z_]+)'/.exec(readFileSync(resolve(here, 'local-test-stack.mjs'), 'utf8'))?.[1];
-  assert.equal(TRADE_CANCELS.stream, `${prefix}_MATCHING`, "the stack's own matching stream");
+  // The stream prefix the stack hands svc-trade and svc-matching at start (their NATS_STREAM_PREFIX).
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const prefixes = localTestServiceEnvs()
+    .filter((d) => d.name === 'trade' || d.name === 'matching')
+    .map((d) => d.env.NATS_STREAM_PREFIX);
+  assert.equal(prefixes.length, 2, 'the stack starts trade and matching');
+  for (const prefix of prefixes) assert.equal(TRADE_CANCELS.stream, `${prefix}_MATCHING`, "the stack's own matching stream");
 }
 // scoped-session: the founder scopes come from the stack's own identity definition, never a copy, and less one only.
 {
