@@ -100,35 +100,6 @@ export const BANK_OPS_POOL_TOTALS = defineProcedure({
   samples: [{ verdict: 'accept' }],
 });
 
-export const BANK_OPS_LOAN_BOOK = defineProcedure({
-  ...base,
-  name: 'bank.ops.loanBook',
-  kind: 'query',
-  path: 'ops.loanBook',
-  access: { caller: 'scope', scope: 'admin:read' },
-  refusals: {},
-  input: NO_INPUT,
-  output: z.object({
-    asOf: z.string(),
-    openCount: z.number().int().nonnegative(),
-    outstandingPrincipal: z.array(z.object({ assetId: assetIdSchema, amount: amountString })),
-    bands: z.object({
-      healthy: z.number().int().nonnegative(),
-      marginCall: z.number().int().nonnegative(),
-      liquidation: z.number().int().nonnegative(),
-      unpriced: z.number().int().nonnegative(),
-    }),
-    unpriced: z.array(
-      z.object({
-        loanId: z.string(),
-        reason: z.enum(['bank.loan_health_price_unset', 'bank.loan_opening_thresholds_unset']),
-      }),
-    ),
-    oldestPending: z.object({ id: z.string(), ageSeconds: z.number().int().nonnegative() }).nullable(),
-  }),
-  samples: [{ verdict: 'accept' }],
-});
-
 export const BANK_OPS_CARD_PROGRAMME = defineProcedure({
   ...base,
   name: 'bank.ops.cardProgramme',
