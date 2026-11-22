@@ -1,5 +1,8 @@
 import type { Sql } from 'postgres';
-import { selfFreezeStateSchema, serviceCallSigner, TRPCError, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { selfFreezeStateSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { MemorySeenStore, idempotent, type EventBus, type SeenStore, type Subscription } from '@intafaced/events';
 import { OwnAgentRefusal } from './catalog.js';
 

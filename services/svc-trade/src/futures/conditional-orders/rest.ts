@@ -7,7 +7,8 @@
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
-import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { FuturesError } from '../position-service.js';
 import type { ConditionalOrderService } from './service.js';
 import { FUTURES_RESTING_UNSUPPORTED } from './resting.js';

@@ -17,7 +17,8 @@ import { MemoryReconAlertFeedStore, type ReconAlertFeedStore } from './reconcili
 import type { NavMetricStore } from './nav-metrics/counts.js';
 import type { GuestNotificationService } from './guests/service.js';
 import type { GuestVerificationService } from './guests/verification.js';
-import { router, publicProcedure, scopedProcedure, TRPCError, marketMaintenanceReadSchema } from '@intafaced/contracts';
+import { marketMaintenanceReadSchema } from '@intafaced/contracts/market-maintenance';
+import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import {
   NotifyAnnouncementUnsetError,
   NotifyListLimitUnsetError,

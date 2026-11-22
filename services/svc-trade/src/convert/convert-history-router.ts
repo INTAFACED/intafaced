@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { convertHistoryTrpcError } from './convert-history.js';
 import type { TradeService } from '../spot/trade-service.js';
 

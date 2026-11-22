@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { drawRunInputSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { CAMPAIGNS_DRAW_BOARD } from '@intafaced/contracts/campaigns-procedures';

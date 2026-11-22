@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
-import { PREFERENCES_STALE, UNSET_PREFERENCES, type PreferenceValues, type WritablePreferenceLevel } from '@intafaced/contracts';
+import type { PreferenceValues, WritablePreferenceLevel } from '@intafaced/contracts';
+import { PREFERENCES_STALE, UNSET_PREFERENCES } from '@intafaced/contracts/ops-console-preferences';
 import { OpsError } from '../codes.js';
 
 /** One level's stored values. Revision 0 with `updatedAt` null: nothing was ever set at this level. */

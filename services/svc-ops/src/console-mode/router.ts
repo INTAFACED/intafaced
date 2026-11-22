@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server';
-import { consoleModeSchema, consoleModeSetInputSchema, consoleModeSetOutputSchema, router, scopedProcedure } from '@intafaced/contracts';
+import { consoleModeSchema, consoleModeSetInputSchema, consoleModeSetOutputSchema } from '@intafaced/contracts/ops-console-mode';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OpsError } from '../codes.js';
 import type { ConsoleModeDesk } from './desk.js';
 

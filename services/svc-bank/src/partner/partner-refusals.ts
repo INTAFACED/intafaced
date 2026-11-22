@@ -10,7 +10,7 @@
  * Counting never changes a refusal: a count that cannot be written is dropped, and the refusal is thrown as before.
  * The desk read names the first day counted, so a count is never read as covering days before it existed.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { FREEZE_CAUSES, readFreeze, type FreezeCause, type PartnerRefusal, type PostingFreeze } from './partner-bank.js';

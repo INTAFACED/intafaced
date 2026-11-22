@@ -9,6 +9,7 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
+import type { LiquidityToken, ProtocolSwapPairs } from '@intafaced/contracts';
 import {
   AMM_FEE_OUT_OF_RANGE,
   AMM_FEE_TIERS_UNSET,
@@ -18,11 +19,9 @@ import {
   LIQUIDITY_POOL_EXISTS,
   LIQUIDITY_ROUTER_UNSET,
   POOL_FEE_CAP_BPS,
-  SWAP_SETTINGS_UNSET,
-  TRPCError,
-  type LiquidityToken,
-  type ProtocolSwapPairs,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-liquidity';
+import { SWAP_SETTINGS_UNSET } from '@intafaced/contracts/protocol-swap';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import {
   PROTOCOL_AMM_FEE_TIERS,
   PROTOCOL_AMM_POOL_EXISTS,

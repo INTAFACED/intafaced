@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { revokeAllApiKeys, RevokeAllApiKeysError, revokeCauseOf } from './auth/revoke-all-api-keys.js';
 

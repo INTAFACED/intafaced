@@ -1,16 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
-import {
-  identityOperationDecisionInputSchema,
-  identityOperationDecisionSchema,
-  normalizeIdentityOperationInput,
-  canonicalIdentityOperationIntent,
-  type CurrentAuthorityInput,
-  type IdentityOperationDecision,
-  type IdentityOperationDecisionInput,
-  type IdentityOperationIntent,
+import type {
+  CurrentAuthorityInput,
+  IdentityOperationDecision,
+  IdentityOperationDecisionInput,
+  IdentityOperationIntent,
 } from '@intafaced/contracts';
+import { normalizeIdentityOperationInput, canonicalIdentityOperationIntent } from '@intafaced/contracts/operation-identity-client';
+import { identityOperationDecisionInputSchema, identityOperationDecisionSchema } from '@intafaced/contracts/operation-identity-decisions';
 import { lockFounderControls } from './founder-control-lock.js';
 
 type Refusal =
