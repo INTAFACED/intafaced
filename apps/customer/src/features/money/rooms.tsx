@@ -1,4 +1,5 @@
 import { t as copyText, Text } from './copy';
+import { bankLabels, bankRoomHref, bankRooms } from './bank-nav';
 import { ComplaintRoom } from './complaint/ComplaintRoom';
 import {
   BusinessLoanPreviewRoom,
@@ -117,27 +118,11 @@ import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 
-const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
-const bankLabels = {
-  Overview: 'nav.overview',
-  Spaces: 'nav.spaces',
-  Transfers: 'nav.transfers',
-  Earn: 'nav.earn',
-  Loans: 'nav.loans',
-  Cards: 'nav.cards',
-  Ramps: 'nav.ramps',
-  Analytics: 'nav.analytics',
-  Business: 'nav.business',
-} as const;
 export function BankNavigation({ current }: { current: string }) {
   return (
     <nav data-testid="money-bank-nav" className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
       {bankRooms.map((room) => (
-        <a
-          key={room}
-          href={room === 'Overview' ? '/bank' : `/bank/${room.toLowerCase()}`}
-          aria-current={current === room ? 'page' : undefined}
-        >
+        <a key={room} href={bankRoomHref(room)} aria-current={current === room ? 'page' : undefined}>
           <Text k={bankLabels[room]} />
         </a>
       ))}
