@@ -475,7 +475,7 @@ function VenueCard({
             <strong>{ct('Too large title')}.</strong> {ct('Too large body', { amount: displayAmount(cap.amount), asset: cap.asset })}
           </p>
           <a
-            className="text-link"
+            className="lt-link"
             href={`#${OTC_DESK_ID}`}
             onClick={(event) => {
               event.preventDefault();
@@ -498,7 +498,7 @@ function VenueCard({
           <p>{t(cashLeg ? 'Not enough cash' : 'Not enough', { asset: from, value: displayAmount(free) })}</p>
           {cashLeg ? null : (
             <a
-              className="text-link"
+              className="lt-link"
               href="#venue-deposit"
               onClick={(event) => {
                 event.preventDefault();
@@ -515,7 +515,7 @@ function VenueCard({
           <p>
             <strong>{t('Paused title')}.</strong> {t('Paused body')}
           </p>
-          <a className="text-link" href={spot}>
+          <a className="lt-link" href={spot}>
             {t('Use Spot')}
           </a>
         </div>
@@ -609,7 +609,7 @@ function VenueCard({
 
       {reviewing && shown ? (
         <Dialog title={t('Review conversion')} onClose={() => !busy && setReviewing(false)}>
-          <div data-testid="cvt-review" className="form-stack">
+          <div data-testid="cvt-review" className="lt-stack">
             <p>{t('Review hint')}</p>
             <QuoteFacts quote={shown} t={t} testid="dlg-breakdown" />
             {stale ? (
@@ -710,7 +710,7 @@ function QuoteFacts({ quote: q, t, testid }: { quote: ConvertQuote; t: T; testid
         {rows.map(([line, label, value]) => (
           <div key={line}>
             <dt>{label}</dt>
-            <dd className="numeric" data-line={line}>
+            <dd className="lt-num" data-line={line}>
               {value}
             </dd>
           </div>
@@ -791,19 +791,19 @@ function Receipt({
       <dl className="protocol-facts">
         <div>
           <dt>{t('Paid')}</dt>
-          <dd className="numeric" data-line="paid">
+          <dd className="lt-num" data-line="paid">
             {displayAmount(c.paid.amount)} {c.paid.asset}
           </dd>
         </div>
         <div>
           <dt>{t('Received')}</dt>
-          <dd className="numeric" data-line="received">
+          <dd className="lt-num" data-line="received">
             {displayAmount(c.received.amount)} {c.received.asset}
           </dd>
         </div>
         <div>
           <dt>{t('Venue fee')}</dt>
-          <dd className="numeric" data-line="venue-fee">
+          <dd className="lt-num" data-line="venue-fee">
             {c.venueFee ? `${displayAmount(c.venueFee.amount)} ${c.venueFee.asset}` : t('Not known')}
           </dd>
         </div>
@@ -813,7 +813,7 @@ function Receipt({
         </div>
         <div>
           <dt>{t('Venue order')}</dt>
-          <dd className="numeric" data-line="client-id">
+          <dd className="lt-num" data-line="client-id">
             {c.venueClientOrderId}
           </dd>
         </div>
@@ -858,7 +858,7 @@ function VenueRouteCard({ from, to }: { from: string; to: string }) {
       <Button variant="primary" size={56} fullWidth disabled>
         {t('Get a price')}
       </Button>
-      <a className="text-link" href="/trade/convert" data-testid="cvt-route-other">
+      <a className="lt-link" href="/trade/convert" data-testid="cvt-route-other">
         {t('Choose other coins')}
       </a>
     </section>
@@ -907,10 +907,10 @@ function VenueRecent({ owner, test }: { owner: string; test: boolean }) {
                   {c.legs ? t('Linked kind') : c.kind === 'limit' ? t('Limit') : t('Instant')}
                   {c.legs ? <LinkedLegs legs={c.legs} testid="cvt-recent-legs" /> : null}
                 </td>
-                <td className="numeric" data-cell="paid">
+                <td className="lt-num" data-cell="paid">
                   {displayAmount(c.paid.amount)} {c.paid.asset}
                 </td>
-                <td className="numeric" data-cell="received">
+                <td className="lt-num" data-cell="received">
                   {displayAmount(c.received.amount)} {c.received.asset}
                 </td>
                 <td data-cell="time">{c.filledAt ? time(c.filledAt) : time(c.acceptedAt)}</td>

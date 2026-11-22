@@ -43,7 +43,7 @@ export function useNavigatorTrading(revision: number) {
 export function NavigatorCapLine({ trading }: { trading: NavigatorTrading | null }) {
   const { t } = navigatorOnchainCopy.useCopy();
   if (!trading) return null;
-  if (!trading.key) return <p className="muted">{t('capNoKey')}</p>;
+  if (!trading.key) return <p className="lt-muted">{t('capNoKey')}</p>;
   return (
     <p role="note" data-testid="navigator-cap">
       {t('capLine', { cap: eth(trading.key.capWei), spent: eth(trading.key.spentWei), left: eth(trading.key.leftWei) })}
@@ -65,7 +65,7 @@ function OrderFacts({ order, t }: { order: NavigatorOrder; t: T }) {
       <dt>{t('orderAsk')}</dt>
       <dd lang="und">{order.text}</dd>
       <dt>{t('orderTrade')}</dt>
-      <dd className="numeric">
+      <dd className="lt-num">
         {t('orderTradeValue', {
           amount: eth(order.amountInWei),
           from: order.tokenInSymbol,
@@ -76,9 +76,9 @@ function OrderFacts({ order, t }: { order: NavigatorOrder; t: T }) {
       <dt>{t('orderStatus')}</dt>
       <dd data-order-status={order.status}>{t(STATUS_WORDS[order.status])}</dd>
       <dt>{t('orderTx')}</dt>
-      <dd className="numeric">{order.txHash ? <code lang="zxx">{order.txHash}</code> : t('orderNoTx')}</dd>
+      <dd className="lt-num">{order.txHash ? <code lang="zxx">{order.txHash}</code> : t('orderNoTx')}</dd>
       <dt>{t('orderPlaced')}</dt>
-      <dd className="numeric">{utcTime(order.createdAt)}</dd>
+      <dd className="lt-num">{utcTime(order.createdAt)}</dd>
     </dl>
   );
 }
@@ -95,7 +95,7 @@ export function NavigatorOrderView({ order }: { order: NavigatorOrder }) {
         </span>
       </p>
       <OrderFacts order={order} t={t} />
-      <p className="muted">{t('orderInsideCap')}</p>
+      <p className="lt-muted">{t('orderInsideCap')}</p>
     </section>
   );
 }
@@ -139,7 +139,7 @@ export function NavigatorTradeRefusalView({
           : t(REFUSAL_WORDS[code] ?? 'refused_other')}{' '}
         <code lang="zxx">({code})</code>
       </p>
-      <p className="muted">{t('refusalNothingSigned')}</p>
+      <p className="lt-muted">{t('refusalNothingSigned')}</p>
     </section>
   );
 }
@@ -160,7 +160,7 @@ export function NavigatorOrders({ sessionId, revision = 0 }: { sessionId: string
       ) : resource.status === 'failed' ? (
         <Failure result={resource.failure} retry={reload} />
       ) : resource.data.orders.length === 0 ? (
-        <p className="muted">{t('ordersEmpty')}</p>
+        <p className="lt-muted">{t('ordersEmpty')}</p>
       ) : (
         <ul>
           {resource.data.orders.map((order) => (

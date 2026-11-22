@@ -294,7 +294,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
                           <td>{copyText(`token.status.${row.status}`)}</td>
                           <td>{row.unlocksAt ?? copyText('token.flexible')}</td>
                           <td>
-                            <span className="muted">
+                            <span className="lt-muted">
                               <Text k="token.unstake.unavailable.asset.identity.missing" />
                             </span>
                           </td>
@@ -312,10 +312,10 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
             <p role="status">
               <Text k="token.staking.and.unstaking.are.unavailable.until.the" />
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="token.the.token.asset.is.deployment.configurable.stake" />
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="token.your.existing.stake.records.remain.readable.a" />
             </p>
             {action.feedback}
@@ -409,13 +409,13 @@ function BallotContext({ saved, choose }: { saved: SavedBallot; choose: (id: str
               : []),
           ]}
         />
-        <p className="muted">{G.t(b.status === 'unknown' ? 'lookup' : b.status === 'recorded' ? 'saved' : 'refusedBoundary')}</p>
-        <div className="actions">
+        <p className="lt-muted">{G.t(b.status === 'unknown' ? 'lookup' : b.status === 'recorded' ? 'saved' : 'refusedBoundary')}</p>
+        <div className="lt-actions">
           <Button variant="secondary" onClick={() => choose(b.proposalId)}>
             {G.t('readOriginal')}
           </Button>
           {b.status === 'unknown' && (
-            <a className="button button--secondary" href="/support">
+            <a className="lt-button lt-button-secondary" href="/support">
               {G.t('support')}
             </a>
           )}
@@ -498,14 +498,14 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
               [G.t('stakeEstimate'), currentPreferences().hideBalances ? G.t('hidden') : displayAmount(weight)],
             ]}
           />
-          <p className="muted">
+          <p className="lt-muted">
             {G.t('unit')} {G.t('weightBoundary')}
           </p>
           <details>
             <summary>{G.t('body')}</summary>
             <pre lang="und">{body}</pre>
           </details>
-          <p className="muted">{G.t('preflight')}</p>
+          <p className="lt-muted">{G.t('preflight')}</p>
         </div>
       ),
       run: async (canDispatch) => {
@@ -639,19 +639,19 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   </div>
                 ))}
               </dl>
-              <p className="muted">{G.t('aggregate')}</p>
+              <p className="lt-muted">{G.t('aggregate')}</p>
             </section>
             <section className="token-proposal-section">
-              <p className="muted">
+              <p className="lt-muted">
                 {G.t('unit')} {G.t('weightBoundary')}
               </p>
               {!activeWindow(p, now) && (
-                <p role="status" className="muted">
+                <p role="status" className="lt-muted">
                   {G.t('inactive')}
                 </p>
               )}
               {powerView.status === 'ready' && !canWeigh && (
-                <p role="status" className="muted">
+                <p role="status" className="lt-muted">
                   {G.t('noWeight')}
                 </p>
               )}
@@ -668,7 +668,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   onCast={refresh}
                 />
               )}
-              <div className="actions">
+              <div className="lt-actions">
                 {(p.votingType === 'basic' ? choiceSchema.options : []).map((choice) => (
                   <Button
                     key={choice}

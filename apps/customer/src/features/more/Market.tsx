@@ -50,7 +50,7 @@ function MarketPrice({ price, assetId }: { price: string; assetId: string }) {
   return (
     <div className="market-purchases-value" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
       <div className="market-purchases-exact-price" tabIndex={0} role="group" aria-label={copyText('market.price')}>
-        <strong className="numeric" lang="zxx">
+        <strong className="lt-num" lang="zxx">
           {displayAmount(price)}
         </strong>
       </div>{' '}
@@ -301,7 +301,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
   // Read from the service: null means the owner has not decided it, so the room names that blocker beside the refund controls.
   const policyUnset = programme.resource.status === 'ready' && programme.resource.data.refundPolicy === null;
   const policyNote = (
-    <p className="muted" role="note" data-code="owner.decision">
+    <p className="lt-muted" role="note" data-code="owner.decision">
       <Text k="market.refund.policy.is.not.set" /> <code lang="zxx">owner.decision</code>
     </p>
   );
@@ -321,7 +321,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
       />
       <Read resource={programme.resource} retry={programme.reload}>
         {(p) => (
-          <p className="muted">
+          <p className="lt-muted">
             {p.commissionConfigured && p.commissionBps !== null
               ? copyText('market.published.house.commission.basis.points.charged.to', { value1: p.commissionBps })
               : copyText('market.the.house.commission.is.unpublished.the.service')}
@@ -333,7 +333,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
         {mine || strategy ? null : (
           <div className="depth-filters">
             <CategorySelect value={category} onChange={setCategory} allLabel={marketListingCopy.t('categoryAll')} />
-            <p className="muted">{marketListingCopy.t('categoryNote')}</p>
+            <p className="lt-muted">{marketListingCopy.t('categoryNote')}</p>
           </div>
         )}
         <Read
@@ -365,11 +365,11 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                       }}
                     >
                       <div className="market-catalogue-price">
-                        <span className="muted">
+                        <span className="lt-muted">
                           <Text k="market.price" />
                         </span>
                         <div role="group" aria-label={copyText('market.price')}>
-                          <strong className="numeric" lang="zxx">
+                          <strong className="lt-num" lang="zxx">
                             {displayAmount(detail.price)}
                           </strong>{' '}
                           <span lang="zxx">{detail.assetId}</span>
@@ -437,13 +437,13 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                       </div>
                       <div className="market-catalogue-decision">
                         <div className="market-catalogue-price">
-                          <span className="muted">
+                          <span className="lt-muted">
                             <Text k="market.price" />
                           </span>
                           <MarketPrice price={row.price} assetId={row.assetId} />
                         </div>
                         <div className="market-catalogue-access">
-                          <span className="muted">
+                          <span className="lt-muted">
                             <Text k="market.access" />
                           </span>
                           <p>
@@ -452,7 +452,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                               : copyText('market.one.time.purchase')}
                           </p>
                           {row.offerType === 'subscription' && (
-                            <p className="muted">
+                            <p className="lt-muted">
                               <Text k="market.automatic.recurring.charges.are.not.built" />
                             </p>
                           )}
@@ -653,7 +653,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
             </Panel>
           </div>
           <Panel title={strategy ? copyText('market.publish.a.strategy.subscription') : copyText('market.create.a.listing')}>
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="market.approval.and.stake.capacity.are.enforced.by" />
             </p>
             <form
@@ -750,7 +750,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
       )}
       {(mine || strategy) && (
         <Panel title={copyText('market.refund.requests')}>
-          <p className="muted">
+          <p className="lt-muted">
             <Text k="market.refund.requests.meaning" />
           </p>
           {policyUnset && policyNote}

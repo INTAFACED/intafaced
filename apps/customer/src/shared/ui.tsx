@@ -22,7 +22,7 @@ export function Field({
   const id = input.id ?? `${input.name ?? 'field'}-${generatedId}`;
   const describedBy = [input['aria-describedby'], hint || error ? `${id}-help` : undefined].filter(Boolean).join(' ') || undefined;
   return (
-    <label className="field" htmlFor={id}>
+    <label className="lt-field" htmlFor={id}>
       <span id={`${id}-label`}>{label}</span>
       <input
         {...input}
@@ -58,9 +58,9 @@ export function Page({
         <div>
           {eyebrow && <p className="eyebrow">{eyebrow}</p>}
           <h1>{title}</h1>
-          {description && <p className="muted">{description}</p>}
+          {description && <p className="lt-muted">{description}</p>}
         </div>
-        {actions && <div className="actions">{actions}</div>}
+        {actions && <div className="lt-actions">{actions}</div>}
       </header>
       {children}
     </div>
@@ -179,7 +179,7 @@ export function Stat({ label, value, note }: { label: ReactNode; value: ReactNod
   return (
     <div className="stat">
       <span>{label}</span>
-      <strong className="numeric">{value}</strong>
+      <strong className="lt-num">{value}</strong>
       {note && <small>{note}</small>}
     </div>
   );

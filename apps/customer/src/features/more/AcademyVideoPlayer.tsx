@@ -83,7 +83,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
         </video>
         {/* The element stays: a link that expires mid-play keeps playing what the browser holds, and the place is kept. */}
         {(loadFailed || (expired && !playing)) && (
-          <div data-testid="failure" className="failure" role="status" data-video-expired>
+          <div data-testid="failure" className="lt-refusal" role="status" data-video-expired>
             <p>{loadFailed ? t('videoLoadFailed') : t('videoExpired')}</p>
             <Button variant="secondary" onClick={renew}>
               {t('requestNewLink')}
@@ -110,7 +110,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
           <Button variant="ghost" onClick={() => setMuted((value) => !value)} aria-pressed={muted}>
             {muted ? t('videoUnmute') : t('videoMute')}
           </Button>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('videoSpeed')}</span>
             <select value={String(speed)} onChange={(event) => changeSpeed(Number(event.target.value))} data-video-speed>
               {VIDEO_SPEEDS.map((value) => (
@@ -120,7 +120,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('videoQuality')}</span>
             <select value="original" onChange={() => undefined} aria-describedby={`${id}-quality`} data-video-quality>
               {player.renditions.map((rendition) => (
@@ -130,7 +130,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('videoCaptions')}</span>
             {tracks.length === 0 ? (
               <select value="" disabled data-video-captions="none" onChange={() => undefined}>
@@ -152,16 +152,16 @@ export function VideoPlayerView(props: VideoPlayerProps) {
           </Button>
         </div>
       </div>
-      <p id={`${id}-quality`} className="muted">
+      <p id={`${id}-quality`} className="lt-muted">
         {t('videoQualityOnly')}
       </p>
-      <p id={`${id}-keys`} className="muted">
+      <p id={`${id}-keys`} className="lt-muted">
         {t('videoKeys')}
       </p>
-      <p className="muted" data-video-save-interval={player.saveEverySeconds ?? 'unset'}>
+      <p className="lt-muted" data-video-save-interval={player.saveEverySeconds ?? 'unset'}>
         {player.saveEverySeconds === null ? t('videoSaveUnset') : t('videoSaveEvery', { seconds: player.saveEverySeconds })}
       </p>
-      <p className="muted" data-video-threshold={player.watchThresholdSeconds ?? 'unset'}>
+      <p className="lt-muted" data-video-threshold={player.watchThresholdSeconds ?? 'unset'}>
         {player.watchThresholdSeconds === null
           ? t('videoWatchUnset')
           : t('videoWatchThreshold', { time: clock(player.watchThresholdSeconds) })}
@@ -181,7 +181,7 @@ export function VideoPlayerView(props: VideoPlayerProps) {
         {transcript ? (
           <TranscriptList cues={transcript.cues} language={transcript.language} current={current} seek={seekTo} />
         ) : (
-          <p className="muted">{t('videoTranscriptNone')}</p>
+          <p className="lt-muted">{t('videoTranscriptNone')}</p>
         )}
       </section>
     </figure>

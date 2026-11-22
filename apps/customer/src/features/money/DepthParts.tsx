@@ -18,7 +18,7 @@ export function DisabledAction({
       <Button variant={variant} disabled aria-describedby={id}>
         {label}
       </Button>
-      <p id={id} className="money-caption">
+      <p id={id} className="lt-muted">
         {reason}
       </p>
     </div>
@@ -38,14 +38,14 @@ export function DisabledActions({
   const id = useId();
   return (
     <div className="bd-disabled">
-      <div className="actions">
+      <div className="lt-actions">
         {labels.map((label, index) => (
           <Button key={index} variant={variant} disabled aria-describedby={id}>
             {label}
           </Button>
         ))}
       </div>
-      <p id={id} className="money-caption">
+      <p id={id} className="lt-muted">
         {reason}
       </p>
     </div>
@@ -57,7 +57,7 @@ export function DepthPanel({ title, lead, children, id }: { title: ReactNode; le
   return (
     <section className="bd-panel" aria-labelledby={heading} id={id}>
       <h3 id={heading}>{title}</h3>
-      {lead && <p className="money-caption">{lead}</p>}
+      {lead && <p className="lt-muted">{lead}</p>}
       {children}
     </section>
   );

@@ -61,7 +61,7 @@ export function MemoryPage({ agent, onOpenRun }: { agent: OwnAgent; onOpenRun: (
   );
   return (
     <Panel title={t('memoryTitle')} role="region" aria-label={t('memoryTitle')}>
-      <p className="muted">{t('memoryIntro')}</p>
+      <p className="lt-muted">{t('memoryIntro')}</p>
       <Read resource={loaded.resource} retry={loaded.reload}>
         {(stored) => <Memory agent={agent} stored={stored} onOpenRun={onOpenRun} />}
       </Read>
@@ -122,7 +122,7 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
         disabled={busy}
         onChange={(event) => void setEnabled(event.target.checked)}
       />
-      <p className="muted" data-testid="memory-state">
+      <p className="lt-muted" data-testid="memory-state">
         {t(memory.enabled ? 'memoryState_on' : 'memoryState_off')}
       </p>
       <DataTable label={t('itemsTable')} headers={[t('colItem'), t('colSource'), t('colWhen'), t('colClear')]}>
@@ -131,7 +131,7 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
             <td>{item.text}</td>
             <td>
               <a
-                className="text-link"
+                className="lt-link"
                 href={`#test-run-${item.sourceRunId}`}
                 data-run-id={item.sourceRunId}
                 onClick={(event) => {
@@ -151,7 +151,7 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
           </tr>
         ))}
       </DataTable>
-      {memory.items.length === 0 ? <p className="muted">{t('noItems')}</p> : null}
+      {memory.items.length === 0 ? <p className="lt-muted">{t('noItems')}</p> : null}
       {cleared ? <p role="status">{t('cleared')}</p> : null}
       {refused ? <Refused failed={refused} /> : null}
     </>
@@ -165,7 +165,7 @@ export function PrivacyPage({ agent }: { agent: OwnAgent }) {
   const loaded = useResource((signal) => api.call(AGENTS_OWN_PRIVACY_GET, { id: agent.id }, { signal }), `own-privacy:${agent.id}`);
   return (
     <Panel title={t('privacyTitle')} role="region" aria-label={t('privacyTitle')}>
-      <p className="muted">{t('privacyIntro')}</p>
+      <p className="lt-muted">{t('privacyIntro')}</p>
       <Read resource={loaded.resource} retry={loaded.reload}>
         {(stored) => <Privacy agent={agent} stored={stored} />}
       </Read>
@@ -199,7 +199,7 @@ function Privacy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPrivacy }
           </tr>
         ))}
       </DataTable>
-      <p className="muted">{t(privacy.memoryEnabled ? 'memoryState_on' : 'memoryState_off')}</p>
+      <p className="lt-muted">{t(privacy.memoryEnabled ? 'memoryState_on' : 'memoryState_off')}</p>
       <Field
         type="checkbox"
         role="switch"
@@ -225,7 +225,7 @@ export function ShareWithCoOwners({ agent }: { agent: OwnAgent }) {
   const loaded = useResource((signal) => api.call(AGENTS_OWN_SHARE_GET, { id: agent.id }, { signal }), `own-share:${agent.id}`);
   return (
     <Panel title={t('shareTitle')} role="region" aria-label={t('shareTitle')}>
-      <p className="muted">{t('shareIntro')}</p>
+      <p className="lt-muted">{t('shareIntro')}</p>
       <Read resource={loaded.resource} retry={loaded.reload}>
         {(stored) => <Share agent={agent} stored={stored} />}
       </Read>

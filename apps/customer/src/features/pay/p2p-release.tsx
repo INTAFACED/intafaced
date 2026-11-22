@@ -94,7 +94,7 @@ export function ReleaseAction({
           />
           <ReleaseChecklist trade={trade} checks={checks} onChange={setChecks} />
           {approval === undefined && coveredUntil ? (
-            <p className="muted" role="status" data-testid="order-release-covered">
+            <p className="lt-muted" role="status" data-testid="order-release-covered">
               {t('stepUpCovered', { time: formatDateTime(coveredUntil, requestedLocale)?.short ?? coveredUntil })}
             </p>
           ) : approval === undefined ? (
@@ -117,7 +117,7 @@ export function ReleaseAction({
               onApproved={(id) => setApproval(id)}
             />
           ) : (
-            <p className="muted" role="status" data-testid="order-release-confirmed">
+            <p className="lt-muted" role="status" data-testid="order-release-confirmed">
               {approval ? t('stepUpDone') : t('stepUpNone')}
             </p>
           )}
