@@ -25,6 +25,9 @@ const row = {
   maxUses: null,
   uses: 0,
   createdAt: '2026-01-16T00:00:00Z',
+  // As svc-pay answers for a link minted before its checkout credential was stored.
+  token: null,
+  checkoutUrl: null,
 };
 const merchantReply = {
   result: {

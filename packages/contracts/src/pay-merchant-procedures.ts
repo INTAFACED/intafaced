@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { merchantStarterFeeSchema } from './merchant-portal.js';
+import { assetIdSchema, amountSchema } from './pay-call-schemas.js';
+import { payLinkListInputSchema, payLinkListPageSchema, payGetLinkInputSchema, payLinkListItemSchema } from './pay-payment-links.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-pay `merchant.*`, one record per call: svc-pay mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -46,4 +48,81 @@ export const PAY_MERCHANT_ME = defineProcedure({
     })
     .nullable(),
   samples: [{ verdict: 'accept' }],
+});
+
+/**
+ * What we owe this merchant but have not settled, and the settled proceeds
+ * they can pay out. Not the owner's trading balance. Both read from the
+ * LEDGER, not from svc-pay's tables —
+ * the two are independent on purpose, which is what makes reconciliation
+ * meaningful (Doctrine §0.6).
+ */
+export const PAY_MERCHANT_BALANCES = defineProcedure({
+  ...base,
+  name: 'pay.merchant.balances',
+  kind: 'query',
+  path: 'merchant.balances',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({ merchantId: z.string().guid(), assetId: assetIdSchema }),
+  output: z.object({ clearing: amountSchema, available: amountSchema }),
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', assetId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_LIST_LINKS = defineProcedure({
+  ...base,
+  name: 'pay.merchant.listLinks',
+  kind: 'query',
+  path: 'merchant.listLinks',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: payLinkListInputSchema,
+  output: payLinkListPageSchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_DEACTIVATE_LINK = defineProcedure({
+  ...base,
+  name: 'pay.merchant.deactivateLink',
+  kind: 'mutation',
+  path: 'merchant.deactivateLink',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: z.object({
+    merchantId: z.string().guid(),
+    linkId: z.string().guid(),
+    /** Shown to the holder of a deactivated link. Omit or blank stores none. */
+    message: z.string().max(500).optional(),
+  }),
+  output: z.object({ deactivated: z.boolean() }),
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', linkId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * One link, including its checkout path when the credential was stored.
+ * Same gate as listLinks: the owner, or a PayFac grant of `payment.link`.
+ * The team role table has no link permission, so a stored role is not the owner.
+ */
+export const PAY_MERCHANT_GET_LINK = defineProcedure({
+  ...base,
+  name: 'pay.merchant.getLink',
+  kind: 'query',
+  path: 'merchant.getLink',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: payGetLinkInputSchema,
+  output: payLinkListItemSchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', linkId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
 });
