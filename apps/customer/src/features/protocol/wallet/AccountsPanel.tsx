@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
-import { Button, DataTable, EmptyState, Failure, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, EmptyState, Failure, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { useApi, useSession } from '../../session';
@@ -31,7 +32,7 @@ export function AccountsPanel() {
     <>
       <AccountModePanel />
       <Panel title={t('subAccountsTitle')}>
-        <p className="muted">{t('subAccountsNote')}</p>
+        <p className="lt-hint">{t('subAccountsNote')}</p>
         {owner ? (
           <OwnedAccounts owner={owner} headers={headers} />
         ) : (
@@ -44,14 +45,14 @@ export function AccountsPanel() {
           </DataTable>
         )}
         <VenueSubAccounts owner={owner} />
-        <p className="muted">{t('custodialNote')}</p>
+        <p className="lt-hint">{t('custodialNote')}</p>
       </Panel>
       <Panel title={t('multisigTitle')}>
-        <p className="muted">{t('multisigNote')}</p>
-        <Button variant="secondary" disabled aria-disabled="true" aria-describedby="wallet-multisig-blocker">
+        <p className="lt-hint">{t('multisigNote')}</p>
+        <Button tone="secondary" disabled aria-disabled="true" aria-describedby="wallet-multisig-blocker">
           {t('multisigCreate')}
         </Button>
-        <p id="wallet-multisig-blocker" className="protocol-actions__reason" role="note" data-blocker="multisig_contract">
+        <p id="wallet-multisig-blocker" className="lt-hint" role="note" data-blocker="multisig_contract">
           {t('multisigBlocked')}
         </p>
       </Panel>
@@ -69,12 +70,12 @@ function OwnedAccounts({ owner, headers }: { owner: string; headers: string[] })
     <DataTable label={t('subAccountsTitle')} headers={headers}>
       <tr>
         <td>{t('accountWallet')}</td>
-        <td className="numeric">{owner}</td>
+        <td className="lt-mono">{owner}</td>
         <td>{t('accountWalletStatus')}</td>
       </tr>
       <tr data-account="smart">
         <td>{t('accountSmart')}</td>
-        <td className="numeric">{resource.status === 'ready' ? resource.data.address : '—'}</td>
+        <td className="lt-mono">{resource.status === 'ready' ? resource.data.address : '—'}</td>
         <td>
           {resource.status === 'loading' ? (
             <span role="status">{t('accountReading')}</span>
@@ -106,9 +107,9 @@ function VenueSubAccounts({ owner }: { owner: string | null }) {
   const { userId } = useSession();
   const mode = useVenueMode();
   let body: ReactNode;
-  if (!userId) body = <p className="muted">{t('venueSubsSignIn')}</p>;
+  if (!userId) body = <p className="lt-hint">{t('venueSubsSignIn')}</p>;
   else if (mode.mode === 'checking') body = <p role="status">{t('venueSubsChecking')}</p>;
-  else if (mode.mode === 'off') body = <p className="muted">{t('venueSubsOff')}</p>;
+  else if (mode.mode === 'off') body = <p className="lt-hint">{t('venueSubsOff')}</p>;
   else if (!mode.status.available)
     body = (
       <p role="alert" data-code={mode.status.refusal.code}>
@@ -154,7 +155,7 @@ function VenueSubAccountList({ owner, venueName, test }: { owner: string; venueN
               resource.data.value.map((sub) => (
                 <tr key={sub.subAccount} data-sub-account={sub.subAccount}>
                   <td>{sub.name}</td>
-                  <td className="numeric">{sub.subAccount}</td>
+                  <td className="lt-mono">{sub.subAccount}</td>
                 </tr>
               ))
             )}
