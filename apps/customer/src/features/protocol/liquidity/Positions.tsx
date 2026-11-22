@@ -10,6 +10,7 @@ import { networkLabel } from '../blockers';
 import { WatchShell } from '../watch/AddressPage';
 import { APP_CHAIN_ID, ADDRESS } from '../wallet/eip1193';
 import { useWallet } from '../wallet/WalletProvider';
+import { RepresentationPanel } from '../wallet/RepresentationPanel';
 import { liquidityCopy, type LiquidityTranslate } from './copy';
 import { amountText, bpsPercent, toUnits } from './format';
 import { createLiquidityApi, isNoNetwork, plainReason, refusalCode } from './liquidity-api';
@@ -284,7 +285,7 @@ export function PositionPage({ id }: { id: string }) {
   const title = p ? t('positionName', { token0: p.token0.name, token1: p.token1.name, fee: bpsPercent(p.feeBps) }) : t('positionTitle');
   return (
     <WatchShell title={title} description={t('network', { network })}>
-      {signing.panel}
+      {signing.representation && <RepresentationPanel {...signing.representation} />}
       <Panel title={t('positionTitle')} aria-label={t('positionTitle')}>
         {!wallet.address && <NoWalletNote t={t} />}
         {body}
