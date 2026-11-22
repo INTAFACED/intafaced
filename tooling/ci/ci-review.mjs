@@ -233,6 +233,56 @@ export function summarizeGenerated(diff, { readBlob = null } = {}) {
 }
 
 /**
+ * A diff still over MAX_DIFF_BYTES with each file it deletes whole given as one line in place of its every `-` line, when
+ * the reviewer's checkout holds that exact text at the same path (the job checks out the default branch, and its Read
+ * reads that tree): the section's one hunk must be its whole old text (one sign, the blob its `index` line names), and
+ * `readFile(path)` must return text of that same blob. Anything else stays whole: a file deleted in part, renamed, or
+ * changed on the default branch since. (Failure it prevents: a service switch deletes its TypeScript service, 3.6 MB of
+ * `-` lines, and no split under MAX_PARTS can carry it: intafaced #9811, weed project-state#3706.)
+ */
+export function summarizeDeleted(diff, readFile) {
+  if (Buffer.byteLength(diff) <= MAX_DIFF_BYTES) return diff;
+  return diff
+    .split(/^(?=diff --git )/m)
+    .map((part) => {
+      const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(part);
+      if (!m || m[1] !== m[2]) return part;
+      const lines = part.replace(/\n$/, '').split('\n');
+      const at = lines.findIndex((l) => l.startsWith('@@'));
+      if (at < 0) return part;
+      const head = lines.slice(1, at);
+      if (!head.some((l) => l.startsWith('deleted file mode ')) || !head.every((l) => EXPORT_HEADER.test(l))) return part;
+      const index = head.map((l) => /^index ([0-9a-f]{7,40})\.\.(0+)(?: [0-7]{6})?$/.exec(l)).filter(Boolean);
+      if (index.length !== 1) return part;
+      const oldId = index[0][1];
+      let body = lines.slice(at + 1);
+      let end = '\n';
+      if (body.at(-1) === '\\ No newline at end of file') {
+        body = body.slice(0, -1);
+        end = '';
+      }
+      if (!body.every((l) => l.startsWith('-'))) return part;
+      const was = body.map((l) => l.slice(1)).join('\n') + end;
+      if (!blobId(was).startsWith(oldId)) return part;
+      let there;
+      try {
+        there = readFile(m[1]);
+      } catch {
+        return part;
+      }
+      if (typeof there !== 'string' || blobId(there) !== blobId(was)) return part;
+      const kept = head.filter((l) => !/^(--- |\+\+\+ )/.test(l));
+      return [
+        `diff --git a/${m[1]} b/${m[1]}`,
+        ...kept,
+        `[deleted whole: ${body.length} lines, ${Buffer.byteLength(part)} bytes of diff; the CI review job checked that the file at this path in your checkout is exactly the text deleted (blob ${blobId(was).slice(0, 12)}), so Read it there to see what this change removes]`,
+        '',
+      ].join('\n');
+    })
+    .join('');
+}
+
+/**
  * The call records' generated export (packages/contracts `procedures:write`, held by its drift test
  * procedureSchemaDrift): pretty-printed JSON `{ "$comment", "procedures": { "<record name>": {...} } }`, once one file
  * per package (`packages/<pkg>/procedures.schema.json`), now one per serving service
@@ -1295,7 +1345,9 @@ async function cmdDiff(dir) {
   };
   console.log(
     await writeReviewInputs(dir, {
-      diff: summarizeGenerated(r.text, { readBlob }),
+      diff: summarizeDeleted(summarizeGenerated(r.text, { readBlob }), (p) =>
+        readFileSync(join(process.env.GITHUB_WORKSPACE ?? '.', p), 'utf8'),
+      ),
       base: pull.base,
       head: pull.head,
       pr: pull.number,
