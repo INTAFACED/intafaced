@@ -14,8 +14,9 @@ describe('qr code', () => {
     expect(out).toContain(`<figure class="lt-qr" data-size="md" data-value="${value}" data-testid="pay-qr">`);
     expect(out).toContain(`<svg viewBox="0 0 ${size} ${size}" role="img" aria-label="Scan to pay" shape-rendering="crispEdges">`);
     // The ground covers the whole drawing, quiet zone included, so the code scans on a dark page.
-    expect(out).toContain(`<rect class="lt-qr-ground" width="${size}" height="${size}"></rect>`);
-    expect(out).toMatch(/<path class="lt-qr-modules" d="M4,4h7v1h-7z/);
+    // Its fills are on the drawing itself, so the SVG alone (copied, saved, read by a scanner) is still light on dark.
+    expect(out).toContain(`<rect class="lt-qr-ground" width="${size}" height="${size}" fill="white"></rect>`);
+    expect(out).toMatch(/<path class="lt-qr-modules" d="M4,4h7v1h-7z[^"]*" fill="black"><\/path>/);
     expect(out).not.toContain('figcaption');
   });
 
