@@ -258,7 +258,7 @@ impl World {
     }
 
     /// `build()`: the router over this world's database, ledger and engine, with `table` and the owner's `grace`.
-    fn build(&self, table: &str, grace: Option<Amount>, delay_ms: u64) -> People<'_> {
+    fn build(&self, table: &str, grace: Option<Amount>, delay_ms: u64) -> People {
         let mock = MockProvider::new(
             MockOptions {
                 id: Some("primary".to_owned()),
@@ -316,10 +316,10 @@ impl World {
             team: svc_agents::team::Team::unwired(),
         })
         .unwrap();
-        People { w: self, door }
+        People { door }
     }
 
-    fn people(&self) -> People<'_> {
+    fn people(&self) -> People {
         self.build(TABLE, None, 0)
     }
 
@@ -517,12 +517,11 @@ fn s(v: &str) -> Json {
     Json::str(v)
 }
 
-struct People<'w> {
-    w: &'w World,
+struct People {
     door: AgentsDoor,
 }
 
-impl People<'_> {
+impl People {
     fn query(&self, who: Who, path: &str, input: &Json) -> Answer {
         let url = format!("/trpc/{path}?input={}", enc(&input.compact()));
         let res = self.door.handle(&Request {
@@ -933,7 +932,7 @@ fn refuses_another_persons_session_a_session_of_another_agent_and_a_closed_sessi
 
 /// `ranOnce(fundWith)`: the person funded, their agent with caps, a session open and one run. Starts the balance at
 /// `fund` (the TypeScript deposits into a fresh ledger).
-fn ran_once<'w>(w: &'w World, p: &People<'w>, fund: &str) -> (String, String, Amount) {
+fn ran_once(w: &World, p: &People, fund: &str) -> (String, String, Amount) {
     w.ledger.set(amt(fund));
     let id = p.agent_with(Some("1"));
     w.limits_set(&id, "0.012", "0.5", "5");
@@ -955,7 +954,7 @@ fn withdraw_all_but(w: &World, leave: Amount) -> impl Fn() + '_ {
 /// `closeUnpaid`: the session closed while the person cannot pay its window: refused, and the window stays unpaid.
 fn close_unpaid<'w>(
     w: &'w World,
-    p: &People<'_>,
+    p: &People,
     id: &str,
     session: &str,
     cost: Amount,
@@ -1002,7 +1001,7 @@ fn keeps_the_session_open_and_the_window_unpaid_on_its_charge_key_nothing_moves(
     let w = world_or_skip!();
     let p = w.people();
     let (id, session, cost) = ran_once(&w, &p, "1");
-    close_unpaid(&w, &p, &id, &session, cost);
+    let _held = close_unpaid(&w, &p, &id, &session, cost);
     assert_eq!(w.session_status(&session), "open");
     let windows = w.usage(&id);
     let window = &windows[0];
@@ -1024,7 +1023,7 @@ fn with_the_grace_blank_the_next_run_refuses_overage_grace_unset_before_the_engi
     let w = world_or_skip!();
     let p = w.people();
     let (id, session, cost) = ran_once(&w, &p, "1");
-    close_unpaid(&w, &p, &id, &session, cost);
+    let _held = close_unpaid(&w, &p, &id, &session, cost);
     let before = w.holds();
     let next = p.session(&id);
     assert_eq!(
@@ -1119,8 +1118,8 @@ fn with_a_grace_that_covers_what_is_owed_a_run_the_balance_covers_starts_the_win
         owed += cost_of(&p.run(&id, &session, request).data());
     }
     // A balance that covers one run's worst case but not the window: the ledger refuses the window for funds.
-    assert!(owed - 1 >= worst_of(TINY));
-    close_unpaid(&w, &p, &id, &session, owed);
+    assert!(owed > worst_of(TINY));
+    let _held = close_unpaid(&w, &p, &id, &session, owed);
     assert_eq!(w.ledger.balance(), owed - 1);
     let graced = w.build(TINY, Some(owed), 0);
     let next = graced.session(&id);
@@ -1143,7 +1142,7 @@ fn a_grace_never_covers_the_run_itself() {
     let w = world_or_skip!();
     let p = w.build(TINY, None, 0);
     let (id, session, cost) = ran_once(&w, &p, "1");
-    close_unpaid(&w, &p, &id, &session, cost);
+    let _held = close_unpaid(&w, &p, &id, &session, cost);
     // What is left is below the next run's worst case, whatever the grace forgives of the old window.
     assert_eq!(w.ledger.balance(), cost - 1);
     assert!(cost - 1 < worst_of(TINY));
@@ -1195,7 +1194,7 @@ fn with_a_grace_below_what_is_owed_the_next_run_refuses_overage_grace_exceeded()
     let w = world_or_skip!();
     let p = w.people();
     let (id, session, cost) = ran_once(&w, &p, "1");
-    close_unpaid(&w, &p, &id, &session, cost);
+    let _held = close_unpaid(&w, &p, &id, &session, cost);
     let graced = w.build(TABLE, Some(cost - 1), 0);
     let next = graced.session(&id);
     assert_eq!(
@@ -1256,7 +1255,7 @@ fn a_run_in_a_session_whose_current_window_is_sealed_refuses_window_sealed() {
     let w = world_or_skip!();
     let p = w.people();
     let (id, session, cost) = ran_once(&w, &p, "1");
-    close_unpaid(&w, &p, &id, &session, cost);
+    let _held = close_unpaid(&w, &p, &id, &session, cost);
     let graced = w.build(TABLE, Some(cost), 0);
     assert_eq!(
         graced.run(&id, &session, "unpaid-run-2").refused(),
