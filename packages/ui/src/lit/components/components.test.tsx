@@ -11,6 +11,9 @@ import {
   Change,
   Dock,
   Field,
+  TextArea,
+  Select,
+  Checkbox,
   Figure,
   LegalSlot,
   Logo,
@@ -140,6 +143,19 @@ describe('components', () => {
 
   it('Logo mark has an accessible name when it stands alone', () => {
     expect(html(<Logo variant="mark" />)).toContain('aria-label="INTAFACED"');
+  });
+
+  it('TextArea, Select and Checkbox are named by their label and keep the hint', () => {
+    const area = html(<TextArea label="Your answer" hint="Up to 4000" id="t" maxLength={4000} />);
+    expect(area).toContain('<label for="t">Your answer</label>');
+    expect(area).toContain('aria-describedby="t-hint"');
+    expect(area).toContain('rows="5"');
+    const pick = html(<Select label="Account" id="s" options={[{ value: 'a', label: 'One' }]} defaultValue="a" />);
+    expect(pick).toContain('<label for="s">Account</label>');
+    expect(pick).toContain('<option value="a" selected="">One</option>');
+    const box = html(<Checkbox label="I have saved the key" name="saved" />);
+    expect(box).toContain('type="checkbox"');
+    expect(box).toContain('<span>I have saved the key</span>');
   });
 
   it('Field keeps a caller description next to its own hint', () => {

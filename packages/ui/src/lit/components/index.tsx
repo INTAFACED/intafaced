@@ -158,6 +158,92 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
+/** Ids a labelled control describes itself by: the caller's own, then its hint, then its error. */
+function describedByOf(own: string | undefined, id: string, hint?: string, error?: string) {
+  return [own, hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(' ') || undefined;
+}
+
+function FieldNotes({ id, hint, error }: { id: string; hint?: string; error?: string }) {
+  return (
+    <>
+      {hint && (
+        <span id={`${id}-hint`} data-part="hint">
+          {hint}
+        </span>
+      )}
+      {error && (
+        <span id={`${id}-error`} data-part="error" role="alert">
+          {error}
+        </span>
+      )}
+    </>
+  );
+}
+
+export type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string };
+
+/** Several lines of text with a label, hint and typed error: Field's twin for answers and descriptions. */
+export function TextArea({ label, hint, error, id, className, rows = 5, ...rest }: TextAreaProps) {
+  const auto = React.useId();
+  const inputId = id ?? auto;
+  return (
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={inputId}>{label}</label>
+      <textarea
+        {...rest}
+        id={inputId}
+        rows={rows}
+        aria-invalid={error ? true : rest['aria-invalid']}
+        aria-describedby={describedByOf(rest['aria-describedby'], inputId, hint, error)}
+      />
+      <FieldNotes id={inputId} hint={hint} error={error} />
+    </div>
+  );
+}
+
+export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+  options: readonly { value: string; label: React.ReactNode }[];
+  hint?: string;
+  error?: string;
+};
+
+/** One choice from a list, as a native select with a label, hint and typed error. */
+export function Select({ label, options, hint, error, id, className, ...rest }: SelectProps) {
+  const auto = React.useId();
+  const inputId = id ?? auto;
+  return (
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={inputId}>{label}</label>
+      <select
+        {...rest}
+        id={inputId}
+        aria-invalid={error ? true : rest['aria-invalid']}
+        aria-describedby={describedByOf(rest['aria-describedby'], inputId, hint, error)}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <FieldNotes id={inputId} hint={hint} error={error} />
+    </div>
+  );
+}
+
+export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: React.ReactNode };
+
+/** A yes-or-no box with its words beside it; the whole line is the target. */
+export function Checkbox({ label, className, ...rest }: CheckboxProps) {
+  return (
+    <label className={clsx('lit-check', className)}>
+      <input {...rest} type="checkbox" />
+      <span>{label}</span>
+    </label>
+  );
+}
+
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
 
