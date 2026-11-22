@@ -128,10 +128,36 @@ describe('the written records of calls', () => {
       expect(() => procedureJsonSchema(plant({ input: z.object({ a: z.unknown() }) }))).toThrow('z.unknown');
       expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.any() }) }))).toThrow('z.any');
     });
-    it('a declared JSON value (`jsonValueSchema`), written whole; any other recursive schema stays refused', () => {
+    it('a declared JSON value (`jsonValueSchema`), written whole', () => {
       const json = procedureJsonSchema(plant({ output: z.object({ a: jsonValueSchema }) }));
       expect(JSON.stringify(json.output)).toContain('"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"}');
-      expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.json() }) }))).toThrow('z.lazy');
+    });
+    it('a `z.lazy`, forward or recursive, written exactly (a cycle as `$ref`), and what it points to still checked', () => {
+      // svc-campaigns' shapes (project-state#3725): a rule tree whose parts are trees, and a field named before its schema.
+      type Tree = { op: 'all' | 'any'; parts: Tree[] } | { fact: string };
+      const tree: z.ZodType<Tree> = z.lazy(() =>
+        z.union([z.object({ op: z.enum(['all', 'any']), parts: z.array(tree).max(8) }).strict(), z.object({ fact: z.string() }).strict()]),
+      );
+      const record = plant({
+        input: z.object({ tree }).strict(),
+        output: z.object({ limits: z.lazy(() => limits).nullish() }),
+        samples: [
+          { verdict: 'accept', input: { tree: { op: 'all', parts: [{ fact: 'kyc' }, { op: 'any', parts: [] }] } } },
+          { verdict: 'refuse', input: { tree: { op: 'all', parts: [{ fact: 1 }] } } },
+          { verdict: 'refuse', input: { tree: { op: 'all', parts: [{ op: 'none', parts: [] }] } } },
+        ],
+      });
+      const limits = z.object({ cap: z.string() });
+      const json = procedureJsonSchema(record);
+      expect(JSON.stringify(json.input)).toContain('"$ref"');
+      expect(json.output).toMatchObject({
+        properties: { limits: { anyOf: [{ properties: { cap: { type: 'string' } } }, { type: 'null' }] } },
+      });
+      const files = procedureSchemaFiles([record]);
+      expect(sampleDisagreements([record], files)).toEqual([]);
+      const hidden: z.ZodType = z.lazy(() => z.object({ next: hidden.optional(), at: z.string().refine((v) => v !== '') }));
+      expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.lazy(() => z.unknown()) }) }))).toThrow('z.unknown');
+      expect(() => procedureJsonSchema(plant({ output: hidden }))).toThrow('output.at (.refine');
     });
     it('keeps an optional root as `inputOptional`, never as a required object', () => {
       expect(procedureJsonSchema(TAX_LOT_BOOK)).toMatchObject({ inputOptional: true, input: { type: 'object' } });
