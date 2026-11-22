@@ -167,7 +167,7 @@ fn answer(ctx: &Ctx<'_>, d: &Deps<'_>) -> Result<Json, OwnError> {
             let pool = pool_of(d.store)?;
             let agent = store::get(pool, user, id)?;
             let account = text(input, "account");
-            policy::assert_access_allows(pool, user, &agent.id, account, ctx.now)?;
+            crate::own::access::assert_allows(pool, user, &agent.id, account, ctx.now)?;
             Ok(
                 policy::assert_allows(pool, user, &agent.id, text(input, "action"), account)?
                     .to_json(),
