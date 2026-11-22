@@ -100,12 +100,18 @@ importers:
         specifier: ^0.0.1
         version: 0.0.1
     devDependencies:
+      '@intafaced/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@intafaced/db':
         specifier: workspace:*
         version: link:../../packages/db
       '@intafaced/events':
         specifier: workspace:*
         version: link:../../packages/events
+      '@intafaced/ledger-client':
+        specifier: workspace:*
+        version: link:../../packages/ledger-client
       '@tailwindcss/postcss':
         specifier: 4.3.5
         version: 4.3.5
