@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, load, resolveRelative, walk } from './ast.mjs';
 import { checkedUse, withCheck } from './guard-check.mjs';
+import { wrappedInScope, wrappedUse } from './wrapped-check.mjs';
 
 const LEAF = new Set(['query', 'mutation']);
 
@@ -248,6 +249,9 @@ export function chainOf(proc) {
     cur = cur.callee.object;
   }
   const guard = guardOf(p, cur, problems);
+  // A wrapped check is written where the record mounts: it must read there what it read at its guard.
+  if (guard?.check?.inline && !wrappedInScope(p, node, guard.check))
+    problems.push('guard use() chained: its wrapped check reads a name that means something else where the record mounts');
   if (!output) problems.push('no .output(): the record has no answer schema to take');
   if (!handler) problems.push('no handler');
   return { kind, input, output, handler, guard, problems };
@@ -350,7 +354,8 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
   if (node.callee.type === 'MemberExpression') {
     // A scope guard and one check of the service's own (`.use(({ ctx, next }) => { check(ctx); return next(); })`): the
     // record names the check (guard-check.mjs).
-    const used = checkedUse(p, node);
+    // Or that check inside the service's own error mapper (wrapped-check.mjs): the mount is handed it without `next()`.
+    const used = checkedUse(p, node) ?? wrappedUse(p, node);
     const base = used ? guardOf(p, used.base, [], depth + 1, env) : undefined;
     const access = base ? withCheck(base, used.check) : undefined;
     if (access) return access;
