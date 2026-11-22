@@ -2,18 +2,16 @@
  * `handle.get`, `handle.change` and `handle.setDiscoverable` (PP-send-request-03). The signed-in owner's own handle
  * only: the user is the session's, a body never names one. An API key or a sub-account is refused.
  */
-import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { SecurityLockError } from '../auth/security-lock.js';
 import { HandleSettingsError, type HandleActor, type HandleSettingsService } from './handle-settings.js';
-
-const settingsOutput = z.object({
-  handle: z.string(),
-  discoverable: z.boolean(),
-  changesUsed: z.number().int().min(0),
-  changeCap: z.number().int().min(1).nullable(),
-  changesLeft: z.number().int().min(0).nullable(),
-});
+import {
+  IDENTITY_HANDLE_GET,
+  IDENTITY_HANDLE_CHANGE,
+  IDENTITY_HANDLE_SET_DISCOVERABLE,
+} from '@intafaced/contracts/identity-handle-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 type Principal = { userId: string; sid: string; kid?: string | null; sub_account?: string | null };
 
@@ -48,37 +46,43 @@ export function createHandleRouter(service: HandleSettingsService) {
   return router({
     handle: router({
       /** The caller's own handle, whether people can find them by it, and the changes used and left. */
-      get: protectedProcedure.output(settingsOutput).query(async ({ ctx }) => {
-        try {
-          return await service.get(actor(ctx.principal as Principal));
-        } catch (err) {
-          toTrpc(err);
-        }
-      }),
+      get: mountRecord(
+        IDENTITY_HANDLE_GET,
+        async ({ ctx }) => {
+          try {
+            return await service.get(actor(ctx.principal as Principal));
+          } catch (err) {
+            toTrpc(err);
+          }
+        },
+        codedRefusal,
+      ),
 
       /** Change the handle from `fromHandle` to `handle`. Rule, cap and taken refusals each carry their own code. */
-      change: protectedProcedure
-        .input(z.object({ handle: z.string().max(64), fromHandle: z.string().max(64) }).strict())
-        .output(settingsOutput)
-        .mutation(async ({ ctx, input }) => {
+      change: mountRecord(
+        IDENTITY_HANDLE_CHANGE,
+        async ({ ctx, input }) => {
           try {
             return await service.change(actor(ctx.principal as Principal), input);
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
       /** Let people find me by my handle, or not. Off, others' handle lookups answer not found. */
-      setDiscoverable: protectedProcedure
-        .input(z.object({ discoverable: z.boolean() }).strict())
-        .output(settingsOutput)
-        .mutation(async ({ ctx, input }) => {
+      setDiscoverable: mountRecord(
+        IDENTITY_HANDLE_SET_DISCOVERABLE,
+        async ({ ctx, input }) => {
           try {
             return await service.setDiscoverable(actor(ctx.principal as Principal), input.discoverable);
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

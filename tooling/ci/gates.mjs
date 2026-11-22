@@ -137,6 +137,17 @@ export const GATES = [
       'when it landed are listed with their verdicts in tooling/ci/conflict-keys-baseline.json, which only shrinks. Under a second, no network.',
   },
   {
+    id: 'baseline-money',
+    script: 'tooling/ci/baseline-money.mjs',
+    doctrine: "the journeys baseline's money flags are the money rule's (project-state#3690)",
+    why:
+      'the money rule is computed from journeys.json, slices.json and the package manifests, the baseline stores its ' +
+      'result per step, and a change to the inputs merged green without touching it: #9539 gave apps/admin a dev ' +
+      'dependency on the ledger client, 33 entries went stale on main, and the merge seal stopped every PR whose run ' +
+      'reached one. A journeys run sees only the steps it runs; this reads every entry, with no run, in under a second. ' +
+      'It also fails a regression entry on a money step. `--write` sets each stale flag to the rule’s value.',
+  },
+  {
     id: 'published-routes',
     script: 'tooling/ci/published-routes.mjs',
     doctrine: 'the developer portal publishes every route svc-trade serves',

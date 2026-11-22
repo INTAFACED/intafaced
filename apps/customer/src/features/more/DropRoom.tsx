@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import { type DropView, type TgeNetwork, type TgeView } from '@intafaced/contracts/campaigns-drops';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
@@ -10,17 +9,7 @@ import { dropRoomCopy } from './drop-room-copy';
 import { CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM } from '@intafaced/contracts/campaigns-drops-procedures';
 import { CAMPAIGNS_TGE_CLAIM } from '@intafaced/contracts/campaigns-tge-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
-
-/** identity `waitlist.mine`: the signed-in account's own place, or null when its email never joined. */
-const waitlistMineSchema = z
-  .object({
-    position: z.number().int().positive(),
-    referredCount: z.number().int().min(0),
-    rank: z.number().int().positive().nullable(),
-    waiting: z.number().int().min(0),
-    release: z.object({ waveNumber: z.number().int().positive(), releasedAt: z.string() }).nullable(),
-  })
-  .nullable();
+import { IDENTITY_WAITLIST_MINE } from '@intafaced/contracts/identity-waitlist-procedures';
 
 /** Refusals this room puts into its own words; any other failure goes to the shared Failure. */
 const ROOM_CODES = ['drop.sold_out', 'drop.not_open', 'drop.unknown', 'launch.schedule_unset', 'audit.external', 'chain.go'] as const;
@@ -41,10 +30,7 @@ type Outcome = { ok: true } | { ok: false; failure: Extract<ApiResult<unknown>, 
 export function DropRoom() {
   const api = useApi();
   const { t } = dropRoomCopy.useCopy();
-  const waitlist = useResource(
-    (signal) => api.query('identity', 'waitlist.mine', undefined, waitlistMineSchema, { signal }),
-    'drops-waitlist',
-  );
+  const waitlist = useResource((signal) => api.call(IDENTITY_WAITLIST_MINE, undefined, { signal }), 'drops-waitlist');
   const room = useResource((signal) => api.call(CAMPAIGNS_DROPS_ROOM, undefined, { signal }), 'drops-room');
   // Kept here, not in the row: the room reads its state again after every claim, which remounts the rows.
   const [outcomes, setOutcomes] = useState<Readonly<Record<string, Outcome>>>({});
