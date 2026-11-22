@@ -1212,6 +1212,84 @@ test('portable: an answer refinement with a message is named in the record, once
   );
 });
 
+test("portable: an input refinement with a message is named in the record's checks, with a placeholder sample per check; a .superRefine is left, named", async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'review.ts'),
+    [
+      "import { z } from 'zod';",
+      'export const reviewInputSchema = z',
+      "  .object({ verdict: z.enum(['accepted', 'rejected']), reason: z.string().refine((t) => t.length >= 3, 'a reason is 3 or more characters').nullish() })",
+      '  .strict()',
+      "  .refine((i) => (i.verdict === 'rejected') === Boolean(i.reason), { message: 'a rejection needs a reason', path: ['reason'] });",
+      'export const noteSchema = z.object({ note: z.string().superRefine(() => {}) });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'review-procedures.ts');
+  const placeholder = "samples: [{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]";
+  writeFileSync(
+    record,
+    [
+      "import { reviewInputSchema, noteSchema } from './review.js';",
+      `export const R = defineProcedure({ name: 'x.review', input: reviewInputSchema, output: NO_INPUT, ${placeholder} });`,
+      `export const N = defineProcedure({ name: 'x.note', input: noteSchema, output: NO_INPUT, ${placeholder} });`,
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const { edits, left } = plan(
+    {
+      review: `x.review.input cannot be exported without losing meaning: input ${refine}; input.reason ${refine}`,
+      note: `x.note.input cannot be exported without losing meaning: input.note ${refine}`,
+    },
+    [record],
+  );
+  assert.deepEqual(left, [{ record: 'x.note', at: 'input.note', why: 'a .superRefine names no rule in words' }]);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [
+      ', checks: { review_input_holds: { at: "input", says: "a rejection needs a reason" }, reason_holds: { at: "input.reason", says: "a reason is 3 or more characters" } }',
+      ", { verdict: 'refuse', input: 42, by: 'review_input_holds' }, { verdict: 'refuse', input: 42, by: 'reason_holds' }",
+    ],
+  );
+});
+
+test('samples: each input check the record names gets an input that check alone refuses, which the export accepts', async () => {
+  const { z } = await contractsZod();
+  const input = z
+    .object({
+      verdict: z.enum(['accepted', 'rejected']),
+      reason: z
+        .string()
+        .trim()
+        .refine((t) => t.length >= 3, 'a reason is 3 or more characters')
+        .nullish(),
+    })
+    .strict()
+    .refine((i) => (i.verdict === 'rejected') === Boolean(i.reason), { message: 'a rejection needs a reason', path: ['reason'] });
+  const checks = {
+    review_holds: { at: 'input', says: 'a rejection needs a reason' },
+    reason_holds: { at: 'input.reason', says: 'a reason is 3 or more characters' },
+  };
+  const text = samplesFor({ name: 'x.review', path: 'p', input, checks });
+  const samples = Function(`return ${text}`)();
+  const by = Object.fromEntries(samples.filter((s) => s.by).map((s) => [s.by, s.input]));
+  assert.deepEqual(Object.keys(by).sort(), ['reason_holds', 'review_holds']);
+  for (const [name, value] of Object.entries(by)) {
+    const r = input.safeParse(value);
+    assert.equal(r.success, false, name);
+    // Refused by that check's own words only, so the JSON export (which carries it only by name) accepts it.
+    assert.deepEqual([...new Set(r.error.issues.map((i) => `${i.code} ${i.message}`))], [`custom ${checks[name].says}`], name);
+  }
+  // A check no candidate input trips alone is named, never guessed.
+  assert.throws(
+    () => samplesFor({ name: 'x.never', path: 'p', input: z.object({ a: z.string() }), checks: { never: { at: 'input', says: 'never' } } }),
+    /no input found that input check never alone refuses/,
+  );
+});
+
 test("portable: a service's wire replay samples a JSON-value schema as main's z.unknown(), once, in either sampler", async () => {
   const { withReplayJson } = await import('./portable.mjs');
   for (const head of [
