@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useId, useRef, type ReactNode } from 'react';
+import { useContext, useEffect, useId, useRef, type ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
+import { RefusalOnce, type Once } from './refusal-once';
 import { MoneyDisplay } from './presentation';
 import { Button, StateBlock } from '@intafaced/ui';
 import { EmptyState } from '../ui-kit';
@@ -17,9 +18,6 @@ import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
-/** One page says each refusal once: the first failure to draw a given title and text keeps it, the rest draw nothing. */
-type Once = { claim: (key: string, owner: string) => boolean; release: (key: string, owner: string) => void };
-const RefusalOnce = createContext<Once | null>(null);
 export function RefusalOnceProvider({ children }: { children: ReactNode }) {
   const owners = useRef(new Map<string, string>());
   const store = useRef<Once>({

@@ -8,6 +8,8 @@ import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
+export * from './b3-live.js';
+
 type Div = React.HTMLAttributes<HTMLDivElement>;
 
 /** A panel. Glass only on the nav and sheet layers; the content layer is solid, and money sits there. */
@@ -158,6 +160,37 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
+export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children'> & {
+  label: string;
+  hint?: string;
+  /** Each choice as its value and the words shown for it, in order. */
+  options: ReadonlyArray<readonly [string, string]>;
+};
+
+/** A choice from a short list: the native select, drawn as the kit's field (label above, hint below). */
+export function Select({ label, hint, options, id, className, ...rest }: SelectProps) {
+  const auto = React.useId();
+  const selectId = id ?? auto;
+  const describedBy = [rest['aria-describedby'], hint ? `${selectId}-hint` : null].filter(Boolean).join(' ') || undefined;
+  return (
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={selectId}>{label}</label>
+      <select {...rest} id={selectId} aria-describedby={describedBy}>
+        {options.map(([value, words]) => (
+          <option key={value} value={value}>
+            {words}
+          </option>
+        ))}
+      </select>
+      {hint && (
+        <span id={`${selectId}-hint`} data-part="hint">
+          {hint}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
 
@@ -262,10 +295,18 @@ export function Holdings({ items, label, className }: { items: readonly Holding[
   );
 }
 
-/** A refusal: the blocker in words, the code small, one next step. Neutral, never accent-tinted. */
-export function RefusalBox({ refusal, className }: { refusal: Refusal; className?: string }) {
+/**
+ * A refusal: the blocker in words, the code small, one next step. Neutral, never accent-tinted. `children` holds a
+ * next step that is a control rather than a link (Try again); other attributes (a test id, a live role) pass through.
+ */
+export function RefusalBox({
+  refusal,
+  className,
+  children,
+  ...rest
+}: { refusal: Refusal } & Omit<React.HTMLAttributes<HTMLDivElement>, 'title'>) {
   return (
-    <div className={clsx('lit-refusal', className)} data-variant={refusal.variant} role="status">
+    <div role="status" {...rest} className={clsx('lit-refusal', className)} data-variant={refusal.variant}>
       <div>
         <div data-part="title">{refusal.title}</div>
         <div data-part="body">{refusal.body}</div>
@@ -279,24 +320,26 @@ export function RefusalBox({ refusal, className }: { refusal: Refusal; className
             {refusal.action.label}
           </a>
         )}
+        {children}
       </div>
     </div>
   );
 }
 
+/** Nothing here yet, in words, with at most one next step. Other attributes (a test id) pass through. */
 export function EmptyState({
   title,
   body,
   action,
   className,
+  ...rest
 }: {
   title: string;
   body?: string;
   action?: React.ReactNode;
-  className?: string;
-}) {
+} & Omit<React.HTMLAttributes<HTMLDivElement>, 'title' | 'children'>) {
   return (
-    <div className={clsx('lit-empty', className)}>
+    <div {...rest} className={clsx('lit-empty', className)}>
       <div data-part="title">{title}</div>
       {body && <div>{body}</div>}
       {action}
