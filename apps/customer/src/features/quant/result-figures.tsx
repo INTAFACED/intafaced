@@ -5,8 +5,6 @@ import { checkData, checkDetail, logText, type MetricKey, metricGroups, metricVi
 // The figures of one bar backtest as the Backtest room draws them: the checks, the metrics and one log line in words.
 // Their words live in result-words.ts, which the shared result's kit-drawn room (shared-result/) reads too.
 
-export { utcText } from './result-words';
-
 /** Every check the service made on the run, with what it measured; nothing is folded away or hidden. */
 export function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
   const { t } = backtestCopy.useCopy();
