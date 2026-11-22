@@ -18,20 +18,33 @@
 //! - [`tool_try`]: one tool call, and the run of an approved one.
 //! - [`slice`]: the calls.
 //!
+//! The `own-sharing` slice, over the same store and guard:
+//!
+//! - [`access`]: which venue sub-accounts an agent may act on, and until when.
+//! - [`sharing`]: the agent's co-owners, the agents shared with a person, and the share with co-owners.
+//! - [`identity`]: the agent's own token, issued, revoked and called with.
+//! - [`freeze_applied`]: the owner's own freeze applied once, as identity's `selfFreezeApplied` asks.
+//! - [`sharing_slice`]: the calls.
+//!
 //! A refusal of the slice is an [`OwnRefusal`]: the router's `guard` answers it with its code as the message and the
 //! cause, `NOT_FOUND` for `agents.own.not_found` and `BAD_REQUEST` otherwise, unless the call maps it itself.
 
+pub mod access;
 pub mod approvals;
 pub mod assistant;
 pub mod catalog;
 pub mod desk;
 pub mod evals;
+pub mod freeze_applied;
 pub mod gates;
 pub mod guards;
+pub mod identity;
 pub mod notices;
 pub mod publishing;
 pub mod reviewer;
 pub mod self_freeze;
+pub mod sharing;
+pub mod sharing_slice;
 pub mod slice;
 pub mod store;
 pub mod test_runs;
@@ -158,6 +171,9 @@ pub struct Own {
     /// svc-support's desk (`SUPPORT_URL`), also the owner's account read: absent, no door is wired and every account
     /// reads unread.
     pub support_desk: Option<Box<dyn desk::SupportDesk>>,
+    /// `AGENTS_OWN_TOKEN_LIFETIME_MINUTES`: an own agent's token lifetime; blank refuses issuing
+    /// `agents.identity.lifetime_unset`.
+    pub token_lifetime_minutes: Option<i64>,
 }
 
 impl Own {
@@ -170,6 +186,7 @@ impl Own {
             reviewer_model: None,
             approval_ttl_seconds: None,
             support_desk: None,
+            token_lifetime_minutes: None,
         }
     }
 }

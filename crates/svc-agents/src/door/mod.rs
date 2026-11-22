@@ -449,6 +449,14 @@ impl AgentsDoor {
                     own: &self.own,
                 },
             ),
+            Slice::OwnSharing => crate::own::sharing_slice::handle(
+                ctx,
+                &crate::own::sharing_slice::Deps {
+                    store: &self.store,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
             Slice::Team => crate::team::slice::handle(
                 ctx,
                 &crate::team::slice::Deps {
