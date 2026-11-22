@@ -1120,6 +1120,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-bank"
+version = "0.0.0"
+dependencies = [
+ "service-kit",
+]
+
+[[package]]
 name = "svc-ledger"
 version = "0.0.0"
 dependencies = [

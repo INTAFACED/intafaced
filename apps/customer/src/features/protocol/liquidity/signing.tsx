@@ -1,8 +1,8 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { isRegionBlocked } from '../region';
-import { RepresentationPanel } from '../wallet/RepresentationPanel';
+import type { RepresentationAsk } from '../wallet/representation';
 import { useWallet, waitMined, type Sequence } from '../wallet/WalletProvider';
 import { createLiquidityApi } from './liquidity-api';
 import type { LiquidityTranslate } from './copy';
@@ -27,7 +27,7 @@ export function useLiquiditySigning(t: LiquidityTranslate) {
   const transport = useApi();
   const protocol = useMemo(() => createProtocolApi(transport), [transport]);
   const liquidity = useMemo(() => createLiquidityApi(transport), [transport]);
-  const [gate, setGate] = useState<{ status: Parameters<typeof RepresentationPanel>[0]['status']; resume: () => void } | null>(null);
+  const [gate, setGate] = useState<{ status: RepresentationAsk['status']; resume: () => void } | null>(null);
   const [gateProblem, setGateProblem] = useState<string | null>(null);
 
   /**
@@ -101,24 +101,34 @@ export function useLiquiditySigning(t: LiquidityTranslate) {
     return { ok: false, reason: await why(last, t('failed', { reason: hash })) };
   };
 
-  const panel: ReactNode =
-    gate && wallet.address ? (
-      <RepresentationPanel
-        address={wallet.address}
-        status={gate.status}
-        api={protocol}
-        onEnd={(end) => {
-          const resume = gate.resume;
-          setGate(null);
-          if (end.kind === 'accepted') resume();
-          else if (end.kind === 'rejected') setGateProblem(t('rejected'));
-          else if (end.kind === 'region') setGateProblem(t('regionBlocked'));
-          else setGateProblem(end.message);
-        }}
-      />
-    ) : null;
+  /** The representation to accept now, when an action waits on it: the room draws it (its own way, the same ask). */
+  const representation: RepresentationAsk | null =
+    gate && wallet.address
+      ? {
+          address: wallet.address,
+          status: gate.status,
+          api: protocol,
+          onEnd: (end) => {
+            const resume = gate.resume;
+            setGate(null);
+            if (end.kind === 'accepted') resume();
+            else if (end.kind === 'rejected') setGateProblem(t('rejected'));
+            else if (end.kind === 'region') setGateProblem(t('regionBlocked'));
+            else setGateProblem(end.message);
+          },
+        }
+      : null;
 
-  return { wallet, liquidity, withRepresentation, approvals, send, panel, gateProblem, clearGateProblem: () => setGateProblem(null) };
+  return {
+    wallet,
+    liquidity,
+    withRepresentation,
+    approvals,
+    send,
+    representation,
+    gateProblem,
+    clearGateProblem: () => setGateProblem(null),
+  };
 }
 
 /** The room's note when no wallet is connected: the full layout stays, and the blocker is named. */

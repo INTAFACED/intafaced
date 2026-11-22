@@ -7,12 +7,13 @@
 //! belongs to their slices, and the door owes an order that needs one (`door::book`).
 //!
 //! The market modes (halt, maintenance, prelaunch, reduce-only, post-only, expiry, delisting, the venue halt) and dead
-//! sessions are switched by the `venue` slice's doors. Here they are read back from the journal on a cold start and
+//! sessions are switched by the `venue` slice's calls (`venue`). Here they are also read back from the journal on a cold start and
 //! every submit and amend is gated on them, as the base engine gates them.
 
 pub mod admission;
 pub mod liquidity;
 pub mod reconcile;
+pub mod venue;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -397,6 +398,8 @@ pub struct MatchingEngine {
     sink: Box<dyn SnapshotSink<Json> + Send>,
     enabled: bool,
     modes: Modes,
+    /// The open surveillance cases kept as evidence (`surveillance-persist.ts`).
+    evidence: venue::Evidence,
     /// `inFlight`: each order with an amend or cancel not yet confirmed.
     in_flight: HashMap<String, InFlight>,
     /// `ifm-crash.ts`'s store: the orders a cold start found in flight with durable evidence (`inFlight: true`). Every
@@ -430,6 +433,7 @@ impl MatchingEngine {
             sink: parts.sink,
             enabled: parts.enabled,
             modes: Modes::default(),
+            evidence: venue::Evidence::default(),
             in_flight: HashMap::new(),
             crash_unknown: HashSet::new(),
             auction: HashSet::new(),
@@ -796,8 +800,20 @@ impl MatchingEngine {
 
     // ── submit ──────────────────────────────────────────────────────────
 
-    /// Place one order. `lifecycle_proof` is the door's admission evidence, journalled with it.
+    /// Place one order. `lifecycle_proof` is the door's admission evidence, journalled with it. Each surveillance case
+    /// the market's book then holds is kept as evidence (`surveillance-persist.ts`), the refused submit's included.
     pub fn submit(
+        &mut self,
+        market_id: &str,
+        order: &EngineOrder,
+        lifecycle_proof: Option<&Json>,
+    ) -> Result<SubmitResult, EngineError> {
+        let result = self.submit_order(market_id, order, lifecycle_proof)?;
+        self.keep_cases(market_id, &result.surveillance_cases);
+        Ok(result)
+    }
+
+    fn submit_order(
         &mut self,
         market_id: &str,
         order: &EngineOrder,
@@ -1240,6 +1256,15 @@ impl MatchingEngine {
         }
         self.books = into.books;
         self.modes = replay_modes(&records);
+        self.evidence = venue::Evidence::from_journal(&records);
+        for market in self.markets() {
+            let cases = self
+                .books
+                .get(&market)
+                .map(|b| b.open_surveillance_cases().to_vec())
+                .unwrap_or_default();
+            self.evidence.keep_all(&cases);
+        }
         let open = replay_in_flight(&records);
         self.in_flight = open
             .iter()

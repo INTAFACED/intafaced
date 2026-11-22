@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import type { ApiKeyCreateOutput, ApiKeyList, ApiKeyScopeEntry } from '@intafaced/contracts/api-keys';
-import { Button, Check, Field, Select, TextArea } from '@intafaced/ui/lit';
-import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
+import { Button, ChoiceGroup, Field, Select, TextArea } from '@intafaced/ui/lit';
+import { Checkbox, FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
@@ -130,7 +130,7 @@ function ShownOnce({ made, onDone }: { made: Made; onDone: () => void }) {
         </a>
       </div>
       {copied === 'failed' && <p>{t('copyFailed')}</p>}
-      <Check label={t('stored')} checked={stored} onChange={(event) => setStored(event.currentTarget.checked)} />
+      <Checkbox label={t('stored')} checked={stored} onChange={(event) => setStored(event.currentTarget.checked)} />
       <Button tone="primary" disabled={!stored} onClick={onDone}>
         {t('done')}
       </Button>
@@ -149,6 +149,7 @@ export function ApiKeyCreateRoom() {
   const { api, userId } = useSession();
   const { resource } = useResource((signal) => readForm(api, signal), `developer-key-form:${userId}`);
   const [preset, setPreset] = useState<Preset>('custom');
+  const agentHintId = useId();
   const [ticked, setTicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<ApiKeysPlainKey | null>(null);
@@ -247,38 +248,30 @@ export function ApiKeyCreateRoom() {
                 defaultValue=""
                 disabled={subaccounts === null}
                 required={orgId !== ''}
-              >
-                <option value="" disabled={orgId !== ''}>
-                  {t(orgId ? 'subaccountChoose' : 'subaccountNone')}
-                </option>
-                {(subaccounts ?? []).map((row) => (
-                  <option key={row.id} value={row.id}>
-                    {row.nickname ?? row.label}
-                  </option>
-                ))}
-              </Select>
-              <Check label={t('agentKey')} hint={t('agentKeyHint')} name="agent" />
-              <fieldset>
-                <legend>{t('permissions')}</legend>
-                <div role="radiogroup" aria-label={t('permissions')}>
-                  {PRESETS.map((choice) => (
-                    <Check
-                      key={choice}
-                      type="radio"
-                      name="preset"
-                      label={t(PRESET_LABEL[choice])}
-                      checked={preset === choice}
-                      onChange={() => choose(choice)}
-                    />
-                  ))}
-                </div>
+                options={[
+                  ['', t(orgId ? 'subaccountChoose' : 'subaccountNone')],
+                  ...(subaccounts ?? []).map((row) => [row.id, row.nickname ?? row.label] as const),
+                ]}
+              />
+              <Checkbox label={t('agentKey')} name="agent" aria-describedby={agentHintId} />
+              <p id={agentHintId} className="lt-hint">
+                {t('agentKeyHint')}
+              </p>
+              <ChoiceGroup
+                legend={t('permissions')}
+                name="preset"
+                options={PRESETS.map((choice) => ({ value: choice, label: t(PRESET_LABEL[choice]) }))}
+                value={preset}
+                onChange={choose}
+              />
+              <div>
                 <p className="lt-hint" role="status">
                   {t(PRESET_SUMMARY[preset])} {ticked.length === 0 ? t('noScopes') : ''}
                 </p>
                 <ul>
                   {offered.map((entry) => (
                     <li key={entry.scope}>
-                      <Check
+                      <Checkbox
                         name="scope"
                         value={entry.scope}
                         checked={ticked.includes(entry.scope)}
@@ -314,7 +307,7 @@ export function ApiKeyCreateRoom() {
                     </ul>
                   </div>
                 )}
-              </fieldset>
+              </div>
               <TextArea label={t('ips')} hint={t('ipsHint')} name="ips" rows={3} spellCheck={false} />
               <Field label={t('ends')} hint={t('endsHint')} name="ends" type="date" />
               <fieldset>

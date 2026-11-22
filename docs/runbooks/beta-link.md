@@ -42,8 +42,11 @@ Everything you see is TEST: prices, balances and limits carry the TEST label, an
 ## When it is not up
 
 - **`blocked`: no TEST screening file.** Edge refuses every call until a sanctions screening list is set, and no agent
-  sets or invents one. The owner places his approved TEST fixture at `~/.intafaced/beta/state/screening.local.json`
-  (`{"regions": "...", "source": "..."}`, the same file `docs/LOCAL-TEST-STACK.md` names), and the next round starts the
+  invents one. The owner's approved TEST fixture lives in the repository secrets `INTAFACED_SANCTIONS_REGIONS` and
+  `INTAFACED_SANCTIONS_LIST_SOURCE`; by his decision (`tooling/ci/ci-review/REVIEW.md`, entry of 2026-11-22) an agent
+  dispatches `beta-screening-seal.yml`, which seals them to the box's key `tooling/beta/seal.pub.pem`, downloads the
+  artifact and decrypts it, unseen, into `~/.intafaced/beta/state/screening.local.json` (mode 600,
+  `{"regions": "...", "source": "..."}`, the same file `docs/LOCAL-TEST-STACK.md` names). The next round starts the
   stack.
 - **`down`:** the reason names the step; the round's log is `~/.intafaced/beta/round.log`. The next round tries again.
 - **`refused`:** the TEST funds check found a route off the machine; the stack stays stopped until a change on main

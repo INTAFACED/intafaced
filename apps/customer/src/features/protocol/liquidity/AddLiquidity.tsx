@@ -1,18 +1,21 @@
 import { useEffect, useId, useMemo, useState } from 'react';
+import { Button, Field, Tag } from '@intafaced/ui/lit';
+import { FlowTemplate, ServiceOffNotice, type RoomState } from '@intafaced/ui/lit/templates';
 import type { LiquidityQuoteAdd, LiquidityQuoteSwapAdd } from '@intafaced/contracts/protocol-liquidity';
 import { navigate } from '../../../app/location';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { ServiceOffNotice } from '../../../shared/service-off';
-import { Button, Field, Loading, Panel } from '../../../shared/ui';
+import { serviceOffCopy } from '../../../shared/service-off';
 import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { networkLabel } from '../blockers';
-import { WatchShell } from '../watch/AddressPage';
+import { protocolCopy } from '../copy';
+import { watchCopy } from '../watch/copy';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { liquidityCopy } from './copy';
 import { amountText, bpsPercent, toUnits } from './format';
 import { isNoNetwork, plainReason } from './liquidity-api';
+import { RepresentationStep } from './RepresentationStep';
 import { NoWalletNote, useLiquiditySigning } from './signing';
 
 const SHARE_DECIMALS = 18;
@@ -29,6 +32,8 @@ type Quoted = { kind: 'pair'; quote: LiquidityQuoteAdd; at: number } | { kind: '
 export function AddLiquidity({ pool }: { pool: string }) {
   const { language } = usePreferences();
   const { t } = liquidityCopy.forLocale(language);
+  const room = protocolCopy.forLocale(language).t;
+  const off = serviceOffCopy.useCopy().t;
   const transport = useApi();
   const protocol = useMemo(() => createProtocolApi(transport), [transport]);
   const signing = useLiquiditySigning(t);
@@ -206,105 +211,136 @@ export function AddLiquidity({ pool }: { pool: string }) {
 
   const network = networkLabel(APP_CHAIN_ID).name;
   const title = token0 && token1 ? `${t('addTitle')}: ${token0.symbol} / ${token1.symbol} · ${bpsPercent(row!.feeBps)}%` : t('addTitle');
+  // The form keeps its layout in every state but loading: no network and an unread pool are named inside it.
+  const state: RoomState = pairs.resource.status === 'loading' ? { kind: 'loading' } : { kind: 'ready' };
   return (
-    <WatchShell title={title} description={t('network', { network })}>
-      {signing.panel}
-      <Panel title={t('addTitle')}>
-        {!wallet.address && <NoWalletNote t={t} />}
-        {(noNetwork || (pairs.resource.status === 'failed' && isNoNetwork(pairs.resource.failure))) && (
-          <ServiceOffNotice code="rail.crypto" action={t('addTitle')} role="status" />
-        )}
-        {pairs.resource.status === 'loading' && <Loading label={t('addTitle')} />}
-        {pairs.resource.status === 'ready' && !row && <p role="status">{t('positionUnread', { reason: pool })}</p>}
-        <form
-          aria-label={t('addTitle')}
-          className="protocol-quote"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void add();
-          }}
-        >
-          <label className="field field--check" htmlFor={toggleId}>
-            <input id={toggleId} type="checkbox" checked={oneToken} onChange={(event) => setOneToken(event.target.checked)} />
-            <span>{t('swapAddToggle')}</span>
-          </label>
-          {!oneToken ? (
-            <>
-              <Field label={token0?.name ?? '—'} inputMode="decimal" value={amount0} onChange={(event) => setAmount0(event.target.value)} />
-              <Field label={token1?.name ?? '—'} inputMode="decimal" value={amount1} onChange={(event) => setAmount1(event.target.value)} />
-              {quoted?.kind === 'pair' && token0 && token1 && (
-                <>
-                  <p className="numeric" data-testid="pulled">
-                    {t('pulled', {
-                      amount0: amountText(quoted.quote.amount0, token0.decimals),
-                      symbol0: token0.name,
-                      amount1: amountText(quoted.quote.amount1, token1.decimals),
-                      symbol1: token1.name,
-                    })}
-                  </p>
-                  <p className="muted">{t('pulledNote')}</p>
-                  <p className="numeric">
-                    {t('willMint', {
-                      shares: amountText(quoted.quote.shares, SHARE_DECIMALS),
-                      share: bpsPercent(quoted.quote.shareOfPoolBps),
-                    })}
-                  </p>
-                </>
+    <div lang={watchCopy.forLocale(language).renderedLocale}>
+      <FlowTemplate
+        title={title}
+        description={t('network', { network })}
+        state={state}
+        step={
+          <>
+            {signing.representation && <RepresentationStep {...signing.representation} />}
+            <section>
+              <h2>{t('addTitle')}</h2>
+              {!wallet.address && <NoWalletNote t={t} />}
+              {(noNetwork || (pairs.resource.status === 'failed' && isNoNetwork(pairs.resource.failure))) && (
+                <ServiceOffNotice
+                  code="rail.crypto"
+                  sentence={off('sentence', { action: t('addTitle'), dependency: off('rail.crypto') })}
+                  role="status"
+                />
               )}
-            </>
-          ) : (
-            <>
-              <label className="field">
-                <span>{t('oneToken')}</span>
-                <select value={single} onChange={(event) => setSingle(event.target.value as '0' | '1')} aria-label={t('oneToken')}>
-                  {token0 && <option value="0">{token0.name}</option>}
-                  {token1 && <option value="1">{token1.name}</option>}
-                </select>
-              </label>
-              <Field
-                label={singleToken?.name ?? '—'}
-                inputMode="decimal"
-                value={singleAmount}
-                onChange={(event) => setSingleAmount(event.target.value)}
-              />
-              {quoted?.kind === 'one' && singleToken && (
-                <>
-                  <p className="numeric" data-testid="swap-half">
-                    {t('swapHalf', { amount: amountText(quoted.quote.swapped, singleToken.decimals, 2), symbol: singleToken.name })}
-                  </p>
-                  <p className="numeric">{t('willMint', { shares: amountText(quoted.quote.shares, SHARE_DECIMALS), share: '—' })}</p>
-                </>
-              )}
-              <p role="note">{t('atomic')}</p>
-            </>
-          )}
-          <Field
-            label={t('minShares')}
-            hint={t('minSharesHint')}
-            inputMode="decimal"
-            value={minShares}
-            onChange={(event) => setMinShares(event.target.value)}
-          />
-          {quoted && !stale && left !== null && <p className="muted">{t('quoteValid', { seconds: String(left) })}</p>}
-          {stale && ttl !== null && (
-            <>
-              <p role="status">{t('quoteStale', { seconds: String(ttl) })}</p>
-              <Button variant="secondary" onClick={() => setRefresh((n) => n + 1)}>
-                {t('refreshQuote')}
-              </Button>
-            </>
-          )}
-          <Button type="submit" disabled={busy || !quoted || stale || minUnits === null || !wallet.address}>
-            {t('add')}
+              {pairs.resource.status === 'ready' && !row && <p role="status">{t('positionUnread', { reason: pool })}</p>}
+              <form
+                aria-label={t('addTitle')}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void add();
+                }}
+              >
+                <label className="lt-field" htmlFor={toggleId}>
+                  <input id={toggleId} type="checkbox" checked={oneToken} onChange={(event) => setOneToken(event.target.checked)} />
+                  <span>{t('swapAddToggle')}</span>
+                </label>
+                {!oneToken ? (
+                  <>
+                    <Field
+                      label={token0?.name ?? '—'}
+                      inputMode="decimal"
+                      value={amount0}
+                      onChange={(event) => setAmount0(event.target.value)}
+                    />
+                    <Field
+                      label={token1?.name ?? '—'}
+                      inputMode="decimal"
+                      value={amount1}
+                      onChange={(event) => setAmount1(event.target.value)}
+                    />
+                    {quoted?.kind === 'pair' && token0 && token1 && (
+                      <>
+                        <p className="lt-mono" data-testid="pulled">
+                          {t('pulled', {
+                            amount0: amountText(quoted.quote.amount0, token0.decimals),
+                            symbol0: token0.name,
+                            amount1: amountText(quoted.quote.amount1, token1.decimals),
+                            symbol1: token1.name,
+                          })}
+                        </p>
+                        <p className="lt-hint">{t('pulledNote')}</p>
+                        <p className="lt-mono">
+                          {t('willMint', {
+                            shares: amountText(quoted.quote.shares, SHARE_DECIMALS),
+                            share: bpsPercent(quoted.quote.shareOfPoolBps),
+                          })}
+                        </p>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <label className="lt-field">
+                      <span>{t('oneToken')}</span>
+                      <select value={single} onChange={(event) => setSingle(event.target.value as '0' | '1')} aria-label={t('oneToken')}>
+                        {token0 && <option value="0">{token0.name}</option>}
+                        {token1 && <option value="1">{token1.name}</option>}
+                      </select>
+                    </label>
+                    <Field
+                      label={singleToken?.name ?? '—'}
+                      inputMode="decimal"
+                      value={singleAmount}
+                      onChange={(event) => setSingleAmount(event.target.value)}
+                    />
+                    {quoted?.kind === 'one' && singleToken && (
+                      <>
+                        <p className="lt-mono" data-testid="swap-half">
+                          {t('swapHalf', { amount: amountText(quoted.quote.swapped, singleToken.decimals, 2), symbol: singleToken.name })}
+                        </p>
+                        <p className="lt-mono">{t('willMint', { shares: amountText(quoted.quote.shares, SHARE_DECIMALS), share: '—' })}</p>
+                      </>
+                    )}
+                    <p role="note">{t('atomic')}</p>
+                  </>
+                )}
+                <Field
+                  label={t('minShares')}
+                  hint={t('minSharesHint')}
+                  inputMode="decimal"
+                  value={minShares}
+                  onChange={(event) => setMinShares(event.target.value)}
+                />
+                {quoted && !stale && left !== null && <p className="lt-hint">{t('quoteValid', { seconds: String(left) })}</p>}
+                {stale && ttl !== null && (
+                  <>
+                    <p role="status">{t('quoteStale', { seconds: String(ttl) })}</p>
+                    <Button tone="secondary" onClick={() => setRefresh((n) => n + 1)}>
+                      {t('refreshQuote')}
+                    </Button>
+                  </>
+                )}
+                <Button tone="primary" type="submit" disabled={busy || !quoted || stale || minUnits === null || !wallet.address}>
+                  {t('add')}
+                </Button>
+                {problem && <p role="alert">{problem}</p>}
+                {signing.gateProblem && <p role="alert">{signing.gateProblem}</p>}
+              </form>
+              {done && <p role="status">{done}</p>}
+            </section>
+          </>
+        }
+        actions={
+          <Button tone="secondary" onClick={() => navigate(`/dex/pools/${pool}`)}>
+            {t('backToPools')}
           </Button>
-          {problem && <p role="alert">{problem}</p>}
-          {signing.gateProblem && <p role="alert">{signing.gateProblem}</p>}
-        </form>
-        {done && <p role="status">{done}</p>}
-      </Panel>
-      <Button variant="secondary" onClick={() => navigate(`/dex/pools/${pool}`)}>
-        {t('backToPools')}
-      </Button>
-    </WatchShell>
+        }
+        summary={
+          <p>
+            {room('bannerLine')} <Tag>{room('bannerPill')}</Tag>
+          </p>
+        }
+      />
+    </div>
   );
 }

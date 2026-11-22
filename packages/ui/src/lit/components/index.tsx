@@ -8,6 +8,8 @@ import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
+export * from './b3-live.js';
+
 type Div = React.HTMLAttributes<HTMLDivElement>;
 
 /** A panel. Glass only on the nav and sheet layers; the content layer is solid, and money sits there. */
@@ -158,24 +160,49 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
-/** The words around a control: the hint and error ids it is described by, with any description the caller passes. */
-function describedBy({
-  inputId,
-  given,
-  hint,
-  error,
-}: {
-  inputId: string;
-  given?: string;
+export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children'> & {
+  label: string;
   hint?: string;
-  error?: string;
-}): string | undefined {
-  return [given, hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
+  /** Each choice as its value and the words shown for it, in order. */
+  options: ReadonlyArray<readonly [string, string]>;
+};
+
+/** A choice from a short list: the native select, drawn as the kit's field (label above, hint below). */
+export function Select({ label, hint, options, id, className, ...rest }: SelectProps) {
+  const auto = React.useId();
+  const selectId = id ?? auto;
+  const describedBy = [rest['aria-describedby'], hint ? `${selectId}-hint` : null].filter(Boolean).join(' ') || undefined;
+  return (
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={selectId}>{label}</label>
+      <select {...rest} id={selectId} aria-describedby={describedBy}>
+        {options.map(([value, words]) => (
+          <option key={value} value={value}>
+            {words}
+          </option>
+        ))}
+      </select>
+      {hint && (
+        <span id={`${selectId}-hint`} data-part="hint">
+          {hint}
+        </span>
+      )}
+    </div>
+  );
 }
 
-function FieldWords({ inputId, hint, error }: { inputId: string; hint?: string; error?: string }) {
+export type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string };
+
+/** Several lines of text, named by its label, as Field is: label above, hint and error below. */
+export function TextArea({ label, hint, error, id, className, ...rest }: TextAreaProps) {
+  const auto = React.useId();
+  const inputId = id ?? auto;
+  const describedBy =
+    [rest['aria-describedby'], hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
   return (
-    <>
+    <div className={clsx('lit-field-control', className)}>
+      <label htmlFor={inputId}>{label}</label>
+      <textarea {...rest} id={inputId} aria-invalid={error ? true : rest['aria-invalid']} aria-describedby={describedBy} />
       {hint && (
         <span id={`${inputId}-hint`} data-part="hint">
           {hint}
@@ -186,71 +213,6 @@ function FieldWords({ inputId, hint, error }: { inputId: string; hint?: string; 
           {error}
         </span>
       )}
-    </>
-  );
-}
-
-export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & { label: string; hint?: string; error?: string };
-
-/** A choice from a list, named by its label, as Field is: the options are the caller's `<option>` children. */
-export function Select({ label, hint, error, id, className, children, ...rest }: SelectProps) {
-  const auto = React.useId();
-  const inputId = id ?? auto;
-  return (
-    <div className={clsx('lit-field-control', className)}>
-      <label htmlFor={inputId}>{label}</label>
-      <select
-        {...rest}
-        id={inputId}
-        aria-invalid={error ? true : rest['aria-invalid']}
-        aria-describedby={describedBy({ inputId, given: rest['aria-describedby'], hint, error })}
-      >
-        {children}
-      </select>
-      <FieldWords inputId={inputId} hint={hint} error={error} />
-    </div>
-  );
-}
-
-export type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string };
-
-/** Several lines of text, named by its label, as Field is. */
-export function TextArea({ label, hint, error, id, className, ...rest }: TextAreaProps) {
-  const auto = React.useId();
-  const inputId = id ?? auto;
-  return (
-    <div className={clsx('lit-field-control', className)}>
-      <label htmlFor={inputId}>{label}</label>
-      <textarea
-        {...rest}
-        id={inputId}
-        aria-invalid={error ? true : rest['aria-invalid']}
-        aria-describedby={describedBy({ inputId, given: rest['aria-describedby'], hint, error })}
-      />
-      <FieldWords inputId={inputId} hint={hint} error={error} />
-    </div>
-  );
-}
-
-export type CheckProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
-  /** The words after the box; they name it. */
-  label: React.ReactNode;
-  /** `radio` for one of a group that shares a `name`. */
-  type?: 'checkbox' | 'radio';
-  hint?: string;
-};
-
-/** A tick box or a radio: the box, then the words that name it, and a hint under them. */
-export function Check({ label, hint, type = 'checkbox', id, className, ...rest }: CheckProps) {
-  const auto = React.useId();
-  const inputId = id ?? auto;
-  return (
-    <div className={clsx('lit-check', className)}>
-      <label htmlFor={inputId}>
-        <input {...rest} type={type} id={inputId} aria-describedby={describedBy({ inputId, given: rest['aria-describedby'], hint })} />
-        <span>{label}</span>
-      </label>
-      <FieldWords inputId={inputId} hint={hint} />
     </div>
   );
 }
@@ -359,10 +321,18 @@ export function Holdings({ items, label, className }: { items: readonly Holding[
   );
 }
 
-/** A refusal: the blocker in words, the code small, one next step. Neutral, never accent-tinted. */
-export function RefusalBox({ refusal, className }: { refusal: Refusal; className?: string }) {
+/**
+ * A refusal: the blocker in words, the code small, one next step. Neutral, never accent-tinted. `children` holds a
+ * next step that is a control rather than a link (Try again); other attributes (a test id, a live role) pass through.
+ */
+export function RefusalBox({
+  refusal,
+  className,
+  children,
+  ...rest
+}: { refusal: Refusal } & Omit<React.HTMLAttributes<HTMLDivElement>, 'title'>) {
   return (
-    <div className={clsx('lit-refusal', className)} data-variant={refusal.variant} role="status">
+    <div role="status" {...rest} className={clsx('lit-refusal', className)} data-variant={refusal.variant}>
       <div>
         <div data-part="title">{refusal.title}</div>
         <div data-part="body">{refusal.body}</div>
@@ -376,24 +346,26 @@ export function RefusalBox({ refusal, className }: { refusal: Refusal; className
             {refusal.action.label}
           </a>
         )}
+        {children}
       </div>
     </div>
   );
 }
 
+/** Nothing here yet, in words, with at most one next step. Other attributes (a test id) pass through. */
 export function EmptyState({
   title,
   body,
   action,
   className,
+  ...rest
 }: {
   title: string;
   body?: string;
   action?: React.ReactNode;
-  className?: string;
-}) {
+} & Omit<React.HTMLAttributes<HTMLDivElement>, 'title' | 'children'>) {
   return (
-    <div className={clsx('lit-empty', className)}>
+    <div {...rest} className={clsx('lit-empty', className)}>
       <div data-part="title">{title}</div>
       {body && <div>{body}</div>}
       {action}
