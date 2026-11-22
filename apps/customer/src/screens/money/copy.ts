@@ -270,6 +270,8 @@ const messages = {
   'Pnl chart low': 'Low',
   'Pnl chart high': 'High',
   'Pnl chart none': 'No moment in this range has a known figure, so there is no line to draw.',
+  'Hidden figure': 'Hidden',
+  'Pnl chart keys': 'Use the left and right arrow keys to read each point',
   'Pnl missing points': '{count} points are missing from the line, shown as gaps:',
   'Missing no price': 'no price for {asset} at that time',
   'Missing cost unknown': 'the cost of {asset} is not known',
