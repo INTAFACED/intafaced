@@ -224,3 +224,57 @@ export function Sheet({
     </dialog>
   );
 }
+
+/**
+ * How much of a limit is used: a bar that fills to `value` of `max`, read out as a progress bar with its words (`text`,
+ * for example "62% used"). At or past the limit it is marked full by a state, never by colour alone.
+ */
+export function Meter({ label, value, max = 100, text }: { label: string; value: number; max?: number; text: string }) {
+  const shown = Math.max(0, Math.min(value, max));
+  const share = max > 0 ? (shown / max) * 100 : 0;
+  return (
+    <div
+      className="lt-meter"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={Math.round(shown)}
+      aria-valuetext={text}
+      data-full={value >= max || undefined}
+    >
+      <span className="lt-meter-fill" style={{ inlineSize: `${share}%` }} />
+      <span className="lt-sr">{text}</span>
+    </div>
+  );
+}
+
+/**
+ * A sample of someone else's brand, as their own page will show it (a business's checkout colour): a named figure whose
+ * `lt-brand-*` parts take `accent` and the text colour on it, `onAccent`. The colours are the person's own, never the
+ * kit's roles, so this is the one part that takes a colour as a value; everything around it stays in the kit's look.
+ */
+export function BrandSample({
+  label,
+  accent,
+  onAccent,
+  children,
+}: {
+  label: string;
+  /** A `#rrggbb` colour the person chose. */
+  accent: string;
+  /** The text colour that reads on `accent`. */
+  onAccent: string;
+  children: React.ReactNode;
+}) {
+  const colour = /^#[0-9a-fA-F]{6}$/;
+  const brand: React.CSSProperties & { '--lt-brand'?: string; '--lt-on-brand'?: string } = {
+    '--lt-brand': colour.test(accent) ? accent : undefined,
+    '--lt-on-brand': colour.test(onAccent) ? onAccent : undefined,
+  };
+  return (
+    <figure className="lt-brand" aria-label={label} style={brand}>
+      {children}
+    </figure>
+  );
+}
