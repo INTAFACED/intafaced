@@ -125,11 +125,13 @@ impl PostErr {
         matches!(self, PostErr::Ledger(f) if f.code() == Some("ledger.insufficient_funds"))
     }
 
-    /// What the router's guard answers for it.
+    /// What the router's guard answers for it. `LoanService` rethrows the ledger's own error, so a failure other than
+    /// too little money keeps the ledger's message as it is (a sweep reports it unwrapped).
     pub fn refusal(self) -> Refusal {
         match self {
             PostErr::Refused(r) => r,
-            PostErr::Ledger(f) => crate::transfers::moves::post_refusal(&f),
+            PostErr::Ledger(f) if f.insufficient() => crate::transfers::moves::post_refusal(&f),
+            PostErr::Ledger(f) => Refusal::Other(f.message().to_owned()),
         }
     }
 }

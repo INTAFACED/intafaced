@@ -497,6 +497,20 @@ impl Book {
         .unwrap();
     }
 
+    /// A raw move between any two accounts of one asset (`ledger.post({ entries: [credit(from), debit(to)] })`).
+    pub fn transfer(&self, from: &LedgerAccount, to: &LedgerAccount, value: Amount) {
+        let key = format!("move:{}", uuid());
+        let mut st = self.0.lock().unwrap();
+        Book::book(
+            &mut st,
+            &key,
+            "seed",
+            &Json::str(key.clone()),
+            &[credit(from, value), debit(to, value)],
+        )
+        .unwrap();
+    }
+
     /// `fund(MM_FUNDER, asset, value)` then the seed into `marketMaker(asset)`: the market maker's cash.
     pub fn seed_market_maker(&self, asset: &str, value: &str) {
         self.fund(MM_SWEEP, asset, value);
