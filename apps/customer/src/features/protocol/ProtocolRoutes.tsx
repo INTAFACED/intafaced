@@ -14,10 +14,13 @@ import { AddLiquidity } from './liquidity/AddLiquidity';
 import { PositionPage, PositionsList } from './liquidity/Positions';
 import { AddressPage } from './watch/AddressPage';
 import { WatchlistPage } from './watch/WatchlistPage';
-import { BlockPage, TxPage } from './explorer/pages';
+import { BlockPage, RecordNotFound, TxPage } from './explorer/pages';
 import { PoolPage } from './pools/PoolPage';
 import { ContractPage } from './contracts/ContractPage';
 import { OrdersRoom } from './orders/OrdersRoom';
+import { BlocksRoom } from './chain-blocks/BlocksRoom';
+import { ValidatorsRoom } from './chain-validators/ValidatorsRoom';
+import { ContractsRoom } from './protocol-contracts/ContractsRoom';
 import { OwnFreezeNotice } from '../account';
 
 /**
@@ -70,9 +73,7 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
     const value = route.param ? safeDecode(params[route.param.name]) : undefined;
     // A malformed id is answered not found without asking the indexer.
     if (value === undefined || !route.param?.shape.test(value))
-      return (
-        <PendingRoute room={route.room} page={route.explorer === 'block' ? 'blockDetail' : 'txDetail'} blocker="indexer" valid={false} />
-      );
+      return <RecordNotFound page={route.explorer === 'block' ? 'blockDetail' : 'txDetail'} />;
     return route.explorer === 'block' ? <BlockPage height={Number(value)} /> : <TxPage hash={value.toLowerCase()} />;
   }
   if (route.walletClaim) {
@@ -101,6 +102,10 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
     );
   }
   if (route.room === 'wallet' || !route.tab) return <NotFoundRoute path={path} />;
+  // The record-list tabs are rooms of their own on their template; the other tabs stay in the parked room.
+  if (route.room === 'chain' && route.tab === 'blocks') return <BlocksRoom />;
+  if (route.room === 'chain' && route.tab === 'validators') return <ValidatorsRoom />;
+  if (route.room === 'protocol' && route.tab === 'contracts') return <ContractsRoom />;
   const slug = route.room;
   // The tab room reads the tab from the path; the first tab lives at the room root.
   const subPath = route.tab === SUBNAV[slug][0]!.id ? '' : route.tab;

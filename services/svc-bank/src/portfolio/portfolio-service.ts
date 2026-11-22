@@ -10,17 +10,14 @@ import {
   type Balance,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import type { BankHoldingsChange, BankValueOverTime, LedgerHoldingsHistory, RegistryAssetKind } from '@intafaced/contracts';
 import {
   BANK_VALUE_HISTORY_TOO_LARGE,
   BANK_VALUE_HISTORY_UNAVAILABLE,
   BANK_VALUE_RANGE_INVALID,
   BANK_VALUE_RANGE_TOO_LONG,
-  LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
-  type BankHoldingsChange,
-  type BankValueOverTime,
-  type LedgerHoldingsHistory,
-  type RegistryAssetKind,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-value-history';
+import { LEDGER_HOLDINGS_HISTORY_TOO_LARGE } from '@intafaced/contracts/ledger-holdings-history';
 import type { AssetRegistryReads } from '../assets/supported-assets.js';
 import { BankError } from '../errors.js';
 import type { LedgerHoldingsHistoryReads } from '../ledger-client.js';

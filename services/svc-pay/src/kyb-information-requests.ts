@@ -1,12 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
-import {
-  kybInformationRequestSchema,
-  type KybInformationRequest,
-  type KybRequestFileBytes,
-  type KybRequestsView,
-} from '@intafaced/contracts';
+import type { KybInformationRequest, KybRequestFileBytes, KybRequestsView } from '@intafaced/contracts';
+import { kybInformationRequestSchema } from '@intafaced/contracts/kyb-information-requests';
 import { KybError } from './kyb-service.js';
 import { decrypt, encrypt, type KybDocumentService } from './kyb-documents.js';
 import type { KybMalwareScanner } from './kyb-malware-scan.js';

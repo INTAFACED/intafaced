@@ -75,7 +75,7 @@ jobs:
   gates:
     name: Doctrine gates
     runs-on: ubuntu-24.04
-    timeout-minutes: 10 # healthy run: about 2 min (the tooling tests are about 40 s of it)
+    timeout-minutes: 10 # healthy run: about 5 to 6 min, the tooling tests about 4 of it (22 Nov)
     permissions:
       contents: read
       actions: read # the journey baseline guard downloads the journeys runs' reports on main
@@ -156,10 +156,15 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR: ${{ github.event.pull_request.number }}
           # Check 7 reads this pull request's earlier heads' failed Tests jobs (actions: read above).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Main's copy runs in a worktree of main, so every import it has is main's too (rules-from-main.test.mjs).
+        # The event holds the description as it was at the push, so a re-run reads today's: a Test-change line added after
+        # a red counts on a re-run, with no empty commit (the event's copy stays if the read fails).
         run: |
+          live=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '.body // ""') && PR_BODY=$live && export PR_BODY
+          echo "description: ${#PR_BODY} characters, read at $(date -u +%H:%M:%S)"
           guard=tooling/ci/test-diff-guard.mjs
           if git cat-file -e "origin/main:$guard" 2>/dev/null; then
             git worktree add --detach "$RUNNER_TEMP/diff-rules" origin/main
@@ -290,6 +295,38 @@ jobs:
           fi
           node "$lint"
 
+  fast-gates:
+    # Every Doctrine gate but the tooling tests (and the three that plant files in the tree), all at once: a red one is
+    # named about two minutes after the push, not after the tooling tests' four. The pre-push hook ran these before each
+    # push until 22 Nov; on the box, under a dozen builders, that was 3 to 4 minutes of a 7-minute push (project-state
+    # #3676). The Doctrine gates job above runs the whole list again and is the one the seal requires, so this job only
+    # says it sooner.
+    name: Fast gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10 # healthy run: about 2 min, most of it the install
+    permissions:
+      contents: read
+    # The lint ratchet reads main-bisect's automatic revert by these, as in the Doctrine gates job.
+    env:
+      PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+      PR_COMMITS: ${{ github.event.pull_request.commits }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # as in the Doctrine gates job: the lint ratchet judges the change against its merge-base with main
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fast gates
+        run: node tooling/ci/gates.mjs --fast
+
   changes:
     name: Affected tests
     runs-on: ubuntu-24.04
@@ -379,6 +416,11 @@ jobs:
             sleep 1
           done
           echo "::error::Postgres settings did not change: $got"; exit 1
+      # Format, clippy and the unit tests first, so a red one is named about two minutes into the job, before the database
+      # suites below take their 5 to 10 (the pre-push hook ran rust:check before each push until 22 Nov, project-state
+      # #3676). rust:check then runs everything, reusing what this step built.
+      - name: Format, clippy and unit tests first
+        run: cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked --lib --bins
       - name: rust:check
         run: pnpm rust:check
       # Every run also proves the check can fail: rust:check must fail, for the planted reason, on a clippy warning
@@ -713,6 +755,27 @@ jobs:
         if: always()
         run: node tooling/ci/infra-verdict.mjs
 
+      # Save each package's Maven repository that test-infra restored (#9531), only from a passing job that ran that
+      # package's Maven tests (its surefire reports exist), so the saved repository holds every plugin its tests need.
+      - name: Save sbe-codec's Maven repository
+        if: success() && hashFiles('packages/sbe-codec/target/surefire-reports/TEST-*.xml') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            packages/sbe-codec/.tools/m2
+            !packages/sbe-codec/.tools/m2/**/*.lastUpdated
+            !packages/sbe-codec/.tools/m2/**/resolver-status.properties
+          key: maven-repo-sbe-codec-${{ runner.os }}-${{ hashFiles('packages/sbe-codec/pom.xml') }}
+      - name: Save svc-fix's Maven repository
+        if: success() && hashFiles('services/svc-fix/target/surefire-reports/TEST-*.xml') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            services/svc-fix/.tools/m2
+            !services/svc-fix/.tools/m2/**/*.lastUpdated
+            !services/svc-fix/.tools/m2/**/resolver-status.properties
+          key: maven-repo-svc-fix-${{ runner.os }}-${{ hashFiles('services/svc-fix/pom.xml') }}
+
   # The look gate on the rooms a pull request changes (#9325; look-pr.yml): before and after pictures for the CI review,
   # and red when the head adds a finding on a new-look page. Only when the change draws a Customer room or the kit
   # (ci-affected.mjs reachesLook); the seal needs it green then.
@@ -845,7 +908,7 @@ jobs:
   # Not on a pull request into a Volt layer branch (`volt/<template>`): no seal guards those; CI's fast checks do.
   seal-start:
     name: Start the seal
-    needs: [changes, gates, format, build, test-full, rust, look, merge-seal]
+    needs: [changes, gates, fast-gates, format, build, test-full, rust, look, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.base_ref, 'volt/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes

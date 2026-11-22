@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 
 export type PurchaseHoldErrorCode = 'purchase_hold.amount_invalid' | 'purchase_hold.ref_differs';
 

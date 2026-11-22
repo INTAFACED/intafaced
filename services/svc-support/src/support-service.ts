@@ -1,45 +1,44 @@
 import { randomUUID } from 'node:crypto';
 import { MemoryResponseTargetBook, ResponseTargetError, type ResponseTargetBook, type ResponseTargetPolicy } from './response-targets.js';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
+import type {
+  SupportCustomerProperty,
+  SupportMyTicketProperties,
+  SupportCategories,
+  SupportAttachmentDownload,
+  SupportAttachmentKey,
+  SupportAttachmentLimits,
+  SupportBulkChange,
+  SupportBulkPolicy,
+  SupportBulkResult,
+  SupportMergePreview,
+  SupportMergeResult,
+  SupportAttachmentStatus,
+  SupportAwaitingMine,
+  SupportTicketLifecycle,
+  SupportTicketProperties,
+  SupportTicketPropertyChange,
+} from '@intafaced/contracts';
 import {
   SUPPORT_CATEGORY_ROUTES,
   SUPPORT_CUSTOMER_PROPERTIES_UNSET,
-  type SupportCustomerProperty,
-  type SupportMyTicketProperties,
   SUPPORT_FRAUD_REPORT_KEY_REQUIRED,
   SUPPORT_FRAUD_ROUTE_MISSING,
   SUPPORT_FRAUD_ROUTE_UNSET,
   supportTicketCategorySchema,
-  type SupportCategories,
-  supportKbBodyProblem,
-  supportKbTitleProblem,
-  SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
-  SUPPORT_ATTACHMENT_KEYS,
   SUPPORT_KB_AUDIENCES,
   SUPPORT_LABELS_MAX,
   kbAudienceVisibleTo,
-  SUPPORT_BULK_CAP_KEY,
   SUPPORT_VIEW_PERSONAL_CAP_KEY,
   SUPPORT_VIEW_SHARED_CAP_KEY,
-  supportBulkKey,
   supportLabelSchema,
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
-  type SupportAttachmentDownload,
-  type SupportAttachmentKey,
-  type SupportAttachmentLimits,
-  type SupportBulkChange,
-  type SupportBulkPolicy,
-  type SupportBulkResult,
-  type SupportMergePreview,
-  type SupportMergeResult,
-  type SupportAttachmentStatus,
-  type SupportAwaitingMine,
-  type SupportTicketLifecycle,
-  type SupportTicketProperties,
-  type SupportTicketPropertyChange,
-  supportMacroUnfilled,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support';
+import { SUPPORT_ATTACHMENT_DOWNLOAD_TYPE, SUPPORT_ATTACHMENT_KEYS } from '@intafaced/contracts/support-attachments';
+import { SUPPORT_BULK_CAP_KEY, supportBulkKey } from '@intafaced/contracts/support-bulk';
+import { supportKbBodyProblem, supportKbTitleProblem } from '@intafaced/contracts/support-kb-library';
+import { supportMacroUnfilled } from '@intafaced/contracts/support-macros';
 import type {
   CreateTicketInput,
   EscalateTicketInput,
@@ -149,7 +148,8 @@ import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './de
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook, type GroupLogEntry } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
 import { UNWIRED_CHARTS_SOURCES, type ChartsAlertsSource, type DeskLayoutsSource } from './charts-lookup.js';
-import { chartsLookupNote, type SupportChartsLookup } from '@intafaced/contracts';
+import type { SupportChartsLookup } from '@intafaced/contracts';
+import { chartsLookupNote } from '@intafaced/contracts/support-charts-lookup';
 import { findCommentSecret, SUPPORT_COMMENT_SECRET_REFUSED } from './comment-secrets.js';
 
 const INVALID = Symbol('invalid');

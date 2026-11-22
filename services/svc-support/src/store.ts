@@ -21,7 +21,7 @@ import {
   supportTicketCategorySchema,
   supportTicketEventKindSchema,
   supportTicketStatusSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support';
 import { READER_ACTOR_PREFIX, feedbackRateCutoff, feedbackRequestCopy } from './kb-feedback.js';
 import { assertKbArticle, KbCatalogError, PLATFORM_KB_SPINE, kbVersionOf, toPublicKb } from './kb-catalog.js';
 import { checkTransition, isTerminal } from './lifecycle.js';

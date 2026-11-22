@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
-import { PRODUCT_IMAGE_TYPES } from '@intafaced/contracts';
+import { PRODUCT_IMAGE_TYPES } from '@intafaced/contracts/merchant-catalog';
 
 type ImageType = (typeof PRODUCT_IMAGE_TYPES)[number];
 

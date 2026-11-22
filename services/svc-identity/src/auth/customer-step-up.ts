@@ -24,14 +24,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import {
-  CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS,
-  SAME_PERSON_APPROVAL_TTL_SECONDS,
-  bindCustomerStepUp,
-  samePersonTargetService,
-  type CustomerStepUpBeginInput,
-  type CustomerStepUpBindFailure,
-} from '@intafaced/contracts';
+import type { CustomerStepUpBeginInput, CustomerStepUpBindFailure } from '@intafaced/contracts';
+import { SAME_PERSON_APPROVAL_TTL_SECONDS, samePersonTargetService } from '@intafaced/contracts/action-approval';
+import { CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS, bindCustomerStepUp } from '@intafaced/contracts/customer-step-up';
 import { newApprovalIds } from './action-approval-store.js';
 import { AuthError, type AuthService } from './auth-service.js';
 import { SqlCustomerStepUpStore, type CustomerStepUpRow } from './customer-step-up-store.js';

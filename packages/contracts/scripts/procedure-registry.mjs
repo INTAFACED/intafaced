@@ -22,14 +22,29 @@ export async function registrySource(packageDir, exportName, procedureModule) {
   if (twice.length > 0) throw new Error(`two records share a constant name: ${twice.join(', ')}`);
   const byModule = new Map();
   for (const f of found) byModule.set(f.module, [...(byModule.get(f.module) ?? []), f.name]);
+  // One part per source file, named by it. A record added to one file changes only that file's lines, so two changes
+  // adding records to different files merge into what this script writes, and two adding to one file conflict in git.
+  // (A part of fixed size would move every later boundary on any add: two green changes would merge stale.)
+  // Parts, not one array literal of every record: that is a union too complex for the compiler (TS2590).
+  const partName = (module) =>
+    `part_${module
+      .replace(/^\.\//, '')
+      .replace(/\.js$/, '')
+      .replace(/[^A-Za-z0-9]/g, '_')}`;
   const imports = [...byModule].map(([module, list]) => `import { ${list.join(', ')} } from '${module}';`);
+  // A blank line between files' lines: git takes edits on two adjacent lines as one conflict.
   const text = [
     '// Written by `procedures:write` (scripts/procedure-registry.mjs) from every `defineProcedure` in src/. Do not edit by hand.',
-    ...imports,
+    imports.join('\n\n'),
+    '',
     `import type { ProcedureRecord } from '${procedureModule}';`,
     '',
+    [...byModule].map(([module, list]) => `const ${partName(module)}: readonly ProcedureRecord[] = [${list.join(', ')}];`).join('\n\n'),
+    '',
     '/** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */',
-    `export const ${exportName}: readonly ProcedureRecord[] = [${names.join(', ')}];`,
+    `export const ${exportName}: readonly ProcedureRecord[] = [`,
+    ...[...byModule.keys()].map((module) => `  ...${partName(module)},`),
+    '];',
     '',
   ].join('\n');
   const target = join(packageDir, 'src', 'procedure-registry.ts');

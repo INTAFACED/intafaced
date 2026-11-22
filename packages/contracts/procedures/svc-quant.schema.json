@@ -7486,11 +7486,24 @@
           "liveEnabled": {
             "type": "boolean"
           },
+          "approval": {
+            "type": "object",
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "allowed": {
+                "type": "boolean"
+              }
+            },
+            "required": ["required", "allowed"],
+            "additionalProperties": false
+          },
           "asOf": {
             "type": "string"
           }
         },
-        "required": ["strategyId", "strategyVersion", "name", "plan", "orderTypes", "compiles", "liveEnabled", "asOf"],
+        "required": ["strategyId", "strategyVersion", "name", "plan", "orderTypes", "compiles", "liveEnabled", "approval", "asOf"],
         "additionalProperties": false
       },
       "samples": [
@@ -7540,6 +7553,7 @@
         "quant.studio_not_found": "NOT_FOUND",
         "quant.database_url_unset": "PRECONDITION_FAILED",
         "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.approval_required": "PRECONDITION_FAILED",
         "quant.live_disabled": "PRECONDITION_FAILED",
         "quant.live_plan_unsupported": "BAD_REQUEST",
         "trade.order_type_unsupported": "BAD_REQUEST",

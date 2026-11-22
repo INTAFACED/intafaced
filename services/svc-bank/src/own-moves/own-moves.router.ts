@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount } from '@intafaced/ledger-client';
 import { unwiredApprovalConsumer } from '../action-approval-consume.js';
 import { createStepUpGate } from '../step-up/step-up-gate.js';
