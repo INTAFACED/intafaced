@@ -3,7 +3,6 @@ import { checkoutBrandingSaveInputSchema, checkoutBrandingSavedSchema } from '@i
 import { router } from '@intafaced/contracts/trpc';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
-import { ownMerchantRead } from '../own-merchant-read.js';
 import { teamMemberWrite } from '../team-member-write.js';
 import { CheckoutBrandings } from './branding.js';
 import type { CheckoutLogoRule } from './logo-rules.js';
@@ -28,7 +27,6 @@ export function createCheckoutBrandingRouter(deps: CheckoutBrandingMountDeps | u
     if (!brandings || !deps) throw new MerchantOpsError('pay.merchant_ops_unavailable', 'unavailable');
     return { brandings, sql: deps.sql };
   };
-  const read = ownMerchantRead();
   const write = teamMemberWrite(() => need().sql);
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);

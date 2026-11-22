@@ -360,7 +360,7 @@ export const summaryPayment = z
     id: z.string().guid(),
     status: z.string(),
     amount: payAmountStringSchema,
-    assetId: z.string(),
+    assetId: brandedAssetIdSchema,
     createdAt: z.string().datetime({ offset: true }),
   })
   .strict();

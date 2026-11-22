@@ -14,7 +14,6 @@ import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from '../merchant-ownership.js';
 import { founderProcedure } from './founder-procedure.js';
 import { payRefusal } from '../record-refusal.js';
-import { ownMerchantRead } from '../own-merchant-read.js';
 import { hasScope } from '@intafaced/auth';
 import { PAY_PAY_HALTS_STATUS } from '@intafaced/contracts/pay-pay-halts-procedures';
 
@@ -71,7 +70,6 @@ function mapError(error: unknown): never {
 }
 
 export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: PayHaltsDeps) {
-  const read = ownMerchantRead();
   // The founder guard runs before any input is parsed; each operator door is mounted behind it.
   const parts = { refusalOf: payRefusal, founder: founderProcedure(founderAuthority) };
   return router({

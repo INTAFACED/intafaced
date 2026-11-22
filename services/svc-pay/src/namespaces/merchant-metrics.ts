@@ -3,7 +3,6 @@ import { router } from '@intafaced/contracts/trpc';
 import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
 import { toPayfacTrpcError } from './metrics-errors.js';
 import { notBuilt } from './errors.js';
-import { ownMerchantRead } from '../own-merchant-read.js';
 import {
   PAY_MERCHANT_METRICS_SNAPSHOT,
   PAY_MERCHANT_METRICS_SERIES,
@@ -26,7 +25,6 @@ export function createMerchantMetricsRouter(
   /** The acquiring partner's terms for one business (`partner-terms.ts`). Absent: `partnerTerms` refuses `pay.not_built`. */
   partnerTerms?: (merchantId: string) => MerchantPartnerTerms,
 ) {
-  const read = ownMerchantRead();
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
       return await fn();
