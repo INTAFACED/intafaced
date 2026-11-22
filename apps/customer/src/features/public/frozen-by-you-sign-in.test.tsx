@@ -129,13 +129,13 @@ describe('signing in to an account its owner froze', () => {
     expect(host.querySelector('h1')!.textContent).toBe('You froze this account');
     expect(page()!.querySelector('[data-testid="frozen-by-you__lift"]')!.getAttribute('data-lift')).toBe('liftAt');
     expect(page()!.textContent).toContain('You can reactivate it yourself from');
-    expect(host.querySelector('.failure')).toBeNull();
+    expect(host.querySelector('[data-testid="failure"]')).toBeNull();
     // What the freeze stops comes from identity's answer, and the session landing is never read as an interruption.
     expect(
       Array.from(page()!.querySelectorAll('[data-testid="frozen-by-you__stops"] li')).map((li) => li.getAttribute('data-action')),
     ).toEqual(['create_api_key']);
     expect(page()!.textContent).toContain('Create API keys');
-    expect(host.querySelector('.public-auth-feedback')).toBeNull();
+    expect(host.querySelector('[data-auth-feedback]')).toBeNull();
     expect(host.querySelector('form')).toBeNull();
     expect(location.pathname).toBe('/login');
     await act(async () => buttonNamed('Reactivate in Security')!.click());
