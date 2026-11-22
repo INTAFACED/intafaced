@@ -152,10 +152,6 @@ export const linkedAccountSchema = z.object({
   coolingOffEndsAt: z.string().nullable(),
 });
 export type LinkedAccount = z.infer<typeof linkedAccountSchema>;
-export const linkedAccountWrites = {
-  link: z.object({ account: linkedAccountSchema, created: z.boolean() }),
-  remove: z.object({ accountId: z.string(), removed: z.literal(true) }),
-};
 
 /** svc-bank `bank.activity.list` lines read for incoming payments (J-bank-02 #7). Unknown fields are dropped. */
 const incomingLineSchema = z.object({
