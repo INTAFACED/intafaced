@@ -1,12 +1,11 @@
 import { z } from 'zod';
 import { orderSideSchema } from '@intafaced/contracts/order-enums';
+import { decimal } from '@intafaced/contracts/trade-call-schemas';
 import { MAX_ALGO_SEED } from './schedule.js';
 import { POV_BASES } from './types.js';
 
 /** The kinds an engine runs. */
 export const ALGO_KINDS = ['twap', 'vwap', 'pov', 'chase'] as const;
-
-const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
 
 /** One algo create, as the web's `trade.algo.createTwap` and the public `POST /api/v1/algo` take it. */
 export const algoCreateInputSchema = z.object({
