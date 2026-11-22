@@ -10,6 +10,7 @@ import {
   applySurfaces,
   composite,
   focusScroll,
+  keyboardFocus,
   contrastRatio,
   isLargeText,
   meetsContrast,
@@ -227,6 +228,21 @@ describe('focus not obscured', () => {
     // Taller than the space between the bars: its top stays in view rather than its bottom.
     expect(focusScroll({ top: 100, bottom: 900 }, { topEdge: 48, bottomEdge: 686 })).toBe(44);
     expect(focusScroll({ top: 100, bottom: 110 }, { topEdge: 48, bottomEdge: 686 }, 0)).toBe(0);
+  });
+
+  it('scrolls only for keyboard focus, so a pointer press that focuses a control never moves the page under it', () => {
+    // J-charts-desk-10 #1: a click on a checkbox's label under the top bar focused the box on press, the page scrolled, and the
+    // release landed elsewhere, so the box never ticked. A pointer focus does not match :focus-visible; keyboard focus does.
+    expect(keyboardFocus({ matches: (s: string) => s === ':focus-visible' })).toBe(true);
+    expect(keyboardFocus({ matches: () => false })).toBe(false);
+    // An engine without the selector throws on it: the bar fix still runs there.
+    expect(
+      keyboardFocus({
+        matches: () => {
+          throw new SyntaxError('unknown pseudo-class');
+        },
+      }),
+    ).toBe(true);
   });
 });
 
