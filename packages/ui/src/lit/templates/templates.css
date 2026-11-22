@@ -595,6 +595,27 @@
   unicode-bidi: isolate;
 }
 
+/* Code read as written (a strategy's source, a line comparison): it keeps its lines, wraps rather than widening the room,
+   and scrolls inside its own box. A compared line carries data-op; its + or − mark says the change, the tone repeats it. */
+.lt-code {
+  margin: 0;
+  padding-block: var(--lit-gap-item);
+  padding-inline: var(--lit-gap-item);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  font-family: var(--lit-font-mono);
+  direction: ltr;
+  unicode-bidi: isolate;
+  background: var(--lit-solid-bg-raised);
+  border-radius: var(--lit-radius-control);
+}
+.lt-code [data-op='removed'] {
+  color: var(--lit-down-text);
+}
+.lt-code [data-op='added'] {
+  color: var(--lit-up-text);
+}
+
 .lt-receipt,
 .lt-review {
   display: flex;
