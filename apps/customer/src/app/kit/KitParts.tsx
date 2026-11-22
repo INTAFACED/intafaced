@@ -276,30 +276,33 @@ export function MarketList() {
     (r) => chip !== 'losers' || r.change.startsWith('-'),
   );
   return (
-    <div className="vk-stack">
-      <ToggleChips
-        label="Filter by change"
-        options={[
-          { value: 'all', label: 'All' },
-          { value: 'gainers', label: 'Gainers' },
-          { value: 'losers', label: 'Losers' },
-        ]}
-        value={chip}
-        onChange={setChip}
-        clearable
-      />
-      <Table
-        caption="TEST markets"
-        columns={LIST_COLUMNS}
-        rows={sortRows(shown, LIST_SORT_VALUES, sort)}
-        rowKey={(r) => r.symbol}
-        rowHref={() => '/kit'}
-        rowMarks={(r) => ({ 'data-symbol': r.symbol })}
-        sort={sort}
-        onSort={setSort}
-        empty="No TEST markets match"
-        virtual={{ estimate: 56 }}
-      />
+    // Inside a room frame, as in a room: the table stacks its rows by the room's own width.
+    <div className="lt-room">
+      <div className="vk-stack">
+        <ToggleChips
+          label="Filter by change"
+          options={[
+            { value: 'all', label: 'All' },
+            { value: 'gainers', label: 'Gainers' },
+            { value: 'losers', label: 'Losers' },
+          ]}
+          value={chip}
+          onChange={setChip}
+          clearable
+        />
+        <Table
+          caption="TEST markets"
+          columns={LIST_COLUMNS}
+          rows={sortRows(shown, LIST_SORT_VALUES, sort)}
+          rowKey={(r) => r.symbol}
+          rowHref={() => '/kit'}
+          rowMarks={(r) => ({ 'data-symbol': r.symbol })}
+          sort={sort}
+          onSort={setSort}
+          empty="No TEST markets match"
+          virtual={{ estimate: 56 }}
+        />
+      </div>
     </div>
   );
 }

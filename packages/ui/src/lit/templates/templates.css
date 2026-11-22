@@ -956,6 +956,9 @@
 }
 
 .lt-row-link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 1.75rem;
   color: inherit;
   text-decoration: none;
 }
