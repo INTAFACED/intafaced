@@ -875,7 +875,6 @@
   "apps/customer/src/screens/trade/options/shared.tsx#loginHref",
   "apps/customer/src/screens/trade/otc/data.ts#readQuote",
   "apps/customer/src/screens/trade/otc/model.ts#FEE_BPS",
-  "apps/customer/src/screens/trade/rooms/RoomFrame.tsx#ModeStrip",
   "apps/customer/src/screens/trade/rooms/RoomNotices.tsx#asOfText",
   "apps/customer/src/screens/trade/rooms/api.ts#ALGO_LIST_PAGE",
   "apps/customer/src/screens/trade/rooms/api.ts#algoListSchema",

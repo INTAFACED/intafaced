@@ -1,12 +1,11 @@
 /**
  * Shared notices for the rooms: a refusal in plain words, the state of the last write, the device note of an unresolved
- * request, and a freshness chip. Status is a shape plus a word, never colour alone.
+ * request. Status is a shape plus a word, never colour alone.
  */
 import type { ReactNode } from 'react';
-import { Button, EmptyState, StatusChip, formatAsOf } from './ui';
+import { Button, EmptyState, formatAsOf } from './ui';
 import type { Words } from './refusals';
 import { BLOCK_WORDS, type RoomWriter } from './write';
-import { STALE_AFTER_MS } from './read';
 
 export function Refusal({ words, onRetry, size = 'panel' }: { words: Words; onRetry?: () => void; size?: 'inline' | 'panel' }) {
   return (
@@ -19,11 +18,6 @@ export function Refusal({ words, onRetry, size = 'panel' }: { words: Words; onRe
       action={onRetry ? { label: 'Try again', onClick: onRetry, variant: 'secondary' } : undefined}
     />
   );
-}
-
-/** Freshness of a polled region. `asOf` null means no good answer (unknown), `refused` means the service said no. */
-export function Freshness({ asOf, refused = false, now }: { asOf: number | null; refused?: boolean; now?: number }) {
-  return <StatusChip asOf={asOf} refused={refused} staleAfterMs={STALE_AFTER_MS} now={now} showAsOf={asOf !== null} />;
 }
 
 export function asOfText(asOf: number | null): string {
