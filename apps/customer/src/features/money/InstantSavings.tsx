@@ -4,7 +4,7 @@ import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { parseAmount } from '../../shared/money';
 import { amount, bps, funds, NoRows, positiveMoney, Section, type ActionSpec, useBankRecord } from './components';
-import { bankWrites, type poolSchema, type positionSchema } from './contracts';
+import { type poolSchema, type positionSchema } from './contracts';
 import { earnCopy } from './earn-copy';
 import { useSession } from '../session';
 import { instantSavingsCopy } from './instant-savings-copy';

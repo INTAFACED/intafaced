@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString, autoInvestRuleOutput } from './bank-call-schemas.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `autoInvest.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -21,7 +22,7 @@ export const BANK_AUTO_INVEST_CREATE_ROUND_UP = defineProcedure({
   access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
   refusals: {},
   input: z.object({
-    assetId: z.string().min(1).max(16),
+    assetId: assetIdSchema.min(1).max(16),
     granularity: amountString,
     targetPoolId: z.string().guid().optional(),
     targetSpaceId: z.string().guid().optional(),
@@ -46,7 +47,7 @@ export const BANK_AUTO_INVEST_CREATE_THRESHOLD_SWEEP = defineProcedure({
   access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
   refusals: {},
   input: z.object({
-    assetId: z.string().min(1).max(16),
+    assetId: assetIdSchema.min(1).max(16),
     threshold: amountString,
     targetPoolId: z.string().guid(),
   }),

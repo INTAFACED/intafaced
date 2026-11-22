@@ -282,7 +282,7 @@ export const BANK_RAMPS_OFFRAMP = defineProcedure({
   refusals: {},
   input: z.object({
     offrampId: z.string().guid(),
-    assetId: z.string().min(1).max(16),
+    assetId: assetIdSchema.min(1).max(16),
     amount: amountString,
     kind: z.enum(['crypto', 'fiat']).default('crypto'),
     destinationRef: z.string().min(1).max(256).optional(),

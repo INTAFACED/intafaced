@@ -457,7 +457,7 @@ export const SORTER_MAX_LEGS = 10;
 
 export const sorterView = z.object({
   id: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   status: z.enum(['active', 'cancelled']),
   legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int() })),
   createdAt: z.string(),
@@ -467,7 +467,7 @@ export const sorterView = z.object({
 export const autoInvestRuleOutput = z.object({
   id: z.string(),
   kind: z.enum(['threshold_sweep', 'dca', 'card_roundup']),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   threshold: amountString.nullable(),
   targetPoolId: z.string().nullable(),
   targetSpaceId: z.string().nullable(),
@@ -486,7 +486,7 @@ export const businessApprovalOutput = z.object({
   checkerUserId: z.string().nullable(),
   fromSpaceId: z.string(),
   toSpaceId: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: amountString,
   status: z.enum(['pending', 'approved', 'rejected', 'cancelled']),
   transferId: z.string().nullable(),
@@ -498,7 +498,7 @@ export const businessApprovalOutput = z.object({
 export const businessAccountOutput = z.object({
   id: z.string(),
   name: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   spendThreshold: amountString,
   status: z.enum(['active', 'closed']),
   createdAt: z.string(),
@@ -544,7 +544,7 @@ export const shippingAddressInput = z.object({
 export const cardOutput = z.object({
   id: z.string(),
   /** Which balance the card draws on. Every posting against it is in this asset. */
-  assetId: z.string(),
+  assetId: assetIdSchema,
   /**
    * What merchants charge this card in (§18).
    *
@@ -593,7 +593,7 @@ export const cardOutput = z.object({
 
 export const offrampOutput = z.object({
   id: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: amountString,
   kind: z.enum(['crypto', 'fiat']),
   rail: z.string(),

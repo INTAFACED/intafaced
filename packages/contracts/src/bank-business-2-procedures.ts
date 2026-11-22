@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString, businessAccountOutput, businessApprovalOutput } from './bank-call-schemas.js';
 import { stepUpApprovalField } from './bank-cards-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `business.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -59,7 +60,7 @@ export const BANK_BUSINESS_CREATE = defineProcedure({
   input: z.object({
     accountId: z.string().guid(),
     name: z.string().min(1).max(128),
-    assetId: z.string().min(1).max(16),
+    assetId: assetIdSchema.min(1).max(16),
     spendThreshold: amountString,
   }),
   output: businessAccountOutput,
@@ -90,7 +91,7 @@ export const BANK_BUSINESS_RUN_PAYROLL = defineProcedure({
     payrollId: z.string(),
     accountId: z.string(),
     fromSpaceId: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     ledgerTxId: z.string(),
     recipients: z.array(z.object({ toSpaceId: z.string(), amount: amountString })),
     createdAt: z.string(),

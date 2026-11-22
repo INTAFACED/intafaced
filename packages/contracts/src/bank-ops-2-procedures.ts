@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `ops.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -27,7 +28,7 @@ export const fundingKind = z.enum(['fund', 'defund', 'auto_reload']);
 export const fundingRequestOutput = z.object({
   clientRequestId: z.string(),
   kind: fundingKind,
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: amountString,
   threshold: amountString.nullable(),
   partnerRef: z.string(),
@@ -53,7 +54,7 @@ export const BANK_OPS_CARD_PROGRAMME_FUNDING = defineProcedure({
     offers: z.object({ fund: offerState, defund: offerState, auto_reload: offerState }),
     rows: z.array(
       z.object({
-        assetId: z.string(),
+        assetId: assetIdSchema,
         // An asset the app holds no record of says "missing" in each app figure (OWNER 288), never 0.
         appHeld: appSide,
         appCaptured: appSide,
@@ -87,7 +88,7 @@ export const BANK_OPS_POOL_TOTALS = defineProcedure({
     pools: z.array(
       z.object({
         poolId: z.string(),
-        assetId: z.string(),
+        assetId: assetIdSchema,
         amountHeld: amountString.nullable(),
         amountReason: z.enum(['ledger_unavailable']).nullable(),
         depositorCount: z.number().int().nonnegative(),
@@ -110,7 +111,7 @@ export const BANK_OPS_LOAN_BOOK = defineProcedure({
   output: z.object({
     asOf: z.string(),
     openCount: z.number().int().nonnegative(),
-    outstandingPrincipal: z.array(z.object({ assetId: z.string(), amount: amountString })),
+    outstandingPrincipal: z.array(z.object({ assetId: assetIdSchema, amount: amountString })),
     bands: z.object({
       healthy: z.number().int().nonnegative(),
       marginCall: z.number().int().nonnegative(),
@@ -144,7 +145,7 @@ export const BANK_OPS_CARD_PROGRAMME = defineProcedure({
     days: z.array(
       z.object({
         day: z.string(),
-        volume: z.array(z.object({ assetId: z.string(), amount: amountString })),
+        volume: z.array(z.object({ assetId: assetIdSchema, amount: amountString })),
         declines: z.number().int().nonnegative(),
       }),
     ),
@@ -172,7 +173,7 @@ export const BANK_OPS_BUSINESS_APPROVALS = defineProcedure({
       z.object({
         businessId: z.string().guid(),
         amount: amountString,
-        assetId: z.string(),
+        assetId: assetIdSchema,
         ageSeconds: z.number().int().nonnegative(),
         makerHandle: z.string().nullable(),
         makerHandleReason: z.enum(['handle_unresolved']).nullable(),
@@ -205,7 +206,7 @@ export const BANK_OPS_FAILED_TRANSFERS = defineProcedure({
         id: z.string(),
         kind: z.literal('standing_order'),
         amount: amountString,
-        assetId: z.string(),
+        assetId: assetIdSchema,
         status: z.literal('rejected'),
         rejectionCode: z.string(),
         reason: z.string(),
@@ -236,7 +237,7 @@ export const BANK_OPS_TRANSFER_DETAIL = defineProcedure({
     senderUserId: z.string(),
     receiverUserId: z.string(),
     amount: amountString,
-    assetId: z.string(),
+    assetId: assetIdSchema,
     status: z.string(),
     rejectionCode: z.string().nullable(),
     reason: z.string().nullable(),

@@ -36,7 +36,7 @@ export const BANK_SPACES_SET_BILLS_POT = defineProcedure({
   access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
   refusals: {},
   input: z.object({ spaceId: z.string().guid(), fallback: z.boolean() }),
-  output: z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }),
+  output: z.object({ spaceId: z.string(), assetId: assetIdSchema, fallback: z.boolean() }),
   samples: [
     { verdict: 'accept', input: { spaceId: '11111111-1111-4111-8111-111111111111', fallback: true } },
     { verdict: 'refuse', input: 42 },

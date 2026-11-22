@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `ramps.destinations.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -12,7 +13,7 @@ export const destinationViewOutput = z.object({
   kind: z.enum(['crypto', 'bank']),
   ref: z.string(),
   refMasked: z.string(),
-  assetId: z.string().nullable(),
+  assetId: assetIdSchema.nullable(),
   network: z.string().nullable(),
   tag: z.string().nullable(),
   origin: z.enum(['legacy', 'customer']),

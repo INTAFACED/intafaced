@@ -1,7 +1,6 @@
 import { Button } from '../../shared/ui';
 import type { Space } from './client';
 import type { ActionSpec } from './components';
-import { bankWrites } from './contracts';
 import { billsPotCopy } from './bills-pot-copy';
 import { BANK_SPACES_CLEAR_BILLS_POT, BANK_SPACES_SET_BILLS_POT } from '@intafaced/contracts/bank-spaces-procedures';
 

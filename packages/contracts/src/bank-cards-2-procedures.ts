@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString, cardOutput, shippingAddressInput } from './bank-call-schemas.js';
 import { stepUpApprovalField } from './bank-cards-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `cards.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -21,7 +22,7 @@ export const BANK_CARDS_ISSUE = defineProcedure({
   refusals: {},
   input: z.object({
     cardId: z.string().guid(),
-    assetId: z.string().min(1).max(16),
+    assetId: assetIdSchema.min(1).max(16),
     /**
      * What merchants charge this card in. Omitted means the funding asset,
      * which is no conversion — the shape every card had before §18.

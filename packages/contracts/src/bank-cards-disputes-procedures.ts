@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-ops-2-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `cards.disputes.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -39,7 +40,7 @@ export const caseOutput = z.object({
   id: z.string().guid(),
   cardId: z.string().guid(),
   authorizationRef: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: amountString,
   reason: z.string(),
   state,
@@ -92,7 +93,7 @@ export const formOutput = z.object({
   rules: z.object({ windowDays: z.number().int().positive(), evidenceAfterSubmission: z.boolean() }).nullable(),
   charge: z.object({
     authorizationRef: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     merchant: z.string().nullable(),
     captured: amountString,
     disputable: amountString,

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-ops-2-procedures.js';
 import { signedAmountString } from './bank-call-schemas.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `loans.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -69,7 +70,7 @@ export const BANK_LOANS_FEES = defineProcedure({
   output: z
     .object({
       productId: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       origination: z.union([
         z.object({ status: z.literal('not_set') }).strict(),
         z
@@ -134,7 +135,7 @@ export const BANK_LOANS_PAYOFF_QUOTE = defineProcedure({
       interest: amountString,
       fee: amountString,
       total: amountString,
-      assetId: z.string(),
+      assetId: assetIdSchema,
       interestThrough: z.string(),
       validUntil: z.string(),
     })
@@ -194,7 +195,7 @@ export const BANK_LOANS_INTEREST_ROWS = defineProcedure({
   output: z
     .object({
       loanId: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), basis: amountString, interest: amountString }).strict()),
       earlierDays: z.number().int().nonnegative(),
       corrections: z.array(z.object({ id: z.string(), at: z.string(), amount: signedAmountString, reason: z.string() }).strict()),

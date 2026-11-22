@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { SORTER_MAX_LEGS, sorterView } from './bank-call-schemas.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `sorter.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -21,7 +22,7 @@ export const BANK_SORTER_CREATE = defineProcedure({
   input: z
     .object({
       sorterId: z.string().guid(),
-      assetId: z.string().trim().min(1).max(16),
+      assetId: assetIdSchema.trim().min(1).max(16),
       legs: z
         .array(z.object({ spaceId: z.string().guid(), shareBp: z.number().int() }).strict())
         .min(1)

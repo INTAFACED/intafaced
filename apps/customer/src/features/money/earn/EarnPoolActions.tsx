@@ -9,7 +9,7 @@ import { amount, bps, date, funds, positiveMoney, useBankRead, useBankRecord, us
 import { t as copyText } from '../copy';
 import { availableRow, earnFormFacts, earnLiveRows } from '../form-preview';
 import { useHoldings } from '../holdings';
-import { bankReads, bankWrites, type earnPoolPageSchema, type poolSchema, type positionSchema } from '../contracts';
+import { bankReads, type earnPoolPageSchema, type poolSchema, type positionSchema } from '../contracts';
 import { CALCULATOR_MAX_DAYS, earnCalculation } from '../earn-calculator';
 import { earnCopy } from '../earn-copy';
 import { utcDay } from '../earn-rate-history';
