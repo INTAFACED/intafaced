@@ -1,11 +1,9 @@
 import type { ReactNode } from 'react';
 import { type AcademyPublicHubLesson } from '@intafaced/contracts/academy-catalogue';
-import { safeReturnTo } from '../../app/navigation';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { EmptyState, Loading, Panel } from '../../shared/ui';
-import { t as copyText } from './copy';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref } from './academy-lms';
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
@@ -121,7 +119,7 @@ export function AcademyCourseCards() {
 const CARDS_PAGE = 50;
 
 /** One card per published course staff made, most recently published first; `whenEmpty` shows when there is none. */
-export function AcademyAuthoredCourseCards({ whenEmpty = null }: { whenEmpty?: ReactNode }) {
+function AcademyAuthoredCourseCards({ whenEmpty = null }: { whenEmpty?: ReactNode }) {
   const api = useApi();
   const { t } = copy.useCopy();
   const cards = useResource(

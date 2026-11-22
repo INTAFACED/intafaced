@@ -17,7 +17,7 @@ import { Waiting } from './volt-parts';
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 /** Authored copy in the language it was found in; anything else is the person's own words. */
-export function KitPresented({ value }: { value: Presented<ReactNode> }) {
+function KitPresented({ value }: { value: Presented<ReactNode> }) {
   const shown = typeof value === 'function' ? renderAuthoredCopy(value) : { value, language: 'und' };
   return (
     <span lang={shown.language} dir={shown.language === 'und' ? undefined : uiDirection(shown.language)}>

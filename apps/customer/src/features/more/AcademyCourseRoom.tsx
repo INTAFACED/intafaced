@@ -36,7 +36,7 @@ export function AcademyCourseRoom({ slug, signedIn }: { slug: string | undefined
  * The course page route: a private link (`#key=`) opens a course's unlisted page; a curriculum path is its own course
  * page; any other address is a course staff made. The key sits after `#`, which the browser never sends to a server.
  */
-export function AcademyCoursePage({ slug, signedIn }: { slug: string | undefined; signedIn: boolean }) {
+function AcademyCoursePage({ slug, signedIn }: { slug: string | undefined; signedIn: boolean }) {
   const key = new URLSearchParams(window.location.hash.slice(1)).get('key');
   if (key) return <AcademyLinkedCourse slug={slug ?? ''} linkKey={key} />;
   if (!slug || (ACADEMY_CURRICULUM_PATHS as readonly string[]).includes(slug)) return <AcademyCourse slug={slug} signedIn={signedIn} />;
@@ -47,7 +47,7 @@ export function AcademyCoursePage({ slug, signedIn }: { slug: string | undefined
  * The public course page (AC-catalogue-03), the same signed in and signed out. Summary and instructor show their
  * absence in words; the outcomes are the lessons' own objectives. Signed in, Enrol now sits here (AC-enrolment-01).
  */
-export function AcademyCourse({ slug, signedIn }: { slug: string | undefined; signedIn: boolean }) {
+function AcademyCourse({ slug, signedIn }: { slug: string | undefined; signedIn: boolean }) {
   const api = useApi();
   const { t, Copy } = copy.useCopy();
   const course = useResource((signal) => api.call(ACADEMY_PUBLIC_COURSE, { slug: slug ?? '' }, { signal }), `public-course:${slug ?? ''}`);

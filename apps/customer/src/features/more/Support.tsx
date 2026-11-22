@@ -57,7 +57,7 @@ const VIEW_KEY = { help: 'tabHelp', requests: 'tabRequests', new: 'tabNew' } as 
 const VIEW_HREF = { help: '/support', requests: SUPPORT_TICKETS_HREF, new: '/support/new' } as const;
 const FILTER_KEY = { all: 'filterAll', active: 'filterActive', resolved: 'filterResolved', closed: 'filterClosed' } as const;
 /** The page title for each support address. */
-export function supportPageTitleKey(route: SupportRoute): 'pageNewRequest' | 'pageMyRequests' | 'pageRequest' | 'pageUnknown' | null {
+function supportPageTitleKey(route: SupportRoute): 'pageNewRequest' | 'pageMyRequests' | 'pageRequest' | 'pageUnknown' | null {
   if (route.view === 'new') return 'pageNewRequest';
   if (route.view === 'requests') return 'pageMyRequests';
   if (route.view === 'request' || route.view === 'badRequest') return 'pageRequest';

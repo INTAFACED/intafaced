@@ -2,8 +2,6 @@ import type { ReactNode } from 'react';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { PaperMode } from './paper-context';
 
-export { usePaperMode } from './paper-context';
-
 /** A room of the set in its simulated view: the shared label above it, and every action in it refused before any request. */
 export function PaperRoom({ paper, liveHref, children }: { paper: boolean; liveHref: string; children: ReactNode }) {
   const { t, languageFor } = moreRoomRoutesCopy.useCopy();
