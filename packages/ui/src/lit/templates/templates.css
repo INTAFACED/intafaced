@@ -924,12 +924,6 @@ button.lt-tab {
   cursor: pointer;
 }
 
-button.lt-tab {
-  background: none;
-  font: inherit;
-  cursor: pointer;
-}
-
 .lt-tab[aria-current='page'],
 .lt-tab[aria-pressed='true'],
 .lt-tab[aria-selected='true'] {
