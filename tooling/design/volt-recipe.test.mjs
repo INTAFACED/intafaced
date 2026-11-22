@@ -209,12 +209,14 @@ test('leaves a class on words with a typed arrow, which the kit draws instead', 
     'export const a = <a className="text-link" href="/x">Open →</a>;',
     'export const b = <a className="text-link" href="/y">{t(\'Back\')} {\'↗\'}</a>;',
     'export const c = <a className="text-link" href="/z">{t(\'Open\')}</a>;',
+    "export const d = <a className=\"text-link\" href=\"/w\">{t('More')} {open ? '↓' : '→'}</a>;",
     '',
   ].join('\n');
   const { text, left } = recipe(source);
   assert.deepEqual(left, [
     '1: className "text-link" on words with a typed arrow, which the kit draws (lt-arrow)',
     '2: className "text-link" on words with a typed arrow, which the kit draws (lt-arrow)',
+    '4: className "text-link" on words with a typed arrow, which the kit draws (lt-arrow)',
   ]);
   assert.match(text, /<a className="lt-link" href="\/z">/);
 });

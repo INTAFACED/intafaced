@@ -127,6 +127,16 @@ const PARTS = {
   SubNav: { why: "it marks the current item by its id; the kit's Tabs marks it by its href" },
 };
 
+/** Whether a string written anywhere in `node` (a literal, either side of a choice) holds a typed arrow. */
+function typedIn(node) {
+  let typed = false;
+  walk(node, (n) => {
+    if (n.type === 'Literal' && typeof n.value === 'string' && ARROW.test(n.value)) typed = true;
+    if (n.type === 'TemplateElement' && ARROW.test(n.value.raw)) typed = true;
+  });
+  return typed;
+}
+
 /** The program of a room's text, or an Error naming the first place it does not parse. */
 function parse(text, what) {
   const { program, errors } = parseSync('room.tsx', text);
@@ -255,9 +265,7 @@ export function recipe(source) {
     const kit = [...new Set(names.map((c) => CLASSES[c] ?? c))].join(' ');
     if (kit === value) continue;
     const typed = (elementOf.get(opening)?.children ?? []).some(
-      (c) =>
-        (c.type === 'JSXText' && ARROW.test(c.value)) ||
-        (c.type === 'JSXExpressionContainer' && typeof c.expression.value === 'string' && ARROW.test(c.expression.value)),
+      (c) => (c.type === 'JSXText' && ARROW.test(c.value)) || (c.type === 'JSXExpressionContainer' && typedIn(c.expression)),
     );
     if (typed) {
       left.push(`${lineOf(attr.start)}: className "${value}" on words with a typed arrow, which the kit draws (lt-arrow)`);
