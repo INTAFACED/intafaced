@@ -37,7 +37,7 @@ use svc_ledger::door::{DoorConfig, LedgerDoor};
 use svc_ledger::metrics::reconcile_gauges;
 use svc_ledger::reconcile::LastVerified;
 
-mod support;
+use crate::support;
 
 // ---- the reader: `parseExposition`, strict, every line parses or it fails ----
 

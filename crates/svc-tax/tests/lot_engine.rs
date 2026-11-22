@@ -5,7 +5,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod common;
+use crate::common;
 
 use std::collections::HashMap;
 

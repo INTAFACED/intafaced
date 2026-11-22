@@ -9,6 +9,10 @@
     reason = "a test harness: each suite uses part of it, and a failure is the point"
 )]
 
+/// The NATS stand-in service-kit's tests run on, shared with the suites that need a bus.
+#[path = "../../../service-kit/tests/support/standin.rs"]
+pub mod standin;
+
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

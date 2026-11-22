@@ -14,8 +14,8 @@
     reason = "a test: a failure is the point"
 )]
 
-mod community_support;
-mod support;
+use crate::community_support;
+use crate::support;
 
 use community_support::{
     FakeBus, arr, at, b, code, course, data, door, enrol, get, mutate, n, one, refused, s, setup,
