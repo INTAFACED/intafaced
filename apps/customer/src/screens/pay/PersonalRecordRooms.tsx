@@ -6,7 +6,7 @@ import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../money/time';
 import { useSession } from '../../features/session/session';
 import { fetchHeldSend, type HeldSend } from '../../features/pay/held-send';
-import { decodedSegment, type PersonalRoomId, type PersonalRoomMatch } from '../../features/pay/personal/rooms/rooms';
+import { decodedSegment, type PersonalRoomMatch } from '../../features/pay/personal/rooms/rooms';
 import { roomsCopy } from '../../features/pay/personal/rooms/rooms-copy';
 
 /**
@@ -14,13 +14,6 @@ import { roomsCopy } from '../../features/pay/personal/rooms/rooms-copy';
  * Each keeps its address, its words and its controls; where nothing stands behind a room yet it says what is missing and
  * keeps its controls off. A signed-out visitor never reaches these: `PersonalRoom` sends them to sign in first.
  */
-const RECORD_ROOMS: ReadonlySet<PersonalRoomId> = new Set<PersonalRoomId>(['scheduled', 'cases', 'case', 'payment', 'invoice']);
-
-/** True for the personal rooms drawn here, on the record-list template. */
-export function isPersonalRecordRoom(id: PersonalRoomId): boolean {
-  return RECORD_ROOMS.has(id);
-}
-
 const READY: RoomState = { kind: 'ready' };
 
 /** The way back to Pay, under the room's records. */
@@ -322,7 +315,7 @@ function InvoiceRoom({ id, slice }: { id: string | null; slice: string }) {
   );
 }
 
-/** One personal Pay room on the record-list template, picked by the matched address (`isPersonalRecordRoom`). */
+/** One personal Pay room on the record-list template, picked by the matched address. */
 export function PersonalRecordRoom({ match }: { match: PersonalRoomMatch }) {
   const { room, params } = match;
   const slice = room.slice;
