@@ -5,19 +5,17 @@ import { useResource } from '../../shared/resource';
 import {
   bpsToPercent,
   rateShown,
-  TestMark,
   useOwner,
   useVenueApi,
   useVenueMode,
   venueApi,
-  VenueFrame,
-  WalletBar,
   type VenueFeeRates,
   type VenueFeeTier,
   type VenueFeeTiers,
   type VenuePublicFees,
 } from '../trade';
 import { venueFeesCopy } from './venue-fees-copy';
+import { FeesTestMark as TestMark, FeesVenueFrame as VenueFrame, FeesWalletBar as WalletBar } from './venue-fees-kit';
 
 type T = ReturnType<typeof venueFeesCopy.useCopy>['t'];
 type Rate = VenueFeeRates['makerFeeBps'];

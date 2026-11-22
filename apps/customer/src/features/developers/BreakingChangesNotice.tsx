@@ -1,9 +1,9 @@
-import { StateBlock } from '@intafaced/ui';
 import { readUpcomingChanges } from '../../shared/notify-reads';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
 import { UpcomingView } from './ChangelogPages';
 import { liveCopy } from './developers-live-copy';
+import { ReadFailed, ReadLoading } from './ReadState';
 
 /**
  * Advance notice of breaking API changes on /notice (DV-versioning-02, J-developer-16 #4): the same read and list as
@@ -17,18 +17,18 @@ export function BreakingChangesNotice() {
     `notice-upcoming-changes:${requestedLocale}`,
   );
   return (
-    <section className="pub-card" aria-labelledby="notice-breaking" data-testid="breaking-changes">
+    <section className="lt-stack" aria-labelledby="notice-breaking" data-testid="breaking-changes">
       <h2 id="notice-breaking">{t('upcomingTitle')}</h2>
-      <p className="muted">{t('upcomingLead')}</p>
+      <p className="lt-hint">{t('upcomingLead')}</p>
       {resource.status === 'loading' ? (
-        <StateBlock kind="loading" rows={2} rowHeight={48} label={t('loading')} />
+        <ReadLoading label={t('loading')} rows={2} />
       ) : resource.status === 'failed' ? (
-        <StateBlock kind="error" title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
+        <ReadFailed title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
       ) : (
         <UpcomingView data={resource.data} language={requestedLocale} />
       )}
-      <a className="text-link" href="/developers/changelog">
-        {t('changelogBack')} →
+      <a className="lt-link lt-link-alone" href="/developers/changelog">
+        {t('changelogBack')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
       </a>
     </section>
   );
