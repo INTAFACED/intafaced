@@ -28,7 +28,6 @@ const STATUS = {
   'quant.edit_lock_unset': 'PRECONDITION_FAILED',
   'quant.release_note_limit_unset': 'PRECONDITION_FAILED',
   'quant.paper_manual_order_unsupported': 'PRECONDITION_FAILED',
-  'quant.backtest_lake_missing': 'PRECONDITION_FAILED',
   'quant.team_member_invalid': 'BAD_REQUEST',
   'quant.grant_invalid': 'BAD_REQUEST',
   'quant.idempotency_conflict': 'BAD_REQUEST',
@@ -263,15 +262,10 @@ export const QUANT_TEAM_STOP = defineProcedure({
   name: 'quant.team.stop',
   kind: 'mutation',
   path: 'team.stop',
-  // No live control is forbidden. The stopped run is then read as the owner's paper screen reads it: from the
-  // exchange's closed candles and its published fees, each refusing by name when not wired or not answering.
-  refusals: refuse(
-    'quant.permission_denied',
-    'quant.run_not_found',
-    'quant.backtest_lake_missing',
-    'quant.backtest_history_range',
-    'quant.cost_unset',
-  ),
+  // No live control is forbidden. The stopped run is then read as the owner's paper screen reads it: from the venue's
+  // closed candles (unpriced, saying why, while the venue does not answer; a run older than the read reaches refuses by
+  // name) and our published fees, refusing by name when not wired or not answering.
+  refusals: refuse('quant.permission_denied', 'quant.run_not_found', 'quant.backtest_history_range', 'quant.cost_unset'),
   input: z.object({ strategyId, runId, ...accountField }),
   output: quantPaperRunSchema,
   samples: [

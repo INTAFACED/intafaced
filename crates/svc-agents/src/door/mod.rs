@@ -39,6 +39,7 @@ use crate::factories::Factories;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
+use crate::ops::Ops;
 use crate::own::Own;
 use crate::runtime::Runtime;
 use crate::team::Team;
@@ -279,6 +280,8 @@ pub struct DoorConfig {
     pub metering: Metering,
     /// The runtime's own settings: the spend gate, the funds, the transcript and the grace (`runtime`).
     pub runtime: Runtime,
+    /// The operator desks' owner values: the log's reasons, limit and retention, the registry's page, the baseline.
+    pub ops: Ops,
     /// The owner's values for a session's background runs (`background`).
     pub background: crate::background::Settings,
     /// The advisors' curriculum, holdings, prices and switches (`advisors`).
@@ -303,6 +306,7 @@ pub struct AgentsDoor {
     metering: Metering,
     runtime: Runtime,
     factories: Factories,
+    ops: Ops,
     background: crate::background::Settings,
     advisors: Advisors,
     own: Own,
@@ -351,6 +355,7 @@ impl AgentsDoor {
             metering: config.metering,
             runtime: config.runtime,
             factories: Factories::unwired(),
+            ops: config.ops,
             background: config.background,
             advisors: config.advisors,
             own: config.own,
@@ -383,6 +388,11 @@ impl AgentsDoor {
     /// The gateway slice.
     pub fn gateway(&self) -> &GatewaySlice {
         &self.gateway
+    }
+
+    /// The operator desks' owner values.
+    pub fn ops(&self) -> &Ops {
+        &self.ops
     }
 
     /// The runtime's own settings.
@@ -419,6 +429,7 @@ impl AgentsDoor {
                 &self.runtime,
                 &self.factories,
             ),
+            Slice::Ops => crate::ops::handle(ctx, &self.store, &self.metering, &self.ops),
             Slice::Navigator => crate::navigator::slice::handle(
                 ctx,
                 &self.store,

@@ -9725,7 +9725,7 @@
         "quant.param_out_of_range": "BAD_REQUEST",
         "quant.params_invalid": "BAD_REQUEST",
         "quant.sizing_rule_unset": "BAD_REQUEST",
-        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.backtest_history_range": "BAD_REQUEST",
         "quant.cost_unset": "BAD_REQUEST"
       },
       "input": {
@@ -9820,6 +9820,22 @@
           },
           "barSize": {
             "type": "string"
+          },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "venueMarket": {
+                "type": ["string", "null"]
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "unavailable": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["venueMarket", "test", "unavailable"],
+            "additionalProperties": false
           },
           "priced": {
             "type": "boolean"
@@ -9948,6 +9964,7 @@
           "costs",
           "symbol",
           "barSize",
+          "prices",
           "priced",
           "pricedThrough",
           "trades",
@@ -10144,7 +10161,7 @@
         "quant.param_out_of_range": "BAD_REQUEST",
         "quant.params_invalid": "BAD_REQUEST",
         "quant.sizing_rule_unset": "BAD_REQUEST",
-        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.backtest_history_range": "BAD_REQUEST",
         "quant.cost_unset": "BAD_REQUEST"
       },
       "input": {
@@ -10294,6 +10311,22 @@
           "barSize": {
             "type": "string"
           },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "venueMarket": {
+                "type": ["string", "null"]
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "unavailable": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["venueMarket", "test", "unavailable"],
+            "additionalProperties": false
+          },
           "priced": {
             "type": "boolean"
           },
@@ -10421,6 +10454,7 @@
           "costs",
           "symbol",
           "barSize",
+          "prices",
           "priced",
           "pricedThrough",
           "trades",
@@ -10519,7 +10553,7 @@
         "quant.param_out_of_range": "BAD_REQUEST",
         "quant.params_invalid": "BAD_REQUEST",
         "quant.sizing_rule_unset": "BAD_REQUEST",
-        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.backtest_history_range": "BAD_REQUEST",
         "quant.cost_unset": "BAD_REQUEST"
       },
       "input": {
@@ -10614,6 +10648,22 @@
           },
           "barSize": {
             "type": "string"
+          },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "venueMarket": {
+                "type": ["string", "null"]
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "unavailable": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["venueMarket", "test", "unavailable"],
+            "additionalProperties": false
           },
           "priced": {
             "type": "boolean"
@@ -10742,6 +10792,7 @@
           "costs",
           "symbol",
           "barSize",
+          "prices",
           "priced",
           "pricedThrough",
           "trades",
@@ -18591,7 +18642,6 @@
         "quant.database_pool_max_unset": "PRECONDITION_FAILED",
         "quant.permission_denied": "FORBIDDEN",
         "quant.run_not_found": "NOT_FOUND",
-        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
         "quant.backtest_history_range": "BAD_REQUEST",
         "quant.cost_unset": "BAD_REQUEST"
       },
@@ -18692,6 +18742,22 @@
           },
           "barSize": {
             "type": "string"
+          },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "venueMarket": {
+                "type": ["string", "null"]
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "unavailable": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["venueMarket", "test", "unavailable"],
+            "additionalProperties": false
           },
           "priced": {
             "type": "boolean"
@@ -18820,6 +18886,7 @@
           "costs",
           "symbol",
           "barSize",
+          "prices",
           "priced",
           "pricedThrough",
           "trades",

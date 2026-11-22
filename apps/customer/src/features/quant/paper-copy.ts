@@ -39,6 +39,8 @@ const en = {
   stopping: 'Stopping',
   waiting: 'Waiting for the first price since the start. Nothing fills before a price arrives, and no earlier price is used.',
   pricedThrough: 'Priced to {at} UTC on {symbol}, {barSize} bars.',
+  pricesFrom: 'Prices: the venue’s own trades on {market}, never a book of ours.',
+  pricesUnavailable: 'No prices: {reason}. Nothing fills until the venue answers, and no price is made up.',
   fills: 'Paper fills',
   noFills: 'No paper fill yet.',
   side: 'Side',

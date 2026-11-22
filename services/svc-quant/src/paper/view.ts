@@ -1,6 +1,6 @@
 import type { QuantPaperRun, QuantSignalRules } from '@intafaced/contracts';
 import { barSpanMs, type BarSize } from '../engine/bars.js';
-import type { FeePort, HistoryPort } from '../engine/ports.js';
+import type { FeePort, VenuePricePort } from '../engine/ports.js';
 import { prepareBacktest, runOnBars } from '../engine/run.js';
 import { QUANT_BACKTEST_RULES_REQUIRED, QUANT_COST_UNSET, QUANT_PAPER_CASH_UNSET, QuantError } from '../errors.js';
 import type { StoredPaperRun } from '../runs/types.js';
@@ -25,15 +25,16 @@ export interface PaperVersion {
 }
 
 /**
- * What a paper run did, derived on this read from the exchange's own closed candles between its start and now (or its
- * stop), by the bar engine with the run's own cash and costs. A signal fills at the open of the next bar that trades
+ * What a paper run did, derived on this read from the venue's own closed candles (its prints on the spot market we list on
+ * the strategy's asset, J-algo-dev-04 #2) between its start and now (or its stop), by the bar engine with the run's own
+ * cash and costs. While the venue is not read the run is unpriced, says why, and nothing fills. A signal fills at the open of the next bar that trades
  * (ENGINE BT-2), so a fill always uses a price from after the start: before the first closed bar there is no fill, and
  * no earlier price is ever carried over.
  */
 export async function paperView(
   paper: StoredPaperRun,
   strategy: PaperVersion,
-  ports: { readonly fees: FeePort; readonly history: HistoryPort },
+  ports: { readonly fees: FeePort; readonly prices: VenuePricePort },
   nowMs: number,
 ): Promise<QuantPaperRun> {
   const { run, settings } = paper;
@@ -60,8 +61,15 @@ export async function paperView(
     live: false as const,
     claimLabel: 'Paper — not live performance' as const,
   };
+  const window = { symbol: rules.symbol, barSize, fromMs: Math.ceil(startMs / span) * span, toMs: endMs };
+  const read = await ports.prices.bars(window);
+  const prices =
+    'unavailable' in read
+      ? { venueMarket: null, test: false, unavailable: read.unavailable }
+      : { venueMarket: read.venueMarket, test: read.test, unavailable: null };
   const unpriced = {
     ...base,
+    prices,
     priced: false,
     pricedThrough: null,
     trades: [],
@@ -69,10 +77,9 @@ export async function paperView(
     position: { symbol: rules.symbol, qty: '0' },
     totals: { startCash: settings.cash, fees: '0', net: '0', endEquity: settings.cash },
   };
-  // No whole bar has closed since the start: nothing has a price yet, so nothing has filled.
-  if (Math.floor(endMs / span) * span - Math.ceil(startMs / span) * span < span) return unpriced;
-  const bars = await ports.history.bars({ symbol: rules.symbol, barSize, fromMs: Math.ceil(startMs / span) * span, toMs: endMs });
-  if (bars.length === 0) return unpriced;
+  // No whole bar has closed since the start, or none has traded on the venue: nothing has a price yet, so nothing has filled.
+  if ('unavailable' in read || read.bars.length === 0) return unpriced;
+  const bars = read.bars;
   const last = bars[bars.length - 1]!;
   const pricedThrough = new Date(last.openTimeMs + span).toISOString();
   // A start of 0 cash is deliberate: priced, but nothing can be bought with it.
@@ -94,6 +101,7 @@ export async function paperView(
   const ran = runOnBars(prepared, bars);
   return {
     ...base,
+    prices,
     priced: true,
     pricedThrough,
     trades: ran.trades.map((trade) => ({ ...trade })),

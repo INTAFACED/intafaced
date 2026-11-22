@@ -103,6 +103,7 @@ fn serve(laws: Option<&str>, factories: Factories) -> AgentsDoor {
         background: svc_agents::background::Settings::default(),
         team: svc_agents::team::Team::unwired(),
         own: svc_agents::own::Own::unwired(),
+        ops: svc_agents::ops::Ops::unwired(),
     })
     .unwrap()
     .with_factories(factories)
