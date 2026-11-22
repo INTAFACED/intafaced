@@ -16,7 +16,9 @@
 
 pub mod book;
 pub mod liquidity;
+pub mod operator;
 pub mod rulebook;
+pub mod venue;
 
 use std::sync::{LazyLock, Mutex, PoisonError};
 
@@ -62,11 +64,18 @@ impl Slice {
         Slice::Operator,
     ];
 
-    /// Its doors are served past the input checks (`book::serve`); every other slice's are owed.
+    /// Whether the port serves this slice's doors past the input checks; every other slice's are owed. The wire replay
+    /// fails whenever a ported slice owes an answer.
     pub fn is_ported(self) -> bool {
         matches!(
             self,
-            Slice::Journal | Slice::Book | Slice::Triggers | Slice::Liquidity
+            Slice::Journal
+                | Slice::Book
+                | Slice::Serve
+                | Slice::Triggers
+                | Slice::Liquidity
+                | Slice::Venue
+                | Slice::Operator
         )
     }
 
@@ -412,6 +421,8 @@ pub struct MatchingDoor {
     /// The scrape (`registerMetrics`): every reply the server sends is observed into it.
     metrics: Metrics,
     ids: RequestIds,
+    /// The founder brakes' idempotency keys (`founderIdem`), for the life of the process.
+    founder_keys: operator::FounderKeys,
 }
 
 /// The recorded input schemas and which part each door starts at.
@@ -671,6 +682,7 @@ impl MatchingDoor {
             latency: Mutex::new(OperationLatency::new(started)),
             metrics: Metrics::default(),
             ids: RequestIds::new(),
+            founder_keys: operator::FounderKeys::default(),
         })
     }
 
@@ -769,6 +781,15 @@ impl MatchingDoor {
         let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
         match route.slice {
             Slice::Liquidity => liquidity::serve(route, &param, &parsed, &mut engine),
+            Slice::Venue => venue::serve(&self.cfg, route, req, &param, &parsed, &mut engine),
+            Slice::Operator => operator::serve(
+                &self.cfg,
+                &self.founder_keys,
+                route,
+                &user_id,
+                &parsed,
+                &mut engine,
+            ),
             _ => book::serve(route, req, &param, &parsed, &mut engine),
         }
     }
