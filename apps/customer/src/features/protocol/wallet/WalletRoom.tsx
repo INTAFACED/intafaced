@@ -22,7 +22,6 @@ import { WalletPositions } from './WalletPositions';
 import { TrackerPanel } from './TrackerPanel';
 import { ReceivePanel } from './ReceivePanel';
 import { SafetyPanel } from './SafetyPanel';
-import { ScanPanel } from './ScanPanel';
 import { SendPanel } from './SendPanel';
 import { SessionKeysPanel } from './SessionKeysPanel';
 import { WalletGroupPanel } from './WalletGroupPanel';
@@ -162,8 +161,6 @@ export function WalletRoom({
       </>
     ) : section === 'receive' ? (
       <ReceivePanel />
-    ) : section === 'scan' ? (
-      <ScanPanel />
     ) : section === 'claimLinks' ? (
       <ClaimLinksPanel />
     ) : section === 'activity' ? (

@@ -8,6 +8,8 @@ import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
+export * from './b3-live.js';
+
 type Div = React.HTMLAttributes<HTMLDivElement>;
 
 /** A panel. Glass only on the nav and sheet layers; the content layer is solid, and money sits there. */
@@ -232,17 +234,8 @@ export function Select({ label, options, hint, error, id, className, ...rest }: 
   );
 }
 
-export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: React.ReactNode };
-
-/** A yes-or-no box with its words beside it; the whole line is the target. */
-export function Checkbox({ label, className, ...rest }: CheckboxProps) {
-  return (
-    <label className={clsx('lit-check', className)}>
-      <input {...rest} type="checkbox" />
-      <span>{label}</span>
-    </label>
-  );
-}
+/** The kit's one checkbox (b2-basics), here too so a room takes every control from `@intafaced/ui/lit`. */
+export { Checkbox } from './b2-basics.js';
 
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
