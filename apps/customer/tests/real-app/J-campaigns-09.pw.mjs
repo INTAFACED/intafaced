@@ -1,4 +1,4 @@
-// World: book, restart, chain
+// World: book, restart, stack
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { privateKeyToAccount } from 'viem/accounts';
