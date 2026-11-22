@@ -33,6 +33,26 @@ export function FailureBox({ result, retry }: { result: Extract<ApiResult<unknow
   );
 }
 
+/** A table of records in a named region that scrolls on its own, as the app's DataTable lays one out: one header row, then the rows. */
+export function RecordTable({ headers, children, label }: { headers: readonly ReactNode[]; children: ReactNode; label: string }) {
+  return (
+    <div tabIndex={0} role="region" aria-label={label}>
+      <table className="lt-table">
+        <thead>
+          <tr>
+            {headers.map((head, index) => (
+              <th key={index} scope="col">
+                {head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
 /** A read still on its way, in the words the app's Loading says. */
 export function LoadingLine({ label }: { label?: ReactNode }) {
   const { Copy } = uiCopy.useCopy();
