@@ -13,6 +13,7 @@
  * The artifacts come from a run of the pull request's own code: every path is checked (`PICTURE`, `inside`) and every
  * picture decoded before it is used, and each is labelled untrusted data like the diff.
  */
+import { runJobs } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -275,7 +276,7 @@ export async function waitForLook({ repo, head, dir, token, minutes = 25, poll =
       // Only the newest run counts (lookState), so only its jobs are read.
       const newest = [...runs].sort((a, b) => b.id - a.id)[0];
       const jobs = newest
-        ? ((await (await api(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`, token)).json())?.jobs ?? [])
+        ? ((await runJobs(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest`, async (p) => (await api(p, token)).json())) ?? [])
         : [];
       s = lookState({ runs, jobsOf: () => jobs });
       if (s.state === 'ready') {

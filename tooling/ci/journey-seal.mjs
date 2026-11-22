@@ -67,6 +67,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { githubFetch, githubToken } from './github-fetch.mjs';
+import { runJobs } from './run-jobs.mjs';
 import {
   BASELINE_PATH,
   JOURNEYS_ARTIFACT,
@@ -638,7 +639,11 @@ export function makeIo(repo, token) {
     // A run whose last job (START_JOB) is what started this seal is read as finished (settledRun).
     // Each finished one carries its job count (countJobs), so a run that started no job is passed over (startedNoJob).
     runs: async (sha) => {
-      const jobsOf = (id) => listWhole(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, 'jobs', token, `run ${id}'s jobs`);
+      const jobsOf = async (id) => {
+        const jobs = await runJobs(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, (p) => api(p, token));
+        if (!jobs) throw new Error(`run ${id}'s jobs: not a list`);
+        return jobs;
+      };
       return countJobs(
         await settleRuns(
           await listWhole(
@@ -2024,7 +2029,7 @@ export async function rerunSealJob({
     const jobsByRun = new Map();
     let step = recheckStep(runs, jobsByRun, event);
     while (step.act === 'jobs') {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${step.runId}'s jobs: not a list`);
       jobsByRun.set(step.runId, jobs);
       step = recheckStep(runs, jobsByRun, event);
@@ -2139,7 +2144,7 @@ export async function readVerdicts({ get, repo, sha }) {
   if (!Array.isArray(runs)) throw new Error(`merge-seal.yml runs on ${sha}: not a list`);
   const out = { any: false, green: false };
   for (const r of runs.filter((x) => x?.head_sha === sha)) {
-    const jobs = (await get(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    const jobs = await runJobs(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=latest`, get);
     if (!Array.isArray(jobs)) throw new Error(`run ${r.id}'s jobs: not a list`);
     for (const j of jobs.filter((x) => x?.name === SEAL)) {
       out.any = true;
@@ -2177,7 +2182,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
     runsOf[workflow] = !settle
       ? onHead
       : await settleRuns(onHead, async (id) => {
-          const jobs = (await get(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100`))?.jobs;
+          const jobs = await runJobs(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, get);
           if (!Array.isArray(jobs)) throw new Error(`run ${id}'s jobs: not a list`);
           return jobs;
         });
@@ -2188,7 +2193,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
     const { workflow } = SEAL_INPUTS.find((i) => i.journeys);
     const newest = [...runsOf[workflow]].sort((a, b) => b.id - a.id)[0];
     if (newest?.status === 'completed') {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
       const touch = jobs.find((j) => j?.name === TOUCH_JOB);
       newest.deferred = (touch?.steps ?? []).some((st) => st?.name === DEFER_MARK && st?.conclusion === 'success');
@@ -2216,7 +2221,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
       .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
       .sort((a, b) => b.id - a.id);
     for (const run of finished.slice(0, REVIEW_RUNS_READ)) {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
       const job = jobs.find(reviewRan);
       if (!job) continue;
@@ -2230,7 +2235,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
       .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
       .sort((a, b) => b.id - a.id)[0];
     if (!newest) continue;
-    const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    const jobs = await runJobs(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest`, get);
     if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
     newest.judgeDown = jobs.some(isModelDown);
   }
