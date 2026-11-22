@@ -1237,6 +1237,12 @@
   font-size: var(--lit-type-label-size);
 }
 
+/* Sample output shown in place of what is not built yet: blurred, never read as a result. The element carries its own
+   text alternative (an aria-label that says it is sample data). */
+.lt-blurred {
+  filter: blur(0.125rem);
+}
+
 /* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a
    template room, and with no specificity, so a kit component that sets data-dir (Change) keeps its own rules. */
 :where(.lt-room) :where([data-dir='up']) {
