@@ -181,9 +181,11 @@
 <section aria-labelledby="margin-health" class="lt-stack-tight">
 <h2 id="margin-health">Position health</h2>
 <div class="lt-stack-tight">
-<div class="lt-refusal" data-refusal="unreachable" role="alert">
-<p class="lt-refusal-title">Couldn’t load your positions</p>
-<p class="lt-refusal-body">Couldn’t load your positions</p>
+<div class="lit-refusal" data-variant="unreachable" role="status">
+<div>
+<div data-part="title">Couldn’t load your positions</div>
+<div data-part="body">Couldn’t load your positions</div>
+</div>
 </div>
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
@@ -225,19 +227,23 @@
 </dd>
 </div>
 </dl>
-<div class="lt-refusal" data-refusal="parked">
-<p class="lt-refusal-title">Switch margin mode</p>
-<p class="lt-refusal-body">Margin mode is chosen when a position opens. The service does not switch it later, so this control stays off.</p>
+<div class="lit-refusal" data-variant="parked" role="status">
+<div>
+<div data-part="title">Switch margin mode</div>
+<div data-part="body">Margin mode is chosen when a position opens. The service does not switch it later, so this control stays off.</div>
+</div>
 </div>
 </section>
 </section>
 <section class="lt-region" data-region="orders" aria-label="Orders and positions">
 <div class="lt-stack-tight">
 <h2>Spot margin and borrowing</h2>
-<div class="lt-refusal" data-refusal="parked">
-<p class="lt-refusal-title">Spot margin is not offered</p>
-<p class="lt-refusal-body">Borrowing to buy spot has no borrow or repay service, so spot buys are paid in full from your balance. Nothing is borrowed on your behalf.</p>
-<a class="lt-button lt-button-secondary" href="/trade/spot/BTC-USDT">Trade spot</a>
+<div class="lit-refusal" data-variant="parked" role="status">
+<div>
+<div data-part="title">Spot margin is not offered</div>
+<div data-part="body">Borrowing to buy spot has no borrow or repay service, so spot buys are paid in full from your balance. Nothing is borrowed on your behalf.</div>
+<a class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" href="/trade/spot/BTC-USDT">Trade spot</a>
+</div>
 </div>
 <a class="lt-link" href="/bank/loans">See bank loans</a>
 <h2>How liquidation works</h2>
