@@ -320,6 +320,8 @@ export const components = {
   LineChart: '(B2) Price or value over time',
   AreaChart: '(B2) Value over time with a lit fill',
   Sparkline: '(B2) A small trend line for a card or a row, named for a screen reader; nothing from fewer than two points',
+  Candles:
+    "(B2) Candles over time: rise and fall from role tokens and in words (data-rising, each candle's title), placed by time so a gap stays a gap; an honest empty line for none",
   Bars: '(B2) Bars (volume, monthly totals)',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
   TimeLine:

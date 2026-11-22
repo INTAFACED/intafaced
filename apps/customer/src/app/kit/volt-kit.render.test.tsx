@@ -168,6 +168,13 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     expect(block('candles').querySelector('.pc-root')?.getAttribute('data-candles'), 'the candle chart, with its 40 TEST candles').toBe(
       '40',
     );
+    const small = block('candles').querySelectorAll('figure.lt-candles');
+    expect(small, 'the small candle chart, drawn and empty').toHaveLength(2);
+    expect(
+      small[0]!.querySelectorAll('svg[role="img"] [data-testid="kit-candle"]'),
+      'its 32 TEST candles, eight left out as a gap',
+    ).toHaveLength(32);
+    expect(small[1]!.querySelector('[role="status"]')?.textContent, 'its honest empty line').toMatch(/^No trades/);
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
     const lines = block('time-line').querySelectorAll('figure.lt-timeline');
     expect(lines, 'the line over time, drawn and empty').toHaveLength(2);
