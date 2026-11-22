@@ -232,7 +232,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/pay/products': { template: 'record-list' },
   '/pay/products/new': { template: 'flow' },
   '/pay/products/import': { template: 'flow' },
-  '/pay/settings/stores': { template: 'settings' },
+  '/pay/settings/stores': { template: 'settings', migrated: { file: 'features/pay/portal/catalog/Stores.tsx' } },
   '/pay/developer/sandbox': { template: 'settings', migrated: { file: 'features/pay/portal/settings/developers/Sandbox.tsx' } },
   '/pay/developer/docs': { template: 'reading' },
   '/pay/invoices/:invoiceId': { template: 'record-list' },
@@ -466,5 +466,5 @@ export const PORTAL_TEMPLATES: Readonly<Record<PortalRoom, RoomTemplate>> = {
   'product-new': { template: 'flow' },
   'product-import': { template: 'flow' },
   product: { template: 'record-list' },
-  'settings-stores': { template: 'settings' },
+  'settings-stores': { template: 'settings', migrated: { file: 'features/pay/portal/catalog/Stores.tsx' } },
 };

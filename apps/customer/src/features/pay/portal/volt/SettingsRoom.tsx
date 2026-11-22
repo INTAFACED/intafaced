@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { SettingsTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { useMerchantAccess } from '../access/MerchantAccess';
+import type { Need } from '../access/capabilities';
 import { portalCopy } from '../copy';
 import { refusalText, refusalTitle } from '../refusal';
 import type { MemberRole, MerchantRecord } from '../schemas';
@@ -24,8 +25,11 @@ export function SettingsRoom({
   index,
   explain,
   state,
+  need,
   children,
 }: {
+  /** What the person's role must allow to see the page (`Requires` in `../access/MerchantAccess`). */
+  need?: Need;
   /** The page's own parts, each a link to its section. */
   sections?: readonly SectionLink[];
   /** The index's name (its landmark label). */
@@ -40,7 +44,7 @@ export function SettingsRoom({
 }) {
   const heading = usePortalHeading();
   const { t } = portalCopy.useCopy();
-  const { access, merchant, reload } = useMerchantAccess();
+  const { access, merchant, reload, can } = useMerchantAccess();
   let roomState: RoomState = state ?? { kind: 'ready' };
   let body: ReactNode = null;
   let retry: (() => void) | undefined;
@@ -63,6 +67,8 @@ export function SettingsRoom({
       body: t('noMerchantBody'),
       action: { label: t('startSetup'), href: '/pay/onboarding' },
     };
+  else if (need && !can(need))
+    roomState = { kind: 'empty', title: t('noRoleTitle'), body: need === 'owner' ? t('ownerOnlyBody') : t('noRoleBody') };
   else {
     // The owner's record is handed over only when it is the business this access resolved to.
     const record = merchant.status === 'ready' && merchant.data?.id === access.merchantId ? merchant.data : null;
