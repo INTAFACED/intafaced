@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS "bank"."card_reassignments";
+DROP TABLE IF EXISTS "bank"."card_bulk_cards";
+DROP TABLE IF EXISTS "bank"."card_bulk_batches";
+DROP TRIGGER IF EXISTS "card_programme_audit_written_once" ON "bank"."card_programme_audit";
+DROP TABLE IF EXISTS "bank"."card_programme_audit";
+DROP FUNCTION IF EXISTS "bank"."card_programme_audit_written_once"();
+DROP TABLE IF EXISTS "bank"."card_programme_staff";
+DROP TABLE IF EXISTS "bank"."card_cardholders";
+DROP TABLE IF EXISTS "bank"."card_authorization_traces";
+DROP TABLE IF EXISTS "bank"."card_programme_rules";
+DROP TABLE IF EXISTS "bank"."card_programme_settings";

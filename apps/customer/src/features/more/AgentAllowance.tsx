@@ -9,7 +9,8 @@ import { useVenueMode, preparedAnswerSchema, venueOrderSchema, walletTypedData, 
 import { useWallet } from '../protocol';
 import { Select } from './common';
 import { agentAllowanceCopy } from './agent-allowance-copy';
-import { ownAgentAccessSchema, ownAgentOrderDraftSchema, type OwnAgent, type OwnAgentOrderDraft } from '@intafaced/contracts/agents-own';
+import { type OwnAgent, type OwnAgentOrderDraft } from '@intafaced/contracts/agents-own';
+import { AGENTS_OWN_ACCESS_GET, AGENTS_OWN_TRADE_DRAFT } from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Allowance page (AG-spend-03, RC-agents-06; J-agents-08 #3 to #7). The person gives the agent an
@@ -132,10 +133,7 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
   const wallet = useWallet();
   const owner = useOwner();
   const base = `/venue/own-agents/${encodeURIComponent(agent.id)}`;
-  const access = useResource(
-    (signal) => api.query('agents', 'own.access.get', { id: agent.id }, ownAgentAccessSchema, { signal }),
-    `own-access:${agent.id}`,
-  );
+  const access = useResource((signal) => api.call(AGENTS_OWN_ACCESS_GET, { id: agent.id }, { signal }), `own-access:${agent.id}`);
   const loaded = useResource((signal) => api.rest(`${base}/allowances`, allowancesSchema, { signal }), `own-allowances:${agent.id}`);
   const [allowances, setAllowances] = useState<Allowance[] | null>(null);
   const shown = allowances ?? (loaded.resource.status === 'ready' ? loaded.resource.data.allowances : null);
@@ -307,7 +305,7 @@ function AskAgent({ agent, base }: { agent: OwnAgent; base: string }) {
     setPlaced(null);
     setDraft(null);
     try {
-      const drafted = await api.mutate('agents', 'own.trade.draft', { id: agent.id, ask }, ownAgentOrderDraftSchema);
+      const drafted = await api.call(AGENTS_OWN_TRADE_DRAFT, { id: agent.id, ask });
       if (!drafted.ok) return setRefused(refusalOf(drafted));
       const preview = await api.rest(`${base}/orders/preview`, previewSchema, { method: 'POST', body: body(drafted.data) });
       if (!preview.ok) return setRefused(refusalOf(preview));
