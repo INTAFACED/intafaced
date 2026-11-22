@@ -35,14 +35,14 @@
  *   node tooling/ci/gates.mjs          run every gate, report all failures
  *   node tooling/ci/gates.mjs --list   print the gate ids, one per line
  *   node tooling/ci/gates.mjs --changed
- *        a builder's local run: the tooling tests (about four minutes on the Mac) run only when the branch's diff
- *        against its merge-base with origin/main, plus uncommitted and untracked files, touches tooling/ or .github/
+ *        a builder's local run: the tooling tests (about three minutes on CI, more on a loaded Mac) run only when the
+ *        branch's diff against its merge-base with origin/main, plus uncommitted and untracked files, touches tooling/ or .github/
  *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
  *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
  *        keep the full run (U4, project-state #1574).
  *   node tooling/ci/gates.mjs --fast
  *        CI's Fast gates job: every gate but LEFT_TO_FULL_RUN, all at once, so a red gate is named in about two minutes
- *        of the push, not after the tooling tests' four (the Doctrine gates job still runs the whole list and blocks).
+ *        of the push, not after the tooling tests' three (the Doctrine gates job still runs the whole list and blocks).
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -70,7 +70,7 @@ export const GATES = [
       'including gate-files (which files need the CI review), gate-gh (a 403 or 429 stops) and ' +
       'local-test-stack. Until 2026-10-31 only two of 28 ran here, so a stack change could land with its own tests red. ' +
       'Lives in tooling/scripts/, so the manifest check below does not cover it: this entry is the only thing running ' +
-      'those tests, and deleting it has to be a visible act. About 40 seconds, no network.',
+      'those tests, and deleting it has to be a visible act. About three minutes on CI, four files at once.',
   },
   {
     id: 'truth-check',
@@ -483,7 +483,7 @@ export function gatesToRun(gates, changed) {
 // ── --fast: the gates CI's Fast gates job runs, all at once ─────────────────
 /** The gates the fast run leaves to the Doctrine gates job's full run, each with why. Every other gate runs at once. */
 export const LEFT_TO_FULL_RUN = {
-  'tooling-tests': 'about four minutes on CI, the bulk of the full run; the push runs the ones that read journey files itself',
+  'tooling-tests': 'about three minutes on CI, the bulk of the full run; the push runs the ones that read journey files itself',
   'secret-scan-mutation': 'plants secret-shaped files in the tree, which the secret scan beside it would read at once',
   'money-property-mutation':
     'rewrites packages/ledger-client/src/money.ts in place while it runs, which the scans beside it would read at once',
