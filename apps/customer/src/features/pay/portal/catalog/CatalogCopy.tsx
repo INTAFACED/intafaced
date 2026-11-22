@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { CatalogCopy as CopyReport } from '@intafaced/contracts/merchant-catalog';
 import type { PortalApi } from '../api';
 import { EntityList } from '../ui/EntityList';
@@ -41,21 +41,21 @@ export function CatalogCopyControl({ portal, from }: { portal: PortalApi; from: 
   }
 
   return (
-    <div className="stack">
+    <div className="lt-stack">
       {asking ? (
-        <div className="pp-actions" role="group" aria-label={label}>
+        <div className="lt-actions" role="group" aria-label={label}>
           <span>{t(to === 'live' ? 'copyAskLive' : 'copyAskTest')}</span>
-          <Button variant="primary" disabled={busy} onClick={() => void run()}>
+          <Button tone="primary" disabled={busy} onClick={() => void run()}>
             {busy ? t('copying') : label}
           </Button>
-          <Button variant="secondary" disabled={busy} onClick={() => setAsking(false)}>
+          <Button tone="secondary" disabled={busy} onClick={() => setAsking(false)}>
             {t('copyCancel')}
           </Button>
         </div>
       ) : (
-        <div className="pp-actions">
+        <div className="lt-actions">
           <Button
-            variant="secondary"
+            tone="secondary"
             onClick={() => {
               setReport(null);
               setAsking(true);
@@ -79,7 +79,7 @@ function CopyReportView({ report }: { report: CopyReport }) {
   const { t } = c.useCopy();
   const where = t(report.to === 'live' ? 'where_live' : 'where_test');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <p className="pp-confirmed" role="status">
         {t('copyDone', { created: String(report.created.length), skipped: String(report.skipped.length), where })}
       </p>

@@ -1,0 +1,177 @@
+{
+  "_source": "PR #9920 head eea80741e2a29bba602cca07a2f5d478b06e6e93: gh api repos/INTAFACED/intafaced/actions/runs/45046861279 and its jobs?filter=latest, gh pr view 9920 --json files, read 2026-11-23. The required CI merge seal (run 45047475129) passed it while Look was red.",
+  "run": {
+    "id": 45046861279,
+    "head_sha": "eea80741e2a29bba602cca07a2f5d478b06e6e93",
+    "event": "pull_request",
+    "path": ".github/workflows/ci.yml",
+    "status": "completed",
+    "conclusion": "failure",
+    "run_attempt": 1,
+    "created_at": "2026-11-22T16:59:25Z",
+    "updated_at": "2026-11-22T17:11:07Z"
+  },
+  "jobs": [
+    {
+      "id": 137283274884,
+      "name": "Fast gates",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T16:59:27Z",
+      "completed_at": "2026-11-22T17:00:22Z"
+    },
+    {
+      "id": 137283275112,
+      "name": "Affected tests",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T16:59:28Z",
+      "completed_at": "2026-11-22T17:00:06Z"
+    },
+    {
+      "id": 137283275135,
+      "name": "Format",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T16:59:27Z",
+      "completed_at": "2026-11-22T17:03:18Z"
+    },
+    {
+      "id": 137283275165,
+      "name": "Doctrine gates",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T16:59:28Z",
+      "completed_at": "2026-11-22T17:03:58Z"
+    },
+    {
+      "id": 137283461083,
+      "name": "Typecheck & build",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T17:00:08Z",
+      "completed_at": "2026-11-22T17:01:19Z"
+    },
+    {
+      "id": 137283461093,
+      "name": "Tests (changed)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T17:00:08Z",
+      "completed_at": "2026-11-22T17:10:32Z"
+    },
+    {
+      "id": 137283461150,
+      "name": "Look / Build (before)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T17:00:08Z",
+      "completed_at": "2026-11-22T17:01:29Z"
+    },
+    {
+      "id": 137283461159,
+      "name": "Look / Build (after)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T17:00:08Z",
+      "completed_at": "2026-11-22T17:01:33Z"
+    },
+    {
+      "id": 137283463162,
+      "name": "Rust",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-11-22T17:00:07Z",
+      "completed_at": "2026-11-22T17:00:06Z"
+    },
+    {
+      "id": 137283906675,
+      "name": "Look / Look gate on the rooms it changes (3/3)",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-11-22T17:01:35Z",
+      "completed_at": "2026-11-22T17:06:11Z"
+    },
+    {
+      "id": 137283906678,
+      "name": "Look / Look gate on the rooms it changes (2/3)",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-11-22T17:01:35Z",
+      "completed_at": "2026-11-22T17:06:23Z"
+    },
+    {
+      "id": 137283906682,
+      "name": "Look / Look gate on the rooms it changes (1/3)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T17:01:35Z",
+      "completed_at": "2026-11-22T17:06:17Z"
+    },
+    {
+      "id": 137286533347,
+      "name": "CI jobs",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-11-22T17:10:33Z",
+      "completed_at": "2026-11-22T17:10:46Z"
+    },
+    {
+      "id": 137286604904,
+      "name": "Start the seal",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-22T17:10:48Z",
+      "completed_at": "2026-11-22T17:11:07Z"
+    }
+  ],
+  "files": [
+    "apps/customer/kit-ceilings.json",
+    "apps/customer/render-record/checkuser.html",
+    "apps/customer/render-record/mining__status.html",
+    "apps/customer/render-record/token__economy.html",
+    "apps/customer/src/app/volt-off-kit.json",
+    "apps/customer/src/features/more/Academy.tsx",
+    "apps/customer/src/features/more/AcademyGrantRecords.tsx",
+    "apps/customer/src/features/more/AcademyMyLearning.tsx",
+    "apps/customer/src/features/more/AcademyProgressPage.tsx",
+    "apps/customer/src/features/more/MoreRoutes.tsx",
+    "apps/customer/src/features/more/TokenEconomy.tsx",
+    "apps/customer/src/features/more/academy-access-grants.tsx",
+    "apps/customer/src/features/more/academy-course-enrol.render.test.tsx",
+    "apps/customer/src/features/more/academy-grant.css",
+    "apps/customer/src/features/more/academy-progress/AcademyProgressRoom.tsx",
+    "apps/customer/src/features/more/academy-sections.tsx",
+    "apps/customer/src/features/more/mining-room/MiningRoom.tsx",
+    "apps/customer/src/features/more/mining-section/MiningStatusRoom.tsx",
+    "apps/customer/src/features/more/mining-section/MiningWorkerRoom.tsx",
+    "apps/customer/src/features/more/token-economy/TokenEconomyRoom.tsx",
+    "apps/customer/src/features/pay/P2P.tsx",
+    "apps/customer/src/features/pay/P2POrder.tsx",
+    "apps/customer/src/features/pay/p2p-counterparty.css",
+    "apps/customer/src/features/pay/p2p-counterparty/CounterpartyRoom.tsx",
+    "apps/customer/src/features/pay/p2p-release.tsx",
+    "apps/customer/src/features/pay/personal/CompletionRates.tsx",
+    "apps/customer/src/features/pay/personal/ContactActions.tsx",
+    "apps/customer/src/features/pay/personal/OrderChat.tsx",
+    "apps/customer/src/features/pay/personal/completion-rates-view.tsx",
+    "apps/customer/src/features/pay/personal/p2p-failure-text.tsx",
+    "apps/customer/src/features/pay/personal/p2p-rooms.test.tsx",
+    "apps/customer/src/features/pay/portal/settings/account/rooms.tsx",
+    "apps/customer/src/features/pay/portal/settings/analytics/Analytics.tsx",
+    "apps/customer/src/features/pay/portal/settings/analytics/Controls.tsx",
+    "apps/customer/src/features/pay/portal/settings/analytics/Declines.tsx",
+    "apps/customer/src/features/pay/portal/settings/analytics/Fees.tsx",
+    "apps/customer/src/features/pay/portal/settings/analytics/analytics.css",
+    "apps/customer/src/features/pay/portal/settings/analytics/copy.ts",
+    "apps/customer/src/features/pay/portal/settings/analytics/rooms.tsx",
+    "apps/customer/src/features/pay/portal/settings/network/Network.tsx",
+    "apps/customer/src/features/pay/portal/settings/network/NetworkChild.tsx",
+    "apps/customer/src/features/pay/portal/ui/FeeRate.tsx",
+    "apps/customer/src/features/pay/portal/volt/MonitorRoom.tsx",
+    "apps/customer/src/features/pay/portal/volt/parts.tsx",
+    "apps/customer/tests/academy-grant-records.pw.mjs",
+    "apps/customer/tests/p2p-counterparty-context.pw.mjs",
+    "apps/customer/tests/real-app/J-merchant-05.pw.mjs"
+  ]
+}

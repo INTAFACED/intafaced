@@ -10,7 +10,7 @@ import { parseAmount } from '../../shared/money';
 import type { PayBusinessAuthority } from './pay-api';
 import * as s from './schemas';
 import { isTokenRefused } from './portal/access/step-up-store';
-import { PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY, PAY_PAYMENT_REFUND } from '@intafaced/contracts/pay-payment-procedures';
+import { PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
 
 type Original = { status: 'uncertain'; reference?: string };
 export type RefundReceipt = Readonly<{ kind: 'refunded' | 'reversed'; refundId: string; eventId: string; ts: string }>;
@@ -263,7 +263,7 @@ export function createMerchantRefundApi({
       // Even an aggregate 200 or typed 400 may follow a committed original refund.
       let sent: ApiResult<unknown> | null = null;
       try {
-        sent = await api.call(PAY_PAYMENT_REFUND, input);
+        sent = await api.mutate('pay', 'payment.refund', input, s.paymentSchema);
       } catch {
         /* Preserve original after a lost response. */
       }

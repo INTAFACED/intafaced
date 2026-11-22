@@ -35,7 +35,7 @@ export function Products({ portal, route }: { portal: PortalApi; route: { room: 
 }
 
 const addButton = (label: string, importLabel: string, mode: Mode) => (
-  <div className="pp-actions">
+  <div className="lt-actions">
     <Button variant="primary" nativeButton={false} role="link" render={<a href={inMode('/pay/products/new', mode)} />}>
       {label}
     </Button>
@@ -62,7 +62,7 @@ export function ProductList({ portal }: { portal: PortalApi }) {
   );
   const readAt = useReadAt(list.state.status === 'ready', list.state);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Freshness asOf={readAt} />
       <SelectField
         label={t('catalogueLabel')}
@@ -257,7 +257,7 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
             {refused}
           </p>
         )}
-        <div className="pp-actions">
+        <div className="lt-actions">
           <Button variant="primary" disabled={!draft.name.trim() || busy || uploading} onClick={() => void save()}>
             {busy ? t('saving') : t('save')}
           </Button>
@@ -296,9 +296,9 @@ function ImagePicker({
   };
   if (rules.maxBytes === null)
     return (
-      <div className="field">
+      <div className="lt-field">
         <span>{t('image')}</span>
-        <p className="muted" data-testid="product-image-off">
+        <p className="lt-muted" data-testid="product-image-off">
           {t('imageRulesUnset')}
         </p>
       </div>
@@ -345,7 +345,7 @@ function ImagePicker({
     }
   }
   return (
-    <div className="field">
+    <div className="lt-field">
       <Field
         label={t('image')}
         hint={t('imageRule', { size: max })}
@@ -354,7 +354,7 @@ function ImagePicker({
         disabled={busy}
         onChange={(e) => void picked(e)}
       />
-      {busy && <p className="muted">{t('imageUploading')}</p>}
+      {busy && <p className="lt-muted">{t('imageUploading')}</p>}
       {note && (
         <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
           {note.text}
@@ -400,7 +400,7 @@ export function ProductDetail({ portal, productId }: { portal: PortalApi; produc
   return (
     <Gate resource={resource} retry={reload} rows={4}>
       {(product) => (
-        <div className="stack">
+        <div className="lt-stack">
           <DetailHeader
             back={{ href: inMode('/pay/products', product.mode), label: t('back') }}
             title={product.name}
@@ -431,7 +431,7 @@ export function ProductDetail({ portal, productId }: { portal: PortalApi; produc
                 ? ([
                     [
                       t('factCopiedFrom'),
-                      <a key="from" className="text-link" href={productHref(product.copiedFrom)}>
+                      <a key="from" className="lt-link" href={productHref(product.copiedFrom)}>
                         {t(product.mode === 'live' ? 'copiedFromTest' : 'copiedFromLive')}
                       </a>,
                     ],
@@ -452,7 +452,7 @@ export function ProductDetail({ portal, productId }: { portal: PortalApi; produc
           {product.imageId ? (
             <ProductImage portal={portal} imageId={product.imageId} name={product.name} />
           ) : (
-            <p className="muted">{t('noImage')}</p>
+            <p className="lt-muted">{t('noImage')}</p>
           )}
           <ProductPrices portal={portal} product={product} />
           <ProductAvailabilitySection portal={portal} product={product} />
@@ -496,7 +496,7 @@ function ProductActions({
   }
   const archived = product.status === 'archived';
   return (
-    <div className="pp-actions">
+    <div className="lt-actions">
       <Button
         variant="secondary"
         disabled={busy}
@@ -510,7 +510,7 @@ function ProductActions({
         {t(archived ? 'unarchive' : 'archive')}
       </Button>
       {confirming ? (
-        <div className="pp-actions" role="group" aria-label={t('deleteProduct')}>
+        <div className="lt-actions" role="group" aria-label={t('deleteProduct')}>
           <span>{t('deleteConfirm')}</span>
           <Button
             variant="sell"

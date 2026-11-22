@@ -61,6 +61,21 @@ pub struct Consumed {
     pub requester_is_founder: Option<bool>,
 }
 
+/// `principalUserId` and `principalSessionId`: the person and session a same-person approval is consumed for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrincipalBinding<'a> {
+    pub user_id: &'a str,
+    pub session_id: &'a str,
+}
+
+/// Two more fields of the consumed approval a same-person consume reads: its `kind` (absent on an older identity) and
+/// `expiresAt`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Facts {
+    pub kind: Option<String>,
+    pub expires_at: String,
+}
+
 /// Why a consume did not answer an approval.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConsumeError {
@@ -90,7 +105,10 @@ fn bounded(s: &str, max: usize) -> bool {
 }
 
 /// `actionApprovalConsumeInputSchema.parse(input)` and `JSON.stringify` of what it returns.
-fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
+fn consume_payload(
+    input: &ConsumeInput<'_>,
+    principal: Option<PrincipalBinding<'_>>,
+) -> Result<String, ConsumeError> {
     let mut fields = vec![
         ("approvalId", input.approval_id, 128),
         ("operationId", input.operation_id, 128),
@@ -99,6 +117,10 @@ fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
         ("targetId", input.target_id, 256),
         ("expectedVersion", input.expected_version, 128),
     ];
+    if let Some(p) = principal {
+        fields.push(("principalUserId", p.user_id, 128));
+        fields.push(("principalSessionId", p.session_id, 128));
+    }
     if let Some(r) = input.replay {
         fields.push(("requestId", r.request_id, 128));
         if let Some(consumer) = r.consumer_principal_id {
@@ -203,6 +225,7 @@ struct Approval {
     operation_id: String,
     payload_hash: String,
     expected_version: String,
+    facts: Facts,
 }
 
 fn read_approval(o: &Json) -> Option<Approval> {
@@ -232,6 +255,16 @@ fn read_approval(o: &Json) -> Option<Approval> {
         operation_id: str_field(o, "operationId", 128)?,
         payload_hash: str_field(o, "payloadHash", 128)?,
         expected_version: str_field(o, "expectedVersion", 128)?,
+        facts: Facts {
+            kind: match o.get("kind") {
+                Some(Json::String(k)) => Some(k.clone()),
+                _ => None,
+            },
+            expires_at: match o.get("expiresAt") {
+                Some(Json::String(e)) => e.clone(),
+                _ => String::new(),
+            },
+        },
         consumed: Consumed {
             action_type: str_field(o, "actionType", 128)?,
             target_service: str_field(o, "targetService", 64)?,
@@ -324,7 +357,16 @@ impl IdentityClient {
 
     /// `consume(input)`: the consumed approval, or why there is none.
     pub fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, ConsumeError> {
-        let payload = consume_payload(input)?;
+        self.consume_for(input, None).map(|(c, _)| c)
+    }
+
+    /// `consume` with the person and session a same-person approval is bound to, answering its kind and expiry too.
+    pub fn consume_for(
+        &self,
+        input: &ConsumeInput<'_>,
+        principal: Option<PrincipalBinding<'_>>,
+    ) -> Result<(Consumed, Facts), ConsumeError> {
+        let payload = consume_payload(input, principal)?;
         let target = format!("{}/trpc/actionApproval.consume", self.url);
         let mut headers = vec![("content-type".to_owned(), "application/json".to_owned())];
         headers.extend(self.auth_headers(&payload, &target)?);
@@ -368,7 +410,7 @@ impl IdentityClient {
                 "identity consume result does not match the request or is not CONSUMED".to_owned(),
             ));
         }
-        Ok(approval.consumed)
+        Ok((approval.consumed, approval.facts))
     }
 }
 
@@ -710,21 +752,38 @@ mod tests {
     fn a_replayable_consume_sends_its_key_and_consumer_after_the_six_fields() {
         let mut asked = input();
         assert_eq!(
-            consume_payload(&asked).unwrap(),
+            consume_payload(&asked, None).unwrap(),
             r#"{"approvalId":"ap-1","operationId":"op-1","payloadHash":"sha256:abc","targetService":"svc-academy","targetId":"academy.season.create","expectedVersion":"1"}"#
         );
         asked.replay = Some(Replay {
             request_id: "op-1",
             consumer_principal_id: Some("founder-a"),
         });
-        assert!(consume_payload(&asked).unwrap().ends_with(
+        assert!(consume_payload(&asked, None).unwrap().ends_with(
             r#""expectedVersion":"1","requestId":"op-1","consumerPrincipalId":"founder-a"}"#
         ));
         asked.replay = Some(Replay {
             request_id: "op-1",
             consumer_principal_id: Some(""),
         });
-        assert!(consume_payload(&asked).is_err());
+        assert!(consume_payload(&asked, None).is_err());
+    }
+
+    #[test]
+    fn a_same_person_consume_names_the_person_and_session_after_the_six_fields() {
+        let asked = input();
+        let who = PrincipalBinding {
+            user_id: "u-1",
+            session_id: "s-1",
+        };
+        assert!(consume_payload(&asked, Some(who)).unwrap().ends_with(
+            r#""expectedVersion":"1","principalUserId":"u-1","principalSessionId":"s-1"}"#
+        ));
+        let empty = PrincipalBinding {
+            user_id: "u-1",
+            session_id: "",
+        };
+        assert!(consume_payload(&asked, Some(empty)).is_err());
     }
 
     #[test]

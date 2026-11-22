@@ -14,8 +14,8 @@ const outside = (code: string | null | undefined): NotConnectedCode | null =>
 export function LineTotals({ totals, testId }: { totals: readonly LineTotal[]; testId: string }) {
   const { t } = statementExtrasCopy.useCopy();
   return (
-    <div data-testid={testId} className="bd-stack">
-      <p className="money-caption">{t('totalsTitle')}</p>
+    <div data-testid={testId} className="lt-stack">
+      <p className="lt-muted">{t('totalsTitle')}</p>
       {totals.length === 0 ? (
         <p>{t('totalsNone')}</p>
       ) : (
@@ -56,8 +56,8 @@ export function StatementLetters() {
 
   return (
     <DepthPanel title={t('lettersTitle')} lead={t('lettersLead')}>
-      <section className="bd-stack" data-testid="statement-letters" aria-label={t('lettersTitle')}>
-        <div className="actions">
+      <section className="lt-stack" data-testid="statement-letters" aria-label={t('lettersTitle')}>
+        <div className="lt-actions">
           <Button type="button" variant="secondary" disabled={busy} onClick={() => void ask('ownership')}>
             {t('letterOwnership')}
           </Button>
@@ -112,8 +112,8 @@ export function TaxStatements() {
 
   return (
     <DepthPanel title={t('taxTitle')} lead={t('taxLead')}>
-      <section className="bd-stack" data-testid="tax-statements" aria-label={t('taxTitle')}>
-        <label className="field">
+      <section className="lt-stack" data-testid="tax-statements" aria-label={t('taxTitle')}>
+        <label className="lt-field">
           <span>{t('taxYear')}</span>
           <select value={year} onChange={(event) => setYear(Number(event.target.value))}>
             {Array.from({ length: 6 }, (_, back) => thisYear - back).map((y) => (

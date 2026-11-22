@@ -29,6 +29,7 @@ import {
   walk,
 } from './ast.mjs';
 import { answerFromCallers } from './answer.mjs';
+import { brandAssetIds, unbranded } from './asset-id.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { asWritten, closureOf, contractsExports, declaresSame, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
@@ -38,6 +39,7 @@ import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
+import { toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -154,7 +156,9 @@ function plan(opts) {
       continue;
     }
     const arg = schemaArgOf(s);
-    const checks = s.schema ? answerChecks(s.schema.p, s.schema.node) : arg ? answerChecks(load(s.file), arg) : [];
+    // A portal list's item schema is one row of the answer: what it checks is lost with it all the same.
+    const checked = arg ?? (toolShape(s) ? toolChecked(s) : undefined);
+    const checks = s.schema ? answerChecks(s.schema.p, s.schema.node) : checked ? answerChecks(load(s.file), checked) : [];
     // A customer query or mutate whose schema only checks the answer (no transform) keeps that schema: the call goes to its
     // record through `callAs`, which holds the answer to it and returns what it parses (apps/customer/src/shared/api.ts).
     if (checks.length && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
@@ -282,7 +286,9 @@ const inputArg = (s) =>
       ? s.dispatchers[0].arguments[4]
       : s.shape === 'write-spec'
         ? undefined // the spec's `input` builds it from the form; the record's input type holds it at the typecheck
-        : s.node.arguments[INPUT_AT[s.shape] ?? 2];
+        : toolShape(s)
+          ? toolInput(s)
+          : s.node.arguments[INPUT_AT[s.shape] ?? 2];
 function noInput(s) {
   // A wrapper sends the input it sent before: its record only names the call.
   if (s.shape === 'wrapper') return true;
@@ -290,10 +296,16 @@ function noInput(s) {
   return !a || (a.type === 'Identifier' && a.name === 'undefined') || (a.type === 'ObjectExpression' && a.properties.length === 0);
 }
 
-/** The record file a path's first segment lands in. */
+/**
+ * The record file a path lands in: its first segment's (`depth` 1), or once a helper name it needs is taken there, its
+ * sub-area's (`depth` 2: `own.schedules.list` to `<module>-own-schedules-procedures.ts`). A call with no sub-area
+ * (`loans.open`) takes its area's second file (`<module>-loans-2-procedures.ts`), so the calls that read one router's
+ * helper land together beside it.
+ */
 function recordFile(opts, path, depth = 1) {
   if (opts.file && depth === 1) return join(CONTRACTS, `${opts.file.replace(/\.ts$/, '')}.ts`);
-  const seg = path.split('.').slice(0, depth).map(kebab).join('-');
+  const segs = path.split('.');
+  const seg = depth > 1 && segs.length <= depth ? `${kebab(segs[0])}-2` : segs.slice(0, depth).map(kebab).join('-');
   const primary = join(CONTRACTS, `${opts.module}-${seg}-procedures.ts`);
   if (!existsSync(primary) || readFileSync(primary, 'utf8').includes(MARK)) return primary;
   return join(CONTRACTS, `${opts.module}-${seg}-records.ts`);
@@ -408,7 +420,7 @@ function build(opts, planned) {
         const trial = new Map(seen);
         const bad = clashing(c.moved, trial);
         if (bad && keep.length) {
-          if (!r.fileDepth && r.path.split('.').length > 2) {
+          if (!r.fileDepth) {
             moved.push(r);
             continue;
           }
@@ -498,7 +510,7 @@ function build(opts, planned) {
         return c.moved.some((m) => m.name === fileTaken) || c.fromContracts.has(fileTaken);
       });
       const offenders = needs.length ? needs : recs;
-      const stay = offenders.filter((r) => r.fileDepth || r.path.split('.').length < 3);
+      const stay = offenders.filter((r) => r.fileDepth);
       for (const r of stay)
         for (const site of r.sites)
           planned.hand.push({ site, why: `helper ${fileTaken} clashes with another ${fileTaken} in this record file and its sub-area's` });
@@ -571,6 +583,7 @@ function build(opts, planned) {
   fanIn(changes, planned, done, callText);
   const kinds = new Map(planned.existing.map((e) => [e.name, recordKind(e.file, e.name)]));
   wrapperIn(changes, planned, done, (name) => kinds.get(name));
+  toolFormsIn(changes);
   return { changes, created, problems, done };
 }
 
@@ -620,6 +633,7 @@ export function schemaArgOf(s) {
   if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
   if (s.shape === 'payCall') return s.reader ? undefined : a[4]?.arguments?.[0];
   if (BUSINESS_FORMS[s.shape]) return a[2];
+  if (toolShape(s)) return toolSchema(s);
   // useBankRead's schema is `bankReads[path]` in its own file (`s.schema`); founderEdgeCall parses nothing.
   if (s.shape === 'useBankRead' || s.shape === 'founderEdgeCall') return undefined;
   return a[3];
@@ -712,6 +726,10 @@ export function callText(changes, s, name, takesNone) {
     return `${recv}.call(${name}, ${rest.join(', ')})`;
   }
   if (BUSINESS_FORMS[s.shape]) return businessCall(p, s, name, input);
+  if (toolShape(s)) {
+    const { fn, args: rest } = toolCall(changes, s, name, input);
+    return `${fn}(${rest.map((x) => (typeof x === 'string' ? x : text(p, x))).join(', ')})`;
+  }
   if (RECORD_FORMS[s.shape]) {
     const { fn, head, tail } = RECORD_FORMS[s.shape](s, a);
     if (s.wrapperFrom) changes.imp(s.file, s.wrapperFrom, fn);
@@ -804,10 +822,8 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
         `import { ${[...names].sort((x, y) => (x === 'z' ? -1 : y === 'z' ? 1 : x.localeCompare(y))).join(', ')} } from '${spec}';`,
     )
     .join('\n');
-  const area = recs[0].path
-    .split('.')
-    .slice(0, recs[0].fileDepth ?? 1)
-    .join('.');
+  const segs = recs[0].path.split('.');
+  const area = segs.slice(0, Math.min(recs[0].fileDepth ?? 1, segs.length - 1)).join('.');
   if (fresh) {
     lines.push(
       importText,
@@ -953,7 +969,8 @@ function write(result) {
   // What each changed file imports before its calls move: a namespace member it read (`s.schema`) goes with the call.
   const imported = new Map([...result.changes.files.keys()].filter((f) => !f.startsWith(CONTRACTS)).map((f) => [f, importedFrom(f)]));
   for (const [file, body] of result.created) {
-    writeFileSync(file, body);
+    // What it appends starts each `assetId` from `assetIdSchema`; what the file already held stays as it was.
+    writeFileSync(file, brandAssetIds(body, existsSync(file) ? unbranded(readFileSync(file, 'utf8')).length : 0));
     touched.push(file);
   }
   for (const [file, ch] of result.changes.files) {

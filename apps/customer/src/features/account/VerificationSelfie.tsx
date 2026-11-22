@@ -10,7 +10,7 @@ import { base64Of, kib } from '../../shared/file-base64';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { encodeQr, qrPath } from '../../shared/qr';
+import { encodeQr, qrPath } from '@intafaced/ui/lit/templates';
 import { verificationSelfieCopy as copy } from './verification-selfie-copy';
 import {
   IDENTITY_KYC_SELFIE_READ,
@@ -280,11 +280,11 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
     const { latest, liveness, handoffTtlSeconds } = data;
     const phoneLink = handoff ? `${window.location.origin}/verification?handoff=${handoff.token}` : null;
     return (
-      <div className="stack">
+      <div className="lt-stack">
         <p data-testid="verification__selfie-manual" data-face-check={data.faceCheck}>
           <Copy k="manual" />
         </p>
-        <p className="muted" data-testid="verification__selfie-liveness">
+        <p className="lt-muted" data-testid="verification__selfie-liveness">
           {liveness.recheckFor ? <Copy k="livenessFor" params={{ actions: liveness.recheckFor.join(', ') }} /> : <Copy k="livenessNone" />}
         </p>
         {latest && (
@@ -331,7 +331,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
           </p>
         )}
         {token === null && !opened.broken && (
-          <div className="stack" data-testid="verification__selfie-phone">
+          <div className="lt-stack" data-testid="verification__selfie-phone">
             {!phoneLink || !handoff ? (
               <Button type="button" variant="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
                 <Copy k="usePhone" />
@@ -356,7 +356,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
                         {phoneLink}
                       </a>
                     </p>
-                    <p className="muted" data-testid="verification__selfie-link-until">
+                    <p className="lt-muted" data-testid="verification__selfie-link-until">
                       <Copy
                         k="phoneUntil"
                         params={{ time: new Date(handoff.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
@@ -365,7 +365,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
                   </>
                 )}
                 {handoffTtlSeconds && (
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="phoneRule" params={{ minutes: String(Math.round(handoffTtlSeconds / 60)) }} />
                   </p>
                 )}
@@ -385,7 +385,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
       <h2 id="verification-selfie-title">
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="intro" />
       </p>
       {body()}

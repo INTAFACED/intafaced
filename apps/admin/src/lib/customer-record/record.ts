@@ -9,7 +9,6 @@ import { IDENTITY_KYC_HISTORY_FOR, IDENTITY_KYC_SELFIE_LIST_FOR } from '@intafac
 import {
   PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES,
   PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
-  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 export {
@@ -165,8 +164,9 @@ function depositTravelRule(userId: string): ReadSpec {
     id: 'money.deposit-travel-rule',
     title: 'Deposits held for the travel rule',
     note: 'Every deposit of this account at or above the owner’s inbound travel-rule threshold, newest first. It is not credited while held. The depositor declares where it came from (sealed in svc-pay, never shown here); a founder releases it, and svc-pay credits it once. A wait on the sending platform that runs out leaves it held.',
+    module: 'pay',
     plainName: 'svc-pay’s travel-rule holds',
-    ...readOf(PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST),
+    procedure: 'founderAdmin.depositTravelRule.list',
     input: { userId, limit: TRAVEL_RULE_LIMIT },
     shape: 'list',
     idKey: 'depositId',

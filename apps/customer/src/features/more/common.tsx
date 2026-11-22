@@ -43,7 +43,7 @@ export function Select({
   options: readonly (string | { value: string; label: string })[];
 }) {
   return (
-    <label className="field">
+    <label className="lt-field">
       <span>{label}</span>
       <select value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((o) => (
@@ -67,7 +67,7 @@ export function TextArea({
   maxLength?: number;
 }) {
   return (
-    <label className="field">
+    <label className="lt-field">
       <span>{label}</span>
       <textarea value={value} onChange={(e) => onChange(e.target.value)} maxLength={maxLength} rows={5} />
     </label>
@@ -165,7 +165,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
         </p>
       ) : null}
       {known && !running ? (
-        <div data-testid="failure" className="failure" role="alert">
+        <div data-testid="failure" className="lt-refusal" role="alert">
           <p lang={copy.languageFor('cleanup')}>{copy.t('cleanup')}</p>
           <code lang="zxx" style={{ overflowWrap: 'anywhere' }}>
             {JSON.parse(known.raw).reference ?? JSON.parse(known.raw).id}
@@ -175,7 +175,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           </Button>
         </div>
       ) : saved.status === 'unreadable' && !running ? (
-        <div data-testid="failure" className="failure" role="alert">
+        <div data-testid="failure" className="lt-refusal" role="alert">
           <h3 lang={copy.languageFor('storageTitle')}>{copy.t('storageTitle')}</h3>
           <p lang={copy.languageFor('storageBody')}>{copy.t('storageBody')}</p>
           <Button variant="secondary" lang={copy.languageFor('retryStorage')} onClick={redraw}>
@@ -183,7 +183,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           </Button>
         </div>
       ) : saved.status === 'present' && !running ? (
-        <div data-testid="failure" className="failure" role="alert">
+        <div data-testid="failure" className="lt-refusal" role="alert">
           {!action.result && (
             <h3>
               <Text k="common.outcome.not.confirmed" />
@@ -216,12 +216,12 @@ export function useAction(room: string, recovery?: { recover: (reference: string
   const dialog = request ? (
     <Dialog title={<PresentedCopy value={request.title} />} onClose={() => dismiss(request)}>
       <PresentedCopy value={request.content} />
-      <p className="muted">
+      <p className="lt-muted">
         <Text k="common.acting.as.account" />
         <code lang="zxx">{userId}</code>
         <Text k="common.the.service.enforces.your.scope.and.jurisdiction" />
       </p>
-      <div className="actions">
+      <div className="lt-actions">
         <Button variant="secondary" onClick={() => dismiss(request)}>
           <Text k="common.back" />
         </Button>

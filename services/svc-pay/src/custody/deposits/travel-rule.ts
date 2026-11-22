@@ -9,6 +9,7 @@ import type {
   PayTravelRuleField,
 } from '@intafaced/contracts';
 import {
+  PAY_DEPOSIT_TRAVEL_RULE_STATES,
   PAY_DEPOSIT_WALLET_TYPES,
   PAY_TRAVEL_RULE_FIELDS,
   payDepositTravelRuleDeclareInputSchema,
@@ -20,11 +21,6 @@ import { founderProcedure, type FounderContext } from '../../namespaces/founder-
 import type { FounderAuthority } from '../../founder-authority.js';
 import { reasonSchema } from '../../registries/schemas.js';
 import type { MessageCipher } from '../../travel-rule/cipher.js';
-import { fieldSchema, heldDepositViewSchema } from '@intafaced/contracts/pay-call-schemas';
-import { asAssetId } from '@intafaced/contracts/asset-id';
-import { PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST } from '@intafaced/contracts/pay-founder-admin-procedures';
-import { mountRecord } from '@intafaced/contracts/procedure-mount';
-import { payRefusal } from '../../record-refusal.js';
 
 /**
  * The inbound travel rule on customer crypto deposits (W-deposit-07, W-compliance-notices-05; J-wallet-03 #1-#3).
@@ -69,9 +65,11 @@ export class DepositTravelRuleError extends Error {
 }
 
 const assetIdSchema = z.string().regex(/^[A-Za-z0-9]{1,16}$/);
+const userIdSchema = z.string().min(1).max(128);
 const thresholdSchema = z.string().regex(/^(0|[1-9]\d{0,19})(\.\d{1,18})?$/, 'a threshold is an unsigned decimal string');
+const fieldSchema = z.enum(PAY_TRAVEL_RULE_FIELDS);
 
-const inboundRuleSetInputSchema = z
+export const inboundRuleSetInputSchema = z
   .object({
     assetId: assetIdSchema,
     applies: z.boolean(),
@@ -88,7 +86,7 @@ const inboundRuleSetInputSchema = z
   .refine((v) => new Set(v.fields).size === v.fields.length, { path: ['fields'], message: 'each field once' });
 export type InboundRuleSetInput = z.infer<typeof inboundRuleSetInputSchema>;
 
-const inboundRuleViewSchema = z
+export const inboundRuleViewSchema = z
   .object({
     version: z.number().int(),
     assetId: z.string(),
@@ -102,10 +100,30 @@ const inboundRuleViewSchema = z
   .strict();
 export type InboundRuleView = z.infer<typeof inboundRuleViewSchema>;
 
+export const heldDepositViewSchema = z
+  .object({
+    depositId: z.string(),
+    userId: z.string(),
+    assetId: z.string(),
+    networkId: z.string(),
+    txHash: z.string(),
+    amount: z.string(),
+    threshold: z.string(),
+    ruleVersion: z.number().int(),
+    requiredFields: z.array(fieldSchema),
+    state: z.enum(PAY_DEPOSIT_TRAVEL_RULE_STATES),
+    walletType: z.enum(PAY_DEPOSIT_WALLET_TYPES).nullable(),
+    declaredAt: z.string().nullable(),
+    waitDeadline: z.string().nullable(),
+    openedAt: z.string(),
+    lastActor: z.string(),
+    lastReason: z.string().nullable(),
+  })
+  .strict();
 export type HeldDepositView = z.infer<typeof heldDepositViewSchema>;
 
 const depositActionInputSchema = z.object({ depositId: z.string().uuid(), reason: reasonSchema }).strict();
-const releaseResultSchema = z.object({ deposit: heldDepositViewSchema, credited: z.boolean() }).strict();
+export const releaseResultSchema = z.object({ deposit: heldDepositViewSchema, credited: z.boolean() }).strict();
 
 interface RecordRow {
   deposit_id: string;
@@ -143,7 +161,7 @@ function heldView(r: RecordRow): HeldDepositView {
   return {
     depositId: r.deposit_id,
     userId: r.user_id,
-    assetId: asAssetId(r.asset_id),
+    assetId: r.asset_id,
     networkId: r.network_id,
     txHash: r.tx_hash,
     amount: decimal(r.amount),
@@ -408,11 +426,10 @@ export function createDepositTravelRuleRouter(deps: DepositTravelRuleDeps & { fo
         .output(inboundRuleViewSchema)
         .mutation(({ ctx, input }) => wrap(() => service.setRule(actorOf(ctx), input))),
     }),
-    list: mountRecord(
-      PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
-      ({ input }) => wrap(() => service.listForUser(input.userId, input.limit)),
-      { refusalOf: payRefusal, founder },
-    ),
+    list: founder
+      .input(z.object({ userId: userIdSchema, limit: z.number().int().min(1).max(200).default(50) }).strict())
+      .output(z.array(heldDepositViewSchema))
+      .query(({ input }) => wrap(() => service.listForUser(input.userId, input.limit))),
     markCounterpartyPending: founder
       .input(depositActionInputSchema)
       .output(heldDepositViewSchema)

@@ -252,7 +252,7 @@ export function VenueEditOrder({
               precision={amountPlaces}
               aria-label={t('Amount left')}
             />
-            <p className="dk-note">{samePrice ? (inPlace ? t('Amend in place note') : t('Amend replace note')) : t('New price note')}</p>
+            <p className="lt-hint">{samePrice ? (inPlace ? t('Amend in place note') : t('Amend replace note')) : t('New price note')}</p>
           </>
         )}
         {note ? (
@@ -421,7 +421,7 @@ export function VenueCancelMany({
   return (
     <div className="dk-cancel-many" data-testid="venue-cancel-many">
       {most < 1 ? (
-        <p className="muted" data-testid="venue-cancel-one-by-one">
+        <p className="lt-muted" data-testid="venue-cancel-one-by-one">
           {t('Cancel one by one', { venue: status.venue.displayName })}
         </p>
       ) : (
@@ -444,7 +444,7 @@ export function VenueCancelMany({
       )}
       {most >= 1 && labelOf ? (
         <p className="dk-cancel-label">
-          <label className="field">
+          <label className="lt-field">
             <span>{t('Cancel label field')}</span>
             <input aria-label={t('Cancel label field')} value={label} onChange={(e) => setLabel(e.target.value)} />
           </label>{' '}

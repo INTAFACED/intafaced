@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { payPricingSnapshotViewSchema, payMerchantFailureSchema } from './pay-merchant-reads.js';
 import { assetIdSchema as brandedAssetIdSchema } from './asset-id.js';
-import { PAY_TRAVEL_RULE_FIELDS, PAY_DEPOSIT_TRAVEL_RULE_STATES, PAY_DEPOSIT_WALLET_TYPES } from './pay-custody-deposit.js';
+import { payAmountStringSchema, payMerchantIdSchema, payAssetCodeSchema, payReasonSchema } from './merchant-control.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-pay's records share, moved from the service so the records and every caller read one copy. */
@@ -329,25 +329,125 @@ export const permissionEventView = z.object({
   createdAt: z.string().datetime({ offset: true }),
 });
 
-export const fieldSchema = z.enum(PAY_TRAVEL_RULE_FIELDS);
-
-export const heldDepositViewSchema = z
+/** One row of `fraud.listOpenReviews`: an open or claimed case, with the rules that sent it to review. */
+export const fraudReviewRowSchema = z
   .object({
-    depositId: z.string(),
-    userId: z.string(),
-    assetId: brandedAssetIdSchema,
-    networkId: z.string(),
-    txHash: z.string(),
+    id: z.string().min(1),
+    merchantId: z.string().min(1),
+    paymentId: z.string().nullable(),
+    paymentRef: z.string().nullable(),
     amount: z.string(),
-    threshold: z.string(),
-    ruleVersion: z.number().int(),
-    requiredFields: z.array(fieldSchema),
-    state: z.enum(PAY_DEPOSIT_TRAVEL_RULE_STATES),
-    walletType: z.enum(PAY_DEPOSIT_WALLET_TYPES).nullable(),
-    declaredAt: z.string().nullable(),
-    waitDeadline: z.string().nullable(),
-    openedAt: z.string(),
-    lastActor: z.string(),
-    lastReason: z.string().nullable(),
+    assetId: brandedAssetIdSchema.min(1),
+    status: z.enum(['open', 'claimed', 'allowed', 'declined']),
+    reason: z.string(),
+    createdAt: z.string().min(1),
+    reasons: z.array(z.object({ ruleId: z.string(), detail: z.string() }).strict()),
   })
+  .strict();
+
+/**
+ * Highest merchant fee rate svc-pay accepts, in basis points.
+ *
+ * 10000 bps is a 100% fee: every settlement window then nets to zero and refuses with
+ * `pay.fee_exceeds_gross`, so the merchant's money would sit in clearing forever. A rate
+ * the settlement cannot use is refused where it is set. svc-p2p's bound is 9999 for the
+ * same reason (a release must leave the buyer something).
+ */
+export const MAX_FEE_BPS = 9_999;
+
+export const summaryPayment = z
+  .object({
+    id: z.string().guid(),
+    status: z.string(),
+    amount: payAmountStringSchema,
+    assetId: brandedAssetIdSchema,
+    createdAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+
+export const subMerchantSummaryView = subMerchantView
+  .extend({
+    displayName: z.string().nullable(),
+    legalName: z.string().nullable(),
+    /** Null when the caller does not hold `payment`. Empty items means none in the window. */
+    volume: z
+      .object({
+        window: z.object({ kind: z.literal('preset'), preset: z.literal('rolling_30d') }).strict(),
+        items: z.array(
+          z
+            .object({
+              assetCode: z.string(),
+              volume: payAmountStringSchema,
+              count: z.number().int().min(0),
+            })
+            .strict(),
+        ),
+      })
+      .strict()
+      .nullable(),
+    recentPayments: z
+      .object({
+        items: z.array(summaryPayment),
+        nextCursor: z.string().nullable(),
+      })
+      .strict()
+      .nullable(),
+    /** Null when the caller does not hold `permission`. Implicit root authority is not listed. */
+    grants: z
+      .object({
+        items: z.array(
+          z
+            .object({
+              area: z.string(),
+              granteeMerchantId: z.string().guid(),
+            })
+            .strict(),
+        ),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+export const usageInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
+
+export const pricingPreviewInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    assetCode: payAssetCodeSchema,
+    amount: payAmountStringSchema,
+    /** Volume already done this month, to pick the band. Omit to use the merchant's real month-to-date. */
+    monthlyVolume: payAmountStringSchema.optional(),
+    /** USD to USDT conversion: includes the spread. */
+    conversion: z.boolean().optional(),
+  })
+  .strict();
+
+export const approvalCancelInputSchema = z.object({ approvalId: z.string().guid(), reason: payReasonSchema }).strict();
+
+export const approvalRequestInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    settlementId: z.string().guid(),
+    railId: z.string().min(1).max(64),
+  })
+  .strict();
+
+/** The step's text fields, with the same limits the form puts on them. A field left out is stored blank. */
+export const onboardingDraftFieldsSchema = z
+  .object({
+    legalName: z.string().max(120).default(''),
+    displayName: z.string().max(120).default(''),
+    country: z.string().max(2).default(''),
+    businessType: z.string().max(80).default(''),
+    website: z.string().max(300).default(''),
+    contactEmail: z.string().max(320).default(''),
+    expectedVolume: z.string().max(200).default(''),
+  })
+  .strict();
+
+export const onboardingDraftSchema = z.object({ fields: onboardingDraftFieldsSchema, updatedAt: z.string() }).nullable();
+
+export const onboardingDraftSaveInputSchema = z
+  .object({ fields: onboardingDraftFieldsSchema, seq: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER) })
   .strict();

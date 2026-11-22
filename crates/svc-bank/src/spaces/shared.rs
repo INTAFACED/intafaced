@@ -1112,6 +1112,38 @@ pub fn activity(
     ))
 }
 
+/// `SharedPotService.assertMayTakeOut`: a member of a shared pot who is not its owner takes no money out of it
+/// (`bank.space_forbidden`).
+pub fn assert_may_take_out(
+    c: &mut impl GenericClient,
+    caller: &str,
+    from_space_id: &str,
+    from_owner: &str,
+) -> Result<(), Refusal> {
+    if from_owner != caller && role_of(c, from_space_id, caller)?.is_some() {
+        return Err(refuse(
+            "bank.space_forbidden",
+            "Only the owner of a shared pot can take money out of it",
+        ));
+    }
+    Ok(())
+}
+
+/// `SharedPotService.assertMayAddTo`: a viewer of someone else's shared pot adds no money to it (`bank.space_forbidden`).
+pub fn assert_may_add_to(
+    c: &mut impl GenericClient,
+    caller: &str,
+    to_space_id: &str,
+) -> Result<(), Refusal> {
+    if role_of(c, to_space_id, caller)?.as_deref() == Some("viewer") {
+        return Err(refuse(
+            "bank.space_forbidden",
+            "A viewer of a shared pot can see it but cannot move money into it",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

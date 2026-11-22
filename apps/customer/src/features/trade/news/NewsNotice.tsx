@@ -8,7 +8,7 @@ export function NewsNotice({ text }: { text: string }) {
     <div className="news-notice" role="status">
       <strong>{t('noticeTitle')}</strong>
       <p>{text}</p>
-      <p className="muted">
+      <p className="lt-muted">
         {t('code')}: <code>{t('feedCode')}</code>
       </p>
     </div>

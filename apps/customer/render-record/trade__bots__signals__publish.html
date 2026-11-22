@@ -105,7 +105,7 @@
 </div>
 </div>
 </header>
-<nav class="cb-action-row" aria-label="Signal sections">
+<nav class="lt-actions" aria-label="Signal sections">
 <a href="/trade/bots/signals">Signals</a>
 <a href="/trade/bots/signals?view=mine">My signals</a>
 <a href="/trade/bots/signals?view=earnings">Earnings</a>
@@ -131,27 +131,17 @@
 </span>
 </div>
 </div>
-<div class="cb-note" role="alert" data-tone="warn">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-exclamation-point lucide-alert-triangle lucide-triangle-alert" aria-hidden="true">
-<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3">
-</path>
-<path d="M12 9v4">
-</path>
-<path d="M12 17h.01">
-</path>
-</svg>
-<div>
-<p class="cb-note-title">Can’t reach the service</p>
-<p class="cb-note-body">Nothing was changed. Check your connection and try again.</p>
-</div>
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Try again</button>
+<div class="lt-refusal" role="alert" data-refusal="refused" data-tone="warn">
+<p class="lt-refusal-title">Can’t reach the service</p>
+<p class="lt-refusal-body">Nothing was changed. Check your connection and try again.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
 <section data-slot="page-section" data-density="comfortable" aria-labelledby="_r_4_" class="flex min-w-0 flex-col gap-6">
 <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line pb-3">
 <h2 id="_r_4_" data-slot="page-section-title" class="m-0 min-w-0 font-semibold text-fg text-md">Your signal</h2>
 </div>
-<form class="cb-form" aria-label="Publish a signal">
+<form class="lt-stack" aria-label="Publish a signal">
 <div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
 <div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
 <label id="base-ui-_r_5_" for="base-ui-_r_6_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Title<span aria-hidden="true" class="ms-0.5 text-fg-2">*</span>
@@ -223,7 +213,7 @@
 <span class="cb-hint">Charged again automatically each period. Not built.</span>
 </label>
 </fieldset>
-<div class="cb-action-row">
+<div class="lt-actions">
 <button type="submit" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill">Publish</button>
 </div>
 </form>

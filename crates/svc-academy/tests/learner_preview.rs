@@ -8,8 +8,8 @@
     reason = "a test: a failure is the point"
 )]
 
-mod learner_courses;
-mod support;
+use crate::learner_courses;
+use crate::support;
 
 use learner_courses::{
     A, B, COURSE, LATER, LATER_ISO, LESSON, LINK, NOW, SUBHEADER, code, counts, draft_with_outline,

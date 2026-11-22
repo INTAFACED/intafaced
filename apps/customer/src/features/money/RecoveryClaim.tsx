@@ -84,7 +84,7 @@ function AccountTable({ rows, testId, kind }: { rows: readonly RecoveryAccount[]
               <td lang="und">{row.assetId}</td>
               <td lang="und">{from(t, row)}</td>
               {kind && <td lang="und">{row.kind}</td>}
-              <td className="numeric">{funds(row.amount, row.assetId)}</td>
+              <td className="lt-num">{funds(row.amount, row.assetId)}</td>
             </tr>
           ))}
         </tbody>
@@ -116,7 +116,7 @@ function SweepResult({ done }: { done: Executed }) {
                 <td lang="und">
                   {from(t, { ownerType: sweep.ownerType, spaceName: sweep.spaceId ? (done.spaceNames[sweep.spaceId] ?? null) : null })}
                 </td>
-                <td className="numeric">{funds(sweep.amount, sweep.assetId)}</td>
+                <td className="lt-num">{funds(sweep.amount, sweep.assetId)}</td>
                 <td>
                   {sweep.status === 'posted'
                     ? t('sweepPosted')
@@ -192,15 +192,15 @@ function ClaimForm({ estate, onDone }: { estate: RecoveryEstate; onDone: (done: 
   }
 
   return (
-    <form className="bd-stack" onSubmit={(event) => void submit(event)} noValidate data-testid="recovery-claim-form">
+    <form className="lt-stack" onSubmit={(event) => void submit(event)} noValidate data-testid="recovery-claim-form">
       <h4>{t('keysTitle')}</h4>
-      <p className="money-caption">{t('keysLead')}</p>
+      <p className="lt-muted">{t('keysLead')}</p>
       {keys.map((text, index) => {
         const n = String(index + 1);
         const problem = problems[index];
         const hint = `${formId}-key-${index}`;
         return (
-          <div className="field" key={index}>
+          <div className="lt-field" key={index}>
             <label>
               <span>{t('keyField', { n })}</span>
               <textarea
@@ -244,7 +244,7 @@ function ClaimForm({ estate, onDone }: { estate: RecoveryEstate; onDone: (done: 
       {blocked ? (
         <DisabledActions labels={[t('claim')]} reason={t('blocked')} variant="primary" />
       ) : (
-        <div className="actions">
+        <div className="lt-actions">
           <Button type="submit" variant="primary" disabled={busy}>
             {busy ? t('working') : t('claim')}
           </Button>
@@ -273,19 +273,23 @@ function Estate({ estate, done, onDone }: { estate: RecoveryEstate; done: Execut
       </dl>
       {done && <SweepResult done={done} />}
       <h4>{t('sweepableTitle')}</h4>
-      <p className="money-caption">{t('sweepableLead')}</p>
+      <p className="lt-muted">{t('sweepableLead')}</p>
       {estate.sweepable.length > 0 ? (
         <AccountTable rows={estate.sweepable} testId="recovery-sweepable" />
       ) : (
-        <p className="muted">{t('sweepableNone')}</p>
+        <p className="lt-muted">{t('sweepableNone')}</p>
       )}
       <h4>{t('heldTitle')}</h4>
-      <p className="money-caption">{t('heldLead')}</p>
-      {estate.held.length > 0 ? <AccountTable rows={estate.held} testId="recovery-held" kind /> : <p className="muted">{t('heldNone')}</p>}
+      <p className="lt-muted">{t('heldLead')}</p>
+      {estate.held.length > 0 ? (
+        <AccountTable rows={estate.held} testId="recovery-held" kind />
+      ) : (
+        <p className="lt-muted">{t('heldNone')}</p>
+      )}
       {estate.blockers.length > 0 && (
         <>
           <h4>{t('debtsTitle')}</h4>
-          <p className="money-caption">{t('debtsLead')}</p>
+          <p className="lt-muted">{t('debtsLead')}</p>
           <AccountTable rows={estate.blockers} testId="recovery-debts" kind />
         </>
       )}
@@ -302,7 +306,7 @@ export function RecoveryClaim() {
   if (list.resource.status === 'failed') return <Failure result={list.resource.failure} retry={list.reload} />;
   const { estates } = list.resource.data;
   return (
-    <div className="bd-stack">
+    <div className="lt-stack">
       <p>{t('how')}</p>
       <p role="note">{t('promise')}</p>
       {estates.length === 0 ? (

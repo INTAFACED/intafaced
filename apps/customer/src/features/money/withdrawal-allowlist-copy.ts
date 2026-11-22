@@ -1,6 +1,10 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
+  sectionsLabel: 'Address list sections',
+  explain:
+    'With the list on, a withdrawal goes only to an address on it. Switching on takes effect at once; switching off, adding or removing an address and the one-time setting each go to your team for approval, and every one first asks you to confirm it is you.',
+  invalidTitle: 'This link names no change',
   title: 'Withdrawal address list',
   description: 'Choose where your money may be withdrawn to. With the list switched on, withdrawals to any other address are refused.',
   money: 'Money',
@@ -93,6 +97,10 @@ const en = {
 } as const;
 
 const es = {
+  sectionsLabel: 'Secciones de la lista de direcciones',
+  explain:
+    'Con la lista activada, un retiro solo va a una dirección que esté en ella. Activarla surte efecto al instante; desactivarla, añadir o quitar una dirección y el ajuste de un solo uso pasan por la aprobación de tu equipo, y cada uno te pide antes confirmar que eres tú.',
+  invalidTitle: 'Este enlace no indica ningún cambio',
   title: 'Lista de direcciones de retiro',
   description: 'Elige a dónde puede retirarse tu dinero. Con la lista activada, se rechazan los retiros a cualquier otra dirección.',
   money: 'Dinero',
@@ -186,6 +194,10 @@ const es = {
 } as const;
 
 const fr = {
+  sectionsLabel: 'Sections de la liste d’adresses',
+  explain:
+    'Avec la liste activée, un retrait ne va qu’à une adresse qui y figure. L’activer prend effet aussitôt ; la désactiver, ajouter ou retirer une adresse et le réglage ponctuel passent par l’approbation de votre équipe, et chacun vous demande d’abord de confirmer que c’est bien vous.',
+  invalidTitle: 'Ce lien ne désigne aucune modification',
   title: 'Liste d’adresses de retrait',
   description: 'Choisis où ton argent peut être retiré. Avec la liste activée, les retraits vers toute autre adresse sont refusés.',
   money: 'Argent',
