@@ -24,6 +24,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { countCall } from './api-count.mjs';
 
 export const SHA = /^[0-9a-f]{40}$/;
 const TEST_PATH = /^(apps|services|packages|tooling)\/[\w.-]+\/[\w./@-]+\.(test|spec)\.[cm]?[jt]sx?$/;
@@ -180,6 +181,7 @@ async function gh(method, path, body) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+  countCall(res);
   if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
   const text = await res.text();
   return { status: res.status, json: text ? JSON.parse(text) : null };

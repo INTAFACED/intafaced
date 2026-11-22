@@ -102,6 +102,7 @@ import {
   runsBehind,
   subscribesVia,
 } from './journey-reach-map.mjs';
+import { countCall } from './api-count.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -130,6 +131,7 @@ export const JOURNEY_CI = [
   'tooling/ci/factory-switch.mjs',
   // The seal's scripts word a spent API budget with it (judge down).
   'tooling/ci/api-budget.mjs',
+  'tooling/ci/api-count.mjs',
   // The seal's scripts and main-first.mjs call GitHub through it.
   'tooling/ci/github-fetch.mjs',
   // Every reader of a run's jobs reads them through it, in pages GitHub answers after a re-run.
@@ -887,6 +889,7 @@ async function mergeBaseReader() {
 function behindFromApi(map) {
   try {
     const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+    countCall();
     const out = execFileSync(
       'gh',
       ['api', `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=100`],
@@ -898,8 +901,10 @@ function behindFromApi(map) {
   }
 }
 
-const ghApi = (path, encoding = 'utf8') =>
-  execFileSync('gh', ['api', path], { encoding, maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] });
+const ghApi = (path, encoding = 'utf8') => {
+  countCall();
+  return execFileSync('gh', ['api', path], { encoding, maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] });
+};
 
 /**
  * When this journeys run reads main's touched-journeys map: the creation of the first pull request run of this workflow
