@@ -20,6 +20,7 @@ const git = (...args) => execFileSync('git', args, { cwd: REPO, encoding: 'utf8'
 export function reasonOf(why) {
   const rules = [
     [/no refusal reader this file can import/, 'service has no exported refusal reader (one file per service)'],
+    [/which depends on @intafaced\/contracts, so contracts can't import it/, 'schema from a package that depends on contracts (it stays)'],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
     [/named by a template/, 'service or call named by a template'],
     [/sends one input value to \d+ records/, 'one input sent to each of a closed set of calls'],
