@@ -325,8 +325,8 @@ fn claims(p: &Json) -> Option<Principal> {
     bool_of("trd")?;
     let mfa = bool_of("mfa")?.unwrap_or(false);
     let sid = guid_of("sid")??;
-    guid_of("fam")?;
-    guid_of("dev")?;
+    let fam = guid_of("fam")?;
+    let dev = guid_of("dev")?;
     strings("stp")?;
     let staff = match p.get("staffPermissions") {
         None => false,
@@ -357,6 +357,8 @@ fn claims(p: &Json) -> Option<Principal> {
         kid,
         sub_account,
         sid,
+        fam,
+        dev,
     })
 }
 
