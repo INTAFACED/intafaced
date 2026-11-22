@@ -24,6 +24,7 @@ import { roomCopy } from './copy';
 import { useLive } from './live';
 import { Freshness, InfoNote, RefusalNote } from './parts';
 import { roomRefusal } from './refusals';
+import './copybots.css';
 
 /**
  * Chart alert webhooks (CB-bots-api-signal-01, J-copy-bots-otc-20): a webhook per venue market and venue account that

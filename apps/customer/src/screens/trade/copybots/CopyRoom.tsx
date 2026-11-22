@@ -32,7 +32,9 @@ import { LeadDesk, Leaderboard } from './LeadDesk';
 import { LeaderDirectory } from './LeaderDirectory';
 import { LeaderPage } from './LeaderPage';
 import { useLive } from './live';
-import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
+import { AccountBadge, Freshness, InfoNote, PendingBanner, RefusalNote } from './parts';
+import { ModeNav } from './ModeNav';
+import './copybots.css';
 
 type TabId = 'leaders' | 'futures' | 'spot' | 'bots' | 'signal' | 'leaderboard' | 'follows' | 'lead' | 'rules';
 const TABS: readonly TabId[] = ['leaders', 'futures', 'spot', 'bots', 'signal', 'leaderboard', 'follows', 'lead', 'rules'];

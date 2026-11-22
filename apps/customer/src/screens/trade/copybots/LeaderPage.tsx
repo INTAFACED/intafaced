@@ -9,7 +9,9 @@ import { roomCopy } from './copy';
 import { bpsText } from './desk';
 import { daysSince, MODE_WORD, roomLeft } from './LeaderDirectory';
 import { useLive } from './live';
-import { AccountBadge, Freshness, InfoNote, ModeNav, RefusalNote } from './parts';
+import { AccountBadge, Freshness, InfoNote, RefusalNote } from './parts';
+import { ModeNav } from './ModeNav';
+import './copybots.css';
 
 const METRIC_WORD: Record<LeaderProfile['metrics'][number]['key'], string> = {
   publishedReturn: 'Published return',

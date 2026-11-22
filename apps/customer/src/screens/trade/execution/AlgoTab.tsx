@@ -4,8 +4,8 @@
  * original schedule back from the service, never by sending again.
  */
 import { useState } from 'react';
-import { Button, Field, Input, type Loadable } from '../rooms/ui';
-import { WriteNotice } from '../rooms/RoomNotices';
+import { Button } from '@intafaced/ui/lit';
+import type { Loadable } from '../rooms/ui';
 import { roomWords } from '../rooms/refusals';
 import { useRoomApi } from '../rooms/read';
 import { rememberId } from '../rooms/store';
@@ -16,7 +16,7 @@ import { AlgoForm, valuesFrom, type AlgoFormValues } from './AlgoForm';
 import { execCopy } from './copy';
 import { useAlgoIds, useParents, useRefreshParents, type ExecMarket } from './data';
 import { ownsNote } from './model';
-import { ConfirmDialog, Why } from './parts';
+import { ConfirmDialog, TextField, Why, WriteNotice } from './parts';
 
 const ACTIONS: readonly AlgoAction[] = ['pause', 'resume', 'cancel'];
 
@@ -89,7 +89,7 @@ export function AlgoTab({
   const capability = policy.status === 'ready' ? policy.data.capability : null;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="lt-grid lt-grid-ticket-work">
       <AlgoForm
         markets={markets}
         policy={policy}
@@ -99,29 +99,23 @@ export function AlgoTab({
         onCreated={setSelected}
         onCheck={(id) => void check(id)}
       />
-      <div className="flex min-w-0 flex-col gap-3">
+      <div className="lt-col-main">
         {capability && !capability.createEnabled ? <Why>{t('Create off banner')}</Why> : null}
         {capability && !capability.jobsEnabled ? <Why>{t('Scheduler off banner')}</Why> : null}
-        <div className="flex flex-wrap items-end gap-2">
-          <Field label={t('Open by id')} hint={t('Any schedule id you have, for example from another device')} className="min-w-64 flex-1">
-            <Input
-              aria-label={t('Open by id')}
-              value={typedId}
-              onValueChange={setTypedId}
-              density="dense"
-              onKeyDown={(e) => e.key === 'Enter' && void openById()}
-            />
-          </Field>
-          <Button variant="secondary" size={32} disabled={!typedId.trim() || !userId} onClick={() => void openById()}>
+        <div className="lt-toolbar">
+          <TextField
+            label={t('Open by id')}
+            hint={t('Any schedule id you have, for example from another device')}
+            value={typedId}
+            onValueChange={setTypedId}
+            onKeyDown={(e) => e.key === 'Enter' && void openById()}
+          />
+          <Button disabled={!typedId.trim() || !userId} onClick={() => void openById()}>
             {t('Open')}
           </Button>
         </div>
         {openNote ? <Why>{openNote}</Why> : null}
-        {checkNote ? (
-          <p role="status" className="m-0 text-sm text-fg">
-            {checkNote}
-          </p>
-        ) : null}
+        {checkNote ? <p role="status">{checkNote}</p> : null}
         <WriteNotice writer={writer} onCheck={(id) => void check(id)} done={t('Done, the list shows the new state')} />
         <AlgoList
           load={parents}
