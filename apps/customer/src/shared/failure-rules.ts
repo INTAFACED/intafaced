@@ -48,10 +48,10 @@ export function canTryAgain(result: Extract<ApiResult<unknown>, { ok: false }>):
   return !SETTLED_KINDS.has(classifyRefusal(result.code));
 }
 /** A service sometimes answers with its own refusal code as the message ("token.params_invalid"). */
-export const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
+const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
 /** A setting or code name inside a sentence, such as "Missing token_params.fee_discount_schedule". Only underscored names count, so "v1.2" and "e.g." stay. */
 const EMBEDDED_KEY = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9]*(?:_[a-z0-9]+)*\b/gi;
-export function embeddedKey(message: string): string | undefined {
+function embeddedKey(message: string): string | undefined {
   return message.match(EMBEDDED_KEY)?.find((key) => key.includes('_'));
 }
 /** The raw code a failure carries, which customers never read as it is. */

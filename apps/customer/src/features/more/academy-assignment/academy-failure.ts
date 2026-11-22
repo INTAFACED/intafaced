@@ -17,9 +17,6 @@ type UiCopy = ReturnType<(typeof uiCopy)['useCopy']>;
  */
 export type AcademyFailureView = { kind: 'words'; words: string } | { kind: 'refusal'; refusal: Refusal; retry: boolean };
 
-/** Whether Try again belongs to a failure: the app's one rule (shared/failure-rules.ts). */
-export const mayTryAgain = canTryAgain;
-
 export function academyFailureView(failure: Failure, t: (typeof academyLmsCopy)['t'], ui: UiCopy, here = ''): AcademyFailureView {
   const words = academyRefusalText(failure, t);
   if (words !== null) return { kind: 'words', words };
@@ -40,14 +37,14 @@ export function academyFailureView(failure: Failure, t: (typeof academyLmsCopy)[
     const said = refusalCopy(failure.code ?? rawCode);
     return {
       kind: 'refusal',
-      retry: mayTryAgain(failure),
+      retry: canTryAgain(failure),
       refusal: { variant: 'refused', title: said.title, body: said.body, reference: said.reference, action: said.action },
     };
   }
   const signIn = failure.reason === 'unauthorized';
   return {
     kind: 'refusal',
-    retry: !signIn && mayTryAgain(failure),
+    retry: !signIn && canTryAgain(failure),
     refusal: {
       variant: failure.reason === 'uncertain' ? 'unreachable' : 'refused',
       title: ui.t(failure.reason),

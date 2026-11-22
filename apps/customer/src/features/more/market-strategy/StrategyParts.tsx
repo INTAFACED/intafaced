@@ -34,7 +34,7 @@ export function Details({ items }: { items: readonly [string, ReactNode][] }) {
 }
 
 /** The kit's native select inside a field label. */
-export function Select({
+function Select({
   label,
   value,
   onChange,

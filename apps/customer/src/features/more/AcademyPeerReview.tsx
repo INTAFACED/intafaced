@@ -1,1 +1,1 @@
-export { AcademyPeerReview, ReviewForm, reviewCountLine, reviewFileName } from './academy-assignment/PeerReview';
+export { ReviewForm, reviewCountLine, reviewFileName } from './academy-assignment/PeerReview';
