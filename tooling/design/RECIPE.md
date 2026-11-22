@@ -18,7 +18,8 @@ row already on their template. One PR per batch.
    - `own-class`: delete it when the template already lays the part out; else the kit's class (`lt-…`, in
      `packages/ui/src/lit/templates/templates.css`). A part the kit lacks is added to the kit, tokens only, in its own
      commit, never drawn in the room.
-   - `outside-component`: a part shared by several rooms moves into the kit, or into the rooms' common folder.
+   - `outside-component`: a part from outside the room's folder that draws off the kit. Redraw it from the kit where it
+     lives, once, for every room that shares it (volt-count judges it by the same rule); a generic part goes into the kit.
    - `stylesheet`, `inline-style`: delete; the template and the kit's classes carry the layout.
 5. **Prove it:** `node tooling/design/volt-count.mjs --write` drops the batch's rooms from `volt-off-kit.json`;
    `pnpm --filter @intafaced/customer exec vitest run src/app/volt-count.test.ts` shows n rose by the batch and nothing
