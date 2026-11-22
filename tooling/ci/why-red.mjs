@@ -38,6 +38,7 @@
  *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
  */
+import { runJobsSync } from './run-jobs.mjs';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -149,8 +150,8 @@ export function collectOrphans(gh, repo) {
       runs[headSha] = { run, jobs: [] };
       continue;
     }
-    const jobs = read(`repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
-    if (jobs !== undefined) runs[headSha] = { run, jobs: jobs.jobs ?? [] };
+    const jobs = runJobsSync(`repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, read);
+    if (jobs !== null) runs[headSha] = { run, jobs };
   }
   return { prs, runs };
 }
