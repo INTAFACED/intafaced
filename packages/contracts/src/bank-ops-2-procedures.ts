@@ -11,7 +11,7 @@ export const offerState = z.enum(['offered', 'not_offered', 'not_known']);
 
 export const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/);
 
-/** The app's side of a programme figure when the app holds no record for the asset (OWNER 288). */
+/** The app's side of a programme figure when the app holds no record for the asset. */
 export const MISSING = 'missing' as const;
 
 export const appSide = z.union([amountString, z.literal(MISSING)]);
@@ -55,7 +55,7 @@ export const BANK_OPS_CARD_PROGRAMME_FUNDING = defineProcedure({
     rows: z.array(
       z.object({
         assetId: assetIdSchema,
-        // An asset the app holds no record of says "missing" in each app figure (OWNER 288), never 0.
+        // An asset the app holds no record of says "missing" in each app figure, never 0.
         appHeld: appSide,
         appCaptured: appSide,
         appFigure: appSide,

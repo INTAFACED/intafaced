@@ -16,7 +16,7 @@ const base = { service: 'svc-bank', module: 'bank', transport: 'trpc' } as const
  * the case. Every step is a row in the case's timeline with who did it and when; evidence added after the representment was
  * submitted is kept with its own time and marked so.
  *
- * The money is the partner's (OWNER 226). A provisional credit is the partner's credit to its own cardholder: the partner
+ * The money is the partner's. A provisional credit is the partner's credit to its own cardholder: the partner
  * answers with its reference and the amount it credited, and the cardholder's available, as the partner reports it, rises
  * by that amount. Who bears a fraud loss is the partner's terms at the moment of the decision, or "not known"; it is never
  * assumed to be the partner. Nothing here posts to the ledger, and no figure here is summed into a balance.
