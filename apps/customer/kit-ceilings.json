@@ -182,7 +182,6 @@
     "apps/customer/src/features/protocol/wallet/AddressBookPanel.tsx": 2,
     "apps/customer/src/features/protocol/wallet/ClaimLinksPanel.tsx": 1,
     "apps/customer/src/features/protocol/wallet/RepresentationPanel.tsx": 1,
-    "apps/customer/src/features/protocol/wallet/SendPanel.tsx": 2,
     "apps/customer/src/features/protocol/watch/AddressPage.tsx": 2,
     "apps/customer/src/features/protocol/watch/AddressRisk.tsx": 3,
     "apps/customer/src/features/public/FeesPage.tsx": 1,

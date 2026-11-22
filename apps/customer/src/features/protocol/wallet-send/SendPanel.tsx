@@ -1,5 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState, type InputHTMLAttributes } from 'react';
-import { Button, Checkbox } from '@intafaced/ui/lit';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Checkbox, Field, Select } from '@intafaced/ui/lit';
 import { KeyValue, Sheet } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
 import { useApi } from '../../session';
@@ -41,21 +41,6 @@ const FEE_WAIT_MS = 120_000;
 
 /** A sent transfer's network fee: waiting for the chain, read from its receipt, or not known (never shown as 0). */
 type SentFee = { kind: 'waiting' } | { kind: 'known'; units: bigint } | { kind: 'unknown' };
-
-/**
- * A text box inside the kit's `lt-field` label, the same shape as the token choice above it: its words, the box named
- * by them, and its hint describing it.
- */
-function TextField({ label, hint, ...input }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint: string }) {
-  const id = useId();
-  return (
-    <label className="lt-field" htmlFor={id}>
-      <span id={`${id}-label`}>{label}</span>
-      <input {...input} id={id} aria-labelledby={`${id}-label`} aria-describedby={`${id}-help`} />
-      <small id={`${id}-help`}>{hint}</small>
-    </label>
-  );
-}
 
 /**
  * Send: the network's own currency from the connected wallet to an address (D-portfolio-wallet-03, D-swap-12). The
@@ -227,34 +212,30 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             void review();
           }}
         >
-          <label className="lt-field">
-            <span id="wallet-send-token-label">{t('sendToken')}</span>
-            <select
-              value={token}
-              onChange={edit(setToken)}
-              // A code that asked for one token is paid in that token only.
-              disabled={askedListed !== undefined}
-              aria-labelledby="wallet-send-token-label"
-              aria-describedby="wallet-send-token-note"
-            >
-              <option value="">{t('sendTokenChoose')}</option>
-              {native && <option value={NATIVE}>{t('sendNative', { symbol: native.symbol })}</option>}
-              {listed.map((entry) => (
-                <option key={entry.address} value={entry.address}>
-                  {tokenLabel(entry, listed)}
-                </option>
-              ))}
-            </select>
-            <small id="wallet-send-token-note">
-              {askedToken && !askedListed
+          <Select
+            label={t('sendToken')}
+            hint={
+              askedToken && !askedListed
                 ? t('sendTokenAsked', { token: askedToken })
                 : pairs.resource.status === 'ready'
                   ? t('sendTokenListPools')
-                  : t('sendTokenListNote')}
-            </small>
-          </label>
-          <TextField label={t('sendAmount')} hint={t('sendAmountHint')} inputMode="decimal" value={amount} onChange={edit(setAmount)} />
-          <TextField label={t('sendTo')} hint={t('sendToHint')} value={to} onChange={edit(setTo)} autoComplete="off" spellCheck={false} />
+                  : t('sendTokenListNote')
+            }
+            value={token}
+            onChange={(value) => edit(setToken)({ target: { value } })}
+            // A code that asked for one token is paid in that token only.
+            disabled={askedListed !== undefined}
+          >
+            <option value="">{t('sendTokenChoose')}</option>
+            {native && <option value={NATIVE}>{t('sendNative', { symbol: native.symbol })}</option>}
+            {listed.map((entry) => (
+              <option key={entry.address} value={entry.address}>
+                {tokenLabel(entry, listed)}
+              </option>
+            ))}
+          </Select>
+          <Field label={t('sendAmount')} hint={t('sendAmountHint')} inputMode="decimal" value={amount} onChange={edit(setAmount)} />
+          <Field label={t('sendTo')} hint={t('sendToHint')} value={to} onChange={edit(setTo)} autoComplete="off" spellCheck={false} />
           {destination.kind === 'name' && (
             <>
               <p role="alert">{t('sendNameUnresolved')}</p>
@@ -304,7 +285,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             </>
           )}
           {contract === 'unknown' && <p role="note">{t('reviewContractUnknown')}</p>}
-          <TextField
+          <Field
             label={t('reviewLastFour')}
             hint={t('reviewLastFourHint')}
             value={typed}

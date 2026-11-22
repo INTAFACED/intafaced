@@ -25,8 +25,8 @@ vi.mock('../../session/session', () => ({ useApi: () => ({}) }));
 let host: HTMLDivElement, root: Root;
 
 const field = (label: RegExp) => {
-  const span = [...host.ownerDocument.querySelectorAll('label span')].find((node) => label.test(node.textContent ?? ''));
-  return span?.parentElement?.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
+  const named = [...host.ownerDocument.querySelectorAll('label')].find((node) => label.test(node.textContent ?? ''));
+  return host.ownerDocument.getElementById(named?.htmlFor ?? '') as HTMLInputElement | HTMLSelectElement;
 };
 const type = async (element: HTMLInputElement | HTMLSelectElement, value: string) => {
   await act(async () => {
