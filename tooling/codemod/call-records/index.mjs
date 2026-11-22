@@ -31,6 +31,7 @@ import { answerFromCallers } from './answer.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
+import { founderPartsFor } from './founder-guard.mjs';
 import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
@@ -100,6 +101,7 @@ function refusalReaders(serviceDir) {
 }
 /** A record naming its service's own check (`check:`) is mounted with the parts that hand it over, in its router's file. */
 function readerFor(readers, file, guard = undefined) {
+  if (guard?.founder) return founderPartsFor(file, guard, readerFor(readers, file));
   if (/\bcheck: '/.test(guard?.text ?? '')) return partsFor(readers, file, guard, () => readerFor(readers, file));
   return (
     readers.find((r) => !r.parts && r.file === file) ??
