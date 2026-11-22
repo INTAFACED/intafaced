@@ -44,6 +44,8 @@ impl Wiring {
 pub struct Deps<'a> {
     pub t: &'a crate::transfers::Deps<'a>,
     pub w: &'a Wiring,
+    /// Slice `earn`'s owner values: a threshold sweep or a round-up into a pool is the earn slice's own deposit.
+    pub earn: &'a crate::earn::Settings,
 }
 
 impl Deps<'_> {

@@ -21,6 +21,7 @@ use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_bank::automations;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
@@ -509,6 +510,39 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Part `auto_invest` of slice `automations` (`index.ts`'s `autoInvest` options): the kill switch, and svc-trade's convert
+/// port when `TRADE_URL` is usable (`usableTradeConvertUrl`), signed as svc-bank with the owner's markets page size;
+/// without it every DCA refuses `bank.auto_invest_rate_unset`. Its batch is the job's, never the service's own.
+fn auto_invest_wiring(env: &BankEnv) -> Result<automations::auto_invest::Wiring, String> {
+    let trade = env.str("TRADE_URL").unwrap_or("http://localhost:4004");
+    let convert: Option<Box<dyn automations::auto_invest::convert::ConvertPort>> =
+        if ready::usable_trade_convert_url(Some(trade)) {
+            Some(Box::new(
+                automations::auto_invest::convert::TradeConvert::new(
+                    trade,
+                    call_signer(env, "svc-trade")?,
+                    Box::new(UreqFetch::new()),
+                    env.int("CONVERT_MARKETS_LIMIT"),
+                ),
+            ))
+        } else {
+            None
+        };
+    Ok(automations::auto_invest::Wiring {
+        enabled: env.flag("AUTO_INVEST_ENABLED").unwrap_or(true),
+        convert,
+        batch_size: None,
+    })
+}
+
+/// Slice `automations`' wiring: each part's own (the other parts are wired by their own functions).
+fn automations_wiring(env: &BankEnv) -> Result<automations::Wiring, String> {
+    Ok(automations::Wiring {
+        auto_invest: auto_invest_wiring(env)?,
+        ..automations::Wiring::none()
+    })
+}
+
 /// The door, built once from the environment, with the store.
 fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -531,7 +565,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_transfers(transfers)
     .with_earn(earn_settings(env))
     .with_cards(cards)
-    .with_loans(loans_wiring(env)?);
+    .with_loans(loans_wiring(env)?)
+    .with_automations(automations_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

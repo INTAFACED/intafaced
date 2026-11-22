@@ -435,6 +435,7 @@ impl BankDoor {
         f(&crate::automations::Deps {
             t: &t,
             w: &self.automations,
+            earn: &self.earn,
         })
     }
 
