@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { FRAUD_PREVIEW_ACTIONS, fraudPreviewDoor, refuseFraudPreviewAction } from '../cards/fraud-preview.js';

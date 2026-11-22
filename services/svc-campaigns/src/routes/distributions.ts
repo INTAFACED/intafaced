@@ -1,4 +1,5 @@
-import { forwardedPrincipalHeaders, router, scopedProcedure } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { distributionsMineInputSchema, distributionsMineSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {

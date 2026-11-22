@@ -5,7 +5,7 @@
  * The step-up is spent inside the transaction, after the row lock and the same-value check. Every change writes an audit row with the
  * old and new text in the same transaction; a repeat with the same values answers `changed: false` and spends nothing.
  */
-import { customerStepUpPayloadHash } from '@intafaced/contracts';
+import { customerStepUpPayloadHash } from '@intafaced/contracts/customer-step-up';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { ActionApprovalError } from '../auth/action-approval-service.js';

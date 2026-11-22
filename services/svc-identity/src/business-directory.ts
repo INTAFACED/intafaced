@@ -8,7 +8,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Sql } from 'postgres';
-import { retainRawBody } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
 import { z } from 'zod';
 import { serviceOfRequest, type IdentityS2s } from './s2s-door.js';
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { actionOutput, toActionOutput, type AgentsRouterDeps } from '../router.js';
 import { parseCursor, type RunRouteKit } from './routes.js';
 

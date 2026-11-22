@@ -1,4 +1,6 @@
-import { emailProofSchema, serviceCallSigner, type EmailProof, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { EmailProof, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { emailProofSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { TradeError } from './types.js';
 
 /**

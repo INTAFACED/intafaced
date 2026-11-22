@@ -2,7 +2,7 @@
  * Operator read of the business approval queue. Read-only: approve, reject
  * and cancel stay with the business's own checker. A missing limit refuses.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';

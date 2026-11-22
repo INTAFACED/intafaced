@@ -1,5 +1,5 @@
 import { AuthError } from '@intafaced/auth';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { ActionApprovalConsumeError } from '../action-approval-consume.js';
 import { PayError } from '../payment-service.js';
 import { ListQueryError } from '../list-page.js';

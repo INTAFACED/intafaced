@@ -1,10 +1,6 @@
 import { TRPCError } from '@trpc/server';
-import {
-  scopedProcedure,
-  setKbSegmentInputSchema,
-  SUPPORT_KB_SEGMENT_CAP_UNSET,
-  SUPPORT_KB_SEGMENT_MEMBERSHIP_UNWIRED,
-} from '@intafaced/contracts';
+import { setKbSegmentInputSchema, SUPPORT_KB_SEGMENT_CAP_UNSET, SUPPORT_KB_SEGMENT_MEMBERSHIP_UNWIRED } from '@intafaced/contracts/support';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { requireSupportOps } from './support-service.js';
 
 /**
