@@ -129,7 +129,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   else if (slug === 'protocol' && tab === 'rails')
     body = (
       <Panel title={t('railsTitle')}>
-        <p className="muted">{t('railsNote')}</p>
+        <p className="lt-muted">{t('railsNote')}</p>
         <div className="protocol-rails">
           <Stat label={t('railBase')} value={t('railBaseState')} />
           <Stat label={t('railIntachain')} value={t('railIntachainState')} />

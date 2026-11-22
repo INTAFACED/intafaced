@@ -218,6 +218,126 @@ fn card_shipment(door: &BankDoor, body: &Value) -> Response {
     }
 }
 
+const ACCRUE_LOAN_INTEREST: &str = "/internal/jobs/accrue-loan-interest";
+const RUN_RISK_SWEEP: &str = "/internal/jobs/run-risk-sweep";
+const RESUME_PENDING_LOANS: &str = "/internal/jobs/resume-pending-loans";
+const RECOVER_LOAN_REPAYMENTS: &str = "/internal/jobs/recover-loan-repayments";
+
+fn ok(body: &Json) -> Response {
+    Response {
+        status: 200,
+        body: body.compact(),
+    }
+}
+
+/// A job's work that `sendBankJobRefuse` wraps: a `BankError` is its 400, anything else Fastify's 500.
+fn job_failed(r: crate::errors::Refusal) -> Response {
+    match r {
+        crate::errors::Refusal::Bank(e) => job_refuse(&e),
+        r => thrown_refusal(r),
+    }
+}
+
+/// The loans slice's four job doors (`index.ts`), past the signature.
+fn loan_job(door: &BankDoor, path: &str, body: &Value) -> Response {
+    let now = door.now();
+    let w = &door.loans.settings;
+    match path {
+        ACCRUE_LOAN_INTEREST => {
+            if !w.accrual_enabled {
+                return reply(
+                    503,
+                    "loan interest accrual is disabled",
+                    "bank.loan_accrual_disabled",
+                );
+            }
+            // Every row without `charged`.
+            match door.loans_deps(now, |d| {
+                crate::loans::service::accrue_all(d, now, body_limit(body))
+            }) {
+                Ok(report) => ok(&Json::obj([
+                    (
+                        "results",
+                        Json::Array(
+                            report
+                                .results
+                                .iter()
+                                .map(|r| {
+                                    Json::obj([
+                                        ("loanId", Json::str(r.loan_id.clone())),
+                                        (
+                                            "days",
+                                            Json::int(i64::try_from(r.days).unwrap_or(i64::MAX)),
+                                        ),
+                                    ])
+                                })
+                                .collect(),
+                        ),
+                    ),
+                    (
+                        "failures",
+                        Json::Array(
+                            report
+                                .failures
+                                .iter()
+                                .map(|x| {
+                                    let mut f = vec![
+                                        ("loanId".to_owned(), Json::str(x.loan_id.clone())),
+                                        ("reason".to_owned(), Json::str(x.reason.clone())),
+                                    ];
+                                    if let Some(c) = &x.code {
+                                        f.push(("code".to_owned(), Json::str(c.clone())));
+                                    }
+                                    Json::Object(f)
+                                })
+                                .collect(),
+                        ),
+                    ),
+                ])),
+                Err(r) => job_failed(r),
+            }
+        }
+        RUN_RISK_SWEEP => {
+            if !w.risk_sweep_enabled {
+                // Same code string as ops.runRiskSweep: alerts key on one name.
+                return reply(
+                    503,
+                    "the loan risk sweep is disabled",
+                    "bank.loan_risk_sweep_disabled",
+                );
+            }
+            // Not wrapped: a throw is Fastify's own 500.
+            match door.loans_deps(now, |d| {
+                crate::loans::sweep::run_risk_sweep(d, now, w.sweep_batch)
+            }) {
+                Ok(s) => ok(&s.json()),
+                Err(r) => thrown_refusal(r),
+            }
+        }
+        RESUME_PENDING_LOANS => match door.loans_deps(now, |d| {
+            crate::loans::service::resume_pending(d, body_limit(body))
+        }) {
+            Ok(rows) => ok(&Json::Array(
+                rows.iter()
+                    .map(crate::loans::service::Resumed::json)
+                    .collect(),
+            )),
+            Err(r) => job_failed(r),
+        },
+        RECOVER_LOAN_REPAYMENTS => match door.loans_deps(now, |d| {
+            crate::loans::service::recover_repayments(d, body_limit(body))
+        }) {
+            Ok(rows) => ok(&Json::Array(
+                rows.iter()
+                    .map(crate::loans::service::Resumed::json)
+                    .collect(),
+            )),
+            Err(r) => job_failed(r),
+        },
+        _ => not_ported(Slice::Loans),
+    }
+}
+
 /// `requireService`: the signing service, when it may call a job door (`jobCaller`: never svc-edge).
 fn job_caller(door: &BankDoor, req: &Request<'_>) -> Option<String> {
     door.service(req, BodyBind::Require)
@@ -254,6 +374,9 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         }
         if j.path == CARD_SHIPMENT {
             return Some(card_shipment(door, &body));
+        }
+        if j.slice == Slice::Loans {
+            return Some(loan_job(door, j.path, &body));
         }
         return Some(not_ported(j.slice));
     }

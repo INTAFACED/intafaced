@@ -96,13 +96,13 @@ export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQ
             </p>
           </>
         )}
-        <p className="pay-hint">{t('receiveLinkHint')}</p>
+        <p className="lt-hint">{t('receiveLinkHint')}</p>
         {failed === 'link' ? (
           <p className="pay-problem" role="alert">
             {t('copyLinkFailed')}
           </p>
         ) : null}
-        <div className="pay-row-actions">
+        <div className="lt-actions">
           <Button variant="secondary" size={40} disabled={qr.kind === 'loading'} onClick={() => void copy('link')}>
             <Link2 size={16} aria-hidden="true" />
             {t('copyLink')}

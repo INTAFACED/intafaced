@@ -84,11 +84,11 @@ export function PoolOverviewView({ read }: { read: Read<PoolOverview> }) {
         const text = data ? data[field] : null;
         return (
           <Panel key={key} title={t(key)} aria-label={t(key)} data-state={text === null ? 'unset' : 'set'}>
-            {text === null ? <p className="muted">{t('notSet')}</p> : <p>{text}</p>}
+            {text === null ? <p className="lt-muted">{t('notSet')}</p> : <p>{text}</p>}
           </Panel>
         );
       })}
-      {data ? <p className="muted">{t('overviewVersion', { version: data.version })}</p> : null}
+      {data ? <p className="lt-muted">{t('overviewVersion', { version: data.version })}</p> : null}
     </Panel>
   );
 }
@@ -142,7 +142,7 @@ export function PoolConnectView({ read }: { read: Read<PoolConnection> }) {
             maxLength={64}
             onChange={(event) => setRig(event.target.value.replace(/[^A-Za-z0-9_-]/g, ''))}
           />
-          <p className="muted">{t('accountIdNote')}</p>
+          <p className="lt-muted">{t('accountIdNote')}</p>
         </>
       )}
     </Panel>
@@ -199,7 +199,7 @@ export function MinerSecretView({
           <p data-testid="mining-miner-secret-issued" data-state={issuedAt ? 'issued' : 'none'}>
             {issuedAt ? t('secretIssuedOn', { at: stamp(issuedAt, timeZone) }) : t('secretNone')}
           </p>
-          <p className="muted">{t('secretNote')}</p>
+          <p className="lt-muted">{t('secretNote')}</p>
           {failure ? <Failure result={failure} /> : null}
           <Button variant="secondary" disabled={busy} onClick={() => void press()}>
             {issuedAt ? t('secretReissue') : t('secretIssue')}
@@ -255,7 +255,7 @@ function CopyLine({
         <Button variant="secondary" aria-label={copyLabel} disabled={value === null} onClick={() => void copy()}>
           {state === 'done' ? t('copied') : copyLabel}
         </Button>
-        <span role="status" className="muted">
+        <span role="status" className="lt-muted">
           {state === 'done' ? t('copied') : state === 'failed' ? t('copyFailed') : ''}
         </span>
       </dd>
@@ -306,8 +306,8 @@ export function PoolProbeView({ state, onPress }: { state: ProbeState; onPress: 
       <p data-testid="mining-reachability" data-result={shown ? shown.result : 'none'}>
         {shown ? t(`probe_${shown.result}`, { ms: shown.roundTripMs }) : t('probeNone')}
       </p>
-      {shown ? <p className="muted">{t('probeViewpoint')}</p> : null}
-      {state.status === 'busy' ? <p className="muted">{t('probeBusy')}</p> : null}
+      {shown ? <p className="lt-muted">{t('probeViewpoint')}</p> : null}
+      {state.status === 'busy' ? <p className="lt-muted">{t('probeBusy')}</p> : null}
       {state.status === 'failed' ? (
         refusal ? (
           <p role="alert" data-code={state.failure.code}>
@@ -335,7 +335,7 @@ export function MiningPoolStatus({ health, probe }: { health: Read<MiningHealth>
           <p data-testid="mining-pool-status" data-state={state}>
             {t(`status_${state}`)}
           </p>
-          <p className="muted">{t('statusNote')}</p>
+          <p className="lt-muted">{t('statusNote')}</p>
         </Panel>
       </div>
       <div>

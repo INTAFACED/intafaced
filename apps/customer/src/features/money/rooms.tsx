@@ -126,7 +126,7 @@ function BankPage({
       description={description}
       actions={
         room !== 'Ramps' ? (
-          <a className="button button--secondary" href="/bank">
+          <a className="lt-button lt-button-secondary" href="/bank">
             <Text k="rooms.bank.overview" />
           </a>
         ) : undefined
@@ -211,7 +211,7 @@ function ScheduleActions({
     if (!disabled && current()) open(spec);
   };
   return (
-    <div className="actions">
+    <div className="lt-actions">
       {' '}
       {row.status !== 'cancelled' && (
         <>
@@ -405,11 +405,11 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                           </span>
                         </p>
                       </div>
-                      <strong className="numeric" lang="zxx" dir="ltr">
+                      <strong className="lt-num" lang="zxx" dir="ltr">
                         {funds(row.amount, row.assetId)}
                       </strong>
                     </header>
-                    <div className="actions">
+                    <div className="lt-actions">
                       <Button
                         variant="secondary"
                         aria-label={t('inspect', { reference: row.id })}
@@ -445,7 +445,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                   if (current()) setLimit(Math.min(200, limit + 50));
                 }}
               />
-              <p className="money-caption">
+              <p className="lt-muted">
                 <Copy k="listWindow" />
               </p>
             </>
@@ -493,12 +493,12 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
             return spaces.length ? (
               <>
                 {context.status === 'invalid' && !fromId && (
-                  <p className="money-caption">
+                  <p className="lt-muted">
                     <spaceCopy.Copy k="fromInvalid" />
                   </p>
                 )}
                 <div className="money-transfer-setup">
-                  <label className="field">
+                  <label className="lt-field">
                     <span id="bank-transfer-source-label">
                       <Text k="rooms.from.your.space" />
                     </span>
@@ -519,7 +519,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         ))}
                     </select>
                   </label>
-                  <label className="field">
+                  <label className="lt-field">
                     <span>
                       <Text k="rooms.destination" />
                     </span>
@@ -531,15 +531,15 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                   {destination === 'user' && (
                     <>
                       <RecipientPicker value={recipient} onChange={setRecipient} />
-                      <p className="money-caption">{depth.t('personNote')}</p>
+                      <p className="lt-muted">{depth.t('personNote')}</p>
                     </>
                   )}
                   {destination === 'space' && (
-                    <p className="money-caption">
+                    <p className="lt-muted">
                       {from && ownSpaces(spaces, from, userId ?? '').length === 0 ? depth.t('noOtherSpace') : depth.t('spaceNote')}
                     </p>
                   )}
-                  <label className="field">
+                  <label className="lt-field">
                     <span>{depth.t('noteField')}</span>
                     <input
                       name="note"
@@ -554,7 +554,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                       {scheduled ? depth.t('messageScheduledReason') : (noteWords ?? depth.t('noteHint'))}
                     </small>
                   </label>
-                  <label className="field">
+                  <label className="lt-field">
                     <span>{depth.t('referenceField')}</span>
                     <input
                       name="reference"
@@ -711,8 +711,8 @@ function AddMoneyRoom() {
 function DirectDebitsLink() {
   const { t } = directDebitsCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/direct-debits">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/direct-debits">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -733,8 +733,8 @@ function RecoveryClaimRoom() {
 function CalendarLink() {
   const { t } = calendarCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/calendar">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/calendar">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -745,8 +745,8 @@ function CalendarLink() {
 function RulesLink() {
   const { t } = rulesCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/rules">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/rules">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -895,7 +895,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
           <EmptyState
             title={copyText('rooms.this.bank.address.is.not.registered')}
             action={
-              <a className="button button--secondary" href="/bank">
+              <a className="lt-button lt-button-secondary" href="/bank">
                 <Text k="rooms.bank.overview" />
               </a>
             }

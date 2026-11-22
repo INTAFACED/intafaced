@@ -19,8 +19,8 @@ export function NewsWidget({ symbol }: { symbol: string }) {
         <section id={panelId} className="news-widget" aria-label={t('widgetTitle', { symbol })} data-testid="cw-news" data-symbol={symbol}>
           <h2>{t('widgetTitle', { symbol })}</h2>
           <NewsNotice text={t('newsNotice')} />
-          <p className="muted">{t('widgetEmpty', { symbol })}</p>
-          <a className="text-link" href="/trade/news">
+          <p className="lt-muted">{t('widgetEmpty', { symbol })}</p>
+          <a className="lt-link" href="/trade/news">
             {t('widgetAll')}
           </a>
         </section>

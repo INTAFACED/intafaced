@@ -78,7 +78,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
   const filtered = Boolean(kind || status || date || q);
   const shown = list.state.status === 'ready' ? list.state.items.length : 0;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <div id="request">
         <RequestForm api={api} role={role} onRequested={() => reload()} />
       </div>
@@ -124,7 +124,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                 {' '}
                 <button
                   type="button"
-                  className="text-link"
+                  className="lt-link"
                   onClick={() => {
                     setKind('');
                     setStatus('');
@@ -162,7 +162,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                     cell: (j) => (
                       <>
                         <JobChip status={j.status} />
-                        {j.status === 'failed' && <small className="pay-cell-note">{t('failedHelp')}</small>}
+                        {j.status === 'failed' && <small className="lt-hint">{t('failedHelp')}</small>}
                       </>
                     ),
                   },
@@ -186,7 +186,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                         <>
                           <DateTime value={j.generatedAt} />
                           {j.asOf && (
-                            <small className="pay-cell-note">
+                            <small className="lt-hint">
                               {t('asOf')} <DateTime value={j.asOf} />
                             </small>
                           )}
@@ -266,7 +266,7 @@ export function JobActions({
     setState('idle');
   }
   return (
-    <div className="pp-actions">
+    <div className="lt-actions">
       {job.status === 'ready' && (
         <Button
           variant="secondary"
@@ -277,7 +277,7 @@ export function JobActions({
           {state === 'busy' ? t('downloading') : t('download')}
         </Button>
       )}
-      {isBuilding(job) && <small className="muted">{t('buildingNow')}</small>}
+      {isBuilding(job) && <small className="lt-muted">{t('buildingNow')}</small>}
       {canDelete(job) && (
         <PortalReview
           title={t('deleteAction')}
@@ -395,7 +395,7 @@ export function RequestForm({
             />
           </div>
         ) : (
-          <p className="muted">{t('noRangeForKind')}</p>
+          <p className="lt-muted">{t('noRangeForKind')}</p>
         )}
         <Field
           label={t('assetLabel')}
@@ -424,7 +424,7 @@ export function RequestForm({
               </label>
             ))}
           </div>
-          {kind === 'fees' && (role === 'viewer' || role === 'developer') && <small className="muted">{t('feeLevelHidden')}</small>}
+          {kind === 'fees' && (role === 'viewer' || role === 'developer') && <small className="lt-muted">{t('feeLevelHidden')}</small>}
         </fieldset>
         <PortalReview
           title={t('requestAction')}

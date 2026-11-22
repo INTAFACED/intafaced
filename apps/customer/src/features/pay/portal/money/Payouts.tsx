@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { EmptyState } from '../../ui-kit';
 import { PaySection } from '../../components';
 import { Gate, HaltBanner, PortalFailure, PortalLoading, SpanText } from '../components';
@@ -155,7 +155,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
     return c.newest ? t('mnCountNewest', { n: c.n }) : String(c.n);
   };
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <HaltBanner resource={halts.resource} scopes={['payout']} />
       <TestBanner />
       <Freshness asOf={readAt} />
@@ -203,7 +203,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
         query={query}
         fallback={
           <Button
-            variant="secondary"
+            tone="secondary"
             disabled={rows.length === 0}
             onClick={() =>
               downloadText(
@@ -253,7 +253,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
                 <>
                   <StatusChip entity="payout" value={payoutRowState(r, approvals)} />
                   {w && r.status === 'posted' && (
-                    <small className="pay-cell-note">{w === 'intafaced' ? t('waitingIntafaced') : t('waitingTeam')}</small>
+                    <small className="lt-hint">{w === 'intafaced' ? t('waitingIntafaced') : t('waitingTeam')}</small>
                   )}
                 </>
               );
@@ -268,7 +268,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
                   {r.payoutReference}
                 </span>
               ) : (
-                <span className="muted">{t('notPaidYet')}</span>
+                <span className="lt-muted">{t('notPaidYet')}</span>
               ),
           },
         ]}
@@ -372,7 +372,7 @@ export function PayoutDetailView({
   const me = portal.userId;
   const destination = useApprovalDestination();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <HaltBanner resource={halts} scopes={['payout']} />
       <Gate resource={settlement} retry={reload} rows={5}>
         {(s) => {
@@ -440,7 +440,7 @@ export function PayoutDetailView({
               {overLimit && left !== null && (
                 <p className="pp-callout pp-callout--warn" role="alert">
                   {t('pdoOverLimit')} (<MoneyText value={left} asset={s.assetId} test={test} /> {t('pnLimitLeft')}.) {t('pdoOverLimitHow')}{' '}
-                  <a className="text-link" href="/pay/limits">
+                  <a className="lt-link" href="/pay/limits">
                     {t('pdoOverLimitLink')}
                   </a>
                 </p>
@@ -453,7 +453,7 @@ export function PayoutDetailView({
                     <>
                       {' '}
                       {t('payoutFailedContactSupport')}{' '}
-                      <a className="text-link" href="/support">
+                      <a className="lt-link" href="/support">
                         {t('contactSupport')}
                       </a>
                     </>
@@ -467,18 +467,21 @@ export function PayoutDetailView({
                   items={[
                     [t('colStatus'), <StatusChip entity="payout" value={state} />],
                     [t('colAmount'), <MoneyText value={s.net} asset={s.assetId} test={test} />],
-                    [t('apvTo'), dest ?? <span className="muted">{t('apvToUnknown')}</span>],
+                    [t('apvTo'), dest ?? <span className="lt-muted">{t('apvToUnknown')}</span>],
                     ...(lc?.fee != null
                       ? ([[t('pdoFee'), <MoneyText value={lc.fee} asset={s.assetId} test={test} sign="minus" />]] as const)
                       : []),
                     [t('pdoScreening'), <NotConfigured>{t('pdoScreeningNone')}</NotConfigured>],
-                    [t('payoutMethod'), s.payoutMethod ? railWords(t, s.payoutMethod) : <span className="muted">{t('notPaidYet')}</span>],
+                    [
+                      t('payoutMethod'),
+                      s.payoutMethod ? railWords(t, s.payoutMethod) : <span className="lt-muted">{t('notPaidYet')}</span>,
+                    ],
                     [
                       t('colTransaction'),
                       s.payoutRef ? (
                         <CopyReference value={s.payoutRef} what={t('colTransaction')} />
                       ) : (
-                        <span className="muted">{t('notPaidYet')}</span>
+                        <span className="lt-muted">{t('notPaidYet')}</span>
                       ),
                     ],
                     [t('stlId'), <CopyReference value={s.id} what={t('stlId')} />],
@@ -499,7 +502,7 @@ export function PayoutDetailView({
               </PaySection>
 
               <PaySection title={t('pdoAttemptsTitle')} description={t('pdoAttemptsBody')}>
-                {approvals.status === 'ready' && trail.length === 0 && <p className="muted">{t('noApprovalYet')}</p>}
+                {approvals.status === 'ready' && trail.length === 0 && <p className="lt-muted">{t('noApprovalYet')}</p>}
                 {approvals.status === 'ready' && trail.length > 0 && (
                   <ul className="pp-approvals" aria-label={t('pdoAttemptsTitle')}>
                     {trail.map((a) => (
@@ -509,7 +512,7 @@ export function PayoutDetailView({
                             <MoneyText value={a.amount} asset={a.assetCode} test={test} />
                           </strong>
                           <StatusChip entity="approval" value={a.status} />
-                          <small className="muted">
+                          <small className="lt-muted">
                             {t('requestedBy')} {whoIs(a.makerUserId, me, names, t('mnMe'))} · <DateTime value={a.createdAt} />
                           </small>
                           {a.status === 'pending' && (

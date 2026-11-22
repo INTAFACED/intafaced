@@ -129,7 +129,7 @@ export function TestPanel({ agent }: { agent: OwnAgent }) {
   const catalogue = useCatalogue();
   return (
     <Panel title={t('testTitle')} role="region" aria-label={t('testTitle')}>
-      <p className="muted">{t('testIntro')}</p>
+      <p className="lt-muted">{t('testIntro')}</p>
       <EngineRun agent={agent} />
       <MoveTest agent={agent} catalogue={catalogue} />
       <DryRun agent={agent} catalogue={catalogue} />
@@ -177,7 +177,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
   return (
     <>
       <h3>{t('runTitle')}</h3>
-      <p className="muted">{t('runIntro')}</p>
+      <p className="lt-muted">{t('runIntro')}</p>
       <Field label={t('ask')} value={ask} maxLength={4000} onChange={(event) => setAsk(event.target.value)} />
       <TextArea label={t('contentField')} value={content} maxLength={8000} onChange={setContent} />
       <TextArea label={t('schemaField')} value={outputSchema} maxLength={4000} onChange={setOutputSchema} />
@@ -188,7 +188,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
       <Button disabled={busy} onClick={() => void runTest()}>
         {t('runTest')}
       </Button>
-      {started ? <p className="muted">{t('backgroundStarted')}</p> : null}
+      {started ? <p className="lt-muted">{t('backgroundStarted')}</p> : null}
       {refused ? <Answer failed={refused} /> : null}
       {ran ? (
         <section role="region" aria-label={t('engineRun')}>
@@ -256,7 +256,7 @@ function MoveTest({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue 
   return (
     <>
       <h3>{t('moveTitle')}</h3>
-      <p className="muted">{t('moveIntro')}</p>
+      <p className="lt-muted">{t('moveIntro')}</p>
       <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(offered) => {
           const money = offered.tools.filter((entry) => entry.movesMoney).map((entry) => entry.name);
@@ -340,7 +340,7 @@ function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue })
   return (
     <>
       <h3>{t('dryTitle')}</h3>
-      <p className="muted">{t('dryIntro')}</p>
+      <p className="lt-muted">{t('dryIntro')}</p>
       <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(offered) => {
           const declared = offered.tools.find((entry) => entry.name === tool);
@@ -372,7 +372,7 @@ function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue })
               </Button>
             </>
           ) : (
-            <p className="muted">{t('noTools')}</p>
+            <p className="lt-muted">{t('noTools')}</p>
           );
         }}
       </Read>
@@ -492,7 +492,7 @@ function TestRuns({ agent, focusRun }: { agent: OwnAgent; focusRun: string | nul
                 </tr>
               ))}
             </DataTable>
-            {rows.length === 0 ? <p className="muted">{t('testRunsEmpty')}</p> : null}
+            {rows.length === 0 ? <p className="lt-muted">{t('testRunsEmpty')}</p> : null}
           </>
         )}
       </Read>
@@ -511,7 +511,7 @@ export function AnalyticsPage({ agent }: { agent: OwnAgent }) {
   );
   return (
     <Panel title={t('analyticsTitle')} role="region" aria-label={t('analyticsTitle')}>
-      <p className="muted">{t('analyticsIntro')}</p>
+      <p className="lt-muted">{t('analyticsIntro')}</p>
       <Field label={t('includeTest')} type="checkbox" checked={includeTest} onChange={(event) => setIncludeTest(event.target.checked)} />
       <Read resource={figures.resource} retry={figures.reload}>
         {(view) => (

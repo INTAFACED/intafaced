@@ -89,7 +89,7 @@ function OnChainPanel() {
   return (
     <section aria-label={t('title')} className="navigator-onchain">
       <h4>{t('title')}</h4>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       <p role="note">
         <strong>{t('ceiling')}</strong> {t('ceilingRule')}
       </p>
@@ -123,7 +123,7 @@ function OnChainSigner({ owner, chainId }: { owner: string; chainId: number }) {
       <span className="pill" data-network="testnet">
         {t('testnet')}
       </span>{' '}
-      <span className="muted">{t('testnetNote')}</span>
+      <span className="lt-muted">{t('testnetNote')}</span>
     </p>
   ) : null;
   if (signer.resource.status === 'loading' || account.resource.status === 'loading')
@@ -442,12 +442,12 @@ function OnChainControls({
           }}
         />
       )}
-      <p className="muted numeric">{t('signer', { address: signer })}</p>
-      <p className="muted numeric">{t('account', { address: account })}</p>
+      <p className="lt-muted lt-num">{t('signer', { address: signer })}</p>
+      <p className="lt-muted lt-num">{t('account', { address: account })}</p>
       <form aria-label={t('formLabel')} className="protocol-quote" onSubmit={(event) => void prepare(event)} noValidate>
         <Field label={t('capLabel')} hint={t('capHint')} inputMode="decimal" value={cap} onChange={(event) => setCap(event.target.value)} />
         <Field label={t('callsLabel')} hint={t('callsHint')} value={calls} onChange={(event) => setCalls(event.target.value)} />
-        <p className="muted numeric">
+        <p className="lt-muted lt-num">
           {router
             ? t('defaultCall', { selector: NAVIGATOR_DEFAULT_SELECTOR, router })
             : deployments.resource.status === 'loading'
@@ -467,7 +467,7 @@ function OnChainControls({
           ]}
         />
         {formProblem && <p role="alert">{formProblem}</p>}
-        <div className="actions">
+        <div className="lt-actions">
           <Button type="submit" disabled={locked}>
             {t('prepare')}
           </Button>
@@ -476,11 +476,11 @@ function OnChainControls({
       {binding && status && <KeyFacts t={t} binding={binding} chain={chain} chainKey={key} status={status} />}
       {chainRead.resource.status === 'failed' && <Failure result={chainRead.resource.failure} retry={chainRead.reload} />}
       {binding && (status === 'active' || status === 'later' || status === 'revoking') && (
-        <div className="actions">
+        <div className="lt-actions">
           <Button variant="secondary" disabled={locked} onClick={() => void revoke()}>
             {t('revoke')}
           </Button>{' '}
-          <span className="muted">{t('revokeNote')}</span>
+          <span className="lt-muted">{t('revokeNote')}</span>
         </div>
       )}
       {call && (
@@ -489,11 +489,11 @@ function OnChainControls({
           <p>{t(call.kind === 'grant' ? 'callGrant' : 'callRevoke')}</p>
           <dl>
             <dt>{t('callTo')}</dt>
-            <dd className="numeric">
+            <dd className="lt-num">
               <code lang="zxx">{call.to}</code>
             </dd>
             <dt>{t('callData')}</dt>
-            <dd className="numeric">
+            <dd className="lt-num">
               <code data-testid="unsigned-call" lang="zxx" className="navigator-onchain-data">
                 {call.data}
               </code>
@@ -532,15 +532,15 @@ function KeyFacts({
       <h5>{t('bindingTitle')}</h5>
       <dl>
         <dt>{t('termScope')}</dt>
-        <dd className="numeric">{t('scope', { selectors: source.selectors.join(', '), targets: source.targets.join(', ') }) + prepared}</dd>
+        <dd className="lt-num">{t('scope', { selectors: source.selectors.join(', '), targets: source.targets.join(', ') }) + prepared}</dd>
         <dt>{t('termExpiry')}</dt>
-        <dd className="numeric">{utcTime(new Date(source.validUntil * 1000).toISOString()) + prepared}</dd>
+        <dd className="lt-num">{utcTime(new Date(source.validUntil * 1000).toISOString()) + prepared}</dd>
         <dt>{t('termStatus')}</dt>
         <dd>
           <span data-testid="binding-status">{t(`status_${status}`)}</span>
         </dd>
         <dt>{t('termSpent')}</dt>
-        <dd className="numeric">
+        <dd className="lt-num">
           {t('spent', {
             spent: chainKey ? formatUnits(BigInt(chainKey.spentWei), 18, 18) : '0',
             cap: formatUnits(BigInt(source.spendLimitWei), 18, 18),
@@ -548,7 +548,7 @@ function KeyFacts({
         </dd>
       </dl>
       {chainKey && !sameGrant(binding, chainKey) && <p role="note">{t('otherScope')}</p>}
-      {chain && <p className="muted">{t('asOf', { block: chain.blockNumber, time: utcTime(chain.blockTime) })}</p>}
+      {chain && <p className="lt-muted">{t('asOf', { block: chain.blockNumber, time: utcTime(chain.blockTime) })}</p>}
     </div>
   );
 }

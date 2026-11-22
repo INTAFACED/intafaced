@@ -116,7 +116,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
                     return (
                       <tr key={row.id}>
                         <td>{title ? <span lang="und">{title}</span> : <code lang="zxx">{row.listingId}</code>}</td>
-                        <td className="numeric">
+                        <td className="lt-num">
                           {hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}{' '}
                           <span lang="zxx">{row.assetId}</span>
                         </td>
@@ -128,7 +128,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
                           <div className="market-purchases-row-actions">
                             {hasReceipt(row) ? (
                               <a
-                                className="text-link"
+                                className="lt-link"
                                 href={`#market-receipt-${row.id}`}
                                 aria-current={selected === row.id ? 'true' : undefined}
                                 onClick={(event) => {
@@ -251,7 +251,7 @@ function OriginalRecord({ row }: { row: MarketPurchaseRecord }) {
           <Copy k="price" />
         </p>
         <div className="market-purchases-exact-price" tabIndex={0} role="group" aria-label={t('price')}>
-          <strong className="numeric">{hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}</strong>
+          <strong className="lt-num">{hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}</strong>
         </div>
         <span lang="zxx">{row.assetId}</span>
         {hideBalances && (

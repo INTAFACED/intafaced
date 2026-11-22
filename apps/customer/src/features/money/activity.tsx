@@ -33,7 +33,7 @@ export function MoneyActivity() {
       <Page eyebrow={t('rooms.money')} title={t('rooms.money.activity')}>
         <Section title={t(invalid ? 'activity.invalid.context' : 'activity.company.unavailable')}>
           <p>{t(invalid ? 'activity.invalid.help' : 'activity.company.help')}</p>
-          <a className="text-link" href={invalid ? '/uc/record' : '/bank/business'}>
+          <a className="lt-link" href={invalid ? '/uc/record' : '/bank/business'}>
             {t(invalid ? 'activity.all.assets' : 'nav.business')}
           </a>
         </Section>
@@ -49,7 +49,7 @@ export function MoneyActivity() {
           <Button variant="ghost" aria-pressed={hideBalances} onClick={() => savePreferences({ hideBalances: !hideBalances })}>
             {t(hideBalances ? 'index.show.amounts' : 'index.hide.amounts')}
           </Button>
-          <a className="button button--secondary" href={asset ? `/portfolio/${encodeURIComponent(asset)}` : '/portfolio'}>
+          <a className="lt-button lt-button-secondary" href={asset ? `/portfolio/${encodeURIComponent(asset)}` : '/portfolio'}>
             {asset ? t('activity.back.asset', { asset }) : t('rooms.back.to.holdings')}
           </a>
         </>
@@ -108,7 +108,7 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
           </Button>
         }
       >
-        {source === 'scheduled' && <p className="muted">{t('activity.instructions')}</p>}
+        {source === 'scheduled' && <p className="lt-muted">{t('activity.instructions')}</p>}
         <ResourceView resource={query.resource} reload={query.reload}>
           {() => (
             <>
@@ -146,7 +146,7 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
                   {asset ? t('activity.no.asset.read', { asset }) : t('activity.no.records.read')}
                 </NoRows>
               )}
-              {asset && <p className="money-caption">{t('activity.matches', { count: rows.length, asset, returned: all.length })}</p>}
+              {asset && <p className="lt-muted">{t('activity.matches', { count: rows.length, asset, returned: all.length })}</p>}
               <Continuation count={all.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
             </>
           )}
@@ -167,7 +167,7 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
             {row ? (
               <RecordDetails row={row} />
             ) : (
-              <p role="status" className="muted">
+              <p role="status" className="lt-muted">
                 {t(query.resource.status === 'ready' ? 'activity.absent.selected' : 'activity.current.unavailable')}
               </p>
             )}
@@ -176,7 +176,7 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
             </a>
           </>
         ) : (
-          <p className="muted">{t('activity.select')}</p>
+          <p className="lt-muted">{t('activity.select')}</p>
         )}
       </section>
     </div>

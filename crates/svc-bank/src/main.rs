@@ -26,6 +26,7 @@ use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
 use svc_bank::earn;
 use svc_bank::env::{self, BankEnv, DEFAULT_PORT};
+use svc_bank::loans;
 use svc_bank::migrate;
 use svc_bank::partner::custody::LedgerFreeze;
 use svc_bank::partner::router::Wiring;
@@ -263,7 +264,32 @@ fn recovery_jobs<'a>(
     door: &'a BankDoor,
     _env: &'a BankEnv,
 ) -> Vec<(&'static str, recovery::Job<'a>)> {
+    let loan_outcomes = |rows: Vec<loans::service::Resumed>| -> Vec<String> {
+        rows.into_iter().map(|r| r.outcome.to_owned()).collect()
+    };
     vec![
+        (
+            "bank.recovery.resume_pending_loans",
+            Box::new(move |batch| {
+                let now = door.now();
+                door.loans_deps(now, |d| {
+                    loans::service::resume_pending(d, Some(f64::from(batch)))
+                        .map(loan_outcomes)
+                        .map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        (
+            "bank.recovery.recover_loan_repayments",
+            Box::new(move |batch| {
+                let now = door.now();
+                door.loans_deps(now, |d| {
+                    loans::service::recover_repayments(d, Some(f64::from(batch)))
+                        .map(loan_outcomes)
+                        .map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
         (
             "bank.recovery.resume_pending_earn",
             Box::new(move |batch| {
@@ -351,6 +377,59 @@ fn service_auth(env: &BankEnv) -> Result<ServiceAuth, String> {
         } else {
             BodyBind::Require
         },
+    })
+}
+
+/// Slice `loans`'s wiring (`index.ts`'s `loans` options): svc-trade's ticker for marks, the platform's market maker as
+/// the venue, svc-identity's affiliate legs (none without `IDENTITY_URL`), margin calls on the bus, and the owner's
+/// values as published. The statement is signed with the activity cursor's secret, as the TypeScript composes it.
+fn loans_wiring(env: &BankEnv) -> Result<loans::Wiring, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let owned = |k: &str| env.raw.get(k).cloned();
+    #[allow(clippy::cast_precision_loss, reason = "a batch size of at most 10000")]
+    let sweep_batch = env.int("LOAN_SWEEP_BATCH_SIZE").map(|b| b as f64);
+    Ok(loans::Wiring {
+        settings: loans::ports::Settings {
+            module_enabled: env.flag("BANK_LOANS_ENABLED").unwrap_or(true),
+            accrual_enabled: env.flag("LOAN_ACCRUAL_ENABLED").unwrap_or(true),
+            risk_sweep_enabled: env.flag("LOAN_RISK_SWEEP_ENABLED").unwrap_or(false),
+            sweep_batch,
+            payoff_fee: owned("BANK_LOAN_PAYOFF_FEE"),
+            origination_fee_bps: owned("BANK_LOAN_ORIGINATION_FEE_BPS"),
+            payoff_window_minutes: owned("BANK_LOAN_PAYOFF_WINDOW_MINUTES"),
+            statement_secret: Some(secret.clone()),
+            ..loans::ports::Settings::default()
+        },
+        prices: Box::new(loans::prices::TickerPriceSource::new(
+            env.str("TRADE_URL").unwrap_or("http://localhost:4004"),
+            Box::new(UreqFetch::new()),
+            None,
+            Box::new(system_now),
+        )),
+        venue: Box::new(loans::ports::MarketMaker),
+        affiliates: match env.str("IDENTITY_URL") {
+            Some(url) => Box::new(loans::ports::AffiliatesHttp::new(
+                url,
+                CallSigner::new("svc-bank", "svc-identity", &secret, keyed),
+                Box::new(UreqFetch::new()),
+            )),
+            None => Box::new(loans::ports::NoAffiliates),
+        },
+        publish_margin_calls: true,
     })
 }
 
@@ -451,7 +530,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_spaces(spaces)
     .with_transfers(transfers)
     .with_earn(earn_settings(env))
-    .with_cards(cards);
+    .with_cards(cards)
+    .with_loans(loans_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

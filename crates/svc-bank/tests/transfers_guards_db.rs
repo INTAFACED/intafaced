@@ -155,6 +155,7 @@ impl Book {
             *s.accounts.entry(to.clone()).or_default() += amount;
         }
         let tx = LedgerTx {
+            key: String::new(),
             id: format!("tx-{}", s.journal.len() + 1),
             posted_at: door::system_now(),
             entries: Vec::new(),

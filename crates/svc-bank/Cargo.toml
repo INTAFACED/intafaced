@@ -14,6 +14,8 @@ workspace = true
 service-kit = { path = "../service-kit" }
 postgres = "0.19"
 sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
 signal-hook = "0.3"
 # Vendored with the pool fix of #9432 (crates/vendor/tiny_http/VENDORED.md).
 tiny_http = { path = "../vendor/tiny_http" }

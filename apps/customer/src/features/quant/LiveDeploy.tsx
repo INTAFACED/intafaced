@@ -42,7 +42,7 @@ export function LiveDeployWizard({ path }: { path: string }) {
       title={t('title')}
       description={t('intro')}
       actions={
-        <a className="button button--secondary" href="/trade/bots?tab=paper">
+        <a className="lt-button lt-button-secondary" href="/trade/bots?tab=paper">
           {t('back')}
         </a>
       }
@@ -208,7 +208,7 @@ function DeployRefusal({ failure }: { failure: Failed }) {
   const code = refusalOf(failure);
   if (!code) return <Failure result={failure} />;
   return (
-    <div data-testid="quant-deploy-refusal" data-code={code} className="failure" role="status">
+    <div data-testid="quant-deploy-refusal" data-code={code} className="lt-refusal" role="status">
       <h4>{t('refusedTitle')}</h4>
       <p>{t(REFUSALS[code])}</p>
     </div>

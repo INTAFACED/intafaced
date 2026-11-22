@@ -5,7 +5,7 @@ import { Button, StateBlock } from '@intafaced/ui';
 import { EmptyState } from '../ui-kit';
 import { DateTime } from './ui/DateTime';
 import type { ListState } from './hooks';
-import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
+import { activeHalts, spanParts, type PayoutState } from './model';
 import { portalCopy } from './copy';
 import { StatusChip } from './ui/StatusChip';
 import { CopyReference } from './ui/CopyReference';
@@ -13,7 +13,7 @@ import { uiCopy } from './ui/copy';
 import type { ChipKind } from './ui/status-vocabulary';
 import { NotLiveCard } from './chrome/NotLiveCard';
 import { isNotLive, notLiveReason, refusalText, refusalTitle } from './refusal';
-import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
+import type { AssetAmount, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -67,17 +67,17 @@ export function PortalFailure({ result, retry, notLive }: { result: Failed; retr
   // The same refusal, twice on one page, is said once.
   if (!claim()) return null;
   return (
-    <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+    <div data-testid="failure" className="lt-refusal" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>
       <p>{refusalText(result)}</p>
       {result.requestId && (
-        <p className="muted">
+        <p className="lt-muted">
           {u('reference')} <CopyReference value={result.requestId} what={u('reference')} />
         </p>
       )}
       {result.reason === 'unauthorized' ? (
         <a
-          className="text-link"
+          className="lt-link"
           href={`/login?redirect=${encodeURIComponent(typeof location === 'undefined' ? '/pay/merchant' : location.pathname + location.search)}`}
         >
           {t('signIn')}
@@ -125,7 +125,7 @@ export function MoreFooter<T>({ state, onMore }: { state: Extract<ListState<T>, 
   const failed = typeof state.more === 'object';
   return (
     <div className="pp-more">
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {state.hasMore ? t('rowsSoFar', { count: state.items.length }) : t('rowsAll', { count: state.items.length })}
       </p>
       {state.hasMore && (
@@ -207,31 +207,6 @@ export function Money({ value, asset }: { value: string; asset: string }) {
     <span className="numeric pp-money">
       <MoneyDisplay value={value} asset={asset} unit={asset} />
     </span>
-  );
-}
-
-/** "As of" and lag on every metric (B12). Unknown freshness is stated, never dressed as live. */
-export function AsOf({ freshness }: { freshness: Freshness }) {
-  const { t } = portalCopy.useCopy();
-  const state = staleness(freshness);
-  if (state.kind === 'unknown')
-    return (
-      <p className="pp-asof pp-asof--warn" role="status">
-        {t('asOfUnknown')}
-      </p>
-    );
-  const lag = lagParts(state.lagSeconds);
-  const lagText =
-    lag.unit === 'seconds'
-      ? t('lagSeconds', { n: lag.n })
-      : lag.unit === 'minutes'
-        ? t('lagMinutes', { n: lag.n })
-        : t('lagHours', { n: lag.n });
-  return (
-    <p className={`pp-asof${state.kind === 'stale' ? ' pp-asof--warn' : ''}`} role="status">
-      {t('asOf')} <DateTime value={freshness.asOf!} /> · {lagText}
-      {state.kind === 'stale' && <> · {t('staleWarning')}</>}
-    </p>
   );
 }
 
@@ -419,7 +394,7 @@ export function Steps({
               {item.title}
               <span className="pp-sr"> ({t(`stepItem_${item.state}` as 'stepItem_done')})</span>
             </strong>
-            {item.detail && <p className="muted">{item.detail}</p>}
+            {item.detail && <p className="lt-muted">{item.detail}</p>}
           </div>
         </li>
       ))}

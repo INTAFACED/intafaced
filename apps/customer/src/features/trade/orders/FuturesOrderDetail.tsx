@@ -69,7 +69,7 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
   }, [orderId, userId, revision]);
 
   const back = (
-    <a className="text-link" href="/trade/orders?product=futures">
+    <a className="lt-link" href="/trade/orders?product=futures">
       {t('back')}
     </a>
   );
@@ -80,7 +80,7 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
           title={orders('signedOutTitle')}
           action={
             <a
-              className="button button--primary"
+              className="lt-button lt-button-primary"
               href={`/login?redirect=${encodeURIComponent(`/trade/orders/${orderId}?product=futures`)}`}
             >
               {orders('signIn')}
@@ -156,7 +156,7 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
           <h3>{t('executionsHeading')}</h3>
           {fills.status === 'loading' ? <Loading /> : null}
           {fills.status === 'failed' ? <p role="alert">{t('executionsFailed')}</p> : null}
-          {fills.status === 'ready' && fills.data.length === 0 ? <p className="muted">{t('executionsNone')}</p> : null}
+          {fills.status === 'ready' && fills.data.length === 0 ? <p className="lt-muted">{t('executionsNone')}</p> : null}
           {fills.status === 'ready' && fills.data.length > 0 ? (
             <ul className="orders-list">
               {fills.data.map((fill) => (
@@ -167,7 +167,7 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
               ))}
             </ul>
           ) : null}
-          {fills.status === 'ready' && moreFills ? <p className="muted">{t('executionsMore', { count: FILLS_SHOWN })}</p> : null}
+          {fills.status === 'ready' && moreFills ? <p className="lt-muted">{t('executionsMore', { count: FILLS_SHOWN })}</p> : null}
         </section>
       </div>
     </Page>

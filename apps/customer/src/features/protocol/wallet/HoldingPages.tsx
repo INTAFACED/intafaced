@@ -30,7 +30,7 @@ export function HoldingPage({ token }: { token: string }) {
           <dl className="protocol-facts">
             <div>
               <dt>{t('entryLabel')}</dt>
-              <dd className="numeric" data-testid="entry-price">
+              <dd className="lt-num" data-testid="entry-price">
                 {row.entry === null
                   ? t('entryNone')
                   : row.entry.arrivals === 1
@@ -46,20 +46,20 @@ export function HoldingPage({ token }: { token: string }) {
             </div>
             <div>
               <dt>{t('tokenBalance')}</dt>
-              <dd className="numeric">
+              <dd className="lt-num">
                 {tokenAmount(row.balance, row.decimals)} {row.symbol}
               </dd>
             </div>
             <div>
               <dt>{t('tokenPrice')}</dt>
-              <dd className="numeric">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</dd>
+              <dd className="lt-num">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</dd>
             </div>
             <div>
               <dt>{t('tokenValue')}</dt>
-              <dd className="numeric">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</dd>
+              <dd className="lt-num">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</dd>
             </div>
           </dl>
-          <p className="muted">
+          <p className="lt-muted">
             <a href={conventionPath('entry')}>{t('conv_entry')}</a>
           </p>
         </Panel>

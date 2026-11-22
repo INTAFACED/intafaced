@@ -23,7 +23,7 @@ export function LibraryRoom({ paper }: { paper: boolean }) {
       <QuantRooms active="strategies" paper={paper} />
       <Panel title={t('libraryTitle')}>
         <div data-testid="quant-library" data-tag={tag}>
-          <p className="muted">{t('libraryIntro')}</p>
+          <p className="lt-muted">{t('libraryIntro')}</p>
           <Select
             label={t('filterTag')}
             value={tag}
@@ -85,7 +85,7 @@ function LibraryPage({
               {data.entries.map((row) => (
                 <tr key={row.listingId} data-testid="quant-library-row" data-listing-id={row.listingId} data-tags={row.tags.join(' ')}>
                   <td lang="und">
-                    <a className="text-link" href={preservePaperHref(`/quant/library/${encodeURIComponent(row.listingId)}`, paper)}>
+                    <a className="lt-link" href={preservePaperHref(`/quant/library/${encodeURIComponent(row.listingId)}`, paper)}>
                       {row.title}
                     </a>
                   </td>

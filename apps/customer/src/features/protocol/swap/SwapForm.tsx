@@ -904,7 +904,7 @@ export function SwapForm() {
   };
 
   const tokenSelect = (id: string, label: string, value: string, set: (value: string) => void) => (
-    <label className="field">
+    <label className="lt-field">
       <span id={id}>{label}</span>
       {/* The chosen token's contract, so a copied name cannot pass for the token it copies. */}
       <select
@@ -922,9 +922,9 @@ export function SwapForm() {
         ))}
       </select>
       {value === NATIVE_VALUE && <small>{t('nativeLine')}</small>}
-      {value && value !== NATIVE_VALUE && <small className="numeric">{t('contract', { address: shortContract(value) })}</small>}
+      {value && value !== NATIVE_VALUE && <small className="lt-num">{t('contract', { address: shortContract(value) })}</small>}
       {value && value !== NATIVE_VALUE && (
-        <small className="numeric" data-testid={id === ids.pay ? 'price-pay' : 'price-receive'}>
+        <small className="lt-num" data-testid={id === ids.pay ? 'price-pay' : 'price-receive'}>
           {priceLine(value)}
         </small>
       )}
@@ -949,7 +949,7 @@ export function SwapForm() {
         />
       )}
       <Panel title={t('formTitle')}>
-        <p className="muted">{t('formNote', { network })}</p>
+        <p className="lt-muted">{t('formNote', { network })}</p>
         {pairs.resource.status === 'failed' && <Failure result={pairs.resource.failure} retry={pairs.reload} />}
         {settings.resource.status === 'failed' && <Failure result={settings.resource.failure} retry={settings.reload} />}
         <form
@@ -964,7 +964,7 @@ export function SwapForm() {
             {(['simple', 'manual'] as const).map((entry) => (
               <label key={entry} className="field field--check">
                 <input type="radio" name="swap-mode" value={entry} checked={mode === entry} onChange={() => choose(entry)} />
-                <span>{t(entry)}</span> <small className="muted">{t(entry === 'simple' ? 'simpleHint' : 'manualHint')}</small>
+                <span>{t(entry)}</span> <small className="lt-muted">{t(entry === 'simple' ? 'simpleHint' : 'manualHint')}</small>
               </label>
             ))}
           </div>
@@ -973,14 +973,14 @@ export function SwapForm() {
               <label key={entry} className="field field--check">
                 <input type="radio" name="swap-kind" value={entry} checked={kind === entry} onChange={() => setKind(entry)} />
                 <span>{t(entry === 'exact_in' ? 'exactIn' : 'exactOut')}</span>{' '}
-                <small className="muted">{t(entry === 'exact_in' ? 'exactInHint' : 'exactOutHint')}</small>
+                <small className="lt-muted">{t(entry === 'exact_in' ? 'exactInHint' : 'exactOutHint')}</small>
               </label>
             ))}
           </div>
           {tokenSelect(ids.pay, t('youPay'), tokenInAddress, setTokenIn)}
           {tokenSelect(ids.receive, t('youReceive'), tokenOutAddress, setTokenOut)}
           {pairs.resource.status === 'ready' && tokens.length === 0 && (
-            <p className="muted" id={ids.note}>
+            <p className="lt-muted" id={ids.note}>
               {t('noTokens', { network })}
             </p>
           )}
@@ -1007,14 +1007,14 @@ export function SwapForm() {
             <dl className="protocol-facts">
               <div>
                 <dt>{t('youGet')}</dt>
-                <dd className="numeric" data-testid="amount-out">
+                <dd className="lt-num" data-testid="amount-out">
                   {formatUnits(BigInt(pathQuote.path.amountOut), tokenOut.decimals)} {tokenOut.name}
                 </dd>
               </div>
               {!expired && seconds !== null && (
                 <div>
                   <dt>{t('quoteLife')}</dt>
-                  <dd className="numeric" data-testid="quote-countdown">
+                  <dd className="lt-num" data-testid="quote-countdown">
                     {t('refreshesIn', { seconds: String(seconds) })}
                   </dd>
                 </div>
@@ -1022,12 +1022,12 @@ export function SwapForm() {
             </dl>
           )}
           {useV2Quote && pathLimits?.maxIn != null && tokenIn && (
-            <p className="numeric" data-testid="maximum-paid">
+            <p className="lt-num" data-testid="maximum-paid">
               {t('maximumPaid', { amount: formatUnits(pathLimits.maxIn, tokenIn.decimals), token: tokenIn.name })}
             </p>
           )}
           {useV2Quote && pathQuote && pathLimits && pathQuote.path.kind === 'exact_in' && tokenOut && (
-            <p className="numeric" data-testid="minimum-received">
+            <p className="lt-num" data-testid="minimum-received">
               {t('minimumReceived', {
                 amount: formatUnits(pathLimits.minOutPerHop[pathLimits.minOutPerHop.length - 1]!, tokenOut.decimals),
                 token: tokenOut.name,
@@ -1035,7 +1035,7 @@ export function SwapForm() {
             </p>
           )}
           {useV2Quote && pathQuote && pathLimits && pathQuote.path.kind === 'exact_in' && pathQuote.path.pools.length > 1 && (
-            <ol aria-label={t('hopMinimums')} className="numeric">
+            <ol aria-label={t('hopMinimums')} className="lt-num">
               {pathQuote.path.hops.map((hop, index) => {
                 const from = tokens.find((entry) => entry.address.toLowerCase() === hop.tokenIn.toLowerCase());
                 const to = tokens.find((entry) => entry.address.toLowerCase() === hop.tokenOut.toLowerCase());
@@ -1056,14 +1056,14 @@ export function SwapForm() {
             <dl className="protocol-facts">
               <div>
                 <dt>{t('youGet')}</dt>
-                <dd className="numeric" data-testid="amount-out">
+                <dd className="lt-num" data-testid="amount-out">
                   {formatUnits(BigInt(quote.quote.amountOut), tokenOut.decimals)} {tokenOut.name}
                 </dd>
               </div>
               {!expired && seconds !== null && (
                 <div>
                   <dt>{t('quoteLife')}</dt>
-                  <dd className="numeric" data-testid="quote-countdown">
+                  <dd className="lt-num" data-testid="quote-countdown">
                     {t('refreshesIn', { seconds: String(seconds) })}
                   </dd>
                 </div>
@@ -1079,7 +1079,7 @@ export function SwapForm() {
             </>
           )}
           {minOut !== null && tokenOut && !useV2Quote && (
-            <p className="numeric" data-testid="minimum-received">
+            <p className="lt-num" data-testid="minimum-received">
               {t('minimumReceived', { amount: formatUnits(minOut, tokenOut.decimals), token: tokenOut.name })}
             </p>
           )}
@@ -1153,13 +1153,13 @@ export function SwapForm() {
                       disabled={entry !== 'onchain' && (!v2 || (entry === 'permit' && noPermit))}
                       onChange={() => setAllowance(entry)}
                     />
-                    <span>{t(`allowance_${entry}`)}</span> <small className="muted">{t(`allowanceHint_${entry}`)}</small>
+                    <span>{t(`allowance_${entry}`)}</span> <small className="lt-muted">{t(`allowanceHint_${entry}`)}</small>
                   </label>
                 ))}
               </div>
               {allowance === 'standing' && (
                 <>
-                  <label className="field">
+                  <label className="lt-field">
                     <span id={`${ids.note}-expires`}>{t('allowanceExpires')}</span>
                     <select
                       aria-labelledby={`${ids.note}-expires`}
@@ -1175,11 +1175,11 @@ export function SwapForm() {
                       ))}
                     </select>
                   </label>
-                  <p className="numeric" data-testid="allowance-expiry">
+                  <p className="lt-num" data-testid="allowance-expiry">
                     {t('allowanceExpiry', { time: dateTime(Math.floor(now / 1000) + standingSeconds) })}
                   </p>
                   {approvalRoute?.standing && (
-                    <p className="numeric">
+                    <p className="lt-num">
                       {t('standingInPlace', {
                         amount: formatUnits(BigInt(approvalRoute.standing.amount), tokenIn.decimals),
                         token: tokenIn.name,
@@ -1209,7 +1209,7 @@ export function SwapForm() {
                 }}
               />
               {deadlineSeconds !== null && !deadlineProblem && (
-                <p className="numeric" data-testid="deadline">
+                <p className="lt-num" data-testid="deadline">
                   {t('deadlineLine', { time: dateTime(deadlineSeconds) })}
                 </p>
               )}
@@ -1292,7 +1292,7 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
         <dl className="protocol-facts">
           <div>
             <dt>{t('paid')}</dt>
-            <dd className="numeric">
+            <dd className="lt-num">
               {track.state === 'failed'
                 ? t('nothingPaid')
                 : track.paidAtMost
@@ -1305,7 +1305,7 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
           </div>
           <div>
             <dt>{t('received')}</dt>
-            <dd className="numeric">
+            <dd className="lt-num">
               {track.received !== undefined
                 ? `${formatUnits(track.received, track.tokenOut.decimals)} ${track.tokenOut.name}`
                 : track.state === 'failed'
@@ -1315,12 +1315,12 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
           </div>
           <div>
             <dt>{t('networkFee')}</dt>
-            <dd className="numeric">{feeShown(track, t)}</dd>
+            <dd className="lt-num">{feeShown(track, t)}</dd>
           </div>
         </dl>
         {track.hash && (
           <a
-            className="text-link"
+            className="lt-link"
             href={`/chain/tx/${track.hash}`}
             onClick={(event) => {
               event.preventDefault();

@@ -43,6 +43,45 @@ describe('the TEST partner bank record read', () => {
     expect(moves.value[1]!.id).toBe(move.id);
   });
 
+  it('answers every account it holds for one person, main balances and spaces, a currency it opened once, and its open orders', async () => {
+    const p = testPartner();
+    p.fund(ADA, { fundId: 'f1', assetId: 'USDT', amount: parseAmount('50') });
+    await p.bank.openCurrency!(ADA, 'USDC');
+    await p.bank.openCurrency!(ADA, 'USDC');
+    await p.bank.move({
+      key: 'k-space',
+      from: { userId: ADA, assetId: 'USDT', spaceId: null },
+      to: { userId: ADA, assetId: 'USDT', spaceId: 'space-1' },
+      amount: parseAmount('20'),
+    });
+    p.fund(BOB, { fundId: 'f1', assetId: 'USDT', amount: parseAmount('7') });
+    const [status, body] = await answerTestPartnerRecord(p, 'POST', '/accounts', account(ADA));
+    expect(status).toBe(200);
+    expect((body as { value: unknown[] }).value).toEqual(
+      expect.arrayContaining([
+        { asset: 'USDT', spaceId: null, amount: '30' },
+        { asset: 'USDC', spaceId: null, amount: '0' },
+        { asset: 'USDT', spaceId: 'space-1', amount: '20' },
+      ]),
+    );
+    expect((body as { value: unknown[] }).value).toHaveLength(3);
+    expect(await answerTestPartnerRecord(p, 'POST', '/open-orders', account(ADA))).toEqual([200, { label: 'TEST', value: [] }]);
+    p.set(ADA, { openOrder: 'USDC' });
+    expect(await answerTestPartnerRecord(p, 'POST', '/open-orders', account(ADA))).toEqual([
+      200,
+      { label: 'TEST', value: [{ id: `TEST-order:${ADA}:USDC`, asset: 'USDC' }] },
+    ]);
+    expect((await answerTestPartnerRecord(p, 'POST', '/open-orders', account(BOB)))[1]).toEqual({ label: 'TEST', value: [] });
+  });
+
+  it('opens no currency account while it is down', async () => {
+    const p = testPartner();
+    p.set(ADA, { down: true });
+    await expect(p.bank.openCurrency!(ADA, 'USDC')).rejects.toMatchObject({ code: 'bank.partner_unavailable' });
+    p.set(ADA, { down: false });
+    expect((await answerTestPartnerRecord(p, 'POST', '/accounts', account(ADA)))[1]).toEqual({ label: 'TEST', value: [] });
+  });
+
   it('shows what the partner holds even while it tells the app its figure is not known', async () => {
     const p = testPartner();
     p.fund(ADA, { fundId: 'f1', assetId: 'USDT', amount: parseAmount('5') });

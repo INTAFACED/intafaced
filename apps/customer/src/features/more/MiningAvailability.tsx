@@ -57,7 +57,7 @@ function MiningStatusRoom({ status }: { status: Status }) {
           <h2>
             <Copy k="unavailableTitle" />
           </h2>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="unavailableBody" />
           </p>
         </div>
@@ -93,7 +93,7 @@ function MiningStatusRoom({ status }: { status: Status }) {
             <Copy k="publicStatus" />
           </summary>
           <div className="mining-room-health-body">
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="readScope" />
             </p>
             <Read resource={status.resource} retry={status.reload}>
@@ -141,7 +141,7 @@ function MiningStatusRoom({ status }: { status: Status }) {
                 </>
               )}
             </Read>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="boundaries" />
             </p>
           </div>

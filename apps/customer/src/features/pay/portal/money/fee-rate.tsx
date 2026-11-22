@@ -12,13 +12,13 @@ export { ratePercent, rateText } from './fee-rate-read';
 /** The rates the service sent, one line per asset. Two assets are never mixed into one figure. */
 export function EffectiveRatesList({ rates, children }: { rates: readonly EffectiveRate[]; children?: ReactNode }) {
   const { t } = mc.useCopy();
-  if (rates.length === 0) return <p className="muted">{t('rateNone')}</p>;
+  if (rates.length === 0) return <p className="lt-muted">{t('rateNone')}</p>;
   return (
     <div>
       <ul className="pp-lines" style={{ listStyle: 'none', padding: 0, margin: 0 }} aria-label={t('rateListLabel')}>
         {rates.map((r) => (
           <li key={r.assetCode} className="pp-line">
-            <strong className="numeric">{rateText(t, r)}</strong>{' '}
+            <strong className="lt-num">{rateText(t, r)}</strong>{' '}
             <span className="pp-unit" lang="zxx">
               {r.assetCode}
             </span>
