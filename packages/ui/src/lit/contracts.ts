@@ -342,6 +342,8 @@ export const components = {
   Toast:
     'A short confirmation at the top of the screen (ToastProvider once, useToast().add), announced politely; never the only place a result is shown',
   Payee: 'The person money is about to go to, as the lookup found them: face, name, handle, a confirmed badge and a tick; nothing guessed',
+  StatusNote:
+    'Where something stands, in the flow (still confirming, held for review, could not load): title, words, the caller’s actions; polite, an alert only for a failure',
 } as const;
 export type ComponentName = keyof typeof components;
 

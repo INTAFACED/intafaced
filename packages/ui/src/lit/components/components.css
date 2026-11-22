@@ -1154,3 +1154,48 @@
   flex: none;
   color: var(--lit-status-done);
 }
+
+/* StatusNote: where something stands, in the flow. A raised tile with an edge at its start; warn and error say so in
+   words and in the edge, never in a fill. */
+.lit-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding-block: 0.75rem;
+  padding-inline: 1rem;
+  border-inline-start: 3px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+}
+.lit-note[data-tone='warn'] {
+  border-inline-start-color: var(--lit-warn-text);
+}
+.lit-note[data-tone='error'] {
+  border-inline-start-color: var(--lit-error-text);
+}
+.lit-note p {
+  margin: 0;
+}
+.lit-note [data-part='title'] {
+  font-weight: 600;
+}
+.lit-note[data-tone='warn'] [data-part='title'] {
+  color: var(--lit-warn-text);
+}
+.lit-note[data-tone='error'] [data-part='title'] {
+  color: var(--lit-error-text);
+}
+.lit-note [data-part='body'] {
+  color: var(--lit-text-2);
+  overflow-wrap: anywhere;
+}
+.lit-note [data-part='body'] a {
+  color: var(--lit-text-1);
+}
+.lit-note [data-part='actions'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-start: 0.25rem;
+}
