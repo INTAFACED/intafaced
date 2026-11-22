@@ -275,6 +275,20 @@ export const Brackets = ({ className, ...rest }: Div) => <div {...rest} classNam
 
 export const Scale = ({ className, ...rest }: Div) => <div {...rest} aria-hidden="true" className={clsx('lit-scale', className)} />;
 
+/**
+ * A scannable code (a QR's modules as one SVG path). Dark on a light plate in every look and scheme, because that is
+ * what a scanner reads. The room encodes the value; this only draws it.
+ */
+export function QrMark({ d, size, label, className, ...rest }: Omit<Div, 'children'> & { d: string; size: number; label: string }) {
+  return (
+    <div {...rest} className={clsx('lit-qr', className)}>
+      <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label} shapeRendering="crispEdges">
+        <path d={d} />
+      </svg>
+    </div>
+  );
+}
+
 export type Holding = { id: string; name: string; detail?: string; value: React.ReactNode; share: string };
 
 /** The holdings list: always present, the text equivalent of the sphere. Shares must reconcile to the total. */

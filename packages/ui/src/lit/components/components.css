@@ -346,6 +346,25 @@
     repeating-linear-gradient(90deg, var(--lit-text-3) 0 1px, transparent 1px 40px) 0 100% / 100% 6px no-repeat;
 }
 
+/* A scannable code: fixed dark on light in every look and scheme */
+.lit-qr {
+  align-self: center;
+  inline-size: 100%;
+  max-inline-size: 13rem;
+  padding: var(--lit-gap-item);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-qr-plate);
+  line-height: 0;
+}
+.lit-qr svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+.lit-qr path {
+  fill: var(--lit-qr-ink);
+}
+
 /* Holdings: always present, the text equivalent of the sphere */
 .lit-holdings {
   list-style: none;

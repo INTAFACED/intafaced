@@ -67,6 +67,8 @@
   --lit-legal-bg: var(--if-panel);
   --lit-legal-fg: var(--if-fg);
   --lit-legal-border: var(--if-line-stronger);
+  --lit-qr-plate: white;
+  --lit-qr-ink: black;
   --lit-refusal-bg: var(--if-panel);
   --lit-refusal-fg: var(--if-fg);
   --lit-refusal-border: var(--if-line-strong);
@@ -199,6 +201,8 @@
   --lit-legal-bg: #161615;
   --lit-legal-fg: #ffffff;
   --lit-legal-border: #b8b7b0;
+  --lit-qr-plate: #ffffff;
+  --lit-qr-ink: #000000;
   --lit-refusal-bg: #121211;
   --lit-refusal-fg: #e8e7e1;
   --lit-refusal-border: rgba(255, 255, 255, 0.2);
@@ -302,6 +306,8 @@
   --lit-legal-bg: #fbfaf7;
   --lit-legal-fg: #0d0d0c;
   --lit-legal-border: #44433e;
+  --lit-qr-plate: #ffffff;
+  --lit-qr-ink: #000000;
   --lit-refusal-bg: #edece7;
   --lit-refusal-fg: #0d0d0c;
   --lit-refusal-border: rgba(13, 13, 12, 0.2);
