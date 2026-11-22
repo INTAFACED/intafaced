@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 import { kycTierSchema } from './identity.js';
 import { withdrawalAllowanceInputSchema, withdrawalAllowanceSchema } from './withdrawal-allowance.js';
 import {
@@ -214,7 +215,7 @@ export const depositAddressStateSchema = z
     /** `<networkId>:<address>`: an address belongs to one customer, asset and network. */
     id: z.string(),
     userId: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     networkId: z.string(),
     address: z.string(),
     /** When an extra address stops being for deposits; null when it never expires. */

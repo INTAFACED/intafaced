@@ -10,14 +10,7 @@ import {
   payVersionSchema,
   payoutApprovalSchema,
 } from '@intafaced/contracts/merchant-control';
-import {
-  tierListInputSchema,
-  tierDefinitionSchema,
-  tierViewSchema,
-  pricingRuleListInputSchema,
-  controlPricingRuleSchema,
-  pricingRuleViewSchema,
-} from '@intafaced/contracts/pay-founder-admin-procedures';
+import { tierDefinitionSchema, controlPricingRuleSchema } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 export type ControlPricingRuleInput = z.infer<typeof controlPricingRuleSchema>;
 

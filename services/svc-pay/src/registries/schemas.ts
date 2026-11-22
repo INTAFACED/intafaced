@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { payAmountStringSchema, payAssetCodeSchema } from '@intafaced/contracts/merchant-control';
 import { looksLikeSecret } from './secret-guard.js';
-import { REGISTRIES, registryHistoryInputSchema, registryEventViewSchema } from '@intafaced/contracts/pay-founder-admin-procedures';
+import { REGISTRIES, registryEventViewSchema } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * Wire shapes for `founderAdmin.registries.*`.
