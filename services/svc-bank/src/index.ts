@@ -948,12 +948,13 @@ if (testPartner) {
   const read = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
     const below = req.url.split('?')[0]!.slice(TEST_PARTNER_RECORD_BASE.length);
-    const [status, body] = answerTestPartnerRecord(record, req.method, below, req.body ?? null);
+    const [status, body] = await answerTestPartnerRecord(record, req.method, below, req.body ?? null);
     return reply.code(status).header('cache-control', 'no-store').send(body);
   };
   app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/onboarding`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/direct-debits`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/dd-refund`, read);
 }
