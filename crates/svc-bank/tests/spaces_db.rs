@@ -2296,7 +2296,17 @@ fn a_holder_freezes_the_card_linked_to_the_pot_and_the_log_names_them_a_viewer_c
     };
     assert_eq!(lift(PARTNER, "active").trpc(), "FORBIDDEN");
     lift(OWNER, "active").ok();
-    call(&b, OWNER, "sharedPots.unlinkCard", &space_id(&pot)).ok();
+    // Only the owner unlinks it.
+    assert_eq!(
+        call(&b, PARTNER, "sharedPots.unlinkCard", &space_id(&pot)).code(),
+        "bank.space_not_found"
+    );
+    assert_eq!(
+        call(&b, OWNER, "sharedPots.unlinkCard", &space_id(&pot))
+            .ok()
+            .compact(),
+        r#"{"unlinked":true}"#
+    );
     assert_eq!(
         call(&b, OWNER, "sharedPots.unlinkCard", &space_id(&pot))
             .ok()
