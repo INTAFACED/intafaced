@@ -451,7 +451,13 @@ impl Bank {
         f: impl FnOnce(&automations::Deps<'_>) -> T,
     ) -> T {
         let w = automations_wiring(wired);
-        self.t(now, |t| f(&automations::Deps { t, w: &w }))
+        self.t(now, |t| {
+            f(&automations::Deps {
+                t,
+                w: &w,
+                earn: &svc_bank::earn::Settings::default(),
+            })
+        })
     }
     /// `scheduledNotices.run({ limit, now })` with the sink wired.
     fn run(&self, limit: i64, now: Instant) -> rules::Pass {

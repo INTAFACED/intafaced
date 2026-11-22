@@ -548,12 +548,13 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
 }
 
 /// Slice `automations`' wiring from the environment. Only the parts ported here; the others are `none()` until theirs.
-fn automations_wiring(env: &BankEnv) -> automations::Wiring {
+fn automations_wiring(env: &BankEnv) -> Result<automations::Wiring, String> {
     let mut w = automations::Wiring::none();
+    w.auto_invest = auto_invest_wiring(env)?;
     // `scheduledNotices: eventScheduledNotices(bus)`: the notices go out on the bus the transfers slice holds.
     w.rules = automations::rules::Wiring::on_the_bus();
     w.sorter = sorter_wiring(env);
-    w
+    Ok(w)
 }
 
 /// `incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT`, read by the sorter and by the send's hand-off to it.
@@ -561,6 +562,31 @@ fn sorter_wiring(env: &BankEnv) -> automations::sorter::Wiring {
     automations::sorter::Wiring {
         min_credit: env.raw.get("BANK_INCOME_SORTER_MIN_CREDIT").cloned(),
     }
+}
+
+/// Part `auto_invest` of slice `automations` (`index.ts`'s `autoInvest` options): the kill switch, and svc-trade's convert
+/// port when `TRADE_URL` is usable (`usableTradeConvertUrl`), signed as svc-bank with the owner's markets page size;
+/// without it every DCA refuses `bank.auto_invest_rate_unset`. Its batch is the job's, never the service's own.
+fn auto_invest_wiring(env: &BankEnv) -> Result<automations::auto_invest::Wiring, String> {
+    let trade = env.str("TRADE_URL").unwrap_or("http://localhost:4004");
+    let convert: Option<Box<dyn automations::auto_invest::convert::ConvertPort>> =
+        if ready::usable_trade_convert_url(Some(trade)) {
+            Some(Box::new(
+                automations::auto_invest::convert::TradeConvert::new(
+                    trade,
+                    call_signer(env, "svc-trade")?,
+                    Box::new(UreqFetch::new()),
+                    env.int("CONVERT_MARKETS_LIMIT"),
+                ),
+            ))
+        } else {
+            None
+        };
+    Ok(automations::auto_invest::Wiring {
+        enabled: env.flag("AUTO_INVEST_ENABLED").unwrap_or(true),
+        convert,
+        batch_size: None,
+    })
 }
 
 /// The door, built once from the environment, with the store.
@@ -587,7 +613,7 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_cards(cards)
     .with_loans(loans_wiring(env)?)
     .with_activity(activity_wiring(env)?)
-    .with_automations(automations_wiring(env));
+    .with_automations(automations_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

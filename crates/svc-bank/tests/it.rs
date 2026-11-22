@@ -14,6 +14,8 @@ mod activity_portfolio_db;
 mod activity_statements_db;
 #[path = "activity_work_items_db.rs"]
 mod activity_work_items_db;
+#[path = "automations_auto_invest_db.rs"]
+mod automations_auto_invest_db;
 #[path = "automations_rules_db.rs"]
 mod automations_rules_db;
 #[path = "automations_sorter_db.rs"]
