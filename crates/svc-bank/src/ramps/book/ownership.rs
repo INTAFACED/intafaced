@@ -6,7 +6,6 @@
 //! `BANK_WALLET_PROOF_VALID_DAYS`. Another signer is refused by name and the offer stays open. Blank window or validity
 //! refuses with its own `_unset` code.
 
-use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use postgres::{GenericClient, Row};
 use service_kit::approvals::random_uuid;
 use service_kit::json::Json;
@@ -18,7 +17,7 @@ use crate::partner::refuse;
 use crate::ramps::refs::{is_evm_address_ref, js_trim};
 use crate::spaces::space::{at, pg, with};
 
-use super::store::{self, is_uuid, keccak, positive_digits};
+use super::store::{self, is_uuid, positive_digits};
 
 /// `WalletProofRow`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,56 +124,8 @@ pub fn ownership_of(
     }
 }
 
-/// The EIP-191 digest a wallet signs for `personal_sign`.
-fn personal_message_hash(message: &str) -> [u8; 32] {
-    let body = message.as_bytes();
-    let mut joined = format!("\x19Ethereum Signed Message:\n{}", body.len()).into_bytes();
-    joined.extend_from_slice(body);
-    keccak(&joined)
-}
-
-fn hex_bytes(s: &str) -> Option<Vec<u8>> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
-        .collect()
-}
-
-/// `recoverPersonalSignAddress`: the address that signed `message` (a 65-byte `r || s || v`, `v` 27/28 or 0/1),
-/// lower-case, or none when the signature is not one. A high `s` recovers the same key as its low twin, as the
-/// TypeScript's library recovers it.
-pub fn recover_personal_sign_address(message: &str, signature: &str) -> Option<String> {
-    let sig = js_trim(signature);
-    let hex = sig.strip_prefix("0x")?;
-    if hex.len() != 130 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let bytes = hex_bytes(hex)?;
-    let v = *bytes.get(64)?;
-    let bit = if v >= 27 { v - 27 } else { v };
-    if bit > 1 {
-        return None;
-    }
-    let mut signature = Signature::from_slice(bytes.get(..64)?).ok()?;
-    let mut parity = bit == 1;
-    let low = signature.normalize_s();
-    if low.to_bytes() != signature.to_bytes() {
-        signature = low;
-        parity = !parity;
-    }
-    let id = RecoveryId::new(parity, false);
-    let key =
-        VerifyingKey::recover_from_prehash(&personal_message_hash(message), &signature, id).ok()?;
-    let point = key.to_sec1_point(false);
-    let hash = keccak(point.as_bytes().get(1..)?);
-    Some(format!(
-        "0x{}",
-        hash.get(12..)?
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
-    ))
-}
+/// `recoverPersonalSignAddress`, shared with the own moves' proof: the address that signed `message`, lower case.
+pub use crate::automations::own_moves::wallet::recover_personal_sign_address;
 
 fn short(address: &str) -> String {
     format!(
@@ -503,51 +454,4 @@ pub fn verify(
         None,
     );
     Ok((done, own))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_signature_that_is_not_one_recovers_nobody() {
-        assert_eq!(recover_personal_sign_address("m", "0x12"), None);
-        let zero = format!("0x{}", "0".repeat(130));
-        assert_eq!(recover_personal_sign_address("m", &zero), None);
-    }
-
-    fn hex(bytes: &[u8]) -> String {
-        format!(
-            "0x{}",
-            bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
-        )
-    }
-
-    #[test]
-    #[allow(clippy::unwrap_used, reason = "a test")]
-    fn the_signer_and_its_high_s_twin_recover_the_same_wallet() {
-        // The well-known development key and its wallet.
-        let key =
-            hex_bytes("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80").unwrap();
-        let key = k256::ecdsa::SigningKey::from_slice(&key).unwrap();
-        let wallet = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
-        let (sig, id) = key.sign_prehash_recoverable(&personal_message_hash("hello"));
-        let mut low = sig.to_bytes().to_vec();
-        low.push(id.to_byte() + 27);
-        assert_eq!(
-            recover_personal_sign_address("hello", &hex(&low)).as_deref(),
-            Some(wallet)
-        );
-        assert_ne!(
-            recover_personal_sign_address("other", &hex(&low)).as_deref(),
-            Some(wallet)
-        );
-        let (r, s) = sig.split_scalars();
-        let mut high = Signature::from_scalars(r, -*s).unwrap().to_bytes().to_vec();
-        high.push(if id.is_y_odd() { 27 } else { 28 });
-        assert_eq!(
-            recover_personal_sign_address("hello", &hex(&high)).as_deref(),
-            Some(wallet)
-        );
-    }
 }

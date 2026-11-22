@@ -22,7 +22,7 @@ tiny_http = { path = "../vendor/tiny_http" }
 url = "2"
 # EIP-191 signer recovery and EIP-55 checksums (wallet ownership proofs, the address book).
 k256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
-sha3 = "0.10"
+sha3 = { version = "0.10", default-features = false }
 
 [[test]]
 name = "it"

@@ -20,7 +20,6 @@ pub mod rails;
 pub mod service;
 pub mod shape;
 pub mod sim;
-pub mod wallet;
 
 use service_kit::json::Json;
 use service_kit::schema::Value;

@@ -472,7 +472,9 @@ export async function reconcileDispatchedPayout(svc: PayServiceInternal, settlem
       const accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
       const reversed = outcomes.some((outcome) => outcome.kind === 'reversed');
       const settled = outcomes.some((outcome) => outcome.kind === 'settled');
-      if (reversed || settlement.status === 'failed') return svc.getSettlement(settlementId, connection);
+      // Only this admission's own outcome says it is finished. A retry runs from a settlement still marked `failed`
+      // (the earlier attempt's reversal), so that status alone is not proof this attempt was reversed.
+      if (reversed) return svc.getSettlement(settlementId, connection);
       const proceedsPlan = settlementLedgerPlan({
         settlementId: admission.settlement_id,
         payoutAttempt: admission.attempt,
