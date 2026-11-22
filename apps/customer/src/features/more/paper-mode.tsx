@@ -16,7 +16,7 @@ export function PaperRoom({ paper, liveHref, children }: { paper: boolean; liveH
           {t('paperTitle')}
         </h2>
         <p lang={languageFor('paperBody')}>{t('paperBody')}</p>
-        <a className="text-link" href={liveHref} lang={languageFor('paperExit')}>
+        <a className="lt-link" href={liveHref} lang={languageFor('paperExit')}>
           {t('paperExit')}
         </a>
       </section>

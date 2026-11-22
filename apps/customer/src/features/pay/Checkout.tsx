@@ -4,7 +4,7 @@ import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { defineCopy } from '../../shared/i18n';
 import { displayAmount } from '../../shared/money';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Field, Page } from './ui-kit';
 import { createCheckoutApi } from './pay-api';
 import { PayDetails, PayNotice, PaySection, PayState, ReviewedAction, Status, PayTime } from './components';
@@ -65,10 +65,10 @@ function CheckoutReadState<T>({
     (failure.code === missingCode || (failure.code === 'NOT_FOUND' && failure.message.startsWith(`${missingCode}:`)))
   ) {
     return (
-      <div data-testid="failure" className="failure" role="status">
+      <div data-testid="failure" className="lt-refusal" role="status">
         <h3>{t(kind === 'link' ? 'linkMissing' : 'sessionMissing')}</h3>
         <p>{t(kind === 'link' ? 'linkHelp' : 'sessionHelp')}</p>
-        <Button variant="secondary" onClick={retry}>
+        <Button tone="secondary" onClick={retry}>
           {t('retry')}
         </Button>
         <details>
@@ -120,7 +120,7 @@ export function Checkout({ path }: { path: string }) {
         <PaySection
           title={payCopy.t('paymentSession')}
           action={
-            <Button variant="secondary" onClick={status.reload}>
+            <Button tone="secondary" onClick={status.reload}>
               <PayCopy k="refreshPaymentStatus" />
             </Button>
           }
@@ -172,7 +172,7 @@ export function Checkout({ path }: { path: string }) {
               required
               hint={payCopy.t('useTheExactCapabilityFromTheMerchant')}
             />
-            <Button type="submit">
+            <Button tone="primary" type="submit">
               <PayCopy k="openPaymentLink" />
             </Button>
           </form>
@@ -236,7 +236,7 @@ function CheckoutForm({
           hint={payCopy.t('twoLetterCountryCodeTheServiceUses')}
           required
         />
-        <label className="field">
+        <label className="lt-field">
           <PayCopy k="paymentMethod" />
           <select aria-label={payCopy.t('paymentMethod')} value={method} onChange={(event) => setMethod(event.target.value)} required>
             <option value="">{payCopy.t('chooseAMethod')}</option>
@@ -282,7 +282,7 @@ function CheckoutForm({
 }
 function CheckoutStatus({ session }: { session: z.infer<typeof checkoutSchema> }) {
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PayDetails
         values={[
           [payCopy.t('status'), <Status value={session.status} />],
@@ -300,7 +300,7 @@ function CheckoutStatus({ session }: { session: z.infer<typeof checkoutSchema> }
                 [payCopy.t('exactAmount'), `${displayAmount(session.instruction.amount)} ${session.instruction.currency}`],
               ]}
             />
-            <p className="muted">
+            <p className="lt-muted">
               <PayCopy k="followOnlyTheseReturnedInstructionsThenRefresh" />
             </p>
           </PaySection>

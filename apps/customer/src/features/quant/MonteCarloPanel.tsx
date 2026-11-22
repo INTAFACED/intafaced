@@ -46,7 +46,7 @@ export function MonteCarloPanel({ runId }: { runId: string }) {
   return (
     <section aria-label={t('mcTitle')} data-testid="quant-montecarlo">
       <h4>{t('mcTitle')}</h4>
-      <p className="muted">{t('mcIntro')}</p>
+      <p className="lt-muted">{t('mcIntro')}</p>
       <form
         onSubmit={(e) => {
           e.preventDefault();

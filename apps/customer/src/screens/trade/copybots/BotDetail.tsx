@@ -184,7 +184,7 @@ export function BotDetail({
               reason={t('The service does not link a bot to its slice orders. Open the spot desk to see them in Order history.')}
               action={{ label: t('Open order history'), href: '/money/activity?tab=orders', variant: 'secondary' }}
             />
-            <div className="cb-action-row">
+            <div className="lt-actions">
               {order.map((action) => (
                 <Button
                   key={action}

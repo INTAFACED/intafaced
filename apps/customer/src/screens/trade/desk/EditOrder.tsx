@@ -327,9 +327,9 @@ export function EditOrder({
             {t('Edit replace explain')}
           </p>
         ) : null}
-        {problem && !review && !finished ? <p className="dk-note">{problem}</p> : null}
-        {amountUp && !review && !finished ? <p className="dk-note">{t('Edit amount too big')}</p> : null}
-        {unchanged && !finished ? <p className="dk-note">{t('Edit nothing changed')}</p> : null}
+        {problem && !review && !finished ? <p className="lt-hint">{problem}</p> : null}
+        {amountUp && !review && !finished ? <p className="lt-hint">{t('Edit amount too big')}</p> : null}
+        {unchanged && !finished ? <p className="lt-hint">{t('Edit nothing changed')}</p> : null}
         {note ? (
           <p
             data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}

@@ -172,7 +172,7 @@ export function VenueGridFacts({ bot, api, onDone }: { bot: GridBot; api: RoomAp
       />
       <TestMark test={venue.test} />
       {bot.status === 'signing' ? (
-        <div className="cb-action-row">
+        <div className="lt-actions">
           <InfoNote>{t('Nothing is placed until your wallet signs the agent permission.')}</InfoNote>
           <Button onClick={() => void signNow()} disabled={!owner || busy}>
             {t('Sign the agent permission')}
@@ -214,7 +214,7 @@ export function VenueGridWithdraw({ bot, api }: { bot: GridBot; api: RoomApi }) 
   return (
     <section aria-label={t('Withdraw')}>
       <InfoNote>{t('You withdraw from the venue with your own wallet. The bot’s agent permission can’t withdraw.')}</InfoNote>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button variant="secondary" onClick={() => void ask()} disabled={busy}>
           {t('Withdraw through the bot')}
         </Button>

@@ -269,7 +269,7 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                   <ul>
                     {p.missingItemSlugs.map((s) => (
                       <li key={s}>
-                        <a className="text-link" href={lessonHref(s, selected)} lang="zxx">
+                        <a className="lt-link" href={lessonHref(s, selected)} lang="zxx">
                           {s}
                         </a>
                       </li>
@@ -368,7 +368,7 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                   ],
                 ]}
               />
-              <p className="muted">
+              <p className="lt-muted">
                 <academyLearningCopy.Copy k="xpPublishedBoundary" />
               </p>
             </section>

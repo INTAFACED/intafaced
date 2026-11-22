@@ -28,8 +28,8 @@ function What({ line }: { line: IncomingLine }) {
 export function IncomingRows({ lines, more = false }: { lines: readonly IncomingLine[]; more?: boolean }) {
   const { t } = incomingCopy.useCopy();
   const older = more && (
-    <p className="money-caption">
-      <a className="text-link" href="/uc/record">
+    <p className="lt-muted">
+      <a className="lt-link" href="/uc/record">
         {t('older')}
       </a>
     </p>
@@ -37,7 +37,7 @@ export function IncomingRows({ lines, more = false }: { lines: readonly Incoming
   if (lines.length === 0) {
     return (
       <>
-        <p className="money-caption">{t(more ? 'noneRecent' : 'none')}</p>
+        <p className="lt-muted">{t(more ? 'noneRecent' : 'none')}</p>
         {older}
       </>
     );
@@ -54,7 +54,7 @@ export function IncomingRows({ lines, more = false }: { lines: readonly Incoming
               {t('arrived', { time: date(line.postedAt) })} {t('available')}
             </small>
           </div>
-          <span className="numeric" dir="ltr">
+          <span className="lt-num" dir="ltr">
             {funds(line.amount, line.asset)}
           </span>
         </div>
