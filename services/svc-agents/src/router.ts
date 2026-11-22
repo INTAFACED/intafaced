@@ -92,11 +92,7 @@ import type { Cadence } from './own/automation.js';
 import type { LinkedWalletsPort } from './own/payment-method.js';
 import type { RetentionPeriods } from './own/memory.js';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
-import {
-  AGENTS_WEBHOOK_DELIVERIES,
-  AGENTS_WEBHOOK_LIST,
-  AGENTS_WEBHOOK_REGISTER,
-} from '@intafaced/contracts/agents-webhooks-procedures';
+import { AGENTS_WEBHOOK_DELIVERIES, AGENTS_WEBHOOK_LIST, AGENTS_WEBHOOK_REGISTER } from '@intafaced/contracts/agents-webhooks-procedures';
 import { agentsRefusal } from './record-refusal.js';
 import { RunWebhookConflict, type RunWebhooks } from './webhooks/run-webhooks.js';
 import { WebhookUrlRefusal } from './webhooks/webhook-url-guard.js';

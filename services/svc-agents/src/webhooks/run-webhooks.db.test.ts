@@ -45,7 +45,13 @@ const MESSAGES = [{ role: 'user' as const, content: ASK }];
 const HOOK = 'http://127.0.0.1:9/agents-hook';
 const TABLE = parseRoutingTable({
   routes: [
-    { task: 'plan', providerId: 'primary', model: 'reasoning-lg', maxOutputTokens: 64, price: { inputPerMillion: '3', outputPerMillion: '15' } },
+    {
+      task: 'plan',
+      providerId: 'primary',
+      model: 'reasoning-lg',
+      maxOutputTokens: 64,
+      price: { inputPerMillion: '3', outputPerMillion: '15' },
+    },
   ],
 });
 const PROBE = {
@@ -160,7 +166,12 @@ if (!available) {
   describe('svc-agents run webhooks on Postgres', { timeout: 20_000 }, () => {
     it('a key with agents:read registers once: the secret is shown on the register that made it; a key without the scope is refused', async () => {
       const made = await key().webhook.register({ endpointId: ENDPOINT, url: HOOK });
-      expect(made).toEqual({ id: ENDPOINT, url: HOOK, createdAt: expect.any(String), secret: expect.stringMatching(/^whsec_[0-9a-f]{64}$/) });
+      expect(made).toEqual({
+        id: ENDPOINT,
+        url: HOOK,
+        createdAt: expect.any(String),
+        secret: expect.stringMatching(/^whsec_[0-9a-f]{64}$/),
+      });
       // The same register again is the same endpoint, and the secret is never shown again.
       expect(await key().webhook.register({ endpointId: ENDPOINT, url: HOOK })).toEqual({ ...made, secret: null });
       expect(await key().webhook.list({ limit: 10 })).toEqual([{ ...made, secret: null }]);
@@ -265,7 +276,9 @@ if (!available) {
         expect(post.headers['x-intafaced-signature']).toBe(`v1=${signature}`);
       }
       const read = await key().webhook.deliveries({ limit: 50 });
-      expect(read.map(({ runId, kind, runState, state, attempts, lastStatus }) => ({ runId, kind, runState, state, attempts, lastStatus }))).toEqual([
+      expect(
+        read.map(({ runId, kind, runState, state, attempts, lastStatus }) => ({ runId, kind, runState, state, attempts, lastStatus })),
+      ).toEqual([
         { runId: ran.runId, kind: 'run', runState: 'completed', state: 'delivered', attempts: 1, lastStatus: 200 },
         { runId: refused!.id, kind: 'run', runState: 'refused', state: 'delivered', attempts: 1, lastStatus: 200 },
       ]);
@@ -277,7 +290,14 @@ if (!available) {
       await key().webhook.register({ endpointId: ENDPOINT, url: HOOK });
       const me = person();
       const session = await me.session.open({ agentId: 'probe' });
-      const run = await me.run.background.start({ sessionId: session.id, requestId: 'webhooks:db:bg', task: 'plan', ask: ASK, steps: 2, notice: 'inapp' });
+      const run = await me.run.background.start({
+        sessionId: session.id,
+        requestId: 'webhooks:db:bg',
+        task: 'plan',
+        ask: ASK,
+        steps: 2,
+        notice: 'inapp',
+      });
       for (let i = 0; i < 6; i++) await advanceSessionRuns(sql, runtime, 0, 50, 'IFC');
       const done = await me.run.background.get({ runId: run.runId });
       expect(done.state).toBe('completed');
@@ -311,13 +331,18 @@ if (!available) {
       const { ran } = await roomRun(USER, 'webhooks:db:fails');
       expect(await hooks.drain()).toBe(1);
       expect(await hooks.drain()).toBe(0);
-      expect(await key().webhook.deliveries({ limit: 50 })).toMatchObject([{ runId: ran.runId, state: 'failed', attempts: 1, lastStatus: 500 }]);
+      expect(await key().webhook.deliveries({ limit: 50 })).toMatchObject([
+        { runId: ran.runId, state: 'failed', attempts: 1, lastStatus: 500 },
+      ]);
       expect((await key().run.get({ runId: ran.runId })).state).toBe('completed');
     });
 
     it('with no webhooks wired every webhook call refuses by name', async () => {
       const bare = createAgentsRouter(deps({ runWebhooks: null })).createCaller(signed(USER, ['agents:read'], KEY_ID));
-      await expect(bare.webhook.list({ limit: 10 })).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'agents.webhooks_unwired' });
+      await expect(bare.webhook.list({ limit: 10 })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'agents.webhooks_unwired',
+      });
     });
   });
 }

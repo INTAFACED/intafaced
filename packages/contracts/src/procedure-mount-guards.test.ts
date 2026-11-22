@@ -100,6 +100,8 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
     for (const c of [{ scopes: ['admin:read'] }, { scopes: [] }] as Caller[])
       expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
     expect(await verdict(fromRecord, { scopes: ['admin:read'] })).toEqual({ ok: true });
+    // A person without the scope still reads the scope refusal: only a key or a sub-account is told it is the person's own.
+    expect(await verdict(fromRecord, { scopes: [] })).toEqual({ refused: 'FORBIDDEN', message: 'Scope "admin:read" is required' });
     // A key or a sub-account is told the call is the person's own, whatever scopes it holds or lacks (J-agents-12 #3).
     for (const c of [
       { scopes: ['admin:read'], kid: KEY },
@@ -121,6 +123,11 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
     );
     for (const c of [{ scopes: ['agents:execute'] }, { scopes: ['agents:read'] }] as Caller[])
       expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
+    expect(await verdict(fromRecord, { scopes: ['agents:execute'] })).toEqual({ ok: true });
+    expect(await verdict(fromRecord, { scopes: ['agents:read'] })).toEqual({
+      refused: 'FORBIDDEN',
+      message: 'Scope "agents:execute" is required',
+    });
     // A key with agents:read alone (no key can hold agents:execute) reads why it cannot start a run, not a scope to ask for.
     for (const c of [
       { scopes: ['agents:read'], kid: KEY },
