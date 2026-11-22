@@ -96,7 +96,7 @@ describe('Tokens room', () => {
   it('opens on Trending with every tab, the window, the formula and a token table that is reading, with no figure before data', () => {
     vi.stubGlobal('window', { localStorage: memoryStorage() });
     const html = renderToStaticMarkup(<TokensRoom />);
-    expect(html).toContain('<h1>Tokens</h1>');
+    expect(html).toMatch(/<h1[^>]*>Tokens<\/h1>/);
     for (const tab of ['Trending', 'Top traded', 'New listings', 'Market brief', 'Stablecoins', 'Leaderboard', 'Stocks'])
       expect(html).toMatch(new RegExp(`role="tab"[^>]*>${tab}</button>`));
     expect(html).toContain('aria-selected="true"');

@@ -2,7 +2,7 @@ import { t as copyText, Text } from './copy';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
-import { stamp } from '../../screens/money/time';
+import { amount, date } from './money-format';
 import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { authoredRefusal, callAs, type ApiResult, type AppProcedure } from '../../shared/api';
@@ -24,16 +24,9 @@ import { StepUpConfirm } from './StepUpConfirm';
 import type { StepUpBegin } from '../account';
 
 export const PAGE_SIZE = 50;
-export const amount = (value: string | null | undefined, asset: string) =>
-  value == null ? copyText('components.unavailable') : `${displayAmount(value)} ${asset}`;
+export { amount, date };
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
-/** One date and time look across the app: "18 Oct, 01:05" in the viewer's zone, with a picked zone named. */
-export function date(value: string | null, seconds = false) {
-  if (!value) return copyText('components.none');
-  if (!Number.isFinite(Date.parse(value))) return copyText('components.date.unavailable');
-  return stamp(value, currentPreferences().timeZone, Date.now(), seconds);
-}
 export const bps = (value: number) => `${value / 100}%`;
 export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {
   const { api, userId } = useSession();
