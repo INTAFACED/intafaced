@@ -229,7 +229,7 @@
       "path": "/trpc/postRecipe",
       "access": {
         "caller": "service",
-        "callers": ["svc-academy", "svc-agents"]
+        "callers": ["svc-academy", "svc-agents", "svc-bank"]
       },
       "refusals": {
         "ledger.recipe_unknown": "BAD_REQUEST",
@@ -648,6 +648,289 @@
             },
             "required": ["recipe", "input"],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "bankTransfer"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "transferId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "occurrence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "from": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "ownerType": {
+                            "type": "string",
+                            "enum": ["user", "subaccount"]
+                          },
+                          "ownerId": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                          },
+                          "assetId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16,
+                            "pattern": "^[^\\s]+$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "available"
+                          }
+                        },
+                        "required": ["ownerType", "ownerId", "assetId", "kind"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "ownerType": {
+                            "type": "string",
+                            "const": "treasury"
+                          },
+                          "ownerId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^rail:[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$"
+                          },
+                          "assetId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16,
+                            "pattern": "^[^\\s]+$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "available"
+                          }
+                        },
+                        "required": ["ownerType", "ownerId", "assetId", "kind"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "to": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "ownerType": {
+                            "type": "string",
+                            "enum": ["user", "subaccount"]
+                          },
+                          "ownerId": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                          },
+                          "assetId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16,
+                            "pattern": "^[^\\s]+$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "available"
+                          }
+                        },
+                        "required": ["ownerType", "ownerId", "assetId", "kind"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "ownerType": {
+                            "type": "string",
+                            "const": "treasury"
+                          },
+                          "ownerId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^rail:[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$"
+                          },
+                          "assetId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16,
+                            "pattern": "^[^\\s]+$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "available"
+                          }
+                        },
+                        "required": ["ownerType", "ownerId", "assetId", "kind"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["manual", "scheduled"]
+                  },
+                  "keySpace": {
+                    "type": "string",
+                    "enum": ["own", "p2p", "sched", "rail", "recovery"]
+                  }
+                },
+                "required": ["transferId", "occurrence", "from", "to", "amount", "kind", "keySpace"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "payReceivedHold"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "holdId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 119,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["holdId", "userId", "assetId", "amount"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "payReceivedRelease"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "holdId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 119,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "heldAmount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["holdId", "userId", "assetId", "amount", "heldAmount"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "payReceivedReturn"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "holdId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 119,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "heldAmount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "payerUserId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  }
+                },
+                "required": ["holdId", "userId", "assetId", "amount", "heldAmount", "payerUserId"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
           }
         ]
       },
@@ -799,6 +1082,95 @@
           }
         },
         {
+          "verdict": "accept",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "22222222-2222-4222-8222-222222222222",
+              "occurrence": 0,
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "user",
+                "ownerId": "33333333-3333-4333-8333-333333333333",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "12.5",
+              "kind": "manual",
+              "keySpace": "p2p"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "22222222-2222-4222-8222-222222222222",
+              "occurrence": 3,
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "user",
+                "ownerId": "33333333-3333-4333-8333-333333333333",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "12.5",
+              "kind": "scheduled",
+              "keySpace": "sched"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "payReceivedHold",
+            "input": {
+              "holdId": "22222222-2222-4222-8222-222222222222",
+              "userId": "33333333-3333-4333-8333-333333333333",
+              "assetId": "USDC",
+              "amount": "12.5"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "payReceivedRelease",
+            "input": {
+              "holdId": "22222222-2222-4222-8222-222222222222",
+              "userId": "33333333-3333-4333-8333-333333333333",
+              "assetId": "USDC",
+              "amount": "12.5",
+              "heldAmount": "12.5"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "payReceivedReturn",
+            "input": {
+              "holdId": "22222222-2222-4222-8222-222222222222",
+              "userId": "33333333-3333-4333-8333-333333333333",
+              "assetId": "USDC",
+              "amount": "12.5",
+              "heldAmount": "12.5",
+              "payerUserId": "11111111-1111-4111-8111-111111111111"
+            }
+          }
+        },
+        {
           "verdict": "refuse",
           "input": {
             "recipe": "deposit",
@@ -813,6 +1185,243 @@
                 "walletId": "0x00000000000000000000000000000000000000aa"
               },
               "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "22222222-2222-4222-8222-222222222222",
+              "occurrence": 0,
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "user",
+                "ownerId": "33333333-3333-4333-8333-333333333333",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "12.5",
+              "kind": "manual"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "22222222-2222-4222-8222-222222222222",
+              "occurrence": 0,
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "user",
+                "ownerId": "33333333-3333-4333-8333-333333333333",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "12.5",
+              "kind": "manual",
+              "keySpace": "legacy"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "22222222-2222-4222-8222-222222222222",
+              "occurrence": -1,
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "user",
+                "ownerId": "33333333-3333-4333-8333-333333333333",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "12.5",
+              "kind": "manual",
+              "keySpace": "p2p"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "22222222-2222-4222-8222-222222222222",
+              "occurrence": "0",
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "user",
+                "ownerId": "33333333-3333-4333-8333-333333333333",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "12.5",
+              "kind": "manual",
+              "keySpace": "p2p"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "a b",
+              "occurrence": 0,
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "user",
+                "ownerId": "33333333-3333-4333-8333-333333333333",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "12.5",
+              "kind": "manual",
+              "keySpace": "p2p"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "22222222-2222-4222-8222-222222222222",
+              "occurrence": 0,
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "user",
+                "ownerId": "33333333-3333-4333-8333-333333333333",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": 12.5,
+              "kind": "manual",
+              "keySpace": "p2p"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "22222222-2222-4222-8222-222222222222",
+              "occurrence": 0,
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "user",
+                "ownerId": "33333333-3333-4333-8333-333333333333",
+                "assetId": "USDC",
+                "kind": "hold",
+                "purpose": "x"
+              },
+              "amount": "12.5",
+              "kind": "manual",
+              "keySpace": "p2p"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "bankTransfer",
+            "input": {
+              "transferId": "22222222-2222-4222-8222-222222222222",
+              "occurrence": 0,
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "to": {
+                "ownerType": "house",
+                "ownerId": "fees:bank",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "12.5",
+              "kind": "manual",
+              "keySpace": "p2p"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "payReceivedHold",
+            "input": {
+              "holdId": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+              "userId": "33333333-3333-4333-8333-333333333333",
+              "assetId": "USDC",
+              "amount": "12.5"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "payReceivedRelease",
+            "input": {
+              "holdId": "22222222-2222-4222-8222-222222222222",
+              "userId": "33333333-3333-4333-8333-333333333333",
+              "assetId": "USDC",
+              "amount": "12.5"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "payReceivedReturn",
+            "input": {
+              "holdId": "22222222-2222-4222-8222-222222222222",
+              "userId": "33333333-3333-4333-8333-333333333333",
+              "assetId": "USDC",
+              "amount": "12.5",
+              "heldAmount": "12.5"
             }
           }
         },
