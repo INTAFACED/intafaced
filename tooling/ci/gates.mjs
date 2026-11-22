@@ -313,6 +313,8 @@ export const NOT_GATES = {
     'not a gate on its own: check 4 of custody-scan.mjs (the custody switch, OWNER 226), imported and run by it, so the `custody` gate runs it. A separate module so its plants can run in a sandbox copy without touching the tree.',
   'api-budget.mjs':
     "not a gate: the words for GitHub's spent hourly API budget (403 or 429 with no calls left, or gh's \"API rate limit exceeded\"), which the seal's scripts put in their error and annotation title, so why-red.mjs reads such a red as JUDGE DOWN rather than a red of the change's own (project-state #2065 row d25). It changes no pass or fail. Its tests are api-budget.test.mjs.",
+  'run-jobs.mjs':
+    "not a gate: the one way a tooling/ci script reads a run's jobs list (project-state#3258): pages of 30, every page, so a re-run run's jobs page, which GitHub answers 502 at 100 a page, is read whole. It changes no pass or fail. Its tests are run-jobs.test.mjs, which also fail on a script that reads a run's jobs list by itself.",
   'github-fetch.mjs':
     "not a gate: the one way a tooling/ci script calls GitHub's API (project-state#3160): plain fetch where a token is set, as in every CI job, and the logged-in gh where none is, so a script run by hand needs no token on its command line. It changes no pass or fail. Its tests are github-fetch.test.mjs, which also fail on a script that adds its own fetch to the API.",
   'main-first.mjs':

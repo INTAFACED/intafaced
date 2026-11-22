@@ -32,6 +32,7 @@
  *   E. Every agent acts as the admin login, so `gh pr merge --admin` passes a pause through the ruleset's admin bypass.
  *      A bounded identity for agents, without admin (the redesign's B1), closes it.
  */
+import { runJobs } from './run-jobs.mjs';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { CI_WORKFLOW, recheckStep, SEAL_WORKFLOWS } from './journey-seal.mjs';
@@ -104,7 +105,7 @@ export async function sweepHead({
     const jobsByRun = new Map();
     let step = recheckStep(runs, jobsByRun, event);
     while (step.act === 'jobs') {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${step.runId}'s jobs: not a list`);
       jobsByRun.set(step.runId, jobs);
       step = recheckStep(runs, jobsByRun, event);
