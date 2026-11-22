@@ -24,19 +24,27 @@ const copy = defineCopy('staff-access', {
   loading: 'Reading who accessed your account…',
   back: 'Security',
   link: 'Staff access: who looked at your trading account',
+  relatedLabel: 'Related rooms',
   sectionsLabel: 'Staff access sections',
   explain: 'Each row is one time our staff looked at or acted on your trading account, newest first, up to the latest 100.',
 });
 
-/** The Security page's way in to the access list. */
+/**
+ * The Security page's way in to the access list, in its index beside the section links: there its link takes the
+ * index's full-height target and wraps on a phone.
+ */
 export function StaffAccessLink() {
   const { t } = copy.useCopy();
   return (
-    <p>
-      <a className="lt-link" href="/uc/safe/staff-access" data-testid="staff-access-link">
-        {t('link')}
-      </a>
-    </p>
+    <nav aria-label={t('relatedLabel')}>
+      <ul>
+        <li>
+          <a className="lt-link" href="/uc/safe/staff-access" data-testid="staff-access-link">
+            {t('link')}
+          </a>
+        </li>
+      </ul>
+    </nav>
   );
 }
 

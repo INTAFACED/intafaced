@@ -624,7 +624,12 @@ export function Security() {
         title={t('title')}
         description={t('description')}
         state={{ kind: 'ready' }}
-        index={<SecurityIndex />}
+        index={
+          <>
+            <SecurityIndex />
+            <StaffAccessLink />
+          </>
+        }
         explain={<p>{t('explain')}</p>}
         sections={
           <>
@@ -680,7 +685,6 @@ export function Security() {
                 <Copy k={journal.failed ? 'storage' : problem!} />
               </p>
             )}
-            <StaffAccessLink />
             <div>
               <section data-testid="security__passkeys" id="security-passkeys" aria-label={t('passkeys')}>
                 <div className="lt-toolbar">

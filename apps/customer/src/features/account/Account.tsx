@@ -410,14 +410,17 @@ export function Account() {
               <>
                 <div>
                   <section id="subaccounts" data-testid="subaccounts__list" aria-labelledby="subaccount-list-heading">
-                    <header className="lt-title-row">
+                    <header>
                       <h2 id="subaccount-list-heading">{t('list')}</h2>
-                      <Button tone="primary" disabled={blocked('create')} onClick={jump}>
-                        {t('new')}
-                      </Button>
-                      <Button tone="secondary" onClick={reload}>
-                        {t('refresh')}
-                      </Button>
+                      {/* Its own row that wraps: beside the title, a phone squeezed the buttons until their words spilled. */}
+                      <div className="lt-actions">
+                        <Button tone="primary" disabled={blocked('create')} onClick={jump}>
+                          {t('new')}
+                        </Button>
+                        <Button tone="secondary" onClick={reload}>
+                          {t('refresh')}
+                        </Button>
+                      </div>
                     </header>
                     <div className="lt-hint">
                       <Copy k="boundary" />
