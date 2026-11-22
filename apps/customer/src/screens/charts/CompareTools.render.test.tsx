@@ -102,7 +102,7 @@ describe('compare lines', () => {
           market={markets[0]!}
           markets={markets}
           interval="1m"
-          style="candles"
+          chartStyle="candles"
           bars={[]}
           percent={false}
           onPercent={() => undefined}

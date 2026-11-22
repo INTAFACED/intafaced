@@ -1,19 +1,4 @@
 // The only file in this screen that knows where the shared pieces come from (the same pattern as the desk).
-export {
-  Button,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  Menu,
-  MenuContent,
-  MenuItem,
-  MenuTrigger,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  Skeleton,
-  StateBlock,
-} from '@intafaced/ui';
 export { refusalCopy, type Loadable } from '../../data';
 export { defaultDeskPair, normalizePair } from '../../app/navigation';
 export { navigate } from '../../app/location';

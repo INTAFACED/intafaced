@@ -1,5 +1,4 @@
 import type { Candle } from '../../../data/types';
-import './drawings.css';
 import { useSession } from '../../../features/session/session';
 import type { ChartHost } from '../chart-host';
 import { DrawingToolbar } from './DrawingToolbar';
@@ -68,7 +67,7 @@ function DrawingsTools({
 }) {
   const api = useDrawings(host, bars, { userId, workbench, symbol, tickSize, limits });
   return (
-    <div className="dw-layer">
+    <div className="lt-cols-2 lt-scroll">
       <DrawingToolbar api={api} />
       <ObjectTree api={api} onIndicatorsSlot={onIndicatorsSlot} />
     </div>

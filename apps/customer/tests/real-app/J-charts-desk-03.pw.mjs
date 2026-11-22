@@ -231,9 +231,9 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
   // The studies bar stays on a market with no trades (so a tape study can say there is no tape, J-charts-desk-04 #4),
   // and every study in it shows no value: no series value and no fact, only what it lacks.
   const quietLegend = page.getByTestId('study-legend');
-  await expect(quietLegend.locator('.st-row').first()).toBeVisible();
+  await expect(quietLegend.getByTestId('st-row').first()).toBeVisible();
   await expect(quietLegend.locator('[data-series]')).toHaveCount(0);
-  await expect(quietLegend.locator('.st-fact')).toHaveCount(0);
+  await expect(quietLegend.getByTestId('st-fact')).toHaveCount(0);
 
   // A market with no volume says so: on a listed market the public tape holds no trade for, Volume names it, and draws nothing.
   const untraded = await untradedMarket();

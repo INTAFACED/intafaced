@@ -78,7 +78,7 @@ async function drag(from, to) {
 /** The drawings this device keeps for the workbench's market, as stored (`charts-drawings:<user>:<workbench>:<symbol>`). */
 const storedDrawings = () =>
   page.evaluate(() => {
-    const market = document.querySelector('.cw-page[data-market]')?.getAttribute('data-market');
+    const market = document.querySelector('[data-testid="cw-page"][data-market]')?.getAttribute('data-market');
     if (!market) throw new Error('the workbench names no market');
     return Object.keys(localStorage)
       .filter((key) => key.startsWith('charts-drawings:') && key.endsWith(`:${market}`))
