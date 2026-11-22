@@ -21,6 +21,7 @@ use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_bank::activity;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
@@ -82,6 +83,11 @@ fn jobs<'a>(door: &'a BankDoor, _env: &'a BankEnv) -> Vec<(&'static str, Job<'a>
             Box::new(move || rail.poll(partner, || door.now())),
         ));
     }
+    // Slice `activity`: the statement export worker makes queued exports, a batch a pass.
+    out.push((
+        "statement export worker",
+        Box::new(move || activity::statements::run_statement_jobs(door, door.now())),
+    ));
     out
 }
 
@@ -433,6 +439,33 @@ fn loans_wiring(env: &BankEnv) -> Result<loans::Wiring, String> {
     })
 }
 
+/// Slice `activity`'s wiring (`index.ts`'s `activity`, `statementJobs` and `portfolio` options, `taxEffectsFor`): each
+/// call out signed as svc-bank.
+fn activity_wiring(env: &BankEnv) -> Result<activity::Wiring, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-bank", audience, &secret, keyed.clone());
+    let fetch = || -> Box<dyn Fetch> { Box::new(UreqFetch::new()) };
+    activity::wiring(&activity::Build {
+        env,
+        signer: &signer,
+        fetch: &fetch,
+    })
+}
+
 /// Slice `earn`'s owner values (`index.ts`): the asset svc-token stakes, the staking risk wording as published, and
 /// whether interest accrues.
 fn earn_settings(env: &BankEnv) -> earn::Settings {
@@ -531,7 +564,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_transfers(transfers)
     .with_earn(earn_settings(env))
     .with_cards(cards)
-    .with_loans(loans_wiring(env)?);
+    .with_loans(loans_wiring(env)?)
+    .with_activity(activity_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(
@@ -639,6 +673,15 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
         }
     }
 
+    let statement_jobs = table
+        .iter()
+        .any(|t| t.name == "statement export worker" && t.every.is_some());
+    if !statement_jobs {
+        log.warn(
+            Vec::new(),
+            "BANK_STATEMENT_JOBS_INTERVAL_MS or BANK_STATEMENT_JOBS_LEASE_MS is blank: background exports are off and asking for one refuses bank.statement_jobs_unset",
+        );
+    }
     if env.str("IDENTITY_URL").is_none() {
         log.warn(
             Vec::new(),
@@ -680,7 +723,7 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
             ("rampFiatLeg", field(&ramp, "fiatLeg")),
             ("rampFiatVia", field(&ramp, "fiatVia")),
             ("recoveryJobs", Json::Bool(recovery_lock.is_some())),
-            ("statementJobs", Json::Bool(false)),
+            ("statementJobs", Json::Bool(statement_jobs)),
         ],
         "svc-bank ready",
     );

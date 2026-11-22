@@ -2,6 +2,18 @@
 //! module here, so a test build links one binary, not one per file (intafaced#9589). Written by
 //! `node tooling/scripts/rust-test-roots.mjs`; do not edit by hand. One file's tests: `--test it -- <file>::`.
 
+#[path = "activity_analytics_db.rs"]
+mod activity_analytics_db;
+#[path = "activity_calendar_db.rs"]
+mod activity_calendar_db;
+#[path = "activity_feed_db.rs"]
+mod activity_feed_db;
+#[path = "activity_portfolio_db.rs"]
+mod activity_portfolio_db;
+#[path = "activity_statements_db.rs"]
+mod activity_statements_db;
+#[path = "activity_work_items_db.rs"]
+mod activity_work_items_db;
 #[path = "cards_core_db.rs"]
 mod cards_core_db;
 #[path = "cards_orders_db.rs"]
