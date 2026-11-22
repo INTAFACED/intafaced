@@ -54,7 +54,13 @@ test('turbo inputs: the known-good tree passes and each planted fault fails', ()
       ['$TURBO_DEFAULT$', '$TURBO_ROOT$/packages/dep2/**', '$TURBO_ROOT$/services/p/**'],
       'read + its deps, minus own',
     );
-    eq(entries['@t/r#typecheck'].dependsOn, ['^build'], 'generic task copied');
+    eq(entries['@t/r#typecheck'].dependsOn, ['^build', '@t/dep2#build'], 'generic task copied, and a read package built first');
+    // Planted fault 0: a read package's build dropped from dependsOn.
+    const t0 = JSON.parse(readFileSync(join(root, TURBO_FILE), 'utf8'));
+    t0.tasks['@t/r#typecheck'].dependsOn = ['^build'];
+    writeFileSync(join(root, TURBO_FILE), JSON.stringify(t0));
+    eq(checkTurbo(root, { tracked }).problems, ['@t/r#typecheck differs from what its reads need'], 'dropped build order fails');
+    writeTurbo(root);
     eq(Boolean(entries['@t/r#build']), true, 'a build that types its tests covers the reads');
     eq(
       Object.keys(entries).filter((k) => k.startsWith('@t/q')),
