@@ -45,7 +45,11 @@ const STATUS_HELP_KEY = {
 
 export function StatusBadge({ status }: { status: TicketStatus }) {
   const copy = deskCopy.useCopy();
-  return <span className={`support-status support-status--${status}`} data-testid="support-status">{copy.t(STATUS_KEY[status])}</span>;
+  return (
+    <span className={`support-status support-status--${status}`} data-testid="support-status">
+      {copy.t(STATUS_KEY[status])}
+    </span>
+  );
 }
 
 /** The service's answer for a request that is not the caller's or does not exist: the same answer for both. */
@@ -60,7 +64,11 @@ const CUSTOMER_TONE = { awaiting_reply: 'pending', open: 'open', solved: 'resolv
 export function CustomerStatusBadge({ row }: { row: Pick<Ticket, 'status' | 'customerStatus'> }) {
   const copy = deskCopy.useCopy();
   const shown = customerStatus(row);
-  return <span className={`support-status support-status--${CUSTOMER_TONE[shown]}`} data-testid="support-status">{copy.t(CUSTOMER_KEY[shown])}</span>;
+  return (
+    <span className={`support-status support-status--${CUSTOMER_TONE[shown]}`} data-testid="support-status">
+      {copy.t(CUSTOMER_KEY[shown])}
+    </span>
+  );
 }
 
 /** An address under /support/tickets/ that names no request: it reads the same as somebody else's request. */
