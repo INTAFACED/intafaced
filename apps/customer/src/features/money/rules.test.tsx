@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { choiceWords } from './Rules';
-import { bankReads, rulesWrites } from './contracts';
+import { BANK_RULES_GET } from '@intafaced/contracts/bank-rules-procedures';
+import { rulesWrites } from './contracts';
 import { rulesCopy } from './rules-copy';
 
 /** BK-acct-10 screen half (J-bank-06 #6): the reminder rule's shape and how each notification choice reads. */
@@ -18,7 +19,7 @@ const row = (patch: Partial<Parameters<typeof choiceWords>[1] & object> = {}) =>
 
 describe('rules and notifications', () => {
   it('reads the bank answer as its schema, and refuses a lead time the bank does not offer', () => {
-    const view = bankReads['rules.get'].parse({
+    const view = BANK_RULES_GET.output.parse({
       reminder: { ruleKey: 'reminder:u1', leadHours: 48, revision: 2, updatedAt: '2026-11-01T00:00:00.000Z' },
       leadChoices: [24, 48, 72, 168],
       moneyRules: { state: 'not_set', code: 'bank.rule_terms_unset' },

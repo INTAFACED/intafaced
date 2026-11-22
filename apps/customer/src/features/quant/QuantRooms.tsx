@@ -23,5 +23,5 @@ export const QUANT_ROOMS: readonly { id: QuantRoomId; href: string; label?: 'str
 export function QuantRooms({ active, paper = false }: { active: QuantRoomId; paper?: boolean }) {
   const { t } = algoCopy.useCopy();
   const items = QUANT_ROOMS.map((room) => ({ id: room.id, label: t(room.label ?? room.id), href: preservePaperHref(room.href, paper) }));
-  return <Tabs label={t('rooms')} current={items.find((item) => item.id === active)?.href ?? ''} items={items} />;
+  return <Tabs label={t('rooms')} current={items.find((room) => room.id === active)?.href ?? ''} items={items} />;
 }

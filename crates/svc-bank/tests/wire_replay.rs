@@ -231,16 +231,11 @@ fn mask(body: &str) -> String {
         }
         out = format!("{}<stack>{}", &out[..at + key.len()], &after[end..]);
     }
-    let reference = "(ref ";
+    let reference = "Bank operation failed (ref ";
     if let Some(at) = out.find(reference) {
-        let after = &out[at + reference.len()..];
-        let id = after.split(')').next().unwrap_or_default();
-        if id.len() == 36 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
-            out = format!(
-                "{}<ref>{}",
-                &out[..at + reference.len()],
-                &after[id.len()..]
-            );
+        let start = at + reference.len();
+        if let Some(len) = out[start..].find(')') {
+            out = format!("{}<ref>{}", &out[..start], &out[start + len..]);
         }
     }
     out

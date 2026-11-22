@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { StaffAccessLink } from './StaffAccess';
 import { flushSync } from 'react-dom';
-import { loggedOutEverywhereSchema, passkeyRegisteredSchema, totpConfirmedSchema } from '@intafaced/contracts/identity-account-room';
+import { passkeyRegisteredSchema, totpConfirmedSchema } from '@intafaced/contracts/identity-account-room';
 import { useSession } from '../session';
 import { currentReturnLocation, navigate } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
@@ -54,6 +54,7 @@ import { WithdrawStepUp } from '../money';
 import { IDENTITY_WEBAUTHN_REMOVE } from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
+import { IDENTITY_AUTH_LOGOUT_ALL } from '@intafaced/contracts/identity-auth-procedures';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
 type Original = {
@@ -482,7 +483,7 @@ export function Security() {
     // The owner lock excludes a held child write. Remount also cancels any old child review before dispatch.
     flushSync(() => setSeatVersion((value) => value + 1));
     if (!same(intent)) return;
-    const answer = await intent.client.mutate('identity', 'auth.logoutAll', {}, loggedOutEverywhereSchema);
+    const answer = await intent.client.call(IDENTITY_AUTH_LOGOUT_ALL, undefined);
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
       return;

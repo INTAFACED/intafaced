@@ -4,6 +4,8 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, fund, json, tool } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
+import { venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-bank-26, in the running app (docs/roadmap/journeys.json): I run the card programme (support and finance), on the founder
 // console's bank desk. The card programme and its money are the partner's (OWNER 226); no partner is named, so the stack
@@ -25,6 +27,14 @@ import { signUp, verify } from './desk.mjs';
 // cardholder is its own. A programme rule and the 3DS policy are programme-wide, so each step that sets one puts it back
 // (`gates`). Founder B is made a Viewer in #7 and a Manager again after.
 const J = 'J-bank-26';
+/**
+ * The TEST card partner's own record, on loopback (svc-bank src/cards/test-card-partner-record.ts), read through the
+ * outside record read (venue.mjs venueRecord), never through the bank's API: steps 5 and 6 compare what the desk shows
+ * with what the partner itself holds, captured, reports and took.
+ */
+const CARD_PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-card-partner`;
+/** One path of the TEST card partner's record for this cardholder (the programme's own for /terms and /funding). */
+const partnerRecord = async (userId, path) => (await venueRecord(userId, path, {}, CARD_PARTNER_RECORD, null)).value;
 
 /** The bank restarted with one LOCAL_STACK_ switch set for that restart only (unset puts the profile's TEST value back). */
 function restartBank(key, value) {
@@ -79,12 +89,14 @@ async function customerBank(who) {
   }).then(json);
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused: ${JSON.stringify(login).slice(0, 300)}`);
-  return (procedure, input) =>
+  const call = (procedure, input) =>
     fetch(`${EDGE}/api/bank/trpc/${procedure}`, {
       method: 'POST',
       headers: { origin: ORIGIN, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify(input),
     }).then(json);
+  // The person's user id, as the card partner names its cardholder in its own record.
+  return Object.assign(call, { userId: login.result.data.userId });
 }
 
 async function desk(browser, key = 'a') {
@@ -499,7 +511,8 @@ test(`${J} #5 reads funding and balances: the programme's figures as the partner
   test.setTimeout(600_000);
   const who = await person(browser, 'funds');
   // This person's bank money is held at the TEST partner (custody off), so the partner holds and reports the card's spend.
-  const held = await (await customerBank(who))('testPartner.set', { custody: 'off' });
+  const bank = await customerBank(who);
+  const held = await bank('testPartner.set', { custody: 'off' });
   expect(held.status, JSON.stringify(held.body).slice(0, 300)).toBe(200);
   // One hold of 5 left open, one of 25 captured at 20 (its 5 given back), through the TEST simulator.
   await simulate({ kind: 'authorize', cardId: who.cardId, authorizationRef: `jb26-open-${randomUUID()}`, amount: '5' });
@@ -512,6 +525,11 @@ test(`${J} #5 reads funding and balances: the programme's figures as the partner
   await page.goto(`/bank-ops/cards/cardholders/${holder.id}`);
   await expect(page.getByTestId('cp-cardholder')).toBeVisible();
   const funds = (await tableRows(page, 'cp-funds')).find((r) => r.Asset === 'USDC');
+  // The partner's own book for this cardholder: the 5 still held and the 20 captured, read from the partner itself.
+  const theirs = (await partnerRecord(bank.userId, '/holds')).find((r) => r.asset === 'USDC');
+  expect(theirs).toEqual({ asset: 'USDC', held: '5', captured: '20' });
+  // The partner's figure the desk shows is the partner's own held plus captured.
+  expect(funds['Partner’s figure']).toBe(decimal(units(theirs.held) + units(theirs.captured)));
   // Held plus captured in this app equals the partner's own figure for the cardholder: the difference is zero.
   expect(funds).toEqual({
     Asset: 'USDC',
@@ -522,7 +540,9 @@ test(`${J} #5 reads funding and balances: the programme's figures as the partner
     Difference: '0',
     Reconciliation: 'matches',
   });
-  // The programme's figures, as the partner reports them: this TEST partner has reported none, so "not known", never 0.
+  // The programme's figures, as the partner reports them: this TEST partner's own record reports none, so the desk shows
+  // "not known", never 0.
+  expect((await partnerRecord(bank.userId, '/terms')).programmeFigures).toBeNull();
   await expect(page.getByTestId('cp-programme-figures-failed')).toHaveCount(0);
   if ((await page.getByTestId('cp-programme-figures-empty').count()) > 0) {
     await expect(page.getByTestId('cp-programme-figures-empty')).toHaveText('The partner reports no programme figure.');
@@ -541,7 +561,8 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
   const who = await signUp(customer, 'jb26');
   await verify(customer, who);
   expect(fund(who.email, 'USDC', '100').tx).toBeTruthy();
-  const issued = await (await customerBank(who))('cards.issue', { cardId: randomUUID(), assetId: 'USDC', perAuthorizationLimit: '50' });
+  const bank = await customerBank(who);
+  const issued = await bank('cards.issue', { cardId: randomUUID(), assetId: 'USDC', perAuthorizationLimit: '50' });
   const cardId = issued?.body?.result?.data?.id;
   expect(cardId, JSON.stringify(issued).slice(0, 300)).toBeTruthy();
   await customer.context().close();
@@ -556,7 +577,15 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
   expect(units(after.appCaptured) - units(before.appCaptured)).toBe(units('20'));
   expect(units(after.appFigure) - units(before.appFigure)).toBe(units('25'));
 
-  // The profile's TEST partner has answered nothing: every partner answer reads "not known", and no figure stands in.
+  // The profile's TEST partner has answered nothing, as its own record says: every partner answer reads "not known", and no
+  // figure stands in.
+  expect(await partnerRecord(bank.userId, '/terms')).toMatchObject({
+    funder: null,
+    reserve: null,
+    programmeFigures: null,
+    fundingAssetId: null,
+    fundingOffers: null,
+  });
   let page = await desk(browser);
   await expect(terms(page)).toBeVisible();
   await expect(fact(page, 'bank.card-partner-terms', 'Card partner')).toHaveText('TEST partner card adapter');
@@ -594,9 +623,19 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
   restartBank('LOCAL_STACK_BANK_CARD_PARTNER', 'reported');
   try {
     page = await desk(browser);
-    await expect(fact(page, 'bank.card-partner-terms', 'Who funds the programme')).toHaveText('TEST: the programme pre-funds in USDC');
-    await expect(fact(page, 'bank.card-partner-terms', 'Reserve the partner requires')).toHaveText('25000.00 USDC, as the partner reports');
-    await expect(fact(page, 'bank.card-funding-offers', 'Funding stablecoin')).toHaveText('USDC');
+    // What the partner itself reports, from its own record: the desk shows each as the partner reports it.
+    const reported = await partnerRecord(bank.userId, '/terms');
+    expect(reported).toMatchObject({
+      funder: 'TEST: the programme pre-funds in USDC',
+      reserve: { required: true, amount: '25000.00', assetId: 'USDC' },
+      fundingAssetId: 'USDC',
+      fundingOffers: { fund: true, defund: true, autoReload: false },
+    });
+    await expect(fact(page, 'bank.card-partner-terms', 'Who funds the programme')).toHaveText(reported.funder);
+    await expect(fact(page, 'bank.card-partner-terms', 'Reserve the partner requires')).toHaveText(
+      `${reported.reserve.amount} ${reported.reserve.assetId}, as the partner reports`,
+    );
+    await expect(fact(page, 'bank.card-funding-offers', 'Funding stablecoin')).toHaveText(reported.fundingAssetId);
     await expect(fact(page, 'bank.card-funding-offers', 'Fund')).toHaveText('offered by the partner');
     await expect(fact(page, 'bank.card-funding-offers', 'Defund')).toHaveText('offered by the partner');
     await expect(fact(page, 'bank.card-funding-offers', 'Auto reload')).toHaveText('not offered by the partner');
@@ -607,7 +646,12 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
     for (const row of rows) expectReconciled(row);
     const usdc = rows.find((r) => r.Asset === 'USDC');
     const btc = rows.find((r) => r.Asset === 'BTC');
+    // Each partner figure is the partner's own held plus captured, as its record reports them.
+    const partnerFigure = (asset) =>
+      decimal(units(reported.programmeFigures[asset].held) + units(reported.programmeFigures[asset].captured));
     expect(usdc['Partner’s figure']).toBe('25');
+    expect(usdc['Partner’s figure']).toBe(partnerFigure('USDC'));
+    expect(btc['Partner’s figure']).toBe(partnerFigure('BTC'));
     expect(usdc['Held plus captured (app)']).toBe(read.rows.find((r) => r.assetId === 'USDC').appFigure);
     // A BTC capture the partner reports and the app has no record of: a break named "missing", never folded into a match
     // and never read as 0.
@@ -662,6 +706,11 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
     const sent = (await fundingRead()).requests.find((r) => r.amount === amount);
     expect(sent).toMatchObject({ kind: 'fund', assetId: 'USDC', threshold: null });
     expect(sent.partnerRef).toMatch(/^TEST-card-sim-[0-9a-f]{16}$/);
+    // The partner's own book took exactly this one instruction, under the reference the app recorded.
+    const took = (await partnerRecord(bank.userId, '/funding')).filter((f) => f.partnerRef === sent.partnerRef);
+    expect(took).toHaveLength(1);
+    expect(took[0]).toMatchObject({ requestId: `card-funding:${sent.clientRequestId}`, kind: 'fund', assetId: 'USDC', threshold: null });
+    expect(units(took[0].amount)).toBe(units(amount));
     await page.reload();
     const shown = (await shownRows(page, 'bank.card-funding-requests')).find((r) => r.Amount === amount);
     expect(shown).toMatchObject({ Instruction: 'Fund', Stablecoin: 'USDC', 'Partner reference': sent.partnerRef });

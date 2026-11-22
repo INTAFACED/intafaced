@@ -18,7 +18,7 @@ import {
   type Role,
 } from './business-model';
 import { funds, positiveMoney, ResourceView, type ActionSpec, useBankRecordAs } from './components';
-import { bankReads, type businessSchema } from './contracts';
+import { teamSchema, type businessSchema } from './contracts';
 import { moneyRefusalWords, withPlainRefusal } from './money-refusal-copy';
 import type { Resource } from '../../shared/resource';
 import './bank-depth.css';
@@ -325,7 +325,7 @@ export function TeamPanel({ account, role, open }: { account: Business; role: Ro
   const copy = businessCopy.useCopy();
   const { t } = copy;
   const { userId } = useSession();
-  const team = useBankRecordAs(BANK_BUSINESS_MEMBERS, { accountId: account.id }, bankReads['business.members']);
+  const team = useBankRecordAs(BANK_BUSINESS_MEMBERS, { accountId: account.id }, teamSchema);
   const [person, setPerson] = useState<Payee | null>(null);
   const known = roleOf(role);
   const add = () => {

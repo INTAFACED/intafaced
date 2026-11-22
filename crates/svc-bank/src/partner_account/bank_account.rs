@@ -15,7 +15,6 @@ use service_kit::schema::Value;
 use service_kit::server::Response;
 use service_kit::time::Instant;
 
-use super::profile::personal_only;
 use super::{Deps, refuse};
 use crate::door::Ctx;
 use crate::errors::Refusal;
@@ -23,6 +22,7 @@ use crate::partner::TestPartner;
 use crate::partner::compliance::{
     Closure, DataRequest, Destination, InfoRequest, REQUIREMENTS, Review,
 };
+use crate::spaces::home::personal_only;
 
 /// `ProofLimits`: the file types (lower case) and the size cap of an uploaded answer.
 #[derive(Debug, Clone, PartialEq, Eq)]

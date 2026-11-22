@@ -2,8 +2,11 @@
 // Deletes the bank's hand schemas no caller names: each entry of an area's `<area>Reads` or `<area>Writes` in
 // apps/customer/src/features/money/contracts-<area>.ts (composed into `bankReads` and `bankWrites`) whose call name no
 // string in the customer app spells, the entry's own key aside. A name built by a template that starts with a call's
-// segment (`autoInvest.${action}`) names every entry it can spell; a template that starts with a value names none. It deletes only entries nothing names, so it is safe at any time; once a caller moves
-// to its record (the call-records codemod), its entry has no caller left and the next run deletes it.
+// segment (`autoInvest.${action}`) names every entry it can spell; a template that starts with a value, or is a copy key
+// (`t(`eligibility.${state}`)`), names none. A test or mock names an entry only by reading it from its map
+// (`bankReads['x']`, `(typeof bankWrites)['x']`): its other strings are a stubbed answer or an expected request, not a
+// caller. It deletes only entries nothing names, so it is safe at any time; run.mjs runs it after every service's run, so
+// once a caller moves to its record (the call-records codemod), its entry goes in the same change.
 //
 //   node tooling/codemod/call-records/dead-hand-schemas.mjs [--write]
 // Prints the entries it deletes (or would, without --write), one `<file>:<line> <name>` a line.
@@ -19,6 +22,26 @@ const AREA_MAP = /^[a-z]+(Reads|Writes)$/u;
 const CALL_NAME = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/u;
 /** A template's opening text that is a call name's first segments: `autoInvest.`, `cards.disputes.`. */
 const CALL_HEAD = /^[a-z][A-Za-z0-9]*\.(?:[A-Za-z][A-Za-z0-9]*\.)*$/u;
+
+/** A test, a browser test or a mock: what it spells is stubbed, not called (sites.mjs's tests, and `.mock.` files). */
+const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.(pw|mock)\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
+/** A copy lookup: its key names words, never a call. */
+const COPY_CALL = new Set(['t', 'copyText']);
+/** `bankReads['x']`, `earnWrites['x']` or `(typeof bankWrites)['x']`: the key read from a map of hand schemas. */
+function mapRead(p, n) {
+  const up = p.parents.get(n);
+  if (up?.type === 'MemberExpression' && up.computed && up.property === n)
+    return up.object.type === 'Identifier' && /(Reads|Writes)$/u.test(up.object.name);
+  const lit = up?.type === 'TSLiteralType' ? up : undefined;
+  const at = lit && p.parents.get(lit);
+  if (at?.type !== 'TSIndexedAccessType' || at.indexType !== lit) return false;
+  const q = at.objectType.type === 'TSParenthesizedType' ? at.objectType.typeAnnotation : at.objectType;
+  return q.type === 'TSTypeQuery' && /(Reads|Writes)$/u.test(q.exprName?.name ?? '');
+}
+const copyKey = (p, n) => {
+  const up = p.parents.get(n);
+  return up?.type === 'CallExpression' && up.arguments[0] === n && up.callee.type === 'Identifier' && COPY_CALL.has(up.callee.name);
+};
 
 const appFiles = (repo) =>
   execFileSync('git', ['ls-files', 'apps/customer/src'], { cwd: repo, encoding: 'utf8' })
@@ -55,11 +78,13 @@ function namesSpelled(repo, keys) {
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   for (const file of appFiles(repo)) {
     const p = load(file);
+    const test = TEST_FILE.test(file);
     walk(p.program, (n) => {
       if (keys.has(n)) return;
       const s = literal(n);
-      if (s !== undefined) exact.add(s);
-      else if (n.type === 'TemplateLiteral' && CALL_HEAD.test(n.quasis[0].value.cooked ?? ''))
+      if (s !== undefined) {
+        if (!test || mapRead(p, n)) exact.add(s);
+      } else if (!test && n.type === 'TemplateLiteral' && !copyKey(p, n) && CALL_HEAD.test(n.quasis[0].value.cooked ?? ''))
         patterns.push(new RegExp(`^${n.quasis.map((q) => esc(q.value.cooked ?? '')).join('[A-Za-z0-9.]+')}$`, 'u'));
     });
   }
@@ -84,7 +109,7 @@ export function deleteDead(repo = REPO) {
       // From the end of the line before the entry's own comments to its comma.
       let start = h.prop.start;
       const before = src.slice(0, start);
-      const own = before.match(/(?:\n[ \t]*(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/))+\n[ \t]*$/u);
+      const own = before.match(/(?:\n[ \t]*(?:\/\/[^\n]*|\/\*(?:(?!\*\/)[\s\S])*\*\/))+\n[ \t]*$/u);
       start = own ? own.index : before.lastIndexOf('\n');
       let end = h.prop.end;
       const comma = src.slice(end).match(/^[ \t]*,/u);

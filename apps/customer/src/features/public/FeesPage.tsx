@@ -1,14 +1,15 @@
+// volt-room: /fees
 import { useMemo, type ReactNode } from 'react';
+import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { VenueFees } from './VenueFees';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
 import { bpsAsPercent, publicFeesFetcher, rowFor, type PublicFeeRow, type PublicFeeSchedule } from './fees';
 import { feesCopy } from './fees-copy';
-import '../../shared/public-pages.css';
 
 /**
- * /fees: the published spot fee schedule for anyone, signed in or not (SP-fees-vip-02, J-cex-spot-10 #2). One table per
+ * /fees, on the reading template: the published spot fee schedule for anyone, signed in or not (SP-fees-vip-02, J-cex-spot-10 #2). One table per
  * pair group, one row per tier; a tier the owner left blank in a group reads "not set". The network fee for sending a
  * coin out is its own line, never folded into a trading rate.
  */
@@ -24,49 +25,62 @@ export function FeesPage() {
 export function FeesView({ load, venue }: { load: Loadable<PublicFeeSchedule | null>; venue?: ReactNode }) {
   const copy = feesCopy.useCopy();
   return (
-    <div className="pub-page" data-room="fees">
-      <header className="pub-heading">
-        <h1>{copy.t('title')}</h1>
-        <p>{copy.t('lead')}</p>
-        {load.status === 'ready' && load.data ? <p className="muted">{copy.t('version', { version: load.data.version })}</p> : null}
-        <p>
-          <a className="text-link" href="/fees/my-tier">
-            {copy.t('myTierLink')} →
-          </a>
-        </p>
-      </header>
-      {venue}
-      {load.status === 'loading' ? <p role="status">{copy.t('loading')}</p> : null}
-      {load.status === 'error' ? (
-        <p role="alert">
-          {copy.t('failed')}{' '}
-          <button type="button" className="text-link" onClick={load.retry}>
-            {copy.t('retry')}
-          </button>
-        </p>
-      ) : null}
-      {load.status === 'refused' ? <p role="alert">{refusalCopy(load.code).title}</p> : null}
-      {load.status === 'empty' || (load.status === 'ready' && load.data === null) ? (
-        <section className="pub-notice" role="status" data-fees="blank">
-          <h2>{copy.t('blankTitle')}</h2>
-          <p>{copy.t('blankBody')}</p>
-        </section>
-      ) : null}
-      {load.status === 'ready' && load.data ? <Groups schedule={load.data} /> : null}
-      <section className="pub-card" aria-labelledby="fees-maker-taker">
-        <h2 id="fees-maker-taker">{copy.t('makerTakerTitle')}</h2>
-        <p>{copy.t('makerTakerBody')}</p>
-        <a className="text-link" href="/exchange">
-          {copy.t('tradeLink')} →
-        </a>
-      </section>
-      <section className="pub-card" aria-labelledby="fees-network" data-fees="network">
-        <h2 id="fees-network">{copy.t('networkTitle')}</h2>
-        <p>
-          <strong>{copy.t('networkLine')}</strong>
-        </p>
-        <p>{copy.t('networkBody')}</p>
-      </section>
+    <div data-room="fees">
+      <ReadingTemplate
+        title={copy.t('title')}
+        description={copy.t('lead')}
+        state={{ kind: 'ready' }}
+        meta={
+          <>
+            {load.status === 'ready' && load.data ? <p>{copy.t('version', { version: load.data.version })}</p> : null}
+            <p>
+              <a className="lt-link lt-link-alone" href="/fees/my-tier">
+                {copy.t('myTierLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+              </a>
+            </p>
+          </>
+        }
+        body={
+          <>
+            {venue}
+            {load.status === 'loading' ? <p role="status">{copy.t('loading')}</p> : null}
+            {load.status === 'error' ? (
+              <p role="alert">
+                {copy.t('failed')}{' '}
+                <button type="button" className="lt-link" onClick={load.retry}>
+                  {copy.t('retry')}
+                </button>
+              </p>
+            ) : null}
+            {load.status === 'refused' ? <p role="alert">{refusalCopy(load.code).title}</p> : null}
+            {load.status === 'empty' || (load.status === 'ready' && load.data === null) ? (
+              <section role="status" data-fees="blank">
+                <h2>{copy.t('blankTitle')}</h2>
+                <p>{copy.t('blankBody')}</p>
+              </section>
+            ) : null}
+            {load.status === 'ready' && load.data ? <Groups schedule={load.data} /> : null}
+          </>
+        }
+        related={
+          <>
+            <section aria-labelledby="fees-maker-taker">
+              <h2 id="fees-maker-taker">{copy.t('makerTakerTitle')}</h2>
+              <p>{copy.t('makerTakerBody')}</p>
+              <a className="lt-link lt-link-alone" href="/exchange">
+                {copy.t('tradeLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+              </a>
+            </section>
+            <section aria-labelledby="fees-network" data-fees="network">
+              <h2 id="fees-network">{copy.t('networkTitle')}</h2>
+              <p>
+                <strong>{copy.t('networkLine')}</strong>
+              </p>
+              <p>{copy.t('networkBody')}</p>
+            </section>
+          </>
+        }
+      />
     </div>
   );
 }
@@ -86,16 +100,11 @@ function Groups({ schedule }: { schedule: PublicFeeSchedule }) {
   return (
     <>
       {schedule.groups.map((group) => (
-        <section
-          key={group.pairGroup}
-          className="pub-card"
-          aria-label={copy.t('groupTitle', { group: group.pairGroup })}
-          data-pair-group={group.pairGroup}
-        >
+        <section key={group.pairGroup} aria-label={copy.t('groupTitle', { group: group.pairGroup })} data-pair-group={group.pairGroup}>
           <h2>{copy.t('groupTitle', { group: group.pairGroup })}</h2>
-          {group.isDefault ? <p className="muted">{copy.t('defaultGroup')}</p> : null}
+          {group.isDefault ? <p>{copy.t('defaultGroup')}</p> : null}
           <p>{group.symbols.length > 0 ? copy.t('pairs', { pairs: group.symbols.join(', ') }) : copy.t('noPairs')}</p>
-          <table className="pub-table">
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{copy.t('colTier')}</th>

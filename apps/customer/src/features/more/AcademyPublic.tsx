@@ -9,14 +9,11 @@ import { Select } from './common';
 import './academy-public.css';
 import { t as copyText } from './copy';
 import { academyLmsCopy as copy } from './academy-lms-copy';
-import { academyTabHref, academyTabs, isAcademyPath, type AcademyRoute } from './academy-lms';
+import { academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
-import { LessonBody } from './AcademyLearning';
 import { VerifyPanel } from './AcademyCertificates';
-import { AcademyCoursePage, AcademyCourseCards, AcademyHub } from './AcademyHub';
+import { AcademyCourseCards, AcademyHub } from './AcademyHub';
 import { ACADEMY_PUBLIC_CURRICULUM } from '@intafaced/contracts/academy-public-curriculum-procedures';
-import { ACADEMY_PUBLIC_CURRICULUM_ITEM } from '@intafaced/contracts/academy-public-curriculum-item-procedures';
-import { ACADEMY_PUBLIC_CURRICULUM_RELATED } from '@intafaced/contracts/academy-public-curriculum-related-procedures';
 import { ACADEMY_PUBLIC_VIDEOS } from '@intafaced/contracts/academy-public-videos-procedures';
 
 /**
@@ -67,14 +64,10 @@ export function AcademyPublic({ route }: { route: AcademyRoute }) {
         label={copyText('academy.academy.sections')}
       />
       {route.kind === 'tab' && route.hub && <AcademyHub />}
-      {route.kind === 'course' ? (
-        <AcademyCoursePage slug={route.slug} signedIn={false} />
-      ) : route.kind === 'assignment' ? (
+      {route.kind === 'assignment' ? (
         <Panel title={copyText('academy.learning')}>
           <EmptyState title={t('asgSignIn')} action={<SignIn />} />
         </Panel>
-      ) : route.kind === 'reader' && route.slug ? (
-        <PublicReader slug={route.slug} />
       ) : route.kind === 'progress' || tab === 'Certificates' ? (
         <PublicCertificates />
       ) : tab === 'Rooms' ? (
@@ -176,77 +169,6 @@ function PublicCatalogue() {
         )}
       </div>
     </Panel>
-  );
-}
-
-function PublicReader({ slug }: { slug: string }) {
-  const api = useApi();
-  const { t, Copy } = copy.useCopy();
-  const lesson = useResource((signal) => api.call(ACADEMY_PUBLIC_CURRICULUM_ITEM, { slug }, { signal }), `public-item:${slug}`);
-  const related = useResource(
-    (signal) => api.call(ACADEMY_PUBLIC_CURRICULUM_RELATED, { slug, limit: 5 }, { signal }),
-    `public-related:${slug}`,
-  );
-  if (lesson.resource.status === 'loading') return <Loading />;
-  if (lesson.resource.status === 'failed')
-    return (
-      <Panel title={copyText('academy.learning')}>
-        <AcademyRefusal failure={lesson.resource.failure} retry={lesson.reload} />
-        <SignIn />
-      </Panel>
-    );
-  const data = lesson.resource.data;
-  return (
-    <div className="more-columns">
-      <Panel title={data.title}>
-        <div className="academy-lms-stack">
-          <nav className="academy-lms-crumbs" aria-label={t('breadcrumb')}>
-            <a className="text-link" href="/academy">
-              <Copy k="crumbAcademy" />
-            </a>
-            <span aria-hidden="true">/</span>
-            <span>{isAcademyPath(data.path) ? pathLabel(t, data.path) : data.path}</span>
-          </nav>
-          <div data-testid="academy-lms-meta" className="academy-lms-meta">
-            <span>{kindLabel(t, data.kind)}</span>
-            <span>
-              <Copy k="minutes" params={{ minutes: data.estimatedMinutes }} />
-            </span>
-          </div>
-          {data.objectives.length > 0 && (
-            <section aria-label={t('publicObjectives')}>
-              <h3>{t('publicObjectives')}</h3>
-              <ul lang="und">
-                {data.objectives.map((objective) => (
-                  <li key={objective}>{objective}</li>
-                ))}
-              </ul>
-            </section>
-          )}
-          <article data-testid="more-body" className="more-body" lang="und">
-            <LessonBody body={data.body} title={data.title} />
-          </article>
-          <p className="muted">
-            <Copy k="publicSignInPrompt" />
-          </p>
-          <SignIn />
-        </div>
-      </Panel>
-      {/* Related items only when the service names some: no block, and no filler, when there are none. */}
-      {related.resource.status === 'ready' && related.resource.data.length > 0 && (
-        <Panel title={t('publicRelated')}>
-          <ul className="academy-public-cards">
-            {related.resource.data.map((row) => (
-              <li key={row.slug} className="academy-lms-card">
-                <a className="academy-learning-link" href={`/academy/${encodeURIComponent(row.slug)}`} lang="und">
-                  {row.title}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
-    </div>
   );
 }
 

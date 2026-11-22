@@ -16,7 +16,7 @@ use service_kit::edge::{EdgeKey, MIN_SECRET_LENGTH};
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
 use service_kit::nats::{JetStream, stream_config};
-use service_kit::s2s::{parse_keyring, s2s_from_env, system_seconds};
+use service_kit::s2s::{CallSigner, parse_keyring, s2s_from_env, system_seconds};
 use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
@@ -30,6 +30,8 @@ use svc_bank::partner::router::Wiring;
 use svc_bank::partner::{TestPartner, cash_leg, pay_in};
 use svc_bank::ready;
 use svc_bank::recovery::{self, AdvisoryLock, RecoveryCounts};
+use svc_bank::spaces;
+use svc_bank::spaces::ports::{DirectoryHttp, LedgerHttp, Lookups, NoDirectory};
 use svc_bank::test_age;
 use svc_bank::timers::{self, Timer};
 
@@ -115,6 +117,67 @@ fn partner_wiring(env: &BankEnv) -> Result<Wiring, String> {
     })
 }
 
+/// Slice `spaces`'s wiring (`index.ts`): svc-ledger's balance and asset reads, svc-identity's business directory
+/// (none without `IDENTITY_URL`, so every lookup refuses), each signed as svc-bank, and the owner's values as published.
+fn spaces_wiring(env: &BankEnv) -> Result<spaces::Wiring, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-bank", audience, &secret, keyed.clone());
+    let owned = |k: &str| env.raw.get(k).cloned();
+    let card = ready::card_programme(env.str("BANK_CARD_ISSUER").unwrap_or("none"));
+    Ok(spaces::Wiring {
+        ledger: Box::new(LedgerHttp::new(
+            env.str("LEDGER_URL").unwrap_or_default(),
+            signer("svc-ledger"),
+            Box::new(UreqFetch::new()),
+        )),
+        directory: match env.str("IDENTITY_URL") {
+            Some(url) => Box::new(DirectoryHttp::new(
+                url,
+                signer("svc-identity"),
+                Box::new(UreqFetch::new()),
+            )),
+            None => Box::new(NoDirectory),
+        },
+        lookups: Lookups::default(),
+        rules: spaces::space::Rules {
+            space_limit: owned("BANK_SPACE_LIMIT"),
+            unlock_wait_hours: owned("BANK_SPACE_UNLOCK_WAIT_HOURS"),
+        },
+        terms: spaces::shared::Terms {
+            invite_minutes: owned("BANK_SHARED_POT_INVITE_MINUTES"),
+            people_cap: owned("BANK_SHARED_POT_PEOPLE_CAP"),
+            card_programme: (
+                match card.get("id") {
+                    Some(Json::String(id)) => id.clone(),
+                    _ => "none".to_owned(),
+                },
+                card.get("simulated") == Some(&Json::Bool(true)),
+            ),
+        },
+        tables: spaces::Tables {
+            account_terms: owned("BANK_ACCOUNT_TERMS_JSON"),
+            currencies: owned("BANK_ACCOUNT_CURRENCIES"),
+            plans: owned("BANK_PLANS_JSON"),
+            fees: owned("BANK_FEE_SCHEDULE_JSON"),
+            dormancy: owned("BANK_DORMANCY_RULES_JSON"),
+        },
+    })
+}
+
 /// The recovery jobs whose work is ported, in `recovery::JOBS`' order. Each comes with its slice.
 fn recovery_jobs<'a>(
     door: &'a BankDoor,
@@ -197,6 +260,7 @@ fn door(env: &BankEnv, store: Store) -> Result<BankDoor, String> {
     let raw = |k: &str| env.raw.get(k).map(String::as_str);
     let test_age = test_age::open(raw(test_age::ENV), raw("APP_ENV"), raw("NODE_ENV"))?;
     let partner = partner_wiring(env)?;
+    let spaces = spaces_wiring(env)?;
     let door = BankDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         services: service_auth(env)?,
@@ -205,7 +269,8 @@ fn door(env: &BankEnv, store: Store) -> Result<BankDoor, String> {
         store,
     })?
     .with_test_age(test_age)
-    .with_partner(partner);
+    .with_partner(partner)
+    .with_spaces(spaces);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

@@ -229,6 +229,8 @@ pub struct BankDoor {
     store: Store,
     /// Slice `partner`'s TEST partner, freeze and stand-ins (`partner::router::Wiring`); none until handed in.
     partner: crate::partner::router::Wiring,
+    /// Slice `spaces`'s ledger and directory reads and owner values (`spaces::Wiring`); none until handed in.
+    spaces: crate::spaces::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
     /// Slice `partner-account`'s parts, built from the environment.
@@ -275,6 +277,7 @@ impl BankDoor {
             edge_key: None,
             store: config.store,
             partner: crate::partner::router::Wiring::none(),
+            spaces: crate::spaces::Wiring::none(),
             test_age_open: false,
             partner_account: crate::partner_account::Wiring::from_env(&config.env)?,
         })
@@ -298,6 +301,12 @@ impl BankDoor {
     /// Slice `partner`'s wiring, built by the binary from the environment.
     pub fn with_partner(mut self, wiring: crate::partner::router::Wiring) -> BankDoor {
         self.partner = wiring;
+        self
+    }
+
+    /// Slice `spaces`'s wiring, built by the binary from the environment.
+    pub fn with_spaces(mut self, wiring: crate::spaces::Wiring) -> BankDoor {
+        self.spaces = wiring;
         self
     }
 
@@ -347,6 +356,10 @@ impl BankDoor {
                 .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
             Slice::PartnerAccount => crate::partner_account::answer(&self.partner_account(), ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::PartnerAccount))),
+            Slice::Spaces => {
+                crate::spaces::router::answer(&self.spaces, &self.partner, &self.store, ctx)
+                    .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
+            }
             other => Err(not_ported(other)),
         }
     }

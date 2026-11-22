@@ -12,7 +12,6 @@ pub mod cash_out;
 pub mod closure;
 pub mod deposits;
 pub mod linked_accounts;
-pub mod profile;
 pub mod rail_records;
 pub mod recovery;
 pub mod salary;

@@ -463,7 +463,8 @@ pub fn answer(d: &Deps<'_>, ctx: &Ctx<'_>) -> Option<Result<Json, Refusal>> {
         .map(|p| p.user_id.as_str())
         .unwrap_or_default();
     let input = &ctx.input;
-    let profile = || super::profile::personal_only(d.store, user, input.get("profile").as_str());
+    let profile =
+        || crate::spaces::home::personal_only(d.store, user, input.get("profile").as_str());
     let currency = || {
         input
             .get("currency")

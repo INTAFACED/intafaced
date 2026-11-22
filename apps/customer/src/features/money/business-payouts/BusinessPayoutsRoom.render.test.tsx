@@ -43,6 +43,21 @@ vi.mock('../../session', async (original) => {
       world.mutations.push({ procedure, body });
       return { ok: true, data: world.answer(procedure, body) };
     },
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
   };
   const session = { api, userId: 'owner', profiles: { business: { accountId: ACCOUNT, name: 'TEST Payroll' } } };
   return { ...real, useSession: () => session as never };
