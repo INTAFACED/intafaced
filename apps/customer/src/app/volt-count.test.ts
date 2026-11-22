@@ -120,6 +120,33 @@ describe('the off-kit rule', () => {
     expect(found.map((f) => `${f.kind} ${f.at.split('/').slice(-1)[0]}`)).toEqual(['outside-component Room.tsx:3']);
     expect(found[0]!.text).toMatch(/^Dirty from \.\.\/parts\/Dirty, which draws off the kit: own-class at .*Helper\.tsx:1$/);
   });
+
+  it("follows a feature's index.ts re-export to the .tsx it names, and judges that part", () => {
+    const dir = plant({
+      'room/Room.tsx': [
+        `import { FlowTemplate } from '@intafaced/ui/lit/templates';`,
+        `import { Confirm, useSign } from '../features/auth';`,
+        `import { Bar } from '../features/wallet/index';`,
+        `import { Clean } from '../features/clean';`,
+        `export const Room = () => <FlowTemplate><Confirm /><Bar /><Clean /></FlowTemplate>;`,
+      ].join('\n'),
+      'features/auth/index.ts': `export { useSign } from './hooks';\nexport { StepUp as Confirm, type Props } from './StepUp';\n`,
+      'features/auth/hooks.ts': `export const useSign = () => 1;\n`,
+      'features/auth/StepUp.tsx': `import { Card } from '@intafaced/ui';\nexport const StepUp = () => <Card />;\n`,
+      'features/wallet/index.ts': `export * from './parts';\n`,
+      'features/wallet/parts.ts': `export { Bar } from './Bar';\n`,
+      'features/wallet/Bar.tsx': `export const Bar = () => <div className="wallet-bar" />;\n`,
+      'features/clean/index.ts': `export { Clean } from './Clean';\n`,
+      'features/clean/Clean.tsx': `import { Tag } from '@intafaced/ui/lit';\nexport const Clean = () => <Tag />;\n`,
+    });
+    const found = offKitFindings(join(dir, 'room/Room.tsx'));
+    expect(found.map((f) => `${f.kind} ${f.at.split('/').slice(-1)[0]}`)).toEqual([
+      'outside-component Room.tsx:2',
+      'outside-component Room.tsx:3',
+    ]);
+    expect(found[0]!.text).toMatch(/^Confirm from \.\.\/features\/auth \(.*StepUp\.tsx\), which draws off the kit: old-kit/);
+    expect(found[1]!.text).toMatch(/^Bar from .*Bar\.tsx\), which draws off the kit: own-class/);
+  });
 });
 
 describe('a part drawn through a barrel', () => {

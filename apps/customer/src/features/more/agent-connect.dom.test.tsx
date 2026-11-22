@@ -105,9 +105,9 @@ vi.mock('../session/session', () => {
 vi.mock('../session/webauthn', () => ({
   requestPasskeyAssertion: async () => ({ ok: true, data: { id: 'TEST' } }),
 }));
-// Step-up is its own tested component (StepUpConfirm); here it answers at once with one approval.
-vi.mock('../money/StepUpConfirm', () => ({
-  StepUpConfirm: ({ onApproved, request }: { onApproved: (id: string) => void; request: () => { scope: string } }) => (
+// Step-up is its own tested component (KitStepUpConfirm, StepUpConfirm's logic); here it answers at once with one approval.
+vi.mock('../money/step-up-kit/KitStepUpConfirm', () => ({
+  KitStepUpConfirm: ({ onApproved, request }: { onApproved: (id: string) => void; request: () => { scope: string } }) => (
     <button type="button" data-scope={request().scope} onClick={() => onApproved('approval-1')}>
       TEST confirm
     </button>

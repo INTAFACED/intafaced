@@ -3,11 +3,12 @@ import type { StepUpBegin } from '../../account';
 import { useStepUpConfirm } from '../step-up';
 
 /**
- * "Confirm it's you" before an older month's statement (J-bank-23), drawn with the kit: `StepUpConfirm`'s logic
- * (`useStepUpConfirm`) with the same words, order and ids. A fresh 6-digit code or a passkey buys one single-use
- * approval for exactly this export; a person with no factor sends without one and the bank alone decides.
+ * "Confirm it's you" inside a review, drawn with the kit: `StepUpConfirm`'s logic (`useStepUpConfirm`) with the same
+ * words, order and ids, for the rooms in Volt (an older month's statement, J-bank-23; an agent's key; a venue
+ * withdrawal). A fresh 6-digit code or a passkey buys one single-use approval for exactly the request under review;
+ * a person with no factor sends without one and the service alone decides. `StepUpConfirm` stays for the rooms not in Volt.
  */
-export function BooksStepUp({
+export function KitStepUpConfirm({
   request,
   words,
   disabled,
