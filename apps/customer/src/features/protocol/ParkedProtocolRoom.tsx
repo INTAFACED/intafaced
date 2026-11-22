@@ -23,7 +23,7 @@ import './protocol.css';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
 
-export { Actions, Answer, NoAnswerNote, NO_ANSWER_ATTEMPTS, NO_ANSWER_RETRY_MS, toSource } from './volt/answer';
+export { Actions, Answer, NoAnswerNote, toSource } from './volt/answer';
 
 const slugs: readonly Slug[] = ['chain', 'dex', 'protocol'];
 export function isProtocolSlug(value: string | undefined): value is Slug {

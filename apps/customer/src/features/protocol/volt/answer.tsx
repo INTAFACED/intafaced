@@ -30,8 +30,8 @@ const NO_ANSWER_CODE = 'edge.upstream_unavailable';
  * The retry window: the room asks again on its own, and a person may ask again too. After this many no-answer replies in a
  * row, a second attempt is no longer worth offering, so the room says the service is not running here and hides Try again.
  */
-export const NO_ANSWER_ATTEMPTS = 3;
-export const NO_ANSWER_RETRY_MS = 4000;
+const NO_ANSWER_ATTEMPTS = 3;
+const NO_ANSWER_RETRY_MS = 4000;
 
 /** The service did not reply. Inside the retry window it offers Try again; once the window has closed it says the service is not running here. */
 export function NoAnswerNote({ service, closed, reload, t }: { service: string; closed: boolean; reload: () => void; t: Translate }) {
