@@ -98,7 +98,6 @@ function More({ count, limit, onMore }: { count: number; limit: number; onMore: 
   );
 }
 
-
 function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: ActionSpec) => void }) {
   const { limit, setLimit, resource, reload, lifecycle } = useAutoInvestRules();
   return (

@@ -110,7 +110,6 @@ import { rulesCopy } from './rules-copy';
 
 import { LoanDetail } from './LoanDetail';
 
-
 import { loanDetailCopy } from './loan-detail-copy';
 
 import { linkedAccountsCopy } from './linked-accounts-copy';
