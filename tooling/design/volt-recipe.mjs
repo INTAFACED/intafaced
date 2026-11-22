@@ -3,6 +3,8 @@
 // and names every one it leaves. The rest of the recipe is tooling/design/RECIPE.md.
 //   node tooling/design/volt-recipe.mjs <file under apps/customer/src> ...          prints what it would change and leave
 //   node tooling/design/volt-recipe.mjs --write <file> ...                            writes the changes
+//   node tooling/design/volt-recipe.mjs --plan                                        counts, over every customer .tsx
+//                                                                                       but its tests, what it would change and leave
 // What it changes, and nothing else:
 //   - an `import { … } from '@intafaced/ui'` whose every part is in PARTS with a twin, when every use of each part
 //     moves: the import becomes the kit's (`@intafaced/ui/lit`) and each tag is renamed to its twin;
@@ -18,7 +20,7 @@
 // It reads the file with a real parser (oxc-parser, as tooling/codemod/call-records does), so a quote or a backtick in
 // a comment or in JSX text never moves a tag's end; it refuses a file that does not parse, and refuses to hand back
 // text that does not parse or has a different line count, so a fault is an error, never a written file.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseSync } from 'oxc-parser';
 
@@ -269,7 +271,17 @@ export function recipe(source) {
 
 const write = process.argv.includes('--write');
 const files = process.argv.slice(2).filter((a) => a !== '--write');
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === `file://${process.argv[1]}` && process.argv.includes('--plan')) {
+  const all = readdirSync(SRC, { recursive: true }).filter((f) => f.endsWith('.tsx') && !f.endsWith('.test.tsx'));
+  let changed = 0;
+  let left = 0;
+  for (const f of all) {
+    const result = recipe(readFileSync(join(SRC, f), 'utf8'));
+    changed += result.changed;
+    left += result.left.length;
+  }
+  process.stdout.write(`${all.length} files: ${changed} to change, ${left} left\n`);
+} else if (import.meta.url === `file://${process.argv[1]}`) {
   if (files.length === 0) {
     process.stderr.write('usage: node tooling/design/volt-recipe.mjs [--write] <file under apps/customer/src> ...\n');
     process.exit(2);
