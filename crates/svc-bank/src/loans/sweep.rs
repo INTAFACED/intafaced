@@ -7,7 +7,7 @@
 
 use postgres::GenericClient;
 use service_kit::json::Json;
-use service_kit::money::{Amount, format_amount, parse_amount};
+use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
 use service_kit::time::Instant;
 
 use super::apply::quote_value;
@@ -420,8 +420,9 @@ fn release_all(d: &Deps<'_>, l: &Loan, held: Amount) -> Result<(), Refusal> {
     super::service::release_collateral_closing(d, l, held).map(|_| ())
 }
 
-fn ceil_div(a: Amount, b: Amount) -> Amount {
-    (a + b - 1) / b
+/// `(a * b + d - 1n) / d` for positive amounts, in bigint's range: the product of two scaled amounts passes `i128`.
+fn ceil_mul_div(a: Amount, b: Amount, d: Amount) -> Amount {
+    mul_div(a, b, d, Rounding::Ceil)
 }
 
 /// `raiseMarginCall`: an open call is the call; a later sweep only re-sends a notice that never got out, on the same
@@ -443,14 +444,14 @@ fn raise_margin_call(
 ) -> Result<(), Refusal> {
     let debt_value = quote_value(debt, debt_mark.mark.price, Round::Ceil);
     let target = Amount::from(p.policy.target_ltv_bps);
-    let needed = ceil_div(debt_value * 10_000, target);
+    let needed = ceil_mul_div(debt_value, 10_000, target);
     let have = quote_value(collateral, collateral_mark.mark.price, Round::Floor);
     let short = if needed > have { needed - have } else { 0 };
     let price = collateral_mark.mark.price;
     let cure = if short == 0 {
         0
     } else {
-        ceil_div(short * ONE, price)
+        ceil_mul_div(short, ONE, price)
     };
     let open = with(d.store, |c| {
         c.query(

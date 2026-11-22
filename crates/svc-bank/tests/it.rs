@@ -16,6 +16,8 @@ mod guard_grid;
 mod input_parity;
 #[path = "loans_db.rs"]
 mod loans_db;
+#[path = "loans_ops_db.rs"]
+mod loans_ops_db;
 #[path = "partner_db.rs"]
 mod partner_db;
 #[path = "partner_probe.rs"]
