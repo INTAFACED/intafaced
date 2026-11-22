@@ -243,6 +243,8 @@ pub struct BankDoor {
     loans: crate::loans::Wiring,
     /// Slice `automations`' wiring, one part each (`automations::Wiring`); nothing until handed in.
     pub(crate) automations: crate::automations::Wiring,
+    /// Slice `bills`' wiring, one part each (`bills::Wiring`); nothing until handed in.
+    pub(crate) bills: crate::bills::Wiring,
     /// Slice `activity`'s history reads, cursor secret and owner values (`activity::Wiring`).
     activity: crate::activity::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
@@ -295,6 +297,7 @@ impl BankDoor {
             cards: crate::cards::Wiring::none(),
             loans: crate::loans::Wiring::none(),
             automations: crate::automations::Wiring::none(),
+            bills: crate::bills::Wiring::none(),
             activity: crate::activity::Wiring::none(),
             test_age_open: false,
         })
@@ -471,6 +474,30 @@ impl BankDoor {
         })
     }
 
+    /// Slice `bills`' wiring, built by the binary from the environment.
+    pub fn with_bills(mut self, wiring: crate::bills::Wiring) -> BankDoor {
+        self.bills = wiring;
+        self
+    }
+
+    /// `f` given slice `bills`' dependencies at `now`: what a call, a job door or another slice hands the slice.
+    pub fn bills_deps<T>(&self, now: Instant, f: impl FnOnce(&crate::bills::Deps<'_>) -> T) -> T {
+        let custody = self.partner.custody(&self.store);
+        let t = crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now,
+        };
+        f(&crate::bills::Deps {
+            t: &t,
+            w: &self.bills,
+        })
+    }
+
     /// Slice `partner`'s wiring, built by the binary from the environment.
     pub fn with_partner(mut self, wiring: crate::partner::router::Wiring) -> BankDoor {
         self.partner = wiring;
@@ -597,6 +624,9 @@ impl BankDoor {
             Slice::Automations => self
                 .automations_deps(ctx.now, |d| crate::automations::router::answer(d, ctx))
                 .unwrap_or_else(|| Err(not_ported(Slice::Automations))),
+            Slice::Bills => self
+                .bills_deps(ctx.now, |d| crate::bills::router::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Bills))),
             Slice::Activity => self
                 .activity_deps(ctx.now, |d| crate::activity::answer(d, ctx))
                 .unwrap_or_else(|| Err(not_ported(Slice::Activity))),

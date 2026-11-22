@@ -23,6 +23,7 @@ use service_kit::telemetry::{Logger, Telemetry};
 
 use svc_bank::activity;
 use svc_bank::automations;
+use svc_bank::bills;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
@@ -547,6 +548,11 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Slice `bills`' wiring from the environment, one part each.
+fn bills_wiring(_env: &BankEnv) -> Result<bills::Wiring, String> {
+    Ok(bills::Wiring::none())
+}
+
 /// Slice `automations`' wiring from the environment. Only the parts ported here; the others are `none()` until theirs.
 fn automations_wiring(env: &BankEnv) -> Result<automations::Wiring, String> {
     let mut w = automations::Wiring::none();
@@ -649,7 +655,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_cards(cards)
     .with_loans(loans_wiring(env)?)
     .with_activity(activity_wiring(env)?)
-    .with_automations(automations_wiring(env)?);
+    .with_automations(automations_wiring(env)?)
+    .with_bills(bills_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(
