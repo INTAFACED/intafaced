@@ -5,16 +5,9 @@ import {
   opsAlertAcceptInputSchema,
   opsAlertAcknowledgeInputSchema,
   opsAlertDetailSchema,
-  opsAlertGetInputSchema,
-  opsAlertListInputSchema,
-  opsAlertListSchema,
   opsAlertResolveInputSchema,
   opsAlertSnoozeInputSchema,
   opsAlertUnsnoozeInputSchema,
-  opsPlatformIncidentsInputSchema,
-  opsPlatformIncidentsSchema,
-  opsReconciliationPeriodsInputSchema,
-  opsReconciliationPeriodsSchema,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
 import {
   OPS_ALERT_ACTOR_UNSET,
@@ -28,6 +21,14 @@ import {
 } from '../codes.js';
 import { assertIdempotencyKey } from '../operator-desks.js';
 import type { ReconciliationAlertStore } from './store.js';
+import {
+  OPS_ALERTS_LIST,
+  OPS_ALERTS_PERIODS,
+  OPS_ALERTS_PLATFORM_INCIDENTS,
+  OPS_ALERTS_GET,
+} from '@intafaced/contracts/ops-alerts-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../record-refusal.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
@@ -77,14 +78,8 @@ export function createReconciliationAlertRoutes(
   const treasury = scopedProcedure('admin:treasury', guards);
 
   return {
-    list: reader
-      .input(opsAlertListInputSchema)
-      .output(opsAlertListSchema)
-      .query(({ input }) => run((desk) => desk.list(input))),
-    get: reader
-      .input(opsAlertGetInputSchema)
-      .output(opsAlertDetailSchema)
-      .query(({ input }) => run((desk) => desk.get(input.alertId))),
+    list: mountRecord(OPS_ALERTS_LIST, ({ input }) => run((desk) => desk.list(input)), opsRefusal),
+    get: mountRecord(OPS_ALERTS_GET, ({ input }) => run((desk) => desk.get(input.alertId)), opsRefusal),
     acknowledge: writer
       .input(opsAlertAcknowledgeInputSchema)
       .output(opsAlertDetailSchema)
@@ -154,13 +149,11 @@ export function createReconciliationAlertRoutes(
           });
         }),
       ),
-    platformIncidents: reader
-      .input(opsPlatformIncidentsInputSchema)
-      .output(opsPlatformIncidentsSchema)
-      .query(({ input }) => run(async (desk) => ({ bus: options.bus?.() ?? 'detached', incidents: await desk.incidents(input.limit) }))),
-    periods: reader
-      .input(opsReconciliationPeriodsInputSchema)
-      .output(opsReconciliationPeriodsSchema)
-      .query(({ input }) => run((desk) => desk.periods(input))),
+    platformIncidents: mountRecord(
+      OPS_ALERTS_PLATFORM_INCIDENTS,
+      ({ input }) => run(async (desk) => ({ bus: options.bus?.() ?? 'detached', incidents: await desk.incidents(input.limit) })),
+      opsRefusal,
+    ),
+    periods: mountRecord(OPS_ALERTS_PERIODS, ({ input }) => run((desk) => desk.periods(input)), opsRefusal),
   };
 }

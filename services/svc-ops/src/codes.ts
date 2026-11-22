@@ -154,6 +154,11 @@ import {
   OPS_SILENCE_ID_TAKEN,
   OPS_SILENCE_NOT_FOUND,
 } from '@intafaced/contracts/ops-alert-notify';
+import {
+  OPS_RESTORE_ARCHIVE_UNCONFIGURED,
+  OPS_RESTORE_ARCHIVE_UNPROBED,
+  OPS_RESTORE_STORAGE_UNCONFIGURED,
+} from '@intafaced/contracts/ops-call-schemas';
 
 export {
   OPS_ALERT_CHANNEL_KEY_UNSET,
@@ -219,9 +224,6 @@ export const OPS_STRUCTURED_LIST_LIMIT_UNSET = 'ops.structured_list_limit_unset'
 export const OPS_CUSTODY_LIST_LIMIT_UNSET = 'ops.custody_list_limit_unset' as const;
 export const OPS_CUSTODY_LEDGER_UNWIRED = 'ops.custody_ledger_unwired' as const;
 export const OPS_CUSTODY_KEYS_UNPUBLISHED = 'ops.custody_keys_unpublished' as const;
-export const OPS_RESTORE_ARCHIVE_UNCONFIGURED = 'ops.restore_archive_unconfigured' as const;
-export const OPS_RESTORE_ARCHIVE_UNPROBED = 'ops.restore_archive_unprobed' as const;
-export const OPS_RESTORE_STORAGE_UNCONFIGURED = 'ops.restore_storage_unconfigured' as const;
 export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
 /** Not in the spec's list: a service's watermark could not be read (no URL, a refusal, a timeout or a body that is not the contract). */
 export const OPS_RESTORE_WATERMARK_UNAVAILABLE = 'ops.restore_watermark_unavailable' as const;
@@ -448,3 +450,4 @@ export class OpsError extends Error {
     this.code = code;
   }
 }
+export { OPS_RESTORE_ARCHIVE_UNCONFIGURED, OPS_RESTORE_ARCHIVE_UNPROBED, OPS_RESTORE_STORAGE_UNCONFIGURED };
