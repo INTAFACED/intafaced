@@ -127,6 +127,7 @@ impl Refusal {
                 intafaced_code: None,
                 cause: code.clone(),
                 preview: None,
+                spend: None,
             },
             Refusal::Academy(e) => match trpc_code(&e.code) {
                 Some((trpc, send, copy)) => {
@@ -162,6 +163,7 @@ impl Refusal {
             intafaced_code: None,
             cause: code,
             preview: None,
+            spend: None,
         }
     }
 }
