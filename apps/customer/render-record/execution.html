@@ -95,8 +95,17 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-slot="page" data-width="full" data-density="dense" class="w-full min-w-0 px-(--if-gutter) text-fg py-4 max-w-none">
-<div class="flex flex-col gap-3">
+<div class="lt-room" data-template="desk" data-state="ready" data-mode="pro">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Execution</h1>
+<p class="lt-description">Work a large order over time, show only part of it, or spread it over a price range. Read every child order and fill.</p>
+</div>
+</header>
+<div class="lt-body">
+<div class="lt-desk" data-desk="pro">
+<section class="lt-region" data-region="orders" aria-label="Orders and positions">
+<div class="lt-body">
 <nav class="lt-tabs" aria-label="Trading rooms">
 <a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
 <a href="/trade/margin" class="lt-tab">Margin</a>
@@ -108,204 +117,143 @@
 <a href="/execution" class="lt-tab" aria-current="page">Execution</a>
 <a href="/otc" class="lt-tab">Quote desk</a>
 </nav>
-<header data-slot="page-header" data-density="dense" class="flex flex-col gap-2 pb-3">
-<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-<div class="flex min-w-0 flex-1 basis-64 flex-col gap-1">
-<h1 data-slot="page-header-title" class="m-0 text-xl font-semibold text-fg">Execution</h1>
-<p data-slot="page-header-description" class="m-0 text-fg-2 text-sm">Work a large order over time, show only part of it, or spread it over a price range. Read every child order and fill.</p>
-<div data-slot="page-header-meta" class="flex flex-wrap items-center gap-2 pt-1 text-xs text-fg-2">
-<span role="status" data-slot="status-chip" data-freshness="unknown" data-density="comfortable" class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-fg-2">
-<svg data-shape="dashed" aria-hidden="true" viewBox="0 0 12 12" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5">
-<circle cx="6" cy="6" r="4.5" stroke-dasharray="2 2">
-</circle>
-<path d="M4.9 4.9a1.15 1.15 0 1 1 1.6 1.05c-.35.2-.5.4-.5.8" stroke-linecap="round" stroke-width="1">
-</path>
-<circle cx="6" cy="8.6" r="0.55" fill="currentColor" stroke="none">
-</circle>
-</svg>
+<div class="lt-toolbar">
+<span class="lt-chip" role="status" data-freshness="unknown">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>
 <span>
 <span data-part="word">Unknown</span>
 </span>
 </span>
 </div>
+<div class="lt-tabs" role="tablist" aria-label="Execution sections">
+<button type="button" role="tab" id="execution-tab-algo" aria-controls="execution-panel-algo" aria-selected="true" tabindex="0" class="lt-tab">Algo orders</button>
+<button type="button" role="tab" id="execution-tab-iceberg" aria-controls="execution-panel-iceberg" aria-selected="false" tabindex="-1" class="lt-tab">Iceberg</button>
+<button type="button" role="tab" id="execution-tab-scaled" aria-controls="execution-panel-scaled" aria-selected="false" tabindex="-1" class="lt-tab">Scaled</button>
+<button type="button" role="tab" id="execution-tab-blotter" aria-controls="execution-panel-blotter" aria-selected="false" tabindex="-1" class="lt-tab">Child orders and fills</button>
+<button type="button" role="tab" id="execution-tab-routing" aria-controls="execution-panel-routing" aria-selected="false" tabindex="-1" class="lt-tab">Routing</button>
 </div>
-</div>
-</header>
-</div>
-<div data-slot="page-body" data-density="dense" class="flex min-w-0 flex-col gap-4 pt-3">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="flex flex-col">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" aria-label="Execution sections" class="relative flex items-stretch gap-6 border-b border-line overflow-x-auto">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_3_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-controls="base-ui-_r_4_">Algo orders</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_5_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Iceberg</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_6_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Scaled</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_7_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Child orders and fills</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_8_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Routing</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
-</div>
-<div class="pt-4">
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_4_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="flex-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-labelledby="base-ui-_r_3_">
-<div class="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-<section aria-label="New schedule" class="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
-<h3 class="m-0 text-md font-medium text-fg">New schedule</h3>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5" data-filled="">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_9_" for="base-ui-_r_10_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm" data-filled="">Market</label>
-</div>
-<div class="min-w-0">
-<button type="button" tabindex="0" id="base-ui-_r_10_" role="combobox" aria-expanded="false" aria-haspopup="listbox" data-slot="select-trigger" aria-label="Market" class="inline-flex min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus w-full" data-filled="" aria-labelledby="base-ui-_r_9_">
-<span data-slot="select-value" class="truncate">BTC-USDT</span>
-<span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
-</path>
-</svg>
+<div class="lt-tab-panel" role="tabpanel" id="execution-panel-algo" aria-labelledby="execution-tab-algo">
+<div class="lt-grid lt-grid-ticket-work">
+<section aria-label="New schedule" class="lt-col-main">
+<h3>New schedule</h3>
+<div class="lt-field">
+<span aria-hidden="true">Market</span>
+<div class="lt-select">
+<button type="button" role="combobox" class="lt-select-button" aria-label="Market" aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_3_-list">
+<span>BTC-USDT</span>
+<span class="lt-select-mark" aria-hidden="true">
 </span>
 </button>
-<input id="base-ui-_r_10_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="BTC-USDT">
 </div>
 </div>
-<div data-orientation="horizontal" role="group" data-slot="segmented-control" aria-label="Side" class="relative grid items-stretch rounded-pill bg-field p-0.5 w-full h-8 text-sm" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
-<span aria-hidden="true" style="width: calc((100% - 4px) / 2); transform: translateX(0%);" class="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-pill transition-[transform,background-color] duration-(--if-t-tab) ease-if bg-up">
-</span>
-<button type="button" data-pressed="" aria-disabled="false" tabindex="0" aria-pressed="true" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-on-up outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Buy</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-on-down outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Sell</button>
+<div class="lit-segmented" role="group" aria-label="Side">
+<button type="button" aria-pressed="true">Buy</button>
+<button type="button" aria-pressed="false">Sell</button>
 </div>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5" data-filled="">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_11_" for="base-ui-_r_12_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm" data-filled="">Kind</label>
-</div>
-<div class="min-w-0">
-<button type="button" tabindex="0" id="base-ui-_r_12_" role="combobox" aria-expanded="false" aria-haspopup="listbox" data-slot="select-trigger" aria-label="Kind" class="inline-flex min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus w-full" data-filled="" aria-labelledby="base-ui-_r_11_">
-<span data-slot="select-value" class="truncate">TWAP, equal slices over time</span>
-<span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
-</path>
-</svg>
+<div class="lt-field">
+<span aria-hidden="true">Kind</span>
+<div class="lt-select">
+<button type="button" role="combobox" class="lt-select-button" aria-label="Kind" aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_4_-list">
+<span>TWAP, equal slices over time</span>
+<span class="lt-select-mark" aria-hidden="true">
 </span>
 </button>
-<input id="base-ui-_r_12_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="twap">
 </div>
 </div>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_13_" for="base-ui-_r_14_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Total size (BTC)</label>
+<div class="lt-field">
+<label for="_r_5_">Total size (BTC)</label>
+<input id="_r_5_" aria-label="Total size (BTC)" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
 </div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="decimal" data-density="dense" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_14_" aria-label="Total size (BTC)" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-end tabular-nums" type="text" value="" aria-labelledby="base-ui-_r_13_">
-</div>
-</div>
-</div>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5" data-filled="">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_15_" for="base-ui-_r_16_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm" data-filled="">Duration</label>
-</div>
-<div class="min-w-0">
-<button type="button" tabindex="0" id="base-ui-_r_16_" role="combobox" aria-expanded="false" aria-haspopup="listbox" data-slot="select-trigger" aria-label="Duration" class="inline-flex min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus w-full" data-filled="" aria-labelledby="base-ui-_r_15_">
-<span data-slot="select-value" class="truncate">1 hour</span>
-<span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
-</path>
-</svg>
+<div class="lt-field">
+<span aria-hidden="true">Duration</span>
+<div class="lt-select">
+<button type="button" role="combobox" class="lt-select-button" aria-label="Duration" aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_6_-list">
+<span>1 hour</span>
+<span class="lt-select-mark" aria-hidden="true">
 </span>
 </button>
-<input id="base-ui-_r_16_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="1h">
 </div>
 </div>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_17_" for="base-ui-_r_18_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Slice interval, in seconds</label>
+<div class="lit-field-control">
+<label for="_r_7_">Slice interval, in seconds</label>
+<input aria-label="Slice interval, in seconds" id="_r_7_" aria-describedby="_r_7_-hint" type="text" value="">
+<span id="_r_7_-hint" data-part="hint">Left empty it uses 300 s, about twelve slices.</span>
 </div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="text" data-density="dense" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_18_" aria-label="Slice interval, in seconds" aria-describedby="_r_19_-hint" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="" aria-labelledby="base-ui-_r_17_">
+<div class="lt-field">
+<label for="_r_8_">Limit price (optional)</label>
+<input id="_r_8_" aria-label="Limit price (optional)" aria-describedby="_r_8_-hint" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<small id="_r_8_-hint">No limit means each slice goes in at the market.</small>
 </div>
-</div>
-<p id="_r_19_-hint" data-slot="field-hint" class="text-xs text-fg-2">Left empty it uses 300 s, about twelve slices.</p>
-</div>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_20_" for="base-ui-_r_21_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Limit price (optional)</label>
-</div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="decimal" data-density="dense" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_21_" aria-label="Limit price (optional)" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" aria-describedby="_r_22_-hint" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-end tabular-nums" type="text" value="" aria-labelledby="base-ui-_r_20_">
-</div>
-</div>
-<p id="_r_22_-hint" data-slot="field-hint" class="text-xs text-fg-2">No limit means each slice goes in at the market.</p>
-</div>
-<label class="flex items-center gap-2 text-sm text-fg" id="base-ui-_r_23_-label">
-<span data-unchecked="" role="checkbox" tabindex="0" id="base-ui-_r_24_" aria-checked="false" data-slot="checkbox" class="inline-flex size-5 shrink-0 items-center justify-center rounded-xs border border-line-strong bg-field text-on-lime transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-checked:border-lime data-checked:bg-lime data-indeterminate:border-lime data-indeterminate:bg-lime data-disabled:cursor-not-allowed data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-labelledby="base-ui-_r_23_-label">
-</span>
-<input id="base-ui-_r_23_" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" type="checkbox">
+<label class="lt-field">
+<input type="checkbox">
 <span>Random slice sizes</span>
 </label>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_25_" for="base-ui-_r_26_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Start when the price reaches</label>
+<div class="lt-field">
+<label for="_r_9_">Start when the price reaches</label>
+<input id="_r_9_" aria-label="Start when the price reaches" aria-describedby="_r_9_-hint" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<small id="_r_9_-hint">Optional. The schedule waits until the market price reaches this price, then starts slicing.</small>
 </div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="decimal" data-density="dense" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_26_" aria-label="Start when the price reaches" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" aria-describedby="_r_27_-hint" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-end tabular-nums" type="text" value="" aria-labelledby="base-ui-_r_25_">
+<div class="lit-field-control">
+<label for="_r_10_">Request id</label>
+<input aria-label="Request id" readonly="" id="_r_10_" aria-describedby="_r_10_-hint" type="text" value="algo-000000000000">
+<span id="_r_10_-hint" data-part="hint">Made once for this request, so sending it again cannot create a second schedule.</span>
+</div>
+<p role="note" class="lt-hint">We could not read whether the slice scheduler is running, so a schedule cannot be created now.</p>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md" data-block="true">Review schedule</button>
+<dialog class="lt-sheet" role="alertdialog" aria-modal="true" aria-label="Create this schedule?">
+<header class="lt-sheet-head">
+<h2 class="lt-sheet-title">Create this schedule?</h2>
+</header>
+<div class="lt-sheet-body">
+<p class="lt-description">Check every number. A schedule cannot be edited afterwards; you can stop it or make a new one.</p>
+<dl class="lt-kv">
+</dl>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Go back</button>
+<button data-autofocus="" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Create schedule</button>
 </div>
 </div>
-<p id="_r_27_-hint" data-slot="field-hint" class="text-xs text-fg-2">Optional. The schedule waits until the market price reaches this price, then starts slicing.</p>
-</div>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5" data-filled="">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_28_" for="base-ui-_r_29_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm" data-filled="">Request id</label>
-</div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="text" data-density="dense" data-readonly="" class="flex w-full min-w-0 items-center gap-2 rounded-sm border text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent bg-panel has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_29_" aria-label="Request id" readonly="" aria-describedby="_r_30_-hint" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="algo-000000000000" data-filled="" aria-labelledby="base-ui-_r_28_">
-</div>
-</div>
-<p id="_r_30_-hint" data-slot="field-hint" class="text-xs text-fg-2" data-filled="">Made once for this request, so sending it again cannot create a second schedule.</p>
-</div>
-<p role="note" class="m-0 text-sm text-warn">We could not read whether the slice scheduler is running, so a schedule cannot be created now.</p>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill w-full">Review schedule</button>
+</dialog>
 </section>
-<div class="flex min-w-0 flex-col gap-3">
-<div class="flex flex-wrap items-end gap-2">
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex flex-col gap-1.5 min-w-64 flex-1">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_31_" for="base-ui-_r_32_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Open by id</label>
+<div class="lt-col-main">
+<div class="lt-toolbar">
+<div class="lit-field-control">
+<label for="_r_11_">Open by id</label>
+<input aria-label="Open by id" id="_r_11_" aria-describedby="_r_11_-hint" type="text" value="">
+<span id="_r_11_-hint" data-part="hint">Any schedule id you have, for example one made on another device.</span>
 </div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="text" data-density="dense" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_32_" aria-label="Open by id" aria-describedby="_r_33_-hint" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="" aria-labelledby="base-ui-_r_31_">
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Open</button>
 </div>
+<div class="lt-body" aria-live="polite">
 </div>
-<p id="_r_33_-hint" data-slot="field-hint" class="text-xs text-fg-2">Any schedule id you have, for example one made on another device.</p>
-</div>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Open</button>
-</div>
-<div class="flex flex-col gap-2" aria-live="polite">
-</div>
-<div data-slot="empty-state" data-variant="refused" data-size="inline" role="status" class="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 text-left">
-<span data-slot="empty-state-icon" aria-hidden="true" class="flex shrink-0 text-warn">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ban" aria-hidden="true">
-<circle cx="12" cy="12" r="10">
-</circle>
-<path d="M4.929 4.929 19.07 19.071">
-</path>
-</svg>
-</span>
-<div class="flex min-w-0 flex-col gap-1 flex-1 basis-48">
-<p data-slot="empty-state-title" class="m-0 font-medium text-fg text-base">We could not load this</p>
-<p data-slot="empty-state-reason" class="m-0 text-fg-2 text-sm">The connection dropped or the service did not answer. Nothing was changed.</p>
-</div>
-<div data-slot="empty-state-actions" class="flex flex-wrap items-center gap-2 ml-auto">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Try again</button>
+<div class="lt-refusal" data-refusal="refused" role="status">
+<p class="lt-refusal-title">We could not load this</p>
+<p class="lt-refusal-body">The connection dropped or the service did not answer. Nothing was changed.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
+<dialog class="lt-sheet" role="alertdialog" aria-modal="true" aria-label="">
+<header class="lt-sheet-head">
+<h2 class="lt-sheet-title">
+</h2>
+</header>
+<div class="lt-sheet-body">
+<p class="lt-description">
+</p>
+<dl class="lt-kv">
+</dl>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Go back</button>
+<button data-autofocus="" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
+</button>
+</div>
+</div>
+</dialog>
 </div>
 </div>
 </div>
-</div>
+</section>
 </div>
 </div>
 </div>

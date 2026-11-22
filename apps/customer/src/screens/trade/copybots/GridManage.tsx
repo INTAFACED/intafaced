@@ -5,6 +5,7 @@ import type { createRoomApi, GridBot } from './api';
 import { roomCopy } from './copy';
 import type { Failure } from './guard';
 import { InfoNote, RefusalNote } from './parts';
+import './copybots.css';
 
 // One key per top-up intent: kept while a reply is lost, so a resend is the same top-up; renewed after any answer.
 const newRequestKey = () => `topup-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

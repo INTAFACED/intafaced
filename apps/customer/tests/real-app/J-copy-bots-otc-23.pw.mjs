@@ -919,7 +919,9 @@ async function progressOf(who, algoId) {
 
 /** The schedule id each row of the list names for assistive technology, in row order. */
 async function rowIds(list) {
-  const names = await list.getByRole('row').evaluateAll((rows) => rows.map((r) => r.querySelector('.sr-only')?.textContent ?? null));
+  const names = await list
+    .getByRole('row')
+    .evaluateAll((rows) => rows.map((r) => r.querySelector('[data-testid="schedule-row-name"]')?.textContent ?? null));
   return names.filter((n) => n !== null).map((n) => n.replace(/^Schedule /, ''));
 }
 

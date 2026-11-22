@@ -6,6 +6,7 @@ import { roomCopy } from './copy';
 import { useLive } from './live';
 import { Freshness, InfoNote, RefusalNote } from './parts';
 import { roomRefusal } from './refusals';
+import './copybots.css';
 
 /**
  * Signals (CB-bots-api-signal-05, -06, -07; J-copy-bots-otc-22). A provider publishes a signal with a fee model, free

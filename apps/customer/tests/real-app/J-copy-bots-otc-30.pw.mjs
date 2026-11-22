@@ -53,7 +53,7 @@ async function terminal(page, tab) {
 
 /** The order ids a terminal table lists, read from its Order column. */
 async function idsIn(table) {
-  return (await table.locator('tbody tr td .font-mono').allTextContents()).map((s) => s.trim()).filter(Boolean);
+  return (await table.locator('tbody tr td [data-testid="order-id"]').allTextContents()).map((s) => s.trim()).filter(Boolean);
 }
 
 test(`${J} #1 opens positions and history: orders and fills listed with statuses that match the book`, async ({ page }) => {

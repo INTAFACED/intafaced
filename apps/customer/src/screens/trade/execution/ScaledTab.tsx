@@ -1,13 +1,12 @@
 /** Scaled orders: form and cost, the batch answer per order, and recovery by reading the book back by id prefix. */
 import { useCallback, useState } from 'react';
 import type { Order } from '../../../features/trade/trade-api';
-import { WriteNotice } from '../rooms/RoomNotices';
 import { useRoomWriter } from '../rooms/write';
 import { useBalances } from '../desk/data';
 import { execCopy } from './copy';
 import { useTradeApi, type ExecMarket } from './data';
 import { matchesPrefix, ownsNote, scaledPrefix } from './model';
-import { Why } from './parts';
+import { Why, WriteNotice } from './parts';
 import { ScaledForm, type ScaledRun } from './ScaledForm';
 import { ScaledResult } from './ScaledResult';
 
@@ -52,7 +51,7 @@ export function ScaledTab({ markets }: { markets: readonly ExecMarket[] }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="lt-body">
       {balances.status === 'refused' || balances.status === 'error' ? <Why>{t('Balance unread')}</Why> : null}
       <ScaledForm
         markets={markets}
@@ -67,7 +66,7 @@ export function ScaledTab({ markets }: { markets: readonly ExecMarket[] }) {
       />
       <WriteNotice writer={writer} onCheck={(id) => void checkPending(id)} done={t('Orders sent')} />
       {note ? (
-        <p role="status" className="m-0 text-sm text-warn">
+        <p role="status" className="lt-hint">
           {note}
         </p>
       ) : null}

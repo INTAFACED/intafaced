@@ -3,7 +3,9 @@
  * off the room says so and does not make the call (a schedule created now would sit active and place nothing).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Badge, Button, Checkbox, Field, Input, KeyValue, SegmentedControl, fmtAmount, fmtPrice, type Loadable } from '../rooms/ui';
+import { Button, Segmented, Tag } from '@intafaced/ui/lit';
+import { Checkbox, KeyValue } from '@intafaced/ui/lit/templates';
+import { fmtAmount, fmtPrice, type Loadable } from '../rooms/ui';
 import { useNow, useRoomApi } from '../rooms/read';
 import { rememberId } from '../rooms/store';
 import type { RoomWriter } from '../rooms/write';
@@ -26,7 +28,7 @@ import {
   type PlanProblem,
   type Side,
 } from './model';
-import { ConfirmDialog, Pick, Why, placesFor, useWhen } from './parts';
+import { ConfirmDialog, DecimalField, Pick, TextField, Unknown, Why, placesFor, useWhen } from './parts';
 
 export interface AlgoFormValues {
   symbol: string;
@@ -287,191 +289,157 @@ export function AlgoForm({
       ]
     : [];
 
+  const digits = (v: string) => v.replace(/\D/g, '');
   return (
-    <section aria-label={t('New schedule')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
-      <h3 className="m-0 text-md font-medium text-fg">{t('New schedule')}</h3>
-      <Field label={t('Market')}>
-        <Pick
-          label={t('Market')}
-          value={form.symbol}
-          options={markets.map((m) => ({ value: m.symbol, label: m.symbol }))}
-          onChange={(v) => set('symbol', v)}
-        />
-      </Field>
-      <SegmentedControl
-        aria-label={t('Side')}
-        size={32}
-        fullWidth
+    <section aria-label={t('New schedule')} className="lt-col-main">
+      <h3>{t('New schedule')}</h3>
+      <Pick
+        label={t('Market')}
+        value={form.symbol}
+        options={markets.map((m) => ({ value: m.symbol, label: m.symbol }))}
+        onChange={(v) => set('symbol', v)}
+      />
+      <Segmented
+        label={t('Side')}
         value={form.side}
-        onValueChange={(v) => set('side', v as Side)}
-        items={[
-          { value: 'buy', label: t('Buy'), tone: 'up' },
-          { value: 'sell', label: t('Sell'), tone: 'down' },
+        onChange={(v) => set('side', v)}
+        options={[
+          { value: 'buy', label: t('Buy') },
+          { value: 'sell', label: t('Sell') },
         ]}
       />
-      <Field label={t('Kind')} hint={immature ? t('Immature volume warning') : undefined}>
-        <Pick
-          label={t('Kind')}
-          value={form.kind}
-          options={[
-            { value: 'twap', label: t('TWAP') },
-            { value: 'vwap', label: t('VWAP') },
-            { value: 'pov', label: t('POV') },
-            { value: 'chase', label: t('Chase') },
-          ]}
-          onChange={(v) => set('kind', v)}
-        />
-      </Field>
-      <Field
+      <Pick
+        label={t('Kind')}
+        hint={immature ? t('Immature volume warning') : undefined}
+        value={form.kind}
+        options={[
+          { value: 'twap', label: t('TWAP') },
+          { value: 'vwap', label: t('VWAP') },
+          { value: 'pov', label: t('POV') },
+          { value: 'chase', label: t('Chase') },
+        ]}
+        onChange={(v) => set('kind', v)}
+      />
+      <DecimalField
         label={t('Total size ({asset})', { asset: market?.base ?? '' })}
         error={problems.includes('total') && form.total ? problemWord('total') : problems.includes('lot') ? problemWord('lot') : undefined}
-      >
-        <Input
-          kind="decimal"
-          aria-label={t('Total size ({asset})', { asset: market?.base ?? '' })}
-          value={form.total}
-          onValueChange={(v) => set('total', v)}
-          precision={amountPlaces}
-          density="dense"
-        />
-      </Field>
-      <Field label={t('Duration')} error={problems.includes('duration') ? problemWord('duration') : undefined}>
-        <Pick
-          label={t('Duration')}
-          value={form.duration}
-          options={[
-            ...DURATION_PRESETS.map((p) => ({ value: p.id, label: t(`Duration ${p.id}`) })),
-            { value: 'custom', label: t('Custom') },
-          ]}
-          onChange={(v) => set('duration', v)}
-        />
-      </Field>
+        value={form.total}
+        onValueChange={(v) => set('total', v)}
+        precision={amountPlaces}
+      />
+      <Pick
+        label={t('Duration')}
+        error={problems.includes('duration') ? problemWord('duration') : undefined}
+        value={form.duration}
+        options={[...DURATION_PRESETS.map((p) => ({ value: p.id, label: t(`Duration ${p.id}`) })), { value: 'custom', label: t('Custom') }]}
+        onChange={(v) => set('duration', v)}
+      />
       {form.duration === 'custom' ? (
-        <Field label={t('Custom duration, seconds')} hint={t('Between 1 second and 24 hours (86400)')}>
-          <Input
-            aria-label={t('Custom duration, seconds')}
-            value={form.customSec}
-            onValueChange={(v) => set('customSec', v.replace(/\D/g, ''))}
-            density="dense"
-          />
-        </Field>
+        <TextField
+          label={t('Custom duration, seconds')}
+          hint={t('Between 1 second and 24 hours (86400)')}
+          value={form.customSec}
+          onValueChange={(v) => set('customSec', digits(v))}
+        />
       ) : null}
       {chase ? (
-        <Field
+        <DecimalField
           label={t('Maximum chase distance, %')}
           hint={t('Chase distance hint')}
           error={problems.includes('chaseDistance') ? problemWord('chaseDistance') : undefined}
-        >
-          <Input
-            kind="decimal"
-            aria-label={t('Maximum chase distance, %')}
-            value={form.chase}
-            onValueChange={(v) => set('chase', v)}
-            precision={2}
-            density="dense"
-          />
-        </Field>
+          value={form.chase}
+          onValueChange={(v) => set('chase', v)}
+          precision={2}
+        />
       ) : null}
       {chase ? null : (
-        <Field
+        <TextField
           label={t('Slice interval, seconds')}
           hint={t('Empty uses {seconds} s', {
             seconds: durationMs === null ? '—' : String(Math.round(defaultIntervalMs(durationMs) / 1000)),
           })}
           error={problems.includes('interval') ? problemWord('interval') : undefined}
-        >
-          <Input
-            aria-label={t('Slice interval, seconds')}
-            value={form.intervalSec}
-            onValueChange={(v) => set('intervalSec', v.replace(/\D/g, ''))}
-            density="dense"
-          />
-        </Field>
+          value={form.intervalSec}
+          onValueChange={(v) => set('intervalSec', digits(v))}
+        />
       )}
       {form.kind === 'pov' ? (
-        <Field label={t('Participation basis')} hint={t(`Participation basis hint ${form.basis}`)}>
-          <Pick
-            label={t('Participation basis')}
-            value={form.basis}
-            options={[
-              { value: 'traded_volume', label: t('Traded volume') },
-              { value: 'opposite_liquidity', label: t('Opposite-side liquidity') },
-            ]}
-            onChange={(v) => set('basis', v)}
-          />
-        </Field>
+        <Pick
+          label={t('Participation basis')}
+          hint={t(`Participation basis hint ${form.basis}`)}
+          value={form.basis}
+          options={[
+            { value: 'traded_volume', label: t('Traded volume') },
+            { value: 'opposite_liquidity', label: t('Opposite-side liquidity') },
+          ]}
+          onChange={(v) => set('basis', v)}
+        />
       ) : null}
       {form.kind === 'pov' ? (
-        <Field
+        <TextField
           label={t('Participation, basis points')}
           hint={t('1 to 10000, so 1000 is 10% of volume')}
           error={problems.includes('participation') ? problemWord('participation') : undefined}
-        >
-          <Input
-            aria-label={t('Participation, basis points')}
-            value={form.pov}
-            onValueChange={(v) => set('pov', v.replace(/\D/g, ''))}
-            density="dense"
-          />
-        </Field>
+          value={form.pov}
+          onValueChange={(v) => set('pov', digits(v))}
+        />
       ) : null}
       {chase ? null : (
-        <Field
+        <DecimalField
           label={t('Limit price (optional)')}
           hint={t('No limit means market slices')}
           error={problems.includes('limit') ? problemWord('limit') : undefined}
-        >
-          <Input
-            kind="decimal"
-            aria-label={t('Limit price (optional)')}
-            value={form.limit}
-            onValueChange={(v) => set('limit', v)}
-            precision={placesFor(market?.tickSize)}
-            density="dense"
-          />
-        </Field>
+          value={form.limit}
+          onValueChange={(v) => set('limit', v)}
+          precision={placesFor(market?.tickSize)}
+        />
       )}
       {twap ? (
         <>
-          <label className="flex items-center gap-2 text-sm text-fg">
-            <Checkbox checked={form.random} onCheckedChange={(v) => set('random', v === true)} />
-            <span>{t('Random slice sizes')}</span>
-          </label>
+          <Checkbox label={t('Random slice sizes')} checked={form.random} onChange={(v) => set('random', v)} />
           {form.random ? (
-            <Field label={t('Seed')} hint={t('Seed hint')} error={seedBad && form.seed.trim() ? t('Seed problem') : undefined}>
-              <Input aria-label={t('Seed')} value={form.seed} onValueChange={(v) => set('seed', v.replace(/\D/g, ''))} density="dense" />
-            </Field>
-          ) : null}
-          <Field label={t('Start when the price reaches')} hint={t('Trigger hint')} error={triggerBad ? t('Trigger problem') : undefined}>
-            <Input
-              kind="decimal"
-              aria-label={t('Start when the price reaches')}
-              value={form.trigger}
-              onValueChange={(v) => set('trigger', v)}
-              precision={placesFor(market?.tickSize)}
-              density="dense"
+            <TextField
+              label={t('Seed')}
+              hint={t('Seed hint')}
+              error={seedBad && form.seed.trim() ? t('Seed problem') : undefined}
+              value={form.seed}
+              onValueChange={(v) => set('seed', digits(v))}
             />
-          </Field>
+          ) : null}
+          <DecimalField
+            label={t('Start when the price reaches')}
+            hint={t('Trigger hint')}
+            error={triggerBad ? t('Trigger problem') : undefined}
+            value={form.trigger}
+            onValueChange={(v) => set('trigger', v)}
+            precision={placesFor(market?.tickSize)}
+          />
         </>
       ) : null}
-      <Field label={t('Request id')} hint={t('Made once for this request, so a re-send cannot create a second schedule')}>
-        <Input aria-label={t('Request id')} value={clientAlgoId} readOnly density="dense" />
-      </Field>
+      <TextField
+        label={t('Request id')}
+        hint={t('Made once for this request, so a re-send cannot create a second schedule')}
+        value={clientAlgoId}
+        readOnly
+      />
 
-      {plan ? <KeyValue density="dense" aria-label={t('Preview')} items={rows.slice(4, 11)} /> : null}
+      {plan ? (
+        <KeyValue
+          label={t('Preview')}
+          rows={rows.slice(4, 11).map((r) => ({ label: r.label, value: r.value ?? <Unknown />, note: r.hint, ltr: r.mono }))}
+        />
+      ) : null}
       {general ? <Why>{problemWord(general)}</Why> : null}
       {blockerKey && blocker ? <Why code={CREATE_BLOCKER_CODE[blockerKey]}>{blocker}</Why> : null}
       {!writer.signedIn ? <Why>{t('Sign in to create')}</Why> : null}
       {duplicate ? (
-        <div className="flex flex-wrap items-center gap-3 text-sm text-fg">
-          <Badge tone="warn">{t('Already sent')}</Badge>
+        <div className="lt-toolbar">
+          <Tag>{t('Already sent')}</Tag>
           <span>{t('Already sent body')}</span>
-          <Button variant="secondary" size={32} onClick={() => onCheck(clientAlgoId)}>
-            {t('Check status')}
-          </Button>
+          <Button onClick={() => onCheck(clientAlgoId)}>{t('Check status')}</Button>
         </div>
       ) : null}
-      <Button size={40} fullWidth disabled={!canReview || writer.busy || writer.note.state !== 'none'} onClick={() => void openReview()}>
+      <Button tone="primary" block disabled={!canReview || writer.busy || writer.note.state !== 'none'} onClick={() => void openReview()}>
         {t('Review schedule')}
       </Button>
       <ConfirmDialog
@@ -489,7 +457,7 @@ export function AlgoForm({
         }}
       >
         {seed === null ? null : sizes.state === 'ready' ? (
-          <ol aria-label={t('Slice sizes')} className="m-0 flex list-decimal flex-col gap-1 ps-5 text-sm text-fg">
+          <ol aria-label={t('Slice sizes')}>
             {sizes.sizes.map((size, i) => (
               <li key={i}>{`${fmtAmount(size, { places: amountPlaces })} ${market?.base ?? ''}`}</li>
             ))}
@@ -497,7 +465,7 @@ export function AlgoForm({
         ) : sizes.state === 'refused' ? (
           <Why code={sizes.code}>{t('Slice sizes refused')}</Why>
         ) : (
-          <p className="m-0 text-sm text-fg-2">{t('Slice sizes loading')}</p>
+          <p className="lt-hint">{t('Slice sizes loading')}</p>
         )}
       </ConfirmDialog>
     </section>

@@ -5,6 +5,7 @@ import type { LeadCopier, LeadTrade, RoomApi } from './api';
 import { roomCopy } from './copy';
 import { useLive } from './live';
 import { RefusalNote } from './parts';
+import './copybots.css';
 
 const MISSION_TITLE = {
   apply: 'Apply to lead',

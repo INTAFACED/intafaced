@@ -1,12 +1,13 @@
 /** The schedules this device knows, each re-read from the service, and the detail of the one picked. */
-import { Badge, Button, EmptyState, KeyValue, Table, fmtAmount, fmtPrice, type Loadable, type TableColumn } from '../rooms/ui';
-import { Freshness } from '../rooms/RoomNotices';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { KeyValue, StatusChip, Table, type Column } from '@intafaced/ui/lit/templates';
+import { UNKNOWN, fmtAmount, fmtPrice, type Loadable } from '../rooms/ui';
 import { roomWords } from '../rooms/refusals';
 import { compareDecimals, percentOf } from '../rooms/math';
 import { execCopy } from './copy';
 import type { ParentRead } from './data';
 import { bpsAsPercent } from './model';
-import { Gate, Why, useWhen } from './parts';
+import { Empty, Freshness, Gate, Refusal, Unknown, Why, useWhen } from './parts';
 
 export type AlgoAction = 'pause' | 'resume' | 'cancel';
 type Ok = Extract<ParentRead, { ok: true }>;
@@ -32,7 +33,10 @@ function lastSliceWords(
 }
 
 const CANCEL_INCOMPLETE = 'cancel_incomplete';
-const TONE = { active: 'lime', paused: 'warn', halted: 'error', completed: 'neutral', cancelled: 'neutral' } as const;
+/** Each status as the kit's status mark: running is in progress, ended is done, a halt failed, paused and cancelled are open questions. */
+const MARK = { active: 'pending', paused: 'unknown', halted: 'failed', completed: 'done', cancelled: 'unknown' } as const;
+/** A cell the service has not filled: a dash, as every table draws it. */
+const dash = (value: string | null | undefined) => value ?? UNKNOWN;
 
 function pctOf(row: Ok): string | null {
   const done = row.progress?.filledQty ?? null;
@@ -80,15 +84,18 @@ function useReasonWords() {
 
 function StatusCell({ row }: { row: ParentRead }) {
   const { t } = execCopy.useCopy();
-  if (!row.ok) return <Badge tone="error">{t('Could not read')}</Badge>;
+  if (!row.ok) return <StatusChip status="failed" label={t('Could not read')} />;
   const status = row.progress?.status ?? row.parent.status;
   const misses = row.progress?.missesRecorded ?? row.parent.missesRecorded;
   const emitted = row.progress?.childrenEmitted ?? row.parent.childrenEmitted;
   return (
-    <span className="flex flex-wrap items-center gap-1">
-      <Badge tone={TONE[status]}>{t(`Status ${status}`)}</Badge>
+    <span>
+      <StatusChip status={MARK[status]} label={t(`Status ${status}`)} />
       {misses > 0 && emitted < row.parent.slicesPlanned ? (
-        <Badge tone="warn">{t('Partial: {n} misses', { n: String(misses) })}</Badge>
+        <>
+          {' '}
+          <StatusChip status="unknown" label={t('Partial: {n} misses', { n: String(misses) })} />
+        </>
       ) : null}
     </span>
   );
@@ -118,121 +125,95 @@ export function AlgoList({
   if (empty)
     return (
       <Gate load={listing} rows={2}>
-        {() => <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />}
+        {() => <Empty title={t('No schedules known')} body={t('No schedules known reason')} />}
       </Gate>
     );
 
-  const columns: TableColumn<ParentRead>[] = [
+  const columns: Column<ParentRead>[] = [
     {
-      id: 'market',
-      header: t('Market'),
-      width: 130,
-      pin: 'start',
-      value: (r) => (r.ok ? r.parent.symbol : r.id),
+      key: 'market',
+      label: t('Market'),
       // Every row names its schedule for assistive technology, whatever its status: a finished row has no action buttons
       // to carry the id.
       cell: (r) => (
         <>
           {r.ok ? r.parent.symbol : r.id}
-          {r.ok ? <span className="sr-only">{t('Schedule {id}', { id: r.id })}</span> : null}
+          {r.ok ? (
+            <span className="lt-sr" data-testid="schedule-row-name">
+              {t('Schedule {id}', { id: r.id })}
+            </span>
+          ) : null}
         </>
       ),
     },
-    { id: 'side', header: t('Side'), width: 56, value: (r) => (r.ok ? (r.parent.side === 'buy' ? t('Buy') : t('Sell')) : null) },
+    { key: 'side', label: t('Side'), cell: (r) => dash(r.ok ? (r.parent.side === 'buy' ? t('Buy') : t('Sell')) : null) },
+    { key: 'kind', label: t('Kind'), cell: (r) => (r.ok ? <Tag tone="neutral">{r.parent.kind.toUpperCase()}</Tag> : UNKNOWN) },
+    { key: 'total', label: t('Total'), align: 'end', cell: (r) => dash(r.ok ? fmtAmount(r.parent.totalQty) : null) },
+    { key: 'filled', label: t('Filled'), align: 'end', cell: (r) => dash(r.ok && r.progress ? fmtAmount(r.progress.filledQty) : null) },
     {
-      id: 'kind',
-      header: t('Kind'),
-      width: 80,
-      cell: (r) => (r.ok ? <Badge variant="outline">{r.parent.kind.toUpperCase()}</Badge> : null),
-    },
-    {
-      id: 'total',
-      header: t('Total'),
-      width: 76,
-      numeric: true,
-      value: (r) => (r.ok ? r.parent.totalQty : null),
-      cell: (r) => (r.ok ? fmtAmount(r.parent.totalQty) : null),
-    },
-    {
-      id: 'filled',
-      header: t('Filled'),
-      width: 76,
-      numeric: true,
-      value: (r) => (r.ok ? (r.progress?.filledQty ?? null) : null),
-      cell: (r) => (r.ok && r.progress ? fmtAmount(r.progress.filledQty) : null),
-    },
-    {
-      id: 'average',
-      header: t('Average fill price'),
-      width: 96,
-      numeric: true,
+      key: 'average',
+      label: t('Average fill price'),
+      align: 'end',
       cell: (r) => {
         const avg = r.ok ? averageFill(r) : null;
-        return avg === null ? null : avg === 'not_set' ? t('Not set') : fmtPrice(avg, null);
+        return avg === null ? UNKNOWN : avg === 'not_set' ? t('Not set') : fmtPrice(avg, null);
       },
     },
     {
-      id: 'progress',
-      header: t('Progress'),
-      width: 120,
+      key: 'progress',
+      label: t('Progress'),
       cell: (r) => {
         const pct = r.ok ? pctOf(r) : null;
-        if (pct === null) return null;
+        if (pct === null) return UNKNOWN;
         return (
-          <span className="flex items-center gap-2">
-            <span aria-hidden="true" className="block h-1.5 w-16 overflow-hidden rounded-pill bg-field">
-              <span className="block h-full bg-lime" style={{ width: `${pct}%` }} />
-            </span>
-            <span className="if-num">{pct}%</span>
+          <span className="lt-toolbar">
+            <meter className="lt-meter" aria-hidden="true" min={0} max={100} value={Number(pct)} />
+            <span>{pct}%</span>
           </span>
         );
       },
     },
     {
-      id: 'slices',
-      header: t('Slices'),
-      width: 70,
+      key: 'slices',
+      label: t('Slices'),
       cell: (r) => {
-        if (!r.ok) return null;
+        if (!r.ok) return UNKNOWN;
         const emitted = r.progress?.childrenEmitted ?? r.parent.childrenEmitted;
         // A chase has no slice plan: it re-prices one child, so the count is the children placed so far.
         return r.parent.kind === 'chase' ? `${emitted}` : `${emitted} / ${r.parent.slicesPlanned}`;
       },
     },
     {
-      id: 'misses',
-      header: t('Misses'),
-      width: 64,
-      numeric: true,
-      value: (r) => (r.ok ? String(r.progress?.missesRecorded ?? r.parent.missesRecorded) : null),
+      key: 'misses',
+      label: t('Misses'),
+      align: 'end',
+      cell: (r) => dash(r.ok ? String(r.progress?.missesRecorded ?? r.parent.missesRecorded) : null),
     },
-    { id: 'status', header: t('Status'), width: 200, cell: (r) => <StatusCell row={r} /> },
+    { key: 'status', label: t('Status'), cell: (r) => <StatusCell row={r} /> },
     {
-      id: 'next',
-      header: t('Next slice'),
-      width: 116,
-      value: (r) =>
-        r.ok && r.parent.status === 'active'
-          ? r.parent.awaitingTrigger
-            ? t('After the trigger price is reached')
-            : when(r.parent.nextDueAt)
-          : null,
+      key: 'next',
+      label: t('Next slice'),
+      cell: (r) =>
+        dash(
+          r.ok && r.parent.status === 'active'
+            ? r.parent.awaitingTrigger
+              ? t('After the trigger price is reached')
+              : when(r.parent.nextDueAt)
+            : null,
+        ),
     },
-    { id: 'ends', header: t('Ends'), width: 116, value: (r) => (r.ok ? endWords(r.parent, t, when) : null) },
+    { key: 'ends', label: t('Ends'), cell: (r) => dash(r.ok ? endWords(r.parent, t, when) : null) },
     {
-      id: 'actions',
-      header: t('Actions'),
-      width: 230,
+      key: 'actions',
+      label: t('Actions'),
       cell: (r) => {
-        if (!r.ok) return null;
+        if (!r.ok) return UNKNOWN;
         const { parent } = r;
         const status = r.progress?.status ?? parent.status;
         const blocked = resumeBlock(r, t);
         const act = (action: AlgoAction, label: string) => (
           <Button
             key={action}
-            variant="secondary"
-            size={28}
             disabled={locked || ((action === 'resume' || action === 'pause') && blocked !== null)}
             aria-label={`${label} ${parent.id}`}
             onClick={(event) => {
@@ -244,13 +225,11 @@ export function AlgoList({
           </Button>
         );
         return (
-          <span className="flex flex-wrap gap-1">
+          <span className="lt-actions">
             {status === 'active' || blocked !== null ? act('pause', t('Pause')) : null}
             {status === 'paused' || status === 'halted' ? act('resume', t('Resume')) : null}
             {status === 'active' || status === 'paused' || status === 'halted' ? act('cancel', t('Cancel')) : null}
-            {blocked !== null && (status === 'paused' || status === 'halted') ? (
-              <span className="basis-full whitespace-normal text-xs text-warn">{blocked}</span>
-            ) : null}
+            {blocked !== null && (status === 'paused' || status === 'halted') ? <span className="lt-hint">{blocked}</span> : null}
           </span>
         );
       },
@@ -260,32 +239,27 @@ export function AlgoList({
   return (
     <Gate load={load}>
       {(rows, asOf) => (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-sm text-fg-2">
+        <div className="lt-body">
+          <div className="lt-toolbar">
             <Freshness asOf={asOf} />
-            <span>{t('Schedules re-read every 10 s')}</span>
+            <span className="lt-hint">{t('Schedules re-read every 10 s')}</span>
           </div>
           {listing.status === 'refused' || listing.status === 'error' ? (
             <Why code={listing.status === 'refused' ? listing.code : undefined}>{t('Schedule list unread')}</Why>
           ) : (
-            <p className="m-0 text-sm text-fg-2">{t('Schedule list window')}</p>
+            <p className="lt-hint">{t('Schedule list window')}</p>
           )}
           <Table
-            label={t('Schedules')}
-            density="dense"
+            caption={t('Schedules')}
+            mode="pro"
             columns={columns}
             rows={rows}
-            getRowId={(r) => r.id}
-            minWidth={columns.reduce((sum, column) => sum + (typeof column.width === 'number' ? column.width : 0), 0)}
-            selection="single"
-            selectedIds={selectedId ? new Set([selectedId]) : undefined}
-            onSelectionChange={(ids) => {
-              const [first] = ids;
-              if (first) onSelect(first);
-            }}
-            onRowActivate={(r) => onSelect(r.id)}
+            rowKey={(r) => r.id}
+            selected={selectedId ?? undefined}
+            onSelect={onSelect}
+            empty="Nothing to show"
           />
-          {locked ? <p className="m-0 text-sm text-warn">{t('Actions locked')}</p> : null}
+          {locked ? <p className="lt-hint">{t('Actions locked')}</p> : null}
         </div>
       )}
     </Gate>
@@ -298,7 +272,7 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
   const reasonWords = useReasonWords();
   if (!row.ok) {
     const words = roomWords({ code: row.code ?? undefined });
-    return <EmptyState variant="refused" size="inline" title={words.title} reason={words.body} code={words.code} />;
+    return <Refusal words={words} />;
   }
   const { parent, progress } = row;
   const done = progress?.filledQty ?? null;
@@ -306,10 +280,9 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
   const stretch = reasonWords(parent.scheduleStretchReason ?? null, 'stretch');
   const blocked = resumeBlock(row, t);
   return (
-    <section aria-label={t('Schedule detail')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
+    <section aria-label={t('Schedule detail')} className="lt-col-main">
       <KeyValue
-        density="dense"
-        items={[
+        rows={[
           { label: t('Schedule id'), value: parent.id, mono: true },
           { label: t('Market'), value: `${parent.symbol}, ${parent.side === 'buy' ? t('Buy') : t('Sell')}, ${parent.kind.toUpperCase()}` },
           parent.kind === 'chase'
@@ -389,15 +362,13 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
                   : when(parent.nextDueAt),
           },
           { label: t('Projected end'), value: endWords(parent, t, when) },
-        ]}
+        ].map((r) => ({ label: r.label, value: r.value ?? <Unknown />, note: r.hint, ltr: 'mono' in r ? r.mono : undefined }))}
       />
       {blocked ? <Why>{blocked}</Why> : null}
-      <p className="m-0 text-sm text-fg-2">{t('Children note')}</p>
-      <div className="flex flex-wrap items-center gap-3">
-        <Button variant="secondary" size={32} onClick={() => onClone(parent)}>
-          {t('Create new with these numbers')}
-        </Button>
-        <span className="text-sm text-fg-2">{t('Schedules are not edited')}</span>
+      <p className="lt-hint">{t('Children note')}</p>
+      <div className="lt-toolbar">
+        <Button onClick={() => onClone(parent)}>{t('Create new with these numbers')}</Button>
+        <span className="lt-hint">{t('Schedules are not edited')}</span>
       </div>
     </section>
   );

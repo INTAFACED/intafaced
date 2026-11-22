@@ -6,6 +6,7 @@ import type { createRoomApi, GridBot, GridWithdrawal } from './api';
 import { roomCopy } from './copy';
 import type { Failure } from './guard';
 import { AccountBadge, RefusalNote } from './parts';
+import './copybots.css';
 
 // One key per withdrawal intent: kept while a reply is lost, so a resend is the same withdrawal; renewed after any answer.
 const newRequestKey = () => `withdraw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

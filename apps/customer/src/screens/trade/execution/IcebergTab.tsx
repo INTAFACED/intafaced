@@ -5,8 +5,9 @@
  */
 import { useMemo, useState } from 'react';
 import { useLeadMode } from '../../../features/trade/lead-mode';
-import { Button, Field, Input, KeyValue, SegmentedControl, fmtAmount, fmtPrice } from '../rooms/ui';
-import { WriteNotice } from '../rooms/RoomNotices';
+import { Button, Segmented } from '@intafaced/ui/lit';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { fmtAmount, fmtPrice } from '../rooms/ui';
 import { useRoomApi } from '../rooms/read';
 import { useRoomWriter } from '../rooms/write';
 import { useOpenOrders, useRefreshPrivate } from '../desk/data';
@@ -15,7 +16,7 @@ import type { ExecMarket } from './data';
 import { buildBlotter } from './blotter';
 import { icebergClientId, newNonce, ownsNote, reviewIceberg, type IcebergProblem, type Side } from './model';
 import { BlotterTable, useCancelFlow } from './OrdersView';
-import { ConfirmDialog, Gate, Pick, Why, placesFor } from './parts';
+import { ConfirmDialog, DecimalField, Gate, Pick, TextField, Unknown, Why, WriteNotice, placesFor } from './parts';
 
 export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
   const { t } = execCopy.useCopy();
@@ -106,20 +107,18 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
   ];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <section aria-label={t('New iceberg')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
-        <h3 className="m-0 text-md font-medium text-fg">{t('New iceberg')}</h3>
-        <Field label={t('Market')}>
-          <Pick
-            label={t('Market')}
-            value={symbol}
-            options={markets.map((m) => ({ value: m.symbol, label: m.symbol }))}
-            onChange={setSymbol}
-          />
-        </Field>
+    <div className="lt-grid lt-grid-ticket-work">
+      <section aria-label={t('New iceberg')} className="lt-col-main">
+        <h3>{t('New iceberg')}</h3>
+        <Pick
+          label={t('Market')}
+          value={symbol}
+          options={markets.map((m) => ({ value: m.symbol, label: m.symbol }))}
+          onChange={setSymbol}
+        />
         {leadMode.isLead ? (
-          <div className="flex items-center gap-2 text-sm text-fg">
-            <label className="flex items-center gap-2">
+          <div className="lt-field">
+            <label className="lt-field">
               <input
                 type="checkbox"
                 role="switch"
@@ -130,36 +129,26 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
               />
               {t('Lead trade')}
             </label>
-            <span id="iceberg-not-lead" className="text-muted">
-              {t('Iceberg orders are never lead trades, so followers don’t copy them.')}
-            </span>
+            <small id="iceberg-not-lead">{t('Iceberg orders are never lead trades, so followers don’t copy them.')}</small>
           </div>
         ) : null}
-        <SegmentedControl
-          aria-label={t('Side')}
-          size={32}
-          fullWidth
+        <Segmented
+          label={t('Side')}
           value={side}
-          onValueChange={(v) => setSide(v as Side)}
-          items={[
-            { value: 'buy', label: t('Buy'), tone: 'up' },
-            { value: 'sell', label: t('Sell'), tone: 'down' },
+          onChange={setSide}
+          options={[
+            { value: 'buy', label: t('Buy') },
+            { value: 'sell', label: t('Sell') },
           ]}
         />
-        <Field
+        <DecimalField
           label={t('Total size ({asset})', { asset: market?.base ?? '' })}
           error={review.problems.includes('total') && total ? word('total') : review.problems.includes('lot') ? word('lot') : undefined}
-        >
-          <Input
-            kind="decimal"
-            aria-label={t('Total size ({asset})', { asset: market?.base ?? '' })}
-            value={total}
-            onValueChange={setTotal}
-            precision={lotPlaces}
-            density="dense"
-          />
-        </Field>
-        <Field
+          value={total}
+          onValueChange={setTotal}
+          precision={lotPlaces}
+        />
+        <DecimalField
           label={t('Display size ({asset})', { asset: market?.base ?? '' })}
           hint={
             review.referenceMin
@@ -173,33 +162,21 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
                 ? word('display')
                 : undefined
           }
-        >
-          <Input
-            kind="decimal"
-            aria-label={t('Display size ({asset})', { asset: market?.base ?? '' })}
-            value={display}
-            onValueChange={setDisplay}
-            precision={lotPlaces}
-            density="dense"
-          />
-        </Field>
-        <Field label={t('Limit price')} error={review.problems.includes('price') && price ? word('price') : undefined}>
-          <Input
-            kind="decimal"
-            aria-label={t('Limit price')}
-            value={price}
-            onValueChange={setPrice}
-            precision={placesFor(market?.tickSize)}
-            density="dense"
-          />
-        </Field>
-        <Field label={t('Time in force')} hint={t('Good till cancelled')}>
-          <Input aria-label={t('Time in force')} value="GTC" readOnly density="dense" />
-        </Field>
+          value={display}
+          onValueChange={setDisplay}
+          precision={lotPlaces}
+        />
+        <DecimalField
+          label={t('Limit price')}
+          error={review.problems.includes('price') && price ? word('price') : undefined}
+          value={price}
+          onValueChange={setPrice}
+          precision={placesFor(market?.tickSize)}
+        />
+        <TextField label={t('Time in force')} hint={t('Good till cancelled')} value="GTC" readOnly />
         <KeyValue
-          density="dense"
-          aria-label={t('Iceberg review')}
-          items={[
+          label={t('Iceberg review')}
+          rows={[
             {
               label: t('Shown at a time'),
               value: review.visible === null ? null : `${fmtAmount(review.visible, { places: lotPlaces })} ${market?.base ?? ''}`,
@@ -217,21 +194,22 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
                   : side === 'buy'
                     ? `${fmtAmount(review.hold, { places: 4 })} ${market?.quote ?? ''}`
                     : `${fmtAmount(total, { places: lotPlaces })} ${market?.base ?? ''}`,
-              hint: holdAsset ? t('Limit price times total, held in {asset}', { asset: holdAsset }) : undefined,
+              note: holdAsset ? t('Limit price times total, held in {asset}', { asset: holdAsset }) : undefined,
             },
             { label: t('Limit price'), value: review.problems.includes('price') ? null : fmtPrice(price, market?.tickSize) },
-          ]}
+          ].map((r) => ({ ...r, value: r.value ?? <Unknown /> }))}
         />
-        <Field label={t('Where it rests')}>
-          <Input aria-label={t('Where it rests')} value={t('House order book')} readOnly density="dense" />
-        </Field>
-        <Field label={t('Request id')} hint={t('Made once for this request, so a re-send cannot place a second order')}>
-          <Input aria-label={t('Request id')} value={clientOrderId} readOnly density="dense" />
-        </Field>
+        <TextField label={t('Where it rests')} value={t('House order book')} readOnly />
+        <TextField
+          label={t('Request id')}
+          hint={t('Made once for this request, so a re-send cannot place a second order')}
+          value={clientOrderId}
+          readOnly
+        />
         {!writer.signedIn ? <Why>{t('Sign in to place')}</Why> : null}
         <Button
-          size={40}
-          fullWidth
+          tone="primary"
+          block
           disabled={!canReview || writer.busy || writer.note.state !== 'none'}
           onClick={() => setConfirming(true)}
         >
@@ -239,11 +217,11 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
         </Button>
         <WriteNotice writer={writer} onCheck={(id) => void checkPending(id)} done={t('Iceberg placed')} />
         {note ? (
-          <p role="status" className="m-0 text-sm text-warn">
+          <p role="status" className="lt-hint">
             {note}
           </p>
         ) : null}
-        <Button variant="secondary" size={32} fullWidth disabled>
+        <Button block disabled>
           {t('Live venue')}
         </Button>
         <Why>{t('Iceberg live door off')}</Why>
@@ -258,8 +236,8 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
           onCancel={() => setConfirming(false)}
         />
       </section>
-      <section aria-label={t('Open orders')} className="flex min-w-0 flex-col gap-2">
-        <h3 className="m-0 text-md font-medium text-fg">{t('Your open orders')}</h3>
+      <section aria-label={t('Open orders')} className="lt-col-main">
+        <h3>{t('Your open orders')}</h3>
         <Gate load={open}>
           {() => (
             <BlotterTable

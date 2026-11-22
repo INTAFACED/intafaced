@@ -5,9 +5,7 @@
  *
  * A fixed bar says which edge it covers with `data-obscures="top"` or `data-obscures="bottom"`. Their
  * real heights are measured, not assumed, because the risk band grows with text size (200% text must
- * not hide the field under it). A bottom bar counts from the screen's foot to its top edge, not just its
- * own height: the phone dock floats 0.875rem above the foot, and a control scrolled into that gap still
- * sits behind the pill. Top bars stack flush from the top (one is sticky), so they count their heights.
+ * not hide the field under it).
  */
 
 export const OBSCURES_ATTRIBUTE = 'data-obscures';
@@ -16,26 +14,30 @@ export const OBSCURED_BOTTOM_VAR = '--a11y-obscured-bottom';
 
 export interface Bar {
   readonly edge: string | null;
-  /** The bar's height; for a bottom bar, the distance from the screen's foot to its top edge (`bottomReach`). */
   readonly height: number;
+  /**
+   * How far the bar sits from its edge (a floating dock stands off the bottom). A control can't show in that gap
+   * either, so the bar covers from its far side to the edge.
+   */
+  readonly offset?: number;
 }
 
-/** How far a bottom bar reaches up from the foot of a viewport `viewport` tall: its height plus any gap under it. */
-export function bottomReach(box: { top: number; height: number }, viewport: number): number {
-  if (!(box.height > 0)) return 0;
-  return Math.min(Math.max(viewport - box.top, box.height), viewport);
-}
+const size = (n: number | undefined): number => (n !== undefined && Number.isFinite(n) && n > 0 ? n : 0);
 
-/** The space covered at each edge: bars stack, so their heights add up. */
+/**
+ * The space covered at each edge: bars stack, so their heights add up, and a bar standing off its edge covers the gap
+ * under it too, so the edge is covered at least to the bar's far side.
+ */
 export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: number } {
-  let top = 0;
-  let bottom = 0;
+  const sum = { top: 0, bottom: 0 };
+  const reach = { top: 0, bottom: 0 };
   for (const bar of bars) {
-    const height = Number.isFinite(bar.height) && bar.height > 0 ? bar.height : 0;
-    if (bar.edge === 'top') top += height;
-    else if (bar.edge === 'bottom') bottom += height;
+    if (bar.edge !== 'top' && bar.edge !== 'bottom') continue;
+    const height = size(bar.height);
+    sum[bar.edge] += height;
+    if (height > 0) reach[bar.edge] = Math.max(reach[bar.edge], size(bar.offset) + height);
   }
-  return { top, bottom };
+  return { top: Math.max(sum.top, reach.top), bottom: Math.max(sum.bottom, reach.bottom) };
 }
 
 /**
@@ -50,9 +52,10 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   const measure = (): void => {
     const { top, bottom } = obscuredInsets(
       bars.map((el) => {
-        const edge = el.getAttribute(OBSCURES_ATTRIBUTE);
         const box = el.getBoundingClientRect();
-        return { edge, height: edge === 'bottom' ? bottomReach(box, window.innerHeight) : box.height };
+        const edge = el.getAttribute(OBSCURES_ATTRIBUTE);
+        // A bar never covers more than the screen.
+        return { edge, height: Math.min(box.height, innerHeight), offset: edge === 'bottom' ? innerHeight - box.bottom : box.top };
       }),
     );
     const next = `${top}|${bottom}`;
@@ -81,11 +84,11 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   });
   mutations.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: [OBSCURES_ATTRIBUTE] });
   observeBars();
-  // A bottom bar's reach moves with the screen's height (a phone turned, a keyboard shown), not only with its own size.
-  window.addEventListener('resize', measure);
+  // A bottom bar's offset is measured from the viewport's foot, which moves when the viewport resizes.
+  addEventListener('resize', measure);
 
   return () => {
-    window.removeEventListener('resize', measure);
+    removeEventListener('resize', measure);
     mutations.disconnect();
     resize.disconnect();
     root.style.removeProperty(OBSCURED_TOP_VAR);
