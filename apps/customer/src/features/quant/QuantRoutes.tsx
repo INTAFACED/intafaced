@@ -20,18 +20,20 @@ import { researchCopy } from './research-copy';
 
 /**
  * The Algo dev rooms under `/quant`; `MoreRoutes` hands the whole prefix here. Null for a path that is not one of them,
- * and for studio, backtest and sandbox, which More's own `quantModeRoute` serves beside their room.
+ * and for studio, backtest and sandbox, which More's own `quantModeRoute` serves beside their room. `framed` marks a room
+ * drawn on its own Volt template, which carries its title and description itself, so More draws no page around it.
  */
 export function quantRoute(
   pathname: string,
   paper: boolean,
   userId: string | null,
-): { title: ReactNode; description: ReactNode; content: ReactNode } | null {
+): { title: ReactNode; description: ReactNode; content: ReactNode; framed?: boolean } | null {
   if (pathname === '/quant') {
     return {
       title: algoCopy.t('title'),
       description: algoCopy.t('description'),
       content: <AlgoHome key={userId ?? 'anonymous'} paper={paper} />,
+      framed: true,
     };
   }
   const strategy = /^\/quant\/strategies\/([^/]+)$/.exec(pathname);
@@ -106,6 +108,7 @@ export function quantRoute(
       title: liveRunCopy.t('roomTitle'),
       description: liveRunCopy.t('description'),
       content: <LiveRun key={`${userId ?? 'anonymous'}:${live[1]}`} runId={live[1]!.toLowerCase()} />,
+      framed: true,
     };
   }
   // The Preview rooms (AL-order-01): full layouts on TEST sample data; every engine action is refused by name.
@@ -116,6 +119,7 @@ export function quantRoute(
       title: previewCopy.t(room === 'editor' ? 'editorTitle' : room === 'tester' ? 'testerTitle' : 'optimiseTitle'),
       description: previewCopy.t('label'),
       content: <Room key={userId ?? 'anonymous'} paper={paper} />,
+      framed: true,
     };
   }
   // The market data lake (J-algo-dev-16 #2).

@@ -3,8 +3,7 @@ import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures'
 import type { ReactNode } from 'react';
 import { z } from 'zod';
 import { parsesAs } from '../../shared/api';
-import { DataTable } from '../../shared/ui';
-import { Read } from '../more';
+import { KitRead, KitTable } from './kit-parts';
 import { MorePages, useStrategyPages, type StrategyPageRead } from './strategy-pages';
 import { studioCopy } from './studio-copy';
 
@@ -34,13 +33,13 @@ export function StrategyTable({
   const { t } = studioCopy.useCopy();
   const pages = useStrategyPages('studio.list', headPage, reloadKey);
   return (
-    <Read resource={pages.first.resource} retry={pages.first.reload}>
+    <KitRead resource={pages.first.resource} retry={pages.first.reload}>
       {(data) => {
         const { rows, cursor } = pages.rowsOf(data);
         if (!rows.length) return <>{empty}</>;
         return (
           <>
-            <DataTable headers={action ? [t('name'), t('versionHeading'), t('actions')] : [t('name'), t('versionHeading')]} label={label}>
+            <KitTable headers={action ? [t('name'), t('versionHeading'), t('actions')] : [t('name'), t('versionHeading')]} label={label}>
               {rows.map((s) => (
                 <tr key={s.id}>
                   <td lang="und">{s.name}</td>
@@ -48,11 +47,11 @@ export function StrategyTable({
                   {action && <td>{action(s)}</td>}
                 </tr>
               ))}
-            </DataTable>
+            </KitTable>
             <MorePages cursor={cursor} busy={pages.busy} failure={pages.failure} more={(next) => void pages.more(next)} />
           </>
         );
       }}
-    </Read>
+    </KitRead>
   );
 }

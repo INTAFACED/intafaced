@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { Button } from '../../shared/ui';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { DeskTemplate } from '@intafaced/ui/lit/templates';
 import { preservePaperHref } from '../more';
 import { useApi, useSession } from '../session';
 import { QuantRooms } from './QuantRooms';
 import { previewCopy } from './preview-copy';
-import './algo.css';
 import type { z } from 'zod';
 import type { previewActInputSchema } from '@intafaced/contracts/quant-call-schemas';
 import { QUANT_PREVIEW_ACT } from '@intafaced/contracts/quant-preview-procedures';
@@ -56,7 +56,7 @@ function PreviewRefusalAlert({ refusal }: { refusal: ReturnType<typeof useEngine
     <div
       data-testid="preview-refusal"
       role="alert"
-      className="failure"
+      className="lt-refusal"
       data-code={isPreview ? PREVIEW_CODE : ''}
       data-kind={isPreview ? 'preview' : ''}
     >
@@ -65,20 +65,49 @@ function PreviewRefusalAlert({ refusal }: { refusal: ReturnType<typeof useEngine
   );
 }
 
-/** The shell every Preview room shares: the label, the sample note, and the room switch. */
-function PreviewShell({ room, paper, children }: { room: PreviewRoomId; paper: boolean; children: ReactNode }) {
+const TITLE = { editor: 'editorTitle', tester: 'testerTitle', optimise: 'optimiseTitle' } as const;
+
+/**
+ * The shell every Preview room shares, on the desk template: the room switch, the label, the sample note and the engine
+ * refusal head it; `chart` is the room's main panel and `ticket` the panel beside it.
+ */
+function PreviewShell({
+  room,
+  paper,
+  refusal,
+  chart,
+  ticket,
+}: {
+  room: PreviewRoomId;
+  paper: boolean;
+  refusal: ReturnType<typeof useEngineAction>['refusal'];
+  chart: ReactNode;
+  ticket: ReactNode;
+}) {
   const { t } = previewCopy.useCopy();
   return (
-    <>
-      <QuantRooms active={room} paper={paper} />
-      <div data-testid="quant-preview" data-room={room} className="quant-preview">
-        <p className="badge" role="note">
-          <strong>{t('label')}</strong>
-        </p>
-        <p className="muted">{t('sampleNote')}</p>
-        {children}
-      </div>
-    </>
+    <div data-testid="quant-preview" data-room={room}>
+      <DeskTemplate
+        title={t(TITLE[room])}
+        description={t('label')}
+        mode="pro"
+        state={{ kind: 'ready' }}
+        instrument={
+          <div className="lt-col-main">
+            <QuantRooms active={room} paper={paper} />
+            <p role="note">
+              <Tag tone="accent">
+                <strong>{t('label')}</strong>
+              </Tag>
+            </p>
+            <p className="lt-hint">{t('sampleNote')}</p>
+            <PreviewRefusalAlert refusal={refusal} />
+          </div>
+        }
+        chart={chart}
+        ticket={ticket}
+      />
+    </div>
   );
 }
 
@@ -86,21 +115,16 @@ function PreviewShell({ room, paper, children }: { room: PreviewRoomId; paper: b
 function EnginePanel({ name, children }: { name: string; children: ReactNode }) {
   const { t } = previewCopy.useCopy();
   return (
-    <div
-      data-testid="preview-engine"
-      data-blurred="true"
-      aria-label={t('blurred', { name })}
-      className="preview-engine"
-      style={{ filter: 'blur(0.125rem)' }}
-    >
+    <div data-testid="preview-engine" data-blurred="true" aria-label={t('blurred', { name })} className="lt-blurred">
       {children}
     </div>
   );
 }
 
-function Region({ name, children }: { name: string; children: ReactNode }) {
+/** One named part of a room: a labelled section with its heading. */
+function Part({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <section aria-label={name} className="panel">
+    <section aria-label={name} className="lt-col-main">
       <h3>{name}</h3>
       {children}
     </section>
@@ -160,96 +184,100 @@ export function EditorRoom({ paper }: { paper: boolean }) {
   const hidden = new Set<number>();
   for (const open of state.folded) for (let line = open + 1; line <= (BLOCKS[open] ?? open); line += 1) hidden.add(line);
   return (
-    <PreviewShell room="editor" paper={paper}>
-      <div className="more-columns">
-        <Region name={t('files')}>
-          <ul role="tree" aria-label={t('files')}>
-            <li role="treeitem" aria-selected="true">
-              TEST strategies/two-averages.js
-            </li>
-            <li role="treeitem" aria-selected="false">
-              TEST strategies/breakout.js
-            </li>
-            <li role="treeitem" aria-selected="false">
-              TEST lib/indicators.js
-            </li>
-          </ul>
-        </Region>
-        <Region name={t('editor')}>
-          <ol className="preview-code" lang="zxx">
-            {SAMPLE_SOURCE.map((text, index) => {
-              const line = index + 1;
-              if (hidden.has(line)) return null;
-              const opens = BLOCKS[line] !== undefined;
-              return (
-                <li key={line} data-line={line}>
-                  <button
-                    type="button"
-                    className="preview-gutter"
-                    aria-label={t('breakpoint', { line })}
-                    aria-pressed={state.breakpoints.includes(line)}
-                    onClick={() => save({ ...state, breakpoints: toggle(state.breakpoints, line) })}
-                  >
-                    {state.breakpoints.includes(line) ? '●' : '○'}
-                  </button>
-                  {opens && (
-                    <button
-                      type="button"
-                      className="preview-fold"
-                      aria-label={t('fold', { line })}
-                      aria-expanded={!state.folded.includes(line)}
-                      onClick={() => save({ ...state, folded: toggle(state.folded, line) })}
+    <PreviewShell
+      room="editor"
+      paper={paper}
+      refusal={engine.refusal}
+      chart={
+        <div className="lt-col-main">
+          <Part name={t('files')}>
+            <ul role="tree" aria-label={t('files')}>
+              <li role="treeitem" aria-selected="true">
+                TEST strategies/two-averages.js
+              </li>
+              <li role="treeitem" aria-selected="false">
+                TEST strategies/breakout.js
+              </li>
+              <li role="treeitem" aria-selected="false">
+                TEST lib/indicators.js
+              </li>
+            </ul>
+          </Part>
+          <Part name={t('editor')}>
+            <ol className="lt-mono" lang="zxx">
+              {SAMPLE_SOURCE.map((text, index) => {
+                const line = index + 1;
+                if (hidden.has(line)) return null;
+                const opens = BLOCKS[line] !== undefined;
+                return (
+                  <li key={line} data-line={line}>
+                    <Button
+                      tone="quiet"
+                      aria-label={t('breakpoint', { line })}
+                      aria-pressed={state.breakpoints.includes(line)}
+                      onClick={() => save({ ...state, breakpoints: toggle(state.breakpoints, line) })}
                     >
-                      {state.folded.includes(line) ? '▸' : '▾'}
-                    </button>
-                  )}
-                  <code>{text}</code>
-                </li>
-              );
-            })}
-          </ol>
-        </Region>
-      </div>
-      <div className="more-columns">
-        <Region name={t('compile')}>
-          <Button disabled={engine.waiting} onClick={() => void act('compile')}>
-            {t('compile')}
-          </Button>
-          <EnginePanel name={t('compile')}>
-            <p className="muted">{t('compileSample')}</p>
-            <ul>
-              <li>TEST 0 errors, 0 warnings (sample)</li>
-              <li>TEST built in 0.4 s (sample)</li>
-            </ul>
-          </EnginePanel>
-          <a className="text-link" href={preservePaperHref('/quant', paper)}>
-            {t('sandbox')}
-          </a>
-        </Region>
-        <Region name={t('debugger')}>
-          <Button variant="secondary" disabled={engine.waiting} onClick={() => void act('debug')}>
-            {t('debug')}
-          </Button>
-          <EnginePanel name={t('debugger')}>
-            <p className="muted">{t('debuggerSample')}</p>
-            <ul lang="zxx">
-              <li>TEST fast = 101.2</li>
-              <li>TEST slow = 99.8</li>
-            </ul>
-          </EnginePanel>
-        </Region>
-        <Region name={t('profiler')}>
-          <EnginePanel name={t('profiler')}>
-            <p className="muted">{t('profilerSample')}</p>
-            <ul lang="zxx">
-              <li>TEST onBar 0.12 ms</li>
-              <li>TEST sma 0.04 ms</li>
-            </ul>
-          </EnginePanel>
-        </Region>
-      </div>
-      <PreviewRefusalAlert refusal={engine.refusal} />
-    </PreviewShell>
+                      {state.breakpoints.includes(line) ? '●' : '○'}
+                    </Button>
+                    {opens && (
+                      <Button
+                        tone="quiet"
+                        aria-label={t('fold', { line })}
+                        aria-expanded={!state.folded.includes(line)}
+                        onClick={() => save({ ...state, folded: toggle(state.folded, line) })}
+                      >
+                        {state.folded.includes(line) ? '▸' : '▾'}
+                      </Button>
+                    )}
+                    <code>{text}</code>
+                  </li>
+                );
+              })}
+            </ol>
+          </Part>
+        </div>
+      }
+      ticket={
+        <div className="lt-col-main">
+          <Part name={t('compile')}>
+            <Button tone="primary" disabled={engine.waiting} onClick={() => void act('compile')}>
+              {t('compile')}
+            </Button>
+            <EnginePanel name={t('compile')}>
+              <p className="lt-hint">{t('compileSample')}</p>
+              <ul>
+                <li>TEST 0 errors, 0 warnings (sample)</li>
+                <li>TEST built in 0.4 s (sample)</li>
+              </ul>
+            </EnginePanel>
+            <a className="lt-link" href={preservePaperHref('/quant', paper)}>
+              {t('sandbox')}
+            </a>
+          </Part>
+          <Part name={t('debugger')}>
+            <Button disabled={engine.waiting} onClick={() => void act('debug')}>
+              {t('debug')}
+            </Button>
+            <EnginePanel name={t('debugger')}>
+              <p className="lt-hint">{t('debuggerSample')}</p>
+              <ul lang="zxx">
+                <li>TEST fast = 101.2</li>
+                <li>TEST slow = 99.8</li>
+              </ul>
+            </EnginePanel>
+          </Part>
+          <Part name={t('profiler')}>
+            <EnginePanel name={t('profiler')}>
+              <p className="lt-hint">{t('profilerSample')}</p>
+              <ul lang="zxx">
+                <li>TEST onBar 0.12 ms</li>
+                <li>TEST sma 0.04 ms</li>
+              </ul>
+            </EnginePanel>
+          </Part>
+        </div>
+      }
+    />
   );
 }
 
@@ -270,39 +298,44 @@ export function TesterRoom({ paper }: { paper: boolean }) {
   }, [playing, speed]);
   const tick = (frame % TICKS) + 1;
   return (
-    <PreviewShell room="tester" paper={paper}>
-      <Region name={t('replay')}>
-        <div data-testid="tester-replay" data-frame={frame} data-speed={speed} className="preview-replay">
-          <EnginePanel name={t('replay')}>
-            <p lang="zxx">TEST BTC/USDT {t('tick', { tick, ticks: TICKS })}</p>
-            <progress max={TICKS} value={tick} aria-label={t('tick', { tick, ticks: TICKS })} />
-          </EnginePanel>
-        </div>
-        <label className="field">
-          <span>{t('speed')}</span>
-          <input
-            type="range"
-            min={1}
-            max={16}
-            step={1}
-            value={speed}
-            aria-label={t('speed')}
-            aria-valuetext={`${speed}x`}
-            onChange={(event) => setSpeed(Number(event.currentTarget.value))}
-          />
-        </label>
-        <Button variant="secondary" onClick={() => setPlaying((p) => !p)}>
-          {playing ? t('pause') : t('play')}
-        </Button>
-        <Button disabled={engine.waiting} onClick={() => void act('start')}>
-          {t('start')}
-        </Button>
-        <a className="text-link" href={preservePaperHref('/quant/backtest', paper)}>
-          {t('backtest')}
-        </a>
-      </Region>
-      <PreviewRefusalAlert refusal={engine.refusal} />
-    </PreviewShell>
+    <PreviewShell
+      room="tester"
+      paper={paper}
+      refusal={engine.refusal}
+      ticket={null}
+      chart={
+        <Part name={t('replay')}>
+          <div data-testid="tester-replay" data-frame={frame} data-speed={speed}>
+            <EnginePanel name={t('replay')}>
+              <p lang="zxx">TEST BTC/USDT {t('tick', { tick, ticks: TICKS })}</p>
+              <progress max={TICKS} value={tick} aria-label={t('tick', { tick, ticks: TICKS })} />
+            </EnginePanel>
+          </div>
+          <label className="lt-field">
+            <span>{t('speed')}</span>
+            <input
+              type="range"
+              min={1}
+              max={16}
+              step={1}
+              value={speed}
+              aria-label={t('speed')}
+              aria-valuetext={`${speed}x`}
+              onChange={(event) => setSpeed(Number(event.currentTarget.value))}
+            />
+          </label>
+          <div className="lt-actions">
+            <Button onClick={() => setPlaying((p) => !p)}>{playing ? t('pause') : t('play')}</Button>
+            <Button tone="primary" disabled={engine.waiting} onClick={() => void act('start')}>
+              {t('start')}
+            </Button>
+          </div>
+          <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
+            {t('backtest')}
+          </a>
+        </Part>
+      }
+    />
   );
 }
 
@@ -344,92 +377,98 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
   // A performance header is a button that keeps the order: passes are never ranked by how well they did.
   const performance = (label: string) => (
     <th scope="col">
-      <button type="button" className="text-link" onClick={() => undefined}>
+      <Button tone="quiet" onClick={() => undefined}>
         {label}
-      </button>
+      </Button>
     </th>
   );
   return (
-    <PreviewShell room="optimise" paper={paper}>
-      <Region name={t('passes')}>
-        <Button disabled={engine.waiting} onClick={() => void act('start')}>
-          {t('start')}
-        </Button>
-        <label className="field">
-          <span>{t('show')}</span>
-          <select aria-label={t('show')} value={show} onChange={(event) => setShow(event.currentTarget.value === 'loss' ? 'loss' : 'all')}>
-            <option value="all">{t('allPasses')}</option>
-            <option value="loss">{t('lossPasses')}</option>
-          </select>
-        </label>
-        <p role="note">{t('sortNote')}</p>
-        <EnginePanel name={t('passes')}>
-          <table aria-label={t('passes')}>
-            <thead>
-              <tr>
-                <th scope="col" aria-sort={sort ?? 'none'}>
-                  <button
-                    type="button"
-                    className="text-link"
-                    onClick={() => setSort((s) => (s === 'ascending' ? 'descending' : 'ascending'))}
-                  >
-                    {t('pass')}
-                  </button>
-                </th>
-                {performance(t('profit'))}
-                {performance(t('profitFactor'))}
-                {performance(t('drawdown'))}
-                {performance(t('trades'))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.pass} data-pass={row.pass}>
-                  <td lang="zxx">TEST {row.pass}</td>
-                  <td lang="zxx">{row.profit}</td>
-                  <td lang="zxx">{row.factor}</td>
-                  <td lang="zxx">{row.drawdown}</td>
-                  <td lang="zxx">{row.trades}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </EnginePanel>
-        <Button variant="secondary" onClick={() => setWalkOpen((open) => !open)}>
-          {t('walkForward')}
-        </Button>
-      </Region>
-      {walkOpen && (
-        <Region name={t('walkForward')}>
-          <label className="field">
-            <span>{t('preset')}</span>
-            <select aria-label={t('preset')} value={preset} onChange={(event) => setPreset(event.currentTarget.value)}>
-              <option value="25">25%</option>
-              <option value="50">50%</option>
+    <PreviewShell
+      room="optimise"
+      paper={paper}
+      refusal={engine.refusal}
+      chart={
+        <Part name={t('passes')}>
+          <Button tone="primary" disabled={engine.waiting} onClick={() => void act('start')}>
+            {t('start')}
+          </Button>
+          <label className="lt-field">
+            <span>{t('show')}</span>
+            <select
+              aria-label={t('show')}
+              value={show}
+              onChange={(event) => setShow(event.currentTarget.value === 'loss' ? 'loss' : 'all')}
+            >
+              <option value="all">{t('allPasses')}</option>
+              <option value="loss">{t('lossPasses')}</option>
             </select>
           </label>
-          <EnginePanel name={t('walkForward')}>
-            <ol>
-              {windows.map((w) => (
-                <li key={w.n} data-testid="wf-window" data-in={w.inSample} data-out={w.outSample}>
-                  TEST {t('windowRow', { n: w.n, inSample: w.inSample, outSample: w.outSample })}
-                </li>
-              ))}
-            </ol>
+          <p role="note">{t('sortNote')}</p>
+          <EnginePanel name={t('passes')}>
+            <table aria-label={t('passes')} className="lt-table">
+              <thead>
+                <tr>
+                  <th scope="col" aria-sort={sort ?? 'none'}>
+                    <Button tone="quiet" onClick={() => setSort((s) => (s === 'ascending' ? 'descending' : 'ascending'))}>
+                      {t('pass')}
+                    </Button>
+                  </th>
+                  {performance(t('profit'))}
+                  {performance(t('profitFactor'))}
+                  {performance(t('drawdown'))}
+                  {performance(t('trades'))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.pass} data-pass={row.pass}>
+                    <td lang="zxx">TEST {row.pass}</td>
+                    <td lang="zxx">{row.profit}</td>
+                    <td lang="zxx">{row.factor}</td>
+                    <td lang="zxx">{row.drawdown}</td>
+                    <td lang="zxx">{row.trades}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </EnginePanel>
-          <p data-testid="wf-gate-line">{t('gateLine')}</p>
-          <Button variant="secondary" disabled={engine.waiting} onClick={() => void act('stop')}>
-            {t('stop')}
-          </Button>
-          <Button variant="secondary" disabled={engine.waiting} onClick={() => void act('resume')}>
-            {t('resume')}
-          </Button>
-          <Button variant="secondary" disabled={engine.waiting} onClick={() => void act('export')}>
-            {t('export')}
-          </Button>
-        </Region>
-      )}
-      <PreviewRefusalAlert refusal={engine.refusal} />
-    </PreviewShell>
+          <Button onClick={() => setWalkOpen((open) => !open)}>{t('walkForward')}</Button>
+        </Part>
+      }
+      ticket={
+        walkOpen ? (
+          <Part name={t('walkForward')}>
+            <label className="lt-field">
+              <span>{t('preset')}</span>
+              <select aria-label={t('preset')} value={preset} onChange={(event) => setPreset(event.currentTarget.value)}>
+                <option value="25">25%</option>
+                <option value="50">50%</option>
+              </select>
+            </label>
+            <EnginePanel name={t('walkForward')}>
+              <ol>
+                {windows.map((w) => (
+                  <li key={w.n} data-testid="wf-window" data-in={w.inSample} data-out={w.outSample}>
+                    TEST {t('windowRow', { n: w.n, inSample: w.inSample, outSample: w.outSample })}
+                  </li>
+                ))}
+              </ol>
+            </EnginePanel>
+            <p data-testid="wf-gate-line">{t('gateLine')}</p>
+            <div className="lt-actions">
+              <Button disabled={engine.waiting} onClick={() => void act('stop')}>
+                {t('stop')}
+              </Button>
+              <Button disabled={engine.waiting} onClick={() => void act('resume')}>
+                {t('resume')}
+              </Button>
+              <Button disabled={engine.waiting} onClick={() => void act('export')}>
+                {t('export')}
+              </Button>
+            </div>
+          </Part>
+        ) : null
+      }
+    />
   );
 }
