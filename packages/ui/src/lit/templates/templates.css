@@ -1483,6 +1483,29 @@
   margin-inline-start: 3rem;
 }
 
+/* A long text read start to end (a lesson's body): one type step above body text, with room between its lines; a code
+   block in it scrolls inside its own width, and a long word wraps rather than widen the page. */
+.lt-prose {
+  font-size: var(--if-text-md);
+  line-height: 1.625rem;
+}
+.lt-prose p:empty {
+  display: none;
+}
+.lt-prose :is(p, li) {
+  overflow-wrap: anywhere;
+}
+.lt-prose pre {
+  overflow-x: auto;
+  max-inline-size: 100%;
+}
+
+/* A long list that scrolls in a box of its own (a video's transcript following playback), so the page keeps its place. */
+.lt-scroll-block {
+  max-block-size: 12rem;
+  overflow-y: auto;
+}
+
 /* Text an owner wrote with its own line breaks (a rulebook section, a policy, a postmortem), shown escaped as typed. */
 .lt-pre {
   white-space: pre-wrap;
