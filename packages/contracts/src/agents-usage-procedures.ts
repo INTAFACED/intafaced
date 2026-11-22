@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
 import { usageSummarySchema } from './agents-review.js';
 
@@ -16,7 +17,7 @@ export const AGENTS_USAGE_CURRENT = defineProcedure({
   access: { caller: 'scope', scope: 'agents:read', module: 'agents' },
   refusals: {},
   input: z.object({ sessionId: z.string().guid() }),
-  output: z.object({ windowId: z.string(), pending: z.string(), sessionTotal: z.string(), assetId: z.string() }),
+  output: z.object({ windowId: z.string(), pending: z.string(), sessionTotal: z.string(), assetId: assetIdSchema }),
   samples: [
     { verdict: 'accept', input: { sessionId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },

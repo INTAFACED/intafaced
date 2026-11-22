@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
 import { RUN_NOTICES, sessionRunSchema, sessionRunStopSchema } from './agents-runs.js';
 import { researchProvenanceSchema } from './agents-research.js';
@@ -154,7 +155,7 @@ export const AGENTS_RUN_COMPLETE = defineProcedure({
     inputTokens: z.number().int(),
     outputTokens: z.number().int(),
     cost: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     metered: z.boolean(),
     action: actionOutput,
     /** A Navigator answer about a market: its sources, observation time, assumptions and uncertainty. */

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { routeDeskSchema } from './agents-routes.js';
 import { changeSchema } from './agents-call-schemas.js';
@@ -65,7 +66,7 @@ export const AGENTS_ROUTES_LIST = defineProcedure({
       /** Null when this deployment publishes no rate for the task: it refuses every run (agents.price_unset). */
       inputPerMillion: z.string().nullable(),
       outputPerMillion: z.string().nullable(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       engine: z.enum(['sandbox', 'live', 'unknown']),
       metered: z.boolean(),
     }),

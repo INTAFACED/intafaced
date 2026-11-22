@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { actionOutput, sessionOutput } from './agents-call-schemas.js';
 
@@ -68,7 +69,7 @@ export const AGENTS_SESSION_DETAIL = defineProcedure({
   input: z.object({ sessionId: z.string().guid() }),
   output: z.object({
     session: sessionOutput,
-    assetId: z.string(),
+    assetId: assetIdSchema,
     windows: z.array(
       z.object({
         windowId: z.string(),

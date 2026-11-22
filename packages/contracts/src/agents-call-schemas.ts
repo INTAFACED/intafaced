@@ -199,7 +199,7 @@ export const REFUSAL_CODES = [
   'agents.place_idempotency_required',
   'agents.place_key_conflict',
   // Refused by the runtime before the engine, not by this policy: a route with no published rate, and a worst case
-  // the person's available balance cannot cover (OWNER 107), or one whose balance could not be read.
+  // the person's available balance cannot cover, or one whose balance could not be read.
   'agents.price_unset',
   'agents.funds_insufficient',
   'agents.funds_unread',
