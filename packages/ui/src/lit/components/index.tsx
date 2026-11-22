@@ -10,7 +10,6 @@ import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, ty
 
 export * from './b3-live.js';
 export * from './b4-choose.js';
-export * from './b5-native.js';
 
 // App-shell services a room calls but never draws: the toast viewport and the hide-balances switch are chrome the
 // app shell mounts once (its ToastProvider and HideBalancesProvider), not room parts. A room asks for a toast or reads
@@ -337,20 +336,6 @@ export const Tag = ({
 export const Brackets = ({ className, ...rest }: Div) => <div {...rest} className={clsx('lit-brackets', className)} />;
 
 export const Scale = ({ className, ...rest }: Div) => <div {...rest} aria-hidden="true" className={clsx('lit-scale', className)} />;
-
-/**
- * A scannable code (a QR's modules as one SVG path). Dark on a light plate in every look and scheme, because that is
- * what a scanner reads. The room encodes the value; this only draws it.
- */
-export function QrMark({ d, size, label, className, ...rest }: Omit<Div, 'children'> & { d: string; size: number; label: string }) {
-  return (
-    <div {...rest} className={clsx('lit-qr', className)}>
-      <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label} shapeRendering="crispEdges">
-        <path d={d} />
-      </svg>
-    </div>
-  );
-}
 
 export type Holding = { id: string; name: string; detail?: string; value: React.ReactNode; share: string };
 
