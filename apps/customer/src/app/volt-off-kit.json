@@ -70,7 +70,6 @@
   "/bank/earn/pool",
   "/bank/loans",
   "/bank/loans/apply",
-  "/bank/cards",
   "/bank/cards/new",
   "/bank/ramps/new",
   "/bank/ramps/cash-out",

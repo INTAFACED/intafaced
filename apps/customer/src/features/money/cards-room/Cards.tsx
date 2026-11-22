@@ -283,9 +283,8 @@ function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset
           </dd>
         </dl>
       </header>
-      {/* J-bank-29 #5 reads the declined amount through this class (`.money-card-funding dd`); it stays until that step
-          reads it by a test id. */}
-      <dl className="money-card-funding">
+      {/* J-bank-29 #5 reads the declined amount by this test id. */}
+      <dl data-testid="card-decision-amount">
         <dt className="lt-sr">
           <Copy k="quantity" />
         </dt>
