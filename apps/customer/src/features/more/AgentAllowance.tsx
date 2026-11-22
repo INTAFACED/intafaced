@@ -2,12 +2,12 @@ import { useMemo, useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, Field, Panel } from './agent-room/parts';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
 import { useVenueMode, preparedAnswerSchema, venueOrderSchema, walletTypedData, VenueFrame, WalletBar, useOwner } from '../trade';
 import { useWallet } from '../protocol';
-import { Select } from './common';
 import { agentAllowanceCopy } from './agent-allowance-copy';
 import { type OwnAgent, type OwnAgentOrderDraft } from '@intafaced/contracts/agents-own';
 import { AGENTS_OWN_ACCESS_GET, AGENTS_OWN_TRADE_DRAFT } from '@intafaced/contracts/agents-own-procedures';
@@ -237,7 +237,7 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
             onChange={(value) => setPeriod(value as typeof period)}
             options={(['day', 'week', 'month'] as const).map((value) => ({ value, label: t(`period_${value}`) }))}
           />
-          <Button type="submit" disabled={busy}>
+          <Button tone="primary" type="submit" disabled={busy}>
             {t('grant')}
           </Button>
           {refused ? <Refused refusal={refused} /> : null}
@@ -262,7 +262,7 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
               </td>
               <td>
                 {a.status === 'active' || (a.status === 'revoked' && a.next) ? (
-                  <Button type="button" disabled={busy} onClick={() => void revoke(a)}>
+                  <Button tone="primary" type="button" disabled={busy} onClick={() => void revoke(a)}>
                     {a.status === 'active' ? t('revoke') : t('signRevoke')}
                   </Button>
                 ) : null}
@@ -344,7 +344,7 @@ function AskAgent({ agent, base }: { agent: OwnAgent; base: string }) {
         }}
       >
         <Field label={t('ask')} hint={t('askHint')} value={ask} disabled={busy} onChange={(event) => setAsk(event.target.value)} />
-        <Button type="submit" disabled={busy || ask.trim() === ''}>
+        <Button tone="primary" type="submit" disabled={busy || ask.trim() === ''}>
           {t('run')}
         </Button>
       </form>
@@ -355,7 +355,7 @@ function AskAgent({ agent, base }: { agent: OwnAgent; base: string }) {
           <h4>
             {t('previewTitle')} {p.test ? 'TEST' : ''}
           </h4>
-          <dl className="protocol-facts">
+          <dl className="lt-kv">
             <div>
               <dt>{t('side')}</dt>
               <dd>{t(`side_${p.side}`)}</dd>
@@ -388,7 +388,7 @@ function AskAgent({ agent, base }: { agent: OwnAgent; base: string }) {
             </div>
           </dl>
           <p className="lt-muted">{t('nothingSent')}</p>
-          <Button type="button" disabled={busy} onClick={() => void approve()}>
+          <Button tone="primary" type="button" disabled={busy} onClick={() => void approve()}>
             {t('approve')}
           </Button>
         </section>

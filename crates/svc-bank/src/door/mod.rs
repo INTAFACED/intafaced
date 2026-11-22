@@ -475,6 +475,14 @@ impl BankDoor {
                 ctx,
             )
             .unwrap_or_else(|| Err(not_ported(Slice::Transfers))),
+            Slice::OpsDesk => crate::ops_desk::answer(
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::OpsDesk))),
             Slice::Earn => {
                 let user = ctx
                     .principal
