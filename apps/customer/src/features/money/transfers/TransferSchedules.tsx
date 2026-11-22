@@ -1,23 +1,30 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+
 import { Button } from '@intafaced/ui/lit';
+
 import { t as copyText, Text } from '../copy';
-import { amount, date, endsField, funds, iso, positiveMoney, useBankRead, usePageLimit, type ActionSpec } from '../components';
+
+import { date, funds, usePageLimit, type ActionSpec } from '../components';
 import { useBankView } from '../bank-context';
-import { currentInstruction, type StandingInstruction } from '../ScheduleHistory';
+
+import {
+  currentInstruction,
+  scheduleCancelSpec,
+  scheduleEditSpec,
+  schedulePauseSpec,
+  useSchedulesRead,
+  type StandingInstruction,
+} from '../ScheduleHistory';
+
 import { standingCopy } from '../standing-copy';
+
 import { ExecutionHistory, StandingFacts } from './TransferHistory';
+
 import { Continuation, Loaded as ResourceView, Part as Section } from './TransferParts';
 
 /**
- * Standing orders on Transfers (copied from `Schedules` and `ScheduleActions` in ../rooms.tsx, which the old Transfers
- * still draws): each instruction, its outcomes, and edit, pause, resume and cancel through `open(spec)`, with the same
- * calls, words and ids, in the Volt kit.
+ * Standing orders on Transfers: each instruction, its outcomes, and edit, pause, resume and cancel through `open(spec)`.
  */
-function localInput(at: string): string {
-  const d = new Date(at);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 function ScheduleActions({
   row,
   open,
@@ -37,78 +44,14 @@ function ScheduleActions({
       {row.status !== 'cancelled' && (
         <>
           {(row.status === 'active' || row.status === 'paused') && (
-            <Button
-              tone="secondary"
-              disabled={disabled}
-              onClick={() =>
-                protectedOpen({
-                  title: copyText('rooms.edit.standing.order'),
-                  procedure: 'transfers.updateSchedule',
-                  fields: [positiveMoney(row.assetId), ...(row.cadence === 'once' ? [] : [endsField])],
-                  initial: { amount: row.amount, ...(row.endsAt ? { endsAt: localInput(row.endsAt) } : {}) },
-                  formFacts: [[copyText('rooms.revision'), String(row.revision)]],
-                  facts: [
-                    [copyText('rooms.schedule'), row.id],
-                    [copyText('rooms.revision'), String(row.revision)],
-                    [copyText('rooms.current.amount'), amount(row.amount, row.assetId)],
-                  ],
-                  notes: [copyText('rooms.edit.changes.future.runs'), copyText('rooms.edit.revision.note')],
-                  validate: (input) =>
-                    typeof input.endsAt === 'string' && Date.parse(input.endsAt) <= Math.max(Date.now(), Date.parse(row.startsAt))
-                      ? copyText('components.choose.an.end.after.first.run')
-                      : null,
-                  input: (values) => ({
-                    scheduleId: row.id,
-                    revision: row.revision,
-                    amount: values.amount,
-                    // The form shows minutes: an end left as it was keeps the stored instant, seconds included.
-                    endsAt: !values.endsAt
-                      ? null
-                      : row.endsAt && values.endsAt === localInput(row.endsAt)
-                        ? row.endsAt
-                        : iso(values.endsAt),
-                  }),
-                })
-              }
-            >
+            <Button tone="secondary" disabled={disabled} onClick={() => protectedOpen(scheduleEditSpec(row))}>
               <Text k="rooms.edit" />
             </Button>
           )}
-          <Button
-            tone="secondary"
-            disabled={disabled}
-            onClick={() =>
-              protectedOpen({
-                title: row.status === 'paused' ? copyText('rooms.resume.standing.order') : copyText('rooms.pause.standing.order'),
-                procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
-                facts: [
-                  [copyText('rooms.schedule'), row.id],
-                  [copyText('rooms.amount'), amount(row.amount, row.assetId)],
-                ],
-                notes: [
-                  row.status === 'paused'
-                    ? copyText('rooms.occurrences.missed.while.paused.are.skipped.they')
-                    : copyText('rooms.pause.future.scheduled.transfers.past.posted.transfers'),
-                ],
-                input: () => ({ scheduleId: row.id }),
-              })
-            }
-          >
+          <Button tone="secondary" disabled={disabled} onClick={() => protectedOpen(schedulePauseSpec(row))}>
             {row.status === 'paused' ? copyText('rooms.resume') : copyText('rooms.pause')}
           </Button>
-          <Button
-            tone="quiet"
-            disabled={disabled}
-            onClick={() =>
-              protectedOpen({
-                title: copyText('rooms.cancel.standing.order'),
-                procedure: 'transfers.cancel',
-                notes: [copyText('rooms.cancel.future.occurrences.this.does.not.reverse')],
-                facts: [[copyText('rooms.schedule'), row.id]],
-                input: () => ({ scheduleId: row.id }),
-              })
-            }
-          >
+          <Button tone="quiet" disabled={disabled} onClick={() => protectedOpen(scheduleCancelSpec(row))}>
             <Text k="rooms.cancel" />
           </Button>
         </>
@@ -124,7 +67,7 @@ export function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
   const serial = useRef(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const listHeading = useRef<HTMLSpanElement>(null);
-  const query = useBankRead('transfers.listSchedules', { limit });
+  const query = useSchedulesRead(limit);
   const rows = query.resource.status === 'ready' ? query.resource.data : [];
   const instruction = selected ? currentInstruction(rows, selected.id) : undefined;
   const other = instruction ? rows.filter((row) => row.id !== instruction.id) : rows;

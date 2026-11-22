@@ -1,5 +1,5 @@
 /**
- * Parts the money rooms share that the kit lacked (volt/flow batch money · flow, #9570): a copy button and a QR
+ * Parts the money rooms share that the kit lacked: a copy button and a QR
  * code. They read only `--lit-*` roles (styles in `../templates/templates.css`) and take every word as a prop, so a
  * room never draws its own.
  */

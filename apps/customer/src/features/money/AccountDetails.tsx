@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react';
+
 import { Failure, Loading } from '../../shared/ui';
+
 import type { Resource } from '../../shared/resource';
+
 import { CopyButton } from '../../screens/account/CopyButton';
+
 import { useSession } from '../session';
+
 import { useBankRead } from './components';
+
 import type { AccountDetailSet, AccountDetailsRow } from './contracts';
+
 import { accountDetailsCopy } from './account-details-copy';
+
 import { DepthPanel, DisabledAction } from './DepthParts';
 
 /**
@@ -93,11 +101,16 @@ export function AccountDetailsBody({ resource, reload }: { resource: Resource<{ 
   return <AccountDetailsList rows={resource.data.currencies} />;
 }
 
-export function AccountDetailsPanel() {
-  const { t } = accountDetailsCopy.useCopy();
+/** The account details of the profile in view. Shared with the deposit room. */
+export function useAccountDetailsRead() {
   const { profiles } = useSession();
   // The profile in view goes with the read: the bank proves it is held, and a business has no details of its own.
-  const read = useBankRead('accountDetails.list', { profile: profiles.active });
+  return useBankRead('accountDetails.list', { profile: profiles.active });
+}
+
+export function AccountDetailsPanel() {
+  const { t } = accountDetailsCopy.useCopy();
+  const read = useAccountDetailsRead();
   return (
     <DepthPanel title={t('detailsTitle')} lead={t('detailsLead')}>
       <AccountDetailsBody resource={read.resource} reload={read.reload} />
@@ -112,7 +125,7 @@ export function AccountDetailsPanel() {
 export function AccountDetailsByCurrency() {
   const { t } = accountDetailsCopy.useCopy();
   const { profiles } = useSession();
-  const read = useBankRead('accountDetails.list', { profile: profiles.active });
+  const read = useAccountDetailsRead();
   const [currency, setCurrency] = useState('');
   // Another profile has its own rows: the choice starts again.
   useEffect(() => setCurrency(''), [profiles.active]);

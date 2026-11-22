@@ -7,7 +7,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 /**
  * The words of a failed read or change, as `Failure` in `./ui` says them, for a room in Volt to draw with the kit's
- * parts (volt/flow, #9570): the same title, body, link, reference and try-again rule, chosen the same way. `alert`
+ * parts: the same title, body, link, reference and try-again rule, chosen the same way. `alert`
  * is true where `Failure` answers with role="alert" (a write that may have gone through).
  */
 export interface FailureWords {

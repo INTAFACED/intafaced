@@ -1,15 +1,22 @@
 import { Button } from '@intafaced/ui/lit';
+
 import type { Space } from '../client';
-import { amount, date, useBankRead, type ActionSpec } from '../components';
+
+import { amount, date, type ActionSpec } from '../components';
+
+import { useIncomeSorter, useSorterRuns } from '../IncomeSorter';
+
 import type { sorterListSchema } from '../contracts';
+
 import { sorterCopy } from '../sorter-copy';
-import { bpToPercent, percentToBp, sorterLegs } from '../sorter-model';
+
+import { bpToPercent } from '../sorter-model';
+
 import { Loaded as ResourceView, NoRows, Part as Section } from './SalaryParts';
+
 import type { z } from 'zod';
 
 type Sorter = z.infer<typeof sorterListSchema>['sorters'][number];
-const RUNS_SHOWN = 5;
-const fieldName = (spaceId: string) => `share-${spaceId}`;
 
 /**
  * The salary room's drawing of `IncomeSorter` (../IncomeSorter.tsx, which Spaces still draws): the same calls through
@@ -21,54 +28,7 @@ const fieldName = (spaceId: string) => `share-${spaceId}`;
  * points.
  */
 export function SalarySorter({ spaces, open }: { spaces: Space[]; open: (spec: ActionSpec) => void }) {
-  const { t } = sorterCopy.useCopy();
-  const read = useBankRead('sorter.list', undefined);
-  const named = spaces.filter((space) => space.kind === 'named');
-  const nameOf = (spaceId: string) => spaces.find((space) => space.id === spaceId)?.name ?? t('unknownSpace');
-  const assets = [...new Set(spaces.map((space) => space.assetId))].sort();
-
-  const setUp = (assetId: string) => {
-    const targets = named.filter((space) => space.assetId === assetId);
-    const legsOf = (values: Record<string, string>) =>
-      sorterLegs(targets.map((space) => ({ spaceId: space.id, text: values[fieldName(space.id)] ?? '' })));
-    open({
-      title: t('createTitle', { asset: assetId }),
-      procedure: 'sorter.create',
-      fields: targets.map((space) => ({
-        name: fieldName(space.id),
-        label: t('field', { space: space.name }),
-        unit: '%',
-        hint: t('fieldHint'),
-        optional: true,
-        validate: (value) => (value.trim() === '' || percentToBp(value) !== null ? null : t('fieldInvalid')),
-      })),
-      notes: [t('createNote'), t('createOne')],
-      liveRows: (values) => {
-        const { legs, totalBp } = legsOf(values);
-        return [
-          ...legs.map((leg): [string, string] => [nameOf(leg.spaceId), bpToPercent(leg.shareBp)]),
-          ...(totalBp > 0 && totalBp < 10_000 ? [[t('restLabel'), bpToPercent(10_000 - totalBp)] as [string, string]] : []),
-        ];
-      },
-      validate: (input) => {
-        const legs = (input.legs as Array<{ shareBp: number }>) ?? [];
-        const total = legs.reduce((sum, leg) => sum + leg.shareBp, 0);
-        if (!legs.length) return t('empty');
-        return total > 10_000 ? t('over', { total: bpToPercent(total).replace('%', '') }) : null;
-      },
-      input: (values, requestId) => ({ sorterId: requestId, assetId, legs: legsOf(values).legs }),
-    });
-  };
-  const stop = (sorter: Sorter) =>
-    open({
-      title: t('stopTitle', { asset: sorter.assetId }),
-      procedure: 'sorter.cancel',
-      facts: sorter.legs.map((leg) => [leg.spaceName || nameOf(leg.spaceId), bpToPercent(leg.shareBp)]),
-      notes: [t('stopNote')],
-      input: () => ({ sorterId: sorter.id }),
-      submit: t('stop'),
-    });
-
+  const { t, read, named, nameOf, assets, setUp, stop } = useIncomeSorter(spaces, open);
   return (
     <div data-testid="income-sorter">
       <Section title={t('title')} description={t('description')}>
@@ -115,7 +75,7 @@ export function SalarySorter({ spaces, open }: { spaces: Space[]; open: (spec: A
 
 function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId: string) => string; stop: () => void }) {
   const { t } = sorterCopy.useCopy();
-  const runs = useBankRead('sorter.runs', { sorterId: sorter.id, limit: RUNS_SHOWN });
+  const runs = useSorterRuns(sorter.id);
   // A share into a space archived since stays in the account, so it counts toward what stays.
   const total = sorter.legs.filter((leg) => !leg.archived).reduce((sum, leg) => sum + leg.shareBp, 0);
   // The bank names every target, archived ones too; the page's own list of spaces holds only live ones.

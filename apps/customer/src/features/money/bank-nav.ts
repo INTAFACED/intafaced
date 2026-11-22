@@ -2,7 +2,7 @@ import { copy } from './copy';
 
 /**
  * The bank's rooms, in the order the bank's room row shows them, with their labels. `BankNavigation` in rooms.tsx
- * draws them for the rooms not in Volt; a room in Volt draws the same links with the kit's Tabs (volt/flow, #9570).
+ * draws them for the rooms not in Volt; a room in Volt draws the same links with the kit's Tabs.
  */
 export const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
 export type BankRoom = (typeof bankRooms)[number];

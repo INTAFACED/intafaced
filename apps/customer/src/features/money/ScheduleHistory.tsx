@@ -1,8 +1,26 @@
 import { z } from 'zod';
+
 import { Button } from '../../shared/ui';
-import { funds, ResourceView, Section, useBankRead, usePageLimit } from './components';
+
+import {
+  amount,
+  endsField,
+  funds,
+  iso,
+  positiveMoney,
+  ResourceView,
+  Section,
+  useBankRead,
+  usePageLimit,
+  type ActionSpec,
+} from './components';
+
+import { t as copyText } from './copy';
+
 import type { scheduleSchema } from './contracts';
+
 import { standingCopy } from './standing-copy';
+
 import { ReportedTime, currentOwnerRecord, useBankView } from './bank-context';
 
 export type StandingInstruction = z.infer<typeof scheduleSchema>;
@@ -92,7 +110,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
   const { Copy, t, languageFor, directionFor } = standingCopy.useCopy();
   const current = useBankView();
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('transfers.executions', { scheduleId: id, limit });
+  const query = useExecutionsRead(id, limit);
   const retry = () => {
     if (current()) query.reload();
   };
@@ -254,4 +272,75 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
       )}
     </div>
   );
+}
+
+/** One standing instruction's executions, newest first, as the bank reports them. Shared with the Transfers room. */
+export function useExecutionsRead(scheduleId: string, limit: number) {
+  return useBankRead('transfers.executions', { scheduleId, limit });
+}
+
+/** The person's standing instructions, newest first. */
+export function useSchedulesRead(limit: number) {
+  return useBankRead('transfers.listSchedules', { limit });
+}
+
+/** A stored instant as the minutes a datetime-local field shows. */
+export function localInput(at: string): string {
+  const d = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function scheduleEditSpec(row: StandingInstruction): ActionSpec {
+  return {
+    title: copyText('rooms.edit.standing.order'),
+    procedure: 'transfers.updateSchedule',
+    fields: [positiveMoney(row.assetId), ...(row.cadence === 'once' ? [] : [endsField])],
+    initial: { amount: row.amount, ...(row.endsAt ? { endsAt: localInput(row.endsAt) } : {}) },
+    formFacts: [[copyText('rooms.revision'), String(row.revision)]],
+    facts: [
+      [copyText('rooms.schedule'), row.id],
+      [copyText('rooms.revision'), String(row.revision)],
+      [copyText('rooms.current.amount'), amount(row.amount, row.assetId)],
+    ],
+    notes: [copyText('rooms.edit.changes.future.runs'), copyText('rooms.edit.revision.note')],
+    validate: (input) =>
+      typeof input.endsAt === 'string' && Date.parse(input.endsAt) <= Math.max(Date.now(), Date.parse(row.startsAt))
+        ? copyText('components.choose.an.end.after.first.run')
+        : null,
+    input: (values) => ({
+      scheduleId: row.id,
+      revision: row.revision,
+      amount: values.amount,
+      // The form shows minutes: an end left as it was keeps the stored instant, seconds included.
+      endsAt: !values.endsAt ? null : row.endsAt && values.endsAt === localInput(row.endsAt) ? row.endsAt : iso(values.endsAt),
+    }),
+  };
+}
+
+export function schedulePauseSpec(row: StandingInstruction): ActionSpec {
+  return {
+    title: row.status === 'paused' ? copyText('rooms.resume.standing.order') : copyText('rooms.pause.standing.order'),
+    procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
+    facts: [
+      [copyText('rooms.schedule'), row.id],
+      [copyText('rooms.amount'), amount(row.amount, row.assetId)],
+    ],
+    notes: [
+      row.status === 'paused'
+        ? copyText('rooms.occurrences.missed.while.paused.are.skipped.they')
+        : copyText('rooms.pause.future.scheduled.transfers.past.posted.transfers'),
+    ],
+    input: () => ({ scheduleId: row.id }),
+  };
+}
+
+export function scheduleCancelSpec(row: StandingInstruction): ActionSpec {
+  return {
+    title: copyText('rooms.cancel.standing.order'),
+    procedure: 'transfers.cancel',
+    notes: [copyText('rooms.cancel.future.occurrences.this.does.not.reverse')],
+    facts: [[copyText('rooms.schedule'), row.id]],
+    input: () => ({ scheduleId: row.id }),
+  };
 }

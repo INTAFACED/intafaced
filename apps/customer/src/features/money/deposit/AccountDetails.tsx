@@ -1,9 +1,13 @@
 import type { Resource } from '../../../shared/resource';
-import { useSession } from '../../session';
-import { useBankRead } from '../components';
+
+import { useAccountDetailsRead } from '../AccountDetails';
+
 import type { AccountDetailSet, AccountDetailsRow } from '../contracts';
+
 import { accountDetailsCopy } from '../account-details-copy';
+
 import { uiCopy } from '../../../shared/ui-copy';
+
 import { Copy, DisabledAction, FailureBox, Panel } from './deposit-parts';
 
 /**
@@ -96,9 +100,7 @@ function AccountDetailsBody({ resource, reload }: { resource: Resource<{ currenc
 
 export function AccountDetailsPanel() {
   const { t } = accountDetailsCopy.useCopy();
-  const { profiles } = useSession();
-  // The profile in view goes with the read: the bank proves it is held, and a business has no details of its own.
-  const read = useBankRead('accountDetails.list', { profile: profiles.active });
+  const read = useAccountDetailsRead();
   return (
     <Panel title={t('detailsTitle')} lead={t('detailsLead')}>
       <AccountDetailsBody resource={read.resource} reload={read.reload} />

@@ -11,7 +11,7 @@ import { encodeQr, qrPath } from '../../../screens/pay/deps';
 import { Text } from '../copy';
 
 /**
- * The deposit room's small parts, drawn with the Volt kit (volt/flow, #9570). Each keeps the words, roles and ids of the
+ * The deposit room's small parts, drawn with the Volt kit. Each keeps the words, roles and ids of the
  * money folder's part it stands in for (DepthPanel, Fact, DisabledAction, ReportedTime, Failure, CopyButton, QrCode), which
  * other rooms still use as they are.
  */

@@ -1,12 +1,20 @@
 import { z } from 'zod';
+
 import { Button } from '@intafaced/ui/lit';
+
 import { usePreferences } from '../../../shared/preferences';
+
 import { stamp } from '../../../screens/money/time';
+
 import { Text } from '../copy';
-import { funds, useBankRead, usePageLimit } from '../components';
+
+import { funds, usePageLimit } from '../components';
 import { useBankView } from '../bank-context';
-import type { StandingInstruction } from '../ScheduleHistory';
+
+import { useExecutionsRead, type StandingInstruction } from '../ScheduleHistory';
+
 import { standingCopy } from '../standing-copy';
+
 import { Loaded as ResourceView } from './TransferParts';
 
 /**
@@ -81,7 +89,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
   const { Copy, t, languageFor, directionFor } = standingCopy.useCopy();
   const current = useBankView();
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('transfers.executions', { scheduleId: id, limit });
+  const query = useExecutionsRead(id, limit);
   const retry = () => {
     if (current()) query.reload();
   };

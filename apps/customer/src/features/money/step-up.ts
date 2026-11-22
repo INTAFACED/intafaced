@@ -1,29 +1,24 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { useResource } from '../../shared/resource';
+
 import { useSession } from '../session';
-import { confirmWithStepUp, factorStatus, type StepUpBegin, type StepUpMethod } from '../account';
+
+import { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from '../account';
 import { isStepUpCode, mintWithdrawToken, type WithdrawStepUpMethod } from './withdraw-step-up';
+
 import { stepUpRefusalKeys } from './WithdrawStepUp';
+
+import { useAliveSignal, useFactorStatus } from './StepUpConfirm';
+
 import { withdrawStepUpCopy } from './withdraw-step-up-copy';
 
 /**
- * The logic of the two "Confirm it's you" parts, `WithdrawStepUp` and `StepUpConfirm`, as hooks, so a room in Volt
- * draws them with the kit's parts (volt/flow, #9570) and keeps exactly what they do: the same calls, the same
+ * The logic of the two "Confirm it's you" parts, `WithdrawStepUp` and `StepUpConfirm`, as hooks, so a room drawn
+ * with the kit's parts keeps exactly what they do: the same calls, the same
  * refusal words, nothing sent before the approval exists. The old parts stay as they are for the rooms not in Volt.
  */
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-
-function useAlive() {
-  const alive = useRef<AbortController | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    alive.current = controller;
-    return () => controller.abort();
-  }, []);
-  return alive;
-}
 
 /** `WithdrawStepUp`'s logic: a passkey or a code buys one short `trade:withdraw` token, spent on `run` once. */
 export function useWithdrawStepUp({ run, onDone }: { run: (token: string) => Promise<ApiResult<unknown>>; onDone: () => void }) {
@@ -32,7 +27,7 @@ export function useWithdrawStepUp({ run, onDone }: { run: (token: string) => Pro
   const [code, setCodeRaw] = useState('');
   const [busy, setBusy] = useState<'code' | 'passkey' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const alive = useAlive();
+  const alive = useAliveSignal();
   const gone = () => alive.current?.signal.aborted ?? true;
   const wordsFor = (result: Failed) =>
     result.code && stepUpRefusalKeys[result.code] ? t(stepUpRefusalKeys[result.code]!) : result.message || t('failed');
@@ -94,13 +89,13 @@ export function useStepUpConfirm({
   disabled: boolean;
   onApproved: (stepUpApprovalId: string | null) => void;
 }) {
-  const { api, userId } = useSession();
+  const { api } = useSession();
   const { t } = withdrawStepUpCopy.useCopy();
-  const factors = useResource((signal) => api.query('identity', 'factorStatus', undefined, factorStatus, { signal }), `factors:${userId}`);
+  const factors = useFactorStatus();
   const [code, setCodeRaw] = useState('');
   const [busy, setBusy] = useState<'code' | 'passkey' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const alive = useAlive();
+  const alive = useAliveSignal();
 
   async function confirm(method: StepUpMethod, how: 'code' | 'passkey') {
     if (busy || disabled) return;

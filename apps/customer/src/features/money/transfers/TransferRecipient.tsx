@@ -26,10 +26,8 @@ export function TransferRecipient({ value, onChange }: { value: Payee | null; on
   const [moved, setMoved] = useState<Payee | null>(null);
   const run = useRef(0);
   const activity = useActivity({ pageSize: 100 });
-  const recents = useMemo(
-    () => (activity.status === 'ready' ? recentHandles(activity.data.items) : []),
-    [activity.status === 'ready' ? activity.data.items : null],
-  );
+  const items = activity.status === 'ready' ? activity.data.items : null;
+  const recents = useMemo(() => (items ? recentHandles(items) : []), [items]);
 
   async function lookup(raw: string) {
     const clean = cleanHandle(raw);

@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+
 import { Button } from '../../shared/ui';
+
 import { ServiceOffNotice, NOT_CONNECTED_CODES, type NotConnectedCode } from '../../shared/service-off';
+
 import { useSession } from '../session';
+
 import { letterRequestSchema, taxStatementsSchema, type LineTotal } from './contracts';
+
 import { DepthPanel } from './DepthParts';
+
 import { statementExtrasCopy } from './statement-extras-copy';
 
 const outside = (code: string | null | undefined): NotConnectedCode | null =>
@@ -36,7 +42,8 @@ type Said = { kind: 'off'; code: NotConnectedCode } | { kind: 'refused'; words: 
  * J-bank-16 #2 (BK-acct-07): an ownership letter or a balance certificate. The bank answers; while no banking partner is
  * connected it refuses `rail.bank`, shown as the one service-off notice, and nothing is made.
  */
-export function StatementLetters() {
+/** The letter request: busy while the bank answers, then what it said. Shared with the statements room. */
+export function useStatementLetters() {
   const { t } = statementExtrasCopy.useCopy();
   const { api } = useSession();
   const [busy, setBusy] = useState(false);
@@ -53,6 +60,11 @@ export function StatementLetters() {
     setSaid(code ? { kind: 'off', code } : { kind: 'refused', words: t('letterRefused'), code: result.code ?? null });
   }
 
+  return { t, busy, said, ask };
+}
+
+export function StatementLetters() {
+  const { t, busy, said, ask } = useStatementLetters();
   return (
     <DepthPanel title={t('lettersTitle')} lead={t('lettersLead')}>
       <section className="bd-stack" data-testid="statement-letters" aria-label={t('lettersTitle')}>
@@ -84,7 +96,8 @@ type Tax = { kind: 'loading' } | { kind: 'list'; count: number } | Exclude<Said,
  * J-bank-16 #3 (BK-acct-07): tax statements for a year. They come from a tax calculation provider; while none is
  * connected the bank refuses `vendor.tax`, shown as the one service-off notice. No tax figure is worked out here.
  */
-export function TaxStatements() {
+/** The tax statements read for the chosen year. Shared with the statements room. */
+export function useTaxStatements() {
   const { t } = statementExtrasCopy.useCopy();
   const { api } = useSession();
   const thisYear = new Date().getUTCFullYear();
@@ -109,6 +122,11 @@ export function TaxStatements() {
     };
   }, [api, year]);
 
+  return { t, thisYear, year, setYear, tax };
+}
+
+export function TaxStatements() {
+  const { t, thisYear, year, setYear, tax } = useTaxStatements();
   return (
     <DepthPanel title={t('taxTitle')} lead={t('taxLead')}>
       <section className="bd-stack" data-testid="tax-statements" aria-label={t('taxTitle')}>
