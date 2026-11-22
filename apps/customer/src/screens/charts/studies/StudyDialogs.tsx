@@ -3,7 +3,8 @@
  * inputs, colour and the intervals it shows on). Apply is disabled while an input is blank: nothing is filled in for it.
  */
 import { useMemo, useState } from 'react';
-import { Button, Dialog, DialogContent, DialogTitle } from '../deps';
+import { Button, Checkbox } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { ALL_INTERVALS, intervalLabel } from '../workbench';
 import type { ChartInterval } from '../../trade/chart/candles';
 import {
@@ -53,34 +54,33 @@ export function IndicatorDialog({
   const [toGroup, setToGroup] = useState(false);
   const groups = useMemo(() => groupByCategory(searchStudies(query)), [query]);
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="st-dialog" closeLabel={t('Cancel')}>
-        <DialogTitle>{t('Add an indicator')}</DialogTitle>
-        <input
-          type="search"
-          className="st-search"
-          aria-label={t('Search indicators')}
-          placeholder={t('Search indicators')}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+    open && (
+      <Sheet open title={t('Add an indicator')} closeLabel={t('Cancel')} onClose={() => onOpenChange(false)}>
+        <div className="lt-field">
+          <input
+            type="search"
+            aria-label={t('Search indicators')}
+            placeholder={t('Search indicators')}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
         {groupSize > 1 && (
-          <label className="st-check">
-            <input type="checkbox" checked={toGroup} onChange={(event) => setToGroup(event.target.checked)} />
-            <span>{t('Add to every chart in this sync group ({n})', { n: String(groupSize) })}</span>
-          </label>
+          <Checkbox checked={toGroup} onCheckedChange={setToGroup}>
+            {t('Add to every chart in this sync group ({n})', { n: String(groupSize) })}
+          </Checkbox>
         )}
-        {groups.length === 0 && <p className="st-note">{t('No indicator matches {query}.', { query })}</p>}
+        {groups.length === 0 && <p className="lt-note">{t('No indicator matches {query}.', { query })}</p>}
         {groups.map((group) => (
-          <section key={group.category} className="st-group" aria-label={word(CATEGORY_KEY[group.category])}>
-            <h3>{word(CATEGORY_KEY[group.category])}</h3>
-            <ul>
+          <section key={group.category} className="lt-stack-tight" aria-label={word(CATEGORY_KEY[group.category])}>
+            <h3 className="lt-heading">{word(CATEGORY_KEY[group.category])}</h3>
+            <ul className="lt-list lt-list-rule">
               {group.defs.map((def) => (
-                <li key={def.kind}>
+                <li key={def.kind} className="lt-row lt-row-between">
                   <span>{word(def.name)}</span>
                   <Button
-                    type="button"
-                    variant="secondary"
+                    tone="secondary"
+                    size="sm"
                     aria-label={t('Add {name}', { name: word(def.name) })}
                     onClick={() => {
                       onAdd(def.kind, toGroup && groupSize > 1);
@@ -94,8 +94,8 @@ export function IndicatorDialog({
             </ul>
           </section>
         ))}
-      </DialogContent>
-    </Dialog>
+      </Sheet>
+    )
   );
 }
 
@@ -136,102 +136,100 @@ export function StudySettings({
       : word(input.label);
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="st-dialog" closeLabel={t('Cancel')}>
-        <DialogTitle>{word(def.name)}</DialogTitle>
-        <form
-          className="st-settings"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (refusal !== null) return;
-            onApply({ inputs, color, hiddenOn: hidden });
-          }}
-        >
-          {def.inputs.map((input) => {
-            if (input.kind === 'source')
-              return (
-                <label key={input.key} className="st-field">
-                  <span>{t('Source')}</span>
-                  <select value={inputs[input.key] ?? ''} onChange={(event) => setInputs({ ...inputs, [input.key]: event.target.value })}>
-                    {SOURCES.map((name) => (
-                      <option key={name} value={name}>
-                        {word(name)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              );
-            if (input.kind === 'interval')
-              return (
-                <label key={input.key} className="st-field">
-                  <span>{t('Interval')}</span>
-                  <select value={inputs[input.key] ?? ''} onChange={(event) => setInputs({ ...inputs, [input.key]: event.target.value })}>
-                    {ALL_INTERVALS.map((id) => (
-                      <option key={id} value={id}>
-                        {intervalLabel(id)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              );
-            const invalid =
-              input.kind === 'period'
-                ? readPeriod(inputs[input.key]) === null
-                : input.kind === 'number'
-                  ? readValue(inputs[input.key]) === null
-                  : false;
+    <Sheet open title={word(def.name)} closeLabel={t('Cancel')} onClose={onClose}>
+      <form
+        className="lt-stack"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (refusal !== null) return;
+          onApply({ inputs, color, hiddenOn: hidden });
+        }}
+      >
+        {def.inputs.map((input) => {
+          if (input.kind === 'source')
             return (
-              <label key={input.key} className="st-field">
-                <span>{fieldLabel(input)}</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={inputs[input.key] ?? ''}
-                  aria-invalid={invalid || undefined}
-                  onChange={(event) => setInputs({ ...inputs, [input.key]: event.target.value })}
-                />
+              <label key={input.key} className="lt-field">
+                <span>{t('Source')}</span>
+                <select value={inputs[input.key] ?? ''} onChange={(event) => setInputs({ ...inputs, [input.key]: event.target.value })}>
+                  {SOURCES.map((name) => (
+                    <option key={name} value={name}>
+                      {word(name)}
+                    </option>
+                  ))}
+                </select>
               </label>
             );
-          })}
-          <label className="st-field">
-            <span>{t('Colour')}</span>
-            <select value={color} onChange={(event) => setColor(event.target.value as PaletteToken)}>
-              {PALETTE.map((token, n) => (
-                <option key={token} value={token}>
-                  {t('Colour {n}', { n: String(n + 1) })}
-                </option>
-              ))}
-            </select>
-          </label>
-          <fieldset className="st-shown">
-            <legend>{t('Shown on')}</legend>
-            {ALL_INTERVALS.map((id) => (
-              <label key={id} className="st-check">
-                <input
-                  type="checkbox"
-                  checked={!hidden.includes(id)}
-                  onChange={() => toggle(id)}
-                  aria-label={t('Shown on {interval}', { interval: intervalLabel(id) })}
-                />
-                <span>{intervalLabel(id)}</span>
+          if (input.kind === 'interval')
+            return (
+              <label key={input.key} className="lt-field">
+                <span>{t('Interval')}</span>
+                <select value={inputs[input.key] ?? ''} onChange={(event) => setInputs({ ...inputs, [input.key]: event.target.value })}>
+                  {ALL_INTERVALS.map((id) => (
+                    <option key={id} value={id}>
+                      {intervalLabel(id)}
+                    </option>
+                  ))}
+                </select>
               </label>
+            );
+          const invalid =
+            input.kind === 'period'
+              ? readPeriod(inputs[input.key]) === null
+              : input.kind === 'number'
+                ? readValue(inputs[input.key]) === null
+                : false;
+          return (
+            <label key={input.key} className="lt-field">
+              <span>{fieldLabel(input)}</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={inputs[input.key] ?? ''}
+                aria-invalid={invalid || undefined}
+                onChange={(event) => setInputs({ ...inputs, [input.key]: event.target.value })}
+              />
+            </label>
+          );
+        })}
+        <label className="lt-field">
+          <span>{t('Colour')}</span>
+          <select value={color} onChange={(event) => setColor(event.target.value as PaletteToken)}>
+            {PALETTE.map((token, n) => (
+              <option key={token} value={token}>
+                {t('Colour {n}', { n: String(n + 1) })}
+              </option>
             ))}
-          </fieldset>
-          {refusal !== null && (
-            <p className="st-note" role="alert">
-              {refusal}
-            </p>
-          )}
-          <div className="st-actions">
-            <Button type="button" variant="ghost" onClick={onRemove}>
-              {t('Remove study')}
-            </Button>
-            <Button type="submit" variant="primary" disabled={refusal !== null}>
-              {t('Apply')}
-            </Button>
+          </select>
+        </label>
+        <fieldset className="lt-group">
+          <legend>{t('Shown on')}</legend>
+          <div className="lt-chips">
+            {ALL_INTERVALS.map((id) => (
+              <Checkbox
+                key={id}
+                checked={!hidden.includes(id)}
+                onCheckedChange={() => toggle(id)}
+                aria-label={t('Shown on {interval}', { interval: intervalLabel(id) })}
+              >
+                {intervalLabel(id)}
+              </Checkbox>
+            ))}
           </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </fieldset>
+        {refusal !== null && (
+          <p className="lt-alert" role="alert">
+            {refusal}
+          </p>
+        )}
+        <div className="lt-actions">
+          <Button type="button" tone="quiet" onClick={onRemove}>
+            {t('Remove study')}
+          </Button>
+          <Button type="submit" tone="primary" disabled={refusal !== null}>
+            {t('Apply')}
+          </Button>
+        </div>
+      </form>
+    </Sheet>
   );
 }

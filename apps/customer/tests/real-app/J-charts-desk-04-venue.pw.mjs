@@ -34,7 +34,7 @@ const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
 const drawnStudies = async (page) => JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]');
 /** A study's facts as the legend lists them: { name: text }. */
 async function facts(page, id) {
-  const texts = await row(page, id).locator('.st-fact').allTextContents();
+  const texts = await row(page, id).getByTestId('st-fact').allTextContents();
   return Object.fromEntries(texts.map((t) => [t.slice(0, t.indexOf(':')).trim(), t.slice(t.indexOf(':') + 1).trim()]));
 }
 

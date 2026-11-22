@@ -80,7 +80,7 @@ function writeDrawn(element: HTMLElement | null, chart: ChartApi | null, series:
 
 export interface WorkbenchChartProps {
   candles: readonly Candle[];
-  style: ChartStyle;
+  chartStyle: ChartStyle;
   scheme: ColourScheme;
   /** Changes with the market or interval: the view is fitted again; otherwise it stays where the person put it. */
   resetKey: string;
@@ -108,7 +108,7 @@ const NO_LINES: readonly PriceLine[] = [];
 
 export function WorkbenchChart({
   candles,
-  style,
+  chartStyle: style,
   scheme,
   resetKey,
   symbol,
@@ -142,7 +142,11 @@ export function WorkbenchChart({
   // One chart per mount; the main series follows the style, scheme and percent mode, made again only when one of them
   // changes, and the host handed out with it is told to `onHost` (null when the chart goes).
   const stage = useChartStage<Engine, ChartApi, ChartSeries, ChartHost>(element, {
-    load: () => import('../../features/trade/vendor/lightweight-charts.standalone.production.js').then(() => engineOf()),
+    // Without the kit's stylesheet the colour tokens are empty and the engine refuses an empty colour: draw nothing.
+    load: () =>
+      import('../../features/trade/vendor/lightweight-charts.standalone.production.js').then(() =>
+        readColors('standard').bg ? engineOf() : undefined,
+      ),
     create: (lib, el) => {
       const c = readColors('standard');
       return lib.createChart(el, {
@@ -285,12 +289,12 @@ export function WorkbenchChart({
   const legend = focusBar ? legendValues(focusBar, tickSize, language) : null;
 
   return (
-    <div className="wc-root">
-      <div className="wc-stage">
+    <div className="lt-chart-stack">
+      <div className="lt-chart-stage">
         <div
           ref={element}
           data-testid="wc-host"
-          className="wc-host"
+          className="lt-chart-host"
           role="img"
           tabIndex={0}
           aria-label={labels.chart}
@@ -311,12 +315,8 @@ export function WorkbenchChart({
           onWheel={() => (moved.current = true)}
         />
         {legend && focusBar ? (
-          <div className="wc-legend" data-testid="chart-legend">
-            {settings.showTime && (
-              <span data-testid="wc-time" className="wc-time">
-                {formatTime(Math.floor(focusBar.t / 1000))}
-              </span>
-            )}
+          <div className="lt-chart-legend lt-num" data-testid="chart-legend">
+            {settings.showTime && <span data-testid="wc-time">{formatTime(Math.floor(focusBar.t / 1000))}</span>}
             <span>
               {labels.open} <b>{legend.open}</b>
             </span>
@@ -330,7 +330,7 @@ export function WorkbenchChart({
               {labels.close} <b>{legend.close}</b>
             </span>
             {settings.showChange && (
-              <span className="wc-change" data-direction={legend.direction}>
+              <span className="lt-signed" data-direction={legend.direction}>
                 {labels.change} {legend.change}
               </span>
             )}

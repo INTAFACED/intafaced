@@ -25,7 +25,9 @@ import {
   type PriceBasis,
 } from './chart-style';
 import { chartsCopy } from './copy';
-import { Menu, MenuContent, MenuItem, MenuTrigger, refusalCopy, Skeleton, StateBlock } from './deps';
+import { Button, Menu, StateBlock } from '@intafaced/ui/lit';
+import { Skeleton } from '@intafaced/ui/lit/templates';
+import { refusalCopy } from './deps';
 import { HISTORY_DEPTH, locateDate, useChartHistory, withHistory } from './history';
 import { REPLAY_SPEEDS, replayBars, replayStart, useReplay, type ReplayRefusal, type ReplaySpeed } from './replay';
 import { isStreamInterval, mergeLive, useCandleStream, type OpenSocket } from './live-candles';
@@ -252,7 +254,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   };
 
   let body: React.ReactNode;
-  if (polled.status === 'loading') body = <Skeleton className="cw-skeleton bg-field" />;
+  if (polled.status === 'loading') body = <Skeleton shape="chart" />;
   else if (polled.status === 'empty')
     // Volume is the sum of the market's trades, so a market with no trades has none: the chart says so, as the volume
     // study does on loaded bars with no volume.
@@ -271,7 +273,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     body = (
       <WorkbenchChart
         candles={drawnBars}
-        style={mode}
+        chartStyle={mode}
         scheme={scheme}
         percent={percent}
         resetKey={`${market.symbol}:${interval}`}
@@ -332,36 +334,36 @@ export const MarketChartWidget = memo(function MarketChartWidget({
             ? t('Depth recent', { bars: String(candles.length) })
             : null;
   return (
-    <section data-testid="cw" className="cw" aria-label={t('Chart of {pair}', { pair: market.symbol })} data-feed={stream.mode}>
-      <div className="cw-titlerow">
-        <h2 className="cw-title" data-testid="chart-title">
+    <section data-testid="cw" className="lt-panel" aria-label={t('Chart of {pair}', { pair: market.symbol })} data-feed={stream.mode}>
+      <div className="lt-row">
+        <h2 className="lt-panel-title" data-testid="chart-title">
           {settings.showName ? `${market.symbol} · ${intervalLabel(interval)}` : intervalLabel(interval)}
         </h2>
         <TestLabel status={status} />
         <StatusChip status={status} />
       </div>
-      <div className="cw-bar">
-        <div className="cw-chips" role="group" aria-label={t('Chart intervals')}>
+      <div className="lt-row lt-row-between">
+        <div className="lt-chips" role="group" aria-label={t('Chart intervals')}>
           {CHART_INTERVALS.map((id) => (
             <button key={id} type="button" aria-pressed={interval === id} onClick={() => onInterval(id)}>
               {intervalLabel(id)}
             </button>
           ))}
-          <Menu>
-            <MenuTrigger data-testid="cw-more" className="cw-more" data-active={moreActive || undefined}>
-              {moreActive ? intervalLabel(interval) : t('More intervals')}
-              <span aria-hidden="true"> ▾</span>
-            </MenuTrigger>
-            <MenuContent align="start">
-              {MORE_INTERVALS.map((id) => (
-                <MenuItem key={id} onClick={() => onInterval(id)}>
-                  {intervalLabel(id)}
-                </MenuItem>
-              ))}
-            </MenuContent>
-          </Menu>
+          <Menu
+            testId="cw-more"
+            size="sm"
+            align="start"
+            active={moreActive}
+            label={
+              <>
+                {moreActive ? intervalLabel(interval) : t('More intervals')}
+                <span aria-hidden="true"> ▾</span>
+              </>
+            }
+            items={MORE_INTERVALS.map((id) => ({ key: id, label: intervalLabel(id), onSelect: () => onInterval(id) }))}
+          />
         </div>
-        <div className="cw-chips" role="group" aria-label={t('Chart style')}>
+        <div className="lt-chips" role="group" aria-label={t('Chart style')}>
           {CHART_STYLES.map((id) => (
             <button key={id} type="button" aria-pressed={mode === id} onClick={() => onMode(id)}>
               {t(STYLE_LABEL[id])}
@@ -369,9 +371,9 @@ export const MarketChartWidget = memo(function MarketChartWidget({
           ))}
         </div>
       </div>
-      <div className="cw-bar cw-bar--options">
+      <div className="lt-toolbar">
         {onScheme && (
-          <label className="cw-select cw-select--inline">
+          <label className="lt-field">
             <span>{t('Colours')}</span>
             <select value={scheme} onChange={(event) => onScheme(event.target.value as ColourScheme)}>
               {COLOUR_SCHEMES.map((id) => (
@@ -382,7 +384,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
             </select>
           </label>
         )}
-        <label className="cw-select cw-select--inline">
+        <label className="lt-field">
           <span>{t('Price source')}</span>
           <select
             value="last"
@@ -398,21 +400,33 @@ export const MarketChartWidget = memo(function MarketChartWidget({
             ))}
           </select>
         </label>
-        <button type="button" className="cw-option" aria-pressed={replayOpen} onClick={() => setReplayOpen((open) => !open)}>
+        <button
+          type="button"
+          className="lt-button lt-button-secondary"
+          aria-pressed={replayOpen}
+          onClick={() => setReplayOpen((open) => !open)}
+        >
           {t('Bar replay')}
         </button>
-        <button type="button" className="cw-option" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
+        <button type="button" className="lt-button lt-button-secondary" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
           {t('Chart settings')}
         </button>
-        <button type="button" className="cw-option" aria-pressed={priceLineOpen} onClick={() => setPriceLineOpen((open) => !open)}>
+        <button
+          type="button"
+          className="lt-button lt-button-secondary"
+          aria-pressed={priceLineOpen}
+          onClick={() => setPriceLineOpen((open) => !open)}
+        >
           {t('Price line')}
         </button>
-        <form className="cw-date" onSubmit={(event) => void goToDate(event)}>
-          <label className="cw-select cw-select--inline">
+        <form className="lt-row" onSubmit={(event) => void goToDate(event)}>
+          <label className="lt-field">
             <span>{t('Go to date')}</span>
             <input type="datetime-local" name="date" required />
           </label>
-          <button type="submit">{t('Go')}</button>
+          <Button type="submit" size="sm">
+            {t('Go')}
+          </Button>
         </form>
       </div>
       {markets && (
@@ -421,27 +435,27 @@ export const MarketChartWidget = memo(function MarketChartWidget({
           market={market}
           markets={markets}
           interval={interval}
-          style={mode}
+          chartStyle={mode}
           bars={drawnBars}
           percent={percent}
           onPercent={setPercent}
         />
       )}
       {basisRefused && (
-        <p className="cw-note" role="status" data-code={BASIS_UNPUBLISHED}>
+        <p className="lt-note lt-note-warn" role="status" data-code={BASIS_UNPUBLISHED}>
           {t('Basis refused', { basis: t(BASIS_LABEL[basisRefused]) })}
         </p>
       )}
       {dateNote && (
-        <p className="cw-note" role="status" data-testid="chart-date-note">
+        <p className="lt-note lt-note-warn" role="status" data-testid="chart-date-note">
           {dateNote}
         </p>
       )}
       <StatusBanner status={status} format={day} />
-      <div className="cw-canvas">{body}</div>
+      <div className="lt-canvas">{body}</div>
       <SourceLine />
       <PriceLines lines={lines} tickSize={market.tickSize} open={priceLineOpen} onChange={setLines} />
-      <p className="cw-feed" data-testid="chart-feed">
+      <p className="lt-note" data-testid="chart-feed">
         {feedText && <>{feedText} · </>}
         {note}
         {stream.mode === 'poll' && seconds !== null && <> {t('Feed age', { seconds: String(seconds) })}</>}
@@ -455,25 +469,25 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         tick={market.tickSize}
       />
       {replayOpen && (
-        <div className="cw-replay" role="group" aria-label={t('Bar replay')}>
+        <div className="lt-row" role="group" aria-label={t('Bar replay')}>
           {replay.replay ? (
             <>
               <span data-testid="replay-position">
                 {t('Replay position', { bar: String(replay.replay.position + 1), bars: String(replay.replay.bars.length) })}
               </span>
               {replay.replay.playing ? (
-                <button type="button" onClick={replay.pause}>
+                <Button size="sm" onClick={replay.pause}>
                   {t('Pause')}
-                </button>
+                </Button>
               ) : (
-                <button type="button" onClick={replay.play}>
+                <Button size="sm" onClick={replay.play}>
                   {t('Play')}
-                </button>
+                </Button>
               )}
-              <button type="button" onClick={replay.step}>
+              <Button size="sm" onClick={replay.step}>
                 {t('Step')}
-              </button>
-              <label className="cw-select cw-select--inline">
+              </Button>
+              <label className="lt-field">
                 <span>{t('Replay speed')}</span>
                 <select value={replay.replay.speed} onChange={(event) => replay.speed(Number(event.target.value) as ReplaySpeed)}>
                   {REPLAY_SPEEDS.map((x) => (
@@ -481,17 +495,17 @@ export const MarketChartWidget = memo(function MarketChartWidget({
                   ))}
                 </select>
               </label>
-              <button type="button" onClick={replay.exit}>
+              <Button size="sm" onClick={replay.exit}>
                 {t('Exit replay')}
-              </button>
+              </Button>
             </>
           ) : (
-            <form className="cw-date" onSubmit={startReplay}>
-              <label className="cw-select cw-select--inline">
+            <form className="lt-row" onSubmit={startReplay}>
+              <label className="lt-field">
                 <span>{t('Bars back')}</span>
                 <input type="number" name="back" min={1} step={1} defaultValue={100} required />
               </label>
-              <label className="cw-select cw-select--inline">
+              <label className="lt-field">
                 <span>{t('Replay speed')}</span>
                 <select name="speed" defaultValue="1">
                   {REPLAY_SPEEDS.map((x) => (
@@ -499,10 +513,12 @@ export const MarketChartWidget = memo(function MarketChartWidget({
                   ))}
                 </select>
               </label>
-              <button type="submit">{t('Start replay')}</button>
+              <Button type="submit" size="sm">
+                {t('Start replay')}
+              </Button>
             </form>
           )}
-          <span className="cw-replay-note">{t('Replay note')}</span>
+          <span className="lt-note">{t('Replay note')}</span>
           {replayNote && (
             <span role="status" data-testid="replay-note">
               {replayNote}
@@ -511,7 +527,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         </div>
       )}
       {depth && (
-        <p className="cw-feed" data-testid="chart-depth">
+        <p className="lt-note" data-testid="chart-depth">
           {depth}
         </p>
       )}

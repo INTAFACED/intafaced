@@ -13,6 +13,8 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { Button, Select, SplitBorder, SplitCell, SplitGrid, StateBlock } from '@intafaced/ui/lit';
+import { Checkbox, Sheet } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../features/session/session';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import type { ChartInterval } from '../trade/chart/candles';
@@ -20,7 +22,7 @@ import { findMarket, pairOf, type DeskMarket } from '../trade/desk/market';
 import type { ChartHost } from './chart-host';
 import { CHART_STYLES, type ChartStyle, type ColourScheme } from './chart-style';
 import { chartsCopy } from './copy';
-import { Dialog, DialogContent, DialogTitle, navigate, StateBlock } from './deps';
+import { navigate } from './deps';
 import {
   applyChange,
   cellsFor,
@@ -339,106 +341,90 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
               : null;
 
   const { cols, rows } = LAYOUTS[layout];
-  const template = {
-    gridTemplateColumns: cols === 2 ? `${grid.sizes.cols[0]}fr 8px ${grid.sizes.cols[1]}fr` : '1fr',
-    gridTemplateRows: rows === 2 ? `${grid.sizes.rows[0]}fr 8px ${grid.sizes.rows[1]}fr` : '1fr',
-  };
-  const place = (i: number) => ({ gridColumn: (i % cols) * 2 + 1, gridRow: Math.floor(i / cols) * 2 + 1 });
 
   return (
-    <div className="cg" onKeyDown={onKey}>
-      <div className="cg-bar" role="toolbar" aria-label={t('Grid options')}>
-        <label className="cw-select cw-select--inline">
-          <span>{t('Layout')}</span>
-          {/* The layouts wait for the owner's chart limit; a choice made before it arrives would only be refused. */}
-          <select
-            value={layout}
-            disabled={!limit.ok && limit.why === 'loading'}
-            onChange={(event) => chooseLayout(event.target.value as LayoutId)}
-          >
-            {LAYOUT_IDS.map((id) => (
-              <option key={id} value={id}>
-                {t(LAYOUT_LABEL[id])}
-              </option>
-            ))}
-          </select>
-        </label>
+    <div data-testid="cg" className="lt-stack" onKeyDown={onKey}>
+      <div className="lt-toolbar" role="toolbar" aria-label={t('Grid options')}>
+        {/* The layouts wait for the owner's chart limit; a choice made before it arrives would only be refused. */}
+        <Select
+          label={t('Layout')}
+          value={layout}
+          disabled={!limit.ok && limit.why === 'loading'}
+          onChange={(value) => chooseLayout(value as LayoutId)}
+          options={LAYOUT_IDS.map((id) => ({ value: id, label: t(LAYOUT_LABEL[id]) }))}
+        />
         {cells.length > 1 && (
-          <fieldset className="cg-sync">
+          <fieldset data-testid="cg-sync" className="lt-group">
             <legend>{t('Sync in a group')}</legend>
-            {(['symbol', 'interval', 'crosshair', 'range'] as const).map((key) => (
-              <label key={key} className="cw-check">
-                <input type="checkbox" checked={grid.sync[key]} onChange={(event) => setSync(key, event.target.checked)} />
-                <span>{t(SYNC_LABEL[key])}</span>
-              </label>
-            ))}
+            <div className="lt-toolbar">
+              {(['symbol', 'interval', 'crosshair', 'range'] as const).map((key) => (
+                <Checkbox key={key} label={t(SYNC_LABEL[key])} checked={grid.sync[key]} onChange={(checked) => setSync(key, checked)} />
+              ))}
+            </div>
           </fieldset>
         )}
-        <button type="button" className="cw-option" onClick={() => setHelp(true)}>
+        <Button tone="quiet" size="sm" onClick={() => setHelp(true)}>
           {t('Shortcuts')}
-        </button>
+        </Button>
       </div>
       {note && (
-        <p className="cw-note cg-note" role="status" data-code={note.code}>
+        <p data-testid="cg-note" className="lt-note lt-note-warn" role="status" data-code={note.code}>
           {note.text}
         </p>
       )}
-      <div ref={area} data-testid="cg-area" className="cg-area" style={template} data-layout={layout} data-maximised={maximised ?? ''}>
+      <SplitGrid
+        ref={area}
+        data-testid="cg-area"
+        cols={cols === 2 ? grid.sizes.cols : [1]}
+        rows={rows === 2 ? grid.sizes.rows : [1]}
+        data-layout={layout}
+        data-maximised={maximised ?? ''}
+      >
         {cells.map((cell, i) => {
           const cellMarket = findMarket(markets as DeskMarket[], cell.symbol);
           const hidden = maximised !== null && maximised !== i;
           return (
-            <div
+            <SplitCell
               key={i}
               ref={(el) => {
                 cellEls.current[i] = el;
               }}
-              className="cg-cell"
+              col={i % cols}
+              row={Math.floor(i / cols)}
+              whole={maximised === i}
+              hidden={hidden}
               data-cell={i}
               data-symbol={cell.symbol}
               data-interval={cell.interval}
               data-group={cell.group ?? ''}
-              style={maximised === i ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : { ...place(i), display: hidden ? 'none' : undefined }}
               aria-label={t('Chart number', { n: String(i + 1) })}
               role="region"
             >
               {cells.length > 1 && (
-                <div className="cg-cell-bar">
-                  <span>{t('Chart number', { n: String(i + 1) })}</span>
-                  <label className="cw-select cw-select--inline">
-                    <span>{t('Group')}</span>
-                    <select
-                      value={cell.group ?? 'none'}
-                      onChange={(event) => setGroup(i, event.target.value === 'none' ? null : (event.target.value as Group))}
-                    >
-                      <option value="none">{t('Group none')}</option>
-                      {GROUPS.map((g) => (
-                        <option key={g} value={g}>
-                          {t(GROUP_LABEL[g])}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                <div data-testid="cg-cell-bar" className="lt-toolbar">
+                  <span className="lt-label">{t('Chart number', { n: String(i + 1) })}</span>
+                  <Select
+                    label={t('Group')}
+                    value={cell.group ?? 'none'}
+                    onChange={(value) => setGroup(i, value === 'none' ? null : (value as Group))}
+                    options={[{ value: 'none', label: t('Group none') }, ...GROUPS.map((g) => ({ value: g, label: t(GROUP_LABEL[g]) }))]}
+                  />
                   {i > 0 && (
-                    <label className="cw-select cw-select--inline">
-                      <span>{t('Choose a market')}</span>
-                      <select value={cell.symbol} onChange={(event) => change(i, { symbol: event.target.value })}>
-                        {markets.map((m) => (
-                          <option key={m.symbol} value={m.symbol}>
-                            {m.symbol}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <Select
+                      label={t('Choose a market')}
+                      value={cell.symbol}
+                      onChange={(value) => change(i, { symbol: value })}
+                      options={markets.map((m) => m.symbol)}
+                    />
                   )}
-                  <button
-                    type="button"
-                    className="cw-option"
+                  <Button
+                    tone="quiet"
+                    size="sm"
                     aria-pressed={maximised === i}
                     onClick={() => setMaximised((now) => (now === i ? null : i))}
                   >
                     {maximised === i ? t('Restore') : t('Maximise')}
-                  </button>
+                  </Button>
                 </div>
               )}
               {cellMarket ? (
@@ -497,48 +483,29 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
               ) : (
                 <StateBlock kind="empty" title={t('Market not found title')} body={t('Market not found body')} />
               )}
-            </div>
+            </SplitCell>
           );
         })}
         {cols === 2 && maximised === null && (
-          <div
-            className="cg-border cg-border--col"
-            style={{ gridColumn: 2, gridRow: '1 / -1' }}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t('Column border')}
-            onPointerDown={drag('cols')}
-            onDoubleClick={even('cols')}
-          />
+          <SplitBorder axis="cols" aria-label={t('Column border')} onPointerDown={drag('cols')} onDoubleClick={even('cols')} />
         )}
         {rows === 2 && maximised === null && (
-          <div
-            className="cg-border cg-border--row"
-            style={{ gridRow: 2, gridColumn: '1 / -1' }}
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label={t('Row border')}
-            onPointerDown={drag('rows')}
-            onDoubleClick={even('rows')}
-          />
+          <SplitBorder axis="rows" aria-label={t('Row border')} onPointerDown={drag('rows')} onDoubleClick={even('rows')} />
         )}
-      </div>
-      <Dialog open={help} onOpenChange={setHelp}>
-        <DialogContent>
-          <DialogTitle>{t('Shortcuts')}</DialogTitle>
-          <dl className="cg-keys" data-testid="shortcut-list">
-            {SHORTCUTS.map((row) => (
-              <div key={row.keys}>
-                <dt>
-                  <kbd>{row.keys}</kbd>
-                </dt>
-                <dd>{t(row.action)}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="cg-keys-note">{t('Keys note')}</p>
-        </DialogContent>
-      </Dialog>
+      </SplitGrid>
+      <Sheet open={help} title={t('Shortcuts')} onClose={() => setHelp(false)}>
+        <dl className="lt-kv" data-testid="shortcut-list">
+          {SHORTCUTS.map((row) => (
+            <div key={row.keys}>
+              <dt>
+                <kbd>{row.keys}</kbd>
+              </dt>
+              <dd>{t(row.action)}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="lt-note">{t('Keys note')}</p>
+      </Sheet>
     </div>
   );
 }
