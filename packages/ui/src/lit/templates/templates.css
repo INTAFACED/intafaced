@@ -1308,3 +1308,46 @@
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.25rem;
 }
+
+/* ---- reading rooms: parts stacked in a slot, prose kept as written, a status page's day strip ---- */
+
+/* Parts one under another inside a slot (a card's lines, a form and its outcome). */
+.lt-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+
+/* Text an owner wrote with its own line breaks (a rulebook section, a policy, a postmortem), shown escaped as typed. */
+.lt-pre {
+  white-space: pre-wrap;
+}
+.lt-pre-line {
+  white-space: pre-line;
+}
+
+/* One mark per day, its state read from data-state; the words are the mark's title and the strip's label. */
+.lt-uptime {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+}
+.lt-uptime > li {
+  inline-size: 0.5rem;
+  block-size: 1.5rem;
+  border: 1px solid var(--lit-line);
+  border-radius: calc(var(--lit-radius-control) / 4);
+}
+.lt-uptime > [data-state='operational'] {
+  background: var(--lit-up);
+}
+.lt-uptime > :is([data-state='degraded'], [data-state='maintenance']) {
+  background: var(--lit-warn-text);
+}
+.lt-uptime > :is([data-state='partial_outage'], [data-state='major_outage']) {
+  background: var(--lit-down);
+}
