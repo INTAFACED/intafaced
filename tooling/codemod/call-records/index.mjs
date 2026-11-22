@@ -30,7 +30,7 @@ import {
 import { answerFromCallers } from './answer.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { asWritten, closureOf, contractsExports, declaresSame, usedOutside } from './closure.mjs';
-import { doorOf } from './door.mjs';
+import { accessText, doorOf } from './door.mjs';
 import { founderPartsFor } from './founder-guard.mjs';
 import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
@@ -168,7 +168,7 @@ function plan(opts) {
     byPath.get(s.path).push(s);
   }
   const readers = opts.door ? [] : refusalReaders(serviceDir);
-  const door = opts.door ? doorOf(join(REPO, opts.door)) : undefined;
+  const door = opts.door ? doorOf(join(REPO, opts.door), opts.module) : undefined;
   const exportsIndex = contractsExports(REPO);
   const records = [];
   const existing = [];
@@ -218,8 +218,9 @@ function plan(opts) {
       chain.problems = chain.problems.filter((x) => !/^guard |^scopedProcedure /.test(x));
       if (!row) chain.problems.push(`${opts.door} serves no call ${path}`);
       else if (row.kind !== chain.kind) chain.problems.push(`${opts.door} serves ${path} as a ${row.kind}, the router as a ${chain.kind}`);
+      else if (!row.access) chain.problems.push(`${opts.door} serves ${path} to ${row.why}`);
       else {
-        chain.guard = { text: row.scope ? `{ caller: 'scope', scope: '${row.scope}', module: '${opts.module}' }` : "{ caller: 'public' }" };
+        chain.guard = { text: accessText(row.access) };
         try {
           reader = { refusals: door.refusals(path) };
         } catch (e) {

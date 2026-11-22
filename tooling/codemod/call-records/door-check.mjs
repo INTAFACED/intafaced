@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { callsOf } from './door.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 
@@ -172,12 +173,10 @@ async function main() {
   const opts = args(process.argv.slice(2));
   const crate = join(REPO, opts.door);
   const { nodes, inputs } = JSON.parse(readFileSync(join(crate, 'src/door/schemas.json'), 'utf8'));
-  const calls = readFileSync(join(crate, 'src/door/calls.rs'), 'utf8');
-  const row = (path) => {
-    const m = calls.match(
-      new RegExp(`path: "${path.replace(/\./g, '\\.')}",\\s*kind: Kind::(\\w+),\\s*access: Access::(Public|Scope\\("([^"]+)"\\))`),
-    );
-    return m && { kind: m[1].toLowerCase(), scope: m[3] ?? null };
+  const rows = new Map();
+  const row = (path, module) => {
+    if (!rows.has(module)) rows.set(module, callsOf(crate, module));
+    return rows.get(module).get(path);
   };
   const reg = await import(pathToFileURL(join(REPO, 'packages/contracts/dist/procedure-registry.js')).href);
   const bad = [];
@@ -194,14 +193,14 @@ async function main() {
   for (const r of Object.values(reg.CONTRACT_PROCEDURES)) {
     if (only && !only.has(r.name)) continue;
     if (r.service !== opts.service || r.transport !== 'trpc') continue;
-    const door = row(r.path);
+    const door = row(r.path, r.module);
     if (!door) {
       bad.push(`${r.name}: the door serves no ${r.path}`);
       continue;
     }
-    const access = door.scope ? { caller: 'scope', scope: door.scope, module: r.module } : { caller: 'public' };
-    if (door.kind !== r.kind || canon(access) !== canon(r.access)) {
-      bad.push(`${r.name}: the door serves a ${door.kind} to ${canon(access)}, the record names a ${r.kind} to ${canon(r.access)}`);
+    const access = door.access ? canon(door.access) : door.why;
+    if (door.kind !== r.kind || access !== canon(r.access)) {
+      bad.push(`${r.name}: the door serves a ${door.kind} to ${access}, the record names a ${r.kind} to ${canon(r.access)}`);
       continue;
     }
     const none = r.input._zod.def.type === 'undefined';
