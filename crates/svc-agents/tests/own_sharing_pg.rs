@@ -3,11 +3,11 @@
 //! own runner. Without a URL it skips; with `REQUIRE_POSTGRES=1` it fails.
 //!
 //! Ported case for case from `services/svc-agents/src/own/`: the "own agent identity" block of `identity.test.ts`; the
-//! "account access" block of `access.test.ts` (its `own.policy.*` halves are the own-controls slice's: the access gate
-//! they meet is asked here directly, `access::assert_allows`; the svc-trade and trade-draft cases are own-controls' and
-//! own-runs'); the "own agent sharing" block of `publishing.test.ts`; the sharing cases of `memory.test.ts`; and
-//! `self-freeze.test.ts` #1 and #4 with this slice's calls of #2 (the other slices' rows are written in SQL, and their
-//! refusals while frozen are theirs to port).
+//! "account access" block of `access.test.ts`, through own-controls' `own.policy.check` and `own.policy.forService`,
+//! which meet this slice's access gate first (the trade-draft case is own-runs'); the "own agent sharing" block of
+//! `publishing.test.ts`; the sharing cases of `memory.test.ts`; and `self-freeze.test.ts` #1, #4, and #2 and failing
+//! closed with this slice's and own-controls' calls (own-runs' rows are written in SQL, and the refusals of its
+//! schedules, triggers and sessions while frozen are its to port).
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use service_kit::edge;
 use service_kit::json::{self, Json};
+use service_kit::s2s::CallSigner;
 use service_kit::server::Request;
 use service_kit::time::Instant;
 use support::TestDb;
@@ -34,7 +35,6 @@ use svc_agents::gateway::providers::{MockOptions, MockProvider, Provider};
 use svc_agents::gateway::readiness::ReadyInput;
 use svc_agents::gateway::routing;
 use svc_agents::own::Own;
-use svc_agents::own::access;
 use svc_agents::own::desk::{CommentInput, DeskAccount, DeskComment, DeskSearch, SupportDesk};
 use svc_agents::own::freeze_applied::{Applied, on_self_freeze_applied};
 use svc_agents::self_freeze::{
@@ -698,14 +698,66 @@ fn grants(d: &AgentsDoor, who: &[(String, String)], id: &str) -> Vec<Json> {
     )
 }
 
-/// The gate an action naming `account` meets before the rules (`own.policy.check`'s first step, own-controls').
-fn gate(db: &TestDb, id: &str, account: &str) -> Option<String> {
-    access::assert_allows(&pool(db), USER, id, account, system_now())
-        .err()
-        .map(|e| match e {
-            svc_agents::own::OwnError::Refusal(r) => r.code,
-            other => panic!("{other:?}"),
-        })
+/// `person.own.policy.check({ id, action: 'place_order', account })`.
+fn check(d: &AgentsDoor, who: &[(String, String)], id: &str, account: &str) -> (u16, Json) {
+    query(
+        d,
+        "own.policy.check",
+        &obj(&[
+            ("id", Json::str(id)),
+            ("action", Json::str("place_order")),
+            ("account", Json::str(account)),
+        ]),
+        who,
+    )
+}
+
+fn outcome(answer: &(u16, Json)) -> String {
+    s(&data(answer), "outcome")
+}
+
+fn policy_add(
+    d: &AgentsDoor,
+    who: &[(String, String)],
+    id: &str,
+    effect: &str,
+    action: &str,
+    scope: &str,
+) -> (u16, Json) {
+    mutate(
+        d,
+        "own.policy.add",
+        &obj(&[
+            ("id", Json::str(id)),
+            ("effect", Json::str(effect)),
+            ("action", Json::str(action)),
+            ("scope", Json::str(scope)),
+        ]),
+        who,
+    )
+}
+
+/// A service, signed as itself, asking the gate for the person (`trade.own.policy.forService`).
+fn for_service(d: &AgentsDoor, service: &str, user: &str, id: &str, account: &str) -> (u16, Json) {
+    let input = obj(&[
+        ("userId", Json::str(user)),
+        ("id", Json::str(id)),
+        ("action", Json::str("place_order")),
+        ("account", Json::str(account)),
+    ]);
+    let headers = CallSigner::new(service, "svc-agents", SERVICE_SECRET, None)
+        .sign(
+            &input.compact(),
+            "POST",
+            "/trpc/own.policy.forService",
+            "application/json",
+        )
+        .unwrap();
+    mutate(d, "own.policy.forService", &input, &headers)
+}
+
+fn forbidden(code: &str) -> (String, String) {
+    ("FORBIDDEN".to_owned(), code.to_owned())
 }
 
 #[test]
@@ -754,12 +806,25 @@ fn access_to_sub_account_a_only_a_tool_naming_b_is_refused_one_naming_a_passes_t
         7 * 86_400_000
     );
     assert!(iso_ms(&s(g, "grantedAt")) >= before - 1000);
+    let (a, b) = (format!("sub:{SUB_A}"), format!("sub:{SUB_B}"));
     assert_eq!(
-        gate(&db, &id, &format!("sub:{SUB_B}")).as_deref(),
-        Some("agents.access_account_denied")
+        refused(&check(&d, &me, &id, &b)),
+        forbidden("agents.access_account_denied")
     );
-    assert_eq!(gate(&db, &id, &format!("sub:{SUB_A}")), None);
-    assert_eq!(gate(&db, &id, "main"), None);
+    assert_eq!(outcome(&check(&d, &me, &id, &a)), "no_rule");
+    // The rules still decide after access: a deny on every account refuses A too.
+    data(&policy_add(&d, &me, &id, "deny", "place_order", "all"));
+    assert_eq!(message(&check(&d, &me, &id, &a)), "agents.policy_denied");
+    // A deny on main does not reach a sub-account.
+    let (other, _) = starter(&d, &me, "access:a-only:other");
+    data(&mutate(
+        &d,
+        "own.access.grant",
+        &grant_of(&other, &[SUB_A], Some("7"), &key(3)),
+        &me,
+    ));
+    data(&policy_add(&d, &me, &other, "deny", "place_order", "main"));
+    assert_eq!(outcome(&check(&d, &me, &other, &a)), "no_rule");
 }
 
 #[test]
@@ -780,9 +845,10 @@ fn access_past_its_end_is_refused_agents_access_expired_a_new_grant_replaces_the
             &[],
         )
         .unwrap();
+    let (a, b) = (format!("sub:{SUB_A}"), format!("sub:{SUB_B}"));
     assert_eq!(
-        gate(&db, &id, &format!("sub:{SUB_A}")).as_deref(),
-        Some("agents.access_expired")
+        refused(&check(&d, &me, &id, &a)),
+        forbidden("agents.access_expired")
     );
     let granted = items(
         data(&mutate(
@@ -801,10 +867,10 @@ fn access_past_its_end_is_refused_agents_access_expired_a_new_grant_replaces_the
             .collect::<Vec<_>>(),
         [SUB_A]
     );
-    assert_eq!(gate(&db, &id, &format!("sub:{SUB_A}")), None);
+    assert_eq!(outcome(&check(&d, &me, &id, &a)), "no_rule");
     assert_eq!(
-        gate(&db, &id, &format!("sub:{SUB_B}")).as_deref(),
-        Some("agents.access_account_denied")
+        message(&check(&d, &me, &id, &b)),
+        "agents.access_account_denied"
     );
     assert_eq!(
         db.count("SELECT count(*) FROM agents.own_agent_account_access WHERE ended_at IS NULL"),
@@ -906,6 +972,54 @@ fn an_empty_or_malformed_grant_is_refused_and_grants_nothing() {
         "agents.access_request_invalid"
     );
     assert!(grants(&d, &me, &id).is_empty());
+}
+
+#[test]
+fn svc_trade_asks_the_same_gate_for_the_person_a_passes_b_and_another_persons_agent_refuse_and_no_other_caller_may_ask()
+ {
+    let Some(db) = fresh() else { return };
+    let d = door(&db, Build::default());
+    let me = person(USER);
+    let (id, _) = starter(&d, &me, "access:trade");
+    data(&mutate(
+        &d,
+        "own.access.grant",
+        &grant_of(&id, &[SUB_A], Some("7"), &key(1)),
+        &me,
+    ));
+    let (a, b) = (format!("sub:{SUB_A}"), format!("sub:{SUB_B}"));
+    assert_eq!(
+        outcome(&for_service(&d, "svc-trade", USER, &id, &a)),
+        "no_rule"
+    );
+    assert_eq!(
+        refused(&for_service(&d, "svc-trade", USER, &id, &b)),
+        forbidden("agents.access_account_denied")
+    );
+    assert_eq!(
+        message(&for_service(&d, "svc-trade", OTHER, &id, &a)),
+        "agents.own.not_found"
+    );
+    data(&policy_add(&d, &me, &id, "deny", "place_order", "all"));
+    assert_eq!(
+        refused(&for_service(&d, "svc-trade", USER, &id, &a)),
+        forbidden("agents.policy_denied")
+    );
+    assert_eq!(
+        refused(&for_service(&d, "svc-bank", USER, &id, &a)).0,
+        "FORBIDDEN"
+    );
+    // The person's own session is not a service: it asks through own.policy.check instead.
+    let input = obj(&[
+        ("userId", Json::str(USER)),
+        ("id", Json::str(id.clone())),
+        ("action", Json::str("place_order")),
+        ("account", Json::str(a.clone())),
+    ]);
+    assert_eq!(
+        refused(&mutate(&d, "own.policy.forService", &input, &me)).0,
+        "UNAUTHORIZED"
+    );
 }
 
 #[test]
@@ -1137,8 +1251,8 @@ struct Equipped {
 }
 
 /// `equip`: one agent of the person's with every permission svc-agents keeps, and one scheduled run of each kind.
-/// This slice's are made through the door; the other slices' rows (consents, the Navigator's binding, schedules,
-/// triggers and runs) are written as their calls would write them.
+/// This slice's and own-controls' are made through the door; the other slices' rows (the Navigator's binding,
+/// schedules, triggers and runs) are written as their calls would write them.
 fn equip(db: &TestDb, d: &AgentsDoor, user: &str) -> Equipped {
     let who = person(user);
     let id = helper(d, &who, &format!("freeze:{user}"));
@@ -1165,15 +1279,10 @@ fn equip(db: &TestDb, d: &AgentsDoor, user: &str) -> Equipped {
         &data(&mutate(d, "own.identity.issue", &by_id(&id), &who)),
         "secret",
     );
-    let mut c = db.client();
     for class in ["own_data", "market_data"] {
-        c.execute(
-            "INSERT INTO agents.own_agent_consents (agent_id, owner_id, data_class, consent_key)
-             VALUES ($1::text::uuid, $2::text, $3::text, $4::text)",
-            &[&id, &user, &class, &format!("consent:{id}:{class}")],
-        )
-        .unwrap();
+        data(&mutate(d, "own.consents.grant", &consent(&id, class), &who));
     }
+    let mut c = db.client();
     let account = format!("0x{}", if user == USER { "d" } else { "e" }.repeat(40));
     c.execute(
         "INSERT INTO agents.navigator_onchain_bindings
@@ -1233,6 +1342,10 @@ fn equip(db: &TestDb, d: &AgentsDoor, user: &str) -> Equipped {
     )
     .unwrap();
     Equipped { id, secret }
+}
+
+fn consent(id: &str, class: &str) -> Json {
+    obj(&[("id", Json::str(id)), ("dataClass", Json::str(class))])
 }
 
 /// `live`: what svc-agents keeps live for one person, each kind of permission and scheduled run, counted.
@@ -1431,18 +1544,25 @@ fn after_the_lift_nothing_comes_back_by_itself_the_person_grants_each_permission
     on_self_freeze_applied(&pool(&db), &payload()).unwrap();
     // Lifted: identity reads open again (this door's reader). What the freeze revoked or stopped stays so.
     assert_eq!(live(&db, USER), NONE_LIVE);
-    assert_eq!(
-        db.count(&format!(
-            "SELECT count(*) FROM agents.own_agent_consents WHERE agent_id = '{id}' AND revoked_at IS NULL"
-        )),
-        0
+    let consents = items(&data(&query(&d, "own.consents.list", &by_id(&id), &me)));
+    assert!(!consents.is_empty());
+    assert!(
+        consents
+            .iter()
+            .all(|c| c.get("revokedAt") != Some(&Json::Null))
     );
     let latest = data(&query(&d, "own.identity.get", &by_id(&id), &me));
     assert_eq!(s(latest.get("token").unwrap(), "state"), "revoked");
     assert!(grants(&d, &me, &id).is_empty());
     // Granting again works, and only what the person grants is live.
+    data(&mutate(
+        &d,
+        "own.consents.grant",
+        &consent(&id, "own_data"),
+        &me,
+    ));
     data(&mutate(&d, "own.identity.issue", &by_id(&id), &me));
-    assert_eq!(live(&db, USER), [1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(live(&db, USER), [1, 1, 0, 0, 0, 0, 0, 0, 0]);
 }
 
 fn grant_a(id: &str) -> Json {
@@ -1495,13 +1615,44 @@ fn while_frozen_a_new_key_the_agents_token_and_an_access_grant_are_each_refused_
         )),
         frozen
     );
-    // A permission change that gives the agent more.
+    // Permission changes that give an agent more.
+    assert_eq!(
+        refused(&mutate(
+            &d,
+            "own.consents.grant",
+            &consent(&id, "live_write"),
+            &me
+        )),
+        frozen
+    );
     assert_eq!(
         refused(&mutate(&d, "own.access.grant", &grant_a(&id), &me)),
         frozen
     );
+    assert_eq!(
+        refused(&policy_add(&d, &me, &id, "allow", "place_order", "all")),
+        frozen
+    );
+    let require = obj(&[
+        ("id", Json::str(id.clone())),
+        ("rulesRequired", Json::Bool(false)),
+    ]);
+    assert_eq!(
+        refused(&mutate(&d, "own.policy.require", &require, &me)),
+        frozen
+    );
+    // What only narrows still works while frozen: a deny rule and a revoke.
+    data(&policy_add(&d, &me, &id, "deny", "place_order", "all"));
+    data(&mutate(
+        &d,
+        "own.consents.revoke",
+        &consent(&id, "market_data"),
+        &me,
+    ));
     // Nothing was granted or issued.
-    assert_eq!(live(&db, USER), before);
+    let mut narrowed = before;
+    narrowed[1] -= 1;
+    assert_eq!(live(&db, USER), narrowed);
     assert_eq!(
         db.count(&format!(
             "SELECT count(*) FROM agents.own_agent_tokens WHERE owner_id = '{USER}'"
@@ -1510,6 +1661,12 @@ fn while_frozen_a_new_key_the_agents_token_and_an_access_grant_are_each_refused_
     );
     // Another person is not frozen by it.
     let (theirs, _) = starter(&d, &them, "freeze:other:fresh");
+    data(&mutate(
+        &d,
+        "own.consents.grant",
+        &consent(&theirs, "own_data"),
+        &them,
+    ));
     data(&mutate(&d, "own.identity.issue", &by_id(&theirs), &them));
 }
 
@@ -1551,6 +1708,19 @@ fn fails_closed_identity_down_or_no_freeze_read_wired_refuses_every_one_owner_fr
         );
         assert_eq!(
             refused(&mutate(&d, "own.access.grant", &grant_a(&id), &me)),
+            unread
+        );
+        assert_eq!(
+            refused(&mutate(
+                &d,
+                "own.consents.grant",
+                &consent(&id, "live_write"),
+                &me
+            )),
+            unread
+        );
+        assert_eq!(
+            refused(&policy_add(&d, &me, &id, "allow", "cancel_order", "main")),
             unread
         );
     }
