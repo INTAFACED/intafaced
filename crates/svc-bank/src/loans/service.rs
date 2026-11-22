@@ -7,8 +7,6 @@
 //! ledger refusal marks a row rejected. Anything else leaves it pending, counted against new claims, for a same-id
 //! retry or the recovery job to re-drive on its original key.
 
-use std::collections::BTreeMap;
-
 use postgres::{GenericClient, Transaction};
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
@@ -32,7 +30,7 @@ use crate::spaces::space::{in_tx, pg, with};
 pub const IN_FLIGHT_BOUND_SECONDS: i64 = 7 * 60;
 
 /// The marks of the slice's assets, by asset id.
-pub type Marks = BTreeMap<String, QuotedMark>;
+pub use super::prices::Marks;
 
 // ── Accounts and keys ────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -1313,6 +1311,11 @@ fn lock_collateral(
     Ok((tx, seq.get()))
 }
 
+/// A closing release of everything held (`releaseCollateral(loan, held)`).
+pub fn release_collateral_closing(d: &Deps<'_>, l: &Loan, held: Amount) -> Result<String, Refusal> {
+    release_collateral(d, l, held, None).map_err(Fail::refusal)
+}
+
 /// `releaseCollateral` with no event id: a closing release at `sequence` (MAX+1 when none is named).
 fn release_collateral(
     d: &Deps<'_>,
@@ -2440,6 +2443,7 @@ pub fn fund_reserve(
     debt_asset_id: &str,
     funding_id: &str,
     amount: Amount,
+    from: Option<&LedgerAccount>,
 ) -> Result<String, Refusal> {
     if amount <= 0 {
         return Err(refuse(
@@ -2488,16 +2492,22 @@ pub fn fund_reserve(
     if let Some(tx) = settled {
         return Ok(tx);
     }
+    let mut input = vec![
+        ("fundingId".to_owned(), Json::str(funding_id)),
+        ("debtAssetId".to_owned(), Json::str(debt_asset_id)),
+        ("amount".to_owned(), Json::str(format_amount(amount))),
+    ];
+    if let Some(f) = from {
+        input.push(("from".to_owned(), f.json()));
+    }
+    // Only a customer's own account as the source is a custodial move.
+    let customer = from.is_some_and(|f| f.owner_type == "user");
     let posted = post(
         d,
         "loanReserveFund",
-        &Json::obj([
-            ("fundingId", Json::str(funding_id)),
-            ("debtAssetId", Json::str(debt_asset_id)),
-            ("amount", Json::str(format_amount(amount))),
-        ]),
+        &Json::Object(input),
         &format!("bank.loan.reserve.fund:{debt_asset_id}:{funding_id}"),
-        false,
+        customer,
     )
     .map_err(PostErr::refusal)?;
     with(d.store, |c| {
