@@ -26,11 +26,11 @@ import {
 import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
 import { feeShown } from './fee-rates';
+import { VENUE_POLL_MS } from './poll';
 
 type T = ReturnType<typeof venueCopy.useCopy>['t'];
 
-/** How often the venue's record is read while a desk shows it. */
-export const VENUE_POLL_MS = 2_000;
+export { VENUE_POLL_MS };
 
 export function useVenueApi(): VenueApi {
   const { api } = useSession();

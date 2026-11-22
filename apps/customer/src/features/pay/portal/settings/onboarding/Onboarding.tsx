@@ -574,16 +574,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
   );
 }
 
-export const kybWord = (status: string, t: ReturnType<typeof portalCopy.useCopy>['t']) =>
-  status === 'none'
-    ? t('chipKyb_none')
-    : status === 'pending'
-      ? t('chipKyb_pending')
-      : status === 'approved'
-        ? t('chipKyb_approved')
-        : status === 'rejected'
-          ? t('chipKyb_rejected')
-          : status;
+import { kybWord } from './kyb-word';
 
 function StepGoLive(props: OnboardingViewProps) {
   const { portal, merchant, rails, saved, onDestinationSaved, retry, progress } = props;

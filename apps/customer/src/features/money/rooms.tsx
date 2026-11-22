@@ -50,9 +50,7 @@ import { MoneyActivity } from './activity';
 import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstruction } from './ScheduleHistory';
 import { standingCopy } from './standing-copy';
 import { useBankView } from './bank-context';
-import { OwnerCards } from './Cards';
-import { OwnerRailRecords } from './RailRecords';
-import { railCopy } from './rail-copy';
+import { CardsRoom } from './cards-room/CardsRoom';
 import { SelectedSpace } from './SelectedSpace';
 import { SpaceInflows } from './SpaceInflows';
 import { IncomeSorter } from './IncomeSorter';
@@ -63,20 +61,18 @@ import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
 import { WalletProvider } from '../protocol';
 import { addMoneyCopy } from './add-money-copy';
-import { LinkedAccounts } from './LinkedAccounts';
-import { DirectDebits } from './DirectDebits';
+import { LinkedAccountsRoom } from './linked-accounts/LinkedAccountsRoom';
+import { DirectDebitsRoom } from './direct-debits/DirectDebitsRoom';
 import { directDebitsCopy } from './direct-debits-copy';
 import { RecoveryClaim } from './RecoveryClaim';
 import { recoveryClaimCopy } from './recovery-claim-copy';
 import { MoneyCalendar } from './Calendar';
 import { calendarCopy } from './calendar-copy';
-import { Rules } from './Rules';
+import { RulesRoom } from './rules-room/RulesRoom';
 import { rulesCopy } from './rules-copy';
-import { LoanDetail } from './LoanDetail';
+import { LoanDetailRoom } from './loan-detail/LoanDetailRoom';
 import { LoanApply } from './LoanApply';
 import { loanApplyCopy } from './loan-apply-copy';
-import { loanDetailCopy } from './loan-detail-copy';
-import { linkedAccountsCopy } from './linked-accounts-copy';
 import { cashOutCopy } from './cash-out-copy';
 import { CashOut } from './CashOut';
 import { BankRailSend } from './BankRailSend';
@@ -86,14 +82,13 @@ import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
 import { splitAnalytics } from './analytics-model';
 import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
-import { LimitsRoom, limitsCopy } from './LimitsRoom';
-import { BankAccountRoom, OnboardingBanner, bankAccountCopy } from './BankAccountRoom';
+import { LimitsPage } from './limits/LimitsRoom';
+import { BankAccountPage } from './bank-account/BankAccountRoom';
+import { OnboardingBanner } from './OnboardingBanner';
 import { GoalProgress, MovementBars } from './GoalAndMovement';
 import { RecipientPicker } from './RecipientPicker';
-import { BusinessBank } from './BusinessBank';
-import { businessCopy } from './business-copy';
-import { RampJourneys } from './RampJourneys';
-import { rampDepthCopy } from './ramp-depth-copy';
+import { BusinessBankRoom } from './business-bank/BusinessBankRoom';
+import { RampsRoom } from './ramps/RampsRoom';
 import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
 import type { Payee } from './payees';
 import { transferDepthCopy } from './transfer-depth-copy';
@@ -861,25 +856,6 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
     </BankPage>
   );
 }
-function Cards({ open }: { open: (spec: ActionSpec) => void }) {
-  return (
-    <BankPage room="Cards" description={copyText('rooms.issuer.connectivity.and.card.outcomes.are.separate')}>
-      <OwnerCards open={open} />
-    </BankPage>
-  );
-}
-function Ramps({ open }: { open: (spec: ActionSpec) => void }) {
-  const { t } = railCopy.useCopy();
-  const depth = rampDepthCopy.useCopy();
-  return (
-    <BankPage room="Ramps" description={t('description')}>
-      <RampJourneys open={open} />
-      <Section title={depth.t('historyTitle')} description={depth.t('historyLead')}>
-        <OwnerRailRecords />
-      </Section>
-    </BankPage>
-  );
-}
 /** `/bank/ramps/new`: add money, inside the Ramps room. */
 function AddMoneyRoom() {
   const { t } = addMoneyCopy.useCopy();
@@ -902,15 +878,6 @@ function DirectDebitsLink() {
       </a>{' '}
       {t('openHint')}
     </p>
-  );
-}
-/** `/bank/direct-debits`: Direct Debit mandates and collections, inside the Transfers room (J-bank-06 #4). */
-function DirectDebitsRoom() {
-  const { t } = directDebitsCopy.useCopy();
-  return (
-    <BankPage room="Transfers" title={t('title')} description={t('description')}>
-      <DirectDebits />
-    </BankPage>
   );
 }
 /** `/bank/recovery` (RC-identity-08): where a person named to receive someone's account claims it with their keys. */
@@ -959,15 +926,6 @@ function RulesLink() {
     </p>
   );
 }
-/** `/bank/rules`: payment reminders, failure notices, notification choices and money rules, inside Transfers (J-bank-06 #6). */
-function RulesRoom() {
-  const { t } = rulesCopy.useCopy();
-  return (
-    <BankPage room="Transfers" title={t('title')} description={t('description')}>
-      <Rules />
-    </BankPage>
-  );
-}
 /** `/bank/loans/apply?product=<id>`: choose a loan, work out its collateral, check what applies and open it (J-bank-09). */
 function LoanApplyRoom({ search, open }: { search: string; open: (spec: ActionSpec) => void }) {
   const { t } = loanApplyCopy.useCopy();
@@ -979,14 +937,9 @@ function LoanApplyRoom({ search, open }: { search: string; open: (spec: ActionSp
   );
 }
 /** `/bank/loans/detail?loan=<id>`: one loan's payoff quote, projection and statement, inside the Loans room (J-bank-11 #1). */
-function LoanDetailRoom({ search }: { search: string }) {
-  const { t } = loanDetailCopy.useCopy();
+function LoanDetailPage({ search }: { search: string }) {
   const loanId = new URLSearchParams(search).get('loan');
-  return (
-    <BankPage room="Loans" title={t('title')} description={t('description')}>
-      <LoanDetail loanId={loanId && loanId.trim() !== '' ? loanId : null} />
-    </BankPage>
-  );
+  return <LoanDetailRoom loanId={loanId && loanId.trim() !== '' ? loanId : null} />;
 }
 /** `/bank/calendar`: everything dated, inside the Transfers room (J-bank-06 #5). */
 function CalendarRoom() {
@@ -997,24 +950,6 @@ function CalendarRoom() {
     </BankPage>
   );
 }
-/** `/bank/limits`: sending limits from the bank's quote, the fee schedules and the plan (BK-acct-04, J-bank-16 #6). */
-function LimitsPage() {
-  return (
-    <BankPage room="Overview" title={limitsCopy.t('title')} description={limitsCopy.t('description')}>
-      <LimitsRoom />
-    </BankPage>
-  );
-}
-
-/** `/bank/account`: onboarding, requests, reviews, closure and data rights at the partner bank (BK-acct-05, BK-acct-06, J-bank-17). */
-function BankAccountPage() {
-  return (
-    <BankPage room="Overview" title={bankAccountCopy.t('title')} description={bankAccountCopy.t('description')}>
-      <BankAccountRoom />
-    </BankPage>
-  );
-}
-
 /** `/bank/salary`: salary paid in by direct deposit, inside the Overview room (J-bank-30). */
 function SalaryPage({ open }: { open: (spec: ActionSpec) => void }) {
   return (
@@ -1045,15 +980,6 @@ function StatementsLink() {
       </a>{' '}
       {t('openHint')}
     </p>
-  );
-}
-/** `/bank/ramps/accounts`: linked bank accounts, inside the Ramps room. */
-function LinkedAccountsRoom() {
-  const { t } = linkedAccountsCopy.useCopy();
-  return (
-    <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      <LinkedAccounts />
-    </BankPage>
   );
 }
 /** `/bank/ramps/cash-out`: cash out to a linked bank account, inside the Ramps room. */
@@ -1225,14 +1151,6 @@ function Analytics() {
           <Text k="rooms.this.view.does.not.invent.a.default" />
         </NoRows>
       )}
-    </BankPage>
-  );
-}
-function Business({ open }: { open: (spec: ActionSpec) => void }) {
-  const { t } = businessCopy.useCopy();
-  return (
-    <BankPage room="Business" title={t('pageTitle')} description={t('lead')}>
-      <BusinessBank open={open} />
     </BankPage>
   );
 }
@@ -1549,7 +1467,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/loans':
       return <LoansRoom open={open} />;
     case '/bank/loans/detail':
-      return <LoanDetailRoom search={search} />;
+      return <LoanDetailPage search={search} />;
     case '/bank/loans/apply':
       return <LoanApplyRoom search={search} open={open} />;
     case '/bank/loans/overdraft':
@@ -1565,11 +1483,11 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/business/loan':
       return <BusinessLoanPreviewRoom />;
     case '/bank/cards':
-      return <Cards open={open} />;
+      return <CardsRoom open={open} />;
     case '/bank/cards/new':
       return <CardOrderRoom />;
     case '/bank/ramps':
-      return <Ramps open={open} />;
+      return <RampsRoom open={open} />;
     case '/bank/ramps/new':
       return <AddMoneyRoom />;
     case '/bank/ramps/accounts':
@@ -1587,7 +1505,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/salary':
       return <SalaryPage open={open} />;
     case '/bank/business':
-      return <Business open={open} />;
+      return <BusinessBankRoom open={open} />;
     case '/uc/record':
       return <MoneyActivity />;
     default:

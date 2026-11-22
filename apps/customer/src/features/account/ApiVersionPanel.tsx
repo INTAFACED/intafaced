@@ -3,9 +3,10 @@ import { API_DEPRECATIONS, API_VERSIONS, LATEST_API_VERSION } from '@intafaced/c
 import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from '@intafaced/contracts/identity-api-version-procedures';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading } from '../../shared/ui';
+import { Button, Select } from '@intafaced/ui/lit';
 import { useSession } from '../session';
 import { apiVersionCopy as copy } from './api-version-copy';
+import { Failure, Loading } from './kit-parts';
 
 type Refused = 'refused.version.unknown' | 'refused.identity.api_version_session_only';
 const NAMED: Readonly<Record<string, Refused>> = {
@@ -54,9 +55,9 @@ export function ApiVersionPanel() {
   }
 
   return (
-    <section data-testid="api-version" className="api-keys__version security__card" aria-labelledby="api-version-title">
+    <section data-testid="api-version" aria-labelledby="api-version-title">
       <h2 id="api-version-title">{t('title')}</h2>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-hint">{t('intro')}</p>
       {resource.status === 'loading' && <Loading label={t('loading')} />}
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
       {resource.status === 'ready' && (
@@ -68,7 +69,7 @@ export function ApiVersionPanel() {
             <>
               <code>{resource.data.version}</code>
               {resource.data.setAt ? (
-                <span className="muted"> · {t('setAt', { when: `${resource.data.setAt.slice(0, 16).replace('T', ' ')} UTC` })}</span>
+                <span className="lt-hint"> · {t('setAt', { when: `${resource.data.setAt.slice(0, 16).replace('T', ' ')} UTC` })}</span>
               ) : null}
             </>
           )}
@@ -83,18 +84,9 @@ export function ApiVersionPanel() {
           </li>
         ))}
       </ul>
-      <form className="api-keys__version-form" onSubmit={(event) => void save(event)}>
-        <label>
-          {t('choose')}{' '}
-          <select value={choice} onChange={(event) => setChoice(event.target.value)} disabled={busy}>
-            {[...API_VERSIONS].reverse().map((version) => (
-              <option key={version} value={version}>
-                {version}
-              </option>
-            ))}
-          </select>
-        </label>{' '}
-        <Button type="submit" disabled={busy || resource.status !== 'ready'}>
+      <form className="lt-toolbar" onSubmit={(event) => void save(event)}>
+        <Select label={t('choose')} value={choice} onChange={setChoice} disabled={busy} options={[...API_VERSIONS].reverse()} />{' '}
+        <Button tone="primary" type="submit" disabled={busy || resource.status !== 'ready'}>
           {busy ? t('saving') : t('save')}
         </Button>
       </form>
@@ -125,7 +117,7 @@ export function ApiVersionPanel() {
           ))}
         </ul>
       )}
-      <p className="muted">{t('deprecationsNote')}</p>
+      <p className="lt-hint">{t('deprecationsNote')}</p>
     </section>
   );
 }

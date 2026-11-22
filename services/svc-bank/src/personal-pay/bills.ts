@@ -3,7 +3,7 @@ import type { Sql } from 'postgres';
 import { InsufficientFundsError, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
-import { planDue, type Cadence } from '../transfers/schedule.js';
+import { occurrenceStart, planDue, type Cadence } from '../transfers/schedule.js';
 import { personalPayError, PSP_BLOCKER } from './errors.js';
 import type { BillPorts, Biller, BillLookup, PortStatus } from './ports.js';
 import { forwardKey, postToRail, reverseFromRail } from './post.js';
@@ -396,13 +396,18 @@ export class BillPayService {
         SELECT occurrence FROM bank.bill_recurring_firings WHERE schedule_id = ${schedule.id} ORDER BY occurrence DESC LIMIT 1
       `;
       const lastFired = fired[0]?.occurrence ?? null;
+      const cadence = schedule.cadence as Cadence;
       const plan = planDue({
         startsAt: schedule.starts_at,
-        cadence: schedule.cadence as Cadence,
+        cadence,
         endsAt: schedule.ends_at,
         lastFired,
         now,
       });
+      // An occurrence whose outcome is unknown has no firing row: the schedule
+      // stays active and due at that occurrence, so the next pass retries it
+      // under the same key instead of completing past it.
+      let unsettled: number | null = null;
       for (const occurrence of plan.occurrences) {
         const key = `bill-recur:${schedule.id}:${occurrence}`;
         try {
@@ -421,6 +426,7 @@ export class BillPayService {
           const code = err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : 'bank.bills_outcome_unknown';
           if (!TERMINAL_BILL.has(code)) {
             failures.push({ scheduleId: schedule.id, code });
+            unsettled = occurrence;
             break;
           }
           refused += 1;
@@ -429,10 +435,11 @@ export class BillPayService {
           failures.push({ scheduleId: schedule.id, code });
         }
       }
-      const nextStatus = plan.completed ? 'completed' : 'active';
+      const nextStatus = plan.completed && unsettled === null ? 'completed' : 'active';
+      const nextRunAt = unsettled === null ? plan.nextRunAt : occurrenceStart(schedule.starts_at, cadence, unsettled);
       await this.sql`
         UPDATE bank.bill_recurring
-        SET next_run_at = ${plan.nextRunAt.toISOString()}::timestamptz, status = ${nextStatus}
+        SET next_run_at = ${nextRunAt.toISOString()}::timestamptz, status = ${nextStatus}
         WHERE id = ${schedule.id} AND status = 'active'
       `;
     }

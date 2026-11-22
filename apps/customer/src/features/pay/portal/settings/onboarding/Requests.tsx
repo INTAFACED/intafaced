@@ -1,17 +1,16 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
-import { PaySection } from '../../../components';
-import { Gate } from '../../components';
 import type { PortalApi } from '../../api';
 import type { MemberRole } from '../../schemas';
 import { DateTime } from '../../ui/DateTime';
 import { formatBytes } from '../reports/model';
 import { applicationCopy } from './application-copy';
-import { base64Of, fileProblem, kindsOf } from './Application';
+import { base64Of, fileProblem, kindsOf } from './files';
 import { requestsCopy } from './requests-copy';
 import type { InformationRequest, RequestsView } from './requests-api';
+import { Gate, Section } from '../../volt/parts';
+import { Button } from '@intafaced/ui/lit';
 
 type File_ = { contentType: string; bytesBase64: string };
 export type AnswerRequest = (requestId: string, note: string | null, file: File_ | null) => Promise<ApiResult<unknown>>;
@@ -28,9 +27,9 @@ export function InformationRequests({ portal, merchantId, role }: { portal: Port
 export function OwnerOnlyRequests() {
   const { t } = requestsCopy.useCopy();
   return (
-    <PaySection title={t('title')} description={t('body')}>
-      <p className="muted">{t('ownerOnly')}</p>
-    </PaySection>
+    <Section title={t('title')} description={t('body')}>
+      <p className="lt-hint">{t('ownerOnly')}</p>
+    </Section>
   );
 }
 
@@ -56,19 +55,19 @@ export function InformationRequestsView({
 }) {
   const { t } = requestsCopy.useCopy();
   return (
-    <PaySection title={t('title')} description={t('body')}>
+    <Section title={t('title')} description={t('body')}>
       <Gate resource={resource} retry={reload} rows={2}>
         {(view) => (
-          <div className="stack">
+          <div>
             {view.requests.some((request) => request.pastDue) && (
-              <p className="pp-callout" role="alert">
+              <p className="lt-hint" role="alert">
                 {t('pastDueBanner')}
               </p>
             )}
             {view.requests.length === 0 ? (
-              <p className="muted">{t('empty')}</p>
+              <p className="lt-hint">{t('empty')}</p>
             ) : (
-              <ul className="sa-list" aria-label={t('title')}>
+              <ul aria-label={t('title')}>
                 {view.requests.map((request) => (
                   <RequestItem key={request.id} request={request} view={view} answer={answer} reload={reload} />
                 ))}
@@ -77,7 +76,7 @@ export function InformationRequestsView({
           </div>
         )}
       </Gate>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -99,22 +98,20 @@ function RequestItem({
       <p>
         <strong>{state}</strong> · {request.text}
       </p>
-      <p className="muted pp-note">
+      <p className="lt-hint">
         {t('dueBy')} <DateTime value={request.dueAt} /> · {t('asked')} <DateTime value={request.createdAt} />
       </p>
       {request.answer && (
         <div>
-          <p className="muted pp-note">
+          <p className="lt-hint">
             {t('yourAnswer')} · {t('answeredOn')} <DateTime value={request.answer.answeredAt} />
           </p>
           {request.answer.note && <p>{request.answer.note}</p>}
-          {request.answer.file && (
-            <p className="muted pp-note">{t('fileSent', { size: formatBytes(String(request.answer.file.byteLength)) })}</p>
-          )}
+          {request.answer.file && <p className="lt-hint">{t('fileSent', { size: formatBytes(String(request.answer.file.byteLength)) })}</p>}
         </div>
       )}
       {request.state === 'closed' && request.closedBy && request.closedAt && (
-        <p className="pp-note">
+        <p className="lt-hint">
           {t('closedBy', { who: request.closedBy.slice(0, 8) })} · {t('closedOn')} <DateTime value={request.closedAt} />
           {request.closeNote && (
             <>
@@ -171,20 +168,20 @@ function AnswerForm({
     }
   }
   return (
-    <div data-testid="form-stack" className="form-stack pp-form">
-      <label className="field" htmlFor={noteId}>
+    <div data-testid="form-stack">
+      <label className="lt-field" htmlFor={noteId}>
         <span>{t('noteLabel')}</span>
         <textarea id={noteId} rows={3} maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
-      <p className="muted pp-note" id={whyId}>
+      <p className="lt-hint" id={whyId}>
         {files && rules
           ? t('limits', { size: formatBytes(String(rules.maxBytes)), types: kindsOf(rules.contentTypes) })
           : rules
             ? t('noScanner')
             : t('noRules')}
       </p>
-      <label className="field">
-        <span className="sr-only">{t('fileLabel')}</span>
+      <label className="lt-field">
+        <span className="lt-sr">{t('fileLabel')}</span>
         <input
           type="file"
           aria-label={t('fileLabel')}
@@ -199,23 +196,23 @@ function AnswerForm({
         />
       </label>
       {problem && (
-        <small className="text-down-text" role="alert">
+        <small className="lt-hint" role="alert">
           {problem}
         </small>
       )}
-      <div className="pp-actions">
-        <Button variant="primary" disabled={nothing || Boolean(problem) || busy} onClick={() => void send()}>
+      <div className="lt-actions">
+        <Button tone="primary" disabled={nothing || Boolean(problem) || busy} onClick={() => void send()}>
           {busy ? t('sending') : t('send')}
         </Button>
       </div>
-      {nothing && <p className="muted pp-note">{t('needSomething')}</p>}
+      {nothing && <p className="lt-hint">{t('needSomething')}</p>}
       {outcome &&
         (outcome.ok ? (
-          <p className="pp-confirmed" role="status">
+          <p className="lt-hint" role="status">
             {outcome.text}
           </p>
         ) : (
-          <p className="pp-callout" role="alert">
+          <p className="lt-hint" role="alert">
             {outcome.text}
           </p>
         ))}

@@ -20,6 +20,7 @@ import {
   venueAccount,
   venueForThisFile,
   venueInfo,
+  venueBalance,
   venueRecord,
 } from './venue.mjs';
 
@@ -374,7 +375,9 @@ test.beforeAll(async ({ browser }) => {
 
 test(`${J} #1 opens /campaigns/mine: the coupon, its kind and what it will do`, async ({ page }) => {
   test.setTimeout(180_000);
-  const { account, code } = state();
+  const { account, owner, code } = state();
+  // Claiming the coupon touches nothing at the venue: the venue account is as the venue itself records it before the claim.
+  const held = await venueBalance(owner, 'USDC');
   const { signIn } = await import('./desk.mjs');
   await signIn(page, account);
   await openVouchers(page);
@@ -402,6 +405,17 @@ test(`${J} #1 opens /campaigns/mine: the coupon, its kind and what it will do`, 
   await expect(row.getByTestId('voucher-state')).toHaveText('Claimed');
   // A fee-saver is never redeemed for cash: no amount or Redeem control on its row.
   await expect(row.getByRole('button', { name: 'Redeem' })).toHaveCount(0);
+  // What it will do, as the venue itself prices it: the venue's own preview of a sell at the coupon's rate charges less of
+  // our builder fee than at the rate in force, and exactly the same venue fee; the claim moved nothing in the venue account.
+  const order = { type: 'limit', price: REST.price, amount: SELL.amount };
+  const key = `order:${J}:${tag}:coupon-preview`;
+  const atCoupon = await venuePreviewAt(owner, order, key, RATE.coupon);
+  const atFull = await venuePreviewAt(owner, order, key, RATE.full);
+  expect(toUnits(atCoupon.builderFee.value.amount)).toBeGreaterThan(0n);
+  expect(toUnits(atCoupon.builderFee.value.amount)).toBeLessThan(toUnits(atFull.builderFee.value.amount));
+  expect(atCoupon.venueFee.value).toEqual(atFull.venueFee.value);
+  expect(toUnits(atFull.venueFee.value.amount)).toBeGreaterThan(0n);
+  expect(await venueBalance(owner, 'USDC')).toEqual(held);
   run.write({ ...run.read(), couponId: coupon.id });
 });
 
@@ -685,6 +699,9 @@ test(`${J} #6 the delay passes: each accrual is paid once to the connected walle
 }) => {
   test.setTimeout(420_000);
   const { account, owner, rebateCode } = state('rebateCode', 'rebateId');
+  // The payments go to the connected wallet on the chain, never into its venue account: the venue's own record of that
+  // account is the same after every payment as before the delay passed.
+  const venueBefore = await venueBalance(owner, 'USDC');
   const coupon = await rebateCoupon(account, rebateCode);
   const keys = coupon.redemptions.map((r) => r.reward.rewardKey);
   expect(keys.length, 'the rebate accrued in #5').toBeGreaterThan(0);
@@ -700,6 +717,18 @@ test(`${J} #6 the delay passes: each accrual is paid once to the connected walle
 
   const paid = await rebateCoupon(account, rebateCode);
   const accrued = new Map(paid.feeRebate.accruals.map((a) => [a.sequence, a.amount]));
+  // What was paid is what the venue's own fills earned: each accrual is half of the builder fee the venue itself charged
+  // on its fill, cut to what the face value left, and together they are the face value exactly.
+  const venueFills = (await venueRecord(owner, '/fills', { since: new Date(Date.now() - DAY).toISOString() })).value;
+  let left = toUnits(REBATE.face);
+  for (const a of paid.feeRebate.accruals) {
+    const fill = venueFills.find((f) => f.fillId === a.fillId);
+    expect(fill, `${a.fillId} is a fill on the venue's own record`).toBeTruthy();
+    const want = rebateOf(fill.builderFee) < left ? rebateOf(fill.builderFee) : left;
+    expect(toUnits(a.amount), `${a.fillId} paid half the venue's builder fee, cut to what was left`).toBe(want);
+    left -= want;
+  }
+  expect(left).toBe(0n);
   const payers = new Set();
   for (const r of paid.redemptions) {
     const { chainTx, toWallet } = r.reward.payout ?? {};
@@ -725,6 +754,7 @@ test(`${J} #6 the delay passes: each accrual is paid once to the connected walle
   expect(ours).toHaveLength(paid.redemptions.length);
   expect(onChain).toHaveLength(paid.redemptions.length);
   expect(ours.reduce((t, x) => t + x.value, 0n) * 10n ** 12n).toBe(toUnits(REBATE.face));
+  expect(await venueBalance(owner, 'USDC')).toEqual(venueBefore);
 
   // The wallet shows each payment's chain transaction and the wallet it went to.
   await signIn(page, account);

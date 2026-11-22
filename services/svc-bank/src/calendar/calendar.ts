@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { formatAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { PersonalPayError } from '../personal-pay/errors.js';
 import type { BillPayService } from '../personal-pay/bills.js';
@@ -197,8 +197,10 @@ export class CalendarService {
     const full = schedules.length >= limit;
     const dated = schedules.flatMap((s) => occurrencesIn(s, from, to).map((o) => ({ s, ...o })));
     if (dated.length === 0) return { items: [], full };
-    const runs = await this.deps.sql<Array<{ schedule_id: string; occurrence: number; status: string; rejection_code: string | null }>>`
-      SELECT e.schedule_id, e.occurrence, e.status, e.rejection_code
+    const runs = await this.deps.sql<
+      Array<{ schedule_id: string; occurrence: number; status: string; rejection_code: string | null; amount: string }>
+    >`
+      SELECT e.schedule_id, e.occurrence, e.status, e.rejection_code, e.amount::text AS amount
         FROM bank.transfer_executions e
         JOIN unnest(${dated.map((d) => d.s.id)}::uuid[], ${dated.map((d) => d.n)}::int[]) AS w(schedule_id, occurrence)
           ON w.schedule_id = e.schedule_id AND w.occurrence = e.occurrence
@@ -227,7 +229,8 @@ export class CalendarService {
         date: at.toISOString(),
         label: null,
         assetId: s.assetId,
-        amount: formatAmount(s.amount),
+        // A run shows what it booked; the schedule's amount may have changed since.
+        amount: formatAmount(run ? parseAmount(run.amount) : s.amount),
         status,
         reasonCode: run?.rejection_code ?? null,
       });

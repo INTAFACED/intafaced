@@ -89,6 +89,31 @@ describe('the TEST partner bank record read', () => {
     expect((await answerTestPartnerRecord(p, 'GET', '/onboarding', null))[0]).toBe(405);
   });
 
+  it('answers the account details it issued one person, with the holder name it keeps, and none before it issues them', async () => {
+    const p = testPartner();
+    const ask = (owner: string, currency?: unknown) =>
+      answerTestPartnerRecord(p, 'POST', '/account-details', { ...account(owner), currency });
+    expect(await ask(ADA, 'USD')).toEqual([200, { label: 'TEST', value: { issued: false, holderName: null, sets: [] } }]);
+    p.set(ADA, { accountDetails: 'issued', holderName: 'TEST Ada' });
+    const [status, body] = (await ask(ADA, 'USD')) as [number, { value: { issued: boolean; holderName: string; sets: unknown[] } }];
+    expect(status).toBe(200);
+    expect(body.value).toMatchObject({ issued: true, holderName: 'TEST Ada' });
+    expect(body.value.sets).toEqual([
+      expect.objectContaining({
+        id: `test-partner:${ADA}:USD`,
+        accountNumber: `TEST-USD-${ADA.replace(/-/g, '').toUpperCase()}`,
+        partnerBank: 'TEST partner bank',
+      }),
+    ]);
+    // The partner down still keeps its record: the read is its own book, not its answer to the app.
+    p.set(ADA, { down: true });
+    expect((await ask(ADA, 'USD'))[1]).toMatchObject({ value: { issued: true, sets: [{ id: `test-partner:${ADA}:USD` }] } });
+    expect((await ask(BOB, 'USD'))[1]).toMatchObject({ value: { issued: false, sets: [] } });
+    expect((await ask(ADA))[0]).toBe(400);
+    expect((await ask(ADA, 'usd'))[0]).toBe(400);
+    expect((await answerTestPartnerRecord(p, 'GET', '/account-details', null))[0]).toBe(405);
+  });
+
   it('answers loopback callers only', () => {
     expect(['127.0.0.1', '::1', '::ffff:127.0.0.1'].every(onLoopback)).toBe(true);
     expect(['10.0.0.2', '192.168.1.4', undefined].some(onLoopback)).toBe(false);

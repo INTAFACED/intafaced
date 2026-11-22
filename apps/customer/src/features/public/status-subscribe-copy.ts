@@ -53,4 +53,7 @@ export const statusSubscribeCopy = defineCopy('public-status-subscribe', {
   deadTitle: 'This link doesn’t work',
   deadBody: 'It is wrong, expired, or was replaced by a newer one. Subscribe again from the status page.',
   toStatus: 'Back to platform status',
+  sectionsLabel: 'Status update sections',
+  manageExplain:
+    'You get an email for each published incident or maintenance notice about what you chose. A webhook, when set, gets the same update; Unsubscribe stops them all.',
 });

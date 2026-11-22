@@ -97,97 +97,87 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money</p>
-<h1>Withdrawal address list</h1>
-<p class="muted">Choose where your money may be withdrawn to. With the list switched on, withdrawals to any other address are refused.</p>
+<h1 class="lt-title">Withdrawal address list</h1>
+<p class="lt-description">Choose where your money may be withdrawn to. With the list switched on, withdrawals to any other address are refused.</p>
 </div>
 </header>
-<div class="withdrawal-page">
-<section class="money-section">
-<header>
-<div>
-<h2>Address list mode</h2>
-<p class="muted">Switching on takes effect at once. Switching off needs your team’s approval.</p>
-</div>
-</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="Address list sections">
+<ul>
+<li>
+<a class="lt-link" href="#allowlist-mode">Address list mode</a>
+</li>
+<li>
+<a class="lt-link" href="#allowlist-entries">Listed addresses</a>
+</li>
+<li>
+<a class="lt-link" href="#allowlist-one-time">One-time sends</a>
+</li>
+<li>
+<a class="lt-link" href="#allowlist-changes">Changes waiting on your team</a>
+</li>
+</ul>
+</nav>
+<a class="lt-link" href="/uc/withdraw">Back to Withdraw ↗</a>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section aria-labelledby="_r_3_" id="allowlist-mode">
+<h2 id="_r_3_">Address list mode</h2>
+<p class="lt-hint">Switching on takes effect at once. Switching off needs your team’s approval.</p>
 <div lang="und">
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
 <p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section class="money-section">
-<header>
-<div>
-<h2>Listed addresses</h2>
-<p class="muted">Up to 50 addresses</p>
+<section aria-labelledby="_r_4_" id="allowlist-entries">
+<h2 id="_r_4_">Listed addresses</h2>
+<p class="lt-hint">Up to 50 addresses</p>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Refresh</button>
 </div>
-<div class="actions">
-<button type="button" class="button button--secondary ">Refresh</button>
-</div>
-</header>
 <div lang="und">
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
 <p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section class="money-section">
-<header>
-<div>
-<h2>One-time sends</h2>
-<p class="muted">Turning this on or changing the limit needs your team’s approval.</p>
-</div>
-</header>
+<section aria-labelledby="_r_5_" id="allowlist-one-time">
+<h2 id="_r_5_">One-time sends</h2>
+<p class="lt-hint">Turning this on or changing the limit needs your team’s approval.</p>
 <div lang="und">
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
 <p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section class="money-section">
-<header>
-<div>
-<h2>Changes waiting on your team</h2>
-<p class="muted">Up to 50 addresses</p>
-</div>
-</header>
+<section aria-labelledby="_r_6_" id="allowlist-changes">
+<h2 id="_r_6_">Changes waiting on your team</h2>
+<p class="lt-hint">Up to 50 addresses</p>
 <div lang="und">
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
+<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
 <p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<p>
-<a class="text-link withdrawal-back" href="/uc/withdraw">Back to Withdraw ↗</a>
-</p>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>With the list on, a withdrawal goes only to an address on it. Switching on takes effect at once; switching off, adding or removing an address and the one-time setting each go to your team for approval, and every one first asks you to confirm it is you.</p>
+</section>
+</div>
 </div>
 </div>
 </div>
