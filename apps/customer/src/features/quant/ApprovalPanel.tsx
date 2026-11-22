@@ -56,10 +56,13 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
 
   const view = (data: QuantApprovalState) => {
     const pending = data.approvals.find((row) => row.decision === 'pending' && row.current);
-    // Any change to the version or its risk settings voids its reviews: with the rule on and none still counting, the
-    // panel asks again.
-    const ofVersion = data.approvals.filter((row) => row.strategyVersion === data.version);
-    const again = data.policy.required === true && !data.live.allowed && ofVersion.length > 0 && !ofVersion.some((row) => row.current);
+    // Any change voids a review: new risk settings void the version's own, a code change makes a new version none counts
+    // for. With the rule on, a strategy reviewed before and no review counting for the newest version, the panel asks again.
+    const again =
+      data.policy.required === true &&
+      !data.live.allowed &&
+      data.approvals.length > 0 &&
+      !data.approvals.some((row) => row.strategyVersion === data.version && row.current);
     return (
       <>
         <p data-testid="quant-approval-policy" data-required={data.policy.required === null ? '' : String(data.policy.required)}>
