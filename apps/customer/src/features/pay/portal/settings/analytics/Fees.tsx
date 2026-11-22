@@ -184,7 +184,10 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
           rows={points}
           rowKey={(p) => `${p.period}:${p.assetCode}`}
           columns={[
-            { header: state.bucket === 'week' ? t('colWeek') : t('colDay'), cell: (p) => dayText(p.period) },
+            {
+              header: state.bucket === 'week' ? t('colWeek') : t('colDay'),
+              cell: (p) => (state.bucket === 'week' ? t('weekOf', { date: dayText(p.period) }) : dayText(p.period)),
+            },
             { header: t('colAsset'), cell: (p) => p.assetCode },
             { header: t('tileGross'), cell: (p) => <MoneyText value={p.gross} asset={p.assetCode} test={test} /> },
             { header: t('tileFees'), cell: (p) => <MoneyText value={p.fees} asset={p.assetCode} test={test} /> },
