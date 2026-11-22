@@ -602,6 +602,16 @@
   overflow-wrap: anywhere;
 }
 
+/* A picture in a room (a posted image, a shared card) fits the room's width, keeps its shape, and is never taller than
+   most of a screen. */
+.lt-media {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: 30rem;
+  block-size: auto;
+  object-fit: contain;
+}
+
 /* Code read as written (a strategy's source, a line comparison): it keeps its lines, wraps rather than widening the room,
    and scrolls inside its own box. A compared line carries data-op; its + or − mark says the change, the tone repeats it. */
 .lt-code {
