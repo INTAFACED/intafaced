@@ -28,8 +28,9 @@ vi.mock('./partner-settings', async (original) => {
 
 import { SessionProvider } from '../session';
 import { PasswordRecovery } from './PasswordRecovery';
-import { AppPage, PartnerPage } from './PublicPages';
 import { NoticeRoom as NoticePage } from './notices/NoticeRoom';
+import { AppPage } from './AppPage';
+import { PartnerPage } from './PartnerPage';
 
 const html = (node: React.ReactNode) => renderToString(<SessionProvider>{node}</SessionProvider>);
 const TEST_ADDRESS = 'support@example.test';

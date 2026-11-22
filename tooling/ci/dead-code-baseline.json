@@ -580,7 +580,6 @@
   "apps/customer/src/features/protocol/watch/AddressRisk.tsx#ReportDialog",
   "apps/customer/src/features/public/HelpFrontDoor.tsx#requestDestination",
   "apps/customer/src/features/public/HelpFrontDoor.tsx#supportDeskHref",
-  "apps/customer/src/features/public/PublicPages.tsx#CampaignsOverview",
   "apps/customer/src/features/public/ReferrerChange.tsx#rebindSchema",
   "apps/customer/src/features/public/VenueFees.tsx#TiersTable",
   "apps/customer/src/features/public/VenueFees.tsx#VenueFeesView",
