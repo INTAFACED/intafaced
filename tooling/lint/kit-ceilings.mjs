@@ -120,7 +120,7 @@ export const describe = (p) => `${p.kind}: ${FIX[p.kind](p)}`;
 export function lowered(counts, ceilings, renames = {}) {
   const moved = Object.fromEntries(
     RULES.map((r) => {
-      const cap = { ...(ceilings[r] ?? {}) };
+      const cap = { ...ceilings[r] };
       for (const file of Object.keys(counts[r] ?? {})) {
         const ceiling = inherited(cap, file, renames);
         if (ceiling !== undefined) cap[file] = ceiling;
