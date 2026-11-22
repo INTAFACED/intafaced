@@ -1447,6 +1447,12 @@
   max-inline-size: 100%;
 }
 
+/* A long list that scrolls in a box of its own (a video's transcript following playback), so the page keeps its place. */
+.lt-scroll-block {
+  max-block-size: 12rem;
+  overflow-y: auto;
+}
+
 /* Text an owner wrote with its own line breaks (a rulebook section, a policy, a postmortem), shown escaped as typed. */
 .lt-pre {
   white-space: pre-wrap;
