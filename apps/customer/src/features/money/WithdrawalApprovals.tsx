@@ -7,7 +7,7 @@ import { Button, EmptyState } from '@intafaced/ui/lit';
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import { amount, date } from './money-format';
-import { FailureBox, LoadingLine } from './record-parts';
+import { FailureBox, LoadingLine } from '../../shared/record/record-parts';
 import { approvalCopy } from './withdrawal-approval-copy';
 import { createApprovalReads, requestedApproval, type ApprovalRequest } from './withdrawal-approval-reads';
 

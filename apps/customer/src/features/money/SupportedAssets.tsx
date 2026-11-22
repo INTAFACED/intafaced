@@ -3,7 +3,7 @@ import { EmptyState } from '@intafaced/ui/lit';
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import type { Resource } from '../../shared/resource';
 import { balanceEntriesHref } from '../../screens/money/balance-entries-model';
-import { FailureBox, LoadingLine } from './record-parts';
+import { FailureBox, LoadingLine } from '../../shared/record/record-parts';
 import { supportedAssetsCopy } from './supported-assets-copy';
 import {
   useSupportedAssets,

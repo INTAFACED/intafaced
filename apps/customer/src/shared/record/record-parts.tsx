@@ -8,22 +8,23 @@ import { uiCopy } from '../ui-copy';
 /**
  * The record rooms' small read parts, drawn with the Volt kit, for any feature. Each keeps the words, roles and ids of the
  * part it stands in for (`shared/ui` Failure and Loading, `features/more` Read), which other rooms still use as they are.
- * FailureBox and LoadingLine are the same as `features/money/record-parts.tsx`; once the layers meet, that copy imports these.
  */
 
 /** A failed read or change, in the words the app's Failure says. */
 export function FailureBox({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const w = useFailureWords(result, Boolean(retry));
   return (
-    <div data-testid="failure" role={w.alert ? 'alert' : 'status'}>
-      <h3>{w.title}</h3>
-      <p lang={w.bodyLang}>{w.body}</p>
+    <div data-testid="failure" className="lt-refusal" role={w.alert ? 'alert' : 'status'}>
+      <h3 className="lt-refusal-title">{w.title}</h3>
+      <p className="lt-refusal-body" lang={w.bodyLang}>
+        {w.body}
+      </p>
       {w.action && (
         <a className="lt-link" href={w.action.href}>
           {w.action.label}
         </a>
       )}
-      {w.reference && <small>{w.reference}</small>}
+      {w.reference && <small className="lt-ref">{w.reference}</small>}
       {w.retry && retry && (
         <Button tone="secondary" onClick={retry}>
           {w.retry}

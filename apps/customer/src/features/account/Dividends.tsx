@@ -5,7 +5,7 @@ import { useResource, type Resource } from '../../shared/resource';
 import { Button } from '@intafaced/ui/lit';
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { dividendsCopy as copy } from './dividends-copy';
-import { FailureBox, LoadingLine } from './account-parts';
+import { FailureBox, LoadingLine } from '../../shared/record/record-parts';
 import { CAMPAIGNS_DISTRIBUTION_MINE } from '@intafaced/contracts/campaigns-distribution-procedures';
 
 /**
