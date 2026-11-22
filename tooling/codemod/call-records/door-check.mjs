@@ -61,7 +61,7 @@ function checkOf(c) {
       if (d.format === 'regex') return out('regex', { src: d.pattern.toString() });
       if (d.format === 'starts_with') return out('starts_with', { prefix: d.prefix });
       if (d.format === 'url') return out('url');
-      if (d.format === 'guid' || d.format === 'datetime') return out('format', { format: d.format, src: d.pattern.toString() });
+      if (['guid', 'uuid', 'datetime'].includes(d.format)) return out('format', { format: d.format, src: d.pattern.toString() });
       return { k: `?format ${d.format}` };
     case 'overwrite': {
       const src = d.tx.toString();
