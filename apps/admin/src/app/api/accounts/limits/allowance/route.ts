@@ -1,7 +1,8 @@
 import { withdrawalAllowanceInputSchema, withdrawalAllowanceSchema } from '@intafaced/contracts';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { allowanceAssets, type AllowanceRow } from '@/lib/accounts/limits';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeRecordCall } from '@/lib/founder-session';
+import { PAY_FOUNDER_ADMIN_LIMITS_LIST, PAY_FOUNDER_ADMIN_LIMITS_CUSTOMER } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * One customer's withdrawal allowances (J-ops-console-04 #12), from the service that enforces them, svc-pay (`?id=`). The
@@ -20,14 +21,15 @@ export async function GET(request: Request) {
     const { session, config } = await authorizeAdminRequest(request);
     const params = new URL(request.url).searchParams;
     if (params.size !== 1 || !params.has('id')) throw new AdminSessionError('admin.accounts_input', 400);
-    const userId = params.get('id')?.toLowerCase();
-    if (!withdrawalAllowanceInputSchema.shape.userId.safeParse(userId).success) throw new AdminSessionError('admin.accounts_input', 400);
-    const assets = allowanceAssets(await founderEdgeCall(config, 'pay', 'founderAdmin.limits.list', 'GET', {}, session.accessToken));
+    const id = withdrawalAllowanceInputSchema.shape.userId.safeParse(params.get('id')?.toLowerCase());
+    if (!id.success) throw new AdminSessionError('admin.accounts_input', 400);
+    const userId = id.data;
+    const assets = allowanceAssets(await founderEdgeRecordCall(config, PAY_FOUNDER_ADMIN_LIMITS_LIST, {}, session.accessToken));
     if (assets === null) throw new AdminSessionError('admin.upstream_invalid', 502);
     const rows: AllowanceRow[] = [];
     for (const assetId of assets) {
       try {
-        const data = await founderEdgeCall(config, 'pay', 'founderAdmin.limits.customer', 'GET', { userId, assetId }, session.accessToken);
+        const data = await founderEdgeRecordCall(config, PAY_FOUNDER_ADMIN_LIMITS_CUSTOMER, { userId, assetId }, session.accessToken);
         const allowance = withdrawalAllowanceSchema.safeParse(data);
         rows.push(
           allowance.success && allowance.data.assetId === assetId
