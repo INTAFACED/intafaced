@@ -13,6 +13,9 @@
 //! binary that serves them (`main.rs`): what the process says about itself (`status`: `/health`, `/ready` and each
 //! order operation's latency), the replay hold check and the boot that runs it (`holds`), admission and the expiry pass
 //! in the engine (`engine::admission`), and the scrape.
+//!
+//! The `venue` slice adds the mode switches, the venue halt, dead sessions and the surveillance evidence
+//! (`engine::venue`), their doors (`door::venue`), and the identity approval each switch spends (`approval`).
 
 pub mod approval;
 pub mod book;

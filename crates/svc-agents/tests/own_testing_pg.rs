@@ -190,6 +190,7 @@ impl World {
             own,
 
             team: svc_agents::team::Team::unwired(),
+            ops: svc_agents::ops::Ops::unwired(),
         })
         .unwrap()
     }

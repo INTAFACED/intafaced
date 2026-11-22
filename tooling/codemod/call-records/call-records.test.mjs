@@ -11,6 +11,7 @@ import {
   checkedCall,
   importedFrom,
   importsFile,
+  portInFlight,
   pruneImports,
   pruneReExports,
   pruneSchemas,
@@ -35,6 +36,15 @@ test('a record is named by its module and path, a leading segment that repeats t
   assert.equal(recordName('bank', 'deposits.addresses.list'), 'BANK_DEPOSITS_ADDRESSES_LIST');
   assert.equal(recordName('notify', 'notify.unreadCount'), 'NOTIFY_UNREAD_COUNT');
   assert.equal(recordName('notify', 'statusPage.templates.define'), 'NOTIFY_STATUS_PAGE_TEMPLATES_DEFINE');
+});
+
+test('a service whose Rust port is in flight is refused, by name, before anything is read; one not started or switched is not', () => {
+  const root = mkdtempSync(join(tmpdir(), 'call-records-port-'));
+  for (const d of ['crates/svc-agents', 'services/svc-agents', 'services/svc-bank', 'crates/svc-academy'])
+    mkdirSync(join(root, d), { recursive: true });
+  assert.match(portInFlight('svc-agents', root) ?? '', /svc-agents's Rust port is in flight/);
+  assert.equal(portInFlight('svc-bank', root), null, 'no crate yet: its port has not started');
+  assert.equal(portInFlight('svc-academy', root), null, 'switched: its TypeScript is gone, the door path (--from-rev) runs');
 });
 
 test('an import read only as a JSX tag or a re-export stays; one nothing reads goes', () => {

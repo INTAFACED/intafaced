@@ -4,7 +4,7 @@ import { QUANT_PAPER_LIST_MAX, quantPaperListSchema, quantPaperRunSchema } from 
 
 /**
  * svc-quant's paper runs, one record per call (AL-live-01): start one, stop one, list a strategy's, read one. A paper run
- * trades the exchange's own prices on paper: nothing posts to a ledger and every figure is paper. svc-quant mounts each
+ * trades the venue's own prices on paper: nothing posts to a ledger and every figure is paper. svc-quant mounts each
  * from here (`routes/paper.ts`) and the customer app calls each by its record.
  */
 
@@ -20,12 +20,12 @@ const STATUS = {
   'quant.quota_unset': 'PRECONDITION_FAILED',
   'quant.quota_exceeded': 'PRECONDITION_FAILED',
   'quant.quota_profile_unset': 'PRECONDITION_FAILED',
-  'quant.backtest_lake_missing': 'PRECONDITION_FAILED',
   'quant.params_invalid': 'BAD_REQUEST',
   'quant.backtest_rules_required': 'BAD_REQUEST',
   'quant.paper_cash_unset': 'BAD_REQUEST',
   'quant.paper_list_limit_unset': 'BAD_REQUEST',
   'quant.cost_unset': 'BAD_REQUEST',
+  'quant.backtest_history_range': 'BAD_REQUEST',
   'quant.param_unset': 'BAD_REQUEST',
   'quant.param_out_of_range': 'BAD_REQUEST',
   'quant.sizing_rule_unset': 'BAD_REQUEST',
@@ -43,7 +43,9 @@ const refuse = (...more: QuantRefusalCode[]): Refusals =>
   );
 /**
  * A run is read back from its own strategy version: a version gone reads as the run missing; its rules are compiled
- * (a blank or out-of-range rule refuses by name), and once a bar has closed its bars and published fee are read.
+ * (a blank or out-of-range rule refuses by name), the venue's candles since its start are read (a run older than that
+ * read reaches refuses by name; a venue that does not answer leaves the run unpriced, saying why, J-algo-dev-04 #2), and
+ * once a bar has closed its published fee is read.
  */
 const PRESENTED = [
   'quant.run_not_found',
@@ -51,7 +53,7 @@ const PRESENTED = [
   'quant.param_out_of_range',
   'quant.params_invalid',
   'quant.sizing_rule_unset',
-  'quant.backtest_lake_missing',
+  'quant.backtest_history_range',
   'quant.cost_unset',
 ] as const;
 

@@ -1150,8 +1150,24 @@ function withRouterFrom(opts, fn) {
   }
 }
 
+/**
+ * A service whose Rust port is in flight: its crate is on the tree beside its TypeScript service (the port's switch deletes
+ * the TypeScript). Rewriting its TypeScript router now makes the port's next slice port a moving target, and one PR edit
+ * both (J-agents-01 had to). Refused by name, before anything is read or written; null when the codemod may run. A
+ * service the door already serves (`--from-rev`, its TypeScript gone) is not in flight.
+ */
+export function portInFlight(service, root = REPO) {
+  if (!existsSync(join(root, 'crates', service)) || !existsSync(join(root, 'services', service))) return null;
+  return `${service}'s Rust port is in flight (crates/${service} is beside services/${service}): the codemod does not rewrite its TypeScript router while it is. Leave its calls by name; once its switch deletes services/${service}, run this with --door and --from-rev, as for svc-academy.`;
+}
+
 function main() {
   const opts = args(process.argv.slice(2));
+  const refused = portInFlight(opts.service);
+  if (refused) {
+    console.error(refused);
+    process.exit(3);
+  }
   withRouterFrom(opts, () => report(opts));
 }
 
