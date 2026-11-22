@@ -1,4 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { appendFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
@@ -213,5 +216,53 @@ describe('the written records of calls', () => {
     const route = { transport: 'http', method: 'POST', path: '/markets/:marketId/orders' } as const;
     expect(routePath(route, { marketId: 'BTC/USDT' })).toBe('/markets/BTC%2FUSDT/orders');
     expect(() => routePath(route, {})).toThrow('needs :marketId');
+  });
+});
+
+describe('the registry under parallel changes', () => {
+  // Two changes off one base, each adding records, merged by git: what `procedures:write` writes must be what the merge
+  // leaves (else main goes stale with every PR green), or the merge must conflict.
+  const SCRIPT = join(PACKAGE, 'scripts', 'procedure-registry.mjs');
+  const record = (name: string) => `export const ${name} = defineProcedure({});\n`;
+  const repo = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registry-merge-'));
+    mkdirSync(join(dir, 'src'));
+    const git = (...args: string[]) =>
+      spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' });
+    const write = () => execFileSync('node', [SCRIPT, '.', 'ALL', './procedure.js'], { cwd: dir, stdio: 'pipe' });
+    const fresh = () => spawnSync('node', [SCRIPT, '.', 'ALL', './procedure.js', '--check'], { cwd: dir }).status === 0;
+    // Each file a few records, the files many, so a fixed-size part would cross files.
+    for (const f of ['a', 'b', 'c', 'd', 'e', 'f'])
+      writeFileSync(join(dir, 'src', `${f}.ts`), [1, 2, 3].map((n) => record(`${f.toUpperCase()}${n}`)).join(''));
+    write();
+    git('init', '-q', '-b', 'base');
+    git('add', '-A');
+    git('commit', '-qm', 'base');
+    const change = (branch: string, file: string, name: string) => {
+      git('switch', '-q', '-c', branch, 'base');
+      appendFileSync(join(dir, 'src', `${file}.ts`), record(name));
+      write();
+      git('commit', '-qam', branch);
+    };
+    const merge = (into: string, from: string) => {
+      git('switch', '-q', into);
+      return git('merge', '-q', '--no-edit', from).status === 0;
+    };
+    return { change, merge, fresh };
+  };
+
+  it('two changes adding records to different files merge into what procedures:write writes', () => {
+    const r = repo();
+    r.change('x', 'a', 'A4');
+    r.change('y', 'b', 'B4');
+    expect(r.merge('y', 'x')).toBe(true);
+    expect(r.fresh()).toBe(true);
+  });
+
+  it('two changes adding records to one file conflict in git, never merge stale', () => {
+    const r = repo();
+    r.change('x', 'c', 'C4');
+    r.change('y', 'c', 'C5');
+    expect(r.merge('y', 'x')).toBe(false);
   });
 });

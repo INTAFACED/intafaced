@@ -67,12 +67,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { githubFetch, githubToken } from './github-fetch.mjs';
-import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
+import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, moneyRule, readReport, rootInputs } from './journey-verdict.mjs';
 import {
   DISPATCH_GROUP_MAX,
   RUN_FILE,
   dispatchCommands,
   journeyTouch,
+  mayBeQuiet,
   namedInputs,
   namedJourneyIds,
   pathKind,
@@ -501,6 +502,10 @@ export async function judgeTouchedRun({
         ],
       };
     }
+    if (v.moneyByHead?.length)
+      read.push(
+        `${where}: main's money rule disagrees with the baseline on ${v.moneyByHead.join(', ')}, and this head's own rule agrees with the baseline, so each is read under the baseline's flag and any red there counts as money`,
+      );
     // A red this head inherited from main outside this pull request's area stops no one.
     const split = await splitOrAll(inherited, v.red, r);
     read.push(...inheritedLines(split));
@@ -603,6 +608,17 @@ async function listWhole(path, key, token, what) {
 export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
+    // The head's tooling reach (journey-touch.mjs quietTooling), scanned by this script's own tooling-reach.mjs (the
+    // default branch's) over the head commit's files, as the journeys run's planner scans its checkout of the head.
+    toolingReach: async (sha) => {
+      const { commitTree, reachOf } = await import('./tooling-reach.mjs');
+      const tree = commitTree(BASE_ROOT, sha);
+      try {
+        return reachOf(tree)?.journeys ?? null;
+      } finally {
+        tree.cleanup();
+      }
+    },
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
     // The pull requests GitHub lists on a commit, open or not (mergedNothingToSeal).
     pullsOn: (sha) => api(`/repos/${repo}/commits/${sha}/pulls?per_page=100`, token),
@@ -735,14 +751,17 @@ export function makeIo(repo, token) {
       }
       return out;
     },
-    verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
+    verdictOf: (report, run, { headMoney = null } = {}) => fullVerdict({ repo, report, run, inputs: baseInputs(), headMoney }),
+    // The money rule at a pull request's head (moneyAt), for a money-flag mismatch on its own run (sealPull).
+    headMoney: (ref) => moneyVia(repo, token, ref),
   };
 }
 
 /** The default branch's checkout this script runs from (ci.yml runs the base's copy): its baseline and money rule. */
 const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 let base = null;
-const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map() });
+// `memo`: each GET fetchInputs makes is made once per seal step, for every run it judges (journey-verdict.mjs fetchInputs).
+const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map(), memo: new Map() });
 
 /**
  * The journey files a checkout holds (`apps/customer/tests/real-app/*.pw.mjs`), as a set of names, or null when the
@@ -759,9 +778,9 @@ export function journeyFilesAt(root) {
 
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
-export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
-  const { baseline, money, reports } = inputs;
-  const got = read({ repo, baseline, thisRun: run, reports, log: () => {} });
+export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null }) {
+  const { baseline, money, reports, memo } = inputs;
+  const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
   // The files each run ran, never the step-to-file map: that keeps one file a step, so a step id two files share
@@ -779,7 +798,16 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   // A run short of journey files (targeted, or a shard lost) is judged on the files it has, as a targeted run's own
   // verdict is: a red step there fails the seal; only a run clean on all it has is passed over.
   const target = missing.length ? have : null;
-  const v = judge({ newest: report, named: got.named, baseline, money, passedSince: got.passedSince, issues: got.issues, target });
+  const v = judge({
+    newest: report,
+    named: got.named,
+    baseline,
+    money,
+    passedSince: got.passedSince,
+    issues: got.issues,
+    target,
+    headMoney,
+  });
   // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
   // when it passed there), or null when it never passed: the merge seal bounds an inherited red by the commits since.
   const lastPass = {};
@@ -792,7 +820,83 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
           ? String(baseline?.run?.sha ?? '')
           : null;
   }
-  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass };
+  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass, moneyByHead: v.moneyByHead ?? [] };
+}
+
+/**
+ * The money rule (journey-verdict.mjs moneyRule) as a pull request's head commit holds it, read the way manifestsAt
+ * and rootInputs read a checkout: every package.json one folder under apps, services, packages and tooling, every
+ * `crates/svc-<x>` with a Cargo.toml, and docs/roadmap's journeys.json and slices.json. `list(dir)` gives a folder's
+ * entries ({ name, type }, null when it is not there), `blobs(paths)` each file's text (null when missing), `text(path)` one
+ * file's text. Anything unreadable throws, so the seal keeps the red (judge, headMoney).
+ */
+export async function moneyAt({ list, blobs, text }) {
+  const dirs = [];
+  for (const parent of ['apps', 'services', 'packages', 'tooling'])
+    for (const e of (await list(parent)) ?? []) if (e?.type === 'dir') dirs.push(`${parent}/${e.name}`);
+  const crates = ((await list('crates')) ?? [])
+    .filter((e) => e?.type === 'dir' && /^svc-[a-z0-9-]+$/.test(e.name))
+    .map((e) => `crates/${e.name}`);
+  const got = await blobs([...dirs.map((d) => `${d}/package.json`), ...crates.map((d) => `${d}/Cargo.toml`)]);
+  const manifests = new Map();
+  for (const d of dirs) {
+    const t = got.get(`${d}/package.json`);
+    if (typeof t === 'string') manifests.set(d, JSON.parse(t));
+  }
+  for (const d of crates)
+    if (typeof got.get(`${d}/Cargo.toml`) === 'string') manifests.set(d, { name: d.slice('crates/'.length), rustService: true });
+  const read = async (p) => {
+    const t = await text(p);
+    if (typeof t !== 'string') throw new Error(`${p} could not be read`);
+    return JSON.parse(t);
+  };
+  return moneyRule({ journeys: await read('docs/roadmap/journeys.json'), slices: await read('docs/roadmap/slices.json'), manifests });
+}
+
+/** The money rule at `ref` (moneyAt) through GitHub: folder listings from the contents API, the manifests 100 to a
+ *  GraphQL query, the two roadmap files raw. */
+function moneyVia(repo, token, ref) {
+  if (!SHA40.test(String(ref))) throw new Error('moneyVia: a head sha is needed');
+  const [owner, name] = repo.split('/');
+  return moneyAt({
+    list: async (dir) => {
+      const res = await getTried(`https://api.github.com/repos/${repo}/contents/${dir}?ref=${ref}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
+        redirect: 'follow',
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(httpMessage(`/repos/${repo}/contents/${dir}`, res));
+      const got = await res.json();
+      if (!Array.isArray(got) || got.length >= 1000) throw new Error(`${dir} could not be listed whole`);
+      return got;
+    },
+    blobs: async (paths) => {
+      const out = new Map();
+      for (let i = 0; i < paths.length; i += 100) {
+        const part = paths.slice(i, i + 100);
+        const fields = part.map(
+          (p, k) => `f${k}: object(expression: ${JSON.stringify(`${ref}:${p}`)}) { ... on Blob { text isTruncated } }`,
+        );
+        const query = `query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`;
+        const res = await getTried('https://api.github.com/graphql', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ query, variables: { owner, name } }),
+        });
+        if (!res.ok) throw new Error(`GraphQL: HTTP ${res.status}`);
+        const got = await res.json();
+        if (got.errors?.length || !got.data?.repository) throw new Error("GraphQL: the head's manifests could not be read");
+        part.forEach((p, k) => {
+          const blob = got.data.repository[`f${k}`];
+          if (blob === null) return out.set(p, null);
+          if (typeof blob?.text !== 'string' || blob.isTruncated) throw new Error(`${p} could not be read whole`);
+          out.set(p, blob.text);
+        });
+      }
+      return out;
+    },
+    text: (p) => makeIo(repo, token).text(p, ref),
+  });
 }
 
 /** A pull request's changed paths, whole: GitHub lists at most 3,000, so a longer list fails closed. */
@@ -1475,11 +1579,20 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   const named = reverting || auto?.ok ? null : await namedSealInputs({ io, pull: { ...pull, stack }, head });
   const touchAt = (f) => atHead.get(f) ?? true;
   const inputs = reverting || auto?.ok ? null : await reachInputs({ io, paths, head, base: pull.base?.sha, text });
+  // Tooling no journeys run reaches, by the head's tree (journey-touch.mjs quietTooling), as the run's planner reads it.
+  // A seal that can't scan it judges by today's rules.
+  let tooling = null;
+  if (!reverting && !auto?.ok && io.toolingReach && mayBeQuiet(paths))
+    try {
+      tooling = (await io.toolingReach(head)) ?? null;
+    } catch {
+      tooling = null;
+    }
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
     : auto?.ok
       ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
-      : pullPick(paths, journeyTouch(paths, touchAt, inputs, named), { atHead: touchAt, reach: inputs, named });
+      : pullPick(paths, journeyTouch(paths, touchAt, inputs, named, tooling), { atHead: touchAt, reach: inputs, named });
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
   const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
@@ -1492,6 +1605,22 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   };
   const steps = await judgeSteps({ sha: head, repo, title: pull.title, body: pull.body, runs, reportOf, waitOnRunning, derived });
   const verdictOf = (rep, r) => io.verdictOf(rep, r);
+  // This head's own runs: a step whose baseline money flag main's money rule disagrees with (`mismatch`) is judged again
+  // with this head's money rule too, read once and only then (journey-verdict.mjs judge, headMoney). Main's runs keep
+  // main's rule alone. The flag a pull request can change for itself is only ever read the stricter way.
+  let headMoney;
+  const ownVerdictOf = async (rep, r) => {
+    const v = await verdictOf(rep, r);
+    if (!io.headMoney || !(v?.red ?? []).some((x) => x?.mismatch)) return v;
+    let rule;
+    try {
+      rule = await (headMoney ??= Promise.resolve().then(() => io.headMoney(head)));
+    } catch (e) {
+      const why = `; this head's own money rule couldn't be read (${e.message}), so it stays red`;
+      return { ...v, red: v.red.map((x) => (x?.mismatch ? { ...x, why: x.why + why } : x)) };
+    }
+    return io.verdictOf(rep, r, { headMoney: rule });
+  };
   // The area of this pull request, for reds it inherited from main (splitInherited): the journeys it touches and its paths.
   const touches = {
     journeys: new Set([
@@ -1553,7 +1682,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
           files: reach.files,
           runs,
           reportOf,
-          verdictOf,
+          verdictOf: ownVerdictOf,
           waitOnRunning,
           inherited,
           reach: reach.bounded ? [reach.bounded] : reach.reach,

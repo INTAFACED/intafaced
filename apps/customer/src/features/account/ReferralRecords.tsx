@@ -9,6 +9,13 @@ import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import { referralCopy as copy } from './referral-copy';
 import './referrals.css';
+import { callAs } from '../../shared/api';
+import {
+  IDENTITY_AFFILIATES_MY_REFERRER,
+  IDENTITY_AFFILIATES_MY_LAPSE,
+  IDENTITY_AFFILIATES_MY_ANCESTORS,
+  IDENTITY_AFFILIATES_MY_ACCRUALS,
+} from '@intafaced/contracts/identity-affiliates-procedures';
 
 const lapseSchema = referralLapseSchema;
 type Selection = { feeEventId: string; hop: number };
@@ -56,9 +63,9 @@ function OwnerRecords({ userId }: { userId: string }) {
   const [selected, setSelected] = useState<Selection | null>(null);
   const edge = useResource(
     (signal) =>
-      api.query(
-        'identity',
-        'affiliates.myReferrer',
+      callAs(
+        api,
+        IDENTITY_AFFILIATES_MY_REFERRER,
         undefined,
         referralEdgeSchema.refine(
           (row) => !row || (row.userId === userId && row.referrerId !== userId),
@@ -70,9 +77,9 @@ function OwnerRecords({ userId }: { userId: string }) {
   );
   const lapse = useResource(
     (signal) =>
-      api.query(
-        'identity',
-        'affiliates.myLapse',
+      callAs(
+        api,
+        IDENTITY_AFFILIATES_MY_LAPSE,
         undefined,
         lapseSchema.refine((row) => !row.ended || row.ended.userId === userId, 'Referral lapse ownership is invalid'),
         { signal },
@@ -81,9 +88,9 @@ function OwnerRecords({ userId }: { userId: string }) {
   );
   const chain = useResource(
     (signal) =>
-      api.query(
-        'identity',
-        'affiliates.myAncestors',
+      callAs(
+        api,
+        IDENTITY_AFFILIATES_MY_ANCESTORS,
         undefined,
         z
           .array(z.string().guid())
@@ -94,9 +101,9 @@ function OwnerRecords({ userId }: { userId: string }) {
   );
   const records = useResource(
     (signal) =>
-      api.query(
-        'identity',
-        'affiliates.myAccruals',
+      callAs(
+        api,
+        IDENTITY_AFFILIATES_MY_ACCRUALS,
         { limit },
         referralAccrualsSchema(limit).refine(
           (data) => data.rows.every((row) => row.beneficiaryId === userId) && new Set(data.rows.map(recordKey)).size === data.rows.length,
