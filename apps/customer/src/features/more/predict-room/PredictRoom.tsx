@@ -1,3 +1,4 @@
+// volt-room: /predict
 import { useId } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { CatalogueTemplate, SectionTabs } from '@intafaced/ui/lit/templates';

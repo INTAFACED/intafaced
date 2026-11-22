@@ -1,3 +1,4 @@
+// volt-room: /mining
 import { useState } from 'react';
 import { Button, Field, Tag } from '@intafaced/ui/lit';
 import { CatalogueTemplate, KeyValue, SectionTabs } from '@intafaced/ui/lit/templates';

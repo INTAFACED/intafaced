@@ -1,3 +1,4 @@
+// volt-room: /launch
 import { CatalogueTemplate, SectionTabs } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useSession } from '../../session';

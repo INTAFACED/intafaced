@@ -1,3 +1,5 @@
+// volt-room: /bank/earn
+// volt-room: /bank/earn/pool
 import { Button } from '@intafaced/ui/lit';
 import { CatalogueTemplate } from '@intafaced/ui/lit/templates';
 import { ReadView } from '../../../shared/read-state';

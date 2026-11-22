@@ -1,3 +1,4 @@
+// volt-room: /bank/loans
 import type { z } from 'zod';
 import { Button } from '@intafaced/ui/lit';
 import { CatalogueTemplate } from '@intafaced/ui/lit/templates';

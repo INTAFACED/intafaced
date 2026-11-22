@@ -1,3 +1,4 @@
+// volt-room: /campaigns/:campaignId
 import { useState } from 'react';
 import type { CampaignEligibility, CampaignView } from '@intafaced/contracts/campaigns-catalogue';
 import type { ApiResult } from '../../../shared/api';

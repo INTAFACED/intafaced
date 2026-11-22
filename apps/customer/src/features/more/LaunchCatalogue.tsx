@@ -1,3 +1,4 @@
+// volt-room: /launch/:projectId
 // hand-declared-ok: svc-token's launch outputs are declared in its launch router; packages/contracts has no token schemas yet
 import { useState, type ReactNode } from 'react';
 import { useApi, useSession } from '../session';

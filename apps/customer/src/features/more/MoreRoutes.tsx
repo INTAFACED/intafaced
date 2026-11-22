@@ -7,12 +7,11 @@ import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
 import { AgentsTeam } from './AgentsTeam';
-import { AgentApprovals } from './AgentApprovals';
+import { AgentApprovalsRoom } from './agent-approvals/AgentApprovalsRoom';
 import { AgentConnect } from './AgentConnect';
 import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
 import { agentRunCopy } from './agent-run-copy';
-import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
@@ -78,7 +77,12 @@ function MoreRooms({ path }: { path: string }) {
   let room: MoreRoomId | undefined;
   // A room drawn on its Volt template: it carries its own title, so it opens without the old page frame.
   let volt: ReactNode = undefined;
+  // A room on its Volt template draws its own title row, so it is mounted without the old page frame.
+  let bare = false;
   if (p === '/academy' || p.startsWith('/academy/')) {
+    const academy = academyRoute(p);
+    // The signed-in course-team inbox is on its Volt template; a signed-out visitor gets the public Academy.
+    bare = academy.kind === 'messages' && !academy.conversationId && Boolean(userId);
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
     content = (
@@ -111,9 +115,8 @@ function MoreRooms({ path }: { path: string }) {
     title = <OwnAgentTitle id={id} />;
     content = <OwnAgentPage key={id} id={id} />;
   } else if (p === '/agents/approvals') {
-    title = <agentApprovalsCopy.Copy k="title" />;
-    description = <agentApprovalsCopy.Copy k="description" />;
-    content = <AgentApprovals />;
+    bare = true;
+    content = <AgentApprovalsRoom />;
   } else if (p === '/agents/team') {
     title = <agentsTeamCopy.Copy k="title" />;
     description = <agentsTeamCopy.Copy k="description" />;
@@ -168,6 +171,7 @@ function MoreRooms({ path }: { path: string }) {
     else volt = <TokenRoom paper={paper} />;
   } else if (quant) {
     ({ title, description, content } = quant);
+    bare = 'bare' in quant && quant.bare === true;
   } else if (p === '/support/chat') {
     title = <chatCopy.Copy k="pageTitle" />;
     description = <chatCopy.Copy k="pageDescription" />;
@@ -219,6 +223,7 @@ function MoreRooms({ path }: { path: string }) {
     if (volt) volt = wrap(volt);
   }
   if (volt) return <Fragment key={userId ?? 'anonymous'}>{volt}</Fragment>;
+  if (bare) return <Fragment key={userId ?? 'anonymous'}>{content}</Fragment>;
   return (
     <div className="more-feature">
       <Page
