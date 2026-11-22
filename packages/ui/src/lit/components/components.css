@@ -819,3 +819,134 @@
 .lit-select-item .lit-select-mark {
   color: var(--lit-accent-text);
 }
+
+/* Decimal field: unit and Max inside the box; the hero size for a card's one amount (b3-live) */
+.lit-field-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: var(--lit-control-h);
+  padding-inline: 14px 6px;
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-control-bg);
+  box-shadow: inset 0 0 0 1px var(--lit-control-rim);
+}
+.lit-field-row:focus-within {
+  box-shadow: inset 0 0 0 1px var(--lit-control-rim-active);
+}
+.lit-field-control .lit-field-row input {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.lit-field-row [data-part='unit'] {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lit-field-control[data-size='hero'] input {
+  min-block-size: calc(var(--lit-control-h) * 1.5);
+  font-family: var(--lit-font-figure);
+  font-size: var(--lit-type-figure-size);
+  line-height: var(--lit-type-figure-line);
+  letter-spacing: var(--lit-type-figure-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Coin mark (b5-trade) */
+.lit-coin {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-label-size);
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+.lit-coin[data-size='sm'] {
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+}
+.lit-coin [data-part='art'],
+.lit-coin svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/* Disclosure (b5-trade) */
+.lit-disclosure[data-variant='row'] {
+  border-block-end: 1px solid var(--lit-line);
+}
+.lit-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--lit-text-1);
+  cursor: pointer;
+  list-style: none;
+}
+.lit-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.lit-disclosure[data-variant='row'] > summary {
+  min-block-size: var(--lit-row-h);
+}
+.lit-disclosure[data-variant='row'] > summary::after {
+  content: '+';
+  color: var(--lit-text-2);
+  transition: transform var(--lit-t-quick) var(--lit-ease);
+}
+.lit-disclosure[data-variant='row'][open] > summary::after {
+  transform: rotate(45deg);
+}
+.lit-disclosure[data-variant='inline'] {
+  display: inline-block;
+}
+.lit-disclosure[data-variant='inline'] > summary {
+  display: inline-flex;
+  min-inline-size: 24px;
+  min-block-size: 24px;
+  justify-content: center;
+  color: var(--lit-text-2);
+}
+.lit-disclosure > summary:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lit-disclosure [data-part='panel'] {
+  padding-block-end: 0.75rem;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-body-size);
+}
+
+/* Progress (b5-trade) */
+.lit-progress {
+  display: block;
+  inline-size: 100%;
+  block-size: 0.25rem;
+  border: 0;
+  border-radius: var(--lit-radius-control);
+  overflow: hidden;
+  background: var(--lit-solid-bg-sunken);
+  appearance: none;
+}
+.lit-progress::-webkit-progress-bar {
+  background: var(--lit-solid-bg-sunken);
+}
+.lit-progress::-webkit-progress-value {
+  background: var(--lit-accent);
+}
+.lit-progress::-moz-progress-bar {
+  background: var(--lit-accent);
+}
