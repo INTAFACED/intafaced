@@ -10,6 +10,7 @@ import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, ty
 
 export * from './b3-live.js';
 export * from './b4-choose.js';
+export * from './b5-native.js';
 
 // App-shell services a room calls but never draws: the toast viewport and the hide-balances switch are chrome the
 // app shell mounts once (its ToastProvider and HideBalancesProvider), not room parts. A room asks for a toast or reads

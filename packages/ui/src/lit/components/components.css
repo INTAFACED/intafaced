@@ -834,3 +834,53 @@
 .lit-select-item .lit-select-mark {
   color: var(--lit-accent-text);
 }
+
+/* NativeSelect and TextArea: the browser's own controls, drawn like Field's */
+.lit-native-select,
+.lit-textarea {
+  min-block-size: var(--lit-control-h);
+  padding-inline: 0.875rem;
+  border: 0;
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-control-bg);
+  box-shadow: inset 0 0 0 0.0625rem var(--lit-control-rim);
+  color: var(--lit-text-1);
+  font: inherit;
+}
+/* The app's base reset draws a select with no mark at all: keep the browser's own open mark. */
+.lit-native-select {
+  appearance: auto;
+}
+.lit-textarea {
+  padding-block: 0.5rem;
+  resize: vertical;
+}
+.lit-native-select:focus,
+.lit-textarea:focus {
+  box-shadow: inset 0 0 0 0.0625rem var(--lit-control-rim-active);
+}
+.lit-native-select:disabled,
+.lit-textarea:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* Checkbox: the browser's own box, sized, in the kit's accent, then its words */
+.lit-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--lit-text-1);
+}
+.lit-check input {
+  appearance: auto;
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin: 0;
+  accent-color: var(--lit-accent-fill);
+  cursor: pointer;
+}
+.lit-check input:disabled {
+  cursor: not-allowed;
+}
