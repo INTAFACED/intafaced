@@ -9,8 +9,13 @@
  */
 import { z } from 'zod';
 import type { ApiClient } from '../shared/api';
+import {
+  IDENTITY_HANDLE_GET,
+  IDENTITY_HANDLE_CHANGE,
+  IDENTITY_HANDLE_SET_DISCOVERABLE,
+} from '@intafaced/contracts/identity-handle-procedures';
 
-export const handleSettingsSchema = z.object({
+const handleSettingsSchema = z.object({
   handle: z.string().min(1),
   discoverable: z.boolean(),
   changesUsed: z.number().int().nonnegative(),
@@ -41,18 +46,18 @@ export type HandleSettingsOutcome =
 const known = (code: string | undefined): code is HandleChangeCode => (HANDLE_CHANGE_CODES as readonly string[]).includes(code ?? '');
 
 export async function fetchHandleSettings(api: ApiClient, signal?: AbortSignal): Promise<HandleSettingsOutcome> {
-  const result = await api.query('identity', 'handle.get', undefined, handleSettingsSchema, { signal });
+  const result = await api.call(IDENTITY_HANDLE_GET, undefined, { signal });
   return result.ok ? { kind: 'ok', settings: result.data } : { kind: 'failed' };
 }
 
 export async function changeHandle(api: ApiClient, input: { handle: string; fromHandle: string }): Promise<HandleSettingsOutcome> {
-  const result = await api.mutate('identity', 'handle.change', input, handleSettingsSchema);
+  const result = await api.call(IDENTITY_HANDLE_CHANGE, input);
   if (result.ok) return { kind: 'ok', settings: result.data };
   return known(result.code) ? { kind: 'refused', code: result.code } : { kind: 'failed' };
 }
 
 export async function setHandleDiscoverable(api: ApiClient, discoverable: boolean): Promise<HandleSettingsOutcome> {
-  const result = await api.mutate('identity', 'handle.setDiscoverable', { discoverable }, handleSettingsSchema);
+  const result = await api.call(IDENTITY_HANDLE_SET_DISCOVERABLE, { discoverable });
   if (result.ok) return { kind: 'ok', settings: result.data };
   return known(result.code) ? { kind: 'refused', code: result.code } : { kind: 'failed' };
 }

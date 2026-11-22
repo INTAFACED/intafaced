@@ -1,13 +1,5 @@
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
-import {
-  sandboxCreateInputSchema,
-  sandboxCreateOutputSchema,
-  sandboxGetInputSchema,
-  sandboxGetOutputSchema,
-  sandboxKeyCreateInputSchema,
-  sandboxKeyCreateOutputSchema,
-  sandboxListOutputSchema,
-} from '@intafaced/contracts/developer-sandboxes';
+import { sandboxKeyCreateInputSchema, sandboxKeyCreateOutputSchema } from '@intafaced/contracts/developer-sandboxes';
 import { optionalFactorProof } from './auth/api-key-fresh-factor.js';
 import { DeveloperKeyError } from './auth/developer-keys.js';
 import { DEVELOPER_KEY_STATUS } from './developer-keys-router.js';
@@ -21,6 +13,13 @@ import {
 } from './auth/developer-sandboxes.js';
 import { MintApiKeyPasskeyError } from './auth/mint-api-key-passkey.js';
 import { userCopy } from './user-copy.js';
+import {
+  IDENTITY_DEVELOPER_SANDBOXES_LIST,
+  IDENTITY_DEVELOPER_SANDBOXES_GET,
+  IDENTITY_DEVELOPER_SANDBOXES_CREATE,
+} from '@intafaced/contracts/identity-developer-sandboxes-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 const SANDBOX_STATUS: Record<DeveloperSandboxError['code'], TRPCError['code']> = {
   'identity.sandbox_name_invalid': 'BAD_REQUEST',
@@ -66,19 +65,23 @@ export function createDeveloperSandboxesRouter(deps: DeveloperSandboxesDeps) {
   };
   return router({
     developerSandboxes: router({
-      create: scopedProcedure('identity:write')
-        .input(sandboxCreateInputSchema)
-        .output(sandboxCreateOutputSchema)
-        .mutation(({ ctx, input }) => guarded(ctx.principal, () => createSandbox(deps, ctx.principal, input))),
+      create: mountRecord(
+        IDENTITY_DEVELOPER_SANDBOXES_CREATE,
+        ({ ctx, input }) => guarded(ctx.principal, () => createSandbox(deps, ctx.principal, input)),
+        codedRefusal,
+      ),
 
-      list: scopedProcedure('identity:read')
-        .output(sandboxListOutputSchema)
-        .query(({ ctx }) => guarded(ctx.principal, () => listSandboxes(deps, ctx.principal.userId))),
+      list: mountRecord(
+        IDENTITY_DEVELOPER_SANDBOXES_LIST,
+        ({ ctx }) => guarded(ctx.principal, () => listSandboxes(deps, ctx.principal.userId)),
+        codedRefusal,
+      ),
 
-      get: scopedProcedure('identity:read')
-        .input(sandboxGetInputSchema)
-        .output(sandboxGetOutputSchema)
-        .query(({ ctx, input }) => guarded(ctx.principal, () => getSandbox(deps, ctx.principal.userId, input.sandboxId))),
+      get: mountRecord(
+        IDENTITY_DEVELOPER_SANDBOXES_GET,
+        ({ ctx, input }) => guarded(ctx.principal, () => getSandbox(deps, ctx.principal.userId, input.sandboxId)),
+        codedRefusal,
+      ),
 
       createKey: scopedProcedure('identity:write')
         .input(sandboxKeyCreateInputSchema.extend({ factorProof: optionalFactorProof }))

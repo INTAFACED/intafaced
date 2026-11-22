@@ -38,6 +38,8 @@ import {
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import './verification.css';
+import { callAs } from '../../shared/api';
+import { IDENTITY_KYC_SUBMIT } from '@intafaced/contracts/identity-kyc-procedures';
 
 type Original = { owner: string; client: ApiClient; token: string; tier: RequestedTier; country: string; mount: object; path: string };
 type Known = {
@@ -241,9 +243,9 @@ export function Verification() {
         }
         sync(intent.owner);
         if (!same(intent)) return;
-        const answer = await intent.client.mutate(
-          'identity',
-          'kyc.submit',
+        const answer = await callAs(
+          intent.client,
+          IDENTITY_KYC_SUBMIT,
           { tier: intent.tier, jurisdiction: intent.country },
           verificationReply(intent.owner, intent.tier),
           { signal: controller.signal },

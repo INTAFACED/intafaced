@@ -6,10 +6,11 @@ import {
   adminSessionErrorResponse,
   AdminSessionError,
   assertAdminOrigin,
-  founderEdgeCall,
   founderSignedIn,
+  founderEdgeRecordCall,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import { IDENTITY_AUTH_DEVICE_APPROVE, IDENTITY_AUTH_DEVICE_COMPLETE } from '@intafaced/contracts/identity-auth-procedures';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,16 +41,8 @@ export async function POST(request: Request) {
     const signIn = { userAgent: request.headers.get('user-agent') };
     const raw =
       input.action === 'approve'
-        ? await founderEdgeCall(
-            config,
-            'identity',
-            'auth.deviceApprove',
-            'POST',
-            { ...flow, code: String(input.code).trim() },
-            undefined,
-            signIn,
-          )
-        : await founderEdgeCall(config, 'identity', 'auth.deviceComplete', 'POST', flow, undefined, signIn);
+        ? await founderEdgeRecordCall(config, IDENTITY_AUTH_DEVICE_APPROVE, { ...flow, code: String(input.code).trim() }, undefined, signIn)
+        : await founderEdgeRecordCall(config, IDENTITY_AUTH_DEVICE_COMPLETE, flow, undefined, signIn);
     return await founderSignedIn(raw, config, device.cookie);
   } catch (error) {
     return adminSessionErrorResponse(error);

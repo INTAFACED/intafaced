@@ -12,7 +12,7 @@ export type RecoveryStep = (typeof RECOVERY_STEPS)[number];
 
 export const requestedSchema = z.object({ accepted: z.literal(true) });
 /** The owner's request cap (`auth.passwordResetLimits`), or null while the reset is unwired: then no number is named. */
-export const limitsSchema = z.object({ requestMax: z.number().int().positive(), windowSeconds: z.number().int().positive() }).nullable();
+const limitsSchema = z.object({ requestMax: z.number().int().positive(), windowSeconds: z.number().int().positive() }).nullable();
 export type ResetLimits = z.infer<typeof limitsSchema>;
 
 /** A window in words, as the service names it: "an hour", "2 hours", "15 minutes", "30 seconds". */
