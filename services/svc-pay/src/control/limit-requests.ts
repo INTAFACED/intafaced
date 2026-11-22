@@ -1,3 +1,4 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import type {
@@ -32,7 +33,7 @@ interface PendingRow {
   request_id: string;
   seq: string | number;
   merchant_id: string;
-  caps: unknown;
+  caps: JsonValue;
   reason: string;
   status: string;
   requested_by: string;
@@ -51,7 +52,7 @@ const readableCaps = payCapSchema.array().min(1).max(32);
  * One view of stored caps. A parse failure is the row, flagged, not an error:
  * list, open, already-open and withdraw all use this.
  */
-function viewStoredCaps(raw: unknown): MerchantLimitRequest['caps'] {
+function viewStoredCaps(raw: JsonValue): MerchantLimitRequest['caps'] {
   const caps = readableCaps.safeParse(raw);
   return caps.success ? caps.data : { raw, capsReadable: false };
 }

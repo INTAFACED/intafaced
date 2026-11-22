@@ -1,3 +1,4 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
@@ -64,7 +65,7 @@ interface TaskRow {
   kind: TaskKind;
   scope: ConfigScope | null;
   title: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, JsonValue>;
   payload_hash: string;
   initiator: string;
   required_approvals: number;
@@ -256,7 +257,7 @@ export class CustodyApprovalService {
   async get(viewerId: string, taskId: string): Promise<TaskDetail> {
     const row = await this.byId(this.deps.sql, taskId);
     if (!row) throw notFound();
-    const timeline = await this.deps.sql<Array<{ kind: string; actor_id: string; detail: Record<string, unknown>; at: Date }>>`
+    const timeline = await this.deps.sql<Array<{ kind: string; actor_id: string; detail: Record<string, JsonValue>; at: Date }>>`
       SELECT kind, actor_id, detail, at FROM pay.custody_task_events WHERE task_id = ${taskId} ORDER BY seq`;
     return {
       ...(await this.view(viewerId, row)),

@@ -211,13 +211,15 @@ export function rustPurpose(lib) {
   return (first[0].toUpperCase() + first.slice(1)).replace(/\|/g, '\\|');
 }
 
-// Three shapes refuse an unset field: `get("X").map_or(Err(`, a blank read as `NaN` (`blank("X").unwrap_or("NaN")`, which no
-// integer check passes), and svc-ledger's `blank_int("X", None,` (no default).
+// Four shapes refuse an unset field: `get("X").map_or(Err(`, a blank read as `NaN` (`blank("X").unwrap_or("NaN")`, which no
+// integer check passes), svc-ledger's `blank_int("X", None,` (no default), and svc-matching's unset read as empty text
+// (`get("X").unwrap_or("")`) that the same source then refuses (`issue("X",`).
 const refusedWhenUnset = (src) =>
   [
     ...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.map_or\(\s*Err\(/g),
     ...src.matchAll(/blank\(\s*"([A-Z0-9_]+)"\s*\)\s*\.unwrap_or\(\s*"NaN"\s*\)/g),
     ...src.matchAll(/blank_int\(\s*"([A-Z0-9_]+)",\s*None,/g),
+    ...[...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.unwrap_or\(\s*""\s*\)/g)].filter((m) => src.includes(`issue("${m[1]}",`)),
   ].map((m) => m[1]);
 
 /**

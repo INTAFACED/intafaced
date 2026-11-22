@@ -4,16 +4,10 @@ import { useState } from 'react';
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import { liveCopy } from './developers-live-copy';
-import {
-  CHANGELOG_AREA_IDS,
-  readChangelog,
-  readUpcomingChanges,
-  type ChangelogAreaId,
-  type ChangelogEntry,
-  type UpcomingChanges,
-} from '../../shared/notify-reads';
+import { CHANGELOG_AREA_IDS, readChangelog, readUpcomingChanges, type ChangelogAreaId } from '../../shared/notify-reads';
 import { useRead } from './use-read';
 import { ReadFailed, ReadLoading } from './ReadState';
+import { ChangelogList, UpcomingView } from './changelog-list/ChangelogList';
 
 /** /developers/changelog: published entries newest first, filtered by area and by the breaking flag. */
 export function ChangelogPage() {
@@ -75,85 +69,6 @@ export function ChangelogPage() {
   );
 }
 
-function Items({ title, items }: { title: string; items: readonly string[] }) {
-  if (items.length === 0) return null;
-  return (
-    <p>
-      <strong>{title}</strong>:{' '}
-      {items.map((item, index) => (
-        <span key={item}>
-          {index === 0 ? '' : ', '}
-          <code>{item}</code>
-        </span>
-      ))}
-    </p>
-  );
-}
-
-/**
- * The entries, each marked with the language its text is in (`lang`). An entry with no text in the reader's language
- * shows its English source and says so, rather than passing it off as a translation.
- */
-export function ChangelogList({ entries, language }: { entries: readonly ChangelogEntry[]; language?: string }) {
-  const { t } = liveCopy.useCopy();
-  if (entries.length === 0)
-    return (
-      <section role="status">
-        <p>{t('changelogNone')}</p>
-      </section>
-    );
-  return (
-    <>
-      {entries.map((entry) => {
-        const log = entry.changelog;
-        return (
-          <article
-            key={entry.id}
-            data-breaking={log?.breaking ? 'true' : 'false'}
-            {...(entry.language ? { lang: entry.language, 'data-language': entry.language } : {})}
-          >
-            <h2>{entry.title}</h2>
-            {language && entry.language && entry.language !== language ? (
-              <p lang={language} data-testid="changelog-not-in-language">
-                {t('notInLanguage')}
-              </p>
-            ) : null}
-            <p>
-              {log ? t(`area_${log.area}` as const) : t('areaNotSet')}
-              {log?.breaking ? ` · ${t('breaking')}` : ''}
-              {entry.publishedAt ? ` · ${entry.publishedAt.slice(0, 10)}` : ''}
-              {log
-                ? ` · ${t('addedOn', { date: log.addedOn ?? t('dateNotSet') })} · ${t('releaseOn', { date: log.releaseOn ?? t('dateNotSet') })}`
-                : ''}
-            </p>
-            <p>{entry.body}</p>
-            {log ? (
-              <>
-                <Items title={t('endpointsTitle')} items={log.endpoints} />
-                <Items title={t('scopesTitle')} items={log.scopes} />
-                <Items title={t('retiredTitle')} items={log.retired} />
-                {log.before && log.after ? (
-                  <div>
-                    <h3>{t('beforeTitle')}</h3>
-                    <pre>{log.before}</pre>
-                    <h3>{t('afterTitle')}</h3>
-                    <pre>{log.after}</pre>
-                  </div>
-                ) : null}
-                {log.migrationNote ? (
-                  <p>
-                    <strong>{t('migrationTitle')}</strong>: {log.migrationNote}
-                  </p>
-                ) : null}
-              </>
-            ) : null}
-          </article>
-        );
-      })}
-    </>
-  );
-}
-
 /** /developers/changelog/upcoming: breaking changes not yet in effect, and every retired endpoint. */
 export function UpcomingPage() {
   const { t, requestedLocale } = liveCopy.useCopy();
@@ -181,47 +96,5 @@ export function UpcomingPage() {
         }
       />
     </div>
-  );
-}
-
-export function UpcomingView({ data, language }: { data: UpcomingChanges; language?: string }) {
-  const { t } = liveCopy.useCopy();
-  return (
-    <>
-      {data.upcoming.length === 0 ? (
-        <section role="status">
-          <p>{t('upcomingNone')}</p>
-        </section>
-      ) : (
-        <ChangelogList entries={data.upcoming} language={language} />
-      )}
-      <section aria-labelledby="up-retired">
-        <h2 id="up-retired">{t('retiredListTitle')}</h2>
-        {data.retired.length === 0 ? (
-          <p>{t('retiredListNone')}</p>
-        ) : (
-          <table className="lt-table">
-            <thead>
-              <tr>
-                <th scope="col">{t('colEndpoint')}</th>
-                <th scope="col">{t('colEntry')}</th>
-                <th scope="col">{t('colDate')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.retired.map((row) => (
-                <tr key={row.endpoint}>
-                  <th scope="row">
-                    <code>{row.endpoint}</code>
-                  </th>
-                  <td>{t('retiredBy', { title: row.title })}</td>
-                  <td>{row.releaseOn ?? t('dateNotSet')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-    </>
   );
 }
