@@ -22,7 +22,6 @@ import { WalletPositions } from './WalletPositions';
 import { TrackerPanel } from './TrackerPanel';
 import { ReceivePanel } from './ReceivePanel';
 import { SafetyPanel } from './SafetyPanel';
-import { SendPanel } from './SendPanel';
 import { SessionKeysPanel } from './SessionKeysPanel';
 import { WalletGroupPanel } from './WalletGroupPanel';
 import { WALLET_SECTIONS, type WalletSection } from '../routes';
@@ -50,8 +49,6 @@ export function WalletRoom({
   const { t: tp } = protocolCopy.forLocale(language);
   const wallet = useWallet();
   const section = initial;
-  // The room re-renders on every navigation (its path comes from the location), so the query is read as it renders.
-  const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
   const transport = useApi();
   const api = useMemo(() => createProtocolApi(transport), [transport]);
   const chain = useResource((signal) => api.chainStatus(signal), 'wallet-room:chain');
@@ -153,12 +150,6 @@ export function WalletRoom({
   const body =
     section === 'overview' ? (
       overview
-    ) : section === 'send' ? (
-      // A link that opens Send filled in (Home's pay-in route) may land here before any wallet is connected.
-      <>
-        {connectPanel}
-        <SendPanel to={query.get('to') ?? ''} token={query.get('token') ?? ''} />
-      </>
     ) : section === 'receive' ? (
       <ReceivePanel />
     ) : section === 'claimLinks' ? (

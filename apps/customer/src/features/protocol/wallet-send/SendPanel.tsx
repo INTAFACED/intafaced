@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Dialog, Field, Panel } from '../../../shared/ui';
+import { useEffect, useId, useMemo, useRef, useState, type InputHTMLAttributes } from 'react';
+import { Button, Checkbox } from '@intafaced/ui/lit';
+import { KeyValue, Sheet } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
 import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { networkLabel } from '../blockers';
+import { RepresentationStep } from '../liquidity/RepresentationStep';
 import { useRegionBlocked } from '../region';
-import { walletCopy } from './copy';
-import { APP_CHAIN_ID } from './eip1193';
-import { RepresentationPanel } from './RepresentationPanel';
+import { walletCopy } from '../wallet/copy';
+import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { useResource } from '../../../shared/resource';
 import {
   exactUnits,
@@ -21,10 +22,10 @@ import {
   toHexValue,
   tokenLabel,
   transferCalldata,
-} from './transfer';
-import { useWallet, waitMined } from './WalletProvider';
-import { recordSent } from './sent-store';
-import { signingGate } from './signing-gate';
+} from '../wallet/transfer';
+import { useWallet, waitMined } from '../wallet/WalletProvider';
+import { recordSent } from '../wallet/sent-store';
+import { signingGate } from '../wallet/signing-gate';
 
 type Contract = 'checking' | 'contract' | 'wallet' | 'unknown';
 type Outcome =
@@ -40,6 +41,21 @@ const FEE_WAIT_MS = 120_000;
 
 /** A sent transfer's network fee: waiting for the chain, read from its receipt, or not known (never shown as 0). */
 type SentFee = { kind: 'waiting' } | { kind: 'known'; units: bigint } | { kind: 'unknown' };
+
+/**
+ * A text box inside the kit's `lt-field` label, the same shape as the token choice above it: its words, the box named
+ * by them, and its hint describing it.
+ */
+function TextField({ label, hint, ...input }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint: string }) {
+  const id = useId();
+  return (
+    <label className="lt-field" htmlFor={id}>
+      <span id={`${id}-label`}>{label}</span>
+      <input {...input} id={id} aria-labelledby={`${id}-label`} aria-describedby={`${id}-help`} />
+      <small id={`${id}-help`}>{hint}</small>
+    </label>
+  );
+}
 
 /**
  * Send: the network's own currency from the connected wallet to an address (D-portfolio-wallet-03, D-swap-12). The
@@ -171,11 +187,12 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
 
   if (regionBlocked)
     return (
-      <Panel title={t('sendTitle')}>
-        <p className="muted" data-permit-refused="region">
+      <section>
+        <h2>{t('sendTitle')}</h2>
+        <p className="lt-hint" data-permit-refused="region">
           {t('permitRefused_region')}
         </p>
-      </Panel>
+      </section>
     );
 
   const confirmed =
@@ -187,7 +204,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   return (
     <>
       {outcome.kind === 'representation' && (
-        <RepresentationPanel
+        <RepresentationStep
           address={outcome.address}
           status={outcome.status}
           api={api}
@@ -199,9 +216,10 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
           }}
         />
       )}
-      <Panel title={t('sendTitle')}>
-        <p className="muted">{t('sendNote', { network })}</p>
-        {!ready && <p className="muted">{t('needsWallet')}</p>}
+      <section>
+        <h2>{t('sendTitle')}</h2>
+        <p className="lt-hint">{t('sendNote', { network })}</p>
+        {!ready && <p className="lt-hint">{t('needsWallet')}</p>}
         <form
           aria-label={t('sendTitle')}
           onSubmit={(event) => {
@@ -209,7 +227,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             void review();
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span id="wallet-send-token-label">{t('sendToken')}</span>
             <select
               value={token}
@@ -235,17 +253,17 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
                   : t('sendTokenListNote')}
             </small>
           </label>
-          <Field label={t('sendAmount')} hint={t('sendAmountHint')} inputMode="decimal" value={amount} onChange={edit(setAmount)} />
-          <Field label={t('sendTo')} hint={t('sendToHint')} value={to} onChange={edit(setTo)} autoComplete="off" spellCheck={false} />
+          <TextField label={t('sendAmount')} hint={t('sendAmountHint')} inputMode="decimal" value={amount} onChange={edit(setAmount)} />
+          <TextField label={t('sendTo')} hint={t('sendToHint')} value={to} onChange={edit(setTo)} autoComplete="off" spellCheck={false} />
           {destination.kind === 'name' && (
             <>
               <p role="alert">{t('sendNameUnresolved')}</p>
-              <p className="muted">{t('sendNameWhy')}</p>
+              <p className="lt-hint">{t('sendNameWhy')}</p>
             </>
           )}
           {destination.kind === 'invalid' && <p role="alert">{t('sendInvalidTo')}</p>}
           {problem && <p role="alert">{problem}</p>}
-          <Button type="submit" disabled={!canReview || outcome.kind === 'busy'}>
+          <Button tone="primary" type="submit" disabled={!canReview || outcome.kind === 'busy'}>
             {t('sendReview')}
           </Button>
         </form>
@@ -266,47 +284,27 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
           </>
         )}
         {outcome.kind === 'refused' && <p role="alert">{outcome.message}</p>}
-      </Panel>
+      </section>
       {reviewing && destination.kind === 'address' && chosen && (
-        <Dialog title={t('reviewTitle')} onClose={() => setReviewing(false)}>
-          <dl className="protocol-facts">
-            <div>
-              <dt>{t('reviewFrom')}</dt>
-              <dd className="numeric">{wallet.address}</dd>
-            </div>
-            <div>
-              <dt>{t('reviewTo')}</dt>
-              <dd className="numeric">{destination.address}</dd>
-            </div>
-            <div>
-              <dt>{t('reviewAmount')}</dt>
-              <dd className="numeric">
-                {amount.trim()} {chosen.label}
-              </dd>
-            </div>
-            {chosen.address && (
-              <div>
-                <dt>{t('reviewTokenContract')}</dt>
-                <dd className="numeric">{chosen.address}</dd>
-              </div>
-            )}
-            <div>
-              <dt>{t('reviewNetwork')}</dt>
-              <dd>{network}</dd>
-            </div>
-          </dl>
+        <Sheet open title={t('reviewTitle')} onClose={() => setReviewing(false)}>
+          <KeyValue
+            rows={[
+              { label: t('reviewFrom'), value: wallet.address, ltr: true },
+              { label: t('reviewTo'), value: destination.address, ltr: true },
+              { label: t('reviewAmount'), value: `${amount.trim()} ${chosen.label}` },
+              ...(chosen.address ? [{ label: t('reviewTokenContract'), value: chosen.address, ltr: true }] : []),
+              { label: t('reviewNetwork'), value: network },
+            ]}
+          />
           {contract === 'checking' && <p role="status">{t('reviewChecking')}</p>}
           {contract === 'contract' && (
             <>
               <p role="note">{t('reviewContract')}</p>
-              <label className="field field--check">
-                <input type="checkbox" checked={ticked} onChange={(event) => setTicked(event.target.checked)} />
-                <span>{t('reviewContractTick')}</span>
-              </label>
+              <Checkbox label={t('reviewContractTick')} checked={ticked} onCheckedChange={setTicked} />
             </>
           )}
           {contract === 'unknown' && <p role="note">{t('reviewContractUnknown')}</p>}
-          <Field
+          <TextField
             label={t('reviewLastFour')}
             hint={t('reviewLastFourHint')}
             value={typed}
@@ -315,15 +313,15 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             spellCheck={false}
             onChange={(event) => setTyped(event.target.value)}
           />
-          <div className="protocol-actions">
-            <Button variant="secondary" onClick={() => setReviewing(false)}>
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => setReviewing(false)}>
               {t('reviewBack')}
             </Button>
-            <Button disabled={!confirmed || outcome.kind === 'busy'} onClick={() => void send()}>
+            <Button tone="primary" disabled={!confirmed || outcome.kind === 'busy'} onClick={() => void send()}>
               {t('reviewSend')}
             </Button>
           </div>
-        </Dialog>
+        </Sheet>
       )}
     </>
   );

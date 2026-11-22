@@ -383,7 +383,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/orders': { template: 'record-list' },
   '/wallet': { template: 'monitor' },
   '/wallet/activity': { template: 'record-list' },
-  '/wallet/send': { template: 'flow' },
+  '/wallet/send': { template: 'flow', migrated: { file: 'features/protocol/wallet-send/SendRoom.tsx' } },
   '/wallet/receive': { template: 'monitor' },
   '/wallet/scan': { template: 'flow', migrated: { file: 'features/protocol/wallet-scan/ScanRoom.tsx' } },
   '/wallet/address-book': { template: 'record-list' },

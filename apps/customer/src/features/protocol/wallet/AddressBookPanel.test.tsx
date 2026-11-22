@@ -42,7 +42,7 @@ vi.mock('../../session', async (original) => {
 import { resetWalletSessions } from './address-book-api';
 import { AddressBookPanel } from './AddressBookPanel';
 import type { DiscoveredWallet } from './eip1193';
-import { SendPanel } from './SendPanel';
+import { SendPanel } from '../wallet-send/SendPanel';
 import { useWallet, WalletProvider, type WalletApi } from './WalletProvider';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
