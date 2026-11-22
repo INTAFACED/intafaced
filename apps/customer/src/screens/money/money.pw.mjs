@@ -481,7 +481,7 @@ test('loading shows final-size skeletons and nothing moves when data arrives', a
     .locator('[data-region="actions"] .lt-ghost[data-ghost="keys"] .lt-ghost-item')
     .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
   expect(keys.length).toBeGreaterThan(0);
-  for (const height of keys) expect(height).toBe(Math.round(3.5 * (await rem(page))));
+  for (const height of keys) expect(height).toBe(await token(page, '--lit-control-h'));
   // No figure, no zero, while it loads.
   await expect(page.locator('[data-slot="hero-number"]')).toHaveCount(0);
   const before = await page.locator('[data-region="hero"]').boundingBox();
