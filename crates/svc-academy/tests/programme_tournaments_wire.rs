@@ -10,8 +10,7 @@
     reason = "a test: a failure is the point"
 )]
 
-#[path = "prog_support/mod.rs"]
-mod support;
+use crate::prog_support as support;
 
 use service_kit::json::Json;
 use support::{OPERATOR, call, cause, data, message, operator, principal, settings};
