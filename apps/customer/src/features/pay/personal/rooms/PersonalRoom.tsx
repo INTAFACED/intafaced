@@ -493,7 +493,6 @@ export function PersonalRoom({ match }: { match: PersonalRoomMatch }) {
 }
 
 function RoomBody({ match }: { match: PersonalRoomMatch }) {
-  const { t } = roomsCopy.useCopy();
   const { room, params } = match;
   const slice = room.slice;
   switch (room.id) {
