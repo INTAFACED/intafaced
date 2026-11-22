@@ -311,10 +311,10 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
 
 describe('one part per role', () => {
   /**
-   * Names that origin/main's kit already exports, each defined in two files under src/lit once this layer lands: on
-   * main itself (Segmented, RefusalBox) or as the layer's own part beside main's (Select: the combobox beside main's
-   * native one; Checkbox). Folding a name main exports changes every layer that imports it, so it is the kit owner's
-   * (#9569). This list only shrinks: a name that is folded fails the second test until it is taken off.
+   * Names main's kit exports that are defined in two files under src/lit: Segmented and RefusalBox twice on main, and
+   * Select (a combobox beside main's native one) and Checkbox beside main's. Folding a name main exports changes every
+   * layer that imports it, so these are the kit owner's to fold. The list only shrinks: a folded name fails the second
+   * test until it comes off.
    */
   const mainOwned = ['Checkbox', 'RefusalBox', 'Segmented', 'Select'];
 
