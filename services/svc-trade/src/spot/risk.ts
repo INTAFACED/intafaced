@@ -1,4 +1,4 @@
-import { isScheduleOpen, nextScheduleTransition } from '@intafaced/contracts';
+import { isScheduleOpen, nextScheduleTransition } from '@intafaced/contracts/instruments';
 import { formatAmount, mul, mulBps, type Amount } from '@intafaced/ledger-client';
 import { assertDatedFuturesTradable } from '../futures/dated-futures.js';
 import { FUTURES_DISABLED, readTradePlanes } from '../futures/plane-capabilities.js';

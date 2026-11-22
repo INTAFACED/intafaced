@@ -1,6 +1,6 @@
 import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { ApiKeyIpError, bindApiKeyIpAllowlist } from './auth/auth-service-ip.js';

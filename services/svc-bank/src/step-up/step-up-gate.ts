@@ -20,7 +20,8 @@
  * `BANK_STEP_UP_MONEY_OUT=off` (the default) makes `require` a no-op, so every door behaves
  * exactly as before.
  */
-import { actionApprovalConsumeInputSchema, type SamePersonActionType } from '@intafaced/contracts';
+import type { SamePersonActionType } from '@intafaced/contracts';
+import { actionApprovalConsumeInputSchema } from '@intafaced/contracts/action-approval';
 import { ActionApprovalConsumeError, bankActionPayloadHash, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { BankError } from '../errors.js';
 import { MemoryStepUpUseStore, type StepUpUseStore } from './step-up-store.js';

@@ -4,7 +4,7 @@ import { buildSavedStrategy } from '../studio/save.js';
 import { compileSignalRules } from '../studio/modules.js';
 import { draftOf } from '../studio/repository.js';
 import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from '../studio/keys.js';
-import { publicJurisdictionProcedure, router } from '@intafaced/contracts';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   QUANT_STUDIO_COMPILE,

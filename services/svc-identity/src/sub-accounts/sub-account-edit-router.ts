@@ -3,7 +3,7 @@
  * The id in the answer is always the id that was edited; it never changes.
  */
 import { z } from 'zod';
-import { scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
 import { SubAccountEditError, type SubAccountEditService } from './sub-account-edit.js';
 

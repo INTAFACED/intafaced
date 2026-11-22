@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { forwardedPrincipalHeaders, router, scopedProcedure } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   myRewardsInputSchema,
   myRewardsSchema,
