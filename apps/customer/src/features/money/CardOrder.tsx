@@ -3,13 +3,13 @@ import { Button, Field, Loading } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { countryOptions } from '../public';
-import { useBankRead } from './components';
-import { bankWrites } from './contracts';
+import { useBankRecord } from './components';
 import { DepthPanel } from './DepthParts';
 import { cardOrderCopy } from './card-order-copy';
 import { useHoldings } from './holdings';
 import { Refusal } from './CardJourney';
 import './bank-depth.css';
+import { BANK_CARDS_CATALOGUE, BANK_CARDS_ACCEPT_TERMS, BANK_CARDS_ORDER } from '@intafaced/contracts/bank-cards-procedures';
 
 /**
  * `/bank/cards/new` (J-bank-13 #1 to #3; BK-cissue-01 to -03): which cards the bank offers where the person lives and why
@@ -27,7 +27,7 @@ export function CardOrderRoom() {
   const countries = useMemo(() => countryOptions('en'), []);
   const nameOf = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
   const [country, setCountry] = useState('DE');
-  const catalogue = useBankRead('cards.catalogue', { country });
+  const catalogue = useBankRecord(BANK_CARDS_CATALOGUE, { country });
   // The balances the person holds: a card draws on one of them, and earns cashback in the asset it draws on.
   const held = useHoldings();
   const assets = held.resource.status === 'ready' ? held.resource.data.assets.map((a) => a.assetId) : [];
@@ -82,12 +82,7 @@ export function CardOrderRoom() {
     if (busy) return;
     setBusy(true);
     setFailure(null);
-    const done = await api.mutate(
-      'bank',
-      'cards.acceptTerms',
-      { termsVersion: c.terms.version, textHash: c.terms.textHash },
-      bankWrites['cards.acceptTerms'],
-    );
+    const done = await api.call(BANK_CARDS_ACCEPT_TERMS, { termsVersion: c.terms.version, textHash: c.terms.textHash });
     setBusy(false);
     if (!done.ok) return setFailure(done);
     catalogue.reload();
@@ -123,7 +118,7 @@ export function CardOrderRoom() {
           ? { usesAllowed: 1 }
           : {}),
     };
-    const done = await api.mutate('bank', 'cards.order', input, bankWrites['cards.order']);
+    const done = await api.call(BANK_CARDS_ORDER, input);
     setBusy(false);
     if (!done.ok) return setFailure(done);
     const card = done.data;

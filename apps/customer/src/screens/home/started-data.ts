@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { startedHistorySchema, startedKycSchema, startedPasskeysSchema } from '@intafaced/contracts/started-checklist-reads';
+import { startedKycSchema, startedPasskeysSchema } from '@intafaced/contracts/started-checklist-reads';
 import type { ZodType } from 'zod';
 import { NOTIFY_ALERTS } from '@intafaced/contracts/notify-notify-procedures';
 import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
@@ -23,6 +23,7 @@ import {
   type Step,
   type StepStatus,
 } from './started';
+import { BANK_ACTIVITY_LIST } from '@intafaced/contracts/bank-activity-procedures';
 
 /** The answer Home already holds; every other step reads its own. */
 export interface StartedInputs {
@@ -80,11 +81,9 @@ function useEver(enabled: boolean, name: string, filter: { kind: readonly string
     if (!enabled || !userId) return authoredRefusal('aborted', { key: 'beforeDispatch' });
     let cursor: string | undefined;
     for (let page = 0; page < EVER_PAGES; page++) {
-      const result = await api.query(
-        'bank',
-        'activity.list',
+      const result = await api.call(
+        BANK_ACTIVITY_LIST,
         { ...filter, limit: 1, ...(cursor ? { cursor } : {}) },
-        startedHistorySchema,
         {
           signal,
         },

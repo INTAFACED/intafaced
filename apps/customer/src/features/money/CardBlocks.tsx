@@ -3,13 +3,14 @@ import type { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { Button, Field } from '../../shared/ui';
 import { useSession } from '../session';
-import { ResourceView, useBankRead } from './components';
-import { bankWrites, type CardControls, type cardSchema } from './contracts';
+import { ResourceView, useBankRecord } from './components';
+import { type CardControls, type cardSchema } from './contracts';
 import { ChannelSwitch, DepthPanel } from './DepthParts';
 import { Refusal } from './CardJourney';
 import { cardBlocksCopy, declineKey } from './card-blocks-copy';
 import { withPlainRefusal } from './money-refusal-copy';
 import './bank-depth.css';
+import { BANK_CARDS_CONTROLS_GET, BANK_CARDS_CONTROLS_BLOCK, BANK_CARDS_CONTROLS_LIFT } from '@intafaced/contracts/bank-cards-procedures';
 
 /**
  * A card's controls (J-bank-14 #1, BK-cctl-01): the categories, merchants and countries the person blocked, and the
@@ -22,7 +23,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 export function CardBlocksPanel({ card }: { card: CardRecord }) {
   const { t } = cardBlocksCopy.useCopy();
-  const read = useBankRead('cards.controls.get', { cardId: card.id });
+  const read = useBankRecord(BANK_CARDS_CONTROLS_GET, { cardId: card.id });
   return (
     <DepthPanel title={t('blocksTitle')} lead={t('blocksLead')} id={`card-blocks-${card.id}`}>
       <ResourceView resource={read.resource} reload={read.reload}>
@@ -47,7 +48,9 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
     setBusy(true);
     setFailure(null);
     try {
-      const done = await api.mutate('bank', procedure, { cardId: card.id, ...input }, bankWrites[procedure]);
+      const done = await (procedure === 'cards.controls.block'
+        ? api.call(BANK_CARDS_CONTROLS_BLOCK, { cardId: card.id, ...input })
+        : api.call(BANK_CARDS_CONTROLS_LIFT, { cardId: card.id, ...input }));
       if (!done.ok) {
         setFailure(withPlainRefusal(done));
         return false;

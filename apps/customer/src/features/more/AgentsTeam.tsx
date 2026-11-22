@@ -4,7 +4,7 @@ import type { ApiResult, RefusalReason } from '../../shared/api';
 import { Checkbox } from '@intafaced/ui';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
-import { businessListSchema, useApi, useSession } from '../session';
+import { useApi, useSession } from '../session';
 import { Select } from './common';
 import { StatRow } from './depth-kit';
 import { agentsTeamCopy } from './agents-team-copy';
@@ -23,6 +23,7 @@ import {
   AGENTS_TEAM_USAGE,
 } from '@intafaced/contracts/agents-team-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
+import { BANK_BUSINESS_LIST } from '@intafaced/contracts/bank-business-procedures';
 
 const ROLES = AGENTS_TEAM_ROLES;
 type Role = AgentsTeamRole;
@@ -108,10 +109,7 @@ export function AgentsTeam() {
   const { userId } = useSession();
   const { Copy, t } = agentsTeamCopy.useCopy();
   // The businesses are the bank's own: the ones this person is a member of, closed ones included.
-  const businesses = useResource(
-    (signal) => api.query('bank', 'business.list', { limit: 50 }, businessListSchema, { signal }),
-    `agents-team-businesses:${userId}`,
-  );
+  const businesses = useResource((signal) => api.call(BANK_BUSINESS_LIST, { limit: 50 }, { signal }), `agents-team-businesses:${userId}`);
   const [chosen, setChosen] = useState('');
   const list = businesses.resource.status === 'ready' ? businesses.resource.data : [];
   const businessId = list.some((b) => b.id === chosen) ? chosen : (list[0]?.id ?? '');

@@ -29,14 +29,15 @@ import {
   positiveMoney,
   ResourceView,
   Section,
-  useBankRead,
   usePageLimit,
   type ActionSpec,
+  useBankRecord,
 } from './components';
 import type { businessSchema, pendingApprovalSchema } from './contracts';
 import { assetSelectField, useHoldings } from './holdings';
 import { t as copyText } from './copy';
 import './bank-depth.css';
+import { BANK_BUSINESS_PENDING, BANK_BUSINESS_MY_ROLE, BANK_BUSINESS_LIST } from '@intafaced/contracts/bank-business-procedures';
 
 type Business = z.infer<typeof businessSchema>;
 type Approval = z.infer<typeof pendingApprovalSchema>;
@@ -183,7 +184,7 @@ function Approvals({
     return () => controller.abort();
   }, [api, userId]);
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('business.pending', { accountId, limit });
+  const query = useBankRecord(BANK_BUSINESS_PENDING, { accountId, limit });
   return (
     <DepthPanel title={t('approvalsTitle')} lead={t('approvalsLead')}>
       <ResourceView resource={query.resource} reload={query.reload}>
@@ -216,7 +217,7 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
   const { t } = businessCopy.useCopy();
   const [panel, setPanel] = useState<'team' | 'person' | 'payroll' | null>(null);
   const own = companySpaces(spaces, account.assetId);
-  const roleRead = useBankRead('business.myRole', { accountId: account.id });
+  const roleRead = useBankRecord(BANK_BUSINESS_MY_ROLE, { accountId: account.id });
   const role: RoleState = roleRead.resource;
   const known = roleOf(role);
   const mayProposeUnknown = known === null || canSend(known);
@@ -317,7 +318,7 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
 export function BusinessBank({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = businessCopy.useCopy();
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('business.list', { limit });
+  const query = useBankRecord(BANK_BUSINESS_LIST, { limit });
   const held = useHoldings();
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   const spaces: OwnSpace[] = held.resource.status === 'ready' ? held.resource.data.spaces : [];

@@ -7,6 +7,7 @@ import { bankReads, type loanSchema } from './contracts';
 import { amount, bps, type ActionSpec } from './components';
 import { loanCopy } from './loan-copy';
 import './loan.css';
+import { BANK_LOANS_LIST, BANK_LOANS_RELEASABLE } from '@intafaced/contracts/bank-loans-procedures';
 
 type Loan = z.infer<typeof loanSchema>;
 type Health = z.infer<(typeof bankReads)['loans.health']>;
@@ -35,7 +36,7 @@ export function loanStatusNote(status: string): string | null {
 
 export function currentLoanPreflight(api: ApiClient, loan: Loan, action: LoanAction, limit: number): NonNullable<ActionSpec['preflight']> {
   return async (input): Promise<ApiResult<null>> => {
-    const latest = await api.query('bank', 'loans.list', { limit }, bankReads['loans.list']);
+    const latest = await api.call(BANK_LOANS_LIST, { limit });
     if (!latest.ok)
       return { ok: false, reason: 'error', code: 'money.loan_read_unavailable', message: loanCopy.t('readFailed', { loanId: loan.id }) };
     const matches = latest.data.filter((row) => row.id === loan.id);
@@ -59,7 +60,7 @@ export async function readReleasable(
   asked: unknown,
   signal?: AbortSignal,
 ): Promise<{ rows: [string, string][]; blocked: string | null }> {
-  const read = await api.query('bank', 'loans.releasable', { loanId }, bankReads['loans.releasable'], { signal });
+  const read = await api.call(BANK_LOANS_RELEASABLE, { loanId }, { signal });
   if (!read.ok)
     return {
       rows: [],

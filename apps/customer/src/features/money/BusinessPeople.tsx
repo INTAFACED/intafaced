@@ -17,11 +17,12 @@ import {
   ROLES,
   type Role,
 } from './business-model';
-import { funds, positiveMoney, ResourceView, useBankRead, type ActionSpec } from './components';
-import { bankReads, type businessSchema } from './contracts';
+import { funds, positiveMoney, ResourceView, type ActionSpec, useBankRecord } from './components';
+import { type businessSchema } from './contracts';
 import { moneyRefusalWords, withPlainRefusal } from './money-refusal-copy';
 import type { Resource } from '../../shared/resource';
 import './bank-depth.css';
+import { BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE, BANK_BUSINESS_MEMBERS } from '@intafaced/contracts/bank-business-procedures';
 
 type Business = z.infer<typeof businessSchema>;
 type OwnSpace = { id: string; name: string; assetId: string; balance: string };
@@ -64,12 +65,7 @@ export function PersonFinder({
     setBusy(true);
     setProblem(null);
     try {
-      const answer = await api.query(
-        'bank',
-        'business.resolveRecipientSpace',
-        { accountId, assetId, ...query },
-        bankReads['business.resolveRecipientSpace'],
-      );
+      const answer = await api.call(BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE, { accountId, assetId, ...query });
       if (run.current !== mine) return;
       if (!answer.ok) {
         setProblem(moneyRefusalWords(answer.code) ?? t('sendLookupFailed'));
@@ -329,7 +325,7 @@ export function TeamPanel({ account, role, open }: { account: Business; role: Ro
   const copy = businessCopy.useCopy();
   const { t } = copy;
   const { userId } = useSession();
-  const team = useBankRead('business.members', { accountId: account.id });
+  const team = useBankRecord(BANK_BUSINESS_MEMBERS, { accountId: account.id });
   const [person, setPerson] = useState<Payee | null>(null);
   const known = roleOf(role);
   const add = () => {
