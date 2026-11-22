@@ -1034,7 +1034,7 @@ test('customerImporters on this repository: who loads a style sheet, the buildâ€
   const { importers, built, computed } = customerImporters();
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim();
   assert.deepEqual(customerImporters(ROOT_DIR, head), customerImporters(ROOT_DIR), 'read at a commit, the same as its checkout');
-  assert.ok(importers[`${SRC}/features/trade/news/news.css`].includes(`${SRC}/features/trade/news/NewsNotice.tsx`));
+  assert.ok(importers[`${SRC}/features/pay/p2p-counterparty.css`].includes(`${SRC}/features/pay/P2PCounterparty.tsx`));
   assert.ok(importers[`${SRC}/main.tsx`].includes('apps/customer/index.html'));
   assert.ok(built.includes(`${SRC}/app/boot.ts`), 'vite.config.ts imports it');
   assert.ok(
