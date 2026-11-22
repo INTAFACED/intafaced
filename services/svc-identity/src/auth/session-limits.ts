@@ -1,7 +1,10 @@
 import type { Queryable } from '@intafaced/db';
-import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { IDENTITY_SESSION_SETTINGS } from '@intafaced/contracts/identity-session-settings-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
+import { IDENTITY_SET_IDLE_SIGNOUT } from '@intafaced/contracts/identity-set-idle-signout-procedures';
 
 /**
  * Idle sign-out and the signed-in device limit (I-signin-sessions-06, J-identity-06 #4).
@@ -88,16 +91,6 @@ export async function endOldestBeyondLimit(tx: Queryable, userId: string, maxCon
   return ended.map((row) => row.id);
 }
 
-const settingsOut = z
-  .object({
-    owner: z.object({ idleSeconds: z.number().int().nullable(), maxDevices: z.number().int().nullable() }).strict(),
-    own: z.object({ idleSeconds: z.number().int().nullable() }).strict(),
-    range: z.object({ minSeconds: z.number().int(), maxSeconds: z.number().int() }).strict(),
-    appliedIdleSeconds: z.number().int().nullable(),
-    absoluteSeconds: z.number().int(),
-  })
-  .strict();
-
 /** Security's session settings: what the owner set, what the person chose, and the range they may choose in. */
 export function createSessionSettingsRouter(
   sql: Sql,
@@ -118,20 +111,16 @@ export function createSessionSettingsRouter(
     };
   }
   return router({
-    sessionSettings: scopedProcedure('identity:read')
-      .input(z.object({}).strict().optional())
-      .output(settingsOut)
-      .query(({ ctx }) => view(ctx.principal.userId)),
+    sessionSettings: mountRecord(IDENTITY_SESSION_SETTINGS, ({ ctx }) => view(ctx.principal.userId), codedRefusal),
 
     /**
      * Sets this account's own idle sign-out, or clears it (null) back to the owner's. Never longer than the owner's and never
      * shorter than one access token's life: either refuses with `identity.session_setting_out_of_range` and changes nothing.
      * No step-up: the owner's setting still bounds every value, so no choice here can keep a sign-in longer than the owner allows.
      */
-    setIdleSignout: scopedProcedure('identity:write')
-      .input(z.object({ seconds: z.number().int().nullable() }).strict())
-      .output(settingsOut)
-      .mutation(async ({ ctx, input }) => {
+    setIdleSignout: mountRecord(
+      IDENTITY_SET_IDLE_SIGNOUT,
+      async ({ ctx, input }) => {
         if (input.seconds !== null && (input.seconds < range.min || input.seconds > range.max)) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
@@ -142,6 +131,8 @@ export function createSessionSettingsRouter(
         }
         await sql`UPDATE users SET idle_signout_seconds = ${input.seconds} WHERE id = ${ctx.principal.userId}`;
         return view(ctx.principal.userId);
-      }),
+      },
+      codedRefusal,
+    ),
   });
 }

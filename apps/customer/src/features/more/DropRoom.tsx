@@ -7,17 +7,7 @@ import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { StatRow } from './depth-kit';
 import { dropRoomCopy } from './drop-room-copy';
-
-/** identity `waitlist.mine`: the signed-in account's own place, or null when its email never joined. */
-const waitlistMineSchema = z
-  .object({
-    position: z.number().int().positive(),
-    referredCount: z.number().int().min(0),
-    rank: z.number().int().positive().nullable(),
-    waiting: z.number().int().min(0),
-    release: z.object({ waveNumber: z.number().int().positive(), releasedAt: z.string() }).nullable(),
-  })
-  .nullable();
+import { IDENTITY_WAITLIST_MINE } from '@intafaced/contracts/identity-waitlist-procedures';
 
 /** Refusals this room puts into its own words; any other failure goes to the shared Failure. */
 const ROOM_CODES = ['drop.sold_out', 'drop.not_open', 'drop.unknown', 'launch.schedule_unset', 'audit.external', 'chain.go'] as const;
@@ -38,10 +28,7 @@ type Outcome = { ok: true } | { ok: false; failure: Extract<ApiResult<unknown>, 
 export function DropRoom() {
   const api = useApi();
   const { t } = dropRoomCopy.useCopy();
-  const waitlist = useResource(
-    (signal) => api.query('identity', 'waitlist.mine', undefined, waitlistMineSchema, { signal }),
-    'drops-waitlist',
-  );
+  const waitlist = useResource((signal) => api.call(IDENTITY_WAITLIST_MINE, undefined, { signal }), 'drops-waitlist');
   const room = useResource((signal) => api.query('campaigns', 'drops.room', undefined, dropRoomSchema, { signal }), 'drops-room');
   // Kept here, not in the row: the room reads its state again after every claim, which remounts the rows.
   const [outcomes, setOutcomes] = useState<Readonly<Record<string, Outcome>>>({});
