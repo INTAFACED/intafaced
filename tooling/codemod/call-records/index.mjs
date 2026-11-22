@@ -275,13 +275,14 @@ function recordOfPath(file, name, path) {
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
 const INPUT_AT = { founderCall: 4, founderEdgeCall: 4, payCall: 3, useBankRead: 1, payQuery: 1, payMutate: 1 };
 const inputArg = (s) =>
-  s.shape === 'desk-read'
+  s.fan?.input ??
+  (s.shape === 'desk-read'
     ? s.inputProp?.value
     : s.shape === 'ops-entry'
       ? s.dispatchers[0].arguments[4]
       : s.shape === 'write-spec'
         ? undefined // the spec's `input` builds it from the form; the record's input type holds it at the typecheck
-        : s.node.arguments[INPUT_AT[s.shape] ?? 2];
+        : s.node.arguments[INPUT_AT[s.shape] ?? 2]);
 function noInput(s) {
   // A wrapper sends the input it sent before: its record only names the call.
   if (s.shape === 'wrapper') return true;
