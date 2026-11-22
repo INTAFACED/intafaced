@@ -67,7 +67,7 @@ export function SupportRequestActions({
       {showRatePrompt(ticket.status, rating.resource.status === 'ready', rated) ? (
         <>
           <p className="support-solved-thanks">{copy.t('solvedThanks')}</p>
-          <p className="support-rate-ask">{copy.t('rateAsk')}</p>
+          <p className="support-rate-ask" data-testid="support-rate-ask">{copy.t('rateAsk')}</p>
         </>
       ) : null}
       <ul>
