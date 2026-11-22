@@ -3,10 +3,11 @@ import { CopyButton } from '../../screens/account/CopyButton';
 import { useSession } from '../session';
 import { AccountDetailsList } from './AccountDetails';
 import { IncomeSorter } from './IncomeSorter';
-import { amount, date, NoRows, ResourceView, Section, useBankRead, useSpaces, type ActionSpec } from './components';
+import { amount, date, NoRows, ResourceView, Section, useBankRead, useSpaces, type ActionSpec, useBankRecord } from './components';
 import type { AccountDetailsRow, SalaryCredit } from './contracts';
 import { salaryCopy } from './salary-copy';
 import type { Space } from './client';
+import { BANK_SALARY_CREDITS } from '@intafaced/contracts/bank-salary-procedures';
 
 /**
  * `/bank/salary` (J-bank-30): salary paid in by direct deposit. The partner bank's account details the employer pays,
@@ -19,7 +20,7 @@ export function SalaryRoom({ open }: { open: (spec: ActionSpec) => void }) {
   const { profiles } = useSession();
   const details = useBankRead('salary.details', { profile: profiles.active });
   const spaces = useSpaces(200);
-  const credits = useBankRead('salary.credits', { limit: 50 });
+  const credits = useBankRecord(BANK_SALARY_CREDITS, { limit: 50 });
   const spaceRows: Space[] = spaces.resource.status === 'ready' ? (spaces.resource.data as Space[]) : [];
   const nameOf = (spaceId: string) => spaceRows.find((space) => space.id === spaceId)?.name ?? t('unknownSpace');
 

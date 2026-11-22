@@ -7,15 +7,17 @@ import type { Resource } from '../../../shared/resource';
 import { dec } from '../../../data/decimal';
 import { t as copyText, Text } from '../copy';
 import { bps, date, funds, type ActionSpec } from '../components';
-import type { bankReads, loanSchema } from '../contracts';
+import type { loanSchema } from '../contracts';
 import { loanActionAllowed, loanStatusNote, useLoansRoom } from '../LoanHealth';
 import { loanCopy, loanStatusLabel } from '../loan-copy';
 import { loanApplyCopy } from '../loan-apply-copy';
 import { loanDetailCopy } from '../loan-detail-copy';
 import { BankSection, BankTabs, Continuation, NoRows, bankRoomProps } from '../bank-frame/BankFrame';
+import { BANK_LOANS_HEALTH } from '@intafaced/contracts/bank-loans-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type Loan = z.infer<typeof loanSchema>;
-type Health = z.infer<(typeof bankReads)['loans.health']>;
+type Health = ProcedureOutput<typeof BANK_LOANS_HEALTH>;
 
 /**
  * `/bank/loans` on the catalogue template: the loan products the bank lists, the person's loans with each one's

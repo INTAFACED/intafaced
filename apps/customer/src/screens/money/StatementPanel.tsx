@@ -4,8 +4,8 @@ import { Button, refusalCopy } from './deps';
 import { moneyCopy } from './copy';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from './statement-model';
 import { useSession } from '../../features/session/session';
-import { statementFileSchema } from '../../features/money/contracts';
 import { statementCentreCopy } from '../../features/money/statement-centre-copy';
+import { BANK_STATEMENTS_EXPORT } from '@intafaced/contracts/bank-statements-procedures';
 
 type Outcome = { kind: 'done'; filename: string; rows: number; fingerprint: string } | { kind: 'error'; words: string } | null;
 
@@ -30,7 +30,7 @@ export function StatementPanel() {
     if (busy || !range || !over) return;
     setBusy(true);
     setOutcome(null);
-    const result = await api.query('bank', 'statements.export', { from: range.from, to: range.to, format }, statementFileSchema);
+    const result = await api.call(BANK_STATEMENTS_EXPORT, { from: range.from, to: range.to, format });
     setBusy(false);
     if (!result.ok) {
       const code = result.code ?? '';
