@@ -156,7 +156,7 @@ export function Tabs({ items, current, label }: { items: readonly { label: strin
 
 /**
  * A room's own sections, one button each, the open one pressed: the same row as Tabs, for sections a room switches
- * itself (it navigates in `onChange`) rather than by link. Scrolls when it overflows, as Tabs do.
+ * itself (it navigates in `onChange`) rather than by link. Wraps onto a second line when it overflows, as Tabs do.
  */
 export function SectionTabs<T extends string>({
   items,
