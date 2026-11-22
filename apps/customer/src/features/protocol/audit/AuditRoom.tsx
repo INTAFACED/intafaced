@@ -1,3 +1,5 @@
+// volt-room: /chain/audit
+// volt-room: /protocol/audit
 import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { KeyValue, ReadingTemplate, RefusalBox, Tabs } from '@intafaced/ui/lit/templates';

@@ -1,3 +1,4 @@
+// volt-room: /
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { RoomDirectory } from './RoomDirectory';
 import { pagesCopy } from './public-pages-copy';

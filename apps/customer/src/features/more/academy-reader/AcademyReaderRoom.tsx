@@ -1,3 +1,4 @@
+// volt-room: /academy/:slug
 import { useState } from 'react';
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../session';

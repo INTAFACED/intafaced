@@ -1,3 +1,4 @@
+// volt-room: /status
 import { useMemo } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';

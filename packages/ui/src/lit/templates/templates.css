@@ -653,6 +653,8 @@
   font-family: var(--lit-font-mono);
   direction: ltr;
   unicode-bidi: isolate;
+  /* An address, key or account ID has no spaces: it breaks anywhere rather than spill out of its box on a phone. */
+  overflow-wrap: anywhere;
 }
 
 /* Words a person wrote (a post, a message) keep their own line breaks, and a long word or link breaks rather than

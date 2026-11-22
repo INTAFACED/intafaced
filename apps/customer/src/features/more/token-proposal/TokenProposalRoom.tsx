@@ -1,3 +1,4 @@
+// volt-room: /token/governance/:proposalId
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { copy } from '../copy';
 import { moreRoomRoutesCopy } from '../more-room-routes-copy';

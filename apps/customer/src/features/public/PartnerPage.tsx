@@ -1,3 +1,4 @@
+// volt-room: /partner
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { supportMailto, useSupportContact } from '../more';
 import { usePartnerSettings } from './partner-settings';

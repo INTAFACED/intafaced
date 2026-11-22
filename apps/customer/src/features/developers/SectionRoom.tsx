@@ -1,3 +1,4 @@
+// volt-room: /developers/:section
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { type JSX } from 'react';
 import { developersCopy } from './developers-copy';

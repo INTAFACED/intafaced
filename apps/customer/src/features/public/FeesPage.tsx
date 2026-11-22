@@ -1,3 +1,4 @@
+// volt-room: /fees
 import { useMemo, type ReactNode } from 'react';
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { VenueFees } from './VenueFees';

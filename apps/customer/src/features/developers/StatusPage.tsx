@@ -1,3 +1,4 @@
+// volt-room: /developers/status
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import { liveCopy } from './developers-live-copy';

@@ -1,3 +1,4 @@
+// volt-room: /academy/learning/course/:slug
 import { ACADEMY_CURRICULUM_PATHS } from '@intafaced/contracts/academy-catalogue';
 import { ACADEMY_PUBLIC_COURSE } from '@intafaced/contracts/academy-public-course-procedures';
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';

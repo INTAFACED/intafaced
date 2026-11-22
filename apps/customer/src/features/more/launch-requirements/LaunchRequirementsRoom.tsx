@@ -1,3 +1,4 @@
+// volt-room: /launch/requirements
 import { Tag } from '@intafaced/ui/lit';
 import { ReadingTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { launchCopy } from '../launch-copy';

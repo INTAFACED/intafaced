@@ -1,3 +1,4 @@
+// volt-room: /academy/rooms/messages/:conversationId
 import { useEffect, useId, useRef, useState } from 'react';
 import {
   ACADEMY_COURSE_MESSAGES_LIST_MAX,

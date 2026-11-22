@@ -1,3 +1,4 @@
+// volt-room: /developers/errors/auth
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { developersCopy } from './developers-copy';
 import { AuthErrorsCatalogue } from './errors/AuthErrorsCatalogue';

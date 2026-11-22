@@ -1,3 +1,4 @@
+// volt-room: /developers/hosts
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import { developersCopy } from './developers-copy';

@@ -1,3 +1,4 @@
+// volt-room: /wallet/safety
 import { ReadingTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
 import { protocolCopy } from '../copy';

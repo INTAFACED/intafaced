@@ -1,3 +1,4 @@
+// volt-room: /help/mule-policy
 import { EmptyState } from '@intafaced/ui/lit';
 import { ReadingTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
