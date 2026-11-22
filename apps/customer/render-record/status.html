@@ -19,17 +19,25 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page">
-<header class="pub-heading">
-<h1>Platform status</h1>
-<p>Each component’s state comes from a recorded reading or a published notice, and each market’s trading mode from the same place the trading desk reads it.</p>
+<div data-room="status">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Platform status</h1>
+<p class="lt-description">Each component’s state comes from a recorded reading or a published notice, and each market’s trading mode from the same place the trading desk reads it.</p>
+</div>
 </header>
-<p role="alert">Couldn’t load component status. Nothing here should be read as “all working”. <button type="button" class="text-link">Try again</button>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<div class="lt-stack">
+<p role="alert">Couldn’t load component status. Nothing here should be read as “all working”. <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Try again</button>
 </p>
-<section class="pub-card" aria-labelledby="status-modes">
+<section class="lt-stack" aria-labelledby="status-modes">
 <h2 id="status-modes">Trading modes</h2>
-<p class="muted" data-testid="status-modes-asof">No market reported a mode, so there is no time to show.</p>
-<table class="pub-table" data-testid="status-modes">
+<p class="lt-hint" data-testid="status-modes-asof">No market reported a mode, so there is no time to show.</p>
+<table class="lt-table" data-testid="status-modes">
 <thead>
 <tr>
 <th>Market</th>
@@ -76,12 +84,18 @@
 </tbody>
 </table>
 </section>
-<section class="pub-card" aria-labelledby="status-maintenance">
+<section class="lt-stack" aria-labelledby="status-maintenance">
 <h2 id="status-maintenance">Scheduled maintenance</h2>
-<p role="alert">Couldn’t load the maintenance schedule. <button type="button" class="text-link">Try again</button>
+<p role="alert">Couldn’t load the maintenance schedule. <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Try again</button>
 </p>
-<a class="text-link" href="/notice">Open notices →</a>
+<a class="lt-link" href="/notice">Open notices →</a>
 </section>
+</div>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">
