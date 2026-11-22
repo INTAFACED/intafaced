@@ -8,7 +8,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { retainRawBody } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';

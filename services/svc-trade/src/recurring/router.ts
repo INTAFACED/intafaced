@@ -4,7 +4,7 @@
  * code on `data.cause.code`. With the user-venue door off there is no recurring buy, and every door answers 503
  * `trade.recurring_unavailable`.
  */
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import {
   RECURRING_CREATE,

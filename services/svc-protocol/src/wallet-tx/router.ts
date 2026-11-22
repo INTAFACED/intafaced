@@ -6,9 +6,8 @@ import {
   CLAIM_ESCROW_UNSET,
   TX_NOT_FOUND,
   TX_NOT_YOURS,
-  router,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-wallet-tx';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   PROTOCOL_CLAIM_LINK_CONFIG,

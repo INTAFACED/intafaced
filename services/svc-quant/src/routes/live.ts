@@ -5,7 +5,7 @@ import {
   QUANT_LIVE_PLAN_UNSUPPORTED,
   QuantError,
 } from '../errors.js';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { QUANT_LIVE_CHECK, QUANT_LIVE_DEPLOY } from '@intafaced/contracts/quant-live-procedures';
 import { withQuantSpan } from '../tracing.js';

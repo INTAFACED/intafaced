@@ -29,16 +29,18 @@ import {
   productImportSchema,
   productListInputSchema,
   productListSchema,
+  productSchema,
+} from '@intafaced/contracts/merchant-catalog';
+import {
   productAvailabilitySchema,
   productAvailabilitySetInputSchema,
-  productSchema,
-  router,
   storeCreateInputSchema,
   storeIdInputSchema,
   storeListInputSchema,
   storeListSchema,
   storeSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-stores';
+import { router } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';

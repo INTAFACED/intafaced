@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { DualControlError } from '../dual-control.js';

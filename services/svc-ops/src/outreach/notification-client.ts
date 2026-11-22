@@ -1,16 +1,13 @@
+import type { GuestNotificationSendInput, GuestNotificationReceipt, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
 import {
-  serviceCallSigner,
   guestNotificationSendInputSchema,
   guestNotificationReceiptSchema,
   guestNotificationGetInputSchema,
   guestNotificationEraseInputSchema,
   guestNotificationEraseReceiptSchema,
   guestNotificationCodeSchema,
-  type GuestNotificationSendInput,
-  type GuestNotificationReceipt,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/guest-notifications';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 export class OutreachNotificationError extends Error {
   constructor(readonly code: string) {

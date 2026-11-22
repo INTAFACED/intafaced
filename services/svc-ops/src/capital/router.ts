@@ -5,9 +5,8 @@ import {
   opsCapitalSnapshotSchema,
   opsCapitalThresholdSetInputSchema,
   opsCapitalThresholdSetOutputSchema,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-capital';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import type { CapitalDesk } from './desk.js';
 

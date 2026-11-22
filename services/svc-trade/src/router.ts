@@ -12,6 +12,8 @@ import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { tradeRefusal } from './record-refusal.js';
 import { COPY_MY_COPY_FEES } from '@intafaced/contracts/trade-copy-procedures';
 import type { GridService } from './grid/grid-service.js';
+import type { Context } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import {
   JurisdictionError,
   mergeRouters,
@@ -20,9 +22,7 @@ import {
   scopedProcedure,
   serviceProcedure,
   TRPCError,
-  type Context,
-  StepUpCheckError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/trpc';
 import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';

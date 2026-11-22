@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 
 /**
  * The one refusal every W0 stub throws. The procedure exists on the wire so the

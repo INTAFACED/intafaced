@@ -7,14 +7,9 @@
  *
  * Typed by shape, as `retainRawBody` is, so this package needs no web framework: a Fastify app fits.
  */
-import {
-  retainRawBody,
-  verifyServiceRequest,
-  type HttpServiceRequest,
-  type RawBodyHost,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+import type { HttpServiceRequest, RawBodyHost, ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { answerTestAgeDoor, type TestAgeSubject } from './test-age.js';
 
 export const TEST_AGE_PATH = '/internal/test/age' as const;

@@ -3,7 +3,8 @@
  * An API key or a sub-account is refused. A body `userId` is ignored.
  */
 import { z } from 'zod';
-import { antiPhishingCodeSchema, antiPhishingSetResultSchema, protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { antiPhishingCodeSchema, antiPhishingSetResultSchema } from '@intafaced/contracts/identity';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
 import { AntiPhishingError, type AntiPhishingService } from './anti-phishing.js';
 import { ProfileError, ProfileService, type ProfileRow } from './profile-service.js';

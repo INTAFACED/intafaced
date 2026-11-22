@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { hasAnalyticsMetric, type OpsAlertRule, type OpsAlertRuleDraft } from '@intafaced/contracts';
+import type { OpsAlertRule, OpsAlertRuleDraft } from '@intafaced/contracts';
+import { hasAnalyticsMetric } from '@intafaced/contracts/ops-analytics';
 import {
   OPS_ALERT_INTERVAL_UNSET,
   OPS_ALERT_RULE_NOT_RETIRED,

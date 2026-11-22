@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { bankSpaceSchema } from '@intafaced/contracts/bank-spaces-list';
 import type { ExtraControlsPort } from '../safety/extra-controls.js';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';
 import { BankError } from '../errors.js';
 import type { SpaceRecord } from '../spaces/space-service.js';

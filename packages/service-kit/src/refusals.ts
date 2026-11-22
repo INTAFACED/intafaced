@@ -15,7 +15,7 @@
  * A refusal is never a guess: a code the map does not name does not type-check, and an error that is not this
  * family's passes through `toTrpc` unchanged so the procedure layer keeps its own handling of auth and input errors.
  */
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 
 /** The tRPC status a refusal travels as. */
 export type RefusalStatus = TRPCError['code'];
