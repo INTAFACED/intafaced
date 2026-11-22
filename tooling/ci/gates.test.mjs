@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { GATES, NOT_GATES, gateAnnotation, gatesToRun, changedSinceMain, gatesBeforePush, LEFT_TO_CI_BEFORE_PUSH } from './gates.mjs';
+import { GATES, NOT_GATES, gateAnnotation, gatesToRun, changedSinceMain, gatesFast, LEFT_TO_FULL_RUN } from './gates.mjs';
 
 const ids = (gates) => gates.map((g) => g.id);
 const allButTooling = ids(GATES).filter((id) => id !== 'tooling-tests');
@@ -107,23 +107,26 @@ test('an unreadable diff (no origin/main, or not a repo) is null, so every gate 
   }
 });
 
-test('--before-push runs every gate but those it leaves to CI, each named with why, and the boundary scan among them', () => {
-  const left = Object.keys(LEFT_TO_CI_BEFORE_PUSH);
+test('--fast runs every gate but those it leaves to the full run, each named with why, and the boundary scan among them', () => {
+  const left = Object.keys(LEFT_TO_FULL_RUN);
   assert.deepEqual(
-    ids(gatesBeforePush(GATES)),
+    ids(gatesFast(GATES)),
     ids(GATES).filter((id) => !left.includes(id)),
   );
   for (const id of left) {
     assert.ok(ids(GATES).includes(id), `${id} is not a gate`);
-    assert.ok(LEFT_TO_CI_BEFORE_PUSH[id].length >= 20, `${id} needs its reason`);
+    assert.ok(LEFT_TO_FULL_RUN[id].length >= 20, `${id} needs its reason`);
   }
-  for (const id of ['boundary', 'brand', 'dead-code', 'secrets', 'migrations']) assert.ok(ids(gatesBeforePush(GATES)).includes(id), id);
-  assert.ok(!ids(gatesBeforePush(GATES)).includes('money-property-mutation'));
+  // The pre-push hook ran these before 22 Nov; the fast run keeps a red one within minutes of the push.
+  for (const id of ['boundary', 'brand', 'dead-code', 'secrets', 'migrations', 'lint-ratchet', 'cross-package-reads'])
+    assert.ok(ids(gatesFast(GATES)).includes(id), id);
+  assert.ok(!ids(gatesFast(GATES)).includes('money-property-mutation'));
+  assert.ok(!ids(gatesFast(GATES)).includes('tooling-tests'));
 });
 
 // The real runner on a planted root: every gate a stub, so the manifest check holds and only the planted reds fail.
 function stubRoot(stub) {
-  const dir = mkdtempSync(join(tmpdir(), 'gates-before-push-'));
+  const dir = mkdtempSync(join(tmpdir(), 'gates-fast-'));
   mkdirSync(join(dir, 'tooling', 'ci'), { recursive: true });
   copyFileSync(join(dirname(fileURLToPath(import.meta.url)), 'gates.mjs'), join(dir, 'tooling', 'ci', 'gates.mjs'));
   for (const file of Object.keys(NOT_GATES)) if (file !== 'gates.mjs') writeFileSync(join(dir, 'tooling', 'ci', file), '');
@@ -138,29 +141,29 @@ function stubRoot(stub) {
   return { run, onActions, done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-test('--before-push refuses on a red gate with its own message, reports in the list order, and never runs a gate left to CI', () => {
-  const first = ids(gatesBeforePush(GATES))[0];
+test('--fast fails on a red gate with its own message, reports in the list order, and never runs a gate left to the full run', () => {
+  const first = ids(gatesFast(GATES))[0];
   const r = stubRoot((id) => {
     if (id === 'boundary') return "console.error('BOUNDARY SCAN FAILED: planted');\nprocess.exitCode = 1;\n";
-    if (Object.hasOwn(LEFT_TO_CI_BEFORE_PUSH, id)) return `console.error('${id} ran');\nprocess.exitCode = 1;\n`;
+    if (Object.hasOwn(LEFT_TO_FULL_RUN, id)) return `console.error('${id} ran');\nprocess.exitCode = 1;\n`;
     // The first gate in the list finishes last, so a report in finishing order would show.
     if (id === first) return "setTimeout(() => console.log('first done'), 500);\n";
     return "console.log('clean');\n";
   });
   try {
-    const out = r.run('--before-push');
+    const out = r.run('--fast');
     assert.equal(out.status, 1, `${out.stdout}${out.stderr}`);
-    assert.match(out.stderr, new RegExp(`✖ 1 of ${gatesBeforePush(GATES).length} DOCTRINE GATE\\(S\\) FAILED`));
+    assert.match(out.stderr, new RegExp(`✖ 1 of ${gatesFast(GATES).length} DOCTRINE GATE\\(S\\) FAILED`));
     assert.match(out.stderr, /── boundary [\s\S]*BOUNDARY SCAN FAILED: planted/);
-    for (const id of Object.keys(LEFT_TO_CI_BEFORE_PUSH)) assert.doesNotMatch(`${out.stdout}${out.stderr}`, new RegExp(`${id} ran`));
+    for (const id of Object.keys(LEFT_TO_FULL_RUN)) assert.doesNotMatch(`${out.stdout}${out.stderr}`, new RegExp(`${id} ran`));
     const reported = [...out.stdout.matchAll(/^ {2}[✓✖] (\S+)/gm)].map((m) => m[1]);
-    assert.deepEqual(reported, ids(gatesBeforePush(GATES)));
+    assert.deepEqual(reported, ids(gatesFast(GATES)));
 
     const green = stubRoot(() => "console.log('clean');\n");
     try {
-      const ok = green.run('--before-push');
+      const ok = green.run('--fast');
       assert.equal(ok.status, 0, `${ok.stdout}${ok.stderr}`);
-      assert.match(ok.stdout, new RegExp(`✓ all ${gatesBeforePush(GATES).length} doctrine gates passed — \\d+ms total, \\d+ms at once`));
+      assert.match(ok.stdout, new RegExp(`✓ all ${gatesFast(GATES).length} doctrine gates passed — \\d+ms total, \\d+ms at once`));
     } finally {
       green.done();
     }
