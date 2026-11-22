@@ -163,7 +163,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
         as.map((a) => ({
           label: a.querySelector('span')?.textContent?.split(' · ')[0],
           value: a.querySelector('strong')?.textContent?.trim(),
-          none: a.querySelector('strong .pp-none')?.getAttribute('title') ?? null,
+          none: a.querySelector('strong [data-testid="pp-none"]')?.getAttribute('title') ?? null,
         })),
       );
     const expected = [
@@ -183,7 +183,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   for (const list of refundLists) expect(list.items).toEqual([]);
 
   // Pending settlement draws no figure for a business with no balance, with today's as-of.
-  const pending = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Pending settlement', level: 2 }) });
+  const pending = page.getByRole('heading', { name: 'Pending settlement', level: 2 }).locator('xpath=ancestor::section[1]');
   const pendingText = await pending.evaluate((el) => {
     const copy = el.cloneNode(true);
     copy.querySelectorAll('[role="status"]').forEach((n) => n.remove());
