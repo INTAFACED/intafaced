@@ -3,6 +3,12 @@ import { NotFoundRoute, PendingRoute } from './PendingRoute';
 import { ADDRESS_SHAPE, matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
 import { WalletRoom } from './wallet/WalletRoom';
+import { AccountsRoom } from './wallet/AccountsRoom';
+import { ActivityRoom } from './wallet/ActivityRoom';
+import { AddressBookRoom } from './wallet/AddressBookRoom';
+import { ApprovalsRoom } from './wallet/ApprovalsRoom';
+import { SessionKeysRoom } from './wallet/SessionKeysRoom';
+import { WalletGroupRoom } from './wallet/WalletGroupRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
 import { ScanRoom } from './wallet-scan/ScanRoom';
@@ -12,13 +18,17 @@ import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
 import { NewPool } from './liquidity/NewPool';
 import { AddLiquidity } from './liquidity/AddLiquidity';
-import { PositionPage, PositionsList } from './liquidity/Positions';
+import { PositionNotFound, PositionPage, PositionsList } from './liquidity/Positions';
 import { AddressPage } from './watch/AddressPage';
 import { WatchlistPage } from './watch/WatchlistPage';
-import { BlockPage, TxPage } from './explorer/pages';
+import { BlockPage, RecordNotFound, TxPage } from './explorer/pages';
 import { PoolPage } from './pools/PoolPage';
 import { ContractPage } from './contracts/ContractPage';
 import { OrdersRoom } from './orders/OrdersRoom';
+import { BlocksRoom } from './chain-blocks/BlocksRoom';
+import { ValidatorsRoom } from './chain-validators/ValidatorsRoom';
+import { ContractsRoom } from './protocol-contracts/ContractsRoom';
+import { PoolsRoom } from './dex-pools/PoolsRoom';
 import { OwnFreezeNotice } from '../account';
 
 /**
@@ -47,6 +57,12 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.wallet === 'embedded') return <EmbeddedWalletRoom />;
   // Scan is its own room on the flow template too (D-portfolio-wallet-05), with the wallet's sections above it.
   if (route.wallet === 'scan') return <ScanRoom />;
+  // The wallet sections that are lists of records are rooms of their own on the record-list template.
+  if (route.wallet === 'activity') return <ActivityRoom />;
+  if (route.wallet === 'accounts') return <AccountsRoom />;
+  if (route.wallet === 'addressBook') return <AddressBookRoom />;
+  if (route.wallet === 'approvals') return <ApprovalsRoom />;
+  if (route.wallet === 'sessionKeys') return <SessionKeysRoom />;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;
@@ -55,7 +71,8 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.liquidity === 'add' || route.liquidity === 'position') {
     const value = route.param ? safeDecode(params[route.param.name]) : undefined;
     // A malformed id is answered not found without asking the service.
-    if (value === undefined || !route.param?.shape.test(value)) return <NotFoundRoute path={path} />;
+    if (value === undefined || !route.param?.shape.test(value))
+      return route.liquidity === 'add' ? <NotFoundRoute path={path} /> : <PositionNotFound />;
     return route.liquidity === 'add' ? <AddLiquidity pool={value.toLowerCase()} /> : <PositionPage id={value.toLowerCase()} />;
   }
   if (route.pool === 'detail') {
@@ -73,9 +90,7 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
     const value = route.param ? safeDecode(params[route.param.name]) : undefined;
     // A malformed id is answered not found without asking the indexer.
     if (value === undefined || !route.param?.shape.test(value))
-      return (
-        <PendingRoute room={route.room} page={route.explorer === 'block' ? 'blockDetail' : 'txDetail'} blocker="indexer" valid={false} />
-      );
+      return <RecordNotFound page={route.explorer === 'block' ? 'blockDetail' : 'txDetail'} />;
     return route.explorer === 'block' ? <BlockPage height={Number(value)} /> : <TxPage hash={value.toLowerCase()} />;
   }
   if (route.walletClaim) {
@@ -89,7 +104,7 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
     return <HoldingPage token={token} />;
   }
   if (route.walletConvention) return <ConventionPage id={safeDecode(params.convention) ?? ''} />;
-  if (route.walletGroup) return <WalletRoom section="addressBook" groupId={safeDecode(params.groupId) ?? ''} />;
+  if (route.walletGroup) return <WalletGroupRoom groupId={safeDecode(params.groupId) ?? ''} />;
   if (route.pending) {
     const { param } = route.pending;
     const value = param ? params[param.name] : undefined;
@@ -104,6 +119,11 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
     );
   }
   if (route.room === 'wallet' || !route.tab) return <NotFoundRoute path={path} />;
+  // The record-list tabs are rooms of their own on their template; the other tabs stay in the parked room.
+  if (route.room === 'chain' && route.tab === 'blocks') return <BlocksRoom />;
+  if (route.room === 'chain' && route.tab === 'validators') return <ValidatorsRoom />;
+  if (route.room === 'protocol' && route.tab === 'contracts') return <ContractsRoom />;
+  if (route.room === 'dex' && route.tab === 'pools') return <PoolsRoom />;
   const slug = route.room;
   // The tab room reads the tab from the path; the first tab lives at the room root.
   const subPath = route.tab === SUBNAV[slug][0]!.id ? '' : route.tab;
