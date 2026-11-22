@@ -1,3 +1,4 @@
+// volt-room: /view
 import { copy, t as copyText, Text } from './copy';
 import { useLayoutEffect, useMemo, useState } from 'react';
 import { Button, Checkbox, Segmented } from '@intafaced/ui/lit';

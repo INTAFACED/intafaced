@@ -1,3 +1,4 @@
+// volt-room: /uc/withdraw/allowlist
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Checkbox, EmptyState, Field, Select } from '@intafaced/ui/lit';
 import { SettingsTemplate, type RoomState } from '@intafaced/ui/lit/templates';
