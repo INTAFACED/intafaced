@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ArrowDownUp } from 'lucide-react';
-import { Button, CoinMark, DecimalField, Segmented, Select } from '@intafaced/ui/lit';
-import { Skeleton } from '@intafaced/ui/lit/templates';
+import { Button, CoinMark, DecimalField, Select } from '@intafaced/ui/lit';
+import { Segmented, Skeleton } from '@intafaced/ui/lit/templates';
 import { AssetPicker, type PickerItem } from './AssetPicker';
 import { BuyReview, type ReviewState } from './BuyReview';
 import { recheckCancel } from './cancel-recheck';
