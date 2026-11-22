@@ -21,6 +21,7 @@ import {
   type DoorLink,
 } from './index.js';
 import * as B2 from './b2-basics.js';
+import { Table, gridKey } from './b2-table.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const css = readFileSync(join(here, 'components.css'), 'utf8');
@@ -308,5 +309,33 @@ describe('b2 controls the desk rooms use', () => {
         </B2.TabPanel>,
       ),
     ).toMatch(/role="tabpanel" id="exec-panel-b" aria-labelledby="exec-tab-b"/);
+  });
+
+  it('Table with onSelect is a grid of pickable rows; with no rows it shows its empty line', () => {
+    const cols = [{ key: 'id', label: 'Id', cell: (r: { id: string }) => r.id }];
+    const grid = html(
+      <Table
+        caption="Schedules"
+        columns={cols}
+        rows={[{ id: 'a' }, { id: 'b' }]}
+        rowKey={(r) => r.id}
+        selected="b"
+        onSelect={() => undefined}
+      />,
+    );
+    expect(grid).toContain('role="grid"');
+    expect(grid).toMatch(/aria-selected="false" tabindex="-1"/);
+    expect(grid).toMatch(/aria-selected="true" tabindex="0"/);
+    expect(html(<Table caption="Plain" columns={cols} rows={[{ id: 'a' }]} rowKey={(r) => r.id} />)).not.toContain('role="grid"');
+    expect(html(<Table caption="None" columns={cols} rows={[]} rowKey={(r) => r.id} empty="No open orders" />)).toContain(
+      '<td colSpan="1">No open orders</td>',
+    );
+    expect([
+      gridKey('Enter', 0, 3),
+      gridKey('ArrowDown', 2, 3),
+      gridKey('ArrowUp', 0, 3),
+      gridKey('End', 0, 3),
+      gridKey('x', 0, 3),
+    ]).toEqual(['pick', 2, 0, 2, null]);
   });
 });

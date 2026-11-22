@@ -1040,6 +1040,16 @@ button.lt-tab:focus-visible {
   background: var(--lit-solid-bg-raised);
 }
 
+/* A pickable row (a grid) is one Tab stop: it shows its focus and reads as clickable. */
+.lt-table[role='grid'] tbody tr[data-row] {
+  cursor: pointer;
+}
+
+.lt-table[role='grid'] tbody tr[data-row]:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: -2px;
+}
+
 .lt-row-link {
   color: inherit;
   text-decoration: none;
