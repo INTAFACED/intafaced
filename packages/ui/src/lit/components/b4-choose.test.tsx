@@ -11,33 +11,33 @@ import {
   AlertDialogTitle,
   Button,
   HIDDEN_MASK,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Picker,
+  PickerList,
+  PickerItem,
+  PickerTrigger,
+  PickerValue,
   useHideBalances,
   useToast,
 } from './index.js';
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
-describe('AlertDialog and Select', () => {
+describe('AlertDialog and Picker', () => {
   it('are named in the contracts', () => {
-    expect(Object.keys(components)).toEqual(expect.arrayContaining(['AlertDialog', 'Select']));
+    expect(Object.keys(components)).toEqual(expect.arrayContaining(['AlertDialog', 'Picker']));
   });
 
-  it('Select draws its trigger as a named combobox showing the chosen label', () => {
+  it('Picker draws its trigger as a named combobox showing the chosen label', () => {
     const out = html(
-      <Select items={{ a: 'USDT', b: 'BTC' }} value="b" onValueChange={() => {}}>
-        <SelectTrigger aria-label="Asset to send">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="a">USDT</SelectItem>
-          <SelectItem value="b">BTC</SelectItem>
-        </SelectContent>
-      </Select>,
+      <Picker items={{ a: 'USDT', b: 'BTC' }} value="b" onValueChange={() => {}}>
+        <PickerTrigger aria-label="Asset to send">
+          <PickerValue />
+        </PickerTrigger>
+        <PickerList>
+          <PickerItem value="a">USDT</PickerItem>
+          <PickerItem value="b">BTC</PickerItem>
+        </PickerList>
+      </Picker>,
     );
     expect(out).toContain('role="combobox"');
     expect(out).toContain('aria-label="Asset to send"');

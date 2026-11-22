@@ -28,7 +28,7 @@ export function TextArea({ className, ...rest }: TextAreaProps) {
 /** `data-*` attributes for the label row (a test id, a row key). */
 type DataAttributes = { [key: `data-${string}`]: string | undefined };
 
-export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+export type CheckRowProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
   /** The words after the box; the whole row is its label, so a press on the words ticks it. */
   label: React.ReactNode;
   /** Attributes for the label row itself (`data-testid`, `data-*`, `lang`); every other prop lands on the input. */
@@ -36,7 +36,7 @@ export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 't
 };
 
 /** A native checkbox and its words, one row, the browser's own box in the kit's accent. */
-export function Checkbox({ label, labelProps, className, ...rest }: CheckboxProps) {
+export function CheckRow({ label, labelProps, className, ...rest }: CheckRowProps) {
   return (
     <label {...labelProps} className={clsx('lit-check', labelProps?.className)}>
       <input {...rest} type="checkbox" className={className} />

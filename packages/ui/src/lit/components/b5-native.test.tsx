@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { components } from '../contracts.js';
-import { Checkbox, NativeSelect, TextArea } from './index.js';
+import { CheckRow, NativeSelect, TextArea } from './index.js';
 
-describe('NativeSelect, TextArea and Checkbox', () => {
+describe('NativeSelect, TextArea and CheckRow', () => {
   it('are named in the contracts', () => {
-    expect(Object.keys(components)).toEqual(expect.arrayContaining(['NativeSelect', 'TextArea', 'Checkbox']));
+    expect(Object.keys(components)).toEqual(expect.arrayContaining(['NativeSelect', 'TextArea', 'CheckRow']));
   });
 
   it('NativeSelect is a real select with its own options and every native attribute', () => {
@@ -38,9 +38,9 @@ describe('NativeSelect, TextArea and Checkbox', () => {
     expect(out).toContain('>Because</textarea>');
   });
 
-  it('Checkbox is a native checkbox inside its label, with the row attributes on the label', () => {
+  it('CheckRow is a native checkbox inside its label, with the row attributes on the label', () => {
     const out = renderToStaticMarkup(
-      <Checkbox
+      <CheckRow
         name="m"
         checked
         disabled

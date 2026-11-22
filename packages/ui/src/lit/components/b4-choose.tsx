@@ -54,12 +54,12 @@ export function AlertDialogDescription({ className, ...props }: AlertDialogPrimi
 
 /**
  * One value from a list. Pass `items` (value to label) on the root so the closed trigger shows the label:
- * `<Select items={{ usdt: 'USDT' }} value={v} onValueChange={...}>`. Name the trigger with `aria-label`.
+ * `<Picker items={{ usdt: 'USDT' }} value={v} onValueChange={...}>`. Name the trigger with `aria-label`.
  */
-export const Select = SelectPrimitive.Root;
+export const Picker = SelectPrimitive.Root;
 
 /** The closed select: a combobox drawn like `Field`'s control, with a chevron. */
-export function SelectTrigger({ className, children, ...props }: SelectPrimitive.Trigger.Props) {
+export function PickerTrigger({ className, children, ...props }: SelectPrimitive.Trigger.Props) {
   return (
     <SelectPrimitive.Trigger {...props} className={clsx('lit-select', className)}>
       {children}
@@ -70,12 +70,12 @@ export function SelectTrigger({ className, children, ...props }: SelectPrimitive
   );
 }
 
-export function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+export function PickerValue({ className, ...props }: SelectPrimitive.Value.Props) {
   return <SelectPrimitive.Value {...props} className={clsx('lit-select-value', className)} />;
 }
 
 /** The open list: a listbox under the trigger, at least as wide as it. */
-export function SelectContent({ className, children, ...props }: SelectPrimitive.Popup.Props) {
+export function PickerList({ className, children, ...props }: SelectPrimitive.Popup.Props) {
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner side="bottom" align="start" sideOffset={4} alignItemWithTrigger={false} className="lit-select-pos">
@@ -88,7 +88,7 @@ export function SelectContent({ className, children, ...props }: SelectPrimitive
 }
 
 /** One option; the chosen one shows a check as well as its state, never colour alone. */
-export function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Props) {
+export function PickerItem({ className, children, ...props }: SelectPrimitive.Item.Props) {
   return (
     <SelectPrimitive.Item {...props} className={clsx('lit-select-item', className)}>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
