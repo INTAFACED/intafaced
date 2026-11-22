@@ -6,16 +6,13 @@
  * asks this door. A failed read throws `UsagePaymentUnavailable`, never "no payment method"; a refused collect is an
  * answer naming why, and the window stays owed.
  */
+import type { AgentsUsagePaymentCollect, AgentsUsagePaymentRead, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
 import {
   AGENTS_USAGE_PAYMENT_PATH,
   agentsUsagePaymentCollectSchema,
   agentsUsagePaymentReadSchema,
-  serviceCallSigner,
-  type AgentsUsagePaymentCollect,
-  type AgentsUsagePaymentRead,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/agents-usage-payment';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 
 export interface UsagePaymentPort {

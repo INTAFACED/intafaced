@@ -23,15 +23,15 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import {
-  supportTradeSummarySchema,
-  type SupportTradeLiquidation,
-  type SupportTradeOrder,
-  type SupportTradePosition,
-  type SupportTradeSummary,
-  type SupportTradeSummaryErrorCode,
-  type SupportTradeSummaryInput,
+import type {
+  SupportTradeLiquidation,
+  SupportTradeOrder,
+  SupportTradePosition,
+  SupportTradeSummary,
+  SupportTradeSummaryErrorCode,
+  SupportTradeSummaryInput,
 } from '@intafaced/contracts';
+import { supportTradeSummarySchema } from '@intafaced/contracts/support-trade-summary';
 import { presentPosition, type PositionRow } from '../futures/position-service.js';
 import { LIQUIDATION_PRICE_NOT_RECORDED } from '../futures/futures-reads.js';
 import { presentCcxtOrder } from '../private-rest.js';

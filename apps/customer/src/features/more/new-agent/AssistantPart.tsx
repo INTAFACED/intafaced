@@ -42,7 +42,7 @@ export function AssistantPart() {
       ) : state.resource.status === 'failed' ? (
         <ReadFailure result={state.resource.failure} retry={state.reload} />
       ) : null}
-      <TextArea label={t('describeAgent')} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={4000} rows={5} />
+      <TextArea label={t('describeAgent')} value={description} onChange={setDescription} maxLength={4000} rows={5} />
       <Button tone="primary" disabled={busy || !engine || !description.trim()} onClick={() => void draft()}>
         {t('draftIt')}
       </Button>

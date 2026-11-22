@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 
 /**
  * Typed refusal for the desk reads. The code is the contract the room branches on.

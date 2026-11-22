@@ -3,14 +3,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import {
-  identityOperationIntentSchema,
-  identityOperationDecisionSchema,
-  normalizeIdentityOperationInput,
-  canonicalIdentityOperationIntent,
-  type IdentityOperationDecisionPort,
-  type IdentityOperationIntent,
-} from '@intafaced/contracts';
+import type { IdentityOperationDecisionPort, IdentityOperationIntent } from '@intafaced/contracts';
+import { normalizeIdentityOperationInput, canonicalIdentityOperationIntent } from '@intafaced/contracts/operation-identity-client';
+import { identityOperationIntentSchema, identityOperationDecisionSchema } from '@intafaced/contracts/operation-identity-decisions';
 export type IdentityPayoutAdmissionPort = IdentityOperationDecisionPort;
 export class PayoutAdmissionError extends Error {
   constructor(readonly code: 'pay.identity_admission_unavailable' | 'pay.identity_admission_denied' | 'pay.identity_admission_conflict') {

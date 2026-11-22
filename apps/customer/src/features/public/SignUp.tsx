@@ -7,21 +7,16 @@ import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { publicAuthContext, publicAuthHref } from './auth-context';
 import { validAuthSession } from './public-auth-guards';
-import {
-  countryOptions,
-  passwordScreeningSchema,
-  secondsLeft,
-  signUpAcceptedSchema,
-  signUpCode,
-  signUpConfirmedSchema,
-  todayIso,
-  type AccountType,
-  type Channel,
-} from './sign-up';
+import { countryOptions, secondsLeft, signUpCode, signUpConfirmedSchema, todayIso, type AccountType, type Channel } from './sign-up';
 import { signUpCopy } from './sign-up-copy';
 import { subdivisionOptions } from './subdivisions';
 import { SocialSignIn } from './SocialSignIn';
 import { Failed } from './Failed';
+import {
+  IDENTITY_AUTH_SIGN_UP_PASSWORD_SCREENING,
+  IDENTITY_AUTH_SIGN_UP_START,
+  IDENTITY_AUTH_SIGN_UP_RESEND,
+} from '@intafaced/contracts/identity-auth-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -72,11 +67,9 @@ export function SignUp() {
   // Whether the owner's breached-password list is set: when it is not, the page says so beside the password rule.
   useEffect(() => {
     const controller = new AbortController();
-    void api
-      .query('identity', 'auth.signUpPasswordScreening', undefined, passwordScreeningSchema, { signal: controller.signal })
-      .then((answer) => {
-        if (!controller.signal.aborted && answer.ok) setScreening(answer.data.breachedList);
-      });
+    void api.call(IDENTITY_AUTH_SIGN_UP_PASSWORD_SCREENING, undefined, { signal: controller.signal }).then((answer) => {
+      if (!controller.signal.aborted && answer.ok) setScreening(answer.data.breachedList);
+    });
     return () => controller.abort();
   }, [api]);
   // The resend clock: one tick a second while a code step is open and the wait is not over.
@@ -112,7 +105,7 @@ export function SignUp() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate('identity', 'auth.signUpStart', input, signUpAcceptedSchema);
+      const answer = await api.call(IDENTITY_AUTH_SIGN_UP_START, input);
       if (!mounted.current) return;
       setBusy(false);
       const password = form.current?.elements.namedItem('password');
@@ -169,7 +162,7 @@ export function SignUp() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate('identity', 'auth.signUpResend', { flowId: pending.flowId }, signUpAcceptedSchema);
+      const answer = await api.call(IDENTITY_AUTH_SIGN_UP_RESEND, { flowId: pending.flowId });
       if (!mounted.current) return;
       setBusy(false);
       if (!answer.ok) {
@@ -268,14 +261,7 @@ export function SignUp() {
                     disabled={busy}
                   />
                   {screening === 'unset' && <p role="status">{t('screeningUnset')}</p>}
-                  <Select
-                    label={t('country')}
-                    name="country"
-                    required
-                    disabled={busy}
-                    value={country}
-                    onChange={(e) => setCountry(e.target.value)}
-                  >
+                  <Select label={t('country')} name="country" required disabled={busy} value={country} onChange={setCountry}>
                     <option value="" disabled>
                       {t('countryPick')}
                     </option>

@@ -6,15 +6,9 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { antiPhishingCopy as copy } from './anti-phishing-copy';
-import {
-  antiPhishingCodeSchema,
-  antiPhishingRefusal,
-  antiPhishingSetResultSchema,
-  antiPhishingStepUp,
-  cleanAntiPhishingCode,
-  type AntiPhishingRefusal,
-} from './anti-phishing';
+import { antiPhishingRefusal, antiPhishingStepUp, cleanAntiPhishingCode, type AntiPhishingRefusal } from './anti-phishing';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
+import { IDENTITY_PROFILE_ANTI_PHISHING_GET, IDENTITY_PROFILE_ANTI_PHISHING_SET } from '@intafaced/contracts/identity-profile-procedures';
 
 type Mode = 'view' | 'set' | 'remove';
 
@@ -42,9 +36,7 @@ export function AntiPhishing() {
   }, []);
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'profile.antiPhishing.get', undefined, antiPhishingCodeSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_PROFILE_ANTI_PHISHING_GET, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `anti-phishing:${userId}`,
   );
 
@@ -64,12 +56,11 @@ export function AntiPhishing() {
       const how: StepUpMethod = method === 'code' ? { totpCode: otp } : { passkey: true };
       const approval = await confirmWithStepUp(api, antiPhishingStepUp(code, requestId), how);
       const answer = approval.ok
-        ? await api.mutate(
-            'identity',
-            'profile.antiPhishing.set',
-            { code, clientRequestId: requestId, stepUpApprovalId: approval.data.stepUpApprovalId },
-            antiPhishingSetResultSchema,
-          )
+        ? await api.call(IDENTITY_PROFILE_ANTI_PHISHING_SET, {
+            code,
+            clientRequestId: requestId,
+            stepUpApprovalId: approval.data.stepUpApprovalId,
+          })
         : approval;
       if (!mounted.current) return;
       if (!answer.ok) {

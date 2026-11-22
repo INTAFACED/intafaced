@@ -1,19 +1,16 @@
+import type { Context, EdgeContextOptions, ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { inboundRawBodyOf } from '@intafaced/contracts/raw-body';
+import { verifyServiceHeaders } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import {
-  createEdgeContext,
-  inboundRawBodyOf,
   S2S_AUDIENCE_HEADER,
   S2S_BODY_HEADER,
   S2S_KID_HEADER,
   S2S_NONCE_HEADER,
   S2S_SIGNATURE_HEADER,
   S2S_TIMESTAMP_HEADER,
-  verifyServiceHeaders,
-  verifyServiceRequest,
-  type Context,
-  type EdgeContextOptions,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/service-keys';
 
 /** The installed Fastify tRPC adapter retains JSON as the exact raw string and
  * replaces the normal JSON parser. Never reconstruct bytes from a parsed object. */

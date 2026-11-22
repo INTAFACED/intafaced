@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, RefusalBox } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { Failed } from './Failed';
 import { confirmEmailCopy } from './confirm-email-copy';
+import { IDENTITY_AUTH_CONFIRM_EMAIL } from '@intafaced/contracts/identity-auth-procedures';
 
 // hand-declared-ok: svc-identity's auth.confirmEmail answer has no browser-safe schema in packages/contracts yet
-const confirmedSchema = z.object({ confirmed: z.literal(true) });
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -40,7 +39,7 @@ export function ConfirmEmail() {
     if (busy) return;
     setBusy(true);
     setRefusal(null);
-    const answer = await api.mutate('identity', 'auth.confirmEmail', { token }, confirmedSchema);
+    const answer = await api.call(IDENTITY_AUTH_CONFIRM_EMAIL, { token });
     if (!mounted.current) return;
     setBusy(false);
     if (answer.ok) setDone(true);

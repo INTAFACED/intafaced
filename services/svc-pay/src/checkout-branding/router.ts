@@ -4,8 +4,8 @@ import {
   checkoutBrandingSaveInputSchema,
   checkoutBrandingSavedSchema,
   checkoutBrandingSchema,
-  router,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-checkout-branding';
+import { router } from '@intafaced/contracts/trpc';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
 import { ownMerchantRead } from '../own-merchant-read.js';

@@ -1,7 +1,5 @@
 import { TRPCError } from '@trpc/server';
 import {
-  publicProcedure,
-  scopedProcedure,
   supportHelpCentreChangeListSchema,
   supportHelpCentreChangesInputSchema,
   supportHelpCentreLanguageInputSchema,
@@ -16,7 +14,8 @@ import {
   SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET,
   SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT,
   SUPPORT_HELP_CENTRE_OFF,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-help-centre';
+import { publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { SUPPORT_DESK_HELP_CENTRE_TRANSLATIONS, SUPPORT_HELP_CENTRE } from '@intafaced/contracts/support-desk-settings-procedures';
 import type { Principal } from '@intafaced/auth';

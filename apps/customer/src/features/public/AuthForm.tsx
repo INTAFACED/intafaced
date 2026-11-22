@@ -594,7 +594,7 @@ export function AuthForm({ register }: { register: boolean }) {
             aria-label={t('historySelect')}
             lang={languageFor('historySelect')}
             value={selectedRef ?? ''}
-            onChange={(event) => setSelectedRef(event.target.value)}
+            onChange={setSelectedRef}
           >
             {journal.records
               .slice()

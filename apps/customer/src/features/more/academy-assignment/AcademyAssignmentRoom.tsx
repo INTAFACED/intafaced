@@ -365,13 +365,7 @@ export function AcademyAssignmentRoom({ slug, itemId }: { slug: string; itemId: 
                   }}
                 >
                   {data.text !== 'off' && (
-                    <TextArea
-                      label={t('asgYourAnswer')}
-                      value={text}
-                      rows={6}
-                      maxLength={20_000}
-                      onChange={(event) => setText(event.target.value)}
-                    />
+                    <TextArea label={t('asgYourAnswer')} value={text} rows={6} maxLength={20_000} onChange={setText} />
                   )}
                   {data.file !== 'off' && (
                     <Field

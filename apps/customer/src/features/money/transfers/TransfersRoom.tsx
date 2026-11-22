@@ -105,7 +105,7 @@ export function TransfersRoom({ open, search }: { open: (spec: ActionSpec) => vo
                       <Select
                         label={copyText('rooms.from.your.space')}
                         value={from?.id ?? ''}
-                        onChange={(event) => setFrom(event.target.value)}
+                        onChange={(value) => setFrom(value)}
                         options={[
                           ['', copyText('rooms.choose.source')],
                           ...spaces
@@ -116,7 +116,7 @@ export function TransfersRoom({ open, search }: { open: (spec: ActionSpec) => vo
                       <Select
                         label={copyText('rooms.destination')}
                         value={destination}
-                        onChange={(event) => setDestination(event.target.value as 'space' | 'user')}
+                        onChange={(value) => setDestination(value as 'space' | 'user')}
                         options={[
                           ['space', depth.t('toYourSpace')],
                           ['user', depth.t('toPerson')],

@@ -9,14 +9,15 @@ import {
   ActionKey,
   Button,
   Change,
+  Checkbox,
   Dock,
   Field,
   ChoiceGroup,
   TextArea,
-  Checkbox,
   Figure,
   LegalSlot,
   Logo,
+  Radio,
   Rail,
   RefusalBox,
   EmptyState,
@@ -211,6 +212,46 @@ describe('components', () => {
       /<fieldset class="lit-choices" disabled="" aria-describedby="([^"]+)">.*<span id="\1" data-part="hint">Citizens and residents<\/span>/,
     );
     expect(group).toContain('<input type="radio" name="us" value="no"/>');
+  });
+
+  it('Select is a labelled native select whose change hands back the value', () => {
+    const out = html(<Select label="Role" id="r" value="b" options={['a', { value: 'b', label: 'Bee' }, ['c', 'Sea']]} hint="Pick one" />);
+    expect(out).toMatch(/^<div class="lit-field-control"><label for="r">Role<\/label><select [^>]*id="r"/);
+    expect(out).toContain('<option value="a">a</option><option value="b" selected="">Bee</option><option value="c">Sea</option>');
+    expect(out).toContain('<span id="r-hint" data-part="hint">Pick one</span>');
+  });
+
+  it('Radio is a native radio button named by its words, one of a shared name', () => {
+    const out = html(
+      <Radio name="scope" value="all" checked readOnly>
+        All components
+      </Radio>,
+    );
+    expect(out).toBe(
+      '<label class="lt-field"><input readOnly="" type="radio" name="scope" checked="" value="all"/><span>All components</span></label>',
+    );
+  });
+
+  it('Checkbox is a native tick box named by its words or its own label', () => {
+    const out = html(
+      <Checkbox checked readOnly aria-label="Allow Runner">
+        Allowed
+      </Checkbox>,
+    );
+    expect(out).toMatch(/^<label class="lt-field"><input [^>]*type="checkbox"[^>]*\/><span>Allowed<\/span><\/label>$/);
+    expect(out).toContain('checked=""');
+    expect(out).toContain('aria-label="Allow Runner"');
+  });
+
+  it('TextArea is a labelled native text box whose hint describes it and whose change hands back the text', () => {
+    const out = html(<TextArea id="why" label="Why" value="TEST" readOnly maxLength={500} hint="Up to 500 characters" aria-invalid />);
+    expect(out).toMatch(
+      /^<div class="lit-field-control"><label for="why">Why<\/label><textarea [^>]*>TEST<\/textarea><span id="why-hint" data-part="hint">Up to 500 characters<\/span><\/div>$/,
+    );
+    expect(out).toContain('aria-describedby="why-hint"');
+    expect(out).toContain('maxLength="500"');
+    expect(out).toContain('aria-invalid="true"');
+    expect(html(<TextArea label="Note" name="note" />)).not.toContain('aria-describedby');
   });
 
   it('LegalSlot holds no copy of its own, and an unset text shows a refusal in words, never the id', () => {

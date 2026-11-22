@@ -1,5 +1,5 @@
 import { checkCaps, checkTradingOn, riskScreenOf } from '../risk/rules.js';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { QUANT_RISK_GET, QUANT_RISK_SET, QUANT_RISK_TRADING } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { quantRefusal, toTrpc, type QuantCore } from './core.js';

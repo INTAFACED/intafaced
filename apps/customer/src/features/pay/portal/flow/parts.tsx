@@ -236,14 +236,5 @@ export function SelectField({
   hint?: string;
   disabled?: boolean;
 }) {
-  return (
-    <Select
-      label={label}
-      hint={hint}
-      value={value}
-      disabled={disabled}
-      options={options}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  );
+  return <Select label={label} hint={hint} value={value} disabled={disabled} options={options} onChange={onChange} />;
 }

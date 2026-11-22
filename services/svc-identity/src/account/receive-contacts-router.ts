@@ -4,14 +4,13 @@
  * one. An API key or a sub-account is refused.
  */
 import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { SecurityLockError } from '../auth/security-lock.js';
 import { ReceiveContactError, type ReceiveActor, type ReceiveContactService } from './receive-contacts.js';
-
-const listOutput = z.object({
-  contacts: z.array(z.object({ id: z.string().guid(), channel: z.enum(['email', 'phone']), target: z.string(), verified: z.boolean() })),
-  max: z.number().int().min(1).nullable(),
-});
+import { listOutput } from '@intafaced/contracts/identity-call-schemas';
+import { IDENTITY_RECEIVE_CONTACTS_LIST } from '@intafaced/contracts/identity-receive-contacts-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 type Principal = { userId: string; sid: string; kid?: string | null; sub_account?: string | null };
 
@@ -58,7 +57,11 @@ export function createReceiveContactsRouter(service: ReceiveContactService) {
   return router({
     receiveContacts: router({
       /** The caller's own addresses to be paid by, proved or waiting for their code, and the published cap. */
-      list: protectedProcedure.output(listOutput).query(({ ctx }) => guarded(() => service.list(actor(ctx.principal as Principal)))),
+      list: mountRecord(
+        IDENTITY_RECEIVE_CONTACTS_LIST,
+        ({ ctx }) => guarded(() => service.list(actor(ctx.principal as Principal))),
+        codedRefusal,
+      ),
 
       /** Add an email or phone and send its code. The sender being off refuses before anything is stored. */
       add: protectedProcedure

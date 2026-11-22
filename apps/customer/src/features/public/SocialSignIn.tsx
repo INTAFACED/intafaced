@@ -1,13 +1,12 @@
 import { useRef, useState } from 'react';
-import { z } from 'zod';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, RefusalBox } from '@intafaced/ui/lit';
 import { socialSignInCopy } from './social-sign-in-copy';
 import { Failed } from './Failed';
+import { IDENTITY_AUTH_OAUTH_START } from '@intafaced/contracts/identity-auth-procedures';
 
 // hand-declared-ok: svc-identity's auth.oauthStart answer has no browser-safe schema in packages/contracts yet
-const startedSchema = z.object({ provider: z.string(), authorizationUrl: z.string().url(), expiresAt: z.string() });
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Kind = 'social' | 'wallet';
@@ -37,7 +36,7 @@ export function SocialSignIn({ onWallet }: { onWallet?: () => Promise<boolean> }
       setBusy(null);
       return;
     }
-    const answer = await api.mutate('identity', 'auth.oauthStart', { provider: kind }, startedSchema);
+    const answer = await api.call(IDENTITY_AUTH_OAUTH_START, { provider: kind });
     const target = answer.ok ? new URL(answer.data.authorizationUrl) : null;
     if (target?.protocol === 'https:') {
       // The buttons stay busy while the browser leaves, so a second press cannot start a second flow.

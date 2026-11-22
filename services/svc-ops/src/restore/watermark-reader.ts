@@ -1,11 +1,6 @@
-import {
-  restoreWatermarkReadSchema,
-  serviceCallSigner,
-  type RestoreService,
-  type RestoreWatermarkRead,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { RestoreService, RestoreWatermarkRead, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { restoreWatermarkReadSchema } from '@intafaced/contracts/ops-restore-watermarks';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { OPS_RESTORE_WATERMARK_UNAVAILABLE } from '../codes.js';
 
 export type WatermarkReadResult = { ok: true; value: RestoreWatermarkRead } | { ok: false; code: string; message: string };

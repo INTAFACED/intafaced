@@ -45,14 +45,7 @@ function Select({
   onChange: (value: string) => void;
   options: readonly { value: string; label: string }[];
 }) {
-  return (
-    <KitSelect
-      label={label}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      options={options.map((o) => [o.value, o.label] as const)}
-    />
-  );
+  return <KitSelect label={label} value={value} onChange={onChange} options={options.map((o) => [o.value, o.label] as const)} />;
 }
 
 export function TextArea({
@@ -66,7 +59,7 @@ export function TextArea({
   onChange: (value: string) => void;
   maxLength?: number;
 }) {
-  return <KitTextArea label={label} value={value} onChange={(e) => onChange(e.target.value)} maxLength={maxLength} rows={5} />;
+  return <KitTextArea label={label} value={value} onChange={onChange} maxLength={maxLength} rows={5} />;
 }
 
 /** How many rows were asked for and shown; the service publishes no cursor, so a larger window is the only way on. */

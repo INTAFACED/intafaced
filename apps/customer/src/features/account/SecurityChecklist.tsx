@@ -3,8 +3,9 @@ import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { securityChecklistCopy as copy } from './security-checklist-copy';
-import { factorStatus, type FactorStatus } from './security-checklist';
+import { type FactorStatus } from './security-checklist';
 import { ScamGuidesLink } from './CompromisedEntry';
+import { IDENTITY_FACTOR_STATUS } from '@intafaced/contracts/identity-factor-status-procedures';
 
 /**
  * The Security checklist at the top of `/uc/safe` (slice I-signin-sessions-14): each sign-in method with its status and
@@ -21,10 +22,7 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
   // The last answer for this person stays on screen while a change on the page reloads it, so the page does not jump.
   const last = useRef<{ userId: string | null; data: FactorStatus } | null>(null);
   const { resource, reload } = useResource(
-    (signal) =>
-      userId
-        ? api.query('identity', 'factorStatus', undefined, factorStatus, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(IDENTITY_FACTOR_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `security-checklist:${userId}:${client.current.version}:${revision}`,
   );
   if (resource.status === 'ready' && resource.data) last.current = { userId, data: resource.data };

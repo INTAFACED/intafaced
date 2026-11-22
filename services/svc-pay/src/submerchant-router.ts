@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { payAmountStringSchema, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { payAmountStringSchema } from '@intafaced/contracts/merchant-control';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { PERMISSION_AREAS, SubMerchantError, refuseSubMerchantWithoutConsent, type SubMerchantService } from './submerchants.js';
 import { readSubMerchantSummary } from './merchant-portal/summary.js';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';

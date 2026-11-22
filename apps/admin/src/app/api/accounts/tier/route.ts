@@ -7,9 +7,16 @@ import {
   accountTierStateSchema,
 } from '@intafaced/contracts';
 import { adminBffSession } from '@/lib/admin-bff-gate';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import {
+  adminSessionErrorResponse,
+  AdminSessionError,
+  authorizeAdminRequest,
+  founderEdgeCall,
+  founderEdgeRecordCall,
+} from '@/lib/founder-session';
 import { tierExecute } from '@/lib/accounts/tier';
 import { handleStep } from '@/lib/desk/step-route';
+import { IDENTITY_ACCOUNT_CONTROLS_TIERS } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Account product tiers (J-ops-console-04 #11).
@@ -31,7 +38,7 @@ export async function GET(request: Request) {
       throw new AdminSessionError('admin.accounts_input', 400);
     if (params.get('list') === 'true') {
       if (params.size !== 1) throw new AdminSessionError('admin.accounts_input', 400);
-      const data = await founderEdgeCall(config, 'identity', 'accountControls.tiers', 'GET', {}, session.accessToken);
+      const data = await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_TIERS, {}, session.accessToken);
       if (!accountTierListSchema.safeParse(data).success) throw new AdminSessionError('admin.upstream_invalid', 502);
       return Response.json(data, { headers: { 'cache-control': 'no-store' } });
     }

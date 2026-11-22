@@ -1,13 +1,6 @@
-import {
-  OPS_CAPITAL_SOURCE_UNAVAILABLE,
-  bankPartnerReservesSchema,
-  ledgerOwnFundsSchema,
-  serviceCallSigner,
-  type BankPartnerReserves,
-  type LedgerOwnFunds,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { BankPartnerReserves, LedgerOwnFunds, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { OPS_CAPITAL_SOURCE_UNAVAILABLE, bankPartnerReservesSchema, ledgerOwnFundsSchema } from '@intafaced/contracts/ops-capital';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { baseOf } from '../restore/watermark-reader.js';
 
 /** One source's answer, or why it could not be had. Never a zero. */

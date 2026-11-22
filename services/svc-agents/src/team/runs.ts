@@ -13,7 +13,7 @@ import { TeamError } from './errors.js';
 import { TEAM_RUN_KEY_PREFIX } from './hold.js';
 import type { TeamMembershipPort } from './membership.js';
 import { lockBusiness, MANAGERS, readTeam, requireRole, effectiveRoles, stale, TeamStore, type Team } from './store.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /**
  * A business team's runs, held actions and usage (AG-governance-01, AG-usage-03). Each call reads the team from
