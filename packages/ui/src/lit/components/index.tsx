@@ -220,6 +220,31 @@ export function Radio({ children, onSelect, className, ...rest }: RadioProps) {
   );
 }
 
+export type TextAreaProps = Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange' | 'children'> & {
+  label: string;
+  /** The line under the box: a hint, or why what was typed is refused (with `aria-invalid`). */
+  hint?: string;
+  onChange?: (value: string) => void;
+};
+
+/** A few lines of free text: the browser's own text box, in the kit's field, its words above it and its hint below. */
+export function TextArea({ label, hint, onChange, className, id, ...rest }: TextAreaProps) {
+  const auto = React.useId();
+  const hintId = `${id ?? auto}-hint`;
+  return (
+    <label className={clsx('lt-field', className)}>
+      <span>{label}</span>
+      <textarea
+        {...rest}
+        id={id}
+        aria-describedby={[rest['aria-describedby'], hint ? hintId : null].filter(Boolean).join(' ') || undefined}
+        onChange={(e) => onChange?.(e.target.value)}
+      />
+      {hint ? <small id={hintId}>{hint}</small> : null}
+    </label>
+  );
+}
+
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
 
