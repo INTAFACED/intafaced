@@ -729,8 +729,7 @@ export function OrdersTable({
                     cell: (o) =>
                       o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
                         <Checkbox
-                          label={select.label(o.venueClientOrderId)}
-                          hideLabel
+                          label={<span className="lt-sr">{select.label(o.venueClientOrderId)}</span>}
                           checked={select.selected.has(o.venueClientOrderId)}
                           onChange={() => select.onToggle(o.venueClientOrderId!)}
                         />

@@ -9,7 +9,7 @@ export function quantModeRoute(
   pathname: string,
   paper: boolean,
   userId: string | null,
-): { title: ReactNode; description: ReactNode; content: ReactNode; framed?: boolean } | null {
+): { title: ReactNode; description: ReactNode; content: ReactNode; bare?: true } | null {
   const mode = MODES[pathname as keyof typeof MODES];
   if (!mode) return null;
   const { title, description } = quantModeWords(mode);

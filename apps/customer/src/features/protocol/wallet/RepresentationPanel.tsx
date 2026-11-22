@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
+import { Checkbox } from '@intafaced/ui/lit/templates';
+import { Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import type { ProtocolApi, RepresentationStatus } from '../api';
 import { isRegionBlocked } from '../region';
@@ -64,20 +66,16 @@ export function RepresentationPanel({
   };
 
   return (
-    <section>
-      <h2>{t('reprTitle')}</h2>
+    <Panel title={t('reprTitle')}>
       <div data-panel="representation" data-version={status.version}>
         <p className="lt-hint">{t('reprNote')}</p>
         <blockquote data-representation-text>{status.text}</blockquote>
         <p className="lt-hint">{t('reprVersion', { version: status.version })}</p>
-        <label className="lt-field">
-          <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
-          <span>{t('reprAgree')}</span>
-        </label>
+        <Checkbox label={t('reprAgree')} checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
         <Button tone="primary" disabled={!agreed || busy} onClick={() => void accept()}>
           {t('reprAccept')}
         </Button>
       </div>
-    </section>
+    </Panel>
   );
 }
