@@ -826,6 +826,10 @@ import { IDENTITY_API_RATE_TIERS } from './identity-api-rate-tiers-procedures.js
 
 import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from './identity-api-version-procedures.js';
 
+import { IDENTITY_APPROVAL_POLICY_ROWS, IDENTITY_APPROVAL_POLICY_SET } from './identity-approval-policy-procedures.js';
+
+import { IDENTITY_AUTH_KEYS_STATE } from './identity-auth-keys-procedures.js';
+
 import {
   IDENTITY_AUTH_CHALLENGE,
   IDENTITY_AUTH_DEVICE_APPROVE,
@@ -974,6 +978,8 @@ import { IDENTITY_SESSION_SETTINGS } from './identity-session-settings-procedure
 import { IDENTITY_SET_IDLE_SIGNOUT } from './identity-set-idle-signout-procedures.js';
 
 import { IDENTITY_SIGNIN_METHODS } from './identity-signin-methods-procedures.js';
+
+import { IDENTITY_STAFF_ACCEPT_INVITE, IDENTITY_STAFF_INVITATION, IDENTITY_STAFF_LIST } from './identity-staff-procedures.js';
 
 import {
   IDENTITY_SUB_ACCOUNTS_CREATE,
@@ -1329,6 +1335,38 @@ import {
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from './pay-checkout-procedures.js';
 
 import { PAY_DEPOSIT_CREDIT } from './pay-deposit-procedures.js';
+
+import {
+  PAY_FOUNDER_ADMIN_LIMITS_LIST,
+  PAY_FOUNDER_ADMIN_LIMITS_CUSTOMER,
+  PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_PENDING,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_LIST,
+  PAY_FOUNDER_ADMIN_DEPOSIT_OPEN_ITEMS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_GET,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
+  PAY_FOUNDER_ADMIN_CONTROL_LIMIT_REQUESTS_LIST,
+  PAY_FOUNDER_ADMIN_MERCHANTS_SECTION,
+  PAY_FOUNDER_ADMIN_MERCHANTS_RECENT,
+  PAY_FOUNDER_ADMIN_PAYOUTS_LIST,
+  PAY_FOUNDER_ADMIN_DISPUTES_LIST,
+  PAY_FOUNDER_ADMIN_LIVE_SUMMARY,
+  PAY_FOUNDER_ADMIN_RISK_SUMMARY,
+  PAY_FOUNDER_ADMIN_METRICS_MERCHANT,
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_LIST,
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_HISTORY,
+  PAY_FOUNDER_ADMIN_METRICS_GLOBAL,
+  PAY_FOUNDER_ADMIN_MERCHANTS_LIST,
+  PAY_FOUNDER_ADMIN_METRICS_MERCHANT_SERIES,
+  PAY_FOUNDER_ADMIN_MERCHANTS_DRILLDOWN,
+  PAY_FOUNDER_ADMIN_REGISTRIES_HISTORY,
+  PAY_FOUNDER_ADMIN_TREASURY_EXPOSURE,
+  PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
+  PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
+  PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+} from './pay-founder-admin-procedures.js';
 
 import { PAY_HALTS_OPERATOR_STATUS, PAY_HALTS_SET, PAY_HALTS_HISTORY, PAY_HALTS_PENDING_CLEARS } from './pay-halt-procedures.js';
 
@@ -2742,6 +2780,10 @@ const part_identity_api_rate_tiers_procedures: readonly ProcedureRecord[] = [IDE
 
 const part_identity_api_version_procedures: readonly ProcedureRecord[] = [IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET];
 
+const part_identity_approval_policy_procedures: readonly ProcedureRecord[] = [IDENTITY_APPROVAL_POLICY_ROWS, IDENTITY_APPROVAL_POLICY_SET];
+
+const part_identity_auth_keys_procedures: readonly ProcedureRecord[] = [IDENTITY_AUTH_KEYS_STATE];
+
 const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_CHALLENGE,
   IDENTITY_AUTH_DEVICE_APPROVE,
@@ -2901,6 +2943,12 @@ const part_identity_session_settings_procedures: readonly ProcedureRecord[] = [I
 const part_identity_set_idle_signout_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_IDLE_SIGNOUT];
 
 const part_identity_signin_methods_procedures: readonly ProcedureRecord[] = [IDENTITY_SIGNIN_METHODS];
+
+const part_identity_staff_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_STAFF_ACCEPT_INVITE,
+  IDENTITY_STAFF_INVITATION,
+  IDENTITY_STAFF_LIST,
+];
 
 const part_identity_sub_accounts_procedures: readonly ProcedureRecord[] = [
   IDENTITY_SUB_ACCOUNTS_CREATE,
@@ -3275,6 +3323,38 @@ const part_pay_allowlist_procedures: readonly ProcedureRecord[] = [
 const part_pay_checkout_procedures: readonly ProcedureRecord[] = [PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN];
 
 const part_pay_deposit_procedures: readonly ProcedureRecord[] = [PAY_DEPOSIT_CREDIT];
+
+const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
+  PAY_FOUNDER_ADMIN_LIMITS_LIST,
+  PAY_FOUNDER_ADMIN_LIMITS_CUSTOMER,
+  PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_PENDING,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_LIST,
+  PAY_FOUNDER_ADMIN_DEPOSIT_OPEN_ITEMS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_GET,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
+  PAY_FOUNDER_ADMIN_CONTROL_LIMIT_REQUESTS_LIST,
+  PAY_FOUNDER_ADMIN_MERCHANTS_SECTION,
+  PAY_FOUNDER_ADMIN_MERCHANTS_RECENT,
+  PAY_FOUNDER_ADMIN_PAYOUTS_LIST,
+  PAY_FOUNDER_ADMIN_DISPUTES_LIST,
+  PAY_FOUNDER_ADMIN_LIVE_SUMMARY,
+  PAY_FOUNDER_ADMIN_RISK_SUMMARY,
+  PAY_FOUNDER_ADMIN_METRICS_MERCHANT,
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_LIST,
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_HISTORY,
+  PAY_FOUNDER_ADMIN_METRICS_GLOBAL,
+  PAY_FOUNDER_ADMIN_MERCHANTS_LIST,
+  PAY_FOUNDER_ADMIN_METRICS_MERCHANT_SERIES,
+  PAY_FOUNDER_ADMIN_MERCHANTS_DRILLDOWN,
+  PAY_FOUNDER_ADMIN_REGISTRIES_HISTORY,
+  PAY_FOUNDER_ADMIN_TREASURY_EXPOSURE,
+  PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
+  PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
+  PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+];
 
 const part_pay_halt_procedures: readonly ProcedureRecord[] = [
   PAY_HALTS_OPERATOR_STATUS,
@@ -3996,6 +4076,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_api_keys_procedures,
   ...part_identity_api_rate_tiers_procedures,
   ...part_identity_api_version_procedures,
+  ...part_identity_approval_policy_procedures,
+  ...part_identity_auth_keys_procedures,
   ...part_identity_auth_procedures,
   ...part_identity_developer_keys_procedures,
   ...part_identity_developer_sandboxes_procedures,
@@ -4022,6 +4104,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_session_settings_procedures,
   ...part_identity_set_idle_signout_procedures,
   ...part_identity_signin_methods_procedures,
+  ...part_identity_staff_procedures,
   ...part_identity_sub_accounts_procedures,
   ...part_identity_support_recovery_procedures,
   ...part_identity_totp_manage_procedures,
@@ -4059,6 +4142,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_pay_allowlist_procedures,
   ...part_pay_checkout_procedures,
   ...part_pay_deposit_procedures,
+  ...part_pay_founder_admin_procedures,
   ...part_pay_halt_procedures,
   ...part_pay_kyb_procedures,
   ...part_pay_merchant_procedures,
