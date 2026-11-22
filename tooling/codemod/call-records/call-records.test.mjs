@@ -2209,3 +2209,18 @@ test('the shared schema file reads a declaration it already holds where it stand
   assert.match(out, /import \{ orderSideSchema \} from '\.\/order-enums\.js';/);
   assert.match(out, /export const decimal = z\.string\(\);/);
 });
+
+test('an assetId field the codemod appends to contracts starts from assetIdSchema; one the file already held stays', async () => {
+  // garden/asset-id-schema refused 29 fields svc-bank's callers-only run copied as `assetId: z.string()` (weed project-state#3755).
+  const { brandAssetIds, unbranded } = await import('./asset-id.mjs');
+  const before = ["import { z } from 'zod';", '', 'export const old = z.object({ assetId: z.string() });', ''].join('\n');
+  const after = `${before}export const fresh = z.object({ assetId: z.string().min(1).max(16), other: z.string() });\n`;
+  const out = brandAssetIds(after, unbranded(before).length);
+  assert.match(out, /^import \{ assetIdSchema \} from '\.\/asset-id\.js';$/m);
+  assert.match(out, /old = z\.object\(\{ assetId: z\.string\(\) \}\)/, 'what the file held is left as it was');
+  assert.match(out, /fresh = z\.object\(\{ assetId: assetIdSchema\.min\(1\)\.max\(16\), other: z\.string\(\) \}\)/);
+  assert.equal(brandAssetIds(out, unbranded(before).length), out, 'safe to rerun');
+  // A file whose own assetIdSchema is another schema keeps its fields.
+  const own = "import { z } from 'zod';\nconst assetIdSchema = z.string();\nexport const a = z.object({ assetId: z.string() });\n";
+  assert.equal(brandAssetIds(own), own);
+});

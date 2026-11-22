@@ -42,7 +42,24 @@ export const businessReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const businessWrites = {
+  'business.create': businessSchema,
+  'business.addMember': z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema }),
+  'business.proposeTransfer': z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('posted'), transferId: z.string(), ledgerTxId: z.string() }),
+    z.object({ kind: z.literal('pending'), approval: approvalSchema }),
+  ]),
   'business.approve': z.object({ transferId: z.string(), ledgerTxId: z.string() }),
+  'business.setMemberRole': z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema }),
+  'business.removeMember': z.object({ accountId: z.string(), userId: z.string(), removed: z.literal(true) }),
   'business.reject': z.object({ ok: z.literal(true) }),
   'business.cancel': z.object({ ok: z.literal(true) }),
+  'business.runPayroll': z.object({
+    payrollId: z.string(),
+    accountId: z.string(),
+    fromSpaceId: z.string(),
+    assetId: z.string(),
+    ledgerTxId: z.string(),
+    recipients: z.array(z.object({ toSpaceId: z.string(), amount: money })),
+    createdAt: z.string(),
+  }),
 } as const;

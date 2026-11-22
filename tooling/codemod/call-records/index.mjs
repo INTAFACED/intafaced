@@ -29,6 +29,7 @@ import {
   walk,
 } from './ast.mjs';
 import { answerFromCallers } from './answer.mjs';
+import { brandAssetIds, unbranded } from './asset-id.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { asWritten, closureOf, contractsExports, declaresSame, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
@@ -957,7 +958,8 @@ function write(result) {
   // What each changed file imports before its calls move: a namespace member it read (`s.schema`) goes with the call.
   const imported = new Map([...result.changes.files.keys()].filter((f) => !f.startsWith(CONTRACTS)).map((f) => [f, importedFrom(f)]));
   for (const [file, body] of result.created) {
-    writeFileSync(file, body);
+    // What it appends starts each `assetId` from `assetIdSchema`; what the file already held stays as it was.
+    writeFileSync(file, brandAssetIds(body, existsSync(file) ? unbranded(readFileSync(file, 'utf8')).length : 0));
     touched.push(file);
   }
   for (const [file, ch] of result.changes.files) {
