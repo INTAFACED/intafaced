@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { useLinkToken } from './status-link-token';
 import { Button, Checkbox, Field, Radio } from '@intafaced/ui/lit';
 import { KeyValue, SettingsTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { useDataEnv } from '../../data/hooks';
@@ -21,14 +22,10 @@ export const DEAD = new Set(['status.subscription_link_invalid', 'status.subscri
 export function StatusManageRoom() {
   const { t } = statusSubscribeCopy.useCopy();
   const { api } = useDataEnv();
-  const token = useRef(new URLSearchParams(location.search).get('token')?.trim() ?? '').current;
+  const token = useLinkToken();
   const manageToken = token || null;
   const [view, setView] = useState<View | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
-
-  useEffect(() => {
-    if (location.search) history.replaceState(history.state, '', location.pathname);
-  }, []);
 
   useEffect(() => {
     if (!manageToken) return;

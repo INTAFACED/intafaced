@@ -76,7 +76,6 @@ function CopyButton({ value, label }: { value: string; label?: string }) {
   const { t } = accountScreenCopy.useCopy();
   const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
   async function copyValue() {
     try {
       await navigator.clipboard.writeText(value);

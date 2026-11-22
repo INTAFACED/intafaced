@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import { useLinkToken } from './status-link-token';
 import { useDataEnv } from '../../data/hooks';
 import { writeContract } from '../../shared/contract-call';
 import type { ApiResult } from '../../shared/api';
@@ -24,15 +25,11 @@ export function StatusSubscriptionPage({ mode }: { mode: 'confirm' | 'manage' | 
 function StatusLinkPage({ mode }: { mode: 'confirm' | 'unsubscribe' }) {
   const { t } = statusSubscribeCopy.useCopy();
   const { api } = useDataEnv();
-  const token = useRef(new URLSearchParams(location.search).get('token')?.trim() ?? '').current;
+  const token = useLinkToken();
   const [manageToken, setManageToken] = useState<string | null>(null);
   const [view, setView] = useState<View | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
-
-  useEffect(() => {
-    if (location.search) history.replaceState(history.state, '', location.pathname);
-  }, []);
 
   async function act() {
     if (busy) return;
