@@ -1,16 +1,11 @@
-import {
-  NAVIGATOR_TRADE_REFUSALS,
-  navigatorOrdersSchema,
-  navigatorTradingSchema,
-  type NavigatorOrder,
-  type NavigatorTrading,
-} from '@intafaced/contracts/agents-onchain';
+import { NAVIGATOR_TRADE_REFUSALS, type NavigatorOrder, type NavigatorTrading } from '@intafaced/contracts/agents-onchain';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Failure } from '../../shared/ui';
 import { useApi } from '../session';
 import { formatUnits, utcTime } from '../protocol';
 import { navigatorOnchainCopy } from './navigator-onchain-copy';
+import { AGENTS_NAVIGATOR_TRADING, AGENTS_NAVIGATOR_ORDERS } from '@intafaced/contracts/agents-navigator-procedures';
 
 type T = ReturnType<typeof navigatorOnchainCopy.forLocale>['t'];
 /** The copy keys these maps pick from: every one is a sentence with no placeholder. */
@@ -41,10 +36,7 @@ const eth = (wei: string) => formatUnits(BigInt(wei), 18, 18);
  */
 export function useNavigatorTrading(revision: number) {
   const api = useApi();
-  return useResource(
-    (signal) => api.query('agents', 'navigator.trading', undefined, navigatorTradingSchema, { signal }),
-    `navigator-trading:${revision}`,
-  );
+  return useResource((signal) => api.call(AGENTS_NAVIGATOR_TRADING, undefined, { signal }), `navigator-trading:${revision}`);
 }
 
 /** The cap the person signed, as the chain holds it, and what the Navigator's orders hold of it. */
@@ -157,7 +149,7 @@ export function NavigatorOrders({ sessionId, revision = 0 }: { sessionId: string
   const { t } = navigatorOnchainCopy.useCopy();
   const api = useApi();
   const { resource, reload } = useResource(
-    (signal) => api.query('agents', 'navigator.orders', { sessionId }, navigatorOrdersSchema, { signal }),
+    (signal) => api.call(AGENTS_NAVIGATOR_ORDERS, { sessionId }, { signal }),
     `navigator-orders:${sessionId}:${revision}`,
   );
   return (
