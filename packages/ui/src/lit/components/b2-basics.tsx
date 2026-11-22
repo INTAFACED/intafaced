@@ -235,11 +235,14 @@ export function Sheet({
   title,
   onClose,
   dismissible = true,
+  closeLabel = 'Close',
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
+  /** The close button's words, in the room's language. Default "Close". */
+  closeLabel?: string;
   /** False while a save is in flight: Escape is refused and Close is disabled. Default true. */
   dismissible?: boolean;
   children: React.ReactNode;
@@ -271,7 +274,7 @@ export function Sheet({
       <header className="lt-sheet-head">
         <h2 className="lt-sheet-title">{title}</h2>
         <button type="button" className="lt-button lt-button-secondary" disabled={!dismissible} onClick={onClose}>
-          Close
+          {closeLabel}
         </button>
       </header>
       <div className="lt-sheet-body">{children}</div>

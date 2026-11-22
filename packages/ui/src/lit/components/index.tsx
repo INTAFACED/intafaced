@@ -729,6 +729,8 @@ export type ReviewSheetProps = {
   outcome?: React.ReactNode;
   /** A line inside the review above its outcome (how long a "Confirm it's you" lasts). */
   note?: React.ReactNode;
+  /** The sheet's close button, in the room's language (the Sheet's own "Close" when not given). */
+  closeLabel?: string;
   /** The review body: what the person reads before confirming. */
   children?: React.ReactNode;
 };
@@ -755,6 +757,7 @@ export function ReviewSheet({
   onConfirm,
   outcome,
   note,
+  closeLabel,
   children,
 }: ReviewSheetProps) {
   return (
@@ -764,7 +767,7 @@ export function ReviewSheet({
       </Button>
       {outcome}
       {opened && (
-        <Sheet open title={reviewTitle} dismissible={!busy} onClose={onClose}>
+        <Sheet open title={reviewTitle} dismissible={!busy} onClose={onClose} closeLabel={closeLabel}>
           <div data-testid="form-stack">
             <p className="lt-hint">{description}</p>
             {children}

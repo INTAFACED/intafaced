@@ -49,4 +49,9 @@ describe('ReviewSheet', () => {
   it('a disabled action names why on its row', () => {
     expect(html({ disabled: true, disabledReason: 'Only the owner can refund.' })).toContain('<div title="Only the owner can refund.">');
   });
+
+  it("names its close button in the room's words, else the Sheet's own", () => {
+    expect(html({ opened: true })).toContain('>Close</button>');
+    expect(html({ opened: true, closeLabel: 'Cerrar diálogo' })).toContain('>Cerrar diálogo</button>');
+  });
 });
