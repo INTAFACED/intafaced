@@ -1,0 +1,90 @@
+[
+  {
+    "file": "apps/admin/src/lib/admin-tracker-status-pin.test.ts",
+    "target": "../../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker declares ops.admin done while the package's backend done bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/admin-tracker-status-pin.test.ts#features.mjs marks ops.admin done when backend done bar met"
+    },
+    "why": "Imports the tracker's FEATURES list (typed by tooling/tracker/features.d.mts) and requires ops.admin's declared status to be done, defaults included, instead of matching the file's words."
+  },
+  {
+    "file": "packages/connect-data-lake/src/data-lake-tracker-status-pin.test.ts",
+    "target": "../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker declares connect.data-lake done while the package's backend done bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/connect-data-lake/src/data-lake-tracker-status-pin.test.ts#features.mjs marks connect.data-lake done when product gaps are closed"
+    },
+    "why": "Imports the tracker's FEATURES list (typed by tooling/tracker/features.d.mts) and requires connect.data-lake's declared status to be done, defaults included, instead of matching the file's words."
+  },
+  {
+    "file": "packages/execution-house-tenant/src/house-tenant-tracker-status-pin.test.ts",
+    "target": "../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker declares execution.house-tenant done while the package's backend done bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/execution-house-tenant/src/house-tenant-tracker-status-pin.test.ts#features.mjs marks execution.house-tenant done when mechanism ships"
+    },
+    "why": "Imports the tracker's FEATURES list (typed by tooling/tracker/features.d.mts) and requires execution.house-tenant's declared status to be done, defaults included, instead of matching the file's words."
+  },
+  {
+    "file": "packages/execution-mm/src/mm-tracker-status-pin.test.ts",
+    "target": "../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker declares execution.market-making done while the package's backend done bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/execution-mm/src/mm-tracker-status-pin.test.ts#features.mjs marks execution.market-making done when external half ships"
+    },
+    "why": "Imports the tracker's FEATURES list (typed by tooling/tracker/features.d.mts) and requires execution.market-making's declared status to be done, defaults included, instead of matching the file's words."
+  },
+  {
+    "file": "packages/quant-honesty/src/quant-backtest-tracker-status-pin.test.ts",
+    "target": "../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker declares quant.backtest done while the package's backend done bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/quant-honesty/src/quant-backtest-tracker-status-pin.test.ts#features.mjs marks quant.backtest done when contract + deps ship"
+    },
+    "why": "Imports the tracker's FEATURES list (typed by tooling/tracker/features.d.mts) and requires quant.backtest's declared status to be done, defaults included, instead of matching the file's words."
+  },
+  {
+    "file": "packages/quant-honesty/src/quant-studio-tracker-status-pin.test.ts",
+    "target": "../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker declares quant.studio done while the package's backend done bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/quant-honesty/src/quant-studio-tracker-status-pin.test.ts#features.mjs marks quant.studio done when contract + data-lake dep ship"
+    },
+    "why": "Imports the tracker's FEATURES list (typed by tooling/tracker/features.d.mts) and requires quant.studio's declared status to be done, defaults included, instead of matching the file's words."
+  },
+  {
+    "file": "packages/venue-adapter/src/aggregation-tracker-status-pin.test.ts",
+    "target": "../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker declares venue.aggregation done while the package's backend done bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/aggregation-tracker-status-pin.test.ts#features.mjs marks venue.aggregation done when product gaps are closed"
+    },
+    "why": "Imports the tracker's FEATURES list (typed by tooling/tracker/features.d.mts) and requires venue.aggregation's declared status to be done, defaults included, instead of matching the file's words."
+  },
+  {
+    "file": "packages/ledger-client/src/recipes/fee-revenue-map.test.ts",
+    "target": "../../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "Every fee or revenue path closed by a tracker socket names a feature the tracker declares.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/ledger-client/src/recipes/fee-revenue-map.test.ts#every §13 / tracker socket id exists in features.mjs"
+    },
+    "why": "Imports the tracker's FEATURES list and requires each socket closure's id to be one of its ids; the same 188 ids the text match found."
+  }
+]

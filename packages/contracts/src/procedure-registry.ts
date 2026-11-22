@@ -471,6 +471,7 @@ import {
   IDENTITY_AUTH_SIGN_UP_RESEND,
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
 } from './identity-auth-procedures.js';
 
 import {
@@ -802,6 +803,8 @@ import {
 } from './ops-compliance-procedures.js';
 
 import { OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET } from './ops-console-mode-procedures.js';
+
+import { OPS_OUTREACH_PRIVACY_RETENTION_STATUS, OPS_OUTREACH_OWNERS, OPS_OUTREACH_LIST_WORKFLOW_AUDIT } from './ops-outreach-procedures.js';
 
 import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from './ops-preferences-procedures.js';
 
@@ -1948,6 +1951,7 @@ const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_SIGN_UP_RESEND,
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
 ];
 
 const part_identity_developer_keys_procedures: readonly ProcedureRecord[] = [
@@ -2299,6 +2303,12 @@ const part_ops_compliance_procedures: readonly ProcedureRecord[] = [
 ];
 
 const part_ops_console_mode_procedures: readonly ProcedureRecord[] = [OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET];
+
+const part_ops_outreach_procedures: readonly ProcedureRecord[] = [
+  OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+  OPS_OUTREACH_OWNERS,
+  OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+];
 
 const part_ops_preferences_procedures: readonly ProcedureRecord[] = [OPS_PREFERENCES_GET, OPS_PREFERENCES_SET];
 
@@ -3119,6 +3129,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_ops_capital_procedures,
   ...part_ops_compliance_procedures,
   ...part_ops_console_mode_procedures,
+  ...part_ops_outreach_procedures,
   ...part_ops_preferences_procedures,
   ...part_ops_protocol_listing_procedures,
   ...part_ops_public_procedures,

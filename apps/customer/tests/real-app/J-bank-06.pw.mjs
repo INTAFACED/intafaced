@@ -15,7 +15,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // scheme would; the collection run is its job door too. Step 5 (BK-acct-10): the money calendar over what steps 1 to 4
 // left, read only. Step 6 (BK-acct-10): the payment reminder rule saved under its business key, money-moving rules
 // refused while their terms are unpublished, the notification choices read from the account's own settings, and the
-// notices the bank's notice job owes, run with its signed job door as a scheduler would.
+// notices the bank's notice job owes, run with its signed job door as a scheduler would. Step 8: the person's TEST switch
+// (`testPartner.set({ calendarSource })`, svc-bank `partner/test-partner-switches.ts`) fails the direct debits source,
+// and the calendar names it while every other kind still shows. Step 7 waits for custody (Later).
 const J = 'J-bank-06';
 const TRIP = 'Trip TEST';
 const EMPTY = 'Empty TEST';
@@ -813,4 +815,70 @@ test(`${J} #6 the notice job tells the person once: a reminder before the one-of
   const items = await notices();
   expect(of(items, 'bank.scheduled_failed', short)).toHaveLength(1);
   expect(of(items, 'bank.scheduled_reminder', once)).toHaveLength(1);
+});
+
+test(`${J} #8 with one source failing (TEST switch), opens the calendar: the failing source is named, and the other kinds still show`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = person();
+  const { due, short, dd } = run.read();
+  if (!due || !short || !dd) throw new Error(`${J}: #1, #2 or #4 left nothing on the calendar to show beside the failing source`);
+  const api = await bank(who);
+  const before = main(await spaces(who)).balance;
+  const ranMonth = (await schedules(who)).find((s) => s.id === due).startsAt.slice(0, 7);
+  const days = new Date(Date.UTC(Number(ranMonth.slice(0, 4)), Number(ranMonth.slice(5, 7)), 0)).getUTCDate();
+  const read = async () => {
+    const res = await api.query('calendar.window', { from: `${ranMonth}-01`, days, limit: 50 });
+    expect(res.ok).toBe(true);
+    return res.data;
+  };
+  // The direct debits source answers before the switch, so what the switch takes away is known to be there.
+  const whole = await read();
+  expect(whole.sources.find((s) => s.source === 'direct_debits')).toMatchObject({ state: 'ok' });
+  const set = await api.mutate('testPartner.set', { calendarSource: 'direct_debits' });
+  expect(set, JSON.stringify(set.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { calendarSource: 'direct_debits' } });
+  try {
+    // The service's answer: direct debits unavailable, by its code, with none of its items; every other kind as before.
+    const broken = await read();
+    expect(broken.sources.find((s) => s.source === 'direct_debits')).toEqual({
+      source: 'direct_debits',
+      state: 'unavailable',
+      count: 0,
+      code: 'bank.calendar_source_unavailable',
+      complete: false,
+    });
+    expect(broken.items.filter((i) => i.source === 'direct_debits')).toHaveLength(0);
+    expect(broken.items).toEqual(whole.items.filter((i) => i.source !== 'direct_debits'));
+    for (const source of ['standing_orders', 'bills', 'loans', 'earn'])
+      expect(broken.sources.find((s) => s.source === source)).toEqual(whole.sources.find((s) => s.source === source));
+    expect(broken.items.find((i) => i.key === `${due}:0`)).toMatchObject({ source: 'standing_orders', status: 'done' });
+
+    // In the app: the failing kind is named in words and by code, and the standing orders still show on their days.
+    await signIn(page, who);
+    await page.goto('/bank/calendar');
+    await calendarMonth(page, ranMonth);
+    const sources = page.getByTestId('cal-sources');
+    const failing = sources.getByTestId('cal-source-direct_debits');
+    await expect(failing).toHaveAttribute('data-state', 'unavailable');
+    await expect(failing).toContainText('Direct debits could not be read just now. Everything else is shown.');
+    await expect(failing).toContainText('bank.calendar_source_unavailable');
+    await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
+    await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
+    await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');
+    await expect(page.getByTestId(`cal-open-${due}:0`)).toHaveText('Standing order');
+    await page.getByRole('button', { name: 'List', exact: true }).click();
+    await expect(page.getByTestId(`cal-row-${due}:0`)).toContainText('Done');
+    await expect(page.getByTestId(`cal-row-${short}:0`)).toContainText('Failed');
+    await expect(page.getByTestId('cal-list').locator('tr[data-source="direct_debits"]')).toHaveCount(0);
+  } finally {
+    const off = await api.mutate('testPartner.set', { calendarSource: null });
+    expect(off, JSON.stringify(off.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { calendarSource: null } });
+  }
+  // With the switch off the source answers again with what it held.
+  const back = await read();
+  expect(back.sources.find((s) => s.source === 'direct_debits')).toEqual(whole.sources.find((s) => s.source === 'direct_debits'));
+  expect(back.items.filter((i) => i.source === 'direct_debits')).toEqual(whole.items.filter((i) => i.source === 'direct_debits'));
+  // Reading the calendar moved nothing.
+  expect(main(await spaces(who)).balance).toBe(before);
 });

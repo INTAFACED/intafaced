@@ -8,6 +8,7 @@ import type { EarnService } from '../earn/earn-service.js';
 import type { LoanService } from '../loans/loan-service.js';
 import type { TransferService } from '../transfers/transfer-service.js';
 import { occurrenceStart, type ScheduleCadence } from '../transfers/schedule.js';
+import { CALENDAR_SOURCES, type CalendarSource } from './sources.js';
 
 /**
  * The money calendar (BK-acct-10, J-bank-06 #5): one read of what is dated in a window, merged from svc-bank's own
@@ -19,8 +20,7 @@ import { occurrenceStart, type ScheduleCadence } from '../transfers/schedule.js'
  * itself and the others still show.
  */
 
-export const CALENDAR_SOURCES = ['standing_orders', 'bills', 'direct_debits', 'loans', 'earn'] as const;
-export type CalendarSource = (typeof CALENDAR_SOURCES)[number];
+export { CALENDAR_SOURCES, type CalendarSource } from './sources.js';
 
 export const CALENDAR_ITEM_STATUSES = ['upcoming', 'paused', 'done', 'failed', 'skipped', 'refused'] as const;
 export type CalendarItemStatus = (typeof CALENDAR_ITEM_STATUSES)[number];
@@ -78,6 +78,11 @@ export interface CalendarDeps {
   readonly earn: Pick<EarnService, 'positionsOf'>;
   readonly loans: Pick<LoanService, 'loansOf'>;
   readonly log?: (source: CalendarSource, err: unknown) => void;
+  /**
+   * The source the person's TEST switch fails (`calendarSource`, J-bank-06 #8), or null. Only the TEST stack passes it:
+   * that source's read throws as an outage would, so it reads unavailable and the others still show.
+   */
+  readonly testFailing?: (userId: string) => CalendarSource | null;
 }
 
 type SourceResult = { items: CalendarItem[]; full: boolean; state?: 'ok' | 'not_set'; count?: number; code?: string | null };
@@ -148,9 +153,11 @@ export class CalendarService {
       loans: () => this.loans(input.userId, input.limit),
       earn: () => this.earn(input.userId, from, to, input.limit),
     };
+    const failing = this.deps.testFailing?.(input.userId) ?? null;
     const answers = await Promise.all(
       CALENDAR_SOURCES.map(async (source) => {
         try {
+          if (source === failing) throw new Error(`TEST switch: the ${source} source is failing for this person`);
           return { source, result: await read[source]() };
         } catch (err) {
           const code = refusalCode(err);
