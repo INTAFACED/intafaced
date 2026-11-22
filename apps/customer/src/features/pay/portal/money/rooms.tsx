@@ -86,15 +86,8 @@ export const moneyRooms: RoomTable = {
   'conversion-order': conversion,
   money: {
     header: () => ({ title: t('pageMoney'), purpose: t('purposeMoney'), action: go('/pay/payouts/new', t('actPayOut'), true) }),
-    render: (_route, { portal }) => (
-      <WithAccount>
-        {({ merchantId }) => (
-          <Requires need="payments.read">
-            <MerchantMoney portal={portal} merchantId={merchantId} />
-          </Requires>
-        )}
-      </WithAccount>
-    ),
+    ownTitle: true,
+    render: (_route, { portal }) => <MerchantMoney portal={portal} />,
   },
   'money-activity': {
     header: () => ({ title: t('pageStatement'), purpose: t('purposeStatement'), action: go('/pay/money', t('pageMoney')) }),

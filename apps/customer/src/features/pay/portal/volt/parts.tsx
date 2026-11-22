@@ -7,9 +7,11 @@
 import { useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
-import { Button, Select } from '@intafaced/ui/lit';
+import { Button, Figure, Select } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { useSaidOnce } from '../components';
+import { usePreferences } from '../../../../shared/preferences';
+import type { AssetAmount, HaltScope, HaltStatus } from '../schemas';
 import { portalCopy } from '../copy';
 import { chromeCopy } from '../chrome/copy';
 import type { AllowlistCode } from '../chrome/NotLiveCard';
@@ -23,7 +25,7 @@ import { ageSeconds } from '../ui/Freshness';
 import type { KpiTileProps } from '../ui/Kpi';
 import type { ChipKind } from '../ui/status-vocabulary';
 import { statusWords, type StatusEntity, type StatusTone } from '../ui/StatusChip';
-import { STALE_AFTER_SECONDS } from '../model';
+import { STALE_AFTER_SECONDS, activeHalts } from '../model';
 import type { TimelineEvent } from '../ui/Timeline';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -546,5 +548,94 @@ export function TestTag() {
     <span className="lt-test" title={t('testValueTip')}>
       {t('testValue')}
     </span>
+  );
+}
+
+/**
+ * A page's headline figure: the amount and its asset in the kit's hero size (`HeroNumber` on the old pages). With balances
+ * hidden it is masked, as every balance is, and read out as hidden.
+ */
+export function HeroFigure({ value, asset, testId }: { value: string; asset: string; testId?: string }) {
+  const { hideBalances } = usePreferences();
+  if (hideBalances)
+    return (
+      <span data-testid={testId} data-hidden="" aria-label="Hidden">
+        ••••
+      </span>
+    );
+  return (
+    <span data-testid={testId}>
+      <Figure
+        size="hero"
+        parts={[
+          { type: 'integer', value: formatMoney(value, asset) },
+          { type: 'literal', value: ' ' },
+          { type: 'unit', value: asset },
+        ]}
+      />
+    </span>
+  );
+}
+
+/** One line per asset (`MoneyLines` in `../components`). Two assets are never added together; none is a dash, not zero. */
+export function MoneyLines({ items, emptyLabel, test = false }: { items: readonly AssetAmount[]; emptyLabel?: string; test?: boolean }) {
+  const { t } = portalCopy.useCopy();
+  if (items.length === 0) return <span title={emptyLabel ?? t('noPaymentsInPeriod')}>—</span>;
+  return (
+    <span className="lt-lines">
+      {items.map((item) => (
+        <span key={item.assetCode}>
+          <MoneyText value={item.amount} asset={item.assetCode} test={test} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Whether `HaltNotice` has anything to say: a pause in force, or a pause store that could not be read. */
+export function haltShows(resource: Resource<HaltStatus>, scopes: readonly HaltScope[]): boolean {
+  if (resource.status === 'loading') return false;
+  if (resource.status === 'failed') return true;
+  const { unreadable, halts } = activeHalts(resource.data, scopes);
+  return unreadable || halts.length > 0;
+}
+
+/** Operation pauses (`HaltBanner` in `../components`): which operation is paused and since when. An unreadable pause store counts as paused. */
+export function HaltNotice({ resource, scopes }: { resource: Resource<HaltStatus>; scopes: readonly HaltScope[] }) {
+  const { t } = portalCopy.useCopy();
+  if (resource.status === 'loading') return null;
+  // A refused or failed read (a team member's read is refused too) is not "nothing is paused": say we could not check.
+  if (resource.status === 'failed')
+    return (
+      <p className="lt-refusal" data-refusal="unreachable" role="alert">
+        {t('haltCheckFailed', { ops: scopes.map((s) => t(`haltOpName_${s}` as 'haltOpName_intake')).join(t('haltOr')) })}
+      </p>
+    );
+  const { unreadable, halts } = activeHalts(resource.data, scopes);
+  if (unreadable)
+    return (
+      <p className="lt-refusal" data-refusal="unreachable" role="alert">
+        {t('haltUnreadable')}
+      </p>
+    );
+  if (halts.length === 0) return null;
+  return (
+    <div className="lt-refusal" data-refusal="refused" role="alert">
+      {halts.map((h) => {
+        const where =
+          h.level === 'merchant' ? t('haltYours') : h.level === 'rail' ? t('haltRail', { rail: h.railId ?? '' }) : t('haltGlobal');
+        return (
+          <p key={`${h.scope}:${h.level}:${h.railId ?? ''}`}>
+            <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {where}{' '}
+            {h.changedAt ? (
+              <>
+                {t('haltSince')} <DateTime value={h.changedAt} />.{' '}
+              </>
+            ) : null}
+            {t('haltEffect')}
+          </p>
+        );
+      })}
+    </div>
   );
 }

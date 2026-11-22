@@ -13,16 +13,11 @@ import { MoneyText } from '../ui/MoneyText';
 import { useServerList } from '../ui/useServerList';
 import { ListBody, MoneyFailure, TestBanner, useTestMode } from './common';
 import { mc } from './copy';
+import { accountWords, kindWords } from './statement-columns';
 import { defaultStatementRange, runningView, STATEMENT_MAX_DAYS, statementRangeTooWide, tieView, lineSign } from './model';
 import type { PayStatementLine as StatementLine, PayStatementPage as StatementPage } from '@intafaced/contracts/pay-portal-reads';
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
-const KNOWN_KINDS = ['payment_captured', 'fee', 'refund', 'chargeback', 'settlement', 'payout', 'reserve'] as const;
-const KNOWN_ACCOUNTS = ['clearing', 'proceeds', 'userAvailable', 'houseFees', 'payoutHold'] as const;
-export const kindWords = (t: Words, kind: string) =>
-  (KNOWN_KINDS as readonly string[]).includes(kind) ? t(`stmKind_${kind}` as 'stmKind_fee') : t('stmKind_other');
-export const accountWords = (t: Words, account: string) =>
-  (KNOWN_ACCOUNTS as readonly string[]).includes(account) ? t(`stmAccount_${account}` as 'stmAccount_clearing') : t('stmAccount_other');
 const runningOf = (l: StatementLine) =>
   l.account === 'clearing' ? l.runningClearing : l.account === 'proceeds' ? l.runningProceeds : null;
 
