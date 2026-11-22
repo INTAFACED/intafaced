@@ -377,10 +377,10 @@ test(`${J} #5 the admin approves and pays: one partner transfer; the claim close
   expect(before.amount).not.toBeNull();
   const scaled = (s) => BigInt(Math.round(Number(s) * 100));
   // The partner's own book before: the app's figure for the member is the partner's, and nothing is paid yet.
-  const business = `business:${b.accountId}`;
+  const businessAtPartner = `business:${b.accountId}`;
   const memberAtPartnerBefore = await partnerHolds(b.mem.userId);
   expect(scaled(memberAtPartnerBefore)).toBe(scaled(before.amount));
-  expect(await partnerHolds(business)).toBe(FUNDED);
+  expect(await partnerHolds(businessAtPartner)).toBe(FUNDED);
   const reimbursement = `bank.business.reimbursement:${claim.id}`;
   expect((await partnerMoves(b.mem.userId)).filter((m) => m.key === reimbursement)).toEqual([]);
 
@@ -408,12 +408,12 @@ test(`${J} #5 the admin approves and pays: one partner transfer; the claim close
   expect(paidMoves).toHaveLength(1);
   expect(paidMoves[0]).toMatchObject({
     id: paid.partnerMoveId,
-    from: { owner: business, assetId: 'USDT', spaceId: null },
+    from: { owner: businessAtPartner, assetId: 'USDT', spaceId: null },
     to: { owner: b.mem.userId, assetId: 'USDT', spaceId: null },
     amount: '42.5',
   });
-  expect((await partnerMoves(business)).filter((m) => m.key === reimbursement)).toEqual(paidMoves);
-  expect(await partnerHolds(business)).toBe('957.5');
+  expect((await partnerMoves(businessAtPartner)).filter((m) => m.key === reimbursement)).toEqual(paidMoves);
+  expect(await partnerHolds(businessAtPartner)).toBe('957.5');
 
   // The member's balance rises by exactly 42.50, as the partner reports it before and after.
   const after = ok(await b.mem.query('businessCards.overview', { accountId: b.accountId })).myBalance;
