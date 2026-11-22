@@ -1,6 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 
-// The deploy wizard (AL-live-02; J-algo-dev-06 #6 #7). Figures enter through parameters; every amount here is TEST.
+// The deploy wizard (AL-live-02, RC-algo-dev-01; J-algo-dev-06 #3 #6 #7). Figures enter through parameters; every amount here is TEST.
 const en = {
   title: 'Deploy a strategy live',
   intro:
@@ -12,6 +12,10 @@ const en = {
   versionOf: 'Version {version}',
   liveOff: 'Live trading for strategies is switched off on INTAFACED. You can run the check, and Deploy refuses until it is switched on.',
   liveOn: 'Live trading for strategies is switched on.',
+  approvalOff: 'Your account asks no approval before a strategy goes live.',
+  approvalNeeded:
+    'Version {version} needs a different member’s approval before it goes live. Ask a teammate to review it on the strategy’s page; any change to it asks again.',
+  approvalGiven: 'A different member approved version {version} as it is now.',
   check: 'Run the compile check',
   checking: 'Checking…',
   checkTitle: 'Compile check',
@@ -39,6 +43,7 @@ const en = {
   deploy: 'Deploy version {version}',
   deploying: 'Deploying…',
   refusedTitle: 'Not deployed',
+  approvalRequired: 'This version needs a different member’s approval before it goes live, so nothing was deployed and nothing was stored.',
   liveDisabled: 'Live trading for strategies is switched off on INTAFACED, so nothing was deployed and nothing was stored.',
   planUnsupported: 'This version trades by signal rules, which the live runner can’t run in this build. Nothing was stored.',
   typeUnsupported: 'This version has an order a live deploy can’t place. Nothing was stored.',
