@@ -8,9 +8,17 @@ import { Button, DataTable } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
-import { validatedMutation, railHealthSchema } from './BusinessPay';
+import { validatedMutation } from './BusinessPay';
 import * as s from './schemas';
 import { MerchantRefund } from './MerchantRefund';
+import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
+import {
+  PAY_PAYMENT_LIST,
+  PAY_PAYMENT_AUTHORIZE,
+  PAY_PAYMENT_CAPTURE,
+  PAY_PAYMENT_GET,
+  PAY_PAYMENT_HISTORY,
+} from '@intafaced/contracts/pay-payment-procedures';
 
 export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'payments' | 'disputes' | 'reports' }) {
   const merchantId = pay.authority!.merchantId;
@@ -27,10 +35,9 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
   const payments = useResource(
     (signal) =>
       pay
-        .query(
-          'payment.list',
+        .queryRecord(
+          PAY_PAYMENT_LIST,
           { merchantId, limit, ...(room === 'disputes' ? { status: 'disputed' } : status ? { status } : {}) },
-          z.object({ items: z.array(s.paymentSchema), nextCursor: z.string().nullable() }),
           signal,
         )
         .then((result) => s.listed(result)),
@@ -184,10 +191,7 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
   const [railAdapter, setRailAdapter] = useState('');
   const [customerRef, setCustomerRef] = useState('');
   const merchantId = pay.authority!.merchantId;
-  const rails = useResource(
-    (signal) => pay.query('railHealth', undefined, railHealthSchema, signal),
-    `pay:payment-create-rails:${merchantId}`,
-  );
+  const rails = useResource((signal) => pay.queryRecord(PAY_RAIL_HEALTH, undefined, signal), `pay:payment-create-rails:${merchantId}`);
   const rail =
     rails.resource.status === 'ready'
       ? rails.resource.data.find(
@@ -322,11 +326,11 @@ function PaymentDetail({
 }) {
   const [limit, setLimit] = useState(50);
   const current = useResource(
-    (signal) => pay.query('payment.get', { paymentId }, s.paymentSchema, signal),
+    (signal) => pay.queryRecord(PAY_PAYMENT_GET, { paymentId }, signal),
     `pay:payment:${pay.authority!.merchantId}:${paymentId}`,
   );
   const history = useResource(
-    (signal) => pay.query('payment.history', { paymentId, limit }, z.array(s.paymentEventSchema), signal),
+    (signal) => pay.queryRecord(PAY_PAYMENT_HISTORY, { paymentId, limit }, signal),
     `pay:payment-history:${pay.authority!.merchantId}:${paymentId}:${limit}`,
   );
   function refresh() {
@@ -370,7 +374,7 @@ function PaymentDetail({
                 <ReviewedAction
                   title={payCopy.t('authorizePayment')}
                   description={payCopy.t('askTheConnectedRailToAuthorizeThis')}
-                  perform={() => pay.mutate('payment.authorize', { paymentId }, s.paymentSchema, 'pay:write', `payment:${paymentId}`)}
+                  perform={() => pay.mutateRecord(PAY_PAYMENT_AUTHORIZE, { paymentId }, 'pay:write', `payment:${paymentId}`)}
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={refresh}
                 />
@@ -381,7 +385,7 @@ function PaymentDetail({
                   variant="primary"
                   description={payCopy.t('captureTheFullAuthorizedAmountPartialCapture')}
                   review={<PayDetails values={[[payCopy.t('capture'), `${displayAmount(payment.amount)} ${payment.assetId}`]]} />}
-                  perform={() => pay.mutate('payment.capture', { paymentId }, s.paymentSchema, 'pay:write', `payment:${paymentId}`)}
+                  perform={() => pay.mutateRecord(PAY_PAYMENT_CAPTURE, { paymentId }, 'pay:write', `payment:${paymentId}`)}
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={refresh}
                 />

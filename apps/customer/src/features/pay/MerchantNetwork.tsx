@@ -10,6 +10,12 @@ import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { validatedMutation } from './BusinessPay';
 import * as s from './schemas';
+import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET } from '@intafaced/contracts/pay-submerchant-procedures';
+import {
+  PAY_SUBMERCHANT_PERMISSION_AREAS,
+  PAY_SUBMERCHANT_PERMISSION_LIST,
+  PAY_SUBMERCHANT_PERMISSION_HISTORY,
+} from '@intafaced/contracts/pay-submerchant-permission-procedures';
 
 export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
   const merchantId = pay.authority!.merchantId;
@@ -19,11 +25,11 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
   const [feeBps, setFeeBps] = useState('');
   const [opened, setOpened] = useState('');
   const children = useResource(
-    (signal) => pay.query('submerchant.list', { merchantId: node, limit }, z.array(s.submerchantSchema), signal),
+    (signal) => pay.queryRecord(PAY_SUBMERCHANT_LIST, { merchantId: node, limit }, signal),
     `pay:network:${merchantId}:${node}:${limit}`,
   );
   const record = useResource(
-    (signal) => pay.query('submerchant.get', { merchantId: opened || node }, s.submerchantSchema, signal),
+    (signal) => pay.queryRecord(PAY_SUBMERCHANT_GET, { merchantId: opened || node }, signal),
     `pay:network-node:${merchantId}:${opened || node}`,
   );
   return (
@@ -183,15 +189,15 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
   const [reason, setReason] = useState('');
   const [limit, setLimit] = useState(50);
   const areas = useResource(
-    (signal) => pay.query('submerchantPermission.areas', undefined, z.array(z.string()), signal),
+    (signal) => pay.queryRecord(PAY_SUBMERCHANT_PERMISSION_AREAS, undefined, signal),
     `pay:permission-areas:${merchantId}`,
   );
   const grants = useResource(
-    (signal) => pay.query('submerchantPermission.list', { subjectMerchantId: subject, limit }, z.array(s.grantSchema), signal),
+    (signal) => pay.queryRecord(PAY_SUBMERCHANT_PERMISSION_LIST, { subjectMerchantId: subject, limit }, signal),
     `pay:permission-grants:${merchantId}:${subject}:${limit}`,
   );
   const history = useResource(
-    (signal) => pay.query('submerchantPermission.history', { subjectMerchantId: subject, limit }, z.array(s.permissionEventSchema), signal),
+    (signal) => pay.queryRecord(PAY_SUBMERCHANT_PERMISSION_HISTORY, { subjectMerchantId: subject, limit }, signal),
     `pay:permission-history:${merchantId}:${subject}:${limit}`,
   );
   function refresh() {

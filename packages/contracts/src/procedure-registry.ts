@@ -1128,13 +1128,49 @@ import {
   PAY_KYB_DOCUMENTS_REVIEW_VIEW,
 } from './pay-kyb-procedures.js';
 
-import { PAY_MERCHANT_STARTER_FEE, PAY_MERCHANT_ME } from './pay-merchant-procedures.js';
+import {
+  PAY_MERCHANT_STARTER_FEE,
+  PAY_MERCHANT_ME,
+  PAY_MERCHANT_BALANCES,
+  PAY_MERCHANT_LIST_LINKS,
+  PAY_MERCHANT_DEACTIVATE_LINK,
+  PAY_MERCHANT_GET_LINK,
+} from './pay-merchant-procedures.js';
 
-import { PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY } from './pay-payment-procedures.js';
+import {
+  PAY_PAYMENT_GET,
+  PAY_PAYMENT_HISTORY,
+  PAY_PAYMENT_LIST,
+  PAY_PAYMENT_AUTHORIZE,
+  PAY_PAYMENT_CAPTURE,
+} from './pay-payment-procedures.js';
+
+import { PAY_RAIL_HEALTH } from './pay-rail-health-procedures.js';
 
 import { PAY_RESOLVE_LINK } from './pay-resolve-link-procedures.js';
 
 import { PAY_SANDBOX_FUNDS_BALANCE, PAY_SANDBOX_FUNDS_FUND, PAY_SANDBOX_FUNDS_RESET } from './pay-sandbox-funds-procedures.js';
+
+import { PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE } from './pay-settlement-procedures.js';
+
+import {
+  PAY_SUBMERCHANT_PERMISSION_AREAS,
+  PAY_SUBMERCHANT_PERMISSION_LIST,
+  PAY_SUBMERCHANT_PERMISSION_HISTORY,
+} from './pay-submerchant-permission-procedures.js';
+
+import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET } from './pay-submerchant-procedures.js';
+
+import {
+  PAY_SUBSCRIPTION_LIST,
+  PAY_SUBSCRIPTION_PRODUCT_READY,
+  PAY_SUBSCRIPTION_GET,
+  PAY_SUBSCRIPTION_LIST_EXECUTIONS,
+  PAY_SUBSCRIPTION_PAUSE,
+  PAY_SUBSCRIPTION_RESUME,
+  PAY_SUBSCRIPTION_CANCEL,
+  PAY_SUBSCRIPTION_CREATE,
+} from './pay-subscription-procedures.js';
 
 import {
   PAY_WITHDRAWAL_APPROVAL_LIST,
@@ -2813,9 +2849,24 @@ const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
   PAY_KYB_DOCUMENTS_REVIEW_VIEW,
 ];
 
-const part_pay_merchant_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_STARTER_FEE, PAY_MERCHANT_ME];
+const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_STARTER_FEE,
+  PAY_MERCHANT_ME,
+  PAY_MERCHANT_BALANCES,
+  PAY_MERCHANT_LIST_LINKS,
+  PAY_MERCHANT_DEACTIVATE_LINK,
+  PAY_MERCHANT_GET_LINK,
+];
 
-const part_pay_payment_procedures: readonly ProcedureRecord[] = [PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY];
+const part_pay_payment_procedures: readonly ProcedureRecord[] = [
+  PAY_PAYMENT_GET,
+  PAY_PAYMENT_HISTORY,
+  PAY_PAYMENT_LIST,
+  PAY_PAYMENT_AUTHORIZE,
+  PAY_PAYMENT_CAPTURE,
+];
+
+const part_pay_rail_health_procedures: readonly ProcedureRecord[] = [PAY_RAIL_HEALTH];
 
 const part_pay_resolve_link_procedures: readonly ProcedureRecord[] = [PAY_RESOLVE_LINK];
 
@@ -2823,6 +2874,27 @@ const part_pay_sandbox_funds_procedures: readonly ProcedureRecord[] = [
   PAY_SANDBOX_FUNDS_BALANCE,
   PAY_SANDBOX_FUNDS_FUND,
   PAY_SANDBOX_FUNDS_RESET,
+];
+
+const part_pay_settlement_procedures: readonly ProcedureRecord[] = [PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE];
+
+const part_pay_submerchant_permission_procedures: readonly ProcedureRecord[] = [
+  PAY_SUBMERCHANT_PERMISSION_AREAS,
+  PAY_SUBMERCHANT_PERMISSION_LIST,
+  PAY_SUBMERCHANT_PERMISSION_HISTORY,
+];
+
+const part_pay_submerchant_procedures: readonly ProcedureRecord[] = [PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET];
+
+const part_pay_subscription_procedures: readonly ProcedureRecord[] = [
+  PAY_SUBSCRIPTION_LIST,
+  PAY_SUBSCRIPTION_PRODUCT_READY,
+  PAY_SUBSCRIPTION_GET,
+  PAY_SUBSCRIPTION_LIST_EXECUTIONS,
+  PAY_SUBSCRIPTION_PAUSE,
+  PAY_SUBSCRIPTION_RESUME,
+  PAY_SUBSCRIPTION_CANCEL,
+  PAY_SUBSCRIPTION_CREATE,
 ];
 
 const part_pay_withdrawal_approval_procedures: readonly ProcedureRecord[] = [
@@ -3512,8 +3584,13 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_pay_kyb_procedures,
   ...part_pay_merchant_procedures,
   ...part_pay_payment_procedures,
+  ...part_pay_rail_health_procedures,
   ...part_pay_resolve_link_procedures,
   ...part_pay_sandbox_funds_procedures,
+  ...part_pay_settlement_procedures,
+  ...part_pay_submerchant_permission_procedures,
+  ...part_pay_submerchant_procedures,
+  ...part_pay_subscription_procedures,
   ...part_pay_withdrawal_approval_procedures,
   ...part_pay_withdrawal_procedures,
   ...part_protocol_amm_procedures,
