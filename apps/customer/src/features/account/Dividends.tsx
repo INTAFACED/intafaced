@@ -110,8 +110,8 @@ export function DividendsView({
               ) : records.status === 'failed' ? (
                 <FailureBox result={records.failure} retry={retry} />
               ) : null}
-              <div tabIndex={0} role="region" aria-label={t('historyLabel')}>
-                <table className="lt-table">
+              <div>
+                <table className="lt-table" aria-label={t('historyLabel')}>
                   <thead>
                     <tr>
                       {headers.map((head, index) => (
@@ -144,13 +144,13 @@ export function DividendsView({
               </div>
             </section>
             <div className="lt-actions">
-              <a className="lt-link" href="/token">
+              <a className="lt-button lt-button-secondary" href="/token">
                 <Copy k="token" />
               </a>
-              <a className="lt-link" href="/bank/earn">
+              <a className="lt-button lt-button-secondary" href="/bank/earn">
                 <Copy k="earn" />
               </a>
-              <a className="lt-link" href="/money/activity">
+              <a className="lt-button lt-button-secondary" href="/money/activity">
                 <Copy k="activity" />
               </a>
             </div>
