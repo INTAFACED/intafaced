@@ -11,7 +11,7 @@
     "apps/customer/src/app/TopBar.tsx": 1,
     "apps/customer/src/app/TopSearch.tsx": 1,
     "apps/customer/src/features/account/AccountAppeals.tsx": 2,
-    "apps/customer/src/features/account/ApiKeyCreate.tsx": 6,
+    "apps/customer/src/features/account/ApiKeyCreate.tsx": 1,
     "apps/customer/src/features/account/ApiVersionPanel.tsx": 1,
     "apps/customer/src/features/account/Authenticator.tsx": 1,
     "apps/customer/src/features/account/Compromised.tsx": 1,
