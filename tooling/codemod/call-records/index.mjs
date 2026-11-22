@@ -29,7 +29,7 @@ import {
 } from './ast.mjs';
 import { answerFromCallers } from './answer.mjs';
 import { chainOf, procedures } from './router.mjs';
-import { closureOf, contractsExports, usedOutside } from './closure.mjs';
+import { asWritten, closureOf, contractsExports, declaresSame, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
 import { founderPartsFor } from './founder-guard.mjs';
 import { partsFor } from './guard-check.mjs';
@@ -337,7 +337,14 @@ function build(opts, planned) {
     // Two different declarations under one name (svc-bank's routers each keep their own `amountString`, some with a
     // message, some without) cannot land in one file. Keep the records whose helpers agree; the rest go back to their
     // router, named, and a rerun places them beside their own record, where the name is free.
-    const keyOfMoved = (m) => (m.q ? `${m.q.file}#${m.name}` : `inline#${m.name}`);
+    // Mid-port the router is never edited, so two of its files declaring one helper the same way (svc-agents' `idInput`
+    // in own/routes.ts and own/automation-routes.ts) give contracts one copy; elsewhere each declaration is its file's.
+    const keyOfMoved = (m) =>
+      !m.q
+        ? `inline#${m.name}`
+        : opts.callersOnly && serviceFiles([m.q.file]).length
+          ? `as written#${m.name}#${asWritten(m.text)}`
+          : `${m.q.file}#${m.name}`;
     const clashing = (moved, seen = new Map()) =>
       moved.find((m) => {
         if (seen.has(m.name) && seen.get(m.name) !== keyOfMoved(m)) return true;
@@ -378,8 +385,17 @@ function build(opts, planned) {
         ),
       );
     const taken = schemaNames.get(shared);
-    const keyOf = (m) => (m.q ? `${m.q.file}#${m.name}` : `inline#${m.name}`);
-    const fresh = closure.moved.filter((m) => !movedTo.has(keyOf(m)));
+    const keyOf = keyOfMoved;
+    // Mid-port, an earlier run already copied the router's helper into the shared file: the router still declares it, so
+    // the same text there is that copy. The record imports it; declaring it again beside the record would clash.
+    if (opts.callersOnly)
+      for (const m of closure.moved) {
+        const k = keyOf(m);
+        if (!m.q || movedTo.has(k) || taken.get(m.name) !== 'existing' || !declaresSame(shared, m.name, m.text)) continue;
+        movedTo.set(k, shared);
+        taken.set(m.name, k);
+      }
+    const fresh = [...new Map(closure.moved.filter((m) => !movedTo.has(keyOf(m))).map((m) => [keyOf(m), m])).values()];
     const clash =
       fresh.some((m) => taken.has(m.name) && taken.get(m.name) !== keyOf(m)) ||
       // A helper this group reads from a record file, under a name the shared file already gives another helper.
