@@ -116,7 +116,7 @@ function imports(source: string): Import[] {
  * for a `.ts` entry (a feature's `index.ts`), the `.tsx` each name is re-exported from, followed through every
  * `export … from` and `export * from` until it reaches one. A name defined in the `.ts` itself draws nothing here.
  */
-export function componentFiles(target: string, names: string[], seen: Set<string> = new Set()): Map<string, string[]> {
+function componentFiles(target: string, names: string[], seen: Set<string> = new Set()): Map<string, string[]> {
   const out = new Map<string, string[]>();
   const wanted = names.filter((n) => /^[A-Z]/.test(n));
   if (wanted.length === 0 || seen.has(target)) return out;
