@@ -102,8 +102,14 @@ import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 import { bankLabels, bankRoomHref, bankRooms } from './bank-frame/bank-rooms';
 import { BANK_ANALYTICS_SPEND } from '@intafaced/contracts/bank-analytics-procedures';
-import { BANK_SPACES_UNNAMED } from '@intafaced/contracts/bank-spaces-procedures';
-import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_SPACES_UNNAMED, BANK_SPACES_ARCHIVE } from '@intafaced/contracts/bank-spaces-procedures';
+import {
+  BANK_TRANSFERS_LIST_SCHEDULES,
+  BANK_TRANSFERS_CANCEL,
+  BANK_TRANSFERS_TO_USER,
+} from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
+import { BANK_SPACES_CREATE } from '@intafaced/contracts/bank-spaces-2-procedures';
 
 export function BankNavigation({ current }: { current: string }) {
   return (
@@ -169,7 +175,7 @@ function SpaceActions({ space, open }: { space: Space; open: (spec: ActionSpec) 
           onClick={() =>
             open({
               title: copyText('rooms.archive.space'),
-              procedure: 'spaces.archive',
+              record: BANK_SPACES_ARCHIVE,
               facts: [
                 [copyText('rooms.space'), space.name],
                 [copyText('rooms.available.quantity'), amount(space.balance, space.assetId)],
@@ -201,7 +207,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
   const create = () =>
     open({
       title: copyText('rooms.create.space'),
-      procedure: 'spaces.create',
+      record: BANK_SPACES_CREATE,
       fields: [
         assetSelectField(depthCopy.t('assetPicker'), depthCopy.t('assetPickerHint'), heldAssets),
         {
@@ -383,7 +389,7 @@ function ScheduleActions({
               onClick={() =>
                 protectedOpen({
                   title: copyText('rooms.edit.standing.order'),
-                  procedure: 'transfers.updateSchedule',
+                  record: BANK_TRANSFERS_UPDATE_SCHEDULE,
                   fields: [positiveMoney(row.assetId), ...(row.cadence === 'once' ? [] : [endsField])],
                   initial: { amount: row.amount, ...(row.endsAt ? { endsAt: localInput(row.endsAt) } : {}) },
                   formFacts: [[copyText('rooms.revision'), String(row.revision)]],
@@ -442,7 +448,7 @@ function ScheduleActions({
             onClick={() =>
               protectedOpen({
                 title: copyText('rooms.cancel.standing.order'),
-                procedure: 'transfers.cancel',
+                record: BANK_TRANSFERS_CANCEL,
                 notes: [copyText('rooms.cancel.future.occurrences.this.does.not.reverse')],
                 facts: [[copyText('rooms.schedule'), row.id]],
                 input: () => ({ scheduleId: row.id }),
@@ -748,13 +754,13 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                       if (destination === 'user' && !recipient) return;
                       open({
                         title: scheduled ? copyText('rooms.schedule.transfer') : copyText('rooms.transfer'),
-                        procedure: scheduled
+                        ...(scheduled
                           ? destination === 'space'
-                            ? 'transfers.schedule'
-                            : 'transfers.scheduleToUser'
+                            ? { record: BANK_TRANSFERS_SCHEDULE }
+                            : { procedure: 'transfers.scheduleToUser' as const }
                           : destination === 'space'
-                            ? 'transfers.create'
-                            : 'transfers.toUser',
+                            ? { procedure: 'transfers.create' as const }
+                            : { record: BANK_TRANSFERS_TO_USER }),
                         initial: { fromSpaceId: from.id },
                         fields: [
                           ...(destination === 'space'

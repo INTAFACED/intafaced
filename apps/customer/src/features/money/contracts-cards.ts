@@ -153,21 +153,10 @@ const cardDisputeFormSchema = z.object({
 });
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const cardsReads = {
-  'cards.disputes.form': cardDisputeFormSchema,
-  'cards.disputes.list': z.array(cardDisputeCaseSchema.omit({ events: true })),
-  'cards.disputes.get': cardDisputeCaseSchema,
-} as const;
+export const cardsReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const cardsWrites = {
-  'cards.setStatus': z.object({ id: z.string(), status: z.string() }),
-  'cards.issue': cardSchema,
-  'cards.setLimits': cardSchema,
-  'cards.setChannels': cardSchema,
   'cards.controls.block': cardControlsSchema,
   'cards.controls.lift': cardControlsSchema,
-  'cards.disputes.open': cardDisputeCaseSchema,
-  'cards.disputes.evidence': cardDisputeCaseSchema,
-  'cards.disputes.withdraw': cardDisputeCaseSchema,
 } as const;

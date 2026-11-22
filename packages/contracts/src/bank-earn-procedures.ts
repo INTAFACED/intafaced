@@ -216,3 +216,22 @@ export const BANK_EARN_INTEREST_HISTORY = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/**
+ * A fixed-term saving's auto-renew choice (BK-earn-03, J-bank-08 #4): on, a new term of the same length and amount
+ * starts when this one ends; off, the saving can be taken back once the term ends.
+ */
+export const BANK_EARN_SET_AUTO_RENEW = defineProcedure({
+  ...base,
+  name: 'bank.earn.setAutoRenew',
+  kind: 'mutation',
+  path: 'earn.setAutoRenew',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ positionId: z.string().guid(), on: z.boolean() }),
+  output: z.object({ positionId: z.string(), autoRenew: z.boolean(), maturesAt: z.string().nullable() }),
+  samples: [
+    { verdict: 'accept', input: { positionId: '11111111-1111-4111-8111-111111111111', on: true } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

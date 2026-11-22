@@ -1299,6 +1299,419 @@
         }
       ]
     },
+    "bank.autoInvest.createDca": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "autoInvest.createDca",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spendAssetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "buyAssetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "cadence": {
+            "type": "string",
+            "enum": ["daily", "weekly", "monthly"]
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["spendAssetId", "buyAssetId", "amount", "cadence", "startsAt"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["threshold_sweep", "dca", "card_roundup"]
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetPoolId": {
+            "type": ["string", "null"]
+          },
+          "targetSpaceId": {
+            "type": ["string", "null"]
+          },
+          "buyAssetId": {
+            "type": ["string", "null"]
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cadence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["daily", "weekly", "monthly"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextRunAt": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "cancelled"]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "assetId",
+          "threshold",
+          "targetPoolId",
+          "targetSpaceId",
+          "buyAssetId",
+          "amount",
+          "cadence",
+          "nextRunAt",
+          "status",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spendAssetId": "USDC",
+            "buyAssetId": "USDC",
+            "amount": "1",
+            "cadence": "daily",
+            "startsAt": "2026-01-01T00:00:00.000Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.autoInvest.createRoundUp": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "autoInvest.createRoundUp",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "granularity": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "targetPoolId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "targetSpaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "buyAssetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          }
+        },
+        "required": ["assetId", "granularity"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["threshold_sweep", "dca", "card_roundup"]
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetPoolId": {
+            "type": ["string", "null"]
+          },
+          "targetSpaceId": {
+            "type": ["string", "null"]
+          },
+          "buyAssetId": {
+            "type": ["string", "null"]
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cadence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["daily", "weekly", "monthly"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextRunAt": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "cancelled"]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "assetId",
+          "threshold",
+          "targetPoolId",
+          "targetSpaceId",
+          "buyAssetId",
+          "amount",
+          "cadence",
+          "nextRunAt",
+          "status",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "granularity": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.autoInvest.createThresholdSweep": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "autoInvest.createThresholdSweep",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "threshold": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "targetPoolId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["assetId", "threshold", "targetPoolId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["threshold_sweep", "dca", "card_roundup"]
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetPoolId": {
+            "type": ["string", "null"]
+          },
+          "targetSpaceId": {
+            "type": ["string", "null"]
+          },
+          "buyAssetId": {
+            "type": ["string", "null"]
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cadence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["daily", "weekly", "monthly"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextRunAt": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "cancelled"]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "assetId",
+          "threshold",
+          "targetPoolId",
+          "targetSpaceId",
+          "buyAssetId",
+          "amount",
+          "cadence",
+          "nextRunAt",
+          "status",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "threshold": "1",
+            "targetPoolId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.autoInvest.list": {
       "service": "svc-bank",
       "module": "bank",
@@ -1640,6 +2053,158 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "bank.business.addMember": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "business.addMember",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "maker", "checker", "signer", "editor", "viewer", "security_auditor", "non_signing_admin"]
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["accountId", "userId", "role"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "maker", "checker", "signer", "editor", "viewer", "security_auditor", "non_signing_admin"]
+          }
+        },
+        "required": ["accountId", "userId", "role"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "11111111-1111-4111-8111-111111111111",
+            "userId": "USDC",
+            "role": "admin"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.business.create": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "business.create",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "spendThreshold": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["accountId", "name", "assetId", "spendThreshold"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "spendThreshold": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "closed"]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "assetId", "spendThreshold", "status", "createdAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "11111111-1111-4111-8111-111111111111",
+            "name": "USDC",
+            "assetId": "USDC",
+            "spendThreshold": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -1996,6 +2561,237 @@
         }
       ]
     },
+    "bank.business.proposeTransfer": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "business.proposeTransfer",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "fromSpaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "toSpaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "clientId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["accountId", "fromSpaceId", "toSpaceId", "amount", "clientId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "posted"
+              },
+              "transferId": {
+                "type": "string"
+              },
+              "ledgerTxId": {
+                "type": "string"
+              }
+            },
+            "required": ["kind", "transferId", "ledgerTxId"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "pending"
+              },
+              "approval": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "accountId": {
+                    "type": "string"
+                  },
+                  "makerUserId": {
+                    "type": "string"
+                  },
+                  "checkerUserId": {
+                    "type": ["string", "null"]
+                  },
+                  "fromSpaceId": {
+                    "type": "string"
+                  },
+                  "toSpaceId": {
+                    "type": "string"
+                  },
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": ["pending", "approved", "rejected", "cancelled"]
+                  },
+                  "transferId": {
+                    "type": ["string", "null"]
+                  },
+                  "holdLedgerTxId": {
+                    "type": ["string", "null"]
+                  },
+                  "ledgerTxId": {
+                    "type": ["string", "null"]
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "accountId",
+                  "makerUserId",
+                  "checkerUserId",
+                  "fromSpaceId",
+                  "toSpaceId",
+                  "assetId",
+                  "amount",
+                  "status",
+                  "transferId",
+                  "holdLedgerTxId",
+                  "ledgerTxId",
+                  "createdAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": ["kind", "approval"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "11111111-1111-4111-8111-111111111111",
+            "fromSpaceId": "11111111-1111-4111-8111-111111111111",
+            "toSpaceId": "11111111-1111-4111-8111-111111111111",
+            "amount": "1",
+            "clientId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.business.removeMember": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "business.removeMember",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["accountId", "userId", "requestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["accountId", "userId", "removed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "11111111-1111-4111-8111-111111111111",
+            "userId": "USDC",
+            "requestId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.business.resolveRecipientSpace": {
       "service": "svc-bank",
       "module": "bank",
@@ -2084,6 +2880,205 @@
           "input": {
             "accountId": "11111111-1111-4111-8111-111111111111",
             "assetId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.business.runPayroll": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "business.runPayroll",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "payrollId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "fromSpaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "recipients": {
+            "minItems": 1,
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "toSpaceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["toSpaceId", "amount"]
+            }
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["payrollId", "accountId", "fromSpaceId", "recipients"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "payrollId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "fromSpaceId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "ledgerTxId": {
+            "type": "string"
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "toSpaceId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["toSpaceId", "amount"],
+              "additionalProperties": false
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["payrollId", "accountId", "fromSpaceId", "assetId", "ledgerTxId", "recipients", "createdAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "payrollId": "11111111-1111-4111-8111-111111111111",
+            "accountId": "11111111-1111-4111-8111-111111111111",
+            "fromSpaceId": "11111111-1111-4111-8111-111111111111",
+            "recipients": [
+              {
+                "toSpaceId": "11111111-1111-4111-8111-111111111111",
+                "amount": "1"
+              }
+            ]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.business.setMemberRole": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "business.setMemberRole",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "maker", "checker", "signer", "editor", "viewer", "security_auditor", "non_signing_admin"]
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["accountId", "userId", "role", "requestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "maker", "checker", "signer", "editor", "viewer", "security_auditor", "non_signing_admin"]
+          }
+        },
+        "required": ["accountId", "userId", "role"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "11111111-1111-4111-8111-111111111111",
+            "userId": "USDC",
+            "role": "admin",
+            "requestId": "11111111-1111-4111-8111-111111111111"
           }
         },
         {
@@ -3978,6 +4973,1122 @@
         }
       ]
     },
+    "bank.cards.disputes.evidence": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "cards.disputes.evidence",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "disputeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": ["disputeId", "description"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "authorizationRef": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["opened", "representment", "arbitration", "closed"]
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "provisionalCredit": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": ["none", "asked", "credited"]
+              },
+              "amount": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "partnerRef": {
+                "type": ["string", "null"]
+              },
+              "at": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["state", "amount", "partnerRef", "at"],
+            "additionalProperties": false
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "enum": ["cardholder", "merchant", "withdrawn"]
+                  },
+                  "reason": {
+                    "type": ["string", "null"]
+                  },
+                  "creditSettlement": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["final", "reversed"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "creditSettlementPartnerRef": {
+                    "type": ["string", "null"]
+                  },
+                  "closedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["outcome", "reason", "creditSettlement", "creditSettlementPartnerRef", "closedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["opened", "evidence", "representment", "arbitration", "provisional_credit", "closed"]
+                },
+                "fromState": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["opened", "representment", "arbitration", "closed"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "toState": {
+                  "type": "string",
+                  "enum": ["opened", "representment", "arbitration", "closed"]
+                },
+                "by": {
+                  "type": "string",
+                  "enum": ["you", "support"]
+                },
+                "detail": {
+                  "type": ["string", "null"]
+                },
+                "afterSubmission": {
+                  "type": "boolean"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["sequence", "kind", "fromState", "toState", "by", "detail", "afterSubmission", "at"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "authorizationRef",
+          "assetId",
+          "amount",
+          "reason",
+          "state",
+          "test",
+          "provisionalCredit",
+          "decision",
+          "createdAt",
+          "events"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "disputeId": "11111111-1111-4111-8111-111111111111",
+            "description": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.cards.disputes.form": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "cards.disputes.form",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "authorizationRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["cardId", "authorizationRef"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "test": {
+            "type": "boolean"
+          },
+          "rules": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "windowDays": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "evidenceAfterSubmission": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["windowDays", "evidenceAfterSubmission"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "charge": {
+            "type": "object",
+            "properties": {
+              "authorizationRef": {
+                "type": "string"
+              },
+              "assetId": {
+                "type": "string"
+              },
+              "merchant": {
+                "type": ["string", "null"]
+              },
+              "captured": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "disputable": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "settledAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["authorizationRef", "assetId", "merchant", "captured", "disputable", "settledAt"],
+            "additionalProperties": false
+          },
+          "deadline": {
+            "type": ["string", "null"]
+          },
+          "standing": {
+            "type": "string",
+            "enum": ["disputable", "declined", "not_settled", "refunded", "already_disputed", "window_closed", "rules_unset"]
+          },
+          "disputeId": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["test", "rules", "charge", "deadline", "standing", "disputeId"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "cardId": "11111111-1111-4111-8111-111111111111",
+            "authorizationRef": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.cards.disputes.get": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "cards.disputes.get",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "disputeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["disputeId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "authorizationRef": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["opened", "representment", "arbitration", "closed"]
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "provisionalCredit": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": ["none", "asked", "credited"]
+              },
+              "amount": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "partnerRef": {
+                "type": ["string", "null"]
+              },
+              "at": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["state", "amount", "partnerRef", "at"],
+            "additionalProperties": false
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "enum": ["cardholder", "merchant", "withdrawn"]
+                  },
+                  "reason": {
+                    "type": ["string", "null"]
+                  },
+                  "creditSettlement": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["final", "reversed"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "creditSettlementPartnerRef": {
+                    "type": ["string", "null"]
+                  },
+                  "closedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["outcome", "reason", "creditSettlement", "creditSettlementPartnerRef", "closedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["opened", "evidence", "representment", "arbitration", "provisional_credit", "closed"]
+                },
+                "fromState": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["opened", "representment", "arbitration", "closed"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "toState": {
+                  "type": "string",
+                  "enum": ["opened", "representment", "arbitration", "closed"]
+                },
+                "by": {
+                  "type": "string",
+                  "enum": ["you", "support"]
+                },
+                "detail": {
+                  "type": ["string", "null"]
+                },
+                "afterSubmission": {
+                  "type": "boolean"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["sequence", "kind", "fromState", "toState", "by", "detail", "afterSubmission", "at"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "authorizationRef",
+          "assetId",
+          "amount",
+          "reason",
+          "state",
+          "test",
+          "provisionalCredit",
+          "decision",
+          "createdAt",
+          "events"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "disputeId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.cards.disputes.list": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "cards.disputes.list",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["cardId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "cardId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "authorizationRef": {
+              "type": "string"
+            },
+            "assetId": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": ["opened", "representment", "arbitration", "closed"]
+            },
+            "test": {
+              "type": "boolean"
+            },
+            "provisionalCredit": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "enum": ["none", "asked", "credited"]
+                },
+                "amount": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "partnerRef": {
+                  "type": ["string", "null"]
+                },
+                "at": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["state", "amount", "partnerRef", "at"],
+              "additionalProperties": false
+            },
+            "decision": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "outcome": {
+                      "type": "string",
+                      "enum": ["cardholder", "merchant", "withdrawn"]
+                    },
+                    "reason": {
+                      "type": ["string", "null"]
+                    },
+                    "creditSettlement": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["final", "reversed"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "creditSettlementPartnerRef": {
+                      "type": ["string", "null"]
+                    },
+                    "closedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["outcome", "reason", "creditSettlement", "creditSettlementPartnerRef", "closedAt"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "cardId",
+            "authorizationRef",
+            "assetId",
+            "amount",
+            "reason",
+            "state",
+            "test",
+            "provisionalCredit",
+            "decision",
+            "createdAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "cardId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.cards.disputes.open": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "cards.disputes.open",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "authorizationRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "amount": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["cardId", "authorizationRef", "amount", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "authorizationRef": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["opened", "representment", "arbitration", "closed"]
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "provisionalCredit": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": ["none", "asked", "credited"]
+              },
+              "amount": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "partnerRef": {
+                "type": ["string", "null"]
+              },
+              "at": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["state", "amount", "partnerRef", "at"],
+            "additionalProperties": false
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "enum": ["cardholder", "merchant", "withdrawn"]
+                  },
+                  "reason": {
+                    "type": ["string", "null"]
+                  },
+                  "creditSettlement": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["final", "reversed"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "creditSettlementPartnerRef": {
+                    "type": ["string", "null"]
+                  },
+                  "closedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["outcome", "reason", "creditSettlement", "creditSettlementPartnerRef", "closedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["opened", "evidence", "representment", "arbitration", "provisional_credit", "closed"]
+                },
+                "fromState": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["opened", "representment", "arbitration", "closed"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "toState": {
+                  "type": "string",
+                  "enum": ["opened", "representment", "arbitration", "closed"]
+                },
+                "by": {
+                  "type": "string",
+                  "enum": ["you", "support"]
+                },
+                "detail": {
+                  "type": ["string", "null"]
+                },
+                "afterSubmission": {
+                  "type": "boolean"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["sequence", "kind", "fromState", "toState", "by", "detail", "afterSubmission", "at"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "authorizationRef",
+          "assetId",
+          "amount",
+          "reason",
+          "state",
+          "test",
+          "provisionalCredit",
+          "decision",
+          "createdAt",
+          "events"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "cardId": "11111111-1111-4111-8111-111111111111",
+            "authorizationRef": "USDC",
+            "amount": "USDC",
+            "reason": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.cards.disputes.withdraw": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "cards.disputes.withdraw",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "disputeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["disputeId", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "authorizationRef": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["opened", "representment", "arbitration", "closed"]
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "provisionalCredit": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": ["none", "asked", "credited"]
+              },
+              "amount": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "partnerRef": {
+                "type": ["string", "null"]
+              },
+              "at": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["state", "amount", "partnerRef", "at"],
+            "additionalProperties": false
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "enum": ["cardholder", "merchant", "withdrawn"]
+                  },
+                  "reason": {
+                    "type": ["string", "null"]
+                  },
+                  "creditSettlement": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["final", "reversed"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "creditSettlementPartnerRef": {
+                    "type": ["string", "null"]
+                  },
+                  "closedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["outcome", "reason", "creditSettlement", "creditSettlementPartnerRef", "closedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["opened", "evidence", "representment", "arbitration", "provisional_credit", "closed"]
+                },
+                "fromState": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["opened", "representment", "arbitration", "closed"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "toState": {
+                  "type": "string",
+                  "enum": ["opened", "representment", "arbitration", "closed"]
+                },
+                "by": {
+                  "type": "string",
+                  "enum": ["you", "support"]
+                },
+                "detail": {
+                  "type": ["string", "null"]
+                },
+                "afterSubmission": {
+                  "type": "boolean"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["sequence", "kind", "fromState", "toState", "by", "detail", "afterSubmission", "at"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "authorizationRef",
+          "assetId",
+          "amount",
+          "reason",
+          "state",
+          "test",
+          "provisionalCredit",
+          "decision",
+          "createdAt",
+          "events"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "disputeId": "11111111-1111-4111-8111-111111111111",
+            "reason": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.cards.fraud.list": {
       "service": "svc-bank",
       "module": "bank",
@@ -4108,6 +6219,282 @@
           "input": {
             "cardId": "11111111-1111-4111-8111-111111111111",
             "authorizationId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.cards.issue": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "cards.issue",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "settlementAssetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "cashbackBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "perAuthorizationLimit": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "cardType": {
+            "type": "string",
+            "enum": ["virtual", "physical"]
+          },
+          "shippingAddress": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "line1": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "line2": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "city": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "region": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "postalCode": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              },
+              "country": {
+                "type": "string",
+                "pattern": "^[A-Za-z]{2}$"
+              }
+            },
+            "required": ["name", "line1", "city", "postalCode", "country"]
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["cardId", "assetId", "perAuthorizationLimit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "settlementAssetId": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "simulated": {
+            "type": "boolean"
+          },
+          "panTail": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "inactive", "frozen", "closed"]
+          },
+          "cashbackBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "perAuthorizationLimit": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "dailyLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "monthlyLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cashLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "contactless": {
+            "type": "boolean"
+          },
+          "atm": {
+            "type": "boolean"
+          },
+          "abroad": {
+            "type": "boolean"
+          },
+          "cardType": {
+            "type": "string",
+            "enum": ["virtual", "physical"]
+          },
+          "shippingAddress": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "line1": {
+                    "type": "string"
+                  },
+                  "line2": {
+                    "type": ["string", "null"]
+                  },
+                  "city": {
+                    "type": "string"
+                  },
+                  "region": {
+                    "type": ["string", "null"]
+                  },
+                  "postalCode": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "line1", "line2", "city", "region", "postalCode", "country"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "usesAllowed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "designId": {
+            "type": ["string", "null"]
+          },
+          "deliverySpeed": {
+            "type": ["string", "null"]
+          },
+          "replacesCardId": {
+            "type": ["string", "null"]
+          },
+          "replacedByCardId": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "assetId",
+          "settlementAssetId",
+          "issuer",
+          "simulated",
+          "panTail",
+          "status",
+          "cashbackBps",
+          "perAuthorizationLimit",
+          "dailyLimit",
+          "monthlyLimit",
+          "cashLimit",
+          "online",
+          "contactless",
+          "atm",
+          "abroad",
+          "cardType",
+          "shippingAddress",
+          "usesAllowed",
+          "designId",
+          "deliverySpeed",
+          "replacesCardId",
+          "replacedByCardId"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "cardId": "11111111-1111-4111-8111-111111111111",
+            "assetId": "USDC",
+            "perAuthorizationLimit": "1"
           }
         },
         {
@@ -5493,6 +7880,493 @@
         }
       ]
     },
+    "bank.cards.setChannels": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "cards.setChannels",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "contactless": {
+            "type": "boolean"
+          },
+          "atm": {
+            "type": "boolean"
+          },
+          "abroad": {
+            "type": "boolean"
+          }
+        },
+        "required": ["cardId", "commandId", "online", "contactless", "atm", "abroad"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "settlementAssetId": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "simulated": {
+            "type": "boolean"
+          },
+          "panTail": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "inactive", "frozen", "closed"]
+          },
+          "cashbackBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "perAuthorizationLimit": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "dailyLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "monthlyLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cashLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "contactless": {
+            "type": "boolean"
+          },
+          "atm": {
+            "type": "boolean"
+          },
+          "abroad": {
+            "type": "boolean"
+          },
+          "cardType": {
+            "type": "string",
+            "enum": ["virtual", "physical"]
+          },
+          "shippingAddress": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "line1": {
+                    "type": "string"
+                  },
+                  "line2": {
+                    "type": ["string", "null"]
+                  },
+                  "city": {
+                    "type": "string"
+                  },
+                  "region": {
+                    "type": ["string", "null"]
+                  },
+                  "postalCode": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "line1", "line2", "city", "region", "postalCode", "country"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "usesAllowed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "designId": {
+            "type": ["string", "null"]
+          },
+          "deliverySpeed": {
+            "type": ["string", "null"]
+          },
+          "replacesCardId": {
+            "type": ["string", "null"]
+          },
+          "replacedByCardId": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "assetId",
+          "settlementAssetId",
+          "issuer",
+          "simulated",
+          "panTail",
+          "status",
+          "cashbackBps",
+          "perAuthorizationLimit",
+          "dailyLimit",
+          "monthlyLimit",
+          "cashLimit",
+          "online",
+          "contactless",
+          "atm",
+          "abroad",
+          "cardType",
+          "shippingAddress",
+          "usesAllowed",
+          "designId",
+          "deliverySpeed",
+          "replacesCardId",
+          "replacedByCardId"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "cardId": "11111111-1111-4111-8111-111111111111",
+            "commandId": "11111111-1111-4111-8111-111111111111",
+            "online": true,
+            "contactless": true,
+            "atm": true,
+            "abroad": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.cards.setLimits": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "cards.setLimits",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "perAuthorizationLimit": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "dailyLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "monthlyLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cashLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["cardId", "commandId", "perAuthorizationLimit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "settlementAssetId": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "simulated": {
+            "type": "boolean"
+          },
+          "panTail": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "inactive", "frozen", "closed"]
+          },
+          "cashbackBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "perAuthorizationLimit": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "dailyLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "monthlyLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cashLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "contactless": {
+            "type": "boolean"
+          },
+          "atm": {
+            "type": "boolean"
+          },
+          "abroad": {
+            "type": "boolean"
+          },
+          "cardType": {
+            "type": "string",
+            "enum": ["virtual", "physical"]
+          },
+          "shippingAddress": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "line1": {
+                    "type": "string"
+                  },
+                  "line2": {
+                    "type": ["string", "null"]
+                  },
+                  "city": {
+                    "type": "string"
+                  },
+                  "region": {
+                    "type": ["string", "null"]
+                  },
+                  "postalCode": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "line1", "line2", "city", "region", "postalCode", "country"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "usesAllowed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "designId": {
+            "type": ["string", "null"]
+          },
+          "deliverySpeed": {
+            "type": ["string", "null"]
+          },
+          "replacesCardId": {
+            "type": ["string", "null"]
+          },
+          "replacedByCardId": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "assetId",
+          "settlementAssetId",
+          "issuer",
+          "simulated",
+          "panTail",
+          "status",
+          "cashbackBps",
+          "perAuthorizationLimit",
+          "dailyLimit",
+          "monthlyLimit",
+          "cashLimit",
+          "online",
+          "contactless",
+          "atm",
+          "abroad",
+          "cardType",
+          "shippingAddress",
+          "usesAllowed",
+          "designId",
+          "deliverySpeed",
+          "replacesCardId",
+          "replacedByCardId"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "cardId": "11111111-1111-4111-8111-111111111111",
+            "commandId": "11111111-1111-4111-8111-111111111111",
+            "perAuthorizationLimit": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.cards.setPayFromOrder": {
       "service": "svc-bank",
       "module": "bank",
@@ -5614,6 +8488,67 @@
           "verdict": "accept",
           "input": {
             "assetIds": ["USDC"]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.cards.setStatus": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "cards.setStatus",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "frozen", "closed"]
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["cardId", "status"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "status"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "cardId": "11111111-1111-4111-8111-111111111111",
+            "status": "active"
           }
         },
         {
@@ -9667,6 +12602,68 @@
         }
       ]
     },
+    "bank.earn.deposit": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "earn.deposit",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "poolId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "positionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["poolId", "amount", "positionId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "positionId": {
+            "type": "string"
+          },
+          "maturesAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["positionId", "maturesAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "poolId": "11111111-1111-4111-8111-111111111111",
+            "amount": "1",
+            "positionId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.earn.interestHistory": {
       "service": "svc-bank",
       "module": "bank",
@@ -10377,6 +13374,126 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "bank.earn.setAutoRenew": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "earn.setAutoRenew",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "positionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "on": {
+            "type": "boolean"
+          }
+        },
+        "required": ["positionId", "on"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "positionId": {
+            "type": "string"
+          },
+          "autoRenew": {
+            "type": "boolean"
+          },
+          "maturesAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["positionId", "autoRenew", "maturesAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "positionId": "11111111-1111-4111-8111-111111111111",
+            "on": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.earn.withdraw": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "earn.withdraw",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "positionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "unbond": {
+            "type": "boolean"
+          }
+        },
+        "required": ["positionId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "positionId": {
+            "type": "string"
+          },
+          "principal": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["closed", "unbonding"]
+          },
+          "unbondsAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["positionId", "principal", "status", "unbondsAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "positionId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -14067,6 +17184,107 @@
         }
       ]
     },
+    "bank.loans.fees": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "loans.fees",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "principal": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["productId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "origination": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "not_set"
+                  }
+                },
+                "required": ["status"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "published"
+                  },
+                  "bps": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "amount": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "collectable": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["status", "bps", "amount", "collectable"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["productId", "assetId", "origination"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "productId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.loans.health": {
       "service": "svc-bank",
       "module": "bank",
@@ -14130,6 +17348,221 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "bank.loans.interestRows": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "loans.interestRows",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["loanId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "rateBps": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "basis": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "interest": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["date", "rateBps", "basis", "interest"],
+              "additionalProperties": false
+            }
+          },
+          "earlierDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "corrections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "at", "amount", "reason"],
+              "additionalProperties": false
+            }
+          },
+          "accrued": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "corrected": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+          },
+          "paid": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "owed": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["loanId", "assetId", "days", "earlierDays", "corrections", "accrued", "corrected", "paid", "owed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "loanId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.loans.ledgerCheck": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "loans.ledgerCheck",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["loanId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["agrees", "differs", "pending"]
+          },
+          "checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pending": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "collateralHeld": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "collateralExpected": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+          },
+          "mismatches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "problem": {
+                  "type": "string"
+                }
+              },
+              "required": ["kind", "ref", "problem"],
+              "additionalProperties": false
+            }
+          },
+          "checkedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["loanId", "status", "checked", "pending", "collateralHeld", "collateralExpected", "mismatches", "checkedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "loanId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -14290,6 +17723,80 @@
         }
       ]
     },
+    "bank.loans.payoffQuote": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "loans.payoffQuote",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["loanId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string"
+          },
+          "principal": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "interest": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "fee": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "interestThrough": {
+            "type": "string"
+          },
+          "validUntil": {
+            "type": "string"
+          }
+        },
+        "required": ["loanId", "principal", "interest", "fee", "total", "assetId", "interestThrough", "validUntil"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "loanId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.loans.products": {
       "service": "svc-bank",
       "module": "bank",
@@ -14403,6 +17910,246 @@
         }
       ]
     },
+    "bank.loans.projection": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "loans.projection",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 366
+          },
+          "extraRepayment": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["loanId", "days"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "const": "projection"
+          },
+          "obligation": {
+            "type": "boolean",
+            "const": false
+          },
+          "aprBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "days": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "openingPrincipal": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "openingInterest": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "extraApplied": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "interest": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "principal": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "debt": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["date", "basis", "interest", "principal", "debt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["loanId", "kind", "obligation", "aprBps", "days", "openingPrincipal", "openingInterest", "extraApplied", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "loanId": "11111111-1111-4111-8111-111111111111",
+            "days": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.loans.quote": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "loans.quote",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "principal": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["productId", "principal"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "debtAssetId": {
+            "type": "string"
+          },
+          "collateralAssetId": {
+            "type": "string"
+          },
+          "quoteAssetId": {
+            "type": "string"
+          },
+          "principal": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "requiredCollateral": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "startingLtvBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "maxLtvBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "liquidationLtvBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "liquidationPrice": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "debtPrice": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "collateralPrice": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "pricedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId",
+          "debtAssetId",
+          "collateralAssetId",
+          "quoteAssetId",
+          "principal",
+          "requiredCollateral",
+          "startingLtvBps",
+          "maxLtvBps",
+          "liquidationLtvBps",
+          "liquidationPrice",
+          "debtPrice",
+          "collateralPrice",
+          "pricedAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "productId": "11111111-1111-4111-8111-111111111111",
+            "principal": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.loans.releasable": {
       "service": "svc-bank",
       "module": "bank",
@@ -14462,6 +18209,337 @@
           "input": {
             "loanId": "11111111-1111-4111-8111-111111111111"
           }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.loans.statement": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "loans.statement",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["loanId", "from", "to"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "const": "csv"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "const": "text/csv; charset=utf-8"
+          },
+          "bodyBase64": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "rowCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "provisional": {
+            "type": "boolean"
+          },
+          "openingPrincipal": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "openingInterest": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "closingPrincipal": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "closingInterest": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "generatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "format",
+          "filename",
+          "contentType",
+          "bodyBase64",
+          "sha256",
+          "signature",
+          "rowCount",
+          "provisional",
+          "openingPrincipal",
+          "openingInterest",
+          "closingPrincipal",
+          "closingInterest",
+          "generatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "loanId": "11111111-1111-4111-8111-111111111111",
+            "from": "2026-01-01T00:00:00.000Z",
+            "to": "2026-01-01T00:00:00.000Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.loans.terms": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "loans.terms",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["loanId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "loanId": {
+            "type": "string"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "debtAssetId": {
+            "type": "string"
+          },
+          "collateralAssetId": {
+            "type": "string"
+          },
+          "principal": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "openingCollateral": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "aprBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "marginCallLtvBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "liquidationLtvBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "openedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loanId",
+          "productId",
+          "debtAssetId",
+          "collateralAssetId",
+          "principal",
+          "openingCollateral",
+          "aprBps",
+          "marginCallLtvBps",
+          "liquidationLtvBps",
+          "openedAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "loanId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.ops.businessApprovals": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.businessApprovals",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "rejected", "cancelled"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "approvals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "businessId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "ageSeconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "makerHandle": {
+                  "type": ["string", "null"]
+                },
+                "makerHandleReason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["handle_unresolved"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rule": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["businessId", "amount", "assetId", "ageSeconds", "makerHandle", "makerHandleReason", "rule"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["approvals", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
         },
         {
           "verdict": "refuse",
@@ -14972,6 +19050,101 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "bank.ops.cardProgramme": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.cardProgramme",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "simulated": {
+            "type": "boolean"
+          },
+          "issued": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "active": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "frozen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "string"
+                },
+                "volume": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "assetId": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      }
+                    },
+                    "required": ["assetId", "amount"],
+                    "additionalProperties": false
+                  }
+                },
+                "declines": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["day", "volume", "declines"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["simulated", "issued", "active", "frozen", "days"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -15547,6 +19720,225 @@
         }
       ]
     },
+    "bank.ops.cardProgrammeFunding": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.cardProgrammeFunding",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "test": {
+            "type": "boolean"
+          },
+          "fundingAssetId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "offers": {
+            "type": "object",
+            "properties": {
+              "fund": {
+                "type": "string",
+                "enum": ["offered", "not_offered", "not_known"]
+              },
+              "defund": {
+                "type": "string",
+                "enum": ["offered", "not_offered", "not_known"]
+              },
+              "auto_reload": {
+                "type": "string",
+                "enum": ["offered", "not_offered", "not_known"]
+              }
+            },
+            "required": ["fund", "defund", "auto_reload"],
+            "additionalProperties": false
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "assetId": {
+                  "type": "string"
+                },
+                "appHeld": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "string",
+                      "const": "missing"
+                    }
+                  ]
+                },
+                "appCaptured": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "string",
+                      "const": "missing"
+                    }
+                  ]
+                },
+                "appFigure": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "string",
+                      "const": "missing"
+                    }
+                  ]
+                },
+                "partnerFigure": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "string",
+                      "const": "not known"
+                    }
+                  ]
+                },
+                "partnerAsOf": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "partnerState": {
+                  "type": "string",
+                  "enum": ["known", "stale", "unknown"]
+                },
+                "difference": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "string",
+                      "const": "not known"
+                    }
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["matches", "break", "missing", "not_known"]
+                },
+                "fundingRate": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "string",
+                      "const": "not known"
+                    }
+                  ]
+                },
+                "fundingRateAsOf": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "appFigureInFunding": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "string",
+                      "const": "not known"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "assetId",
+                "appHeld",
+                "appCaptured",
+                "appFigure",
+                "partnerFigure",
+                "partnerAsOf",
+                "partnerState",
+                "difference",
+                "status",
+                "fundingRate",
+                "fundingRateAsOf",
+                "appFigureInFunding"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clientRequestId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["fund", "defund", "auto_reload"]
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "threshold": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "partnerRef": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["clientRequestId", "kind", "assetId", "amount", "threshold", "partnerRef", "createdAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["test", "fundingAssetId", "offers", "rows", "requests"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "bank.ops.customerBalanceEntries": {
       "service": "svc-bank",
       "module": "bank",
@@ -15927,6 +20319,135 @@
         }
       ]
     },
+    "bank.ops.failedTransfers": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.failedTransfers",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "windowHours": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "number"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "const": "standing_order"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "const": "rejected"
+                },
+                "rejectionCode": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "attemptedAt": {
+                  "type": "string"
+                },
+                "sender": {
+                  "type": "object",
+                  "properties": {
+                    "handle": {
+                      "type": ["string", "null"]
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "handle_unresolved"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["handle", "reason"],
+                  "additionalProperties": false
+                },
+                "receiver": {
+                  "type": "object",
+                  "properties": {
+                    "handle": {
+                      "type": ["string", "null"]
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "handle_unresolved"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["handle", "reason"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["id", "kind", "amount", "assetId", "status", "rejectionCode", "reason", "attemptedAt", "sender", "receiver"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.ops.fraudPreview": {
       "service": "svc-bank",
       "module": "bank",
@@ -16001,6 +20522,202 @@
           }
         },
         "required": ["label", "engine", "preview", "blurred", "stances", "automaticBlocking", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "bank.ops.loanBook": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.loanBook",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "openCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "outstandingPrincipal": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "assetId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["assetId", "amount"],
+              "additionalProperties": false
+            }
+          },
+          "bands": {
+            "type": "object",
+            "properties": {
+              "healthy": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "marginCall": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "liquidation": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "unpriced": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["healthy", "marginCall", "liquidation", "unpriced"],
+            "additionalProperties": false
+          },
+          "unpriced": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "loanId": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": ["bank.loan_health_price_unset", "bank.loan_opening_thresholds_unset"]
+                }
+              },
+              "required": ["loanId", "reason"],
+              "additionalProperties": false
+            }
+          },
+          "oldestPending": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "ageSeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["id", "ageSeconds"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["asOf", "openCount", "outstandingPrincipal", "bands", "unpriced", "oldestPending"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "bank.ops.poolTotals": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.poolTotals",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["admin:read", "admin:treasury"]
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "pools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "poolId": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "amountHeld": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "amountReason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["ledger_unavailable"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "depositorCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "utilisation": {
+                  "type": "null"
+                },
+                "utilisationReason": {
+                  "type": "string",
+                  "const": "utilisation_not_recorded"
+                }
+              },
+              "required": ["poolId", "assetId", "amountHeld", "amountReason", "depositorCount", "utilisation", "utilisationReason"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "pools"],
         "additionalProperties": false
       },
       "samples": [
@@ -16434,6 +21151,116 @@
             "status": "frozen",
             "reason": "USDC",
             "clientRequestId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.ops.transferDetail": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.transferDetail",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["standing_order", "one_off"]
+          },
+          "senderUserId": {
+            "type": "string"
+          },
+          "receiverUserId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "rejectionCode": {
+            "type": ["string", "null"]
+          },
+          "reason": {
+            "type": ["string", "null"]
+          },
+          "ledgerTxId": {
+            "type": ["string", "null"]
+          },
+          "scheduleId": {
+            "type": ["string", "null"]
+          },
+          "occurrence": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attemptedAt": {
+            "type": "string"
+          },
+          "settledAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "senderUserId",
+          "receiverUserId",
+          "amount",
+          "assetId",
+          "status",
+          "rejectionCode",
+          "reason",
+          "ledgerTxId",
+          "scheduleId",
+          "occurrence",
+          "attemptedAt",
+          "settledAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC"
           }
         },
         {
@@ -21036,6 +25863,167 @@
         }
       ]
     },
+    "bank.ramps.destinations.rename": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ramps.destinations.rename",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "destinationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["destinationId", "label"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "destinationId": {
+            "type": "string"
+          },
+          "label": {
+            "type": ["string", "null"]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["crypto", "bank"]
+          },
+          "ref": {
+            "type": "string"
+          },
+          "refMasked": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": ["string", "null"]
+          },
+          "network": {
+            "type": ["string", "null"]
+          },
+          "tag": {
+            "type": ["string", "null"]
+          },
+          "origin": {
+            "type": "string",
+            "enum": ["legacy", "customer"]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["pending", "cooling", "active", "blocked", "archived"]
+          },
+          "addedAt": {
+            "type": "string"
+          },
+          "coolingOffEndsAt": {
+            "type": ["string", "null"]
+          },
+          "coolingBlocker": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "bank.offramp_cooling_unset"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lookalikeConfirmedAt": {
+            "type": ["string", "null"]
+          },
+          "ownership": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": ["none", "pending", "verified", "expired"]
+              },
+              "verifiedAt": {
+                "type": ["string", "null"]
+              },
+              "validUntil": {
+                "type": ["string", "null"]
+              },
+              "offerExpiresAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["state", "verifiedAt", "validUntil", "offerExpiresAt"],
+            "additionalProperties": false
+          },
+          "approvedAt": {
+            "type": ["string", "null"]
+          },
+          "approvedBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["link", "device"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvalLinkExpiresAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "destinationId",
+          "label",
+          "kind",
+          "ref",
+          "refMasked",
+          "assetId",
+          "network",
+          "tag",
+          "origin",
+          "state",
+          "addedAt",
+          "coolingOffEndsAt",
+          "coolingBlocker",
+          "lookalikeConfirmedAt",
+          "ownership",
+          "approvedAt",
+          "approvedBy",
+          "approvalLinkExpiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "destinationId": "11111111-1111-4111-8111-111111111111",
+            "label": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.ramps.destinations.save": {
       "service": "svc-bank",
       "module": "bank",
@@ -21251,6 +26239,129 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "bank.ramps.offramp": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ramps.offramp",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:withdraw",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offrampId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "kind": {
+            "default": "crypto",
+            "type": "string",
+            "enum": ["crypto", "fiat"]
+          },
+          "destinationRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "clientRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["offrampId", "assetId", "amount", "clientRef"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["crypto", "fiat"]
+          },
+          "rail": {
+            "type": "string"
+          },
+          "destinationRef": {
+            "type": "string"
+          },
+          "clientRef": {
+            "type": "string"
+          },
+          "simulated": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "holdLedgerTxId": {
+            "type": ["string", "null"]
+          },
+          "settleLedgerTxId": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "assetId",
+          "amount",
+          "kind",
+          "rail",
+          "destinationRef",
+          "clientRef",
+          "simulated",
+          "status",
+          "holdLedgerTxId",
+          "settleLedgerTxId",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offrampId": "11111111-1111-4111-8111-111111111111",
+            "assetId": "USDC",
+            "amount": "1",
+            "clientRef": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -22003,6 +27114,58 @@
         }
       ]
     },
+    "bank.sharedPots.accept": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sharedPots.accept",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "inviteId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["inviteId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["contributor", "viewer"]
+          }
+        },
+        "required": ["spaceId", "role"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "inviteId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.sharedPots.activity": {
       "service": "svc-bank",
       "module": "bank",
@@ -22137,6 +27300,387 @@
           "verdict": "accept",
           "input": {
             "spaceId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.sharedPots.cancelInvite": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sharedPots.cancelInvite",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "inviteId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["inviteId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cancelled": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["cancelled"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "inviteId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.sharedPots.decline": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sharedPots.decline",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "inviteId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["inviteId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "declined": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["declined"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "inviteId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.sharedPots.freezeCard": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sharedPots.freezeCard",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["spaceId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string"
+          },
+          "panTail": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "frozen", "closed"]
+          },
+          "frozenBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["owner", "holder", "operator"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["cardId", "panTail", "status", "frozenBy"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.sharedPots.invite": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sharedPots.invite",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "inviteId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "handle": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 320
+          },
+          "role": {
+            "type": "string",
+            "enum": ["contributor", "viewer"]
+          }
+        },
+        "required": ["inviteId", "spaceId", "role"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "inviteId": {
+            "type": "string"
+          },
+          "spaceId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["contributor", "viewer"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "expired": {
+            "type": "boolean"
+          },
+          "invitee": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "handle": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["userId", "handle"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["inviteId", "spaceId", "role", "createdAt", "expiresAt", "expired", "invitee"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "inviteId": "11111111-1111-4111-8111-111111111111",
+            "spaceId": "11111111-1111-4111-8111-111111111111",
+            "role": "contributor"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.sharedPots.leave": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sharedPots.leave",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["spaceId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "left": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["left"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.sharedPots.linkCard": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sharedPots.linkCard",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["spaceId", "cardId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string"
+          },
+          "panTail": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "frozen", "closed"]
+          },
+          "frozenBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["owner", "holder", "operator"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["cardId", "panTail", "status", "frozenBy"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111",
+            "cardId": "11111111-1111-4111-8111-111111111111"
           }
         },
         {
@@ -22503,6 +28047,304 @@
         }
       ]
     },
+    "bank.sharedPots.remove": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sharedPots.remove",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["spaceId", "userId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["removed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111",
+            "userId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.sharedPots.unlinkCard": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sharedPots.unlinkCard",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["spaceId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "unlinked": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["unlinked"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.sorter.cancel": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sorter.cancel",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sorterId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["sorterId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "cancelled"]
+          },
+          "legs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "spaceId": {
+                  "type": "string"
+                },
+                "shareBp": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["spaceId", "shareBp"],
+              "additionalProperties": false
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "cancelledAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "assetId", "status", "legs", "createdAt", "cancelledAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "sorterId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.sorter.create": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "sorter.create",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sorterId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "legs": {
+            "minItems": 1,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "spaceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "shareBp": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["spaceId", "shareBp"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["sorterId", "assetId", "legs"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "cancelled"]
+          },
+          "legs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "spaceId": {
+                  "type": "string"
+                },
+                "shareBp": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["spaceId", "shareBp"],
+              "additionalProperties": false
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "cancelledAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "assetId", "status", "legs", "createdAt", "cancelledAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "sorterId": "11111111-1111-4111-8111-111111111111",
+            "assetId": "USDC",
+            "legs": [
+              {
+                "spaceId": "11111111-1111-4111-8111-111111111111",
+                "shareBp": -9007199254740991
+              }
+            ]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.sorter.list": {
       "service": "svc-bank",
       "module": "bank",
@@ -22731,6 +28573,232 @@
         }
       ]
     },
+    "bank.spaces.archive": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "spaces.archive",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["spaceId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "archived": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["archived"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.spaces.cancelUnlock": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "spaces.cancelUnlock",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["spaceId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "goalTarget": {
+            "type": ["string", "null"]
+          },
+          "lockedUntil": {
+            "type": ["string", "null"]
+          },
+          "unlocksAt": {
+            "type": ["string", "null"]
+          },
+          "unlockRequestedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "goalTarget", "lockedUntil", "unlocksAt", "unlockRequestedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.spaces.clearBillsPot": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "spaces.clearBillsPot",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["spaceId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string"
+          },
+          "billsPot": {
+            "type": "null"
+          }
+        },
+        "required": ["spaceId", "billsPot"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.spaces.create": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "spaces.create",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "goalTarget": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "lockedUntil": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["assetId", "name"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "name": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.spaces.list": {
       "service": "svc-bank",
       "module": "bank",
@@ -22931,6 +28999,262 @@
           "input": {
             "assetId": ""
           }
+        }
+      ]
+    },
+    "bank.spaces.requestUnlock": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "spaces.requestUnlock",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["spaceId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "goalTarget": {
+            "type": ["string", "null"]
+          },
+          "lockedUntil": {
+            "type": ["string", "null"]
+          },
+          "unlocksAt": {
+            "type": ["string", "null"]
+          },
+          "unlockRequestedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "goalTarget", "lockedUntil", "unlocksAt", "unlockRequestedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.spaces.setBillsPot": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "spaces.setBillsPot",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "fallback": {
+            "type": "boolean"
+          }
+        },
+        "required": ["spaceId", "fallback"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "fallback": {
+            "type": "boolean"
+          }
+        },
+        "required": ["spaceId", "assetId", "fallback"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111",
+            "fallback": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.spaces.setGoal": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "spaces.setGoal",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "goalTarget": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["spaceId", "goalTarget"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "goalTarget": {
+            "type": ["string", "null"]
+          },
+          "lockedUntil": {
+            "type": ["string", "null"]
+          },
+          "unlocksAt": {
+            "type": ["string", "null"]
+          },
+          "unlockRequestedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "goalTarget", "lockedUntil", "unlocksAt", "unlockRequestedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111",
+            "goalTarget": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.spaces.setLock": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "spaces.setLock",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "lockedUntil": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["spaceId", "lockedUntil"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "goalTarget": {
+            "type": ["string", "null"]
+          },
+          "lockedUntil": {
+            "type": ["string", "null"]
+          },
+          "unlocksAt": {
+            "type": ["string", "null"]
+          },
+          "unlockRequestedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "goalTarget", "lockedUntil", "unlocksAt", "unlockRequestedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "spaceId": "11111111-1111-4111-8111-111111111111",
+            "lockedUntil": "2026-01-01T00:00:00.000Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -23750,6 +30074,55 @@
         }
       ]
     },
+    "bank.transfers.cancel": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "transfers.cancel",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scheduleId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["scheduleId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cancelled": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["cancelled"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "scheduleId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.transfers.executions": {
       "service": "svc-bank",
       "module": "bank",
@@ -24148,6 +30521,95 @@
         }
       ]
     },
+    "bank.transfers.schedule": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "transfers.schedule",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "fromSpaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "toSpaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "cadence": {
+            "type": "string",
+            "enum": ["daily", "weekly", "monthly", "once"]
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "scheduleId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["fromSpaceId", "toSpaceId", "amount", "cadence", "startsAt", "scheduleId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "nextRunAt": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "nextRunAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "fromSpaceId": "11111111-1111-4111-8111-111111111111",
+            "toSpaceId": "11111111-1111-4111-8111-111111111111",
+            "amount": "1",
+            "cadence": "daily",
+            "startsAt": "2026-01-01T00:00:00.000Z",
+            "scheduleId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.transfers.toUser": {
       "service": "svc-bank",
       "module": "bank",
@@ -24265,6 +30727,99 @@
             "fromSpaceId": "11111111-1111-4111-8111-111111111111",
             "toUserId": "USDC",
             "amount": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.transfers.updateSchedule": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "transfers.updateSchedule",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scheduleId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "endsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["scheduleId", "revision", "amount", "endsAt"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "endsAt": {
+            "type": ["string", "null"]
+          },
+          "nextRunAt": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "revision", "amount", "endsAt", "nextRunAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "scheduleId": "11111111-1111-4111-8111-111111111111",
+            "revision": 1,
+            "amount": "1",
+            "endsAt": "2026-01-01T00:00:00.000Z"
           }
         },
         {

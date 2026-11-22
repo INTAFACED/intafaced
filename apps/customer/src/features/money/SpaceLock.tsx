@@ -4,6 +4,8 @@ import type { Space } from './client';
 import { date, funds, iso, startsField, type ActionSpec } from './components';
 import { spaceLockStateSchema } from './contracts';
 import { spaceLockCopy } from './space-lock-copy';
+import { BANK_SPACES_SET_LOCK, BANK_SPACES_REQUEST_UNLOCK, BANK_SPACES_CANCEL_UNLOCK } from '@intafaced/contracts/bank-spaces-procedures';
+import { BANK_SPACES_SET_GOAL } from '@intafaced/contracts/bank-spaces-2-procedures';
 
 /** Whether a space is locked now, as the bank last said. An early unlock that took effect already came back as no lock. */
 export const lockedNow = (space: Pick<Space, 'lockedUntil'>, now = Date.now()) =>
@@ -38,7 +40,7 @@ export function SpaceLockActions({ space, open }: { space: Space; open: (spec: A
         onClick={() =>
           open({
             title: t('goalTitle'),
-            procedure: 'spaces.setGoal',
+            record: BANK_SPACES_SET_GOAL,
             facts: [...facts(), [t('goalNow'), space.goalTarget === null ? t('goalCleared') : funds(space.goalTarget, space.assetId)]],
             fields: [
               {
@@ -63,7 +65,7 @@ export function SpaceLockActions({ space, open }: { space: Space; open: (spec: A
         onClick={() =>
           open({
             title: t('lockTitle'),
-            procedure: 'spaces.setLock',
+            record: BANK_SPACES_SET_LOCK,
             facts: locked ? [...facts(), [t('lockNow'), date(space.lockedUntil)]] : facts(),
             fields: [{ ...startsField, name: 'lockedUntil', label: t('lockField') }],
             notes: [t('lockNote'), ...(locked ? [t('lockLongerNote')] : []), ...(waiting ? [t('lockEndsEarlyUnlock')] : [])],
@@ -80,7 +82,7 @@ export function SpaceLockActions({ space, open }: { space: Space; open: (spec: A
           onClick={() =>
             open({
               title: t('unlockTitle'),
-              procedure: 'spaces.requestUnlock',
+              record: BANK_SPACES_REQUEST_UNLOCK,
               facts: [...facts(), [t('lockNow'), date(space.lockedUntil)]],
               notes: [t('unlockNote'), t('unlockWhen')],
               input: () => ({ spaceId: space.id }),
@@ -98,7 +100,7 @@ export function SpaceLockActions({ space, open }: { space: Space; open: (spec: A
           onClick={() =>
             open({
               title: t('keepTitle'),
-              procedure: 'spaces.cancelUnlock',
+              record: BANK_SPACES_CANCEL_UNLOCK,
               facts: [...facts(), [t('lockNow'), date(space.lockedUntil)], [t('opensAt'), date(space.unlocksAt ?? null)]],
               notes: [t('keepNote')],
               input: () => ({ spaceId: space.id }),
