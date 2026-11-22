@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { RECOVERY_CLAIM_SIGNATURES_MAX, recoveryClaimSignatureSchema, router, scopedProcedure } from '@intafaced/contracts';
+import { RECOVERY_CLAIM_SIGNATURES_MAX, recoveryClaimSignatureSchema } from '@intafaced/contracts/identity-recovery';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { FOUNDER_DESK_SCOPES } from '@intafaced/auth';
 import { formatAmount } from '@intafaced/ledger-client';
 import type { BankServices } from '../bank-service.js';

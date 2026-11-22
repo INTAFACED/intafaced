@@ -1,6 +1,6 @@
 import { keyRateLimitSchema, type KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { z } from 'zod';
-import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { ApiKeyAccountError } from './auth/api-key-account.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';

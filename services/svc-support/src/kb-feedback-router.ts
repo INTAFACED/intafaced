@@ -1,6 +1,7 @@
 import type { Principal } from '@intafaced/auth';
 import { z } from 'zod';
-import { supportKbArticleSchema, publicProcedure, scopedProcedure } from '@intafaced/contracts';
+import { supportKbArticleSchema } from '@intafaced/contracts/support';
+import { publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import { SEARCH_QUERY_CONTRACT_MAX } from './kb-feedback.js';
 import { requireSupportOps, type SupportService } from './support-service.js';
 

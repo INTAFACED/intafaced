@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { formatAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
 import { actionOutput, toActionOutput, type AgentsRouterDeps } from '../router.js';

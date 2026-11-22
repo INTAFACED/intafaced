@@ -1,4 +1,6 @@
-import { accountStateSchema, serviceCallSigner, type AccountState, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { AccountState, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { accountStateSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { IdentityGroundingUnwiredError, identitySecretSet } from './identity-grounding-honesty.js';
 
 /**

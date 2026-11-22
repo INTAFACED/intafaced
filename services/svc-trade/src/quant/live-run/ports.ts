@@ -1,4 +1,6 @@
-import { selfFreezeStateSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { selfFreezeStateSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
 import { QUANT_STUDIO_GET } from '@intafaced/contracts/quant-studio-procedures';
 

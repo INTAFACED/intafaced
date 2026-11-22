@@ -1,14 +1,12 @@
 import { createHash } from 'node:crypto';
+import type { ConsoleMode, ConsoleModeSetInput, ConsoleModeSetOutput } from '@intafaced/contracts';
 import {
   CONSOLE_MODE_STORAGE_UNCONFIGURED,
   CONSOLE_MODE_TARGET_ID,
   CONSOLE_MODE_TARGET_SERVICE,
   consoleModeApprovalFields,
   consoleModeIdempotencyKey,
-  type ConsoleMode,
-  type ConsoleModeSetInput,
-  type ConsoleModeSetOutput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-console-mode';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import { consumeFounderApproval, type ApprovalConsumer } from '../operator-desks.js';
 import type { ConsoleModeStore, ModeState } from './store.js';

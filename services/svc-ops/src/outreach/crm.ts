@@ -1,8 +1,63 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import * as workflow from '@intafaced/contracts';
+import type { OutreachAddInterestsInput } from '@intafaced/contracts';
+import {
+  crmQueueMessageInputSchema,
+  crmMessageSchema,
+  crmQueueMessageReceiptSchema,
+  crmMessageListInputSchema,
+  crmMessagePageSchema,
+} from '@intafaced/contracts/crm-notifications';
+import {
+  crmWorkflowAuditSchema,
+  crmAttributionSchema,
+  crmSourceMappingSchema,
+  crmCampaignSchema,
+  crmCampaignWriteInputSchema,
+  crmSourceMappingWriteInputSchema,
+  crmCampaignListInputSchema,
+  crmCampaignPageSchema,
+  crmSourceMappingListInputSchema,
+  crmSourceMappingPageSchema,
+  crmContactProvenanceInputSchema,
+  crmContactProvenanceSchema,
+  crmExportInputSchema,
+  crmExportPageSchema,
+  crmMetricsInputSchema,
+  crmMetricsSchema,
+  crmDuplicateListInputSchema,
+  crmDuplicatePageSchema,
+  crmMergeInputSchema,
+  crmMergeReceiptSchema,
+  crmWorkflowAuditListInputSchema,
+  crmWorkflowAuditPageSchema,
+  crmWorkflowTaskSchema,
+  crmTaskListInputSchema,
+  crmTaskPageSchema,
+  crmTaskCreateInputSchema,
+  crmTaskMutationReceiptSchema,
+  crmTaskTransitionInputSchema,
+  crmInteractionInputSchema,
+  crmInteractionSchema,
+  crmInteractionReceiptSchema,
+} from '@intafaced/contracts/crm-workflows';
+import { guestNotificationSendInputSchema } from '@intafaced/contracts/guest-notifications';
+import { outreachAddInterestsInputSchema } from '@intafaced/contracts/outreach-interests';
 import { transaction, type Queryable } from '@intafaced/db';
+import type {
+  CrmActivity,
+  CrmAssignmentInput,
+  CrmListInput,
+  CrmNextActionInput,
+  CrmNoteInput,
+  CrmOpportunity,
+  CrmStageChangeInput,
+  OutreachCaptureInput,
+  OutreachContinuationInput,
+  OutreachQuestionnaireInput,
+  OutreachDraft,
+} from '@intafaced/contracts';
 import {
   crmActivitySchema,
   crmAssignmentInputSchema,
@@ -22,18 +77,7 @@ import {
   outreachContinuationInputSchema,
   outreachDraftSchema,
   outreachQuestionnaireInputSchema,
-  type CrmActivity,
-  type CrmAssignmentInput,
-  type CrmListInput,
-  type CrmNextActionInput,
-  type CrmNoteInput,
-  type CrmOpportunity,
-  type CrmStageChangeInput,
-  type OutreachCaptureInput,
-  type OutreachContinuationInput,
-  type OutreachQuestionnaireInput,
-  type OutreachDraft,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/outreach-crm';
 import { nextReviewAt, OutreachError, outreachConfigSchema, type OutreachConfig } from './config.js';
 import {
   OutreachPrivacy,
@@ -309,8 +353,8 @@ export class OutreachCrm {
       return draft;
     });
   }
-  async addInterests(raw: workflow.OutreachAddInterestsInput, abuseKey: string) {
-    const input = normalizeIds(workflow.outreachAddInterestsInputSchema.parse(raw));
+  async addInterests(raw: OutreachAddInterestsInput, abuseKey: string) {
+    const input = normalizeIds(outreachAddInterestsInputSchema.parse(raw));
     await this.publicRate(abuseKey);
     return this.write(async (tx, config) => {
       await this.lockRequest(tx, input.requestId, true);
@@ -598,13 +642,13 @@ export class OutreachCrm {
     tx: Queryable,
     actor: string,
     requestId: string,
-    subjectType: z.infer<typeof workflow.crmWorkflowAuditSchema>['subjectType'],
+    subjectType: z.infer<typeof crmWorkflowAuditSchema>['subjectType'],
     subjectId: string,
-    kind: z.infer<typeof workflow.crmWorkflowAuditSchema>['kind'],
+    kind: z.infer<typeof crmWorkflowAuditSchema>['kind'],
     reason: string,
     facts: Record<string, unknown>,
   ) {
-    const row = workflow.crmWorkflowAuditSchema.parse({
+    const row = crmWorkflowAuditSchema.parse({
       id: randomUUID(),
       requestId,
       actorUserId: actor.toLowerCase(),
@@ -644,7 +688,7 @@ export class OutreachCrm {
       .object({ sourceHint: z.string().nullable(), campaign: z.unknown().nullable(), recipientLinkage: z.literal('unknown') })
       .passthrough()
       .parse(raw);
-    return workflow.crmAttributionSchema.parse({
+    return crmAttributionSchema.parse({
       ...value,
       sourceMappingId: value.sourceMappingId ?? null,
       sourceMappingRevision: value.sourceMappingRevision ?? null,
@@ -655,10 +699,10 @@ export class OutreachCrm {
     const rows = sourceKey
       ? await tx`SELECT m.record AS mapping,c.record AS campaign FROM ops.crm_source_mappings m JOIN ops.crm_campaigns c ON c.id=m.campaign_id WHERE m.source_key=${sourceKey} AND m.status='active' FOR SHARE OF m,c`
       : [];
-    const mapping = rows[0] ? workflow.crmSourceMappingSchema.parse(rows[0].mapping) : null;
-    const campaign = rows[0] ? workflow.crmCampaignSchema.parse(rows[0].campaign) : null;
+    const mapping = rows[0] ? crmSourceMappingSchema.parse(rows[0].mapping) : null;
+    const campaign = rows[0] ? crmCampaignSchema.parse(rows[0].campaign) : null;
     const resolved = mapping && campaign?.status === 'active';
-    return workflow.crmAttributionSchema.parse({
+    return crmAttributionSchema.parse({
       sourceHint: sourceKey ?? null,
       sourceMappingId: resolved ? mapping.id : null,
       sourceMappingRevision: resolved ? mapping.revision : null,
@@ -676,15 +720,15 @@ export class OutreachCrm {
       capturedAt,
     });
   }
-  async upsertCampaign(raw: z.infer<typeof workflow.crmCampaignWriteInputSchema>, actor: string) {
-    const input = normalizeIds(workflow.crmCampaignWriteInputSchema.parse(raw));
+  async upsertCampaign(raw: z.infer<typeof crmCampaignWriteInputSchema>, actor: string) {
+    const input = normalizeIds(crmCampaignWriteInputSchema.parse(raw));
     return this.staffMutation(actor, input, 'upsertCampaign', async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('ops.crm.campaign:' || ${input.id}))`;
       const found = await tx`SELECT record FROM ops.crm_campaigns WHERE id=${input.id} FOR UPDATE`;
-      const old = found[0] ? workflow.crmCampaignSchema.parse(found[0].record) : null;
+      const old = found[0] ? crmCampaignSchema.parse(found[0].record) : null;
       if ((old?.revision ?? 0) !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
       const at = this.now().toISOString();
-      const row = workflow.crmCampaignSchema.parse({
+      const row = crmCampaignSchema.parse({
         id: input.id,
         revision: (old?.revision ?? 0) + 1,
         name: input.name,
@@ -700,21 +744,21 @@ export class OutreachCrm {
       return row;
     });
   }
-  async upsertSourceMapping(raw: z.infer<typeof workflow.crmSourceMappingWriteInputSchema>, actor: string) {
-    const input = normalizeIds(workflow.crmSourceMappingWriteInputSchema.parse(raw));
+  async upsertSourceMapping(raw: z.infer<typeof crmSourceMappingWriteInputSchema>, actor: string) {
+    const input = normalizeIds(crmSourceMappingWriteInputSchema.parse(raw));
     return this.staffMutation(actor, input, 'upsertSourceMapping', async (tx) => {
       // Serialize both the unique public hint and staff mapping identity.
       await tx`SELECT pg_advisory_xact_lock(hashtext('ops.crm.source-mapping-writes'))`;
       const campaign = await tx`SELECT id FROM ops.crm_campaigns WHERE id=${input.campaignId} FOR SHARE`;
       if (!campaign[0]) throw new OutreachError('ops.crm.campaign_not_found');
       const found = await tx`SELECT record FROM ops.crm_source_mappings WHERE id=${input.id} FOR UPDATE`;
-      const old = found[0] ? workflow.crmSourceMappingSchema.parse(found[0].record) : null;
+      const old = found[0] ? crmSourceMappingSchema.parse(found[0].record) : null;
       if ((old?.revision ?? 0) !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
       if (old && old.sourceKey !== input.sourceKey) throw new OutreachError('ops.crm.source_key_immutable');
       const collision = await tx`SELECT id FROM ops.crm_source_mappings WHERE source_key=${input.sourceKey} AND id<>${input.id}`;
       if (collision[0]) throw new OutreachError('ops.crm.source_key_conflict');
       const at = this.now().toISOString();
-      const row = workflow.crmSourceMappingSchema.parse({
+      const row = crmSourceMappingSchema.parse({
         id: input.id,
         revision: (old?.revision ?? 0) + 1,
         sourceKey: input.sourceKey,
@@ -731,38 +775,38 @@ export class OutreachCrm {
       return row;
     });
   }
-  async listCampaigns(raw: z.infer<typeof workflow.crmCampaignListInputSchema>) {
-    const input = workflow.crmCampaignListInputSchema.parse(raw),
+  async listCampaigns(raw: z.infer<typeof crmCampaignListInputSchema>) {
+    const input = crmCampaignListInputSchema.parse(raw),
       scope = 'campaigns',
       cursor = this.pageCursor(input.cursor, scope);
     return this.write(async (tx) => {
       const rows =
         await tx`SELECT record FROM ops.crm_campaigns WHERE (${cursor?.at ?? null}::timestamptz IS NULL OR (created_at,id)<(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid)) ORDER BY created_at DESC,id DESC LIMIT ${input.limit + 1}`;
-      const items = rows.slice(0, input.limit).map((r) => workflow.crmCampaignSchema.parse(r.record)),
+      const items = rows.slice(0, input.limit).map((r) => crmCampaignSchema.parse(r.record)),
         last = items.at(-1);
-      return workflow.crmCampaignPageSchema.parse({
+      return crmCampaignPageSchema.parse({
         items,
         nextCursor: rows.length > input.limit && last ? this.nextCursor(last.createdAt, last.id, scope) : null,
       });
     }, 'repeatable read');
   }
-  async listSourceMappings(raw: z.infer<typeof workflow.crmSourceMappingListInputSchema>) {
-    const input = normalizeIds(workflow.crmSourceMappingListInputSchema.parse(raw)),
+  async listSourceMappings(raw: z.infer<typeof crmSourceMappingListInputSchema>) {
+    const input = normalizeIds(crmSourceMappingListInputSchema.parse(raw)),
       scope = 'source-mappings:' + this.filterScope(input),
       cursor = this.pageCursor(input.cursor, scope);
     return this.write(async (tx) => {
       const rows =
         await tx`SELECT record FROM ops.crm_source_mappings WHERE (${input.campaignId ?? null}::uuid IS NULL OR campaign_id=${input.campaignId ?? null}::uuid) AND (${input.status ?? null}::text IS NULL OR status=${input.status ?? null}) AND (${cursor?.at ?? null}::timestamptz IS NULL OR (created_at,id)<(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid)) ORDER BY created_at DESC,id DESC LIMIT ${input.limit + 1}`;
-      const items = rows.slice(0, input.limit).map((r) => workflow.crmSourceMappingSchema.parse(r.record)),
+      const items = rows.slice(0, input.limit).map((r) => crmSourceMappingSchema.parse(r.record)),
         last = items.at(-1);
-      return workflow.crmSourceMappingPageSchema.parse({
+      return crmSourceMappingPageSchema.parse({
         items,
         nextCursor: rows.length > input.limit && last ? this.nextCursor(last.createdAt, last.id, scope) : null,
       });
     }, 'repeatable read');
   }
-  async getContactProvenance(raw: z.infer<typeof workflow.crmContactProvenanceInputSchema>) {
-    const input = normalizeIds(workflow.crmContactProvenanceInputSchema.parse(raw));
+  async getContactProvenance(raw: z.infer<typeof crmContactProvenanceInputSchema>) {
+    const input = normalizeIds(crmContactProvenanceInputSchema.parse(raw));
     return this.write(async (tx) => {
       const original = await tx`SELECT record,revision FROM ops.crm_contacts WHERE id=${input.contactId}`;
       if (!original[0]) return null;
@@ -774,7 +818,7 @@ export class OutreachCrm {
       const lastRows = await tx`SELECT * FROM (${sourceFilter}) s ORDER BY captured_at::timestamptz DESC,id DESC LIMIT 1`;
       const first = firstRows[0],
         last = lastRows[0];
-      return workflow.crmContactProvenanceSchema.parse({
+      return crmContactProvenanceSchema.parse({
         originalContact: crmContactSchema.parse(original[0].record),
         canonicalContact: crmContactSchema.parse(canonicalRows[0]?.record),
         originalRevision: original[0].revision,
@@ -784,8 +828,8 @@ export class OutreachCrm {
       });
     }, 'repeatable read');
   }
-  async exportSubmissions(raw: z.infer<typeof workflow.crmExportInputSchema>, actor: string) {
-    const input = normalizeIds(workflow.crmExportInputSchema.parse(raw)),
+  async exportSubmissions(raw: z.infer<typeof crmExportInputSchema>, actor: string) {
+    const input = normalizeIds(crmExportInputSchema.parse(raw)),
       scope = 'export:' + this.filterScope(input),
       cursor = this.pageCursor(input.cursor, scope);
     return this.staffMutation(actor, input, 'exportSubmissions', async (tx) => {
@@ -809,7 +853,7 @@ export class OutreachCrm {
           };
         }),
         last = items.at(-1);
-      const page = workflow.crmExportPageSchema.parse({
+      const page = crmExportPageSchema.parse({
         exportId: randomUUID(),
         generatedAt: this.now().toISOString(),
         items,
@@ -830,8 +874,8 @@ export class OutreachCrm {
     });
   }
 
-  async metrics(raw: z.infer<typeof workflow.crmMetricsInputSchema>) {
-    const input = normalizeIds(workflow.crmMetricsInputSchema.parse(raw));
+  async metrics(raw: z.infer<typeof crmMetricsInputSchema>) {
+    const input = normalizeIds(crmMetricsInputSchema.parse(raw));
     return this.write(async (tx) => {
       const observedAt = this.now().toISOString();
       const filtered = tx`SELECT o.id,o.submission_id,o.contact_id,o.audience,o.stage,s.record AS submission,s.attribution FROM ops.crm_opportunities o JOIN ops.crm_submissions s ON s.id=o.submission_id
@@ -850,7 +894,7 @@ export class OutreachCrm {
       const sources =
         await tx`WITH filtered AS (${filtered}) SELECT attribution->>'sourceHint' AS source_key,attribution->'campaign'->>'id' AS campaign_id,count(*)::int AS count FROM filtered GROUP BY source_key,campaign_id ORDER BY count DESC,source_key NULLS LAST,campaign_id NULLS LAST LIMIT 201`;
       const row = totals[0]!;
-      return workflow.crmMetricsSchema.parse({
+      return crmMetricsSchema.parse({
         observedAt,
         totals: {
           opportunities: row.opportunities,
@@ -871,8 +915,8 @@ export class OutreachCrm {
     }, 'repeatable read');
   }
 
-  async listDuplicates(raw: z.infer<typeof workflow.crmDuplicateListInputSchema>) {
-    const input = workflow.crmDuplicateListInputSchema.parse(raw),
+  async listDuplicates(raw: z.infer<typeof crmDuplicateListInputSchema>) {
+    const input = crmDuplicateListInputSchema.parse(raw),
       scope = 'duplicates:' + this.filterScope(input),
       cursor = this.pageCursor(input.cursor, scope);
     return this.write(async (tx) => {
@@ -886,14 +930,14 @@ export class OutreachCrm {
           .slice(0, input.limit)
           .map((r) => ({ contact: crmContactSchema.parse(r.record), revision: r.revision, matchingUnmergedContactCount: r.matches })),
         last = items.at(-1);
-      return workflow.crmDuplicatePageSchema.parse({
+      return crmDuplicatePageSchema.parse({
         items,
         nextCursor: rows.length > input.limit && last ? this.nextCursor(last.contact.createdAt, last.contact.id, scope) : null,
       });
     }, 'repeatable read');
   }
-  async mergeContacts(raw: z.infer<typeof workflow.crmMergeInputSchema>, actor: string) {
-    const input = normalizeIds(workflow.crmMergeInputSchema.parse(raw));
+  async mergeContacts(raw: z.infer<typeof crmMergeInputSchema>, actor: string) {
+    const input = normalizeIds(crmMergeInputSchema.parse(raw));
     return this.staffMutation(actor, input, 'mergeContacts', async (tx) => {
       // CRM merges are rare founder operations. This serializes graph changes,
       // including opposing merges, without locking public submissions.
@@ -931,7 +975,7 @@ export class OutreachCrm {
         await this.saveOpportunity(tx, { ...old, contactId: input.targetContactId, revision: old.revision + 1, updatedAt: at });
         await this.activity(tx, old.id, { kind: 'operator', userId: actor.toLowerCase() }, 'note', input.reason, input.requestId);
       }
-      const receipt = workflow.crmMergeReceiptSchema.parse({
+      const receipt = crmMergeReceiptSchema.parse({
         mergeId: randomUUID(),
         sourceContactId: input.sourceContactId,
         targetContactId: input.targetContactId,
@@ -952,16 +996,16 @@ export class OutreachCrm {
       return receipt;
     });
   }
-  async listWorkflowAudit(raw: z.infer<typeof workflow.crmWorkflowAuditListInputSchema>) {
-    const input = normalizeIds(workflow.crmWorkflowAuditListInputSchema.parse(raw)),
+  async listWorkflowAudit(raw: z.infer<typeof crmWorkflowAuditListInputSchema>) {
+    const input = normalizeIds(crmWorkflowAuditListInputSchema.parse(raw)),
       scope = 'workflow-audit:' + this.filterScope(input),
       cursor = this.pageCursor(input.cursor, scope);
     return this.write(async (tx) => {
       const rows =
         await tx`SELECT record FROM ops.crm_workflow_audit WHERE subject_type=${input.subjectType} AND subject_id=${input.subjectId} AND (${cursor?.at ?? null}::timestamptz IS NULL OR (occurred_at,id)<(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid)) ORDER BY occurred_at DESC,id DESC LIMIT ${input.limit + 1}`;
-      const items = rows.slice(0, input.limit).map((r) => workflow.crmWorkflowAuditSchema.parse(r.record)),
+      const items = rows.slice(0, input.limit).map((r) => crmWorkflowAuditSchema.parse(r.record)),
         last = items.at(-1);
-      return workflow.crmWorkflowAuditPageSchema.parse({
+      return crmWorkflowAuditPageSchema.parse({
         items,
         nextCursor: rows.length > input.limit && last ? this.nextCursor(last.occurredAt, last.id, scope) : null,
       });
@@ -969,7 +1013,7 @@ export class OutreachCrm {
   }
 
   private taskView(row: Record<string, unknown>) {
-    return workflow.crmWorkflowTaskSchema.parse({
+    return crmWorkflowTaskSchema.parse({
       task: crmTaskSchema.parse(row.record),
       revision: row.revision,
       kind: row.kind,
@@ -986,8 +1030,8 @@ export class OutreachCrm {
     )
       throw new OutreachError('ops.crm.investor_review_required');
   }
-  async listTasks(raw: z.infer<typeof workflow.crmTaskListInputSchema>) {
-    const input = normalizeIds(workflow.crmTaskListInputSchema.parse(raw)),
+  async listTasks(raw: z.infer<typeof crmTaskListInputSchema>) {
+    const input = normalizeIds(crmTaskListInputSchema.parse(raw)),
       scope = 'tasks:' + this.filterScope(input),
       cursor = this.pageCursor(input.cursor, scope);
     return this.write(async (tx) => {
@@ -996,14 +1040,14 @@ export class OutreachCrm {
         AND (${cursor?.at ?? null}::timestamptz IS NULL OR (due_at,id)>(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid)) ORDER BY due_at,id LIMIT ${input.limit + 1}`;
       const items = rows.slice(0, input.limit).map((r) => this.taskView(r)),
         last = items.at(-1);
-      return workflow.crmTaskPageSchema.parse({
+      return crmTaskPageSchema.parse({
         items,
         nextCursor: rows.length > input.limit && last ? this.nextCursor(last.task.dueAt, last.task.id, scope) : null,
       });
     }, 'repeatable read');
   }
-  async createTask(raw: z.infer<typeof workflow.crmTaskCreateInputSchema>, actor: string) {
-    const input = normalizeIds(workflow.crmTaskCreateInputSchema.parse(raw));
+  async createTask(raw: z.infer<typeof crmTaskCreateInputSchema>, actor: string) {
+    const input = normalizeIds(crmTaskCreateInputSchema.parse(raw));
     return this.mutate(actor, input, 'createTask', async (tx, old, config) => {
       if (old.revision !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
       if (old.stage === 'closed') throw new OutreachError('ops.crm.opportunity_closed');
@@ -1021,13 +1065,13 @@ export class OutreachCrm {
         });
       await tx`INSERT INTO ops.crm_tasks(id,opportunity_id,record,revision,kind,created_at,due_at,owner_user_id,status) VALUES (${task.id},${old.id},${tx.json(task)},1,${input.kind},${at},${task.dueAt},${task.ownerUserId},'pending')`;
       const opportunity = await this.saveOpportunity(tx, { ...old, revision: old.revision + 1, updatedAt: at });
-      const view = workflow.crmWorkflowTaskSchema.parse({ task, revision: 1, kind: input.kind, createdAt: at });
+      const view = crmWorkflowTaskSchema.parse({ task, revision: 1, kind: input.kind, createdAt: at });
       await this.audit(tx, actor, input.requestId, 'task', task.id, 'task_created', input.reason, { task: view, opportunityId: old.id });
-      return workflow.crmTaskMutationReceiptSchema.parse({ task: view, opportunity });
+      return crmTaskMutationReceiptSchema.parse({ task: view, opportunity });
     });
   }
-  async transitionTask(raw: z.infer<typeof workflow.crmTaskTransitionInputSchema>, actor: string) {
-    const input = normalizeIds(workflow.crmTaskTransitionInputSchema.parse(raw));
+  async transitionTask(raw: z.infer<typeof crmTaskTransitionInputSchema>, actor: string) {
+    const input = normalizeIds(crmTaskTransitionInputSchema.parse(raw));
     return this.mutate(actor, input, 'transitionTask', async (tx, old) => {
       if (old.revision !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
       const tasks = await tx`SELECT * FROM ops.crm_tasks WHERE id=${input.taskId} AND opportunity_id=${old.id} FOR UPDATE`;
@@ -1049,18 +1093,18 @@ export class OutreachCrm {
         updatedAt: at,
       });
       if (previous.kind === 'next_action') await this.task(tx, opportunity, { actor, requestId: input.requestId, reason: input.reason });
-      const view = workflow.crmWorkflowTaskSchema.parse({ ...previous, task, revision });
+      const view = crmWorkflowTaskSchema.parse({ ...previous, task, revision });
       await this.audit(tx, actor, input.requestId, 'task', task.id, 'task_transitioned', input.reason, {
         from: previous.task.status,
         to: task.status,
         revision,
         opportunityId: old.id,
       });
-      return workflow.crmTaskMutationReceiptSchema.parse({ task: view, opportunity });
+      return crmTaskMutationReceiptSchema.parse({ task: view, opportunity });
     });
   }
-  async recordInteraction(raw: z.infer<typeof workflow.crmInteractionInputSchema>, actor: string) {
-    const input = normalizeIds(workflow.crmInteractionInputSchema.parse(raw));
+  async recordInteraction(raw: z.infer<typeof crmInteractionInputSchema>, actor: string) {
+    const input = normalizeIds(crmInteractionInputSchema.parse(raw));
     return this.mutate(actor, input, 'recordInteraction', async (tx, old) => {
       if (old.revision !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
       if (old.stage === 'closed') throw new OutreachError('ops.crm.opportunity_closed');
@@ -1072,7 +1116,7 @@ export class OutreachCrm {
         await tx`SELECT id FROM ops.crm_interactions WHERE opportunity_id=${old.id} AND kind=${input.kind} AND record->>'evidenceRef'=${input.evidenceRef}`;
       if (existing[0]) throw new OutreachError('ops.crm.interaction_already_recorded');
       const at = this.now().toISOString(),
-        interaction = workflow.crmInteractionSchema.parse({
+        interaction = crmInteractionSchema.parse({
           id: randomUUID(),
           opportunityId: old.id,
           kind: input.kind,
@@ -1103,11 +1147,11 @@ export class OutreachCrm {
         interaction,
         revision: opportunity.revision,
       });
-      return workflow.crmInteractionReceiptSchema.parse({ interaction, activity, opportunity });
+      return crmInteractionReceiptSchema.parse({ interaction, activity, opportunity });
     });
   }
-  async queueMessage(raw: z.infer<typeof workflow.crmQueueMessageInputSchema>, actor: string) {
-    const input = normalizeIds(workflow.crmQueueMessageInputSchema.parse(raw));
+  async queueMessage(raw: z.infer<typeof crmQueueMessageInputSchema>, actor: string) {
+    const input = normalizeIds(crmQueueMessageInputSchema.parse(raw));
     return this.mutate(actor, input, 'queueMessage', async (tx, old) => {
       if (old.revision !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
       if (old.stage === 'closed') throw new OutreachError('ops.crm.opportunity_closed');
@@ -1123,7 +1167,7 @@ export class OutreachCrm {
         `Message queued: ${input.kind}`,
         id,
       );
-      const wire = workflow.guestNotificationSendInputSchema.parse({
+      const wire = guestNotificationSendInputSchema.parse({
         businessKey: `staff_message:${id}`,
         contactId: original.contactId,
         submissionId: original.submissionId,
@@ -1136,7 +1180,7 @@ export class OutreachCrm {
         VALUES (${id},${wire.businessKey},${original.submissionId},${input.kind},'unconfigured',${tx.json({ activityId: activity.id })},
         ${at},${at},'ops.crm.notification_unconfigured',${tx.json(wire)},${old.id},${actor.toLowerCase()})`;
       const opportunity = await this.saveOpportunity(tx, { ...old, revision: old.revision + 1, updatedAt: at });
-      const message = workflow.crmMessageSchema.parse({
+      const message = crmMessageSchema.parse({
         id,
         opportunityId: old.id,
         submissionId: original.submissionId,
@@ -1153,11 +1197,11 @@ export class OutreachCrm {
         activityId: activity.id,
         recipientSource: 'original_submission',
       });
-      return workflow.crmQueueMessageReceiptSchema.parse({ opportunity, activity, message });
+      return crmQueueMessageReceiptSchema.parse({ opportunity, activity, message });
     });
   }
-  async listMessages(raw: z.infer<typeof workflow.crmMessageListInputSchema>) {
-    const input = normalizeIds(workflow.crmMessageListInputSchema.parse(raw));
+  async listMessages(raw: z.infer<typeof crmMessageListInputSchema>) {
+    const input = normalizeIds(crmMessageListInputSchema.parse(raw));
     const scope = `messages:${input.opportunityId}`,
       cursor = this.pageCursor(input.cursor, scope);
     return this.write(async (tx) => {
@@ -1165,7 +1209,7 @@ export class OutreachCrm {
         AND (${cursor?.at ?? null}::timestamptz IS NULL OR (created_at,id)<(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
         ORDER BY created_at DESC,id DESC LIMIT ${input.limit + 1}`;
       const items = rows.slice(0, input.limit).map((row) =>
-        workflow.crmMessageSchema.parse({
+        crmMessageSchema.parse({
           id: row.id,
           opportunityId: row.opportunity_id,
           submissionId: row.submission_id,
@@ -1179,7 +1223,7 @@ export class OutreachCrm {
         }),
       );
       const last = items.at(-1);
-      return workflow.crmMessagePageSchema.parse({
+      return crmMessagePageSchema.parse({
         items,
         nextCursor: rows.length > input.limit && last ? this.nextCursor(last.createdAt, last.id, scope) : null,
       });

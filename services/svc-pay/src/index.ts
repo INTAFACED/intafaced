@@ -134,16 +134,14 @@ import { createMerchantWatchMetricsStore } from './agents/merchant-watch-metrics
 import { readPayWatermark, registerRestoreWatermarkRoute } from './restore-watermark.js';
 import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metrics-routes.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import {
-  createEdgeContext,
-  mergeRouters,
-  retainRawBody,
-  createIdentityOperationDecisionClient,
-  createBankApproverEligibilityClient,
-  createBankInternalWithdrawalClient,
-  createBankSendDestinationClient,
-  s2sFromEnv,
-} from '@intafaced/contracts';
+import { createBankApproverEligibilityClient } from '@intafaced/contracts/bank-approver-eligibility-client';
+import { createBankInternalWithdrawalClient } from '@intafaced/contracts/bank-internal-withdrawal-client';
+import { createBankSendDestinationClient } from '@intafaced/contracts/bank-send-destination-client';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { createIdentityOperationDecisionClient } from '@intafaced/contracts/operation-identity-client';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { mergeRouters } from '@intafaced/contracts/trpc';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { setIsolationDenialSink } from './isolation-log.js';
 import { onCapturedOverCap } from './control/over-cap-signal.js';

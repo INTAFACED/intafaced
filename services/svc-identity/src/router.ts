@@ -59,9 +59,10 @@ import {
   scopedProcedure,
   serviceProcedure,
   TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/trpc';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
-import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
+import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
+import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts/identity';
 import { signInChallengeProofSchema, signInChallengeSchema } from '@intafaced/contracts/identity-signin-challenge';
 import {
   callFounderControl,

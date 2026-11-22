@@ -7,13 +7,9 @@
  * verified name, and identity not answering, refusing or answering out of shape alike. There is no "rule off": a looser
  * tolerance or switching the rule off is a recorded compliance decision this service does not have.
  */
-import {
-  IDENTITY_HOLDER_NAME_CHECK_PATH,
-  holderNameCheckSchema,
-  serviceCallSigner,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { IDENTITY_HOLDER_NAME_CHECK_PATH, holderNameCheckSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { InstrumentError } from './instruments.js';
 
 export interface HolderNameRule {

@@ -1,16 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
+import type { PayWithdrawalAddressesInput, PayWithdrawalAddressesReply, ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
 import {
   PAY_WITHDRAWAL_ADDRESSES_CALLERS,
   PAY_WITHDRAWAL_ADDRESSES_PATH,
   payWithdrawalAddressesInputSchema,
-  retainRawBody,
-  verifyServiceRequest,
-  type PayWithdrawalAddressesInput,
-  type PayWithdrawalAddressesReply,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/pay-withdrawal-addresses';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 
 /**
  * The crypto address each of one person's own withdrawals went to, by withdrawal id (J-portfolio-03 #2). svc-bank asks so its
