@@ -25,9 +25,28 @@
  */
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type {
+  ServiceAuthMode,
+  ServiceSigner,
+  SupportChatAgents,
+  SupportChatAvailability,
+  SupportChatDeskSession,
+  SupportChatEmailResult,
+  SupportChatEnquiry,
+  SupportChatIdentityToken,
+  SupportChatMessage,
+  SupportChatOpenInput,
+  SupportChatOpenResult,
+  SupportChatPrechatField,
+  SupportChatProfileType,
+  SupportChatSession,
+  SupportChatStatus,
+  SupportRequestSource,
+  SupportTicket,
+} from '@intafaced/contracts';
+import { campaignParticipantSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import {
-  campaignParticipantSchema,
-  serviceCallSigner,
   SUPPORT_CHAT_AGENT_NOT_ONLINE,
   SUPPORT_CHAT_AGENT_UNAVAILABLE,
   SUPPORT_CHAT_ALREADY_ACCEPTED,
@@ -42,28 +61,13 @@ import {
   SUPPORT_CHAT_PRECHAT_INVALID,
   SUPPORT_CHAT_RATE_LIMITED,
   SUPPORT_CHAT_RATE_LIMIT_UNSET,
+} from '@intafaced/contracts/support-chat';
+import {
   SUPPORT_GUEST_ADDRESS_KEY_UNSET,
   SUPPORT_GUEST_RATE_LIMITED,
   SUPPORT_GUEST_RATE_LIMIT_UNSET,
   SUPPORT_GUEST_RETENTION_UNSET,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type SupportChatAgents,
-  type SupportChatAvailability,
-  type SupportChatDeskSession,
-  type SupportChatEmailResult,
-  type SupportChatEnquiry,
-  type SupportChatIdentityToken,
-  type SupportChatMessage,
-  type SupportChatOpenInput,
-  type SupportChatOpenResult,
-  type SupportChatPrechatField,
-  type SupportChatProfileType,
-  type SupportChatSession,
-  type SupportChatStatus,
-  type SupportRequestSource,
-  type SupportTicket,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-guest';
 import { NO_CHAT_MAIL, chatMailRequest, type ChatMailPort } from './chat-email.js';
 import { seal } from './guest-requests.js';
 import { refuseCommentSecret, SupportError } from './support-service.js';

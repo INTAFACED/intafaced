@@ -5,7 +5,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { readReport } from './journey-verdict.mjs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readReport, rootInputs } from './journey-verdict.mjs';
 import { CANARY } from './journey-touch.mjs';
 import {
   currentReportArtifact,
@@ -21,6 +23,7 @@ import {
   isSharedSetup,
   judgeSteps,
   mainReference,
+  moneyAt,
   splitInherited,
   mainsOwn,
   trackingIssue,
@@ -2763,6 +2766,43 @@ test("main's own sealPull planted: main's newest run outside the head's history 
   assert.equal(broken.ok, false, 'unreadable issues fail closed');
 });
 
+test("sealPull judges tooling by the head's tree, as the run's planner picks: unreached runs none; reached, unscanned or a failed scan keep the bounded set", async () => {
+  const seen = [];
+  const io = (toolingReach) => ({
+    pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: MAIN_SHA }, title: 'design: a recipe page', body: '' }),
+    runs: async (h) => (seen.push(h), [run(1)]),
+    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', ...CANARY] } }),
+    files: async () => ['tooling/design/RECIPE.md', 'tooling/design/volt-recipe.mjs'],
+    text: async () => 'test(`${J} #1 opens`, async () => {});',
+    verdictOf: async () => clean,
+    mainRuns: async () => [],
+    contains: async () => true,
+    mergeBase: async () => MAIN_SHA,
+    rangeOf: async () => ({ files: [], commits: 0, short: false }),
+    mainIssues: async () => [],
+    ...(toolingReach ? { toolingReach } : {}),
+  });
+  const pick = async (toolingReach) => {
+    seen.length = 0;
+    const r = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io(toolingReach) });
+    return { ok: r.ok, lines: r.lines.join('\n'), readRuns: seen.length > 0 };
+  };
+  const asked = [];
+  const none = await pick(async (sha) => (asked.push(sha), ['tooling/uiproof/']));
+  assert.deepEqual(asked, [HEAD], "the head's tree is the one scanned");
+  assert.equal(none.ok, true, none.lines);
+  assert.equal(none.readRuns, false, 'tooling no journeys run reaches: no journeys to judge');
+  for (const [why, reach] of [
+    ['reached by a journey', async () => ['tooling/design/']],
+    ['a scan that fails', async () => Promise.reject(new Error('git archive failed'))],
+    ['a scan that could not read the tree', async () => null],
+    ['no scanner', null],
+  ]) {
+    const r = await pick(reach);
+    assert.equal(r.readRuns, true, `${why}: the bounded set is judged, as today`);
+  }
+});
+
 // ---- A merged pull request has nothing left to seal (12 of the 66 failed seals, 12 Nov 2026) ----
 
 test('merged: a seal on a pull request that already merged passes, unless another open pull request has its head', async () => {
@@ -2794,4 +2834,123 @@ test('merged: a seal on a pull request that already merged passes, unless anothe
     io: { ...io(), pullsOn: async () => [...mine, { number: 8, state: 'open' }] },
   });
   assert.equal(shared.ok, false, 'planted: another open PR on the head still fails');
+});
+
+// ---- A money-flag mismatch main made, judged with the head's own money rule (#9601) ----
+
+// Built from #9601 at 9c7bcc7b61 (seal job 137092933754, 22 Nov 2026): #9539 gave apps/admin an unused ledger-client
+// dependency, main's rule called J-ops-console-22 #3 money, the baseline says money false, and the seal read with main's
+// rule alone held every pull request whose run reached the step, #9601's fix (which drops the dependency) included.
+test('sealPull: a money-flag mismatch main made passes on a head whose own money rule agrees with the baseline, and only there (#9601)', async () => {
+  const step = 'J-ops-console-22#3';
+  const file = 'J-ops-console-22.pw.mjs';
+  const parked = {
+    issue: { number: 9, state: 'open', title: 'Journey broken on main: J-ops-console-22' },
+    comments: [
+      { author_association: 'MEMBER', created_at: '2026-11-01T00:00:00Z', body: 'Regression state: parked — needs the stack. Lane B1.' },
+    ],
+  };
+  const named = { states: { [step]: 'failed' }, files: { [step]: file }, ran: [file] };
+  const inputs = {
+    baseline: { run: { number: 100, id: 1, sha: PASS_SHA }, steps: [{ step, state: 'regression', money: false, issue: 9 }] },
+    money: { [step]: true }, // main's rule since #9539
+    reports: new Map(),
+  };
+  const read = (issue) => () => ({ named, passedSince: {}, issues: { 9: issue }, problems: [], shas: {} });
+  const rep = { states: { [step]: 'failed' }, files: { [step]: file }, ran: [...CANARY, file] };
+  const asked = [];
+  const io = ({ headMoney, issue = parked }) => ({
+    pull: async () => ({ state: 'open', head: { sha: HEAD }, title: 'admin: drop the unused ledger-client devDependency', body: '' }),
+    runs: async () => [run(1)],
+    reportOf: reports({ 1: rep }),
+    files: async () => ['apps/admin/package.json'],
+    verdictOf: async (report, r, o = {}) =>
+      fullVerdict({ repo: REPO, report, run: r, inputs, read: read(issue), headMoney: o.headMoney ?? null }),
+    ...(headMoney === undefined
+      ? {}
+      : {
+          headMoney: async (sha) => {
+            asked.push(sha);
+            if (headMoney instanceof Error) throw headMoney;
+            return headMoney;
+          },
+        }),
+  });
+  const seal = (o) => sealPull({ repo: REPO, number: 9601, sha: HEAD, io: io(o) });
+  // The planted fix: the head's own rule says not money, as the baseline does.
+  const fixed = await seal({ headMoney: { [step]: false } });
+  assert.equal(fixed.ok, true, fixed.lines.join('\n'));
+  assert.match(
+    fixed.lines.join('\n'),
+    /main's money rule disagrees with the baseline on J-ops-console-22#3, and this head's own rule agrees/,
+  );
+  assert.deepEqual(asked, [HEAD], "the head's rule is read once, for this head");
+  // The same mismatch on a head that does not fix it stays red, and so does one whose rule can't be read or isn't given.
+  for (const [o, why] of [
+    [{ headMoney: { [step]: true } }, /J-ops-console-22#3: the baseline says money false, the money rule at this commit says true/],
+    [{ headMoney: {} }, /the money rule at this commit says true/],
+    [{ headMoney: new Error('GraphQL: HTTP 502') }, /this head's own money rule couldn't be read \(GraphQL: HTTP 502\), so it stays red/],
+    [{}, /the money rule at this commit says true/],
+  ]) {
+    const v = await seal(o);
+    assert.equal(v.ok, false, JSON.stringify(o));
+    assert.match(v.lines.join('\n'), why);
+  }
+  // Agreeing never loosens the step: a red it still gives counts as money, so it is never passed over as inherited.
+  const closed = { ...parked, issue: { ...parked.issue, state: 'closed' } };
+  const still = await seal({ headMoney: { [step]: false }, issue: closed });
+  assert.equal(still.ok, false);
+  assert.match(still.lines.join('\n'), /#9 is closed/);
+  const v = fullVerdict({ repo: REPO, report: rep, run: run(1), inputs, read: read(closed), headMoney: { [step]: false } });
+  assert.deepEqual(
+    v.red.map((x) => [x.step, x.money]),
+    [[step, true]],
+  );
+  const passedOver = await splitInherited({
+    upTo: MAIN_SHA,
+    red: v.red,
+    main: { run: { id: 50, head_sha: MAIN_SHA }, problems: [], red: new Map([[step, v.red[0].why]]), lastPass: { [step]: MAIN_SHA } },
+    touches: { journeys: new Set(), paths: new Set(['apps/admin/package.json']), shared: false },
+    rangeOf: async () => ({ files: [], commits: 1, short: false }),
+  });
+  assert.equal(passedOver.passed.length, 0, 'a money red is never passed over as inherited');
+  // A clean verdict reads no head rule.
+  asked.length = 0;
+  const clean = await sealPull({
+    repo: REPO,
+    number: 9601,
+    sha: HEAD,
+    io: { ...io({ headMoney: { [step]: false } }), verdictOf: async () => ({ red: [], failing: 0, missing: [] }) },
+  });
+  assert.equal(clean.ok, true);
+  assert.deepEqual(asked, []);
+});
+
+test("moneyAt reads the money rule a checkout holds, as rootInputs does (the seal reads a pull request's head this way)", async () => {
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  const at = (p) => join(root, p);
+  const list = async (dir) =>
+    existsSync(at(dir))
+      ? readdirSync(at(dir), { withFileTypes: true }).map((e) => ({ name: e.name, type: e.isDirectory() ? 'dir' : 'file' }))
+      : null;
+  const blobs = async (paths) => new Map(paths.map((p) => [p, existsSync(at(p)) ? readFileSync(at(p), 'utf8') : null]));
+  const text = async (p) => readFileSync(at(p), 'utf8');
+  const here = rootInputs(root).money;
+  assert.deepEqual(await moneyAt({ list, blobs, text }), here);
+  // Planted: the admin app's manifest with and without the ledger client gives a different money rule, as #9539 did.
+  const admin = (has) => async (paths) => {
+    const m = await blobs(paths);
+    const pkg = JSON.parse(m.get('apps/admin/package.json'));
+    pkg.devDependencies = { ...pkg.devDependencies };
+    if (has) pkg.devDependencies['@intafaced/ledger-client'] = 'workspace:*';
+    else delete pkg.devDependencies['@intafaced/ledger-client'];
+    m.set('apps/admin/package.json', JSON.stringify(pkg));
+    return m;
+  };
+  const withIt = await moneyAt({ list, blobs: admin(true), text });
+  const without = await moneyAt({ list, blobs: admin(false), text });
+  const moved = Object.keys(withIt).filter((k) => withIt[k] !== without[k]);
+  assert.ok(moved.length > 0 && moved.every((k) => withIt[k] && !without[k]), 'the admin manifest is read');
+  // Unreadable: it throws, so the seal keeps the red.
+  await assert.rejects(moneyAt({ list, blobs, text: async () => null }), /journeys\.json could not be read/);
 });

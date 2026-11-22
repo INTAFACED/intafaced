@@ -1,4 +1,4 @@
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { trialPassGrantInputSchema, trialPassGrantSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { CampaignsError } from '../codes.js';
 import { mapError, opsProcedure } from './kit.js';

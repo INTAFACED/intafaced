@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { PayGuardRefusal } from '../seams/guards.js';
 
 /** A conversion refusal. `code` is what the client sees; `trpc` is the transport status. */

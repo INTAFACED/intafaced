@@ -8,10 +8,11 @@
  *     (`@intafaced/ui/lit` or `@intafaced/ui/lit/templates`); and
  *  2. that file, and every file it reaches by a relative import inside its own folder (tests aside), has none of:
  *     - `stylesheet`: an imported `.css` file (styles of the room's own);
- *     - `inline-style`: a `style=` attribute;
+ *     - `inline-style`: a `style=` attribute (a `data-style=` attribute is data, not a style);
  *     - `old-kit`: an import from `@intafaced/ui` other than `@intafaced/ui/lit…`, or from the app's `shared/ui`;
- *     - `outside-component`: a component (a capitalised name) imported from a `.tsx` file outside the room's folder:
- *       a part the kit did not draw (hooks, copy and helpers from there are not judged);
+ *     - `outside-component`: a component (a capitalised name) imported from a `.tsx` file outside the room's folder
+ *       that itself draws off the kit: that file is judged by this same rule, in its own folder, so a part several rooms
+ *       share is drawn from the kit once, where it lives (hooks, copy and helpers from there are not judged);
  *     - `own-class`: a class name written in `className` that is not the kit's (`lt-…`).
  * A room that fails 1 is `not-migrated` (or `no-template` when the registry has no row for it); one that fails 2 is
  * `off-kit`, with each finding named by file and line.
@@ -56,7 +57,7 @@ export interface VoltCount {
 }
 
 const VOLT_RULE =
-  "In Volt: room-templates.ts names the screen file (migrated.file), it imports @intafaced/ui/lit, and it and the files it reaches by relative import inside its own folder import no stylesheet, set no style=, import nothing from @intafaced/ui outside /lit nor from shared/ui, import no component (a capitalised name) from a .tsx outside the folder, and write no className that is not the kit's lt- class.";
+  "In Volt: room-templates.ts names the screen file (migrated.file), it imports @intafaced/ui/lit, and it and the files it reaches by relative import inside its own folder import no stylesheet, set no style=, import nothing from @intafaced/ui outside /lit nor from shared/ui, import no component (a capitalised name) from a .tsx outside the folder unless that file passes this same rule, and write no className that is not the kit's lt- class.";
 
 const SRC = resolve(dirname(new URL(import.meta.url).pathname), '..');
 const at = (file: string, line: number) => `${relative(SRC, file)}:${line}`;
@@ -86,8 +87,12 @@ function imports(source: string): { spec: string; line: number; names: string[] 
   return found;
 }
 
-/** Every finding that keeps the room whose screen file is `entry` (absolute) off the kit. */
-export function offKitFindings(entry: string): Finding[] {
+/**
+ * Every finding that keeps the room whose screen file is `entry` (absolute) off the kit. `judged` carries the verdict
+ * on each outside part already judged (a part under judgement counts as clean, so an import cycle ends).
+ */
+export function offKitFindings(entry: string, judged: Map<string, Finding[]> = new Map()): Finding[] {
+  judged.set(entry, judged.get(entry) ?? []);
   const folder = dirname(entry);
   const findings: Finding[] = [];
   const seen = new Set<string>();
@@ -108,12 +113,20 @@ export function offKitFindings(entry: string): Finding[] {
         if (/(^|\/)shared\/ui(\.tsx?|\/.*)$/.test(target)) findings.push({ kind: 'old-kit', at: where, text: spec });
         else if (target.startsWith(folder + '/')) {
           if (!/\.test\.tsx?$/.test(target)) queue.push(target);
-        } else if (target.endsWith('.tsx') && names.some((n) => /^[A-Z]/.test(n)))
-          findings.push({ kind: 'outside-component', at: where, text: `${names.filter((n) => /^[A-Z]/.test(n)).join(', ')} from ${spec}` });
+        } else if (target.endsWith('.tsx') && names.some((n) => /^[A-Z]/.test(n))) {
+          if (!judged.has(target)) judged.set(target, offKitFindings(target, judged));
+          const off = judged.get(target)!;
+          if (off.length > 0)
+            findings.push({
+              kind: 'outside-component',
+              at: where,
+              text: `${names.filter((n) => /^[A-Z]/.test(n)).join(', ')} from ${spec}, which draws off the kit: ${off[0]!.kind} at ${off[0]!.at}${off.length > 1 ? ` (+${off.length - 1} more)` : ''}`,
+            });
+        }
       }
     }
     source.split('\n').forEach((text, i) => {
-      if (/\bstyle=\{/.test(text)) findings.push({ kind: 'inline-style', at: at(file, i + 1), text: text.trim() });
+      if (/(?<![\w-])style=\{/.test(text)) findings.push({ kind: 'inline-style', at: at(file, i + 1), text: text.trim() });
       for (const m of text.matchAll(/className=(?:"([^"]*)"|\{([^}]*)\})/g)) {
         const literal = m[1] ?? [...(m[2] ?? '').matchAll(/['"`]([^'"`$]*)(?=['"`]|\$\{)/g)].map((s) => s[1]).join(' ');
         const own = literal.split(/\s+/).filter((c) => c && !c.startsWith('lt-'));

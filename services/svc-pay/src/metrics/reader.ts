@@ -1,16 +1,16 @@
 import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
-import {
-  PAY_PAYMENT_STATUSES,
-  type FounderGlobalMetrics,
-  type FounderMerchantList,
-  type MerchantMetricsSeries,
-  type MerchantMetricsSnapshot,
-  type MerchantSettlementAssets,
-  type MetricsFreshness,
-  type PayAssetAmount,
-  type PayMetricWindow,
+import type {
+  FounderGlobalMetrics,
+  FounderMerchantList,
+  MerchantMetricsSeries,
+  MerchantMetricsSnapshot,
+  MerchantSettlementAssets,
+  MetricsFreshness,
+  PayAssetAmount,
+  PayMetricWindow,
 } from '@intafaced/contracts';
+import { PAY_PAYMENT_STATUSES } from '@intafaced/contracts/merchant-metrics';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { MetricsError, merchantNotFound } from './errors.js';
 import { resolveRange, resolveWindow } from './window.js';

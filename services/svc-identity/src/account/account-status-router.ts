@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { accountStatusSchema } from '@intafaced/contracts/identity-account-status';
 import type { AccountStatusDesk } from './account-status.js';
 

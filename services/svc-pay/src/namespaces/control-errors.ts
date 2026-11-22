@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { ControlError, ControlRefusal } from '../control/errors.js';
 
 const CODES = {

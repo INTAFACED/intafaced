@@ -1,6 +1,7 @@
 /** Enrolled passkey at the `/private/stream` session door. A session without it cannot keep the stream open. Refuse if verify is unavailable. Never invent a challenge. */
 
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 export class SessionPasskeyError extends Error {
   constructor(

@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 
 export type AllowlistErrorCode =
   | 'pay.destination_not_allowlisted'

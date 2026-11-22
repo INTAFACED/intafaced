@@ -34,7 +34,8 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { IfcFeeTerms } from './fee-schedule.js';
 import { TradeError, type OrderRecord } from './types.js';
 

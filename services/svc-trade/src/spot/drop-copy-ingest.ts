@@ -7,7 +7,8 @@
  * Never ui, never fix (FIX already publishes acks), never guessed ws/algo/broker.
  */
 
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { FIX_DROP_COPY_FILL } from '@intafaced/contracts/fix-procedures';
 import { callHttpRecord } from '@intafaced/contracts/procedure-http';
 import type { ProcedureInput } from '@intafaced/contracts/procedure';

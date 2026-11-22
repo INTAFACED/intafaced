@@ -31,6 +31,13 @@ impl Side {
             _ => None,
         }
     }
+
+    pub fn opposite(self) -> Side {
+        match self {
+            Side::Buy => Side::Sell,
+            Side::Sell => Side::Buy,
+        }
+    }
 }
 
 /// The engine's order types (`EngineOrderType`: the public contract's types but `take_profit`).
@@ -189,6 +196,111 @@ impl<T: Copy> Opt<T> {
     }
 }
 
+/// `instrument: option | option_combo`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Instrument {
+    Option,
+    OptionCombo,
+}
+
+impl Instrument {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Instrument::Option => "option",
+            Instrument::OptionCombo => "option_combo",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Instrument> {
+        match s {
+            "option" => Some(Instrument::Option),
+            "option_combo" => Some(Instrument::OptionCombo),
+            _ => None,
+        }
+    }
+}
+
+/// One named combo leg (`ComboLeg`): each part as the caller sent it, null when it was null or absent.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ComboLeg {
+    pub name: Option<String>,
+    pub ratio: Option<Amount>,
+    pub strike: Option<Amount>,
+    pub expiry: Option<String>,
+}
+
+/// `calendar` (one symbol at two expiries) or `inter_coin` (two coins at a fixed ratio).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpreadKind {
+    Calendar,
+    InterCoin,
+}
+
+impl SpreadKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SpreadKind::Calendar => "calendar",
+            SpreadKind::InterCoin => "inter_coin",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<SpreadKind> {
+        match s {
+            "calendar" => Some(SpreadKind::Calendar),
+            "inter_coin" => Some(SpreadKind::InterCoin),
+            _ => None,
+        }
+    }
+}
+
+/// One leg of a listed spread, from the spread buyer's side: `ratio` units of `symbol` per spread unit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpreadLegDefinition {
+    pub symbol: String,
+    pub side: Side,
+    pub ratio: Amount,
+}
+
+/// An owner-listed spread instrument (`SpreadInstrument`). Leg 0 is the anchor, leg 1 the residual.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpreadInstrument {
+    pub spread_id: String,
+    pub kind: SpreadKind,
+    /// The anchor leg, then the residual leg: a spread lists exactly two.
+    pub legs: [SpreadLegDefinition; 2],
+    pub tick: Amount,
+    pub lot: Amount,
+}
+
+/// What a spread order carries into the book (`SpreadTerms`): the listing the engine stamped on it, and the caller's
+/// anchor leg reference, which stays null when missing so the book refuses it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpreadTerms {
+    pub instrument: SpreadInstrument,
+    pub anchor_reference: Option<Amount>,
+}
+
+/// One leg of a spread fill (`SpreadLegFill`): every leg of one fill prints together or not at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpreadLegFill {
+    pub symbol: String,
+    /// The taker's side on this leg.
+    pub taker_side: Side,
+    pub qty: Amount,
+    pub price: Amount,
+}
+
+impl SpreadLegFill {
+    pub fn to_json(&self) -> Json {
+        Json::obj([
+            ("symbol", Json::str(self.symbol.clone())),
+            ("takerSide", Json::str(self.taker_side.as_str())),
+            ("qty", Json::str(format_amount(self.qty))),
+            ("price", Json::str(format_amount(self.price))),
+        ])
+    }
+}
+
 /// An order's OCO and bracket parts, each as JavaScript tells it apart (absent, `null`, or a value).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Exits {
@@ -214,9 +326,8 @@ impl Exits {
 }
 
 /// An order as the engine sees it (`EngineOrder`), already checked by svc-trade and in scaled integers. It holds every
-/// field the core book (`book.ts`) reads, and the trigger wrappers' [`Exits`]. The parts only a later slice's module reads
-/// (option and combo terms, spreads, client ids) are not here: an order naming one is that slice's, and the door owes it
-/// before it reaches a book.
+/// field the core book (`book.ts`) reads, the trigger wrappers' [`Exits`], and the parts its instrument modules
+/// (`option.ts`, `combo-book.ts`, `spread-book.ts`) read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineOrder {
     pub order_id: String,
@@ -237,8 +348,7 @@ pub struct EngineOrder {
     pub trigger_role: Option<TriggerRole>,
     /// `triggerBy` as sent; absent is last.
     pub trigger_by: Option<TriggerBy>,
-    /// `instrument: option | option_combo`.
-    pub option_instrument: bool,
+    pub instrument: Option<Instrument>,
     /// Signed futures position for reduce-only. Absent keeps the fill net.
     pub position_qty: Option<Amount>,
     pub display_qty: Opt<Amount>,
@@ -264,8 +374,21 @@ pub struct EngineOrder {
     pub min: Opt<Amount>,
     pub max: Opt<Amount>,
     pub min_notional: Opt<Amount>,
-    /// A spread order (`spread != null`): the core book refuses it.
-    pub spread: bool,
+    /// The option's strike and expiry as sent: absent is not an option, null is a missing one.
+    pub strike: Opt<Amount>,
+    pub expiry: Opt<String>,
+    /// Exercise a long option at strike (journalled).
+    pub exercise: bool,
+    /// Cover a short option after assignment, and pull a resting option: engine calls, never journalled.
+    pub cover: bool,
+    /// `combo` as sent, and the named legs (`Opt::Null` is `legs: null`).
+    pub combo: Opt<bool>,
+    pub legs: Opt<Vec<ComboLeg>>,
+    /// A spread order: the listing the engine stamped on it.
+    pub spread: Option<SpreadTerms>,
+    /// Carried and journalled; a spread order may name them.
+    pub client_order_id: Option<String>,
+    pub environment: Option<String>,
     /// What a mass-quote side asks of market-maker protection (`mmp.ts`). The engine refuses any of it before the
     /// journal, so it is never written.
     pub mmp: MmpIntent,
@@ -320,7 +443,7 @@ impl EngineOrder {
             reduce_only: false,
             trigger_role: None,
             trigger_by: None,
-            option_instrument: false,
+            instrument: None,
             position_qty: None,
             display_qty: Opt::Absent,
             iceberg: false,
@@ -340,7 +463,15 @@ impl EngineOrder {
             min: Opt::Absent,
             max: Opt::Absent,
             min_notional: Opt::Absent,
-            spread: false,
+            strike: Opt::Absent,
+            expiry: Opt::Absent,
+            exercise: false,
+            cover: false,
+            combo: Opt::Absent,
+            legs: Opt::Absent,
+            spread: None,
+            client_order_id: None,
+            environment: None,
             mmp: MmpIntent::default(),
         }
     }
@@ -356,6 +487,9 @@ pub struct EngineAmend {
     pub stop_price: Option<Amount>,
     pub tif: Option<Tif>,
     pub expire_at: Option<String>,
+    /// An option amend names its strike and expiry; absent, null and a value differ.
+    pub strike: Opt<Amount>,
+    pub expiry: Opt<String>,
 }
 
 /// Why the engine refused (`RejectReason`).
@@ -397,6 +531,8 @@ pub struct Fill {
     pub taker_side: Side,
     pub price: Amount,
     pub qty: Amount,
+    /// A spread fill's legs; none on an outright fill.
+    pub legs: Option<Vec<SpreadLegFill>>,
 }
 
 impl Fill {
@@ -412,6 +548,26 @@ impl Fill {
             ("price", Json::str(format_amount(self.price))),
             ("qty", Json::str(format_amount(self.qty))),
         ])
+        .with_legs(self.legs.as_deref())
+    }
+}
+
+trait WithLegs {
+    fn with_legs(self, legs: Option<&[SpreadLegFill]>) -> Json;
+}
+
+impl WithLegs for Json {
+    fn with_legs(self, legs: Option<&[SpreadLegFill]>) -> Json {
+        match (self, legs) {
+            (Json::Object(mut f), Some(legs)) => {
+                f.push((
+                    "legs".to_owned(),
+                    Json::Array(legs.iter().map(SpreadLegFill::to_json).collect()),
+                ));
+                Json::Object(f)
+            }
+            (j, _) => j,
+        }
     }
 }
 

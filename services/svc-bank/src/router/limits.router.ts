@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { formatAmount } from '@intafaced/ledger-client';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
 import { planView } from '../plans/plans.js';

@@ -1,5 +1,5 @@
 import { QUANT_TEMPLATE_LIST_LIMIT_UNSET, QUANT_TEMPLATE_NOT_FOUND, QuantError } from '../errors.js';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { QUANT_TEMPLATE_GET, QUANT_TEMPLATE_LIST } from '@intafaced/contracts/quant-template-procedures';
 import { templateSource } from '../studio/modules.js';
