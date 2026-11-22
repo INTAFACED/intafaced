@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react';
-import { REWARD_STATUSES, type MyReward, type MyRewards } from '@intafaced/contracts/campaigns-catalogue';
+import { REWARD_STATUSES, myRewardsSchema, type MyReward, type MyRewards } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { rewardsHubCopy } from './rewards-hub-copy';
 import { timeLeft } from './time-left';
-import { CAMPAIGNS_REWARDS_MINE } from '@intafaced/contracts/campaigns-rewards-procedures';
 
 /**
  * My Rewards hub on /uc/promotion (CM-rewards-hub-01, J-campaigns-03): every campaign reward of the signed-in account in
@@ -37,7 +36,7 @@ function useFormat() {
 export function RewardsHub() {
   const api = useApi();
   const { t } = rewardsHubCopy.useCopy();
-  const rewards = useResource((signal) => api.call(CAMPAIGNS_REWARDS_MINE, {}, { signal }), 'rewards-hub');
+  const rewards = useResource((signal) => api.query('campaigns', 'rewards.mine', {}, myRewardsSchema, { signal }), 'rewards-hub');
   const r = rewards.resource;
   return (
     <section className="rewards-hub" aria-label={t('title')} data-testid="rewards-hub" data-state={r.status}>

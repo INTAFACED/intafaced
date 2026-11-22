@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server';
-import { scopedProcedure, supportMacroSaveInputSchema, supportMacroSchema } from '@intafaced/contracts';
+import { supportMacroSaveInputSchema, supportMacroSchema } from '@intafaced/contracts/support-macros';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   SUPPORT_DESK_MACRO_APPLY,

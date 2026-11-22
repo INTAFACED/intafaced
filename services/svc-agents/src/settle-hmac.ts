@@ -3,7 +3,7 @@
  * Session admin:write is not a service caller — refuse-closed.
  */
 import { TRPCError } from '@trpc/server';
-import { requireServiceCaller } from '@intafaced/contracts';
+import { requireServiceCaller } from '@intafaced/contracts/service-auth';
 
 export const SETTLE_CALLER = 'svc-agents' as const;
 

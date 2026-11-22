@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { payAmountStringSchema, payAssetCodeSchema } from '@intafaced/contracts';
+import { payAmountStringSchema, payAssetCodeSchema } from '@intafaced/contracts/merchant-control';
 import { looksLikeSecret } from './secret-guard.js';
 
 /**

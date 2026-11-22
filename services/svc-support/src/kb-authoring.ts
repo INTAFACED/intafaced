@@ -6,24 +6,24 @@
  * edit after approval is a new draft with no approval, so it returns to draft. Every refusal is a typed code, and a move
  * repeated after a lost reply answers what is stored instead of doing it twice.
  */
+import type {
+  SupportKbArticle,
+  SupportKbDraft,
+  SupportKbDraftSaveInput,
+  SupportKbHistory,
+  SupportKbReviewState,
+  SupportKbTemplate,
+  SupportKbTemplateSaveInput,
+} from '@intafaced/contracts';
+import { supportKbBodyProblem, supportKbTitleProblem, SUPPORT_KB_SECTION_UNKNOWN } from '@intafaced/contracts/support-kb-library';
 import {
-  supportKbBodyProblem,
-  supportKbTitleProblem,
   SUPPORT_KB_DRAFT_UNKNOWN,
   SUPPORT_KB_NOT_APPROVED,
   SUPPORT_KB_NOT_IN_REVIEW,
   SUPPORT_KB_SAME_OPERATOR,
-  SUPPORT_KB_SECTION_UNKNOWN,
   SUPPORT_KB_TEMPLATE_STALE,
   SUPPORT_KB_TEMPLATE_UNKNOWN,
-  type SupportKbArticle,
-  type SupportKbDraft,
-  type SupportKbDraftSaveInput,
-  type SupportKbHistory,
-  type SupportKbReviewState,
-  type SupportKbTemplate,
-  type SupportKbTemplateSaveInput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-kb-review';
 import { namesVendor } from './kb-catalog.js';
 import type { KbReview, KbReviewBook, KbReviewResult } from './kb-review.js';
 import type { KbDraft, SupportStore } from './store.js';

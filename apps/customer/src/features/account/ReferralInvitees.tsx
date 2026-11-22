@@ -1,10 +1,9 @@
 import { useMemo } from 'react';
-import { type MyInvitee } from '@intafaced/contracts/campaigns-catalogue';
+import { myInviteesSchema, type MyInvitee } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { referralInviteesCopy } from './referral-invitees-copy';
-import { CAMPAIGNS_REFERRAL_INVITEES } from '@intafaced/contracts/campaigns-referral-procedures';
 
 /**
  * The referrer's invitees on /uc/promotion/mypromotion (CM-referral-02, J-campaigns-06 #1 #2): each one's place in the
@@ -33,7 +32,7 @@ function useWhen() {
 export function ReferralInvitees() {
   const api = useApi();
   const { t } = referralInviteesCopy.useCopy();
-  const list = useResource((signal) => api.call(CAMPAIGNS_REFERRAL_INVITEES, {}, { signal }), 'referral-invitees');
+  const list = useResource((signal) => api.query('campaigns', 'referral.invitees', {}, myInviteesSchema, { signal }), 'referral-invitees');
   const r = list.resource;
   return (
     <section className="referral-block referral-section" aria-label={t('title')} data-testid="referral-invitees" data-state={r.status}>

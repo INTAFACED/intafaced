@@ -1,10 +1,5 @@
-import {
-  queryWarehouseSurface,
-  resolveEtlWatermark,
-  resolveWarehouseReplicaConfig,
-  type CubeFactRow,
-  type CubePoint,
-} from '@intafaced/contracts';
+import type { CubeFactRow, CubePoint } from '@intafaced/contracts';
+import { queryWarehouseSurface, resolveEtlWatermark, resolveWarehouseReplicaConfig } from '@intafaced/contracts/ops-analytics-warehouse';
 import {
   OPS_CONTACT_REQUIRED,
   OPS_FUNDRAISING_AMOUNT_INVALID,

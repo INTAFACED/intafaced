@@ -101,6 +101,7 @@ fn mount_on(journal: Box<dyn EngineJournal + Send>, approver: &str) -> Mounted {
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: true,
     });
     engine.recover().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));

@@ -1,12 +1,8 @@
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import {
-  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX,
-  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX,
-  router,
-  TRPCError,
-  payAmountStringSchema,
-} from '@intafaced/contracts';
+import { payAmountStringSchema } from '@intafaced/contracts/merchant-control';
+import { PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX, PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX } from '@intafaced/contracts/pay-custody-deposit';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { transaction } from '@intafaced/db';
 import {
   consumePayApproval,

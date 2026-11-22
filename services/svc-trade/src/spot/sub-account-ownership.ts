@@ -1,10 +1,6 @@
-import {
-  serviceCallSigner,
-  subAccountOwnershipSchema,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type SubAccountOwnership,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner, SubAccountOwnership } from '@intafaced/contracts';
+import { subAccountOwnershipSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { TradeError } from './types.js';
 
 /**

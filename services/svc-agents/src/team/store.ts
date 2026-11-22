@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { AGENTS_TEAM_ROLES, type AgentsTeamBusinessRole, type AgentsTeamMember, type AgentsTeamRole } from '@intafaced/contracts';
+import type { AgentsTeamBusinessRole, AgentsTeamMember, AgentsTeamRole } from '@intafaced/contracts';
+import { AGENTS_TEAM_ROLES } from '@intafaced/contracts/agents-team';
 import { TeamError } from './errors.js';
 import type { TeamMembershipPort } from './membership.js';
 
