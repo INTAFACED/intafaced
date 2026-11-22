@@ -179,7 +179,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/uc/ad/create': { template: 'flow' },
   '/uc/ad/update': { template: 'flow' },
   '/uc/order': { template: 'record-list' },
-  '/chat': { template: 'reading' },
+  '/chat': { template: 'record-list' },
   '/checkuser': { template: 'monitor' },
   '/pay/merchant': { template: 'overview' },
   '/pay/money': { template: 'overview' },
