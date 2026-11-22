@@ -110,8 +110,6 @@
   "/trade/news",
   "/trade/calendar",
   "/trade/convert",
-  "/trade/terminal",
-  "/execution",
   "/otc",
   "/otc/:quoteId",
   "/otc/tradeInfo",
