@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { compromiseReviewOutputSchema } from '@intafaced/contracts/identity-compromise';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { usePreferences } from '../../shared/preferences';
@@ -8,6 +7,7 @@ import { Failure } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { defineCopy } from '../../shared/i18n';
 import { useCompromiseCase } from './Compromised';
+import { IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED } from '@intafaced/contracts/identity-account-procedures';
 
 const copy = defineCopy('account.compromise-devices', {
   title: 'Your compromised-account case',
@@ -37,7 +37,7 @@ export function CompromiseDeviceReview() {
     setBusy(true);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'account.compromised.markReviewed', { item: 'devices' }, compromiseReviewOutputSchema);
+      const answer = await api.call(IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED, { item: 'devices' });
       if (!answer.ok) return setFailure(answer);
       reload();
     } finally {

@@ -2332,7 +2332,8 @@ test("#1574 ci-jobs-seal: CI's own Start the seal job still going does not hold 
 // (intafaced#7707: "which reds main already had couldn't be read (fetch failed)" on two seal attempts in a row).
 test('getTried: a dropped request or a 503 is tried again, a 403 is not, and the last failure still fails closed', async () => {
   const waits = [];
-  const sleep = async (ms) => void waits.push(ms);
+  // A stand-in that records each wait instead of waiting.
+  const noteWait = async (ms) => void waits.push(ms);
   const answers = (list) => {
     let i = 0;
     const calls = [];
@@ -2347,36 +2348,73 @@ test('getTried: a dropped request or a 503 is tried again, a 403 is not, and the
   const dropped = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
 
   const once = answers([dropped, 503, 200]);
-  assert.equal((await getTried('u', {}, { fetchImpl: once.fetchImpl, sleep })).status, 200);
+  assert.equal((await getTried('u', {}, { fetchImpl: once.fetchImpl, sleep: noteWait })).status, 200);
   assert.equal(once.calls.length, 3, 'a dropped request and a 503 are both tried again');
   assert.deepEqual(waits, [3000, 6000]);
 
   const refused = answers([403, 200]);
-  assert.equal((await getTried('u', {}, { fetchImpl: refused.fetchImpl, sleep })).status, 403, 'a refusal stands');
+  assert.equal((await getTried('u', {}, { fetchImpl: refused.fetchImpl, sleep: noteWait })).status, 403, 'a refusal stands');
   assert.equal(refused.calls.length, 1, 'a 403 is never tried again');
   const limited = answers([429, 200]);
-  assert.equal((await getTried('u', {}, { fetchImpl: limited.fetchImpl, sleep })).status, 429);
+  assert.equal((await getTried('u', {}, { fetchImpl: limited.fetchImpl, sleep: noteWait })).status, 429);
   assert.equal(limited.calls.length, 1, 'a 429 is never tried again');
 
   const down = answers([dropped]);
-  await assert.rejects(getTried('u', {}, { fetchImpl: down.fetchImpl, sleep }), /fetch failed \(ECONNRESET\) after 3 tries/);
+  await assert.rejects(getTried('u', {}, { fetchImpl: down.fetchImpl, sleep: noteWait }), /fetch failed \(ECONNRESET\) after 3 tries/);
   assert.equal(down.calls.length, 3, 'three tries, then the error stands');
   const busy = answers([503]);
   assert.equal(
-    (await getTried('u', {}, { fetchImpl: busy.fetchImpl, sleep })).status,
+    (await getTried('u', {}, { fetchImpl: busy.fetchImpl, sleep: noteWait })).status,
     503,
     'the last 503 is returned, and api() throws on it',
   );
   assert.equal(busy.calls.length, 3);
 });
 
-test('planted: the seal reads GitHub through getTried, not one bare fetch', () => {
-  const src = readFileSync(new URL('./journey-seal.mjs', import.meta.url), 'utf8');
-  const apiBody = /async function api\(path, token[^)]*\) \{\n {2}const res = await (\w+)\(/.exec(src)?.[1];
-  assert.equal(apiBody, 'getTried', 'api() makes its GET through getTried');
-  assert.match(src, /async text\(path, ref\) \{\n.*\n {6}const res = await getTried\(/, 'text() makes its GET through getTried');
-  const bare = src.replace(/(async function api\(path, token[^)]*\) \{\n {2}const res = await )getTried\(/, '$1fetch(');
-  assert.notEqual(/async function api\(path, token[^)]*\) \{\n {2}const res = await (\w+)\(/.exec(bare)?.[1], 'getTried');
+test('planted: the seal reads GitHub through getTried, not one bare fetch', async () => {
+  const { makeIo } = await import('./journey-seal.mjs');
+  const dropped = () => Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
+  const real = globalThis.fetch;
+  const asked = [];
+  // Each address: dropped on the way once, then answered. A bare fetch would throw on the first.
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    asked.push([u, init?.headers?.accept]);
+    if (asked.filter(([a]) => a === u).length === 1) throw dropped();
+    if (u.includes('/contents/')) return new Response('the file', { status: 200 });
+    return new Response(JSON.stringify({ workflow_runs: [{ id: 1 }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const io = makeIo(REPO, 'x');
+    const [runs, text] = await Promise.all([io.mainRuns(), io.text('docs/a b.md', HEAD)]);
+    assert.deepEqual(runs, [{ id: 1 }], 'api() makes its GET through getTried');
+    assert.equal(text, 'the file', 'text() makes its GET through getTried');
+    assert.equal(asked.length, 4, 'each GET was tried again once');
+    assert.equal(
+      asked.find(([u]) => u.includes('/contents/'))?.[0],
+      `https://api.github.com/repos/${REPO}/contents/docs/a%20b.md?ref=${HEAD}`,
+    );
+    assert.equal(asked.find(([u]) => u.includes('/contents/'))?.[1], 'application/vnd.github.raw+json');
+  } finally {
+    globalThis.fetch = real;
+  }
+  // A refusal is not tried again, and still fails closed; a file that isn't there is null.
+  asked.length = 0;
+  globalThis.fetch = async (url) => {
+    asked.push([String(url)]);
+    return String(url).includes('/contents/') && String(url).includes('gone')
+      ? new Response('', { status: 404 })
+      : new Response('{"message":"Forbidden"}', { status: 403 });
+  };
+  try {
+    const io = makeIo(REPO, 'x');
+    await assert.rejects(io.mainRuns(), /403/);
+    await assert.rejects(io.text('docs/a.md', HEAD), /HTTP 403/);
+    assert.equal(await io.text('docs/gone.md', HEAD), null);
+    assert.equal(asked.length, 3, 'a 403 or a 404 is asked once');
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 // ---- The revert main-bisect opens runs narrow (project-state #1786 item 5) ----

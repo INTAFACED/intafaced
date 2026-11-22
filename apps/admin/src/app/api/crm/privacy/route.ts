@@ -11,8 +11,15 @@ import {
   crmRetentionReviewInputSchema,
   crmRetentionReviewSchema,
 } from '@intafaced/contracts';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import {
+  adminSessionErrorResponse,
+  AdminSessionError,
+  authorizeAdminRequest,
+  founderEdgeCall,
+  founderEdgeRecordCall,
+} from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import { OPS_OUTREACH_PRIVACY_RETENTION_STATUS } from '@intafaced/contracts/ops-outreach-procedures';
 
 export const dynamic = 'force-dynamic';
 type Schema<T> = { safeParse(value: unknown): { success: true; data: T } | { success: false } };
@@ -47,7 +54,7 @@ export async function GET(request: Request) {
       return response(
         output(
           crmRetentionStatusSchema,
-          await founderEdgeCall(config, 'ops', 'outreach.privacyRetentionStatus', 'GET', {}, session.accessToken),
+          await founderEdgeRecordCall(config, OPS_OUTREACH_PRIVACY_RETENTION_STATUS, undefined, session.accessToken),
         ),
       );
     }
