@@ -9,7 +9,8 @@ import { displayAmount } from '../../shared/money';
 import { Button, DataTable } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { ApiResult } from '../../shared/api';
-import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from './pay-api';
+import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority, type PayRecord } from './pay-api';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status, PayTime } from './components';
 import { MerchantPayments } from './MerchantPayments';
 import { MerchantBilling } from './MerchantBilling';
@@ -110,6 +111,19 @@ export async function validatedMutation<I, O>(
   const parsed = schema.safeParse(input);
   if (!parsed.success) return payRefusal('invalidInput', { reason: 'error' });
   return pay.mutate(procedure, parsed.data, output, scope, operation);
+}
+/** `validatedMutation` by the call's written record: the input is checked here first, the answer by the record. */
+export async function validatedRecordMutation<R extends PayRecord>(
+  pay: BusinessPayApi,
+  record: R,
+  input: unknown,
+  schema: z.ZodType<ProcedureInput<R>>,
+  scope: 'pay:write' | 'pay:refund' | 'pay:payout',
+  operation: string,
+) {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) return payRefusal('invalidInput', { reason: 'error' });
+  return pay.mutateRecord(record, parsed.data, scope, operation);
 }
 function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
   const { hideBalances } = usePreferences();

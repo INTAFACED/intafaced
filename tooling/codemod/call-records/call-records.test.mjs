@@ -684,6 +684,112 @@ test("the Business API's calls, named by their call alone, are svc-pay's and mov
   );
 });
 
+test("the portal's tools and validatedMutation, each caller naming its call alone, move one by one to the record form beside them; near shapes stay", async () => {
+  const { toolFormsIn } = await import('./tool-forms.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const portal = 'apps/customer/src/features/pay/portal';
+  put(`${portal}/api-tools.ts`, [
+    'export function portalTools(api, userId) {',
+    "  async function query(procedure: string, input, schema, signal) { return api.query('pay', procedure, input, schema, { signal }); }",
+    '  return { userId, query };',
+    '}',
+    'export type PortalTools = ReturnType<typeof portalTools>;',
+  ]);
+  put(`${portal}/settings/b-client.ts`, ['export type SettingsBTools = {};']);
+  put('apps/customer/src/features/pay/BusinessPay.tsx', ['export async function validatedMutation() {}']);
+  put(`${portal}/money/api.ts`, [
+    "import type { PortalTools } from '../api-tools';",
+    'export const moneyApi = ({ query, mutate, list }: PortalTools) => ({',
+    "  balances: (merchantId: string, signal?: AbortSignal) => query('merchant.balances', { merchantId }, balanceSchema, signal),",
+    "  hold: (id: string) => mutate('merchant.payoutDestinations.cancelHold', { id }, holdSchema),",
+    "  rows: (cursor: string, signal?: AbortSignal) => list('settlement.lines', lineSchema, { cursor }, signal),",
+    "  again: () => query('merchant.me', undefined, meSchema),",
+    // Near: a template, and a tool kept by name in this function (its record form is added beside it).
+    '  tpl: (a: string) => mutate(`subscription.${a}`, {}, s),',
+    '});',
+  ]);
+  put(`${portal}/settings/developers/client.ts`, [
+    "import type { SettingsBTools } from '../b-client';",
+    'export const developersApi = ({ identityMutate }: SettingsBTools) => ({',
+    "  rotate: (keyId: string) => identityMutate('rotateSigningSecret', { keyId }, rotatedSchema),",
+    '});',
+  ]);
+  put(`${portal}/near.ts`, [
+    "import type { PortalTools } from './api-tools';",
+    // Near: a renamed tool, a tool reached as a member, and a bare query that is no tool.
+    "export const a = ({ query: q }: PortalTools) => q('merchant.x', {}, s);",
+    "export const b = (tools: PortalTools) => tools.query('merchant.y', {}, s);",
+    "export const c = (query) => query('merchant.z', {}, s);",
+  ]);
+  put('apps/customer/src/features/pay/Room.tsx', [
+    "import { validatedMutation } from './BusinessPay';",
+    "export const go = (pay) => validatedMutation(pay, 'payment.create', input, inputSchema, paymentSchema, 'pay:write', 'create');",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => String(s.shape).startsWith('tool:'));
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind, s.problem ?? null]).sort(),
+    [
+      ['tool:identityMutate', 'identity', 'rotateSigningSecret', 'mutation', null],
+      ['tool:list', 'pay', 'settlement.lines', 'query', null],
+      ['tool:mutate', 'pay', 'merchant.payoutDestinations.cancelHold', 'mutation', null],
+      ['tool:mutate', 'pay', undefined, 'mutation', "mutate's call named by a template"],
+      ['tool:query', 'pay', 'merchant.balances', 'query', null],
+      ['tool:query', 'pay', 'merchant.me', 'query', null],
+      ['tool:validatedMutation', 'pay', 'payment.create', 'mutation', null],
+    ].sort(),
+  );
+  const of = (path) => sites.find((s) => s.path === path);
+  // The answer schema goes with the call; a list's item schema is one row, so no answer is retyped from it.
+  assert.equal(text(load(of('merchant.balances').file), schemaArgOf(of('merchant.balances'))), 'balanceSchema');
+  assert.equal(schemaArgOf(of('settlement.lines')), undefined);
+
+  const changes = new Changes();
+  const money = of('merchant.balances').file;
+  for (const [path, name] of [
+    ['merchant.balances', 'PAY_MERCHANT_BALANCES'],
+    ['merchant.payoutDestinations.cancelHold', 'PAY_HOLD'],
+    ['settlement.lines', 'PAY_SETTLEMENT_LINES'],
+    ['merchant.me', 'PAY_MERCHANT_ME'],
+  ])
+    rewriteSite(changes, of(path), name, '@intafaced/contracts/x', path === 'merchant.me');
+  rewriteSite(changes, of('rotateSigningSecret'), 'IDENTITY_ROTATE', '@intafaced/contracts/y');
+  rewriteSite(changes, of('payment.create'), 'PAY_PAYMENT_CREATE', '@intafaced/contracts/x');
+  toolFormsIn(changes);
+  const out = applyEdits(load(money).src, changes.of(money).edits);
+  // query moved whole and goes from the parameter; mutate keeps its template caller, so it stays beside its record form.
+  assert.match(out, /^export const moneyApi = \(\{ mutate, queryRecord, mutateRecord, listRecord \}: PortalTools\) => \(\{$/m);
+  assert.match(out, /queryRecord\(PAY_MERCHANT_BALANCES, \{ merchantId \}, signal\)/);
+  assert.match(out, /mutateRecord\(PAY_HOLD, \{ id \}\)/);
+  assert.match(out, /listRecord\(PAY_SETTLEMENT_LINES, \{ cursor \}, signal\)/);
+  assert.match(out, /again: \(\) => queryRecord\(PAY_MERCHANT_ME, undefined\)/);
+  const dev = of('rotateSigningSecret').file;
+  assert.match(
+    applyEdits(load(dev).src, changes.of(dev).edits),
+    /\(\{ identityMutateRecord \}: SettingsBTools\)[\s\S]*identityMutateRecord\(IDENTITY_ROTATE, \{ keyId \}\)/,
+  );
+  const room = of('payment.create').file;
+  assert.match(
+    applyEdits(load(room).src, changes.of(room).edits),
+    /validatedRecordMutation\(pay, PAY_PAYMENT_CREATE, input, inputSchema, 'pay:write', 'create'\)/,
+  );
+  assert.ok(
+    [...changes.of(room).imports.entries()].some(([spec, names]) => spec === './BusinessPay' && names.has('validatedRecordMutation')),
+  );
+
+  // The tool's own sender is named as kept for its callers, a reason of its own.
+  const sender = findSites(repo).find((s) => s.file.endsWith('api-tools.ts'));
+  assert.match(sender.problem, /its tool query has a record form its callers move to one by one, and stays while a caller is left/);
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(reasonOf(sender.problem), 'tool kept while a caller is left (each caller named under its own reason)');
+});
+
 test('a name imported from a contracts subpath is read from that file, though another contracts file exports the name too', () => {
   const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
   const put = (path, lines) => {
