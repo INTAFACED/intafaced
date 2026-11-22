@@ -324,3 +324,7 @@ export function LostPhoneRoom() {
     />
   );
 }
+
+// PLANT (volt layers check, #9562): a type error the fast checks must stop. Never merge.
+const plantedFault: number = 'planted';
+void plantedFault;
