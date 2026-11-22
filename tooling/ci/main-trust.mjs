@@ -22,6 +22,7 @@
  *
  *   (CI) GH_TOKEN GITHUB_REPOSITORY RUN_ID RUN_ATTEMPT CONCLUSION HEAD_SHA node tooling/ci/main-trust.mjs
  */
+import { runJobs } from './run-jobs.mjs';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -97,9 +98,9 @@ async function gh(method, path, body) {
 }
 
 async function failedStepNames(repo, runId, attempt) {
-  const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`);
+  const jobs = await runJobs(`/repos/${repo}/actions/runs/${runId}/attempts/${attempt}/jobs`, async (p) => (await gh('GET', p)).json);
   const names = [];
-  for (const job of json?.jobs ?? []) {
+  for (const job of jobs ?? []) {
     if (job.conclusion !== 'failure' && job.conclusion !== 'timed_out') continue;
     for (const s of job.steps ?? []) names.push(s.name);
   }
@@ -108,8 +109,7 @@ async function failedStepNames(repo, runId, attempt) {
 
 /** The failed jobs of a run attempt that bisect-main.mjs can probe by their own command (JOB_PROBES). */
 async function failedProbedJobs(repo, runId, attempt) {
-  const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`);
-  return probedJobs(json?.jobs);
+  return probedJobs(await runJobs(`/repos/${repo}/actions/runs/${runId}/attempts/${attempt}/jobs`, async (p) => (await gh('GET', p)).json));
 }
 
 /** Pure: the names of failed or timed-out jobs that have a probe, sorted, once each. */
