@@ -33,28 +33,32 @@ export function LaunchCheckRoom() {
     <FlowTemplate
       title={routes.t('launchCheck')}
       description={description}
-      state={gate.state ?? { kind: 'ready' }}
+      state={gate.state}
       roomAction={gate.retry}
       step={
         <>
           <LaunchTabs current="/launch/check" />
-          <section aria-labelledby="launch-check-title">
-            <h2 id="launch-check-title">{t('checkTitle')}</h2>
-            <p>
-              <Copy k="checkIntro" />
-            </p>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void run();
-              }}
-            >
-              <Field label={t('deployer')} value={deployer} maxLength={128} onChange={(e) => setDeployer(e.target.value)} />
-              <Button type="submit" tone="primary" disabled={busy || !deployer.trim()}>
-                {busy ? <Copy k="checking" /> : <Copy k="runCheck" />}
-              </Button>
-            </form>
-          </section>
+          {gate.blocked ? null : (
+            <>
+              <section aria-labelledby="launch-check-title">
+                <h2 id="launch-check-title">{t('checkTitle')}</h2>
+                <p>
+                  <Copy k="checkIntro" />
+                </p>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void run();
+                  }}
+                >
+                  <Field label={t('deployer')} value={deployer} maxLength={128} onChange={(e) => setDeployer(e.target.value)} />
+                  <Button type="submit" tone="primary" disabled={busy || !deployer.trim()}>
+                    {busy ? <Copy k="checking" /> : <Copy k="runCheck" />}
+                  </Button>
+                </form>
+              </section>
+            </>
+          )}
         </>
       }
       summary={

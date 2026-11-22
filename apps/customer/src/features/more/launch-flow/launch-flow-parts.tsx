@@ -35,34 +35,41 @@ export function useLaunchScope(): string {
 /**
  * The issuer journey and the pre-listing check need an account. Signed out: the sign-in refusal the other More rooms
  * use (SignInPanel's words), returning to the section's own address (J-more-catalogue-01 #6). When the boot refresh
- * could not answer: never a false "signed out", but the retry refusal, with Retry as the room's one action.
+ * could not answer: never a false "signed out", but the retry refusal, with Retry as the room's one action. Either way the
+ * section tabs stay, as they did above the sign-in panel, and the section's own body waits for the account.
  */
-export function useLaunchGate(returnTo: string): { state: RoomState | null; retry: ReactNode } {
+export function useLaunchGate(returnTo: string): { state: RoomState; blocked: boolean; retry: ReactNode } {
   const { t } = appCopy.useCopy();
   const { userId, restoreFailed, retryRestore } = useSession();
-  if (userId) return { state: null, retry: undefined };
+  if (userId) return { state: { kind: 'ready' }, blocked: false, retry: undefined };
   if (restoreFailed)
     return {
       state: {
-        kind: 'refused',
-        refusal: {
-          variant: 'unreachable',
-          title: t('We could not check your sign-in'),
-          body: t('The account service did not answer. Your sign-in is not lost; try again.'),
+        kind: 'ready',
+        partial: {
+          missing: {
+            variant: 'unreachable',
+            title: t('We could not check your sign-in'),
+            body: t('The account service did not answer. Your sign-in is not lost; try again.'),
+          },
         },
       },
+      blocked: true,
       retry: <Button onClick={retryRestore}>{t('Retry')}</Button>,
     };
   return {
     state: {
-      kind: 'refused',
-      refusal: {
-        variant: 'refused',
-        title: t('Sign in to continue'),
-        body: t('Your account context is needed before this room can show private information.'),
-        action: { label: t('Sign in'), href: `/login?redirect=${encodeURIComponent(safeReturnTo(returnTo))}` },
+      kind: 'ready',
+      partial: {
+        missing: {
+          variant: 'refused',
+          title: t('Sign in to continue'),
+          body: t('Your account context is needed before this room can show private information.'),
+          action: { label: t('Sign in'), href: `/login?redirect=${encodeURIComponent(safeReturnTo(returnTo))}` },
+        },
       },
     },
+    blocked: true,
     retry: undefined,
   };
 }
