@@ -156,7 +156,7 @@ function runService(row) {
     maxBuffer: 64 * 1024 * 1024,
   });
   if (r.status !== 0 || !existsSync(json))
-    return { error: `${r.stderr || r.stdout}`.split('\n').find((l) => /Error|refused|fail/i.test(l)) ?? `exit ${r.status}` };
+    return { error: `${r.stderr}\n${r.stdout}`.split('\n').find((l) => /^\w*Error: /.test(l)) ?? `exit ${r.status}` };
   return JSON.parse(readFileSync(json, 'utf8'));
 }
 
