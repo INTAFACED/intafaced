@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { SUPPORT_GUEST_REQUEST_PATH } from '@intafaced/contracts/support-guest';
 import { useDataEnv } from '../../data/hooks';
 import { writeContract, type ContractData } from '../../shared/contract-call';
-import type { ApiResult } from '../../shared/api';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { Button, Field } from '../../shared/ui';
 import { Select } from './common';
@@ -11,29 +10,12 @@ import { categoryLabel, topicFromAddress } from './support-category';
 import { CATEGORY_VALUES } from './support-schemas';
 import { deskCopy } from './support-desk-copy';
 import { guestCopy } from './support-guest-copy';
-import { guestCreate, guestReply, guestThread, guestVerify, takeLinkToken } from './support-guest';
+import { guestCreate, guestReply, guestThread } from './support-guest';
+import { guestRefusalSentence, keptToken, refusalCode, type Refusal } from './support-guest-link';
 import '../../shared/support-desk.css';
 import '../../shared/public-pages.css';
 
-type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
-
-/** A link's token, read once from the address and kept in this tab's storage under `slot` (best effort). */
-function keptToken(name: 'token' | 'access', slot: string): string {
-  const fromLink = takeLinkToken(name);
-  try {
-    if (fromLink) sessionStorage.setItem(slot, fromLink);
-    return fromLink || (sessionStorage.getItem(slot) ?? '');
-  } catch {
-    return fromLink;
-  }
-}
 type GuestT = ReturnType<typeof guestCopy.useCopy>['t'];
-
-/** The code a refusal names: the service's dotted code, or `vendor.email`. */
-function refusalCode(refusal: Refusal): string | null {
-  const named = /\b(?:support|guest)(?:\.[a-z0-9_]+)+|\bvendor\.email\b/.exec(refusal.message)?.[0];
-  return named ?? refusal.code ?? null;
-}
 
 /** The plain sentence for a refusal of the guest path; every code is also shown as it is. */
 function GuestRefusal({ refusal, t }: { refusal: Refusal; t: GuestT }) {
@@ -45,19 +27,7 @@ function GuestRefusal({ refusal, t }: { refusal: Refusal; t: GuestT }) {
         <p className="muted">{t('pendingBody')}</p>
       </div>
     );
-  const unset = /support\.guest_(link_ttl|rate_limit|retention|address_key)_unset/.exec(code ?? '');
-  const sentence =
-    code === 'support.guest_rate_limited'
-      ? t('rateLimited')
-      : unset
-        ? t('unset', { setting: (/SUPPORT_GUEST_[A-Z_]+/.exec(refusal.message)?.[0] ?? code)! })
-        : code === 'support.guest_delivery_unknown'
-          ? t('deliveryUnknown')
-          : code === 'support.category_unknown'
-            ? t('categoryUnknown')
-            : code === 'support.fraud_route_unset' || code === 'support.fraud_route_missing'
-              ? t('fraudUnset')
-              : t('failed');
+  const sentence = guestRefusalSentence(refusal, code, t);
   return (
     <p role="alert" className="support-warning" data-testid="support-guest-refusal" data-code={code ?? undefined}>
       {sentence} {code ? <small lang="zxx">{code}</small> : null}
@@ -174,59 +144,6 @@ export function GuestNewRequest() {
         </a>
       </p>
     </section>
-  );
-}
-
-/**
- * /support/guest/verify#token=… (SP-tickets-01): the page the emailed link opens. Opening it changes nothing, so a mail
- * scanner that fetches the link opens no request; the person presses Open. The token leaves the address bar once read.
- */
-export function GuestVerify() {
-  const { t } = guestCopy.useCopy();
-  const { api } = useDataEnv();
-  // Kept for this tab only, so a reload before Open still has it while the address bar holds no token.
-  const [token] = useState(() => keptToken('token', 'support-guest-verify'));
-  const [busy, setBusy] = useState(false);
-  const [refusal, setRefusal] = useState<Refusal | null>(null);
-
-  async function open() {
-    if (busy) return;
-    setBusy(true);
-    setRefusal(null);
-    const answer = await writeContract(api, guestVerify, { token });
-    setBusy(false);
-    if (answer.ok) location.assign(`${SUPPORT_GUEST_REQUEST_PATH}#access=${answer.data.access}`);
-    else setRefusal(answer);
-  }
-
-  const code = refusal ? refusalCode(refusal) : null;
-  const dead = !token || code === 'support.guest_link_invalid' || code === 'support.guest_link_expired';
-  return (
-    <div className="pub-page" data-testid="support-guest-verify">
-      <header className="pub-heading">
-        <p className="eyebrow">{t('verifyEyebrow')}</p>
-        <h1>{code === 'support.guest_link_expired' ? t('expiredTitle') : dead ? t('invalidTitle') : t('verifyTitle')}</h1>
-      </header>
-      {dead ? (
-        <div className="pub-notice" role="alert" data-testid="support-guest-link-dead" data-code={code ?? undefined}>
-          <p>{code === 'support.guest_link_expired' ? t('expiredBody') : t('invalidBody')}</p>
-          {code ? <small lang="zxx">{code}</small> : null}
-        </div>
-      ) : (
-        <>
-          <p className="muted">{t('verifyIntro')}</p>
-          <Button onClick={() => void open()} disabled={busy}>
-            {busy ? t('verifying') : t('verifyButton')}
-          </Button>
-          {refusal ? <GuestRefusal refusal={refusal} t={t} /> : null}
-        </>
-      )}
-      <p>
-        <a className="text-link" href="/support/new" data-testid="support-guest-back">
-          {t('backToForm')}
-        </a>
-      </p>
-    </div>
   );
 }
 

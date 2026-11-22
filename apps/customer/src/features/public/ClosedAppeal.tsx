@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { appealSchema } from '@intafaced/contracts/identity-appeals';
 import { useSession } from '../session';
-import { Button } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { publicAuthCopy } from './public-auth-copy';
 
 type Proof = { identifier: string; password: string };
@@ -45,7 +45,7 @@ export function ClosedAppeal({ take }: { take: () => Proof | null }) {
   return (
     <>
       {answer === null || answer === 'sending' ? (
-        <Button variant="secondary" disabled={answer === 'sending'} onClick={() => void send()} lang={languageFor('stateAppealClosed')}>
+        <Button tone="secondary" disabled={answer === 'sending'} onClick={() => void send()} lang={languageFor('stateAppealClosed')}>
           {answer === 'sending' ? t('appealClosedSending') : t('stateAppealClosed')}
         </Button>
       ) : null}

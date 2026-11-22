@@ -104,9 +104,9 @@ describe('a recovery code at the second step', () => {
     );
     await signIn('ABCDE-12345');
     await act(async () => {
-      await vi.waitFor(() => expect(host.querySelector('.public-auth-recovery-used')).not.toBeNull());
+      await vi.waitFor(() => expect(host.querySelector('[aria-labelledby="recovery-used-title"]')).not.toBeNull());
     });
-    const panel = host.querySelector('.public-auth-recovery-used')!;
+    const panel = host.querySelector('[aria-labelledby="recovery-used-title"]')!;
     expect(panel.textContent).toContain('That recovery code is now spent');
     expect(panel.textContent).toContain('Recovery codes left: 7');
     expect(panel.textContent).not.toContain('no recovery codes left');
@@ -122,16 +122,16 @@ describe('a recovery code at the second step', () => {
     );
     await signIn('ABCDE-12345');
     await act(async () => {
-      await vi.waitFor(() => expect(host.querySelector('.public-auth-recovery-used')).not.toBeNull());
+      await vi.waitFor(() => expect(host.querySelector('[aria-labelledby="recovery-used-title"]')).not.toBeNull());
     });
-    expect(host.querySelector('.public-auth-feedback')).toBeNull();
+    expect(host.querySelector('[data-auth-feedback]')).toBeNull();
     expect(host.querySelectorAll('h1')).toHaveLength(1);
     expect(host.querySelector('h1')!.textContent).toBe('Signed in with a recovery code');
     await act(async () => {
       history.pushState(null, '', '/login?redirect=%2Ftrade');
       dispatchEvent(new PopStateEvent('popstate'));
     });
-    expect(host.querySelector('.public-auth-recovery-used')).toBeNull();
+    expect(host.querySelector('[aria-labelledby="recovery-used-title"]')).toBeNull();
   });
 
   it('with the last code spent, it says none are left and points to Security', async () => {
@@ -141,7 +141,7 @@ describe('a recovery code at the second step', () => {
     );
     await signIn('ABCDE-12345');
     await act(async () => {
-      await vi.waitFor(() => expect(host.querySelector('.public-auth-recovery-used')).not.toBeNull());
+      await vi.waitFor(() => expect(host.querySelector('[aria-labelledby="recovery-used-title"]')).not.toBeNull());
     });
     expect(host.textContent).toContain('Recovery codes left: 0');
     expect(host.textContent).toContain('You have no recovery codes left.');
@@ -156,6 +156,6 @@ describe('a recovery code at the second step', () => {
     await act(async () => {
       await vi.waitFor(() => expect(location.pathname).toBe('/money'));
     });
-    expect(host.querySelector('.public-auth-recovery-used')).toBeNull();
+    expect(host.querySelector('[aria-labelledby="recovery-used-title"]')).toBeNull();
   });
 });

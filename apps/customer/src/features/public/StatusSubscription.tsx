@@ -1,82 +1,42 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { useDataEnv } from '../../data/hooks';
-import { readContract, writeContract, type ContractData } from '../../shared/contract-call';
-import type { ApiResult } from '../../shared/api';
+import { readContract } from '../../shared/contract-call';
 import { Button, Field } from '../../shared/ui';
-import {
-  statusPageFetcher,
-  statusSubscriptionConfirm,
-  statusSubscriptionGet,
-  statusSubscriptionUpdate,
-  statusUnsubscribe,
-  type StatusPage,
-} from './status';
+import { statusSubscriptionGet } from './status';
 import { statusSubscribeCopy } from './status-subscribe-copy';
+import { DEAD, useLinkToken, useManageSubscription, type Refusal, type T, type View } from './status-subscription';
+import { StatusSubscriptionFlow } from './StatusSubscriptionFlow';
 import '../../shared/public-pages.css';
 import './status-page.css';
 
-type View = ContractData<typeof statusSubscriptionGet>;
-type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
-type T = ReturnType<typeof statusSubscribeCopy.useCopy>['t'];
-
-const DEAD = new Set(['status.subscription_link_invalid', 'status.subscriber_unknown']);
-
 /**
- * /status/confirm, /status/manage and /status/unsubscribe (SP-status-04): the pages the links in status mail open. Opening
- * a page changes nothing, so a mail scanner that fetches the link spends nothing; the person presses the button. The
- * token leaves the address bar once read.
+ * /status/manage (SP-status-04): the page the manage link in status mail opens. Opening it changes nothing; the token
+ * leaves the address bar once read. /status/confirm and /status/unsubscribe are StatusSubscriptionFlow, on the flow
+ * template; this name still answers for them.
  */
 export function StatusSubscriptionPage({ mode }: { mode: 'confirm' | 'manage' | 'unsubscribe' }) {
+  if (mode !== 'manage') return <StatusSubscriptionFlow mode={mode} />;
+  return <StatusSubscriptionManage />;
+}
+
+function StatusSubscriptionManage() {
+  const mode = 'manage';
   const { t } = statusSubscribeCopy.useCopy();
   const { api } = useDataEnv();
-  const token = useRef(new URLSearchParams(location.search).get('token')?.trim() ?? '').current;
-  const [manageToken, setManageToken] = useState<string | null>(mode === 'manage' && token ? token : null);
+  const token = useLinkToken();
+  const [manageToken] = useState<string | null>(token ? token : null);
   const [view, setView] = useState<View | null>(null);
-  const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
 
   useEffect(() => {
-    if (location.search) history.replaceState(history.state, '', location.pathname);
-  }, []);
-
-  useEffect(() => {
-    if (mode !== 'manage' || !manageToken) return;
+    if (!manageToken) return;
     void readContract(api, statusSubscriptionGet, { token: manageToken }).then((answer) =>
       answer.ok ? setView(answer.data) : setRefusal(answer),
     );
-  }, [api, mode, manageToken]);
-
-  async function act() {
-    if (busy) return;
-    setBusy(true);
-    setRefusal(null);
-    if (mode === 'confirm') {
-      const answer = await writeContract(api, statusSubscriptionConfirm, { token });
-      if (answer.ok) {
-        const { manageToken: next, ...rest } = answer.data;
-        setManageToken(next);
-        setView(rest);
-      } else setRefusal(answer);
-    } else {
-      const answer = await writeContract(api, statusUnsubscribe, { token });
-      if (answer.ok) setView(answer.data);
-      else setRefusal(answer);
-    }
-    setBusy(false);
-  }
+  }, [api, manageToken]);
 
   const dead = !token || DEAD.has(refusal?.code ?? '');
-  const title = dead
-    ? t('deadTitle')
-    : mode === 'unsubscribe'
-      ? view
-        ? t('leftTitle')
-        : t('leaveTitle')
-      : mode === 'confirm' && view
-        ? t('confirmedTitle')
-        : mode === 'confirm'
-          ? t('confirmTitle')
-          : t('manageTitle');
+  const title = dead ? t('deadTitle') : t('manageTitle');
   return (
     <div className="pub-page" data-testid={`status-subscription-${mode}`}>
       <header className="pub-heading">
@@ -88,22 +48,6 @@ export function StatusSubscriptionPage({ mode }: { mode: 'confirm' | 'manage' | 
           <p>{t('deadBody')}</p>
           {refusal?.code ? <small lang="zxx">{refusal.code}</small> : null}
         </div>
-      ) : mode === 'unsubscribe' && view ? (
-        <p role="status" data-testid="status-subscription-left">
-          {t('leftBody')}
-        </p>
-      ) : mode !== 'manage' && !view ? (
-        <>
-          <p className="muted">{mode === 'confirm' ? t('confirmIntro') : t('leaveIntro')}</p>
-          <Button variant={mode === 'unsubscribe' ? 'danger' : 'primary'} onClick={() => void act()} disabled={busy}>
-            {mode === 'confirm' ? (busy ? t('confirming') : t('confirm')) : busy ? t('leaving') : t('leave')}
-          </Button>
-          {refusal ? (
-            <p role="alert">
-              {t('failed')} <small lang="zxx">{refusal.code}</small>
-            </p>
-          ) : null}
-        </>
       ) : view && manageToken ? (
         <ManageSubscription token={manageToken} view={view} onChange={setView} t={t} />
       ) : (
@@ -119,47 +63,11 @@ export function StatusSubscriptionPage({ mode }: { mode: 'confirm' | 'manage' | 
 }
 
 function ManageSubscription({ token, view, onChange, t }: { token: string; view: View; onChange: (view: View) => void; t: T }) {
-  const { api } = useDataEnv();
-  const [components, setComponents] = useState<StatusPage['components']>([]);
-  const [all, setAll] = useState(view.componentIds === null);
-  const [picked, setPicked] = useState<string[]>(view.componentIds ?? []);
-  const [webhook, setWebhook] = useState(view.webhookUrl ?? '');
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [refusal, setRefusal] = useState<Refusal | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void statusPageFetcher(api)(controller.signal).then((answer) => answer.ok && setComponents(answer.data.components));
-    return () => controller.abort();
-  }, [api]);
-
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    setSaved(false);
-    setRefusal(null);
-    const answer = await writeContract(api, statusSubscriptionUpdate, {
-      token,
-      componentIds: all ? null : picked,
-      webhookUrl: webhook.trim() === '' ? null : webhook.trim(),
-    });
-    setBusy(false);
-    if (answer.ok) {
-      onChange(answer.data);
-      setSaved(true);
-    } else setRefusal(answer);
-  }
-
-  async function leave() {
-    if (busy) return;
-    setBusy(true);
-    const answer = await writeContract(api, statusUnsubscribe, { token });
-    setBusy(false);
-    if (answer.ok) onChange(answer.data);
-    else setRefusal(answer);
-  }
+  const { components, all, setAll, picked, setPicked, webhook, setWebhook, busy, saved, refusal, save, leave } = useManageSubscription({
+    token,
+    view,
+    onChange,
+  });
 
   return (
     <section className="pub-card status-subscribe" data-testid="status-subscription-manage" data-state={view.state}>
