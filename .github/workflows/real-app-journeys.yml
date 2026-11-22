@@ -49,8 +49,11 @@ on:
   # on its branch does, never GitHub's merge commit, so the seal reads it on that head. It shares its branch's group with
   # a manual full run there, so either replaces the other. A pull request run keeps the ordinary limits (no fail-fast),
   # so the steps a builder builds run as in a targeted run.
+  # A pull request into a Volt layer branch (`volt/<template>`, one batch of rooms) runs no journeys: it passes CI's fast
+  # checks alone, and the layer's own pull request into main runs the journeys its rooms reach, sealed as any other.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    branches-ignore: ['volt/**']
   workflow_dispatch:
     inputs:
       journeys:

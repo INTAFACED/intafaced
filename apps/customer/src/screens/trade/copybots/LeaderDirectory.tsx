@@ -9,6 +9,7 @@ import { bpsText } from './desk';
 import type { Failure } from './guard';
 import { useLive } from './live';
 import { Freshness, InfoNote, RefusalNote } from './parts';
+import './copybots.css';
 
 /** What each tab of the directory lists. The service filters; this screen never filters or sorts the rows again. */
 export const MODE_WORD: Record<LeaderMode, string> = { spot: 'Spot', futures: 'Futures', bot: 'Bots', signal: 'Signal' };

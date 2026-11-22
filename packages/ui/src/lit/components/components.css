@@ -190,6 +190,8 @@
   font: 500 var(--lit-type-micro-size) / var(--lit-type-micro-line) var(--lit-font-mono);
   letter-spacing: var(--lit-type-micro-tracking);
   text-transform: uppercase;
+  /* Centred on its fill whatever the room inherits, so no letter sits on the fill's rounded edge. */
+  text-align: center;
   cursor: pointer;
 }
 .lit-segmented button[aria-pressed='true'],

@@ -26,12 +26,32 @@ export interface TableProps<Row> {
   /** Opens the row's record; makes the first cell a link. */
   rowHref?: (row: Row) => string;
   selected?: string;
+  /**
+   * Makes the rows pickable: the table becomes a `grid`, each row one Tab stop with `aria-selected`; a click on the
+   * row (not on a control inside it), Enter or Space picks it, and the arrow keys, Home and End move between rows.
+   */
+  onSelect?: (key: string) => void;
+  /** Shown in the body when there are no rows (an honest empty line, never a blank table). */
+  empty?: React.ReactNode;
 }
 
-export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', rowHref, selected }: TableProps<Row>) {
+export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', rowHref, selected, onSelect, empty }: TableProps<Row>) {
   const cols = columns.filter((c) => mode === 'pro' || !c.pro);
+  const body = React.useRef<HTMLTableSectionElement>(null);
+  const keys = rows.map(rowKey);
+  const stop = Math.max(0, selected === undefined ? 0 : keys.indexOf(selected));
+  const focusRow = (index: number) => body.current?.querySelectorAll<HTMLElement>('tr[data-row]')[index]?.focus();
+  const onKeyDown = (event: React.KeyboardEvent, index: number) => {
+    if (!onSelect || event.target !== event.currentTarget) return;
+    const step = gridKey(event.key, index, keys.length);
+    if (step === null) return;
+    event.preventDefault();
+    const key = keys[index];
+    if (step !== 'pick') focusRow(step);
+    else if (key !== undefined) onSelect(key);
+  };
   return (
-    <table className="lt-table" data-mode={mode}>
+    <table className="lt-table" data-mode={mode} role={onSelect ? 'grid' : undefined}>
       <caption className="lt-sr">{caption}</caption>
       <thead>
         <tr>
@@ -42,11 +62,31 @@ export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', ro
           ))}
         </tr>
       </thead>
-      <tbody>
-        {rows.map((row) => {
+      <tbody ref={body}>
+        {rows.length === 0 && empty !== undefined ? (
+          <tr>
+            <td colSpan={cols.length}>{empty}</td>
+          </tr>
+        ) : null}
+        {rows.map((row, index) => {
           const key = rowKey(row);
           return (
-            <tr key={key} data-selected={selected === key || undefined}>
+            <tr
+              key={key}
+              data-row=""
+              data-selected={selected === key || undefined}
+              aria-selected={onSelect ? selected === key : undefined}
+              tabIndex={onSelect ? (index === stop ? 0 : -1) : undefined}
+              onClick={
+                onSelect
+                  ? (event) => {
+                      if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea')) return;
+                      onSelect(key);
+                    }
+                  : undefined
+              }
+              onKeyDown={onSelect ? (event) => onKeyDown(event, index) : undefined}
+            >
               {cols.map((c, i) => {
                 const content = c.cell(row);
                 return (
@@ -73,4 +113,14 @@ export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', ro
       </tbody>
     </table>
   );
+}
+
+/** What a key does on a pickable row at `index`: pick it, move to another row's index, or nothing (null). */
+export function gridKey(key: string, index: number, count: number): 'pick' | number | null {
+  if (key === 'Enter' || key === ' ') return 'pick';
+  if (key === 'ArrowDown') return Math.min(count - 1, index + 1);
+  if (key === 'ArrowUp') return Math.max(0, index - 1);
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
 }

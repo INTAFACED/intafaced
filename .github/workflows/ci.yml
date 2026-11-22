@@ -842,10 +842,11 @@ jobs:
   # default branch's script, never the pull request's code. It replaced journey-seal-recheck.yml, a workflow_run
   # workflow that was a run of its own on every finished input, whether it did anything or not
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
+  # Not on a pull request into a Volt layer branch (`volt/<template>`): no seal guards those; CI's fast checks do.
   seal-start:
     name: Start the seal
     needs: [changes, gates, format, build, test-full, rust, look, merge-seal]
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.base_ref, 'volt/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
     permissions:

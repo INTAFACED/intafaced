@@ -9,6 +9,7 @@ import { RANKINGS } from './LeaderDirectory';
 import { useLive } from './live';
 import { InfoNote, RefusalNote } from './parts';
 import { LeadAccount } from './LeadAccount';
+import './copybots.css';
 
 type FeeRow = LeadEarnings['items'][number];
 
