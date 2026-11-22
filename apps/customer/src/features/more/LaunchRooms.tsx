@@ -13,7 +13,11 @@ import {
   type AssessResult,
   type LaunchDraft,
 } from './launch-journey';
-import type { ApiResult } from '../../shared/api';
+import type { ApiClient, ApiResult } from '../../shared/api';
+
+/** The pre-listing deployer check (svc-agents `launch.assess`, no record yet); the Launch check room calls it here too. */
+export const assessLaunch = (api: ApiClient, deployer: string) =>
+  api.query('agents', 'launch.assess', { deployer: deployer.trim() || undefined }, assessResult);
 
 export function LaunchJourney({ onTab }: { onTab: (tab: 'Check') => void }) {
   const { Copy, t } = launchDepthCopy.useCopy();
@@ -119,7 +123,7 @@ export function LaunchCheck() {
   const [outcome, setOutcome] = useState<ApiResult<AssessResult> | null>(null);
   async function run() {
     setBusy(true);
-    const result = await api.query('agents', 'launch.assess', { deployer: deployer.trim() || undefined }, assessResult);
+    const result = await assessLaunch(api, deployer);
     setOutcome(result);
     setBusy(false);
   }

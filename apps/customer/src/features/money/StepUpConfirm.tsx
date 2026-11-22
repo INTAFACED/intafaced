@@ -6,11 +6,12 @@ import { useResource } from '../../shared/resource';
 
 import { useSession } from '../session';
 
-import { confirmWithStepUp, factorStatus, type StepUpBegin, type StepUpMethod } from '../account';
+import { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from '../account';
 
 import { stepUpRefusalKeys } from './WithdrawStepUp';
 
 import { withdrawStepUpCopy } from './withdraw-step-up-copy';
+import { IDENTITY_FACTOR_STATUS } from '@intafaced/contracts/identity-factor-status-procedures';
 
 const refusalKeys = { ...stepUpRefusalKeys, 'stepUp.no_passkey': 'noPasskey' } as const;
 
@@ -24,7 +25,7 @@ const refusalKeys = { ...stepUpRefusalKeys, 'stepUp.no_passkey': 'noPasskey' } a
 /** The person's sign-in factors (authenticator, passkeys), as identity reports them. Shared with the Volt rooms' step-up. */
 export function useFactorStatus() {
   const { api, userId } = useSession();
-  return useResource((signal) => api.query('identity', 'factorStatus', undefined, factorStatus, { signal }), `factors:${userId}`);
+  return useResource((signal) => api.call(IDENTITY_FACTOR_STATUS, undefined, { signal }), `factors:${userId}`);
 }
 
 /** A controller aborted when the part unmounts: an answer that lands after that is dropped. */

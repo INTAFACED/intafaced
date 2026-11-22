@@ -9,6 +9,7 @@ import {
   ActionKey,
   Button,
   Change,
+  Checkbox,
   Dock,
   Field,
   ChoiceGroup,
@@ -16,6 +17,7 @@ import {
   Figure,
   LegalSlot,
   Logo,
+  Radio,
   Rail,
   RefusalBox,
   EmptyState,
@@ -146,6 +148,19 @@ describe('components', () => {
     expect(html(<Logo variant="mark" />)).toContain('aria-label="INTAFACED"');
   });
 
+  it('TextArea, Select and Checkbox are named by their label and keep the hint', () => {
+    const area = html(<TextArea label="Your answer" hint="Up to 4000" id="t" maxLength={4000} />);
+    expect(area).toContain('<label for="t">Your answer</label>');
+    expect(area).toContain('aria-describedby="t-hint"');
+    expect(area).toContain('rows="5"');
+    const pick = html(<Select label="Account" id="s" options={[['a', 'One']]} defaultValue="a" />);
+    expect(pick).toContain('<label for="s">Account</label>');
+    expect(pick).toContain('<option value="a" selected="">One</option>');
+    const box = html(<Checkbox label="I have saved the key" name="saved" />);
+    expect(box).toContain('type="checkbox"');
+    expect(box).toContain('<span>I have saved the key</span>');
+  });
+
   it('Field keeps a caller description next to its own hint', () => {
     const out = html(<Field label="Amount" hint="Max 500" aria-describedby="terms" id="a" />);
     expect(out).toContain('aria-describedby="terms a-hint"');
@@ -197,6 +212,46 @@ describe('components', () => {
       /<fieldset class="lit-choices" disabled="" aria-describedby="([^"]+)">.*<span id="\1" data-part="hint">Citizens and residents<\/span>/,
     );
     expect(group).toContain('<input type="radio" name="us" value="no"/>');
+  });
+
+  it('Select is a labelled native select whose change hands back the value', () => {
+    const out = html(<Select label="Role" id="r" value="b" options={['a', { value: 'b', label: 'Bee' }, ['c', 'Sea']]} hint="Pick one" />);
+    expect(out).toMatch(/^<div class="lit-field-control"><label for="r">Role<\/label><select [^>]*id="r"/);
+    expect(out).toContain('<option value="a">a</option><option value="b" selected="">Bee</option><option value="c">Sea</option>');
+    expect(out).toContain('<span id="r-hint" data-part="hint">Pick one</span>');
+  });
+
+  it('Radio is a native radio button named by its words, one of a shared name', () => {
+    const out = html(
+      <Radio name="scope" value="all" checked readOnly>
+        All components
+      </Radio>,
+    );
+    expect(out).toBe(
+      '<label class="lt-field"><input readOnly="" type="radio" name="scope" checked="" value="all"/><span>All components</span></label>',
+    );
+  });
+
+  it('Checkbox is a native tick box named by its words or its own label', () => {
+    const out = html(
+      <Checkbox checked readOnly aria-label="Allow Runner">
+        Allowed
+      </Checkbox>,
+    );
+    expect(out).toMatch(/^<label class="lt-field"><input [^>]*type="checkbox"[^>]*\/><span>Allowed<\/span><\/label>$/);
+    expect(out).toContain('checked=""');
+    expect(out).toContain('aria-label="Allow Runner"');
+  });
+
+  it('TextArea is a labelled native text box whose hint describes it and whose change hands back the text', () => {
+    const out = html(<TextArea id="why" label="Why" value="TEST" readOnly maxLength={500} hint="Up to 500 characters" aria-invalid />);
+    expect(out).toMatch(
+      /^<div class="lit-field-control"><label for="why">Why<\/label><textarea [^>]*>TEST<\/textarea><span id="why-hint" data-part="hint">Up to 500 characters<\/span><\/div>$/,
+    );
+    expect(out).toContain('aria-describedby="why-hint"');
+    expect(out).toContain('maxLength="500"');
+    expect(out).toContain('aria-invalid="true"');
+    expect(html(<TextArea label="Note" name="note" />)).not.toContain('aria-describedby');
   });
 
   it('LegalSlot holds no copy of its own, and an unset text shows a refusal in words, never the id', () => {

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { OpsCapitalAlert } from '@intafaced/contracts';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /** One version of one asset's threshold. `minimum` null is a cleared threshold: the asset is not monitored. */
 export interface StoredThreshold {

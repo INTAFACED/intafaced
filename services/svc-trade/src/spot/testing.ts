@@ -1,4 +1,5 @@
-import { BASE_PERKS, type RankPerks } from '@intafaced/contracts';
+import type { RankPerks } from '@intafaced/contracts';
+import { BASE_PERKS } from '@intafaced/contracts/identity';
 import { parseAmount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import type {

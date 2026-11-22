@@ -32,6 +32,7 @@
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
  * review. A pull request that edits the workflow itself touches .github/workflows/, a gate file, which always needs the review.
  */
+import { runJobs } from './run-jobs.mjs';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { gateFilesTouched } from '../scripts/gate-files.mjs';
@@ -747,8 +748,7 @@ export async function readTree(repo, sha, token, get = api) {
 async function readAttempts(repo, run, token) {
   const out = [];
   for (let n = 1; n <= Math.max(1, Number(run.run_attempt) || 1); n++) {
-    const r = await api(`/repos/${repo}/actions/runs/${run.id}/attempts/${n}/jobs?per_page=100`, token);
-    out.push(r?.jobs ?? []);
+    out.push((await runJobs(`/repos/${repo}/actions/runs/${run.id}/attempts/${n}/jobs`, (p) => api(p, token))) ?? []);
   }
   return out;
 }

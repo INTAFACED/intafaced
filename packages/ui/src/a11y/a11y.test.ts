@@ -9,10 +9,10 @@ import {
   SURFACES_STORAGE_KEY,
   applySurfaces,
   composite,
+  focusScroll,
   contrastRatio,
   isLargeText,
   meetsContrast,
-  barReach,
   obscuredInsets,
   parseColor,
   readSurfacesSetting,
@@ -204,31 +204,29 @@ describe('Solid surfaces', () => {
 });
 
 describe('focus not obscured', () => {
-  it('takes the farthest reach of stacked bars per edge and ignores anything else', () => {
+  it('adds stacked bars per edge and ignores anything else', () => {
     expect(
       obscuredInsets([
-        { edge: 'top', reach: 56 },
-        { edge: 'top', reach: 117.5 },
-        { edge: 'bottom', reach: 88 },
-        { edge: 'left', reach: 40 },
-        { edge: null, reach: 10 },
-        { edge: 'bottom', reach: Number.NaN },
+        { edge: 'top', height: 56 },
+        { edge: 'top', height: 61.5 },
+        { edge: 'bottom', height: 88 },
+        { edge: 'left', height: 40 },
+        { edge: null, height: 10 },
+        { edge: 'bottom', height: Number.NaN },
       ]),
     ).toEqual({ top: 117.5, bottom: 88 });
     expect(OBSCURED_TOP_VAR).toBe('--a11y-obscured-top');
     expect(OBSCURED_BOTTOM_VAR).toBe('--a11y-obscured-bottom');
   });
-});
 
-describe('a bar reaches from its own edge', () => {
-  it('counts the gap under a floating dock, so a control just above it scrolls clear (look gate /bank/salary, #9620)', () => {
-    // The phone dock as the look gate measured it: 58 high, floating 12.25 above the bottom of an 844-high viewport.
-    expect(barReach('bottom', { top: 773.75, bottom: 831.75, height: 58 }, 844)).toBe(70.25);
-    // The risk band stacked under a 48-high top bar reaches to its own bottom edge.
-    expect(barReach('top', { top: 48, bottom: 76, height: 28 }, 844)).toBe(76);
-    // The dock is not drawn on a computer: it covers nothing.
-    expect(barReach('bottom', { top: 0, bottom: 0, height: 0 }, 900)).toBe(0);
-    expect(barReach('left', { top: 0, bottom: 40, height: 40 }, 900)).toBe(0);
+  it('scrolls a focused control clear of the bar that covers it, and leaves a clear one alone', () => {
+    // The look gate's /trade/calendar at 200% text: the link at 684-700 under a dock that starts at 686.
+    expect(focusScroll({ top: 684, bottom: 700 }, { topEdge: 48, bottomEdge: 686 })).toBe(22);
+    expect(focusScroll({ top: 300, bottom: 320 }, { topEdge: 48, bottomEdge: 686 })).toBe(0);
+    expect(focusScroll({ top: 40, bottom: 60 }, { topEdge: 48, bottomEdge: 686 })).toBe(-16);
+    // Taller than the space between the bars: its top stays in view rather than its bottom.
+    expect(focusScroll({ top: 100, bottom: 900 }, { topEdge: 48, bottomEdge: 686 })).toBe(44);
+    expect(focusScroll({ top: 100, bottom: 110 }, { topEdge: 48, bottomEdge: 686 }, 0)).toBe(0);
   });
 });
 

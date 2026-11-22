@@ -1,4 +1,5 @@
-import { forwardedPrincipalHeaders, router } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { poolSettleInputSchema, poolSettleSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { CAMPAIGNS_POOL_BOARD } from '@intafaced/contracts/campaigns-procedures';

@@ -118,14 +118,33 @@
 </nav>
 <div data-testid="acct-body" class="acct-body legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<div lang="en">
+<div class="lt-room" data-template="flow" data-state="refused" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Create an API key</h1>
+<p class="lt-description">The key is shown once, when it is made. Nobody can show it again, including us.</p>
+</div>
+<div class="lt-room-action">
+<a class="lt-link" href="/uc/safe/api-keys">Back to API keys</a>
+</div>
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step" data-holds-state="">
+<div class="lt-refusal" data-refusal="unreachable" role="alert">
+<p class="lt-refusal-title">Can’t connect right now</p>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<a class="lt-button lt-button-secondary" href="/uc/safe/api-keys/new">Try again</a>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>

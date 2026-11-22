@@ -9,7 +9,8 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
-import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 
 // Any well-formed id is looked up, so an id with no order answers 404 the same as svc-support's own id check expects.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

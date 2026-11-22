@@ -4,12 +4,11 @@ import { useSession } from '../session';
 import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
-import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
-import { agentBuilderCopy } from './agent-builder-copy';
+import { OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
+import { NewAgentRoom } from './new-agent/NewAgentRoom';
 import { AgentsTeam } from './AgentsTeam';
 import { AgentApprovals } from './AgentApprovals';
 import { AgentConnect } from './AgentConnect';
-import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
 import { agentRunCopy } from './agent-run-copy';
 import { agentApprovalsCopy } from './agent-approvals-copy';
@@ -23,6 +22,9 @@ import { Launch, Mining } from './AvailabilityRooms';
 import type { LaunchTab } from './LaunchAvailability';
 import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
+import { MarketStrategyRoom } from './market-strategy/MarketStrategyRoom';
+import { LaunchNewRoom } from './launch-flow/LaunchNewRoom';
+import { LaunchCheckRoom } from './launch-flow/LaunchCheckRoom';
 import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant';
@@ -41,7 +43,7 @@ import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { PaperRoom } from './paper-mode';
 import { preservePaperHref } from './trade-context';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -72,7 +74,12 @@ function MoreRooms({ path }: { path: string }) {
     );
   // Set when the path is one of the six rooms of the set, so `?simulated=true` labels it and refuses its actions.
   let room: MoreRoomId | undefined;
+  // A room on its Volt template draws its own title row, so it is mounted without the old page frame.
+  let bare = false;
   if (p === '/academy' || p.startsWith('/academy/')) {
+    const kind = academyRoute(p).kind;
+    // The certificate check is the same for everyone; a signed-out visitor's assignment address opens the public Academy.
+    bare = kind === 'verify' || (kind === 'assignment' && Boolean(userId));
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
     content = (
@@ -90,12 +97,11 @@ function MoreRooms({ path }: { path: string }) {
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
     content = <Agents paper={paper} />;
   } else if (p === '/agents/connect') {
-    title = <agentConnectCopy.Copy k="title" />;
-    description = <agentConnectCopy.Copy k="description" />;
+    bare = true;
     content = <AgentConnect />;
   } else if (p === '/agents/new') {
-    title = agentBuilderCopy.t('newAgent');
-    content = <NewAgent />;
+    bare = true;
+    content = <NewAgentRoom />;
   } else if (agentRunId(p)) {
     const runId = agentRunId(p)!;
     title = agentRunCopy.t('title');
@@ -137,16 +143,19 @@ function MoreRooms({ path }: { path: string }) {
     title = p === '/launch' ? copyText('moreroutes.launch') : copyText('moreroutes.my.launch.orders');
     description = <launchCopy.Copy k="scope" />;
     content = <Launch orders={p !== '/launch'} />;
-  } else if (p === '/market' || p === '/market/mine' || p === '/market/strategy') {
+  } else if (p === '/market/strategy') {
     room = 'market';
-    title =
-      p === '/market'
-        ? copyText('moreroutes.market')
-        : p === '/market/mine'
-          ? copyText('moreroutes.my.listings')
-          : copyText('moreroutes.strategy.subscriptions');
+    bare = true;
+    content = <MarketStrategyRoom />;
+  } else if (p === '/launch/new' || p === '/launch/check') {
+    room = 'launch';
+    bare = true;
+    content = p === '/launch/new' ? <LaunchNewRoom /> : <LaunchCheckRoom />;
+  } else if (p === '/market' || p === '/market/mine') {
+    room = 'market';
+    title = p === '/market' ? copyText('moreroutes.market') : copyText('moreroutes.my.listings');
     description = copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace');
-    content = <Market key={p} mine={p === '/market/mine'} strategy={p === '/market/strategy'} />;
+    content = <Market key={p} mine={p === '/market/mine'} strategy={false} />;
   } else if (p === '/predict') {
     room = 'predict';
     title = copyText('moreroutes.prediction');
@@ -209,6 +218,7 @@ function MoreRooms({ path }: { path: string }) {
       </PaperRoom>
     );
   }
+  if (bare) return <Fragment key={userId ?? 'anonymous'}>{content}</Fragment>;
   return (
     <div className="more-feature">
       <Page

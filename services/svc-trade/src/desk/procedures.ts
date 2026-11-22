@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { scopedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { scopedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError } from '@intafaced/auth';
 import { InsufficientFundsError } from '@intafaced/ledger-client';
 import type { TradeService } from '../spot/trade-service.js';

@@ -1,4 +1,4 @@
-import { quantSignalRulesSchema } from '@intafaced/contracts';
+import { quantSignalRulesSchema } from '@intafaced/contracts/quant-algo';
 import type { Sql, TransactionSql } from 'postgres';
 import { QUANT_IDEMPOTENCY_CONFLICT, QUANT_TEMPLATE_NOT_FOUND, QuantError } from '../errors.js';
 import {

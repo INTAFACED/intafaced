@@ -19,8 +19,8 @@ export function AuthLanguage({
       <Select
         label={menu.label.text}
         value={menu.value}
-        onChange={(event) => {
-          const next = canonicalUiLocale(event.target.value);
+        onChange={(value) => {
+          const next = canonicalUiLocale(value);
           if (next) onSelect(next);
         }}
       >

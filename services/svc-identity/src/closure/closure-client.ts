@@ -3,7 +3,8 @@
  * Timeout is 3 seconds. One retry. Anything other than a well-formed 2xx is
  * unavailable, which the caller must not treat as "nothing is open".
  */
-import { serviceCallSigner, type ServiceAuthMode, type ServiceName, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceName, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 const TIMEOUT_MS = 3_000;
 const ATTEMPTS = 2;

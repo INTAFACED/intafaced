@@ -18,9 +18,8 @@ import {
   incidentNoteInputSchema,
   incidentResolveInputSchema,
   incidentTaskInputSchema,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-incidents';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OpsError } from '../codes.js';
 import type { IncidentChange, IncidentStore } from './store.js';
 

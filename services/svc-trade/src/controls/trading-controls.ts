@@ -2,6 +2,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
+import type {
+  AccountControlInput,
+  AccountControlResult,
+  AccountControlState,
+  Context,
+  CommittedOperationAdmission,
+  IdentityOperationDecision,
+  IdentityOperationDecisionPort,
+  IdentityOperationIntent,
+} from '@intafaced/contracts';
 import {
   accountControlInputSchema,
   accountControlResultSchema,
@@ -9,17 +19,8 @@ import {
   accountControlLookupInputSchema,
   accountControlHistoryInputSchema,
   currentAuthorityInputSchema,
-  identityOperationDecisionSchema,
-  identityOperationIntentSchema,
-  type AccountControlInput,
-  type AccountControlResult,
-  type AccountControlState,
-  type Context,
-  type CommittedOperationAdmission,
-  type IdentityOperationDecision,
-  type IdentityOperationDecisionPort,
-  type IdentityOperationIntent,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
+import { identityOperationDecisionSchema, identityOperationIntentSchema } from '@intafaced/contracts/operation-identity-decisions';
 import { writeRestrictionAudit } from '../admin/common.js';
 import { currentTradingRestrictApprovals, tradingRestrictGate, tradingRestrictRequiresApproval } from '../admin/trading-restrict.js';
 

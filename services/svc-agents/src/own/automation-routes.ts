@@ -7,10 +7,8 @@ import {
   ownAgentTriggerCreateSchema,
   ownAgentTriggerSchema,
   OWN_AGENT_AUTOMATION_LIMITS,
-  router,
-  scopedProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/agents-own';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { executeProcedure } from '../procedures.js';
 import { assertPersonSetsLimits } from '../spend/routes.js';
 import { AGENT_DISABLED, ownAgentSwitch } from '../fleet/control.js';

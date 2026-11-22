@@ -72,7 +72,6 @@ vi.mock('../components', async (original) => {
 import { WithdrawalAddresses } from './WithdrawalAddresses';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const GOOD = '0x52908400098527886E0F7030069857D2E4169EE7';
 let host: HTMLDivElement;
 let root: Root | null = null;
 
@@ -101,7 +100,6 @@ async function mount() {
 async function submit(form: HTMLFormElement) {
   await act(async () => void form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
 }
-const addForm = () => document.querySelector('form[aria-label="Add an address"]') as HTMLFormElement;
 
 const WALLET = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
 const ROW: Destination = {

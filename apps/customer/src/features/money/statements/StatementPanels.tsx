@@ -93,7 +93,7 @@ export function TaxStatements() {
         <Select
           label={t('taxYear')}
           value={String(year)}
-          onChange={(event) => setYear(Number(event.target.value))}
+          onChange={(value) => setYear(Number(value))}
           options={Array.from({ length: 6 }, (_, back) => String(thisYear - back)).map((y) => [y, y] as const)}
         />
         {tax.kind === 'loading' && <p role="status">{t('taxLoading')}</p>}

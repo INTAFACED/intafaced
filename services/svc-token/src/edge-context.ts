@@ -1,5 +1,6 @@
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import type { Env } from './env.js';
 
 /** Built before the listener opens: verifies the shared secret and, when set, the edge public key. */

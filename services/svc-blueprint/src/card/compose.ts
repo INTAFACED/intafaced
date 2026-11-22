@@ -1,4 +1,5 @@
-import { CARD_DIMENSIONS, type BlueprintProfile, type CardSize } from '@intafaced/contracts';
+import type { BlueprintProfile, CardSize } from '@intafaced/contracts';
+import { CARD_DIMENSIONS } from '@intafaced/contracts/blueprint';
 import { color, font } from '@intafaced/ui/tokens';
 import { assertZeroPiiSurface } from '../attestations/zero-pii.js';
 

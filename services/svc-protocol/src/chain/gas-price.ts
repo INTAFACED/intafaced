@@ -1,4 +1,4 @@
-import { GAS_PERCENTILES_UNSET } from '@intafaced/contracts';
+import { GAS_PERCENTILES_UNSET } from '@intafaced/contracts/protocol-gas';
 import { classifyChainError } from './availability.js';
 
 /**

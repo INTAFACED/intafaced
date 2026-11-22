@@ -9,6 +9,7 @@ import { IDENTITY_DEVELOPER_KEYS_LIST } from '@intafaced/contracts/identity-deve
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session';
+import { withDomainTypes, type TypedDataDocument } from '../protocol';
 import type { StepUpBegin } from '../account';
 
 const decimal = z.string().regex(/^-?[0-9]+(\.[0-9]+)?$/);
@@ -69,6 +70,23 @@ export const agentConnectionSchema = z
   .object({ keyId: z.string(), accountId: z.string(), subAccount: z.string().nullable() })
   .passthrough();
 export type AgentConnection = z.infer<typeof agentConnectionSchema>;
+
+/** The EIP-712 domain the wallet reads, every field the venue sent kept as sent (a salt included). */
+const walletDomain = z
+  .object({
+    name: z.string().optional(),
+    version: z.string().optional(),
+    chainId: z.union([z.number(), z.string()]).optional(),
+    verifyingContract: z.string().optional(),
+  })
+  .passthrough();
+
+/** The venue's payload with its domain types declared, as the wallet signs it; null when its domain is not one. */
+export function walletTypedData(typed: AgentNext['prepared']['typedData']): TypedDataDocument | null {
+  const withTypes = withDomainTypes(typed);
+  const domain = walletDomain.safeParse(withTypes.domain);
+  return domain.success ? { ...withTypes, domain: domain.data } : null;
+}
 
 const BASE = '/venue/agent-accounts';
 

@@ -14,6 +14,7 @@ import { safetyRouter } from './safety-router.js';
 import { MemorySafetyBook, SafetyCases } from './safety-cases.js';
 import type { GuestRequests } from './guest-requests.js';
 import { z } from 'zod';
+import type { SupportAttachment } from '@intafaced/contracts';
 import {
   SUPPORT_CATEGORY_UNKNOWN,
   SUPPORT_CATEGORY_GUIDED,
@@ -21,17 +22,13 @@ import {
   supportTicketCategorySchema,
   kbAudienceChangesInputSchema,
   supportKbAudienceChangeListSchema,
-  type SupportAttachment,
-  publicProcedure,
-  router,
-  scopedProcedure,
-  supportAttachmentIdInputSchema,
-  supportAttachmentSchema,
-  supportAwaitingMineSchema,
   supportTicketSchema,
   supportViewDeleteInputSchema,
   supportViewSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support';
+import { supportAttachmentIdInputSchema, supportAttachmentSchema } from '@intafaced/contracts/support-attachments';
+import { supportAwaitingMineSchema } from '@intafaced/contracts/support-awaiting';
+import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
 import type { AttachmentMeta } from './store.js';

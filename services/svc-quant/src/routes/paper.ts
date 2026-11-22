@@ -5,7 +5,8 @@ import {
   QUANT_RUN_NOT_FOUND,
   QuantError,
 } from '../errors.js';
-import { QUANT_PAPER_FEEDS, TRPCError, router } from '@intafaced/contracts';
+import { QUANT_PAPER_FEEDS } from '@intafaced/contracts/quant-algo';
+import { TRPCError, router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { QUANT_PAPER_GET, QUANT_PAPER_LIST, QUANT_PAPER_START, QUANT_PAPER_STOP } from '@intafaced/contracts/quant-paper-procedures';
 import { paperKey, paperSettingsOf } from '../paper/view.js';
