@@ -1,3 +1,4 @@
+// volt-room: /bank/rules
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Field, Select } from '@intafaced/ui/lit';
 import type { RoomState } from '@intafaced/ui/lit/templates';

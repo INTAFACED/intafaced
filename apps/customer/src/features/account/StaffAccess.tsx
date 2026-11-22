@@ -1,3 +1,4 @@
+// volt-room: /uc/safe/staff-access
 import { useMemo } from 'react';
 import { staffAccessMineInputSchema, staffAccessMineOutputSchema, type StaffAccessRow } from '@intafaced/contracts/staff-access';
 import { contractProcedure, readContract } from '../../shared/contract-call';
