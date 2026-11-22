@@ -8,7 +8,6 @@
  */
 // hand-declared-ok: svc-bank's cards.list and cards.partnerHeld answers have no browser-safe schema in packages/contracts; this narrows them
 import { useId, useMemo, useState } from 'react';
-import { z } from 'zod';
 import { Button } from '@intafaced/ui';
 import { Field } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
@@ -36,7 +35,6 @@ import {
   manualMoveKey,
   onItsWay,
   payRefusal,
-  payYourselfSummarySchema,
   sourceFigure,
   spendableNow,
   venueFigures,
@@ -44,18 +42,17 @@ import {
   type PayMove,
   type PayYourselfSummary,
 } from './pay-yourself';
+import { BANK_CARDS_LIST, BANK_CARDS_PARTNER_HELD } from '@intafaced/contracts/bank-cards-procedures';
+import {
+  BANK_PAY_YOURSELF_SUMMARY,
+  BANK_PAY_YOURSELF_RECORD,
+  BANK_PAY_YOURSELF_SET_RULE,
+} from '@intafaced/contracts/bank-pay-yourself-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type T = ReturnType<typeof payYourselfCopy.useCopy>['t'];
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 const READ_EVERY_MS = 2_000;
-
-const moveSchema = payYourselfSummarySchema.shape.moves.element;
-const ruleSchema = payYourselfSummarySchema.shape.rule.unwrap();
-const cardRowsSchema = z.array(z.object({ id: z.string(), assetId: z.string(), status: z.string() }));
-const cardHeldSchema = z.object({
-  heldBy: z.enum(['ledger', 'partner', 'none']),
-  figures: z.object({ assetId: z.string(), available: z.string().nullable() }).passthrough().nullable(),
-});
 
 function At({ iso }: { iso: string | null | undefined }) {
   if (!iso) return null;
@@ -86,11 +83,7 @@ export default function PayYourself({
   const { api, userId } = useSession();
   const wallet = useWallet();
   const account = useMemo(() => createVenueAccountApi(api), [api]);
-  const summary = usePolled(
-    (signal) => api.query('bank', 'payYourself.summary', undefined, payYourselfSummarySchema, { signal }),
-    `payYourself:${userId}`,
-    READ_EVERY_MS,
-  );
+  const summary = usePolled((signal) => api.call(BANK_PAY_YOURSELF_SUMMARY, undefined, { signal }), `payYourself:${userId}`, READ_EVERY_MS);
   const [amount, setAmount] = useState<string | null>(null);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [refusal, setRefusal] = useState<{ title: string; body: string; code?: string } | null>(null);
@@ -188,12 +181,12 @@ export default function PayYourself({
           code: `trade.venue.${outcome.refusal.code}`,
         });
       // The venue took it (or may have): the move is recorded by its key and the venue's nonce; the venue's record decides.
-      const recorded = await api.mutate(
-        'bank',
-        'payYourself.record',
-        { moveKey: a.moveKey, owner, nonce: prepared.data.prepared.nonce, amount: a.amount },
-        moveSchema,
-      );
+      const recorded = await api.call(BANK_PAY_YOURSELF_RECORD, {
+        moveKey: a.moveKey,
+        owner,
+        nonce: prepared.data.prepared.nonce,
+        amount: a.amount,
+      });
       setAmount(null);
       summary.reload();
       // The venue has the withdrawal, so the money is on its way either way; a move not saved here is said, never hidden.
@@ -529,13 +522,13 @@ function Tracker({
   );
   const record: VenueWithdrawal | null = withdrawal.data?.value ?? null;
   const credit = creditFor(summary.credits, record?.txHash);
-  const card = usePolled<{ held: z.infer<typeof cardHeldSchema> | null }>(
+  const card = usePolled<{ held: ProcedureOutput<typeof BANK_CARDS_PARTNER_HELD> | null }>(
     async (signal) => {
-      const cards = await api.query('bank', 'cards.list', { limit: 50 }, cardRowsSchema, { signal });
+      const cards = await api.call(BANK_CARDS_LIST, { limit: 50 }, { signal });
       if (!cards.ok) return cards;
       const first = cards.data.find((c) => c.assetId === PAY_ASSET && c.status !== 'closed');
       if (!first) return { ok: true as const, data: { held: null } };
-      const held = await api.query('bank', 'cards.partnerHeld', { cardId: first.id, limit: 1 }, cardHeldSchema, { signal });
+      const held = await api.call(BANK_CARDS_PARTNER_HELD, { cardId: first.id, limit: 1 }, { signal });
       return held.ok ? { ok: true as const, data: { held: held.data } } : held;
     },
     `payYourself:card:${userId}`,
@@ -614,7 +607,7 @@ function Rule({ summary, t, onSaved }: { summary: PayYourselfSummary; t: T; onSa
   const [note, setNote] = useState<string | null>(null);
   const dayId = useId();
   async function save() {
-    const saved = await api.mutate('bank', 'payYourself.setRule', { weekday, cap: cap.trim() }, ruleSchema);
+    const saved = await api.call(BANK_PAY_YOURSELF_SET_RULE, { weekday, cap: cap.trim() });
     setNote(saved.ok ? t('ruleSaved') : `${saved.message}${saved.code ? ` (${saved.code})` : ''}`);
     if (saved.ok) onSaved();
   }

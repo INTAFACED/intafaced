@@ -1014,6 +1014,11 @@ test('planted: what main changed between the map and the merge base loads a file
     'a built path elsewhere names no customer file',
   );
   assert.deepEqual(
+    nodeTargets("readFileSync(path.join(ROOT, 'crates/svc-x/src/door/calls.rs'), 'utf8');", 'apps/customer/tests/real-app/J-x.pw.mjs'),
+    { targets: [], any: false },
+    'a crate file read from the repository root names no customer file',
+  );
+  assert.deepEqual(
     nodeTargets("const title = 'customer src';", 'tooling/scripts/s.mjs'),
     { targets: [], any: false },
     'no load built from a path: plain text',

@@ -318,6 +318,48 @@ describe('UserVenueRouter', () => {
     expect((await sim(A).vaultHoldings(account)).value.positions).toEqual([]);
   });
 
+  it("J-cex-spot-21 #2 #3 #5: staking and delegating are the owner wallet's, each sent once under its key; an early undelegation is refused before signing", async () => {
+    const { router: r } = router();
+    const d = await r.door(A);
+    const signer = { role: 'owner' as const, address: owner };
+    const account = { venueId: A, owner, subAccount: null };
+    fund(A, owner, 'HYPE', '300', 'chain:svc-trade:js21');
+    const stake = {
+      kind: 'staking_transfer' as const,
+      direction: 'to_staking' as const,
+      asset: 'HYPE',
+      amount: parseAmount('200'),
+      moveKey: `stake-move:${owner}:to-staking:js21`,
+    };
+    const agent = { role: 'agent' as const, address: '0x00000000000000000000000000000000000a6e71' };
+    await expect(d.prepare(USER, { owner, signer: agent, intent: { ...stake, moveKey: `${stake.moveKey}-agent` } })).rejects.toMatchObject({
+      refusal: { code: 'agent_not_permitted' },
+    });
+    const sp = await d.prepare(USER, { owner, signer, intent: stake });
+    expect(sp.actionKey).toBe(stake.moveKey);
+    expect((await r.submit(USER, sp.actionKey, await sign(sp.prepared))).outcome).toMatchObject({ definite: true, accepted: true });
+    const again = await d.prepare(USER, { owner, signer, intent: stake });
+    expect(again).toMatchObject({ actionKey: sp.actionKey, reused: true, signed: true, lastOutcome: { definite: true, accepted: true } });
+    const validator = (await sim(A).staking()).value.validators[0]!.address;
+    const delegate = {
+      kind: 'staking_delegate' as const,
+      validator,
+      direction: 'delegate' as const,
+      asset: 'HYPE',
+      amount: parseAmount('150'),
+      moveKey: `delegation:${owner}:${validator}:delegate:js21`,
+    };
+    const dp = await d.prepare(USER, { owner, signer, intent: delegate });
+    expect((await r.submit(USER, dp.actionKey, await sign(dp.prepared))).outcome).toMatchObject({ definite: true, accepted: true });
+    const held = (await sim(A).stakingAccount(account)).value;
+    expect(held.staked).toBe(parseAmount('50'));
+    expect(held.delegations.map((x) => formatAmount(x.amount))).toEqual(['150']);
+    const undelegate = { ...delegate, direction: 'undelegate' as const, moveKey: `delegation:${owner}:${validator}:undelegate:js21` };
+    await expect(d.prepare(USER, { owner, signer, intent: undelegate })).rejects.toMatchObject({
+      refusal: { code: 'venue_rejected', detail: expect.stringContaining(held.delegations[0]!.lockUpEndsAt.toISOString()) },
+    });
+  });
+
   it('#8 and #6: the approval names B and our published fee, the order then fills there; the report shows it by venue', async () => {
     const { router: r, store, doors } = router();
     const from = new Date(Date.now() - 1000);

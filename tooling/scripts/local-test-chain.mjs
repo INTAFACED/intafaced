@@ -105,11 +105,16 @@ const BURNED_TOPIC = '0x4607200a6ff772a0fc9e5a46711cabae1f14a9b73205ac2fd9dba0e3
 /** Each TEST chain's own anvil port, by chain id. */
 const ANVIL_PORT = { [TEST_CHAIN_ID]: CHAIN_PORTS.anvil, [SECOND_CHAIN_ID]: SECOND_CHAIN_PORTS.anvil };
 
-/** Installs the TEST bridge token on both TEST chains where it is not there yet; the stack runs it after the seed. */
-export async function installTestBridge() {
+/**
+ * Installs the TEST bridge token on both TEST chains where it is not there yet; the stack runs it after the seed. The
+ * stack waits only for the first chain (through its gate), so each anvil is first given up to `waitMs` to answer: a
+ * second anvil still binding its port is waited for, never reported as a failed start (#9549).
+ */
+export async function installTestBridge({ ports = Object.values(ANVIL_PORT), waitMs = 30_000 } = {}) {
   const { deployedBytecode } = JSON.parse(fs.readFileSync(path.join(PROTOCOL_DIR, 'contracts', 'out', 'TestBridgeToken.json'), 'utf8'));
   if (!/^0x[0-9a-f]+$/i.test(deployedBytecode)) throw new Error('TestBridgeToken.json holds no runtime code');
-  for (const port of Object.values(ANVIL_PORT)) {
+  for (const port of ports) {
+    await anvilAnswers(port, waitMs);
     const code = await anvilRpc('eth_getCode', [BRIDGE_TOKEN, 'latest'], port);
     if (code === deployedBytecode) continue;
     await anvilRpc('anvil_setCode', [BRIDGE_TOKEN, deployedBytecode], port);
@@ -285,6 +290,27 @@ async function anvilRpc(method, params, port = CHAIN_PORTS.anvil) {
   const answer = await res.json();
   if (answer.error) throw new Error(answer.error.message ?? JSON.stringify(answer.error));
   return answer.result;
+}
+
+/**
+ * Waits until the anvil on `port` answers eth_chainId, for at most `waitMs`. Only a refused or failed connection (fetch's
+ * TypeError) is waited out; an anvil that answers with an error throws at once.
+ */
+async function anvilAnswers(port, waitMs) {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      await anvilRpc('eth_chainId', [], port);
+      return;
+    } catch (err) {
+      if (!(err instanceof TypeError)) throw err;
+      if (Date.now() >= deadline)
+        throw new Error(
+          `the TEST chain's anvil on port ${port} never answered within ${waitMs / 1000} s (${err.cause?.code ?? err.message})`,
+        );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
 }
 
 const HEX = /^0x[0-9a-fA-F]*$/;

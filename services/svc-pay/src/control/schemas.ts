@@ -2,34 +2,16 @@ import { z } from 'zod';
 import {
   payAmountStringSchema,
   payAssetCodeSchema,
-  payCapSchema,
   payMerchantIdSchema,
   payPricingRuleSchema,
   payReasonSchema,
-  payReserveSchema,
   payRequestIdSchema,
-  payRiskTierIdSchema,
   payTimestampSchema,
   payVersionSchema,
   payoutApprovalSchema,
-  payPayoutFeeSchema,
 } from '@intafaced/contracts/merchant-control';
+import { tierDefinitionSchema, controlPricingRuleSchema } from '@intafaced/contracts/pay-founder-admin-procedures';
 
-/**
- * Wire shapes W1 needs beyond packages/contracts/src/merchant-control.ts.
- * They live here, not in the contract package, because W1 does not own that
- * package; hoist them there when the apps start importing them.
- *
- * Money is a decimal string. No schema here carries a default number.
- */
-
-export const ARCHETYPES = ['psp', 'broker', 'gaming', 'standard'] as const;
-export const archetypeSchema = z.enum(ARCHETYPES);
-
-/** The contract's rule plus the optional min/max fee the contract does not carry. */
-export const controlPricingRuleSchema = payPricingRuleSchema
-  .extend({ minFee: payAmountStringSchema.nullable().optional(), maxFee: payAmountStringSchema.nullable().optional() })
-  .strict();
 export type ControlPricingRuleInput = z.infer<typeof controlPricingRuleSchema>;
 
 /** A rule's content without its layer and scope: those come from where it is submitted. */
@@ -39,41 +21,10 @@ export const pricingRuleBodySchema = payPricingRuleSchema
   .strict();
 export type PricingRuleBody = z.infer<typeof pricingRuleBodySchema>;
 
-const thresholdSchema = z.object({ assetCode: payAssetCodeSchema, amount: payAmountStringSchema }).strict();
-
-export const tierDefinitionSchema = z
-  .object({
-    id: payRiskTierIdSchema,
-    name: z.string().trim().min(1).max(64),
-    archetype: archetypeSchema,
-    caps: z.array(payCapSchema).min(1).max(32),
-    /** Null = this tier holds no rolling reserve. */
-    reserve: payReserveSchema.nullable(),
-    /** Payouts at or above this amount, per asset, need a second team member. */
-    approvalThresholds: z.array(thresholdSchema).min(1).max(32),
-    /** Payouts at or above this amount, per asset, also need two distinct founders. */
-    founderThresholds: z.array(thresholdSchema).min(1).max(32),
-    /** How long an approval request stays valid. Bounds are validation, not defaults. */
-    approvalTtlSeconds: z.number().int().min(60).max(2_592_000),
-    /**
-     * When true, every merchant may read this tier's commercial terms.
-     * Omitted means false: the tier stays off the ladder except for the merchant
-     * it is assigned to.
-     */
-    merchantVisible: z.boolean().optional(),
-    /**
-     * The payout fee the tier publishes to merchants. Null withdraws it (none is
-     * published, and merchants read "Not set"); omitted keeps what the tier
-     * publishes now, which for a new tier is none. `not_charged` is the only
-     * kind, because payouts charge no fee (payment-service/payouts.ts).
-     */
-    payoutFee: payPayoutFeeSchema.nullable().optional(),
-  })
-  .strict();
 export type TierDefinitionInput = z.infer<typeof tierDefinitionSchema>;
 
 /** Operator changes beyond the contract's merchant kinds: tier definitions and pricing layers. */
-export const controlConfigureChangeSchema = z.discriminatedUnion('kind', [
+const controlConfigureChangeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('upsert_tier'), tier: tierDefinitionSchema }).strict(),
   z
     .object({
@@ -108,23 +59,6 @@ export const controlConfigureResultSchema = z
   })
   .strict();
 export type ControlConfigureResult = z.infer<typeof controlConfigureResultSchema>;
-
-export const tierViewSchema = tierDefinitionSchema
-  .extend({
-    version: payVersionSchema,
-    merchants: z.number().int().min(0),
-    merchantVisible: z.boolean(),
-    payoutFee: payPayoutFeeSchema.nullable(),
-  })
-  .strict();
-export const tierListInputSchema = z.object({}).strict();
-
-export const pricingRuleViewSchema = controlPricingRuleSchema
-  .extend({ ruleId: z.string().guid(), version: payVersionSchema, createdAt: payTimestampSchema })
-  .strict();
-export const pricingRuleListInputSchema = z
-  .object({ layer: z.enum(['global', 'tier', 'merchant']).optional(), scopeId: z.string().min(1).max(64).optional() })
-  .strict();
 
 // ── merchant-facing extras ──────────────────────────────────────────────────
 
@@ -162,3 +96,4 @@ export const founderApprovalDecideInputSchema = z
   .strict();
 
 export { payoutApprovalSchema };
+export { tierDefinitionSchema };

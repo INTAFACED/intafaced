@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { z } from 'zod';
 import { useSession } from '../../features/session/session';
 import { defineCopy } from '../../shared/i18n';
+import { BANK_DORMANCY_NOTICES } from '@intafaced/contracts/bank-dormancy-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 /** Words for the dormancy fee notice on Activity (RC-bank-01, J-bank-16 #7). The fee and the days come from the bank. */
 const dormancyCopy = defineCopy('dormancy-notice', {
@@ -16,19 +17,7 @@ const dormancyCopy = defineCopy('dormancy-notice', {
 });
 
 // hand-declared-ok: svc-bank's dormancy.notices has no browser-safe schema in packages/contracts yet
-const noticesSchema = z.array(
-  z.object({
-    assetId: z.string(),
-    fee: z.string(),
-    debitDate: z.string(),
-    inactiveDays: z.number().int(),
-    state: z.enum(['noticed', 'cancelled', 'skipped_zero', 'skipped_insufficient', 'charged']),
-    partnerMoveId: z.string().nullable(),
-    noticedAt: z.string(),
-    settledAt: z.string().nullable(),
-  }),
-);
-type Notice = z.infer<typeof noticesSchema>[number];
+type Notice = ProcedureOutput<typeof BANK_DORMANCY_NOTICES>[number];
 
 /** The newest dormancy notice the bank gave this person, and how it was settled. Nothing shows with none. */
 export function DormancyNotice() {
@@ -39,7 +28,7 @@ export function DormancyNotice() {
   useEffect(() => {
     if (!userId) return;
     let live = true;
-    void api.query('bank', 'dormancy.notices', undefined, noticesSchema).then((result) => {
+    void api.call(BANK_DORMANCY_NOTICES, undefined).then((result) => {
       if (!live) return;
       // No rule published is no notice to give; any other refusal is shown, never dropped.
       if (result.ok) setNotice(result.data[0] ?? null);

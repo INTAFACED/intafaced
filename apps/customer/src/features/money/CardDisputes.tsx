@@ -4,12 +4,13 @@ import type { ApiResult } from '../../shared/api';
 import { displayAmount } from '../../shared/money';
 import { Button, Field } from '../../shared/ui';
 import { useSession } from '../session';
-import { ResourceView, useBankRead } from './components';
+import { ResourceView, useBankRead, useBankRecord } from './components';
 import { bankWrites, type cardSchema } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { Refusal } from './CardJourney';
 import { cardDisputesCopy } from './card-disputes-copy';
 import { withPlainRefusal } from './money-refusal-copy';
+import { BANK_CARDS_AUTHORIZATIONS } from '@intafaced/contracts/bank-cards-procedures';
 
 /**
  * A cardholder's own card disputes (J-bank-15; BK-cdisp-01, svc-bank `cards.disputes.*`). Pressing Dispute this charge on
@@ -26,7 +27,7 @@ const timeOf = (iso: string) =>
 
 export function CardDisputesPanel({ card }: { card: CardRecord }) {
   const { t } = cardDisputesCopy.useCopy();
-  const payments = useBankRead('cards.authorizations', { cardId: card.id, limit: 50 });
+  const payments = useBankRecord(BANK_CARDS_AUTHORIZATIONS, { cardId: card.id, limit: 50 });
   const cases = useBankRead('cards.disputes.list', { cardId: card.id });
   const [chosen, setChosen] = useState<string | null>(null);
   return (
