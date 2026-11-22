@@ -5303,6 +5303,67 @@
         }
       ]
     },
+    "identity.auth.stepUpOptions": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "auth.stepUpOptions",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "number"
+          },
+          "rpId": {
+            "type": "string"
+          },
+          "allowCredentials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "const": "public-key"
+                },
+                "transports": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["id", "type"],
+              "additionalProperties": false
+            }
+          },
+          "userVerification": {
+            "type": "string",
+            "enum": ["required", "preferred", "discouraged"]
+          }
+        },
+        "required": ["challenge"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "identity.auth.subAccountSession": {
       "service": "svc-identity",
       "module": "identity",
