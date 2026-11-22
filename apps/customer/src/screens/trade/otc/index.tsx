@@ -1,3 +1,6 @@
+// volt-room: /otc
+// volt-room: /otc/:quoteId
+// volt-room: /otc/tradeInfo
 import { useEffect, useState } from 'react';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useRoomApi, useNow, asOfOf } from '../rooms/read';

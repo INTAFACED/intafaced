@@ -1,3 +1,4 @@
+// volt-room: /quant
 import { EmptyState } from '@intafaced/ui/lit';
 import { DeskTemplate } from '@intafaced/ui/lit/templates';
 import { useApi, useSession } from '../session';

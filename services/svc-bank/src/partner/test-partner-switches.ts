@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CALENDAR_SOURCES } from '../calendar/sources.js';
 
 /**
  * THE TEST PARTNER'S SWITCHES: the one place a switch is declared.
@@ -118,6 +119,11 @@ export const testPartnerSwitches = z
       .string()
       .regex(/^[A-Z0-9]{2,16}$/)
       .nullable(),
+    /**
+     * A money calendar source (J-bank-06 #8): reading it fails for this person as an outage would, so the calendar names it
+     * unavailable and still shows every other kind. null, the default, is every source answering.
+     */
+    calendarSource: z.enum(CALENDAR_SOURCES).nullable(),
   })
   .strict();
 
@@ -145,6 +151,7 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   holderName: null,
   payIn: 'answered',
   openOrder: null,
+  calendarSource: null,
 });
 
 /**

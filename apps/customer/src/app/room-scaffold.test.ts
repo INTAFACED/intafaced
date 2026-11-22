@@ -1,8 +1,11 @@
 // The room scaffold creates rooms only on a template, and keeps the registry honest.
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
 // @ts-expect-error: a plain .mjs script with no type declarations
-import { registryWith, screenSource, templateIds } from '../../scripts/new-room.mjs';
+import { markedFile, registryWith, screenSource, templateIds } from '../../scripts/new-room.mjs';
 
 describe('room scaffold', () => {
   it('knows exactly the eight templates of the frozen contracts', () => {
@@ -21,18 +24,22 @@ describe('room scaffold', () => {
     expect(src).toContain('title={"Bob\'s \\"{x}\\""}');
   });
 
-  it('replaces an unmigrated entry in place and refuses a migrated one', () => {
-    const before = "export const ROUTE_TEMPLATES = {\n  '/a': { template: 'flow' },\n};\n";
-    const after: string = registryWith(before, '/a', 'flow', 'features/x/ARoom.tsx');
-    expect(after).toBe("export const ROUTE_TEMPLATES = {\n  '/a': { template: 'flow', migrated: { file: 'features/x/ARoom.tsx' } },\n};\n");
-    expect(() => registryWith(after, '/a', 'flow', 'y')).toThrow(/already on its template/);
+  it('records the move in the screen file itself, never in the shared registry', () => {
+    const src: string = screenSource({ name: 'A', template: 'flow', title: 'A', path: '/a' });
+    expect(src.split('\n')[0]).toBe('// volt-room: /a');
   });
 
-  it('registers the new room as migrated, inside ROUTE_TEMPLATES', () => {
-    const before = "export const ROUTE_TEMPLATES = {\n  '/a': { template: 'flow' },\n};\n\nexport const PORTAL_TEMPLATES = {\n};\n";
-    const after: string = registryWith(before, '/b', 'reading', 'features/x/BRoom.tsx');
-    expect(after).toContain(
-      "'/b': { template: 'reading', migrated: { file: 'features/x/BRoom.tsx' } },\n};\n\nexport const PORTAL_TEMPLATES",
-    );
+  it('names the template in place, and adds a new route inside ROUTE_TEMPLATES', () => {
+    const before = "export const ROUTE_TEMPLATES = {\n  '/a': { template: 'reading' },\n};\n\nexport const PORTAL_TEMPLATES = {\n};\n";
+    expect(registryWith(before, '/a', 'flow')).toBe(before.replace("'reading'", "'flow'"));
+    expect(registryWith(before, '/b', 'reading')).toContain("'/b': { template: 'reading' },\n};\n\nexport const PORTAL_TEMPLATES");
+  });
+
+  it('finds the screen file that already carries a route', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'room-scaffold-'));
+    mkdirSync(join(dir, 'features', 'x'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'x', 'ARoom.tsx'), '// volt-room: /a\nexport const A = 1;\n');
+    expect(markedFile('/a', dir)).toBe(join('features', 'x', 'ARoom.tsx'));
+    expect(markedFile('/b', dir)).toBeUndefined();
   });
 });

@@ -1,3 +1,5 @@
+// tooling-tests: alone. It takes the checkout's index.lock, and finds a free port that a child then binds, which a file
+// beside it could take first.
 // Proves the local test stack's two safety properties without starting anything:
 // local:fund refuses outside its own stack, and the script never supplies a sanctions list.
 import assert from 'node:assert/strict';
@@ -1473,7 +1475,7 @@ console.log('local-test-stack: customer folder override checks passed');
 // 21. A new TEST chain empties what services stored from the old one, so the indexer reads it from block 0 instead
 // of halting on blocks the new node never made (lead, 30 Oct: indexer.halted after a restart).
 {
-  const { CHAIN_DERIVED, emptySchemaSql } = await import('./local-test-stack.mjs');
+  const { CHAIN_DERIVED, afterSeed, emptySchemaSql } = await import('./local-test-stack.mjs');
   assert.deepEqual(
     CHAIN_DERIVED.map((c) => c.service),
     ['indexer'],
@@ -1491,8 +1493,22 @@ console.log('local-test-stack: customer folder override checks passed');
     source,
     /if \(!ownedAlive\(procs\.chain\)\) \{[\s\S]{0,600}?fs\.rmSync\(chainRecordPath\(STATE\), \{ force: true \}\);\s*renewed = true;/,
   );
-  assert.match(source, /if \(seeded\.status !== 0\) fail\([^\n]*\n[\s\S]{0,200}?return renewed \? forgetOldChain\(secrets\) : \[\];/);
-  assert.equal(source.split('forgetOldChain(secrets) : []').length - 1, 1, 'one place forgets the old chain');
+  // A failed seed stops the start before anything is forgotten; a seeded new chain forgets; a running chain never does.
+  const stopped = (msg) => {
+    throw new Error(msg);
+  };
+  const forgot = [];
+  const forget = () => (forgot.push('forgot'), ['indexer']);
+  assert.throws(
+    () => afterSeed({ seeded: { status: 1, output: 'no rpc' }, renewed: true, forget, stop: stopped }),
+    /seeding the TEST chain failed:\nno rpc/,
+  );
+  assert.deepEqual(forgot, [], 'a failed seed forgets nothing');
+  assert.deepEqual(afterSeed({ seeded: { status: 0, output: '' }, renewed: false, forget, stop: stopped }), []);
+  assert.deepEqual(forgot, [], 'a running chain keeps its rows');
+  assert.deepEqual(afterSeed({ seeded: { status: 0, output: '' }, renewed: true, forget, stop: stopped }), ['indexer']);
+  assert.deepEqual(forgot, ['forgot'], 'a seeded new chain forgets once');
+  assert.equal(source.split('forgetOldChain(').length - 1, 2, 'one place forgets the old chain (its definition and one call)');
   // The stack keeps every service in its one database; svc_indexer is a role, not a database.
   assert.match(source, /psql\(secrets, emptySchemaSql\(schema\), \{ db: DB_NAME \}\)/);
   // What it stopped comes back even under --only.

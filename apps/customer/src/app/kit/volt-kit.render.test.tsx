@@ -108,6 +108,7 @@ const BLOCKS = [
   'controls',
   'overlays',
   'steps',
+  'list',
   'rows',
   'bars',
   'rail',
@@ -167,5 +168,39 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
       '40',
     );
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
+  });
+
+  it('/kit shows the markets list: chips filter, headers sort with aria-sort, and only the rows near the view are drawn', async () => {
+    await open('/kit');
+    const list = host.querySelector('[data-testid="volt-kit"] [data-block="list"]')!;
+    const rows = () => [...list.querySelectorAll<HTMLElement>('tbody tr[data-symbol]')];
+    const table = list.querySelector('table')!;
+    expect(table.getAttribute('aria-rowcount'), 'all 120 TEST rows are counted').toBe('121');
+    expect(rows().length, 'only a window of them is drawn').toBeLessThan(120);
+    expect(rows()[0]?.querySelector('svg[role="img"][aria-label]'), 'each row has a named sparkline').not.toBeNull();
+
+    const price = list.querySelector<HTMLButtonElement>('button[aria-label="Sort by Price"]')!;
+    expect(price.closest('th')?.getAttribute('aria-sort')).toBe('none');
+    await act(async () => price.click());
+    expect(price.closest('th')?.getAttribute('aria-sort'), 'a figure sorts largest first').toBe('descending');
+    const prices = rows().map((r) => r.querySelectorAll('td')[1]!.textContent!);
+    expect(prices.slice(0, 3)).toEqual(prices.slice(0, 3).sort((a, b) => Number(b) - Number(a)));
+
+    const chips = list.querySelector('[role="group"][aria-label="Filter by change"]')!;
+    const chip = (name: string) => [...chips.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === name)!;
+    expect(chip('All').getAttribute('aria-pressed')).toBe('true');
+    await act(async () => chip('Losers').click());
+    expect(chip('Losers').getAttribute('aria-pressed')).toBe('true');
+    expect(rows().length, '40 losers is a short list: every row is drawn').toBe(40);
+    expect(rows().every((r) => r.querySelectorAll('td')[2]!.textContent!.startsWith('-'))).toBe(true);
+    await act(async () => chip('Losers').click());
+    expect(chips.querySelector('[aria-pressed="true"]'), 'pressing the chip in force again turns the filter off').toBeNull();
+
+    // happy-dom lays nothing out (each measured row is 0 tall), so the drawn window may start anywhere in the list.
+    const start = Number(rows()[0]!.dataset.index);
+    const first = rows()[0]!.querySelector<HTMLElement>('.lt-row-link')!;
+    first.focus();
+    await act(async () => first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    expect(document.activeElement?.closest('tr')?.dataset.index, 'ArrowDown moves to the next row').toBe(String(start + 1));
   });
 });
