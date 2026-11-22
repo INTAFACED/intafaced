@@ -1,13 +1,14 @@
 import { type AcademyAccessGrant } from '@intafaced/contracts/academy-catalogue';
+import { ACADEMY_MY_ACCESS_GRANTS } from '@intafaced/contracts/academy-my-access-grants-procedures';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { EmptyState, Loading, Panel } from '../../shared/ui';
 import { useApi, useSession } from '../session';
-import { Details } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
+import { pathLabel } from './academy-labels';
 import { academyCourseHref, formatDay } from './academy-lms';
-import { AcademyRefusal, pathLabel } from './AcademyLmsParts';
-import { ACADEMY_MY_ACCESS_GRANTS } from '@intafaced/contracts/academy-my-access-grants-procedures';
+import { AcademyRefusal } from './academy-refusal';
+import { Details } from './catalogue-parts';
+import { EmptyNote, Section, Waiting } from './volt-parts';
 
 const SOURCE_KEYS = {
   free: 'accessSourceFree',
@@ -23,27 +24,27 @@ export function AcademyAccessGrants() {
   const { t } = copy.useCopy();
   const grants = useResource((signal) => api.call(ACADEMY_MY_ACCESS_GRANTS, undefined, { signal }), `access-grants:${userId}`);
   return (
-    <Panel title={t('accessTitle')}>
+    <Section title={t('accessTitle')}>
       {grants.resource.status === 'loading' ? (
-        <Loading />
+        <Waiting />
       ) : grants.resource.status === 'failed' ? (
         <AcademyRefusal failure={grants.resource.failure} retry={grants.reload} />
       ) : (
         <AccessGrantsView grants={grants.resource.data} />
       )}
-    </Panel>
+    </Section>
   );
 }
 
 export function AccessGrantsView({ grants }: { grants: readonly AcademyAccessGrant[] }) {
   const { t } = copy.useCopy();
   const { language } = usePreferences();
-  if (grants.length === 0) return <EmptyState title={t('accessNone')} />;
+  if (grants.length === 0) return <EmptyNote title={t('accessNone')} />;
   return (
-    <ul className="academy-public-cards" data-academy-access="true">
+    <ul className="lt-rows" data-academy-access="true">
       {grants.map((row) => (
-        <li key={row.slug} className="academy-lms-card" data-access-grant={row.slug}>
-          <a className="academy-learning-link" href={academyCourseHref(row.slug)}>
+        <li key={row.slug} data-access-grant={row.slug}>
+          <a className="lt-link" href={academyCourseHref(row.slug)}>
             {pathLabel(t, row.slug)}
           </a>
           <Details

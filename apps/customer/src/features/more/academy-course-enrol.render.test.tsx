@@ -11,7 +11,7 @@ import type { AcademyCourseEnrolment, AcademyCourseOutlineItem } from '@intaface
 import { SessionProvider } from '../session';
 import { CourseEnrolView } from './AcademyCourseEnrol';
 import { MyLearningView } from './AcademyMyLearning';
-import { AccessGrantsView } from './AcademyAccessGrants';
+import { AccessGrantsView } from './academy-access-grants';
 import { CourseOutlineView, ItemCompletionView, outlineNeighbours } from './AcademyCourseOutline';
 import { LockedItemNotice } from './AcademyReaderParts';
 

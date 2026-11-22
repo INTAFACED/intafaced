@@ -24,8 +24,6 @@ import { AcademyAssignment } from './AcademyAssignment';
 import { AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
 import { AcademyCourseConversation } from './AcademyCourseMessages';
 import { AcademyInboxRoom } from './academy-inbox/AcademyInboxRoom';
-import { AcademyAccessGrants } from './AcademyAccessGrants';
-import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { navigate } from '../../app/location';
 // Certificates and progress keep the Learning panels' styles (academy-learning-link, the read-next link).
@@ -108,8 +106,6 @@ function Academy({ route }: { route: AcademyRoute }) {
         route.conversationId ? (
           <AcademyCourseConversation key={route.conversationId} conversationId={route.conversationId} />
         ) : null
-      ) : route.kind === 'progress' ? (
-        <AcademyProgress action={action} />
       ) : tab === 'Certificates' ? (
         <Certificates selected={selected} setSelected={chooseCertificate} action={action} />
       ) : null}
@@ -380,32 +376,6 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
           )}
         </Panel>
       </div>
-    </div>
-  );
-}
-
-/**
- * `/academy/progress`: course progress, grades and the planner (AC-progress-02), then the access records and certificate
- * grant records (AC-order-01), on their own page outside the five tabs.
- */
-function AcademyProgress({ action }: { action: AcademyAction }) {
-  const api = useApi(),
-    { userId } = useSession();
-  const definitions = useResource(
-    (signal) => api.call(ACADEMY_CERT_DEFINITIONS, undefined, { signal, accept: definitionsHold }),
-    `cert-defs:${userId}`,
-  );
-  return (
-    <div className="academy-grant-certificates">
-      <AcademyCourseProgress />
-      <AcademyPlanner />
-      <AcademyAccessGrants />
-      {/* Without the definitions the records still list, by reference; the failure says why the titles are missing. */}
-      {definitions.resource.status === 'failed' && <AcademyRefusal failure={definitions.resource.failure} retry={definitions.reload} />}
-      <AcademyGrantRecords
-        action={action}
-        titles={new Map(definitions.resource.status === 'ready' ? definitions.resource.data.map((row) => [row.id, row.title]) : [])}
-      />
     </div>
   );
 }

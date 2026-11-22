@@ -12,6 +12,7 @@ import { AcademyDiscussionThreadRoom } from './AcademyDiscussion';
 import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
 import { AcademyCourseRoom } from './AcademyCourseRoom';
 import { AcademyReaderRoom } from './academy-reader/AcademyReaderRoom';
+import { AcademyProgressRoom } from './academy-progress/AcademyProgressRoom';
 import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
@@ -55,6 +56,9 @@ import { preservePaperHref } from './trade-context';
 import { Fragment, type ReactNode } from 'react';
 import { TokenProposalRoom } from './token-proposal/TokenProposalRoom';
 import { LaunchRequirementsRoom } from './launch-requirements/LaunchRequirementsRoom';
+import { TokenEconomyRoom } from './token-economy/TokenEconomyRoom';
+import { MiningStatusRoom } from './mining-section/MiningStatusRoom';
+import { MiningWorkerRoom } from './mining-section/MiningWorkerRoom';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -101,6 +105,8 @@ function MoreRooms({ path }: { path: string }) {
         signedIn={Boolean(userId)}
       />
     );
+  } else if (userId && academy?.kind === 'progress') {
+    volt = <AcademyProgressRoom />;
   } else if (academy?.kind === 'course') {
     volt = <AcademyCourseRoom key={`${p}:${url.search}`} slug={academy.slug} signedIn={Boolean(userId)} />;
   } else if (
@@ -218,6 +224,10 @@ function MoreRooms({ path }: { path: string }) {
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
       if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
+      else if (hit.route.pattern === '/token/economy') volt = <TokenEconomyRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/status') volt = <MiningStatusRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/workers/:workerId')
+        volt = <MiningWorkerRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
       else if (hit.route.pattern === '/blueprint/shared/:cardId') volt = <BlueprintSharedRoom path={path} paper={paper} />;
       else if (hit.route.kind === 'detail' && room === 'token')
         volt = <TokenProposalRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;

@@ -20,8 +20,7 @@ import { BuyerMismatch, ReportMismatch } from './p2p-mismatch';
 import { PaymentNoteRules, ReportRemark } from './p2p-remark';
 import { ValidatePayment } from './p2p-validate';
 import { orderCopy } from './p2p-order-copy';
-import { P2PCounterparty } from './P2PCounterparty';
-import { p2pReturn } from './p2p-return';
+import { CounterpartyRoom } from './p2p-counterparty/CounterpartyRoom';
 import { DisputeProgress, EscrowPath } from './personal/P2PDepth';
 import { OrderChat } from './personal/OrderChat';
 import { OfferForm } from './personal/OfferForm';
@@ -54,10 +53,10 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   const showAccess = current === '/p2p/access' || params.get('view') === 'access';
   const publish = current === '/uc/ad/create' || current === '/uc/ad/update' || current === '/p2p/offers/new';
   const counterparty = params.get('userId') ?? params.get('userid') ?? (current === '/checkuser' ? params.get('id') : null);
-  const inspectionReturn = p2pReturn(params.get('returnTo'));
-  const inspectionMine = current === '/checkuser' && inspectionReturn.href.split(/[?#]/)[0] === '/uc/ad';
+  // A member's P2P record is on its monitor template, which draws its own title and the P2P rooms.
+  if (current === '/checkuser') return <CounterpartyRoom pay={pay} counterparty={counterparty} returnTo={params.get('returnTo')} />;
   // Payment methods is on its settings template, which draws its own title and the P2P rooms.
-  if (showMethods && !tradeId && current !== '/chat' && current !== '/checkuser' && !showOrders && !publish && !showAccess)
+  if (showMethods && !tradeId && current !== '/chat' && !showOrders && !publish && !showAccess)
     return <MethodsRoom pay={pay} userId={userId} />;
   return (
     <Page
@@ -65,13 +64,11 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
       title={
         current === '/chat' || tradeId
           ? payCopy.t('p2pOrder')
-          : current === '/checkuser'
-            ? payCopy.t('counterparty')
-            : publish
-              ? current === '/uc/ad/update'
-                ? p2pDepth.t('formEditTitle')
-                : payCopy.t('createAnOffer')
-              : payCopy.t('personToPerson')
+          : publish
+            ? current === '/uc/ad/update'
+              ? p2pDepth.t('formEditTitle')
+              : payCopy.t('createAnOffer')
+            : payCopy.t('personToPerson')
       }
       description={
         tradeId || current === '/chat' || (!showOrders && !showMethods && !showAccess && !publish)
@@ -89,35 +86,15 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <a
           href="/p2p"
           aria-current={
-            !showOrders &&
-            !showMine &&
-            !showMethods &&
-            !showAccess &&
-            !publish &&
-            !tradeId &&
-            current !== '/chat' &&
-            !inspectionMine &&
-            (current !== '/checkuser' || inspectionReturn.kind === 'offer' || inspectionReturn.kind === 'offers')
-              ? 'page'
-              : undefined
+            !showOrders && !showMine && !showMethods && !showAccess && !publish && !tradeId && current !== '/chat' ? 'page' : undefined
           }
         >
           <PayCopy k="offers" />
         </a>
-        <a
-          href="/uc/order"
-          aria-current={
-            showOrders ||
-            tradeId ||
-            current === '/chat' ||
-            (current === '/checkuser' && ['order', 'orders'].includes(inspectionReturn.kind))
-              ? 'page'
-              : undefined
-          }
-        >
+        <a href="/uc/order" aria-current={showOrders || tradeId || current === '/chat' ? 'page' : undefined}>
           <PayCopy k="yourOrders" />
         </a>
-        <a href="/uc/ad" aria-current={showMine || inspectionMine ? 'page' : undefined}>
+        <a href="/uc/ad" aria-current={showMine ? 'page' : undefined}>
           <PayCopy k="yourOffers" />
         </a>
         <a href="/p2p/methods" aria-current={showMethods ? 'page' : undefined}>
@@ -140,26 +117,6 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         </EmptyState>
       ) : current === '/chat' || tradeId ? (
         <OrderDetail pay={pay} tradeId={tradeId ?? ''} userId={userId} />
-      ) : current === '/checkuser' ? (
-        counterparty && id.safeParse(counterparty).success ? (
-          <P2PCounterparty pay={pay} userId={counterparty} returnTo={params.get('returnTo')} />
-        ) : (
-          <EmptyState
-            title={p2pDepth.t('cpPickTitle')}
-            action={
-              <div className="actions">
-                <a className="button button--primary" href="/p2p">
-                  {p2pDepth.t('cpPickOffers')}
-                </a>
-                <a className="button button--secondary" href="/uc/order">
-                  {p2pDepth.t('cpPickOrders')}
-                </a>
-              </div>
-            }
-          >
-            {p2pDepth.t('cpPickBody')}
-          </EmptyState>
-        )
       ) : showOrders ? (
         <OrderHistory pay={pay} userId={userId} />
       ) : current === '/uc/ad/update' && !id.safeParse(params.get('offerId')).success ? (
