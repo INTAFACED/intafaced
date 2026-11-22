@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, DecimalField, Field, Freshness, RefusalBox, Tag } from '@intafaced/ui/lit';
+import { Button, ChoiceGroup, DecimalField, Field, Freshness, RefusalBox, Tag } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, Tabs } from '@intafaced/ui/lit/templates';
 import { useApi, useSession } from '../../../features/session/session';
 import { createRoomApi, type ProviderSignal, type SignalPublishRequest, type SignalVetting } from './api';
@@ -175,19 +175,13 @@ export function PublishSignal() {
                   onValueChange={setRecommended}
                   precision={18}
                 />
-                <fieldset>
-                  <legend>{t('Fee model')}</legend>
-                  {FEE_CHOICES.map((id) => {
-                    const words = feeChoiceWords(id, t);
-                    return (
-                      <label key={id} className="lt-field">
-                        <input type="radio" name="fee-model" value={id} checked={fee === id} onChange={() => setFee(id)} />
-                        <span>{words.label}</span>
-                        <span className="lt-hint">{words.hint}</span>
-                      </label>
-                    );
-                  })}
-                </fieldset>
+                <ChoiceGroup
+                  legend={t('Fee model')}
+                  name="fee-model"
+                  value={fee}
+                  onChange={setFee}
+                  options={FEE_CHOICES.map((id) => ({ value: id, ...feeChoiceWords(id, t) }))}
+                />
                 {fee === 'monthly' ? (
                   <>
                     <DecimalField
