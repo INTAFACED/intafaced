@@ -6,7 +6,7 @@
 import * as React from 'react';
 import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
-import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
+import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps } from '../contracts.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
 
