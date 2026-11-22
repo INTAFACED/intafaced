@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowUpRight } from 'lucide-react';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
@@ -139,7 +140,7 @@ function List({ current }: { current: () => boolean }) {
                           if (!active()) event.preventDefault();
                         }}
                       >
-                        <span aria-hidden="true">↗</span>
+                        <ArrowUpRight size={16} aria-hidden="true" />
                       </a>
                     </li>
                   ))}
@@ -334,7 +335,7 @@ export function WithdrawalApprovals({ context, search }: { context: ApprovalRead
           )}
           <p>
             <a className="lt-button lt-button-secondary" href="/uc/withdraw">
-              {t('viewWithdrawals')} <span aria-hidden="true">↗</span>
+              {t('viewWithdrawals')} <ArrowUpRight size={16} aria-hidden="true" />
             </a>
           </p>
         </>
