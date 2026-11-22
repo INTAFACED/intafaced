@@ -8,7 +8,7 @@
  *     (`@intafaced/ui/lit` or `@intafaced/ui/lit/templates`); and
  *  2. that file, and every file it reaches by a relative import inside its own folder (tests aside), has none of:
  *     - `stylesheet`: an imported `.css` file (styles of the room's own);
- *     - `inline-style`: a `style=` attribute;
+ *     - `inline-style`: a `style=` attribute (a `data-style=` attribute is data, not a style);
  *     - `old-kit`: an import from `@intafaced/ui` other than `@intafaced/ui/lit…`, or from the app's `shared/ui`;
  *     - `outside-component`: a component (a capitalised name) imported from a `.tsx` file outside the room's folder
  *       that itself draws off the kit: that file is judged by this same rule, in its own folder, so a part several rooms
@@ -126,7 +126,7 @@ export function offKitFindings(entry: string, judged: Map<string, Finding[]> = n
       }
     }
     source.split('\n').forEach((text, i) => {
-      if (/\bstyle=\{/.test(text)) findings.push({ kind: 'inline-style', at: at(file, i + 1), text: text.trim() });
+      if (/(?<![\w-])style=\{/.test(text)) findings.push({ kind: 'inline-style', at: at(file, i + 1), text: text.trim() });
       for (const m of text.matchAll(/className=(?:"([^"]*)"|\{([^}]*)\})/g)) {
         const literal = m[1] ?? [...(m[2] ?? '').matchAll(/['"`]([^'"`$]*)(?=['"`]|\$\{)/g)].map((s) => s[1]).join(' ');
         const own = literal.split(/\s+/).filter((c) => c && !c.startsWith('lt-'));
