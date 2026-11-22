@@ -959,6 +959,7 @@ if (testPartner) {
   app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/onboarding`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/account-details`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/direct-debits`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/dd-refund`, read);
 }
@@ -988,11 +989,11 @@ if (rampBook) {
  */
 const cardRecord = cardIssuer.testRecord?.bind(cardIssuer);
 if (cardRecord) {
-  const recorder = { programme: cardIssuer.programme, testRecord: cardRecord };
+  const recorder = { programme: cardIssuer.programme, testRecord: cardRecord, holds: bank.partnerCardHolds };
   const read = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
     const below = req.url.split('?')[0]!.slice(TEST_CARD_PARTNER_RECORD_BASE.length);
-    const [status, body] = answerTestCardPartnerRecord(recorder, req.method, below, req.body ?? null);
+    const [status, body] = await answerTestCardPartnerRecord(recorder, req.method, below, req.body ?? null);
     return reply.code(status).header('cache-control', 'no-store').send(body);
   };
   for (const path of TEST_CARD_PARTNER_RECORD_PATHS) {

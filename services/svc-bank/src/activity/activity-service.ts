@@ -628,18 +628,42 @@ export class ActivityService {
     return { userId, assetId, owners: map };
   }
 
+  /**
+   * A transaction's lines can straddle lookup pages, so the lines come from every page read before the hit and from
+   * the pages after it until one ends older than the hit's posting time. `complete` is false when the bound stops that.
+   */
   private async findItem(userId: string, id: string): Promise<{ item: ActivityItem; lines: ActivityItem[]; complete: boolean }> {
     let cursor: string | undefined;
-    for (let page = 0; page < GET_MAX_PAGES; page += 1) {
+    const read: ActivityItem[] = [];
+    let hit: ActivityItem | undefined;
+    let page = 0;
+    for (; page < GET_MAX_PAGES; page += 1) {
       const got = await this.listPage(userId, { limit: GET_PAGE, cursor });
-      const hit = got.items.find((item) => item.id === id);
-      if (hit) {
-        return { item: hit, lines: got.items.filter((item) => item.txId === hit.txId), complete: true };
-      }
+      read.push(...got.items);
+      hit = got.items.find((item) => item.id === id);
+      cursor = got.nextCursor ?? undefined;
+      if (hit) break;
       if (!got.nextCursor) throw new ActivityNotFoundError();
-      cursor = got.nextCursor;
     }
-    throw new ActivityLookupBoundedError();
+    if (!hit) throw new ActivityLookupBoundedError();
+    const at = Date.parse(hit.postedAt);
+    const mayContinue = () => {
+      const last = read.at(-1);
+      return last !== undefined && (last.txId === hit.txId || Date.parse(last.postedAt) >= at);
+    };
+    let complete = true;
+    while (cursor !== undefined && mayContinue()) {
+      page += 1;
+      if (page >= GET_MAX_PAGES) {
+        complete = false;
+        break;
+      }
+      const got = await this.listPage(userId, { limit: GET_PAGE, cursor });
+      read.push(...got.items);
+      cursor = got.nextCursor ?? undefined;
+    }
+    const lines = [...new Map(read.filter((item) => item.txId === hit.txId).map((item) => [item.id, item])).values()];
+    return { item: hit, lines, complete };
   }
 
   private async findOrder(userId: string, orderId: string): Promise<{ item: ActivityItem; lines: ActivityItem[]; complete: boolean }> {

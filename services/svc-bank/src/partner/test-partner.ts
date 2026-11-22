@@ -686,13 +686,9 @@ export function assertRampFeeKnown(partner: TestPartnerDoors | null | undefined,
   }
 }
 
-/**
- * The TEST partner's account details for one person, or none: with `accountDetails: 'issued'` the TEST partner answers
- * as a banking partner would, with one set per currency labelled TEST (its bank is the TEST partner bank, and every value
- * says TEST, so nothing reads as a real account); otherwise there is no partner and the service answers `rail.bank`.
- */
-export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: string) => AccountDetailsPartner | undefined {
-  const details = (userId: string, currency: string): AccountDetailSet => ({
+/** The one set of TEST account details the TEST partner issues one person in one currency, as its own book keeps it. */
+export function testPartnerDetailSet(partner: TestPartnerDoors, userId: string, currency: string): AccountDetailSet {
+  return {
     id: `test-partner:${userId}:${currency}`,
     accountNumber: `TEST-${currency}-${userId.replace(/-/g, '').toUpperCase()}`,
     sortCode: null,
@@ -702,7 +698,16 @@ export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: s
     bic: null,
     partnerBank: partner.label,
     restrictions: ['TEST details: no real account exists and nothing can be received'],
-  });
+  };
+}
+
+/**
+ * The TEST partner's account details for one person, or none: with `accountDetails: 'issued'` the TEST partner answers
+ * as a banking partner would, with one set per currency labelled TEST (its bank is the TEST partner bank, and every value
+ * says TEST, so nothing reads as a real account); otherwise there is no partner and the service answers `rail.bank`.
+ */
+export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: string) => AccountDetailsPartner | undefined {
+  const details = (userId: string, currency: string) => testPartnerDetailSet(partner, userId, currency);
   const issued = { state: 'done' as const };
   // The partner down answers nothing, as at every other partner-held door.
   const answer = async (userId: string, currency: string) => {
