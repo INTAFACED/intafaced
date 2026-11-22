@@ -2,8 +2,8 @@ import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useMounted } from '../../../shared/outside';
 import { useResource } from '../../../shared/resource';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Button, Checkbox, Dialog, FormField, Input, Menu, Segmented } from '@intafaced/ui/lit';
-import { KeyValue } from '@intafaced/ui/lit/templates';
+import { Button, FormField, Input, Menu, Segmented } from '@intafaced/ui/lit';
+import { Checkbox, KeyValue, Sheet } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
 import type { ConditionalOrder, PositionPreview, Reverse, RiskStop, StopInput } from './api';
@@ -46,7 +46,7 @@ function sideWord(t: T, side: Position['side']): string {
   return side === 'long' ? t('Side long') : t('Side short');
 }
 
-/** One dialog frame: the kit's Dialog, open while whoever mounts it keeps it mounted. */
+/** One dialog frame: the kit's Sheet, open while whoever mounts it keeps it mounted. */
 function Frame({
   title,
   description,
@@ -62,9 +62,9 @@ function Frame({
 }) {
   const { t } = positionsCopy.useCopy();
   return (
-    <Dialog title={title} description={description} closeLabel={t('Dialog close')} onClose={onClose} footer={footer}>
+    <Sheet open title={title} description={description} closeLabel={t('Dialog close')} onClose={onClose} footer={footer}>
       {children}
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -92,7 +92,7 @@ export function WriteNotice({ writer, onCheck }: { writer: Writer; onCheck: () =
   }
   if (outcome?.kind === 'refused')
     return (
-      <div role="alert" className="lt-stack">
+      <div role="alert" className="lt-stack-tight">
         <p className="lt-error">{outcome.refusal.title}</p>
         <p className="lt-hint">{outcome.refusal.body}</p>
         {outcome.refusal.code ? <p className="lt-hint">{t('Refusal code', { code: outcome.refusal.code })}</p> : null}
@@ -378,7 +378,7 @@ function LegLine({ leg, order, position, t }: { leg: Leg; order: ConditionalOrde
   const trigger = triggerLine(order, words);
   const covers = coverage(order, contracts);
   return (
-    <li data-leg={leg} data-status={order.status} className="lt-stack">
+    <li data-leg={leg} data-status={order.status} className="lt-stack-tight">
       <span>{t('Protect leg', { leg: name, status: words(`Status ${order.status}`) })}</span>
       {trigger ? <span className="lt-hint">{trigger}</span> : null}
       {covers === null ? null : covers.whole ? (
@@ -496,7 +496,7 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
     const size = part.trim() === '' || parts[leg] ? null : part.trim();
     const estimate = value.trim() === '' || problems[leg] ? null : signedAmount(estimatedResult(position, value.trim(), size), 8);
     return (
-      <div className="lt-stack">
+      <div className="lt-stack-tight">
         <FormField
           label={t(leg === 'take_profit' ? 'Protect field take profit' : 'Protect field stop loss', { quote: asset })}
           hint={side === null ? undefined : t(`Protect side ${side}`)}
@@ -568,7 +568,7 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
         {orders === null && !unreadable ? <p className="lt-hint">{t('Protect loading')}</p> : null}
         {unreadable ? <p className="lt-warn">{t('Protect unreadable')}</p> : null}
         {orders !== null ? (
-          <ul className="lt-stack">
+          <ul className="lt-stack-tight">
             <LegLine leg="take_profit" order={legs.take_profit} position={position} t={t} />
             <LegLine leg="stop_loss" order={legs.stop_loss} position={position} t={t} />
           </ul>
@@ -593,7 +593,7 @@ function ResultLine({ position, result, t }: { position: Position; result: Close
   const word =
     result.kind === 'refused' ? t('Result refused') : result.kind === 'blocked' ? t('Result blocked') : t(`Result ${result.kind}`);
   return (
-    <li className="lt-stack">
+    <li className="lt-stack-tight">
       <div className="lt-title-row">
         <span>
           {position.symbol} <span className="lt-hint">{sideWord(t, position.side)}</span>
@@ -690,7 +690,7 @@ export function CloseAllDialog({ positions, onClose, onDone }: { positions: Posi
         </>
       }
     >
-      <ul aria-label={t('Close all list label')} className="lt-stack">
+      <ul aria-label={t('Close all list label')} className="lt-stack-tight">
         {plan.map((p) => (
           <ResultLine key={p.id} position={p} result={state.results[p.id ?? ''] ?? { kind: 'waiting' }} t={t} />
         ))}
@@ -887,7 +887,7 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
       }
     >
       {position.leverage === null ? <p className="lt-warn">{t('Reverse no leverage')}</p> : null}
-      <section aria-label={t('Reverse review', { to: sideWord(t, to) })} className="lt-stack">
+      <section aria-label={t('Reverse review', { to: sideWord(t, to) })} className="lt-stack-tight">
         <h3>{t('Reverse review', { to: sideWord(t, to) })}</h3>
         {review.status === 'loading' && position.leverage !== null ? (
           <p className="lt-hint">{t('Reverse review loading', { to: sideWord(t, to) })}</p>
@@ -909,10 +909,12 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
         ) : null}
         {moved ? <p className="lt-warn">{t('Reverse review moved')}</p> : null}
         {tierNeeded && tier ? (
-          <label className="lt-field">
-            <Checkbox checked={tierAccepted} disabled={finished} onCheckedChange={setTierAccepted} />
-            <span>{t('Reverse tier accept', { tier: String(tier.projected), to: sideWord(t, to) })}</span>
-          </label>
+          <Checkbox
+            label={t('Reverse tier accept', { tier: String(tier.projected), to: sideWord(t, to) })}
+            checked={tierAccepted}
+            disabled={finished}
+            onChange={setTierAccepted}
+          />
         ) : null}
       </section>
       {result ? (
@@ -1033,7 +1035,7 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
         </>
       }
     >
-      <div className="lt-stack">
+      <div className="lt-stack-tight">
         <span className="lt-hint">{t('Stop kind')}</span>
         <Segmented
           label={t('Stop kind')}
@@ -1046,7 +1048,7 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
         />
         <p className="lt-hint">{t(`Stop kind how ${kind}`)}</p>
       </div>
-      <div className="lt-stack">
+      <div className="lt-stack-tight">
         <span className="lt-hint">{t('Stop source')}</span>
         <Segmented
           label={t('Stop source')}
@@ -1093,11 +1095,11 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
           stops.length === 0 ? (
             <p className="lt-hint">{t('Stop armed none')}</p>
           ) : (
-            <ul className="lt-stack">
+            <ul className="lt-stack-tight">
               {stops.map((o) => {
                 const line = triggerLine(o, words);
                 return (
-                  <li key={o.id} data-stop={o.kind} data-status={o.status} className="lt-stack">
+                  <li key={o.id} data-stop={o.kind} data-status={o.status} className="lt-stack-tight">
                     <span>
                       {t('Stop armed line', {
                         kind: words(`Kind ${o.kind}`),
@@ -1293,7 +1295,7 @@ export function PositionRowActions({
   return (
     // The menu and the dialogs render in portals, and React still bubbles their clicks to the table row, which would
     // open the position's detail on top of them. Nothing in here is a click on the row.
-    <div className="lt-stack" onClick={(event) => event.stopPropagation()}>
+    <div className="lt-stack-tight" onClick={(event) => event.stopPropagation()}>
       <div className="lt-actions">
         {compact && shown.filter((key) => key !== 'close').length > 1 ? (
           <Menu

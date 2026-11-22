@@ -337,7 +337,15 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     hidden: true,
     screen: 'trade/otc',
   },
-  { path: '/otc/tradeInfo', title: 'Quoted order', description: 'Review a quoted trade', door: 'Trade', area: 'trade', hidden: true },
+  {
+    path: '/otc/tradeInfo',
+    title: 'Quoted order',
+    description: 'Review a quoted trade',
+    door: 'Trade',
+    area: 'trade',
+    hidden: true,
+    screen: 'trade/otc',
+  },
   { path: '/otc/trade/*', title: 'Quoted order', description: 'Your trade context', door: 'Trade', area: 'trade', hidden: true },
   {
     path: '/uc/entrust/current',

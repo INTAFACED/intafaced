@@ -3,12 +3,13 @@ import { CircleCheck, CircleDashed, CircleHelp, CircleSlash, Hourglass, Triangle
 import { usePreferences } from '../../../shared/preferences';
 import { dayTime } from '../desk/time';
 import type { RoomApi, RfqQuote } from '../rooms/api';
-import { Freshness, Refusal } from '../rooms/RoomNotices';
 import { compareDecimals } from '../rooms/math';
 import { roomWords } from '../rooms/refusals';
 import type { RoomWriter } from '../rooms/write';
-import type { BadgeTone } from '@intafaced/ui';
-import { Badge, Button, KeyValue, fmtAmount, fmtPrice } from '../rooms/ui';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { fmtAmount, fmtPrice } from '../rooms/ui';
+import { Freshness, kvRow, Refusal } from '../options/notices';
 import { otcCopy } from './copy';
 import { ConfirmDialog, type Confirming } from './ConfirmDialog';
 import {
@@ -25,14 +26,14 @@ import {
   type Phase,
 } from './model';
 
-const LIFE_LOOK: Record<Chip, { tone: BadgeTone; icon: typeof CircleCheck }> = {
-  open: { tone: 'lime', icon: CircleDashed },
-  bound: { tone: 'warn', icon: Hourglass },
+const LIFE_LOOK: Record<Chip, { tone: 'accent' | 'up' | 'neutral'; icon: typeof CircleCheck }> = {
+  open: { tone: 'accent', icon: CircleDashed },
+  bound: { tone: 'neutral', icon: Hourglass },
   settled: { tone: 'up', icon: CircleCheck },
   expired: { tone: 'neutral', icon: CircleSlash },
   unknown: { tone: 'neutral', icon: CircleHelp },
-  unconfirmed: { tone: 'warn', icon: TriangleAlert },
-  'time-up': { tone: 'warn', icon: Hourglass },
+  unconfirmed: { tone: 'neutral', icon: TriangleAlert },
+  'time-up': { tone: 'neutral', icon: Hourglass },
 };
 
 /** The lifecycle as a shape and a word, the same chip in the table and on the card. */
@@ -40,9 +41,10 @@ export function LifecycleChip({ lifecycle }: { lifecycle: Chip }) {
   const { t } = otcCopy.useCopy();
   const { tone, icon: Icon } = LIFE_LOOK[lifecycle];
   return (
-    <Badge tone={tone} variant="outline" density="dense" icon={<Icon size={12} />}>
+    <Tag tone={tone}>
+      <Icon size={12} aria-hidden="true" />
       {t(`Life ${lifecycle}`)}
-    </Badge>
+    </Tag>
   );
 }
 
@@ -97,43 +99,41 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
 
   const money = (value: string | null) => (value === null ? null : `${fmtAmount(value)} ${quote.quoteAsset}`);
   const items = [
-    { label: t('Quote id'), value: quote.quoteId, mono: true },
-    { label: t('Pair'), value: pair },
-    { label: t('Side'), value: quote.side === 'buy' ? t('Buy') : t('Sell') },
-    { label: t('Quantity'), value: `${fmtAmount(quote.qty)} ${quote.baseAsset}` },
-    { label: t('Mid price'), value: `${fmtPrice(quote.midPrice, null)} ${quote.quoteAsset}` },
-    { label: t('Spread'), value: `${cost.spreadBps} bps` },
-    { label: t('Spread notional'), value: money(cost.spreadReturned) },
-    { label: cost.direction === 'pay' ? t('You pay') : t('You receive'), value: money(cost.value), hint: t('Value spread included') },
-    { label: t('Mid value'), value: money(cost.midValue) },
-    {
-      label: t('Spread cost'),
-      value: money(cost.spreadCost),
-      hint:
-        cost.spreadCost !== null && !cost.agrees
-          ? t('Spread figures differ', { returned: money(cost.spreadReturned) ?? '—' })
-          : t('Spread cost note'),
-    },
-    { label: t('Fee'), value: t('Fee zero') },
-    { label: t('Counterparty'), value: `${quote.counterparty} · ${quote.counterpartyId}` },
-    { label: t('Created'), value: at(quote.createdAt) },
-    {
-      label: t('Expires'),
-      value:
-        life === 'open'
-          ? `${expiresText} · ${
-              chip === 'unconfirmed'
-                ? t('Time unconfirmed')
-                : countdown.state === 'firm'
-                  ? t('Time left', { time: countdown.text })
-                  : t('Time is up')
-            }`
-          : expiresText,
-    },
+    { ...kvRow(t('Quote id'), quote.quoteId), ltr: true },
+    kvRow(t('Pair'), pair),
+    kvRow(t('Side'), quote.side === 'buy' ? t('Buy') : t('Sell')),
+    kvRow(t('Quantity'), `${fmtAmount(quote.qty)} ${quote.baseAsset}`),
+    kvRow(t('Mid price'), `${fmtPrice(quote.midPrice, null)} ${quote.quoteAsset}`),
+    kvRow(t('Spread'), `${cost.spreadBps} bps`),
+    kvRow(t('Spread notional'), money(cost.spreadReturned)),
+    kvRow(cost.direction === 'pay' ? t('You pay') : t('You receive'), money(cost.value), t('Value spread included')),
+    kvRow(t('Mid value'), money(cost.midValue)),
+    kvRow(
+      t('Spread cost'),
+      money(cost.spreadCost),
+      cost.spreadCost !== null && !cost.agrees
+        ? t('Spread figures differ', { returned: money(cost.spreadReturned) ?? '—' })
+        : t('Spread cost note'),
+    ),
+    kvRow(t('Fee'), t('Fee zero')),
+    kvRow(t('Counterparty'), `${quote.counterparty} · ${quote.counterpartyId}`),
+    kvRow(t('Created'), at(quote.createdAt)),
+    kvRow(
+      t('Expires'),
+      life === 'open'
+        ? `${expiresText} · ${
+            chip === 'unconfirmed'
+              ? t('Time unconfirmed')
+              : countdown.state === 'firm'
+                ? t('Time left', { time: countdown.text })
+                : t('Time is up')
+          }`
+        : expiresText,
+    ),
     ...(quote.acceptedAt || quote.fillPrice
       ? [
-          { label: t('Accepted'), value: at(quote.acceptedAt) },
-          { label: t('Original fill price'), value: quote.fillPrice ? `${fmtPrice(quote.fillPrice, null)} ${quote.quoteAsset}` : null },
+          kvRow(t('Accepted'), at(quote.acceptedAt)),
+          kvRow(t('Original fill price'), quote.fillPrice ? `${fmtPrice(quote.fillPrice, null)} ${quote.quoteAsset}` : null),
         ]
       : []),
   ];
@@ -189,25 +189,21 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
   const confirmBlock = confirming === 'accept' && phase !== 'open' ? t('Phase open-late') : lockedWhy;
 
   return (
-    <section
-      aria-label={t('Quote')}
-      data-quote-id={quote.quoteId}
-      className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3"
-    >
-      <header className="flex flex-wrap items-center gap-3">
-        <h3 className="m-0 text-md font-medium text-fg">{t('Quote title', { pair })}</h3>
+    <section aria-label={t('Quote')} data-quote-id={quote.quoteId} className="lt-stack">
+      <header className="lt-toolbar">
+        <h3 className="lt-heading">{t('Quote title', { pair })}</h3>
         <LifecycleChip lifecycle={chip} />
         <Freshness asOf={readAt} now={now} />
       </header>
-      <p className="m-0 text-sm text-fg" role="status" data-testid="phase-line">
+      <p className="lt-text" role="status" data-testid="phase-line">
         {t(PHASE_LINE[chip === 'unconfirmed' ? 'unconfirmed' : phase])}
       </p>
-      <p className="m-0 text-lg font-medium text-fg tabular-nums">
+      <p className="lt-figure">
         {t('Quoted price')}: <span data-testid="quote-price">{`${fmtPrice(quote.quotedPrice, null)} ${quote.quoteAsset}`}</span>
       </p>
-      {life === 'expired' ? <Refusal words={roomWords({ code: 'trade.otc_quote_expired' })} size="inline" /> : null}
+      {life === 'expired' ? <Refusal words={roomWords({ code: 'trade.otc_quote_expired' })} /> : null}
       {life === 'bound' ? (
-        <p className="m-0 text-sm text-fg">
+        <p className="lt-text">
           {t('Settle window')}:{' '}
           <span data-testid="settle-by">
             {at(quote.settleBy) === null
@@ -218,41 +214,25 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
           </span>
         </p>
       ) : null}
-      <KeyValue density="dense" items={items} now={now} />
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="primary"
-          size={32}
-          disabled={!allowed.includes('accept') || lockedWhy !== null}
-          onClick={() => setConfirming('accept')}
-        >
+      <KeyValue rows={items} />
+      <div className="lt-actions">
+        <Button tone="primary" disabled={!allowed.includes('accept') || lockedWhy !== null} onClick={() => setConfirming('accept')}>
           {t('Accept')}
         </Button>
-        <Button
-          variant="primary"
-          size={32}
-          disabled={!allowed.includes('settle') || lockedWhy !== null}
-          onClick={() => setConfirming('settle')}
-        >
+        <Button tone="primary" disabled={!allowed.includes('settle') || lockedWhy !== null} onClick={() => setConfirming('settle')}>
           {t('Settle')}
         </Button>
-        <Button
-          variant="secondary"
-          size={32}
-          disabled={!allowed.includes('expire') || lockedWhy !== null}
-          onClick={() => setConfirming('expire')}
-        >
+        <Button disabled={!allowed.includes('expire') || lockedWhy !== null} onClick={() => setConfirming('expire')}>
           {t('Expire')}
         </Button>
         {life === 'expired' ? (
-          <Button variant="primary" size={32} disabled={lockedWhy !== null} onClick={() => void askAgain()}>
+          <Button tone="primary" disabled={lockedWhy !== null} onClick={() => void askAgain()}>
             {t('Ask again')}
           </Button>
         ) : null}
         <Button
-          variant="secondary"
-          size={32}
-          loading={checking}
+          aria-busy={checking || undefined}
+          disabled={checking}
           onClick={() => {
             setChecking(true);
             void onCheck(quote.quoteId).finally(() => setChecking(false));
@@ -262,12 +242,12 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
         </Button>
       </div>
       {mismatch ? (
-        <p role="alert" className="m-0 text-sm text-warn">
+        <p role="alert" className="lt-alert">
           {t('Quote mismatch')}
         </p>
       ) : null}
-      {lockedWhy ? <p className="m-0 text-xs text-fg-2">{lockedWhy}</p> : null}
-      <p className="m-0 text-xs text-fg-2">{t('Buttons note')}</p>
+      {lockedWhy ? <p className="lt-hint">{lockedWhy}</p> : null}
+      <p className="lt-hint">{t('Buttons note')}</p>
       <ConfirmDialog
         action={confirming}
         quote={quote}

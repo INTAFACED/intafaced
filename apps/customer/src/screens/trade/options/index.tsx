@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react';
+import { Tag } from '@intafaced/ui/lit';
+import { DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import type { ScreenProps } from '../../../app/screen-types';
-import { RoomFrame } from '../rooms/RoomFrame';
-import { Freshness, WriteNotice } from '../rooms/RoomNotices';
 import { asOfOf } from '../rooms/read';
 import { useRoomWriter } from '../rooms/write';
-import { Badge, Tabs, TabsList, TabsPanel, TabsTab } from '../rooms/ui';
 import { ChainTab } from './ChainTab';
 import { OrdersTab } from './OrdersTab';
 import { PositionsTab } from './PositionsTab';
@@ -15,9 +14,9 @@ import { Ticket } from './Ticket';
 import { useCheckStatus } from './check';
 import { optionsCopy } from './copy';
 import { useOptionMarkets, useOptionOrders, useOptionsPolicy } from './data';
+import { Freshness, TradeRoomsNav, WriteNotice } from './notices';
 
 type TabId = 'chain' | 'strategy' | 'orders' | 'positions' | 'settlement' | 'rules';
-const TABS: readonly TabId[] = ['chain', 'strategy', 'orders', 'positions', 'settlement', 'rules'];
 
 export default function Screen(_props: ScreenProps) {
   const { t } = optionsCopy.useCopy();
@@ -37,64 +36,79 @@ export default function Screen(_props: ScreenProps) {
 
   const allowed = policy.status === 'ready' ? policy.data.allowed : null;
   const chips = (
-    <>
+    <div className="lt-toolbar">
       <Freshness asOf={asOfOf(markets)} refused={markets.status === 'refused'} />
-      <Badge variant="outline">
+      <Tag tone="neutral">
         {allowed ? (allowed.liveOptionsOrders ? t('Live orders allowed') : t('Live orders blocked')) : t('Live orders unknown')}
-      </Badge>
-      <Badge variant="outline">
+      </Tag>
+      <Tag tone="neutral">
         {!allowed || !allowed.paperOptionsOrders
           ? t('Paper orders blocked')
           : list && list.some((m) => m.paper)
             ? t('Paper orders allowed')
             : t('No paper contract listed')}
-      </Badge>
-      <Badge variant="outline">
+      </Tag>
+      <Tag tone="neutral">
         {greeksLinked === null ? t('Greeks not tried') : greeksLinked ? t('Greeks available') : t('Greeks not linked here')}
-      </Badge>
-    </>
+      </Tag>
+    </div>
   );
 
   return (
-    <RoomFrame mode="Options" title={t('Options')} description={t('Options description')} meta={chips}>
-      <div className="flex flex-col gap-3">
-        <WriteNotice writer={writer} onCheck={(id) => void check(id)} done={t('Request done')} />
-        {note ? (
-          <p role="status" className="m-0 text-sm text-fg-2">
-            {note}
-          </p>
-        ) : null}
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <Tabs value={tab} onValueChange={(v) => setTab(v as TabId)}>
-            <TabsList divider className="overflow-x-auto">
-              {TABS.map((id) => (
-                <TabsTab key={id} value={id}>
-                  {t(`Tab ${id}`)}
-                </TabsTab>
-              ))}
-            </TabsList>
-            <TabsPanel value="chain" className="pt-3">
-              <ChainTab markets={markets} policy={policy} selected={symbol} onSelect={setSymbol} />
-            </TabsPanel>
-            <TabsPanel value="strategy" className="pt-3">
-              <StrategyTab selected={selected} onGreeksLinked={setGreeksLinked} />
-            </TabsPanel>
-            <TabsPanel value="orders" className="pt-3">
-              <OrdersTab open={orders.open} closed={orders.closed} markets={bySymbol} writer={writer} />
-            </TabsPanel>
-            <TabsPanel value="positions" className="pt-3">
-              <PositionsTab />
-            </TabsPanel>
-            <TabsPanel value="settlement" className="pt-3">
-              <SettlementTab policy={policy} />
-            </TabsPanel>
-            <TabsPanel value="rules" className="pt-3">
-              <RulesTab />
-            </TabsPanel>
-          </Tabs>
-          <Ticket market={selected} policy={policy} writer={writer} />
+    <DeskTemplate
+      title={t('Options')}
+      description={t('Options description')}
+      mode="pro"
+      state={{ kind: 'ready' }}
+      instrument={
+        <div className="lt-stack">
+          <TradeRoomsNav active="options" />
+          {chips}
+          <WriteNotice writer={writer} onCheck={(id) => void check(id)} done={t('Request done')} />
+          {note ? (
+            <p role="status" className="lt-hint">
+              {note}
+            </p>
+          ) : null}
         </div>
-      </div>
-    </RoomFrame>
+      }
+      chart={
+        <div className="lt-stack">
+          <Tabs
+            id="options"
+            label={t('Options')}
+            value={tab}
+            onChange={(next) => setTab(next as TabId)}
+            items={[
+              { value: 'chain', label: t('Tab chain') },
+              { value: 'strategy', label: t('Tab strategy') },
+              { value: 'orders', label: t('Tab orders') },
+              { value: 'positions', label: t('Tab positions') },
+              { value: 'settlement', label: t('Tab settlement') },
+              { value: 'rules', label: t('Tab rules') },
+            ]}
+          />
+          <TabPanel id="options" value="chain" current={tab}>
+            <ChainTab markets={markets} policy={policy} selected={symbol} onSelect={setSymbol} />
+          </TabPanel>
+          <TabPanel id="options" value="strategy" current={tab}>
+            <StrategyTab selected={selected} onGreeksLinked={setGreeksLinked} />
+          </TabPanel>
+          <TabPanel id="options" value="orders" current={tab}>
+            <OrdersTab open={orders.open} closed={orders.closed} markets={bySymbol} writer={writer} />
+          </TabPanel>
+          <TabPanel id="options" value="positions" current={tab}>
+            <PositionsTab />
+          </TabPanel>
+          <TabPanel id="options" value="settlement" current={tab}>
+            <SettlementTab policy={policy} />
+          </TabPanel>
+          <TabPanel id="options" value="rules" current={tab}>
+            <RulesTab />
+          </TabPanel>
+        </div>
+      }
+      ticket={<Ticket market={selected} policy={policy} writer={writer} />}
+    />
   );
 }

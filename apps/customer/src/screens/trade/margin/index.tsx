@@ -101,7 +101,7 @@ export default function MarginScreen(_props: ScreenProps) {
       cell: (p) => {
         const call = p.id && calls.status === 'ready' ? calls.data[p.id] : null;
         return (
-          <span className="lt-stack">
+          <span className="lt-stack-tight">
             <span>{stateOf(p)}</span>
             {call ? (
               <span className="lt-warn">
@@ -132,14 +132,14 @@ export default function MarginScreen(_props: ScreenProps) {
 
   const unread = positions.status === 'refused' || positions.status === 'error';
   const health = (
-    <section aria-labelledby="margin-health" className="lt-stack">
+    <section aria-labelledby="margin-health" className="lt-stack-tight">
       <h2 id="margin-health">{t('Position health')}</h2>
       {positions.status === 'loading' ? (
         <Skeleton shape="rows" />
       ) : rows.length > 0 ? (
         <Table caption={t('Position health table')} mode="pro" columns={columns} rows={rows} rowKey={(p) => p.id ?? p.symbol} />
       ) : unread ? (
-        <div className="lt-stack">
+        <div className="lt-stack-tight">
           <RefusalBox
             refusal={{
               variant: positions.status === 'refused' ? 'refused' : 'unreachable',
@@ -206,7 +206,7 @@ export default function MarginScreen(_props: ScreenProps) {
         }
         chart={userId ? health : null}
         ticket={
-          <section aria-labelledby="margin-rules" className="lt-stack">
+          <section aria-labelledby="margin-rules" className="lt-stack-tight">
             <h2 id="margin-rules">{t('Margin rules')}</h2>
             <KeyValue
               rows={[
@@ -221,7 +221,7 @@ export default function MarginScreen(_props: ScreenProps) {
           </section>
         }
         orders={
-          <div className="lt-stack">
+          <div className="lt-stack-tight">
             <h2>{t('Spot margin')}</h2>
             <RefusalBox
               refusal={{
@@ -235,7 +235,7 @@ export default function MarginScreen(_props: ScreenProps) {
               {t('Bank loans')}
             </a>
             <h2>{t('How liquidation works')}</h2>
-            <ul className="lt-stack">
+            <ul className="lt-stack-tight">
               <li>{t('Liquidation point 1')}</li>
               <li>{t('Liquidation point 2')}</li>
               <li>{t('Liquidation point 3')}</li>

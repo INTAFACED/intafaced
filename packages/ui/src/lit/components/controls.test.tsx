@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Button } from './index.js';
-import { Checkbox, FormField, Input, Stat } from './controls.js';
+import { FormField, Input, Stat } from './controls.js';
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const css = readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '../templates/templates.css'), 'utf8');
@@ -30,10 +30,6 @@ describe('the desk form parts', () => {
     expect(out).toContain('aria-busy="true"');
     expect(out).toContain('aria-disabled="true"');
     expect(out).not.toMatch(/\sdisabled=""/);
-  });
-
-  it('a checkbox is the platform control', () => {
-    expect(html(<Checkbox checked onCheckedChange={() => {}} />)).toMatch(/<input type="checkbox" checked=""/);
   });
 
   it('their styles read only lit roles and logical sides', () => {

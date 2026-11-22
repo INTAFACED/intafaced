@@ -95,8 +95,17 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-slot="page" data-width="full" data-density="dense" class="w-full min-w-0 px-(--if-gutter) text-fg py-4 max-w-none">
-<div class="flex flex-col gap-3">
+<div class="lt-room" data-template="desk" data-state="ready" data-mode="pro">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Options</h1>
+<p class="lt-description">Read the contracts, price a strategy, and place paper option orders. Live option orders are blocked until the settlement rule is published.</p>
+</div>
+</header>
+<div class="lt-body">
+<div class="lt-desk" data-desk="pro">
+<section class="lt-region" data-region="instrument" aria-label="Price">
+<div class="lt-stack">
 <nav class="lt-tabs" aria-label="Trading rooms">
 <a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
 <a href="/trade/margin" class="lt-tab">Margin</a>
@@ -108,171 +117,125 @@
 <a href="/execution" class="lt-tab">Execution</a>
 <a href="/otc" class="lt-tab">Quote desk</a>
 </nav>
-<header data-slot="page-header" data-density="dense" class="flex flex-col gap-2 pb-3">
-<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-<div class="flex min-w-0 flex-1 basis-64 flex-col gap-1">
-<h1 data-slot="page-header-title" class="m-0 text-xl font-semibold text-fg">Options</h1>
-<p data-slot="page-header-description" class="m-0 text-fg-2 text-sm">Read the contracts, price a strategy, and place paper option orders. Live option orders are blocked until the settlement rule is published.</p>
-<div data-slot="page-header-meta" class="flex flex-wrap items-center gap-2 pt-1 text-xs text-fg-2">
-<span role="status" data-slot="status-chip" data-freshness="live" data-density="comfortable" class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-accent-text">
-<svg data-shape="dot" aria-hidden="true" viewBox="0 0 12 12" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5">
-<circle cx="6" cy="6" r="3.5" fill="currentColor" stroke="none">
-</circle>
-</svg>
+<div class="lt-toolbar">
+<span class="lt-chip" role="status" data-freshness="live">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>
 <span>
 <span data-part="word">Live</span>
-<span class="text-fg-2"> · as of <time datetime="2026-10-21T12:00:00.000Z" class="if-num tabular-nums">12:00:00</time>
+<span class="lt-chip-when"> · as of <time datetime="2026-10-21T12:00:00.000Z">12:00:00</time>
 </span>
 </span>
 </span>
-<span data-slot="badge" data-tone="neutral" data-variant="outline" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs border border-current/40 text-fg-2">Live orders: not read</span>
-<span data-slot="badge" data-tone="neutral" data-variant="outline" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs border border-current/40 text-fg-2">Paper orders: blocked</span>
-<span data-slot="badge" data-tone="neutral" data-variant="outline" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs border border-current/40 text-fg-2">Greeks: not tried</span>
+<span class="lit-tag" data-tone="neutral">Live orders: not read</span>
+<span class="lit-tag" data-tone="neutral">Paper orders: blocked</span>
+<span class="lit-tag" data-tone="neutral">Greeks: not tried</span>
+</div>
+<div class="lt-stack" aria-live="polite">
 </div>
 </div>
-</div>
-</header>
-</div>
-<div data-slot="page-body" data-density="dense" class="flex min-w-0 flex-col gap-4 pt-3">
-<div class="flex flex-col gap-3">
-<div class="flex flex-col gap-2" aria-live="polite">
-</div>
-<div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="flex flex-col">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" class="relative flex items-stretch gap-6 border-b border-line overflow-x-auto">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_3_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-controls="base-ui-_r_4_">Chain</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_5_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Strategy builder</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_6_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Orders</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_7_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Positions</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_8_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Settlement and exercise</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_9_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Rules</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
-</div>
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_4_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="flex-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus pt-3" aria-labelledby="base-ui-_r_3_">
-<div class="flex flex-col gap-3">
-<div class="flex flex-wrap items-center gap-2">
-<button type="button" tabindex="0" id="base-ui-_r_10_" role="combobox" aria-expanded="false" aria-haspopup="listbox" data-slot="select-trigger" aria-label="Underlying" class="inline-flex w-fit min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<span data-slot="select-value" class="truncate">All underlyings</span>
-<span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
-</path>
-</svg>
-</span>
-</button>
-<input id="base-ui-_r_10_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="all">
-<button type="button" tabindex="0" id="base-ui-_r_11_" role="combobox" aria-expanded="false" aria-haspopup="listbox" data-slot="select-trigger" aria-label="Expiry" class="inline-flex w-fit min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<span data-slot="select-value" class="truncate">All expiries</span>
-<span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
-</path>
-</svg>
-</span>
-</button>
-<input id="base-ui-_r_11_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="all">
-<div data-orientation="horizontal" role="group" data-slot="segmented-control" aria-label="Call or put" class="relative grid items-stretch rounded-pill bg-field p-0.5 w-fit h-8 text-sm" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
-<span aria-hidden="true" style="width: calc((100% - 4px) / 3); transform: translateX(0%);" class="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-pill transition-[transform,background-color] duration-(--if-t-tab) ease-if bg-raised">
-</span>
-<button type="button" data-pressed="" aria-disabled="false" tabindex="0" aria-pressed="true" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Both</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Calls</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Puts</button>
-</div>
-<span class="ml-auto">
-<span role="status" data-slot="status-chip" data-freshness="live" data-density="comfortable" class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-accent-text">
-<svg data-shape="dot" aria-hidden="true" viewBox="0 0 12 12" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5">
-<circle cx="6" cy="6" r="3.5" fill="currentColor" stroke="none">
-</circle>
-</svg>
-<span>
-<span data-part="word">Live</span>
-<span class="text-fg-2"> · as of <time datetime="2026-10-21T12:00:00.000Z" class="if-num tabular-nums">12:00:00</time>
-</span>
-</span>
-</span>
-</span>
-</div>
-<p class="m-0 text-xs text-fg-2">Bid, Ask, IV and Delta show — because no options quote feed is published.</p>
-<div data-slot="empty-state" data-variant="unavailable" data-size="panel" role="status" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<span data-slot="empty-state-icon" aria-hidden="true" class="flex shrink-0 text-fg-3">
-<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-off" aria-hidden="true">
-<path d="M10.94 5.274A7 7 0 0 1 15.71 10h1.79a4.5 4.5 0 0 1 4.222 6.057">
-</path>
-<path d="M18.796 18.81A4.5 4.5 0 0 1 17.5 19H9A7 7 0 0 1 5.79 5.78">
-</path>
-<path d="m2 2 20 20">
-</path>
-</svg>
-</span>
-<div class="flex min-w-0 flex-col gap-1 items-center">
-<p data-slot="empty-state-title" class="m-0 font-medium text-fg text-md">No option contract is listed</p>
-<p data-slot="empty-state-reason" class="m-0 text-fg-2 text-base">The options policy could not be read, so the reason is not known.</p>
-</div>
-</div>
-</div>
-</div>
-</div>
-<section aria-label="Order ticket" class="flex flex-col gap-3 rounded-sm border border-line bg-panel p-4">
-<h2 class="m-0 text-md font-medium text-fg">Order ticket</h2>
-<p class="m-0 text-sm text-fg-2">Pick a contract in the chain to start an order.</p>
-<div data-orientation="horizontal" role="group" data-slot="segmented-control" aria-label="Buy or sell" class="relative grid items-stretch rounded-pill bg-field p-0.5 w-full h-10 text-base" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
-<span aria-hidden="true" style="width: calc((100% - 4px) / 2); transform: translateX(0%);" class="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-pill transition-[transform,background-color] duration-(--if-t-tab) ease-if bg-up">
-</span>
-<button type="button" data-pressed="" aria-disabled="false" tabindex="0" aria-pressed="true" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-on-up outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Buy</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-on-down outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Sell</button>
-</div>
-<p class="m-0 text-xs text-fg-2">Limit orders only. Options take no stop or trailing orders.</p>
-<div data-slot="field" data-density="dense" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_12_" for="base-ui-_r_13_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-xs">Size in contracts</label>
-</div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="decimal" data-density="dense" data-disabled="" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus cursor-not-allowed opacity-40">
-<input data-disabled="" id="base-ui-_r_13_" disabled="" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-end tabular-nums" type="text" value="" aria-labelledby="base-ui-_r_12_">
-</div>
-</div>
-</div>
-<div data-slot="field" data-density="dense" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_14_" for="base-ui-_r_15_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-xs">Limit price</label>
-</div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="decimal" data-density="dense" data-disabled="" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus cursor-not-allowed opacity-40">
-<input data-disabled="" id="base-ui-_r_15_" disabled="" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-end tabular-nums" type="text" value="" aria-labelledby="base-ui-_r_14_">
-</div>
-</div>
-</div>
-<div data-slot="field" data-density="dense" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5" data-filled="">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_16_" for="base-ui-_r_17_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-xs" data-filled="">Time in force</label>
-</div>
-<div class="min-w-0">
-<button type="button" tabindex="0" id="base-ui-_r_17_" role="combobox" aria-expanded="false" aria-haspopup="listbox" data-slot="select-trigger" aria-label="Time in force" class="inline-flex min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus w-full" data-filled="" aria-labelledby="base-ui-_r_16_">
-<span data-slot="select-value" class="truncate">Good till cancelled</span>
-<span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
-</path>
-</svg>
-</span>
-</button>
-<input id="base-ui-_r_17_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="GTC">
-</div>
-</div>
-<div class="flex flex-col gap-1">
-<label class="flex items-center justify-between gap-3 text-sm text-fg">Post only<span data-unchecked="" role="switch" tabindex="0" id="base-ui-_r_18_" aria-checked="false" data-slot="switch" aria-label="Post only" class="inline-flex h-6 w-10 shrink-0 items-center rounded-pill bg-raised p-0.5 transition-colors duration-(--if-t-fast) ease-if data-checked:bg-lime data-disabled:cursor-not-allowed data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<span data-unchecked="" data-slot="switch-thumb" class="block size-5 rounded-pill bg-fg shadow-none transition-transform duration-(--if-t-fast) ease-if data-checked:translate-x-4 data-checked:bg-on-lime">
-</span>
-</span>
-<input id="base-ui-_r_19_" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" type="checkbox">
-</label>
-<p class="m-0 text-xs text-fg-2">The order only rests on the book and is refused if it would fill at once.</p>
-</div>
-<p role="status" class="m-0 text-sm text-warn">Pick a contract in the chain first.</p>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill w-full">Review order</button>
 </section>
+<section class="lt-region" data-region="chart" aria-label="Chart">
+<div class="lt-stack">
+<div class="lt-tabs" role="tablist" aria-label="Options">
+<button type="button" role="tab" id="options-tab-chain" aria-controls="options-panel-chain" aria-selected="true" tabindex="0" class="lt-tab">Chain</button>
+<button type="button" role="tab" id="options-tab-strategy" aria-controls="options-panel-strategy" aria-selected="false" tabindex="-1" class="lt-tab">Strategy builder</button>
+<button type="button" role="tab" id="options-tab-orders" aria-controls="options-panel-orders" aria-selected="false" tabindex="-1" class="lt-tab">Orders</button>
+<button type="button" role="tab" id="options-tab-positions" aria-controls="options-panel-positions" aria-selected="false" tabindex="-1" class="lt-tab">Positions</button>
+<button type="button" role="tab" id="options-tab-settlement" aria-controls="options-panel-settlement" aria-selected="false" tabindex="-1" class="lt-tab">Settlement and exercise</button>
+<button type="button" role="tab" id="options-tab-rules" aria-controls="options-panel-rules" aria-selected="false" tabindex="-1" class="lt-tab">Rules</button>
 </div>
+<div class="lt-tab-panel" role="tabpanel" id="options-panel-chain" aria-labelledby="options-tab-chain">
+<div class="lt-stack">
+<div class="lt-toolbar">
+<div class="lt-select">
+<button type="button" role="combobox" class="lt-select-button" aria-label="Underlying" aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_3_-list">
+<span>All underlyings</span>
+<span class="lt-select-mark" aria-hidden="true">
+</span>
+</button>
+</div>
+<div class="lt-select">
+<button type="button" role="combobox" class="lt-select-button" aria-label="Expiry" aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_4_-list">
+<span>All expiries</span>
+<span class="lt-select-mark" aria-hidden="true">
+</span>
+</button>
+</div>
+<div class="lit-segmented" role="group" aria-label="Call or put">
+<button type="button" aria-pressed="true">Both</button>
+<button type="button" aria-pressed="false">Calls</button>
+<button type="button" aria-pressed="false">Puts</button>
+</div>
+<span class="lt-chip" role="status" data-freshness="live">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>
+<span>
+<span data-part="word">Live</span>
+<span class="lt-chip-when"> · as of <time datetime="2026-10-21T12:00:00.000Z">12:00:00</time>
+</span>
+</span>
+</span>
+</div>
+<p class="lt-hint">Bid, Ask, IV and Delta show — because no options quote feed is published.</p>
+<div class="lt-refusal" data-refusal="parked">
+<p class="lt-refusal-title">No option contract is listed</p>
+<p class="lt-refusal-body">The options policy could not be read, so the reason is not known.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section class="lt-region" data-region="ticket" aria-label="Order">
+<section aria-label="Order ticket" class="lt-stack">
+<h2 class="lt-heading">Order ticket</h2>
+<p class="lt-hint">Pick a contract in the chain to start an order.</p>
+<div class="lit-segmented" role="group" aria-label="Buy or sell">
+<button type="button" aria-pressed="true">Buy</button>
+<button type="button" aria-pressed="false">Sell</button>
+</div>
+<p class="lt-hint">Limit orders only. Options take no stop or trailing orders.</p>
+<div class="lt-field">
+<label for="_r_5_">Size in contracts</label>
+<div class="lt-field-row">
+<input disabled="" id="_r_5_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+</div>
+</div>
+<div class="lt-field">
+<label for="_r_6_">Limit price</label>
+<div class="lt-field-row">
+<input disabled="" id="_r_6_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+</div>
+</div>
+<div class="lt-field">
+<span aria-hidden="true">Time in force</span>
+<div class="lt-select">
+<button type="button" role="combobox" class="lt-select-button" aria-label="Time in force" aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_7_-list">
+<span>Good till cancelled</span>
+<span class="lt-select-mark" aria-hidden="true">
+</span>
+</button>
+</div>
+</div>
+<div class="lt-stack">
+<div class="lt-toolbar">
+<span>Post only</span>
+<button type="button" role="switch" aria-checked="false" aria-label="Post only" class="lit-switch">
+</button>
+</div>
+<p class="lt-hint">The order only rests on the book and is refused if it would fill at once.</p>
+</div>
+<p role="status" class="lt-alert">Pick a contract in the chain first.</p>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="lg" data-block="true">Review order</button>
+<dialog class="lt-sheet" role="alertdialog" aria-modal="true" aria-label="Place this order?">
+<header class="lt-sheet-head">
+<h2 class="lt-sheet-title">Place this order?</h2>
+</header>
+<div class="lt-sheet-body">
+</div>
+</dialog>
+</section>
+</section>
 </div>
 </div>
 </div>

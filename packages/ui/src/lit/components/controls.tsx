@@ -1,11 +1,11 @@
 /**
  * Volt form and overlay parts a desk needs: a labelled field around one control, a text or money-safe decimal input,
- * a checkbox, a modal dialog, a menu and a headline figure with its freshness. Behaviour is the old kit's (Base UI for focus, labels and
+ * a menu and a headline figure with its freshness (the checkbox and the modal dialog are `Checkbox` and `Sheet` in
+ * `./b2-basics.tsx`). Behaviour is the old kit's (Base UI for focus, labels and
  * Escape; `../../components/input-logic.ts` for the decimal rules); the look is only `--lit-*` roles, in
- * `../templates/templates.css` (`lt-input`, `lt-dialog`, `lt-menu`).
+ * `../templates/templates.css` (`lt-input`, `lt-menu`).
  */
 import * as React from 'react';
-import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { Field as FieldPrimitive } from '@base-ui/react/field';
 import { Input as InputPrimitive } from '@base-ui/react/input';
 import { Menu as MenuPrimitive } from '@base-ui/react/menu';
@@ -223,52 +223,6 @@ export function Input(props: InputProps) {
       />
       {trailing ? <span data-part="trailing">{trailing}</span> : null}
     </div>
-  );
-}
-
-export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'checked' | 'className' | 'style'> & {
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-};
-
-/** A checkbox. Put it first inside an `lt-field` label with its words, so the whole row is the hit area. */
-export function Checkbox({ checked, onCheckedChange, ...rest }: CheckboxProps) {
-  return <input {...rest} type="checkbox" checked={checked} onChange={(e) => onCheckedChange(e.currentTarget.checked)} />;
-}
-
-export interface DialogProps {
-  title: string;
-  description?: React.ReactNode;
-  /** The close control's spoken name. */
-  closeLabel: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  /** The dialog's buttons, at its end. */
-  footer?: React.ReactNode;
-}
-
-/**
- * A modal dialog over a scrim, open while mounted: focus stays inside, Escape and the close control call `onClose`. A
- * tall one scrolls inside itself so its title and close stay reachable.
- */
-export function Dialog({ title, description, closeLabel, onClose, children, footer }: DialogProps) {
-  return (
-    <DialogPrimitive.Root open onOpenChange={(open) => !open && onClose()}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="lt-scrim" />
-        <DialogPrimitive.Popup className="lt-dialog" data-slot="dialog-content">
-          <div className="lt-dialog-head">
-            <DialogPrimitive.Title className="lt-sheet-title">{title}</DialogPrimitive.Title>
-            <DialogPrimitive.Close render={<Button tone="quiet" aria-label={closeLabel} />}>
-              <span aria-hidden="true">×</span>
-            </DialogPrimitive.Close>
-          </div>
-          {description ? <DialogPrimitive.Description className="lt-hint">{description}</DialogPrimitive.Description> : null}
-          <div className="lt-dialog-body">{children}</div>
-          {footer ? <div className="lt-dialog-foot">{footer}</div> : null}
-        </DialogPrimitive.Popup>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
   );
 }
 

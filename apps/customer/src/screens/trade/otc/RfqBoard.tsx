@@ -1,7 +1,9 @@
 import type { OtcMakers, RfqBoard as Board, RfqBoardStatus } from '../rooms/api';
 import { roomWords } from '../rooms/refusals';
-import { Refusal } from '../rooms/RoomNotices';
-import { Badge, Button, Skeleton, fmtAmount, fmtPrice, type Loadable } from '../rooms/ui';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { Skeleton } from '@intafaced/ui/lit/templates';
+import { fmtAmount, fmtPrice, type Loadable } from '../rooms/ui';
+import { Refusal } from '../options/notices';
 import { otcCopy } from './copy';
 
 const GROUP_WORD: Record<RfqBoardStatus, 'Board open' | 'Board accepted' | 'Board settled' | 'Board expired'> = {
@@ -21,30 +23,30 @@ export function RfqBoard({ board, makers }: { board: Loadable<Board>; makers: Lo
   const providerOf = (id: string | null) => (id === null ? t('Board house') : (names.get(id) ?? t('Board unknown provider')));
 
   return (
-    <section aria-label={t('Your requests')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
-      <h2 className="m-0 text-md font-medium text-fg">{t('Your requests')}</h2>
-      <p className="m-0 text-sm text-fg-2">{t('Board lead')}</p>
-      {board.status === 'loading' ? <Skeleton className="h-24 w-full" aria-label={t('Board loading')} /> : null}
-      {board.status === 'refused' ? <Refusal words={roomWords({ code: board.code })} size="inline" /> : null}
+    <section aria-label={t('Your requests')} className="lt-stack">
+      <h2 className="lt-heading">{t('Your requests')}</h2>
+      <p className="lt-hint">{t('Board lead')}</p>
+      {board.status === 'loading' ? (
+        <div role="status" aria-label={t('Board loading')}>
+          <Skeleton shape="rows" count={3} />
+        </div>
+      ) : null}
+      {board.status === 'refused' ? <Refusal words={roomWords({ code: board.code })} /> : null}
       {board.status === 'error' ? (
-        <div className="flex items-center gap-3 text-sm text-fg-2">
-          {t('Board unreadable')}
-          <Button variant="secondary" size={28} onClick={board.retry}>
-            {t('Try again')}
-          </Button>
+        <div className="lt-toolbar">
+          <span className="lt-hint">{t('Board unreadable')}</span>
+          <Button onClick={board.retry}>{t('Try again')}</Button>
         </div>
       ) : null}
       {board.status === 'ready'
         ? board.data.groups.map((group) => (
-            <div key={group.status} data-testid="board-group" data-status={group.status} className="flex flex-col gap-2">
-              <h3 className="m-0 text-sm font-medium text-fg">
-                {t('Board group', { label: t(GROUP_WORD[group.status]), count: String(group.count) })}
-              </h3>
-              {group.requests.length === 0 ? <p className="m-0 text-xs text-fg-2">{t('Board group empty')}</p> : null}
-              <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            <div key={group.status} data-testid="board-group" data-status={group.status} className="lt-stack">
+              <h3 className="lt-heading">{t('Board group', { label: t(GROUP_WORD[group.status]), count: String(group.count) })}</h3>
+              {group.requests.length === 0 ? <p className="lt-hint">{t('Board group empty')}</p> : null}
+              <ul className="lt-list">
                 {group.requests.map((request) => (
-                  <li key={request.rfqId} data-testid="board-request" data-rfq-id={request.rfqId} className="flex flex-col gap-1">
-                    <span className="text-sm text-fg">
+                  <li key={request.rfqId} data-testid="board-request" data-rfq-id={request.rfqId} className="lt-stack">
+                    <span>
                       {t('Board request', {
                         side: request.side === 'buy' ? t('Board buy') : t('Board sell'),
                         qty: fmtAmount(request.qty),
@@ -52,7 +54,7 @@ export function RfqBoard({ board, makers }: { board: Loadable<Board>; makers: Lo
                         quote: request.quoteAsset,
                       })}
                     </span>
-                    <ol className="m-0 flex list-none flex-col gap-1 p-0">
+                    <ol className="lt-list">
                       {request.quotes.map((quote) => (
                         <li
                           key={quote.quoteId}
@@ -60,7 +62,7 @@ export function RfqBoard({ board, makers }: { board: Loadable<Board>; makers: Lo
                           data-quote-id={quote.quoteId}
                           data-rank={quote.rank}
                           data-maker-id={quote.makerId ?? ''}
-                          className="flex flex-wrap items-center gap-2 text-sm text-fg tabular-nums"
+                          className="lt-toolbar"
                         >
                           <span data-testid="board-quote-line">
                             {t('Board quote', {
@@ -69,16 +71,8 @@ export function RfqBoard({ board, makers }: { board: Loadable<Board>; makers: Lo
                               asset: request.quoteAsset,
                             })}
                           </span>
-                          {quote.best ? (
-                            <Badge tone="lime" variant="outline" density="dense">
-                              {t('Board best')}
-                            </Badge>
-                          ) : null}
-                          {quote.test ? (
-                            <Badge tone="warn" density="dense">
-                              {t('Board test')}
-                            </Badge>
-                          ) : null}
+                          {quote.best ? <Tag tone="accent">{t('Board best')}</Tag> : null}
+                          {quote.test ? <Tag tone="neutral">{t('Board test')}</Tag> : null}
                         </li>
                       ))}
                     </ol>
@@ -88,7 +82,7 @@ export function RfqBoard({ board, makers }: { board: Loadable<Board>; makers: Lo
             </div>
           ))
         : null}
-      {board.status === 'ready' && board.data.more ? <p className="m-0 text-xs text-fg-2">{t('Board more')}</p> : null}
+      {board.status === 'ready' && board.data.more ? <p className="lt-hint">{t('Board more')}</p> : null}
     </section>
   );
 }
