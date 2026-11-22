@@ -74,3 +74,160 @@ export const BANK_SHARED_POTS_ACTIVITY = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/** Invite one active person, by handle or email, to see or add to one of the caller's live pots. Moves no value. */
+export const BANK_SHARED_POTS_INVITE = defineProcedure({
+  ...base,
+  name: 'bank.sharedPots.invite',
+  kind: 'mutation',
+  path: 'sharedPots.invite',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({
+    inviteId: z.string().guid(),
+    spaceId: z.string().guid(),
+    handle: z.string().max(64).optional(),
+    email: z.string().max(320).optional(),
+    role,
+  }),
+  output: invite.extend({ invitee: person }),
+  samples: [
+    {
+      verdict: 'accept',
+      input: { inviteId: '11111111-1111-4111-8111-111111111111', spaceId: '11111111-1111-4111-8111-111111111111', role: 'contributor' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * A holder of the pot (its owner or a contributor) freezes its linked card, for example when it is lost. Freezing
+ * protects and never prompts; a viewer refuses `bank.space_forbidden`. The pot's log names who froze it, written
+ * with the card's row. Only the owner unfreezes, through `cards.setStatus` and its step-up.
+ */
+export const BANK_SHARED_POTS_FREEZE_CARD = defineProcedure({
+  ...base,
+  name: 'bank.sharedPots.freezeCard',
+  kind: 'mutation',
+  path: 'sharedPots.freezeCard',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ spaceId: z.string().guid() }),
+  output: card,
+  samples: [
+    { verdict: 'accept', input: { spaceId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Accept an invite to the caller; past its lifetime refuses `bank.invite_expired`. Moves no value. */
+export const BANK_SHARED_POTS_ACCEPT = defineProcedure({
+  ...base,
+  name: 'bank.sharedPots.accept',
+  kind: 'mutation',
+  path: 'sharedPots.accept',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ inviteId: z.string().guid() }),
+  output: z.object({ spaceId: z.string(), role }),
+  samples: [
+    { verdict: 'accept', input: { inviteId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Decline an invite to the caller. Moves no value. */
+export const BANK_SHARED_POTS_DECLINE = defineProcedure({
+  ...base,
+  name: 'bank.sharedPots.decline',
+  kind: 'mutation',
+  path: 'sharedPots.decline',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ inviteId: z.string().guid() }),
+  output: z.object({ declined: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { inviteId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Stop sharing a pot the caller is a member of. The pot and its money stay the owner's. */
+export const BANK_SHARED_POTS_LEAVE = defineProcedure({
+  ...base,
+  name: 'bank.sharedPots.leave',
+  kind: 'mutation',
+  path: 'sharedPots.leave',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ spaceId: z.string().guid() }),
+  output: z.object({ left: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { spaceId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The owner stops sharing one of their pots with one member. Moves no value. */
+export const BANK_SHARED_POTS_REMOVE = defineProcedure({
+  ...base,
+  name: 'bank.sharedPots.remove',
+  kind: 'mutation',
+  path: 'sharedPots.remove',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ spaceId: z.string().guid(), userId: z.string().min(1).max(64) }),
+  output: z.object({ removed: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { spaceId: '11111111-1111-4111-8111-111111111111', userId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The owner withdraws an invite not yet answered, so it no longer holds a place. Moves no value. */
+export const BANK_SHARED_POTS_CANCEL_INVITE = defineProcedure({
+  ...base,
+  name: 'bank.sharedPots.cancelInvite',
+  kind: 'mutation',
+  path: 'sharedPots.cancelInvite',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ inviteId: z.string().guid() }),
+  output: z.object({ cancelled: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { inviteId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The owner unlinks the pot's card. The card itself is untouched. */
+export const BANK_SHARED_POTS_UNLINK_CARD = defineProcedure({
+  ...base,
+  name: 'bank.sharedPots.unlinkCard',
+  kind: 'mutation',
+  path: 'sharedPots.unlinkCard',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ spaceId: z.string().guid() }),
+  output: z.object({ unlinked: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { spaceId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The owner links one of their own cards to one of their pots, so the pot's holders can freeze it. Moves no money. */
+export const BANK_SHARED_POTS_LINK_CARD = defineProcedure({
+  ...base,
+  name: 'bank.sharedPots.linkCard',
+  kind: 'mutation',
+  path: 'sharedPots.linkCard',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ spaceId: z.string().guid(), cardId: z.string().guid() }),
+  output: card,
+  samples: [
+    { verdict: 'accept', input: { spaceId: '11111111-1111-4111-8111-111111111111', cardId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
