@@ -28,6 +28,7 @@ import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
 import { partsFor } from './guard-check.mjs';
+import { fanBranch, fanIn } from './fan.mjs';
 import { findSites } from './sites.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
@@ -403,7 +404,7 @@ function build(opts, planned) {
   }
   for (const e of planned.existing) for (const s of e.sites) rewriteSite(changes, s, e.name, contractsSpec(e.file));
   tables(changes, planned, done);
-  pairs(changes, planned, done);
+  fanIn(changes, planned, done, callText);
   return { changes, created, problems, done };
 }
 
@@ -526,7 +527,7 @@ export function answerChecks(p, node, seen = new Set()) {
 }
 
 /** The record call that replaces one caller: `recv.call(RECORD, input, opts)` or `founderRecordCall/Read(...)`. */
-function callText(changes, s, name, takesNone) {
+export function callText(changes, s, name, takesNone) {
   const p = load(s.file);
   const n = s.node;
   const a = n.arguments;
@@ -552,34 +553,6 @@ function callText(changes, s, name, takesNone) {
   const rest = [text(p, a[0]), name, input, ...(s.reader ? [text(p, a[5])] : []), ...(a[6] ? [text(p, a[6])] : [])];
   changes.imp(s.file, s.founderCallFrom, fn);
   return `${fn}(${rest.join(', ')})`;
-}
-
-/**
- * `cond ? 'a.x' : 'a.y'` with both branches moved: `cond ? call(A_X, ...) : call(A_Y, ...)`, each branch typed by its own
- * record. With one branch left, neither moves: both are named.
- */
-function pairs(changes, planned, done) {
-  for (const [file, f] of changes.files) {
-    for (const [cond, { s, branches }] of f.pairs ?? []) {
-      const { consequent: c, alternate: a } = branches;
-      if (!c || !a) {
-        const back = new Set([c?.s, a?.s].filter(Boolean));
-        for (const r of [...done, ...planned.existing]) r.sites = r.sites.filter((x) => !back.has(x));
-        for (const x of back) planned.hand.push({ site: x, why: 'the other branch of its `? :` stays, and one call sends both' });
-        continue;
-      }
-      const p = load(file);
-      const test = text(p, cond.test);
-      changes.edit(
-        file,
-        s.node.start,
-        s.node.end,
-        `(${test} ? ${callText(changes, c.s, c.name, c.takesNone)} : ${callText(changes, a.s, a.name, a.takesNone)})`,
-      );
-      changes.imp(file, c.spec, c.name);
-      changes.imp(file, a.spec, a.name);
-    }
-  }
 }
 
 /** One caller, rewritten to its record. */
@@ -620,14 +593,8 @@ export function rewriteSite(changes, s, name, spec, takesNone) {
     f.tables.get(s.table).moved.push({ s, edit, takesNone });
     return;
   }
-  if (s.branch) {
-    // One branch of `cond ? 'a.x' : 'a.y'`: the call is written once both branches have their record (`pairs`).
-    const f = changes.of(s.file);
-    f.pairs ??= new Map();
-    if (!f.pairs.has(s.cond)) f.pairs.set(s.cond, { s, branches: {} });
-    f.pairs.get(s.cond).branches[s.branch] = { s, name, spec, takesNone };
-    return;
-  }
+  // One value of a call named by a `? :` or a closed set: written once every value has its record (`fanIn`).
+  if (s.fan) return fanBranch(changes, s, name, spec, takesNone);
   changes.edit(s.file, n.start, n.end, callText(changes, s, name, takesNone));
   changes.imp(s.file, spec, name);
 }
@@ -1180,7 +1147,7 @@ function report(opts) {
   if (opts.fromRev) for (const f of result.changes.files.keys()) if (f.startsWith(planned.serviceDir)) result.changes.files.delete(f);
   const summary = {
     service: opts.service,
-    // A `? :` call is two sites, one per branch, and one call.
+    // A call named by a `? :` or a closed set is one site per value, and one call.
     sites: new Set(planned.sites.map((s) => s.node)).size,
     records: result.done.map((r) => r.name),
     existing: planned.existing.map((e) => e.name),

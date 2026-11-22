@@ -305,6 +305,10 @@ test('the report sorts each hand reason into the kind one script change or one d
   );
   assert.equal(reasonOf('identity.x: no accepted input found; write its samples by hand'), 'no sample inputs');
   assert.equal(
+    reasonOf("its `action` sends one input value to 3 records: each one's input type can't be kept"),
+    'one input sent to each of a closed set of calls',
+  );
+  assert.equal(
     reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
     'helper name clash (a rerun places it)',
   );
@@ -439,13 +443,84 @@ test('a call naming one of two paths by `? :` is a site per branch, its input wr
   );
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['add', '.'], { cwd: repo });
-  const found = findSites(repo).map((s) => `${s.path} ${s.branch} ${s.problem ? 'stays' : 'moves'}`);
-  assert.deepEqual(found, [
-    'holds.accept consequent moves',
-    'holds.deny alternate moves',
-    'auth.register consequent stays',
-    'auth.login alternate stays',
+  const found = findSites(repo).map((s) => `${s.path} ${s.fan.at} ${s.problem ? 'stays' : 'moves'}`);
+  assert.deepEqual(found, ['holds.accept 0 moves', 'holds.deny 1 moves', 'auth.register 0 stays', 'auth.login 1 stays']);
+});
+
+test('a call named by a template over a closed set the code lists is one site per value, written back as one call; an open one stays, named', async () => {
+  const { callText } = await import('./index.mjs');
+  const { fanIn } = await import('./fan.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-fan-'));
+  mkdirSync(join(repo, 'apps/customer/src'), { recursive: true });
+  mkdirSync(join(repo, 'apps/admin/src/lib'), { recursive: true });
+  // A union written on the parameter, an alias of an `as const` list in another file, and a const: each a closed set.
+  writeFileSync(
+    join(repo, 'apps/customer/src/actions.ts'),
+    "export const STEPS = ['declare', 'resolve'] as const;\nexport type Step = (typeof STEPS)[number];\nexport const NOW = 'clock.now';\n",
+  );
+  const file = join(repo, 'apps/customer/src/tool-api.ts');
+  writeFileSync(
+    file,
+    [
+      "import { NOW, type Step } from './actions';",
+      "export const a = (api: any, action: 'pause' | 'resume' | 'cancel', algoId: string) => api.mutate('trade', `algo.${action}`, { algoId }, s);",
+      "export const b = (api: any, step: Step, id: string) => api.mutate('ops', `incidents.${step}`, { id }, s);",
+      "export const c = (api: any) => api.query('identity', NOW, undefined, s);",
+      // The near cases: a wider string, a name assigned again, a value read off an object, and a closed set sent one input.
+      "export const d = (api: any, action: string, algoId: string) => api.mutate('trade', `algo.${action}`, { algoId }, s);",
+      "export const e = (api: any, action: 'pause' | 'resume', algoId: string) => { action = 'pause'; return api.mutate('trade', `algo.${action}`, { algoId }, s); };",
+      "export const f = (api: any, spec: { procedure: string }) => api.mutate('bank', spec.procedure, {}, s);",
+      "export const g = (api: any, action: 'pause' | 'resume', body: object) => api.mutate('trade', `algo.${action}`, body, s);",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo).filter((s) => s.file === file);
+  const row = (s) => `${s.module} ${s.path ?? '?'} ${s.fan ? `${s.fan.at}/${s.fan.size}` : '-'} ${s.problem ?? 'moves'}`;
+  assert.deepEqual(sites.map(row), [
+    'trade algo.pause 0/3 moves',
+    'trade algo.resume 1/3 moves',
+    'trade algo.cancel 2/3 moves',
+    'ops incidents.declare 0/2 moves',
+    'ops incidents.resolve 1/2 moves',
+    'identity clock.now - moves',
+    "trade ? - service or call named by a template: parameter `action`'s type is not a closed set of strings",
+    'trade ? - service or call named by a template: parameter `action` is assigned again',
+    'bank ? - service or call named by a template: `spec.procedure` is not a name, a `? :` or a string',
+    "trade algo.pause 0/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
+    "trade algo.resume 1/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
   ]);
+
+  // Every value moved: one call again, each value sent by its own record.
+  const changes = new Changes();
+  const name = (s) => s.path.toUpperCase().replace('.', '_');
+  for (const s of sites.filter((x) => !x.problem)) rewriteSite(changes, s, name(s), '@intafaced/contracts/x', s.path === 'clock.now');
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(
+    out,
+    /=> \(action === 'pause' \? api\.call\(ALGO_PAUSE, \{ algoId \}\) : action === 'resume' \? api\.call\(ALGO_RESUME, \{ algoId \}\) : api\.call\(ALGO_CANCEL, \{ algoId \}\)\);$/m,
+  );
+  assert.match(out, /=> \(step === 'declare' \? api\.call\(INCIDENTS_DECLARE, \{ id \}\) : api\.call\(INCIDENTS_RESOLVE, \{ id \}\)\);$/m);
+  assert.match(out, /=> api\.call\(CLOCK_NOW, undefined\);$/m);
+  assert.deepEqual(planned.hand, []);
+
+  // One value left: none moves, each named.
+  const some = new Changes();
+  const algo = sites.filter((s) => s.path?.startsWith('algo.') && !s.problem);
+  for (const s of algo.slice(0, 2)) rewriteSite(some, s, name(s), '@intafaced/contracts/x', false);
+  const left = { hand: [], existing: [] };
+  fanIn(some, left, [], callText);
+  assert.deepEqual(some.of(file).edits, []);
+  assert.deepEqual(
+    left.hand.map((h) => `${h.site.path} ${h.why}`),
+    [
+      'algo.pause another value of its call stays, and one call sends them all',
+      'algo.resume another value of its call stays, and one call sends them all',
+    ],
+  );
 });
 
 test("a guard behind the service's own function or const options is copied whole onto its record; one that checks more names its check, or keeps its call, named", async () => {
