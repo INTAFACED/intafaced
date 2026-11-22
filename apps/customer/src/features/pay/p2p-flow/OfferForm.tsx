@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, CheckRow, ChoiceGroup, EmptyState, Field, NativeSelect, TextArea } from '@intafaced/ui/lit';
+import { Button, CheckRow, ChoiceGroup, EmptyState, Field, NativeSelect, NativeTextArea } from '@intafaced/ui/lit';
 import { useResource } from '../../../shared/resource';
 import type { ApiResult } from '../../../shared/api';
 import type { PersonalPayApi } from '../pay-api';
@@ -489,7 +489,7 @@ function Fields({
         </div>
         <label className="lt-field">
           <span>{t('fieldTerms')}</span>
-          <TextArea
+          <NativeTextArea
             value={values.terms}
             maxLength={4100}
             onChange={(event) => set('terms', event.target.value)}

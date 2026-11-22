@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { Button, Field, NativeSelect, TextArea } from '@intafaced/ui/lit';
+import { Button, Field, NativeSelect, NativeTextArea } from '@intafaced/ui/lit';
 import { FlowTemplate, StatusChip } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
@@ -226,7 +226,7 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
             </label>
             <label className="lt-field">
               <span>{t('appealReason')}</span>
-              <TextArea value={reason} maxLength={2000} required onChange={(event) => setReason(event.target.value)} />
+              <NativeTextArea value={reason} maxLength={2000} required onChange={(event) => setReason(event.target.value)} />
             </label>
             <Button type="submit" tone="primary" disabled={!ready}>
               {busy ? t('appealSending') : t('appealSend')}
