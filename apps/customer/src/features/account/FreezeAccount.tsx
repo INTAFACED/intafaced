@@ -7,7 +7,7 @@ import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { selfFreezeCopy as copy } from './self-freeze-copy';
-import { StepUpConfirm } from '../money';
+import { StepUpInline } from '../money';
 import {
   FREEZE_REASONS,
   FREEZE_REFUSAL_KEYS,
@@ -127,7 +127,7 @@ export function FreezeAccount() {
         <p>{t('liftBody')}</p>
         {liftFailure && <LiftRefusal failure={liftFailure} />}
         {confirming ? (
-          <StepUpConfirm
+          <StepUpInline
             request={() => ({
               scope: 'identity.step_up.self_freeze_lift',
               purpose: 'account.selfFreeze.lift',

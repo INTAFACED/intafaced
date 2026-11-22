@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Button, Failure, Loading } from '../../shared/ui';
-import type { Resource } from '../../shared/resource';
-import { useBankRead } from './components';
-import type { Eligibility } from './contracts';
-import { accountDetailsCopy } from './account-details-copy';
-import { DepthPanel } from './DepthParts';
+import { Button, Field } from '@intafaced/ui/lit';
+import type { Resource } from '../../../shared/resource';
+import { useBankRead } from '../components';
+import type { Eligibility } from '../contracts';
+import { accountDetailsCopy } from '../account-details-copy';
+import { Failure, Loading, Panel } from '../bank-settings/parts';
 
 /**
  * Who can open an account (BK-acct-03): the countries, account types and product limits the bank has published, exactly as
@@ -17,8 +17,8 @@ export function EligibilityView({ data }: { data: Eligibility }) {
   const { rules, verdict } = data;
   const verdictKey = { open: 'verdictOpen', restricted: 'verdictRestricted', blocked: 'verdictBlocked' } as const;
   return (
-    <div className="bd-stack" data-testid="eligibility">
-      <dl className="bd-facts">
+    <div data-testid="eligibility">
+      <dl>
         <div>
           <dt>{t('countries')}</dt>
           <dd lang="und">{rules.countries.join(', ')}</dd>
@@ -30,9 +30,9 @@ export function EligibilityView({ data }: { data: Eligibility }) {
       </dl>
       <h3>{t('productLimits')}</h3>
       {rules.productRestrictions.length === 0 ? (
-        <p className="money-caption">{t('noProductLimits')}</p>
+        <p className="lt-hint">{t('noProductLimits')}</p>
       ) : (
-        <ul className="bd-list">
+        <ul>
           {rules.productRestrictions.map((entry) => (
             <li key={`${entry.product}:${entry.restriction}`} lang="und">
               <strong>{entry.product}</strong>: {entry.restriction}
@@ -41,7 +41,7 @@ export function EligibilityView({ data }: { data: Eligibility }) {
         </ul>
       )}
       {verdict && (
-        <div className="bd-address" role="status" data-testid="eligibility-verdict">
+        <div role="status" data-testid="eligibility-verdict">
           <strong>{t(verdictKey[verdict.status], { region: verdict.region })}</strong>
           <p>{verdict.listed ? t('verdictListed') : t('verdictNotListed')}</p>
           {verdict.notes && <p lang="und">{verdict.notes}</p>}
@@ -66,33 +66,29 @@ export function EligibilityStatement() {
   const [asked, setAsked] = useState<string | null>(null);
   const read = useBankRead('eligibility.get', asked === null ? undefined : { region: asked });
   return (
-    <DepthPanel title={t('eligibilityTitle')} lead={t('eligibilityLead')}>
+    <Panel title={t('eligibilityTitle')} lead={t('eligibilityLead')} level={3}>
       <EligibilityBody resource={read.resource} reload={read.reload} />
       <form
-        className="bd-stack"
         onSubmit={(event) => {
           event.preventDefault();
           if (isRegion(typed)) setAsked(typed.trim().toUpperCase());
         }}
         noValidate
       >
-        <label className="field">
-          <span>{t('checkRegion')}</span>
-          <input
-            value={typed}
-            onChange={(event) => setTyped(event.target.value)}
-            maxLength={2}
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            aria-describedby="eligibility-region-hint"
-          />
-          <small id="eligibility-region-hint">{t('regionHint')}</small>
-        </label>
-        <Button type="submit" variant="secondary" disabled={!isRegion(typed)}>
+        <Field
+          label={t('checkRegion')}
+          hint={t('regionHint')}
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          maxLength={2}
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+        />
+        <Button type="submit" tone="secondary" disabled={!isRegion(typed)}>
           {t('regionCheck')}
         </Button>
       </form>
-    </DepthPanel>
+    </Panel>
   );
 }

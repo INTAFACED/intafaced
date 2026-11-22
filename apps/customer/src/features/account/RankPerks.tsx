@@ -147,8 +147,8 @@ export function RankPerks() {
         {failed(rank.resource, 'rank', rank.reload)}
         {value && (
           <>
-            {/* J-academy-05 finds the rank by `.rank-perks__number` and the perks by `.rank-perks__rows`. */}
-            <p className="rank-perks__number">
+            {/* J-academy-05 finds the rank and the perks by these test ids. */}
+            <p data-testid="rank-perks__number">
               <Copy k="rankValue" params={{ count: value.rank }} />
             </p>
             <dl>
@@ -185,7 +185,7 @@ export function RankPerks() {
         {perks.resource.status === 'loading' && <Loading label={<Copy k="loadingPerks" />} />}
         {failed(perks.resource, 'perks', perks.reload)}
         {benefit && (
-          <dl className="rank-perks__rows">
+          <dl data-testid="rank-perks__rows">
             <div>
               <dt>
                 <Copy k="fee" />
