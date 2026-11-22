@@ -307,6 +307,7 @@ test(`${J} #2 writes a rule "payee contains TESTSHOP sets Supplies": a test run 
 
 test(`${J} #3 exports a month in four formats: each file has the same closing balance and line count as the partner's statement, each line carries its id, history window and SCA apply`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(900_000);
   const o = await freshOwner(page, 'jb23s');
@@ -344,6 +345,10 @@ test(`${J} #3 exports a month in four formats: each file has the same closing ba
     await expect(shown).toHaveAttribute('data-lines', String(book.moves.length));
     for (const m of book.moves) expect(files[format].text, `${format} names the partner's move ${m.id}`).toContain(m.id);
   }
+  // The step's picture: the month's four files on screen, each with the partner's closing balance and line count. From
+  // the top, so the page's sticky bar sits where it belongs in the whole-page picture.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await stepPicture(page);
   // Each format states the partner's closing balance and line count in its own terms; the partner's book above holds the
   // same closing balance and the same number of moves.
   expect(files.csv.text).toContain(`Closing balance,${theirs.closing}`);
