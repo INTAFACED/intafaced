@@ -4,7 +4,8 @@
  * `../components.tsx` and `../ui-kit.tsx`, so a room moves onto the kit without a test or a journey noticing; what a
  * reviewed action does is `../reviewed-action.ts`, shared with the old look, so both behave exactly alike.
  */
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, type ReactNode } from 'react';
+import { useOverflows } from '../../../shared/use-overflows';
 import { Button } from '@intafaced/ui/lit';
 import { Dialog, Skeleton, StatusChip } from '@intafaced/ui/lit/templates';
 import { uiCopy, uiMessage } from '../../../shared/ui-copy';
@@ -187,22 +188,10 @@ export function PayDetails({ values }: { values: [string, ReactNode, string?][] 
 export function PayAmount({ value, unit, label }: { value: string; unit: string; label: string }) {
   const viewport = useRef<HTMLSpanElement>(null);
   const digits = useRef<HTMLSpanElement>(null);
-  const [overflows, setOverflows] = useState(false);
+  const overflows = useOverflows(viewport, digits, value);
   const hintId = useId();
   const { requestedLocale } = payCopy.useCopy();
   const displayed = displayAmount(value);
-  useEffect(() => {
-    const region = viewport.current;
-    const token = digits.current;
-    if (!region || !token) return;
-    const measure = () => setOverflows(region.scrollWidth > region.clientWidth);
-    const observer = new ResizeObserver(measure);
-    observer.observe(region);
-    observer.observe(token);
-    region.scrollLeft = 0;
-    measure();
-    return () => observer.disconnect();
-  }, [value]);
   return (
     <span>
       <span>
