@@ -73,7 +73,7 @@ function args(argv) {
  * exported one (an `errors` or `refusal` file first). The reader only names what a handler throws (strict test runs and
  * the refusal coverage); outside tests a refusal leaves as it was thrown, so the choice never changes the wire.
  */
-function refusalReaders(serviceDir) {
+export function refusalReaders(serviceDir) {
   const out = [];
   const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src'], {
     cwd: serviceDir,
@@ -91,7 +91,7 @@ function refusalReaders(serviceDir) {
   return out;
 }
 /** A record naming its service's own check (`check:`) is mounted with the parts that hand it over, in its router's file. */
-function readerFor(readers, file, guard = undefined) {
+export function readerFor(readers, file, guard = undefined) {
   if (/\bcheck: '/.test(guard?.text ?? '')) return partsFor(readers, file, guard, () => readerFor(readers, file));
   return (
     readers.find((r) => !r.parts && r.file === file) ??

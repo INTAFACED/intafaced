@@ -1017,3 +1017,31 @@ test('a re-run whose records already exist (no record file changes) skips the fi
     calls.join('\n'),
   );
 });
+
+test("a service's exported refusal reader mounts a call in any of its files; one only another file declares, unexported, leaves it", async () => {
+  const { refusalReaders, readerFor } = await import('./index.mjs');
+  const repo = join(import.meta.dirname, '../../..');
+  // svc-ops and svc-token each export theirs from src/record-refusal.ts, so a router in any folder of theirs can import it.
+  for (const [service, name, from] of [
+    ['svc-ops', 'opsRefusal', 'src/compliance/router.ts'],
+    ['svc-token', 'tokenRefusal', 'src/router.ts'],
+  ]) {
+    const dir = join(repo, 'services', service);
+    const reader = readerFor(refusalReaders(dir), join(dir, from));
+    assert.deepEqual(reader && { name: reader.name, file: reader.file, exported: reader.exported }, {
+      name,
+      file: join(dir, 'src/record-refusal.ts'),
+      exported: true,
+    });
+  }
+  // The near case: a reader declared without `export` in another file is not one this file can import, so the call stays.
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-reader-'));
+  mkdirSync(join(dir, 'src'));
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  writeFileSync(join(dir, 'src/mount.ts'), 'const localRefusal: RefusalOf = () => undefined;\n');
+  writeFileSync(join(dir, 'src/router.ts'), 'export function createSvcRouter() {}\n');
+  const readers = refusalReaders(dir);
+  assert.equal(readers.length, 1);
+  assert.equal(readerFor(readers, join(dir, 'src/router.ts')), undefined);
+  assert.equal(readerFor(readers, join(dir, 'src/mount.ts'))?.name, 'localRefusal');
+});

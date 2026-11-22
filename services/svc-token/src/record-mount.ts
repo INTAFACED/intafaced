@@ -1,14 +1,6 @@
-import { TRPCError } from '@intafaced/contracts/trpc';
 import type { ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
-import { mountRecord, type RecordHandler, type RefusalOf } from '@intafaced/contracts/procedure-mount';
-import { TokenError } from './token-service.js';
-
-/**
- * svc-token's refusal, read once: a handler's `TokenError` has already left `toTrpcError` as a TRPCError carrying it as
- * its cause, so the wire stays what that mapping sends; this only names its code for the record's list.
- */
-const tokenRefusal: RefusalOf = (err) =>
-  err instanceof TRPCError && err.cause instanceof TokenError ? { code: err.cause.code, error: err } : undefined;
+import { mountRecord, type RecordHandler } from '@intafaced/contracts/procedure-mount';
+import { tokenRefusal } from './record-refusal.js';
 
 /**
  * One svc-token call mounted from its record: `mountRecord(record, handler, tokenRefusal)`. The router (not made from
