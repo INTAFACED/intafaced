@@ -312,7 +312,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/market/:listingId': { template: 'catalogue' },
   '/launch/new': { template: 'flow' },
   '/launch/check': { template: 'flow' },
-  '/launch/requirements': { template: 'reading' },
+  '/launch/requirements': { template: 'reading', migrated: { file: 'features/more/launch-requirements/LaunchRequirementsRoom.tsx' } },
   '/launch/:projectId': { template: 'catalogue' },
   '/token/governance': { template: 'record-list' },
   '/token/economy': { template: 'monitor' },

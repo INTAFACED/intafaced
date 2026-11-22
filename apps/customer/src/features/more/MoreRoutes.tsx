@@ -42,6 +42,7 @@ import { PaperRoom } from './paper-mode';
 import { preservePaperHref } from './trade-context';
 import { Fragment, type ReactNode } from 'react';
 import { TokenProposalRoom } from './token-proposal/TokenProposalRoom';
+import { LaunchRequirementsRoom } from './launch-requirements/LaunchRequirementsRoom';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -182,7 +183,8 @@ function MoreRooms({ path }: { path: string }) {
       const page = ROOM_PAGES[room];
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
-      if (hit.route.kind === 'detail' && room === 'token')
+      if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
+      else if (hit.route.kind === 'detail' && room === 'token')
         volt = <TokenProposalRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
       content =
         hit.route.kind === 'part' ? (
