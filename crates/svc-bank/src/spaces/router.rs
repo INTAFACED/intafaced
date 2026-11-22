@@ -27,6 +27,8 @@ fn feature_words(feature: &str) -> &'static str {
         "currencies" => "currency accounts",
         "spaces" => "spaces",
         "pots" => "pots",
+        "phone_wallet" => "adding a card to a phone wallet",
+        "cash_leg" => "cash through a coin in Convert",
         _ => "joint accounts and shared pots",
     }
 }

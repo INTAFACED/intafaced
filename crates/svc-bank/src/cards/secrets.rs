@@ -269,27 +269,9 @@ pub fn wallet_refused_for(d: &Deps<'_>, user_id: &str) -> bool {
     })
 }
 
-/// `assertPartnerOffers(testPartner, userId, 'phone_wallet')`: the partner down refuses first, then the wallet not
-/// offered; without the TEST partner the issuer alone decides. (A private copy: `spaces::router::offers` words every
-/// feature it does not know as "joint accounts and shared pots".)
+/// `assertPartnerOffers(testPartner, userId, 'phone_wallet')`: without the TEST partner the issuer alone decides.
 fn assert_wallet_offered(d: &Deps<'_>, user_id: &str) -> Result<(), Refusal> {
-    let Some(p) = d.t.partner.partner.as_ref() else {
-        return Ok(());
-    };
-    let now = p.switches(user_id);
-    if now.down {
-        return Err(refuse(
-            "bank.partner_unavailable",
-            "The partner bank is not answering. Nothing was sent or changed.",
-        ));
-    }
-    if now.not_offered.iter().any(|f| f == "phone_wallet") {
-        return Err(refuse(
-            "bank.not_offered_by_partner",
-            "Not offered by the partner: adding a card to a phone wallet. Nothing was sent or changed.",
-        ));
-    }
-    Ok(())
+    crate::spaces::router::offers(d.t.partner, user_id, "phone_wallet")
 }
 
 /// `walletProvision`: an opaque payload from the issuer, `(payload, expiresAt)`, and one token row per card and wallet.
