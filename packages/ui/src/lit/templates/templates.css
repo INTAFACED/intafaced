@@ -581,7 +581,7 @@
   align-items: center;
   gap: 0.25em;
   /* WCAG 2.5.8's 24 CSS pixels whatever the root size (1.5rem alone drew 22px on /developers/hosts, look gate on ae2755c). */
-  min-block-size: max(1.5rem, 24px);
+  min-block-size: max(1.5rem, 24px); /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels */
 }
 
 /* Text written with its own line breaks (published terms, a plain-text section): the breaks show, long lines still wrap. */
