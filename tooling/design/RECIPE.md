@@ -24,4 +24,5 @@ row already on their template. One PR per batch.
    `pnpm --filter @intafaced/customer exec vitest run src/app/volt-count.test.ts` shows n rose by the batch and nothing
    fell. Typecheck, the customer unit tests, and the journeys the batch's rooms reach pass in CI on the PR's head; the
    CI review judges the before and after pictures. A journey test changes only when the PR names its step and proves
-   it again.
+   it again. Every `data-testid`, `data-cell` and `data-col` a journey test finds by stays:
+   `node --test tooling/design/volt-keep-ids.test.mjs` (run with the tooling tests) names any the batch dropped.

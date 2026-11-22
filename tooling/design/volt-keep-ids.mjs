@@ -33,7 +33,7 @@ const walk = (dir, ok) => {
 };
 
 /** The ids journey test texts find by: `<kind> <value>` (kind testid, cell or col), each with the first file using it. */
-export function journeyIds(tests) {
+function journeyIds(tests) {
   const out = new Map();
   const add = (key, file) => out.has(key) || out.set(key, file);
   for (const [file, t] of tests) {
@@ -48,7 +48,7 @@ export function journeyIds(tests) {
  *  by a template literal's leading text (three characters or more, before its first `${`). A cell or column: only on its
  *  own attribute (`data-cell="x"`, `data-col={'x'}`, `` data-col={`x-${k}`} ``), since its words ("amount", "state") are
  *  quoted all over the source. */
-export function holder(texts) {
+function holder(texts) {
   const quoted = new Set();
   const prefixes = new Set();
   const attr = { cell: new Set(), col: new Set() };
