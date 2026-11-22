@@ -23,7 +23,7 @@ import {
   type LessonSummary,
   type Tracking,
 } from './academy-lms';
-import { academyCodeOf, verifyCertificate, type VerifiedCertificate } from './academy-flows';
+import { verifyCertificate, type VerifiedCertificate } from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
 import { ProgrammeCertificates } from './AcademyCourseProgrammes';
 import { AcademyRefusal, CertificateChip, GuardedButton, ProgressBar, StatusChip, pathLabel } from './AcademyLmsParts';
