@@ -23,9 +23,9 @@
  *   - table: the first time this worker sees a chunk, the repository source paths its map lists;
  *   - nomap: the first time this worker sees one, a built script that ran and has no position map (the boot script, the
  *     bundler's runtime, vendor code). Its sources are in no table, so the map reads them as unmapped: full;
- *   - afterAll: true on the record that carries a file's afterAll hooks' reach (attached by the next file's first test);
- *     afterAllDue: true on the other records of a file that declares afterAll hooks, so the map can tell when that
- *     record never came (a worker's last file has no next test): it reads such a file as incomplete;
+ *   - afterAll: true on the record that carries a file's afterAll hooks' reach (attached from the hook, on the file's
+ *     last test); afterAllDue: true on the other records of a file that declares afterAll hooks, so the map can tell
+ *     when that record never came (the hook was cut off): it reads such a file as incomplete;
  *   - incomplete: reason codes (INCOMPLETE) for what this record can't see whole. The map treats an incomplete journey
  *     as reaching every source;
  *   - codeServices, code, codeGap: the stack services whose own code is recorded (tooling/scripts/service-reach.mjs, a
@@ -717,12 +717,12 @@ export function makeRecorder({
         }
       }
     },
-    /** The file's afterAll hooks have run: their reach is in this file's next record, attached by a later test. */
+    /** The file's afterAll hooks have run: their reach is in this file's next record, attached from the hook. */
     afterAll(file) {
       slot(file).after = true;
     },
     /** The file declares afterAll hooks: each of its records says so (`afterAllDue`), and the map reads a file whose
-     *  `afterAll: true` record never came (the worker's last file: no later test attaches it) as incomplete. */
+     *  `afterAll: true` record never came (the hook was cut off before it attached it) as incomplete. */
     declaresAfterAll(file) {
       withAfterAll.add(file);
     },

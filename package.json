@@ -10,6 +10,7 @@
   "type": "module",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
+    "postinstall": "test -n \"$CI\" || test ! -f tooling/scripts/tsc-shims.mjs || node tooling/scripts/tsc-shims.mjs",
     "build": "turbo run build",
     "mobile": "pnpm --filter mobile native:stage",
     "dev": "turbo run dev",
