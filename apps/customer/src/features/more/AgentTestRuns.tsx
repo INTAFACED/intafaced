@@ -1,5 +1,4 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { z } from 'zod';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
@@ -12,14 +11,20 @@ import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
 import './agents-session.css';
 import {
-  ownAgentAnalyticsSchema,
-  ownAgentCatalogueSchema,
   ownAgentTestRunSchema,
   type OwnAgent,
   type OwnAgentDryRunCheck,
   type OwnAgentDryRunEffect,
   type OwnAgentTestRun,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_CATALOGUE,
+  AGENTS_OWN_BACKGROUND_RUN,
+  AGENTS_OWN_TEST_RUN,
+  AGENTS_OWN_TOOL_TEST,
+  AGENTS_OWN_TEST_RUNS,
+  AGENTS_OWN_ANALYTICS,
+} from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's dry run (on its Test page), its live and test run lists (Runs) and its Analytics page (AG-spend-04,
@@ -111,7 +116,7 @@ function usePressKeys(prefix: string, agentId: string) {
 type Catalogue = ReturnType<typeof useCatalogue>;
 function useCatalogue() {
   const api = useApi();
-  return useResource((signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }), 'own-catalogue');
+  return useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
 }
 
 /**
@@ -152,12 +157,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
     setRefused(null);
     setStarted(false);
     if (background) {
-      const res = await api.mutate(
-        'agents',
-        'own.backgroundRun',
-        { id: agent.id, requestId: keys.next(`background:${ask}`), ask },
-        z.object({ id: z.string() }).passthrough(),
-      );
+      const res = await api.call(AGENTS_OWN_BACKGROUND_RUN, { id: agent.id, requestId: keys.next(`background:${ask}`), ask });
       setBusy(false);
       if (res.ok || refusalCode(res)) keys.settled();
       if (!res.ok) return setRefused(res);
@@ -167,7 +167,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
     // The question, the outside content and the schema are one request: any of them changed is a new one.
     const requestId = keys.next(JSON.stringify([ask, content, outputSchema]));
     const extras = { ...(content.trim() ? { content } : {}), ...(outputSchema.trim() ? { outputSchema } : {}) };
-    const res = await api.mutate('agents', 'own.testRun', { id: agent.id, requestId, ask, ...extras }, ownAgentTestRunSchema);
+    const res = await api.call(AGENTS_OWN_TEST_RUN, { id: agent.id, requestId, ask, ...extras });
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settled();
     if (!res.ok) return setRefused(res);
@@ -246,7 +246,7 @@ function MoveTest({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue 
     setBusy(true);
     setTested(null);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.toolTest', { id: agent.id, requestId: keys.next(tool), tool }, ownAgentTestRunSchema);
+    const res = await api.call(AGENTS_OWN_TOOL_TEST, { id: agent.id, requestId: keys.next(tool), tool });
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settled();
     if (!res.ok) return setRefused(res);
@@ -452,7 +452,7 @@ function TestRuns({ agent, focusRun }: { agent: OwnAgent; focusRun: string | nul
   const { t } = agentTestRunsCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
   const runs = useResource(
-    (signal) => api.query('agents', 'own.testRuns', { id: agent.id, limit: 50 }, z.array(ownAgentTestRunSchema), { signal }),
+    (signal) => api.call(AGENTS_OWN_TEST_RUNS, { id: agent.id, limit: 50 }, { signal }),
     `own-test-runs:${agent.id}`,
   );
   return (
@@ -506,7 +506,7 @@ export function AnalyticsPage({ agent }: { agent: OwnAgent }) {
   const { t } = agentTestRunsCopy.useCopy();
   const [includeTest, setIncludeTest] = useState(false);
   const figures = useResource(
-    (signal) => api.query('agents', 'own.analytics', { id: agent.id, includeTest }, ownAgentAnalyticsSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_ANALYTICS, { id: agent.id, includeTest }, { signal }),
     `own-analytics:${agent.id}:${includeTest}`,
   );
   return (

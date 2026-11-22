@@ -54,10 +54,15 @@ export type BankWrite = keyof typeof bankWrites;
 
 /** Bind only fields that the mounted service returns. No invented ID echo or
  * browser-calculated maturity, accrued interest or collateral release. */
-export function bankWriteForReview(procedure: BankWrite, input: Record<string, unknown>): z.ZodType<unknown> {
+export function bankWriteForReview(
+  procedure: string,
+  input: Record<string, unknown>,
+  /** The answer's shape: the hand schema while the call goes by name; a call sent by its record has the record parse it. */
+  answer: z.ZodType<unknown> = bankWrites[procedure as BankWrite],
+): z.ZodType<unknown> {
   const exact = (returned: string | null, sent: unknown) =>
     returned !== null && typeof sent === 'string' && money.safeParse(sent).success && parseAmount(returned) === parseAmount(sent);
-  return (bankWrites[procedure] as z.ZodType<unknown>).refine((data) => {
+  return answer.refine((data) => {
     if (
       procedure === 'autoInvest.createDca' ||
       procedure === 'autoInvest.createThresholdSweep' ||

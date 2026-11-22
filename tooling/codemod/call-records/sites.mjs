@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, literal, load, resolveRelative, walk } from './ast.mjs';
 import { fanOut } from './fan.mjs';
+import { handSchemas } from './dead-hand-schemas.mjs';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
 const NAMED_AT = { query: [0, 1], mutate: [0, 1], founderCall: [1, 2], founderEdgeCall: [1, 2], payCall: [1], useBankRead: [0] };
@@ -84,7 +85,9 @@ export function findSites(repo) {
         const key = keyOf(n);
         const desk = key === 'procedure' ? deskRead(p, n) : undefined;
         const entry = key === 'procedure' && !desk ? opsEntry(p, n) : undefined;
+        const spec = key === 'procedure' && !desk && !entry ? writeSpec(p, n) : undefined;
         if (desk) out.push({ file, line: line(n), node: n, shape: 'desk-read', ...desk });
+        else if (spec) out.push({ file, line: line(n), node: n, shape: 'write-spec', ...spec });
         else if (entry) out.push({ file, line: line(n), node: n, shape: 'ops-entry', ...entry });
         else if (key === 'procedure' && isString(n.value) && n.value.value !== '')
           out.push({
@@ -190,6 +193,26 @@ function deskRead(p, n) {
     };
   }
   return undefined;
+}
+
+/** The keys every bank write spec has beside its call (`ActionSpec`, apps/customer/src/features/money/components.tsx). */
+const SPEC_KEYS = ['title', 'notes', 'input'];
+/**
+ * A bank write dialog's spec, `{ title, procedure: 'sorter.create', notes, input }` in a file that names `ActionSpec`: it
+ * names its record (`record: RECORD`) and the dialog sends it by that record (`sendWrite`, features/money/write-flow.ts).
+ * Its answer schema is the hand one the dialog held it to, `bankWrites[path]` (`schema`), so a check there is not lost.
+ */
+function writeSpec(p, n) {
+  const path = literal(n.value);
+  const obj = p.parents.get(n);
+  if (!path || obj?.type !== 'ObjectExpression' || bindingOf(p, n, 'ActionSpec').kind === 'global') return undefined;
+  const keys = new Set(obj.properties.map((pr) => (pr.type === 'Property' ? keyOf(pr) : undefined)));
+  if (!SPEC_KEYS.every((k) => keys.has(k))) return undefined;
+  const site = { module: 'bank', path, kind: 'mutation' };
+  const repo = p.file.slice(0, p.file.indexOf('/apps/customer/src/'));
+  const hand = repo ? handSchemas(repo).find((h) => h.map.endsWith('Writes') && h.name === path) : undefined;
+  if (hand) site.schema = { p: hand.p, node: hand.prop.value };
+  return site;
 }
 
 /** The ops-desk reads in one parsed file. */
