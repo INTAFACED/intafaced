@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { Button, Segmented, Tag } from '@intafaced/ui/lit';
-import type { RoomState } from '@intafaced/ui/lit/templates';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { SectionTabs, type RoomState } from '@intafaced/ui/lit/templates';
 import { appCopy } from '../../../app/app-copy';
 import { navigate } from '../../../app/location';
 import { safeReturnTo } from '../../../app/navigation';
@@ -21,18 +21,18 @@ const ELSEWHERE: Record<Exclude<LaunchTab, LaunchFlowTab>, string> = {
 };
 
 /**
- * The Launch room's five sections as the kit's switcher, the open one pressed. The issuer journey and the pre-listing
+ * The Launch room's five sections as the kit's section tabs, the open one pressed (a row that scrolls when it overflows). The issuer journey and the pre-listing
  * check switch in place, as the old room's tabs did (Phantom 24 Oct); the other three open their own address.
  */
 export function LaunchTabs({ current, onTab }: { current: LaunchFlowTab; onTab: (tab: LaunchFlowTab) => void }) {
   const { t } = launchDepthCopy.useCopy();
   const catalogue = launchCatalogueCopy.useCopy();
   return (
-    <Segmented<LaunchTab>
+    <SectionTabs<LaunchTab>
       label={t('sections')}
       value={current}
       onChange={(tab) => (tab === 'Journey' || tab === 'Check' ? onTab(tab) : navigate(ELSEWHERE[tab]))}
-      options={[
+      items={[
         { value: 'Catalogue', label: catalogue.t('tabCatalogue') },
         { value: 'Journey', label: t('tabJourney') },
         { value: 'Check', label: t('tabCheck') },

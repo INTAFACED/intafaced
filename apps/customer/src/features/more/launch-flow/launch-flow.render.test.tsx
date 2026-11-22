@@ -34,15 +34,17 @@ describe('the Launch flow rooms on Volt (J-more-catalogue-01 #3 #6)', () => {
     }
   });
 
-  it('draws the five Launch sections as the kit switcher, the open one pressed', () => {
+  it('draws the five Launch sections as the kit section tabs, the open one pressed', () => {
     state.userId = 'u-1';
     const open = { '/launch/new': 'Issuer journey', '/launch/check': 'Pre-listing check' } as const;
     for (const [path, , page] of ROOMS) {
       const html = page();
-      const group = html.match(/<div class="lit-segmented" role="group" aria-label="Launch sections">(.*?)<\/div>/)?.[1] ?? '';
+      const group = html.match(/<div class="lt-tabs" role="group" aria-label="Launch sections">(.*?)<\/div>/)?.[1] ?? '';
       expect(group, path).not.toBe('');
       for (const label of ['Launches', 'Issuer journey', 'Pre-listing check', 'Requirements', 'My participation'])
-        expect(group, `${path} ${label}`).toMatch(new RegExp(`<button type="button" aria-pressed="(true|false)">${label}</button>`));
+        expect(group, `${path} ${label}`).toMatch(
+          new RegExp(`<button type="button" class="lt-tab" aria-pressed="(true|false)">${label}</button>`),
+        );
       expect(group.match(/aria-pressed="true"/g), path).toHaveLength(1);
       expect(group, path).toContain(`aria-pressed="true">${open[path]}</button>`);
       expect(group, path).not.toContain('href=');
