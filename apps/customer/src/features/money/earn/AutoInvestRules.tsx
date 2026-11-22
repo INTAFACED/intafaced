@@ -2,7 +2,7 @@ import { Button } from '@intafaced/ui/lit';
 import { ReadView } from '../../../shared/read-state';
 import { t } from '../repeat-buy-copy';
 import { date, funds, type ActionSpec } from '../components';
-import { useAutoInvestRules } from '../repeat-buy/repeat-buy';
+import { useAutoInvestRules } from '../repeat-buy';
 import { BankSection, Continuation, NoRows } from '../bank-frame/BankFrame';
 
 /**
