@@ -396,7 +396,7 @@ describe('states never contradict themselves', () => {
 
   it('a chip that is a button or a link is 24 px tall to touch (WCAG 2.5.8)', () => {
     const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
-    expect(css).toMatch(/:is\(button, a\)\.lt-chip \{\s*min-block-size: 24px;\s*\}/);
+    expect(css).toMatch(/:is\(button, a\)\.lt-chip \{\s*min-block-size: 24px;[^}]*\}/);
   });
 
   it('a text link is an inline block, so its 24 px minimum holds for an <a> too (WCAG 2.5.8)', () => {
