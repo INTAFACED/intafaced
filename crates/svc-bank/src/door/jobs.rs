@@ -198,6 +198,26 @@ fn resume_pending_earn(door: &BankDoor, body: &Value) -> Response {
     }
 }
 
+const CARD_SHIPMENT: &str = "/internal/jobs/card-sim/shipment";
+
+/// `POST /internal/jobs/card-sim/shipment`: the stand-in printer's word (`cardShipmentJobBody`, strict), then
+/// `recordShipment`; a body not in shape is 400 `bank.validation_failed`, a `BankError` `sendBankJobRefuse`'s 400.
+fn card_shipment(door: &BankDoor, body: &Value) -> Response {
+    let Some(shipment) = crate::cards::orders::shipment_body(body) else {
+        return reply(400, "body not in shape", "bank.validation_failed");
+    };
+    match door.cards_deps(door.now(), |d| {
+        crate::cards::orders::record_shipment(d, &shipment)
+    }) {
+        Ok(delivery) => Response {
+            status: 200,
+            body: delivery.compact(),
+        },
+        Err(crate::errors::Refusal::Bank(e)) => job_refuse(&e),
+        Err(r) => thrown_refusal(r),
+    }
+}
+
 const ACCRUE_LOAN_INTEREST: &str = "/internal/jobs/accrue-loan-interest";
 const RUN_RISK_SWEEP: &str = "/internal/jobs/run-risk-sweep";
 const RESUME_PENDING_LOANS: &str = "/internal/jobs/resume-pending-loans";
@@ -351,6 +371,9 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         }
         if j.path == RESUME_PENDING_EARN {
             return Some(resume_pending_earn(door, &body));
+        }
+        if j.path == CARD_SHIPMENT {
+            return Some(card_shipment(door, &body));
         }
         if j.slice == Slice::Loans {
             return Some(loan_job(door, j.path, &body));
