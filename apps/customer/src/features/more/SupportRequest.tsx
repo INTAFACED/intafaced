@@ -213,7 +213,7 @@ export function SupportRequest({
                 <small>
                   <strong>{copy.t('fromYou')}</strong> · <span lang="zxx">{stamp(ticket.createdAt, timeZone)}</span>
                 </small>
-                <p className="lt-pre-wrap lt-wrap" lang="und">
+                <p className="lt-pre-wrap" lang="und">
                   {ticket.body}
                 </p>
               </div>
@@ -230,7 +230,7 @@ export function SupportRequest({
                               <strong>{copy.t(row.authorRole === 'user' ? 'fromYou' : 'fromTeam')}</strong> ·{' '}
                               <span lang="zxx">{stamp(row.createdAt, timeZone)}</span>
                             </small>
-                            <p className="lt-pre-wrap lt-wrap" lang="und">
+                            <p className="lt-pre-wrap" lang="und">
                               {row.body}
                             </p>
                           </li>

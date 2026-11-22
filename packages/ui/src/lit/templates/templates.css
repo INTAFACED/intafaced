@@ -606,10 +606,6 @@
 }
 
 /* Text written with its own line breaks (published terms, a plain-text section): the breaks show, long lines still wrap. */
-.lt-prose-lines {
-  white-space: pre-line;
-}
-
 .lt-actions,
 .lt-equal {
   display: flex;
@@ -1508,10 +1504,8 @@
   overflow-y: auto;
 }
 
-/* Text an owner wrote with its own line breaks (a rulebook section, a policy, a postmortem), shown escaped as typed. */
-.lt-pre {
-  white-space: pre-wrap;
-}
+/* Text an owner wrote with its own line breaks (a policy, a partner's terms), shown escaped as typed with its spaces
+   folded; .lt-pre-wrap keeps the spaces too and breaks a long word (a rulebook section, a postmortem, a message). */
 .lt-pre-line {
   white-space: pre-line;
 }
