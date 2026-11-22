@@ -2,7 +2,6 @@
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 
-export const programmeSchema = z.object({ id: z.string(), simulated: z.boolean(), displayName: z.string() });
 const shippingAddressSchema = z.object({
   name: z.string(),
   line1: z.string(),
