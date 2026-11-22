@@ -6,11 +6,9 @@ import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
-import { Button, Tag } from '@intafaced/ui/lit';
+import { Button, Select, Tag } from '@intafaced/ui/lit';
 import { CatalogueTemplate } from '@intafaced/ui/lit/templates';
 import { Details, Limit } from './catalogue-parts';
-// The kit has no Select yet: the filters keep the More rooms' own.
-import { Select } from './common';
 import { launchCatalogueCopy } from './launch-catalogue-copy';
 import { launchCopy } from './launch-copy';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
@@ -316,8 +314,8 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
             {result.data.requirements.map((r) => (
               <li key={r.id} data-met={r.met}>
                 <strong>{word(t, `req_${r.id}`)}</strong>
-                {/* The class is the hook J-more-catalogue-11 #3 finds the badge by; the kit's Tag draws it. */}
-                <Tag tone={r.met ? 'up' : 'down'} className="launch-catalogue-badge">
+                {/* The hook J-more-catalogue-11 #4 and its end find the badge by; the kit's Tag draws it. */}
+                <Tag tone={r.met ? 'up' : 'down'} data-testid="launch-requirement-badge">
                   {r.met ? t('met') : t('unmet')}
                 </Tag>
                 <small className="lt-hint">{t('needs', { required: r.required, actual: r.actual })}</small>
