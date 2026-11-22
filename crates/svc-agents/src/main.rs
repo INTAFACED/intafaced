@@ -30,6 +30,11 @@ use svc_agents::boot;
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
 use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
+use svc_agents::factories::Factories;
+use svc_agents::factories::copy_intel::{LeaderFixtures, LeaderFixturesHttp, LivePlane};
+use svc_agents::factories::merchant::{PayMetrics, PayMetricsHttp};
+use svc_agents::factories::scanner::{SpotTickers, SpotTickersHttp};
+use svc_agents::factories::support::{Desk, DeskHttp};
 use svc_agents::gateway::Gateway;
 use svc_agents::gateway::desk::GatewaySlice;
 use svc_agents::gateway::providers::{
@@ -435,6 +440,52 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
     })
 }
 
+/// The factories' live ports as \`index.ts\` builds them, each outside call signed as svc-agents (with its own key when
+/// S2S is on): svc-trade's tickers and copy leaders while \`TRADE_URL\` is set (with the owner's live leader plane), svc-pay's merchant metrics while \`PAY_URL\` is, and svc-support's desk while \`SUPPORT_URL\` is.
+fn factories(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Factories, String> {
+    let url = |k: &str| env.str(k).filter(|u| !u.is_empty());
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    Ok(Factories {
+        spot_tickers: url("TRADE_URL")
+            .map(|u| Box::new(SpotTickersHttp::new(u, fetch.clone())) as Box<dyn SpotTickers>),
+        copy_leaders: url("TRADE_URL").map(|u| {
+            Box::new(LeaderFixturesHttp::new(
+                u,
+                signer("svc-trade"),
+                fetch.clone(),
+            )) as Box<dyn LeaderFixtures>
+        }),
+        copy_leader_plane: LivePlane::from_lookup(|k| env.raw.get(k).cloned()),
+        pay_metrics: url("PAY_URL").map(|u| {
+            Box::new(PayMetricsHttp::new(u, signer("svc-pay"), fetch.clone()))
+                as Box<dyn PayMetrics>
+        }),
+        support_desk: url("SUPPORT_URL").map(|u| {
+            Box::new(DeskHttp::new(
+                u,
+                url("IDENTITY_URL"),
+                signer("svc-identity"),
+                fetch.clone(),
+            )) as Box<dyn Desk>
+        }),
+    })
+}
+
 /// The payment token's chain reader (`index.ts` `paymentChain`): all four owner values, or none, and a wallet payment
 /// method then refuses `payment_token_unset`.
 fn payment_chain(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Option<Arc<dyn ChainBalance>> {
@@ -769,7 +820,8 @@ fn serve(
         runtime,
         (advisors, team),
         &fetch,
-    )?;
+    )?
+    .with_factories(factories(env, &fetch)?);
 
     let app = App {
         wire: door,

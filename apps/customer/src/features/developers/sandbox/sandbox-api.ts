@@ -4,12 +4,9 @@
  */
 import {
   sandboxCreateRequestId,
-  sandboxBalanceOutputSchema,
-  sandboxFundOutputSchema,
   sandboxFundRequestId,
   sandboxKeyCreateOutputSchema,
   sandboxKeyCreateRequestId,
-  sandboxResetOutputSchema,
   sandboxResetRequestId,
   type SandboxBalance,
   type SandboxDetail,
@@ -18,6 +15,11 @@ import {
 } from '@intafaced/contracts/developer-sandboxes';
 import type { ApiClient } from '../../../shared/api';
 import { requestPasskeyAssertion } from '../../session';
+import {
+  PAY_SANDBOX_FUNDS_BALANCE,
+  PAY_SANDBOX_FUNDS_FUND,
+  PAY_SANDBOX_FUNDS_RESET,
+} from '@intafaced/contracts/pay-sandbox-funds-procedures';
 import {
   IDENTITY_DEVELOPER_SANDBOXES_LIST,
   IDENTITY_DEVELOPER_SANDBOXES_GET,
@@ -35,25 +37,15 @@ export const createSandbox = (api: ApiClient, userId: string, listed: SandboxLis
 
 /** The sandbox's TEST balance, from the pay service's sandbox store (never the ledger). */
 export const readSandboxBalance = (api: ApiClient, sandboxId: string, signal?: AbortSignal) =>
-  api.query('pay', 'sandboxFunds.balance', { sandboxId }, sandboxBalanceOutputSchema, { signal });
+  api.call(PAY_SANDBOX_FUNDS_BALANCE, { sandboxId }, { signal });
 
 /** One press of Fund. The request id carries the balance version this page read, so a double press is one change. */
 export const fundSandbox = (api: ApiClient, userId: string, read: SandboxBalance) =>
-  api.mutate(
-    'pay',
-    'sandboxFunds.fund',
-    { sandboxId: read.sandboxId, requestId: sandboxFundRequestId(userId, read.sandboxId, read.version) },
-    sandboxFundOutputSchema,
-  );
+  api.call(PAY_SANDBOX_FUNDS_FUND, { sandboxId: read.sandboxId, requestId: sandboxFundRequestId(userId, read.sandboxId, read.version) });
 
 /** One press of Reset, keyed the same way. */
 export const resetSandbox = (api: ApiClient, userId: string, read: SandboxBalance) =>
-  api.mutate(
-    'pay',
-    'sandboxFunds.reset',
-    { sandboxId: read.sandboxId, requestId: sandboxResetRequestId(userId, read.sandboxId, read.version) },
-    sandboxResetOutputSchema,
-  );
+  api.call(PAY_SANDBOX_FUNDS_RESET, { sandboxId: read.sandboxId, requestId: sandboxResetRequestId(userId, read.sandboxId, read.version) });
 
 /** What a key may do, as the form offers it. Trade is offered so the service can refuse it by name. */
 export const KEY_PRESETS = {

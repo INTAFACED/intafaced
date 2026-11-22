@@ -30,6 +30,7 @@ import type { VenueUp } from '../venue-api';
 import { TestMark, VENUE_POLL_MS, VenueFrame, WalletBar, useOwner, useVenueApi } from '../venue/VenueKit';
 import { tradingAccountCopy } from './trading-account-copy';
 import { AccountModePanel } from './AccountMode';
+import { depositRoute, routeOf } from './move-route';
 
 /**
  * The trading account (`/trade/account`, J-derivatives-25): two named groups, each with its own source and time. Trading
@@ -409,8 +410,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
   const venueApi = useVenueApi();
   const account = useMemo(() => createVenueAccountApi(api), [api]);
   const door = usePolled((signal) => account.status(signal), `move:door:${userId}`, 30_000);
-  const route: VenueDepositRoute | null =
-    door.data && door.data.enabled && door.data.available ? ((door.data as { deposit?: VenueDepositRoute | null }).deposit ?? null) : null;
+  const route: VenueDepositRoute | null = routeOf(door.data);
   const moves = usePolled(
     (signal) => api.query('bank', 'ownMoves.list', { limit: 20 }, z.array(ownMoveSchema), { signal }),
     `moves:${userId}`,
@@ -451,8 +451,9 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
 
   /** Leg two: the wallet's own deposit to the venue, once per move; then the venue's credit is followed. */
   const deposit = async (move: OwnMove) => {
-    if (!route) return setRefusal({ body: t('moveNoRoute', { venue: venue.name, asset: ASSET }) });
     if (move.depositTx) return setStage({ at: 'done', move, again: false });
+    const route = await depositRoute(routeOf(door.data), () => account.status());
+    if (!route) return setRefusal({ body: t('moveNoRoute', { venue: venue.name, asset: ASSET }) });
     const units = toTokenUnits(move.amount, route.tokenDecimals);
     if (units === null || route.chainId !== APP_CHAIN_ID)
       return setRefusal({ body: t('moveNoRoute', { venue: venue.name, asset: ASSET }) });

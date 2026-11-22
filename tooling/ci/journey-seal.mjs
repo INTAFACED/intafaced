@@ -760,7 +760,8 @@ export function makeIo(repo, token) {
 /** The default branch's checkout this script runs from (ci.yml runs the base's copy): its baseline and money rule. */
 const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 let base = null;
-const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map() });
+// `memo`: each GET fetchInputs makes is made once per seal step, for every run it judges (journey-verdict.mjs fetchInputs).
+const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map(), memo: new Map() });
 
 /**
  * The journey files a checkout holds (`apps/customer/tests/real-app/*.pw.mjs`), as a set of names, or null when the
@@ -778,8 +779,8 @@ export function journeyFilesAt(root) {
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
 export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null }) {
-  const { baseline, money, reports } = inputs;
-  const got = read({ repo, baseline, thisRun: run, reports, log: () => {} });
+  const { baseline, money, reports, memo } = inputs;
+  const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
   // The files each run ran, never the step-to-file map: that keeps one file a step, so a step id two files share
