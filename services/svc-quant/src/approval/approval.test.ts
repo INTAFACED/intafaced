@@ -131,4 +131,41 @@ describe('live approval policy (RC-algo-dev-01)', () => {
       /^quant\.approval_hash_stale — /,
     );
   });
+
+  it('the deploy wizard reads the rule: with it on Deploy refuses until a matching approval, any change asks again, and with it off no approval is asked (J-algo-dev-06 #3)', async () => {
+    const t = setup();
+    const s = await t.owner.studio.save({ ...block('0.001'), idempotencyKey: 'save-1' });
+    const deploy = () => t.owner.live.deploy({ strategyId: s.id, strategyVersion: 1, amount: '25' });
+    const approval = async () => (await t.owner.live.check({ strategyId: s.id, strategyVersion: 1 })).approval;
+    // Not set: no approval asked; Deploy refuses only because live is off.
+    expect(await approval()).toEqual({ required: false, allowed: true });
+    await expect(deploy()).rejects.toThrow(/^quant\.live_disabled — /);
+
+    await t.owner.approval.policy.set({ required: true, idempotencyKey: 'p1' });
+    await t.owner.team.set({ strategyId: s.id, memberId: MATE, role: 'view', liveControl: false });
+    expect(await approval()).toEqual({ required: true, allowed: false });
+    await expect(deploy()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringMatching(/^quant\.approval_required — version 1 needs a different member's approval.*nothing was stored/),
+    });
+
+    const id = (await t.owner.approval.request({ strategyId: s.id, strategyVersion: 1 })).approvals[0]!.approvalId;
+    await t.mate.approval.decide({ strategyId: s.id, approvalId: id, decision: 'approved', reason: '' });
+    expect(await approval()).toEqual({ required: true, allowed: true });
+    await expect(deploy()).rejects.toThrow(/^quant\.live_disabled — /);
+
+    // A config change on the same version (a risk cap) voids the approval: Deploy asks again.
+    await t.owner.risk.set({
+      strategyId: s.id,
+      caps: { depositPercent: '', maxPositionNotional: '400', maxDailyLoss: '', equityFloor: '' },
+      floorPolicy: 'reduce_only',
+    });
+    expect(await approval()).toEqual({ required: true, allowed: false });
+    await expect(deploy()).rejects.toThrow(/^quant\.approval_required — /);
+
+    // The rule off: going live asks no approval.
+    await t.owner.approval.policy.set({ required: false, idempotencyKey: 'p2' });
+    expect(await approval()).toEqual({ required: false, allowed: true });
+    await expect(deploy()).rejects.toThrow(/^quant\.live_disabled — /);
+  });
 });
