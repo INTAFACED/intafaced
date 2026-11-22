@@ -25,6 +25,8 @@ pub struct Principal {
     pub mfa: bool,
     pub kid: Option<String>,
     pub sub_account: Option<String>,
+    /// `sid`: the session the principal was minted for (a step-up approval is bound to it).
+    pub sid: String,
 }
 
 /// `signPrincipalHeader`: HMAC-SHA256 over `<raw>\nregion=<region>`, lower-case hex.
@@ -206,6 +208,10 @@ fn parse_principal(v: &Json) -> Option<(Principal, Instant, Option<i64>)> {
             sub_account: match v.get("sub_account") {
                 Some(Json::String(k)) => Some(k.clone()),
                 _ => None,
+            },
+            sid: match v.get("sid") {
+                Some(Json::String(k)) => k.clone(),
+                _ => String::new(),
             },
         },
         expires_at,
