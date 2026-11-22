@@ -331,14 +331,14 @@
   .lt-button {
   min-block-size: var(--lit-control-h);
 }
-/* Its plot keeps a working height (40% of the screen, within a floor and a ceiling), so a study pane under the price
-   pane never squeezes the price pane to a sliver. */
+/* Its plot keeps the workbench's working height from before Volt (260 px), so a study pane under the price pane never
+   squeezes the price pane to a sliver, and the drawings dock under it stays near the first screen. */
 .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
     :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
   )
   > [data-region='chart']
   .lt-chart-stage {
-  min-block-size: clamp(16.25rem, 40vh, 32rem);
+  min-block-size: 18.75rem;
 }
 
 /* ---- stepper ---- */
@@ -1721,6 +1721,11 @@ button.lt-tab:focus-visible {
 }
 .lt-scroll {
   max-block-size: 24rem;
+  overflow: auto;
+}
+/* A short scroller under a working surface (a chart's drawings dock): it keeps the surface above it on the screen. */
+.lt-scroll-short {
+  max-block-size: 14rem;
   overflow: auto;
 }
 .lt-scroll-tall {
