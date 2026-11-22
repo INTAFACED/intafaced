@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Download } from 'lucide-react';
-import { Button, refusalCopy } from './deps';
+import { Button } from './ui-deps';
+import { refusalCopy } from './deps';
 import { moneyCopy } from './copy';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from './statement-model';
 import { useSession } from '../../features/session/session';

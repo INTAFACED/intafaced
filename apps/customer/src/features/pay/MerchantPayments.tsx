@@ -8,7 +8,7 @@ import { Button, DataTable } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
-import { validatedMutation } from './BusinessPay';
+import { validatedRecordMutation } from './BusinessPay';
 import * as s from './schemas';
 import { MerchantRefund } from './MerchantRefund';
 import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
@@ -18,6 +18,7 @@ import {
   PAY_PAYMENT_CAPTURE,
   PAY_PAYMENT_GET,
   PAY_PAYMENT_HISTORY,
+  PAY_PAYMENT_CREATE,
 } from '@intafaced/contracts/pay-payment-procedures';
 
 /** The status filter as the record takes it: one of the payment states the select lists, or none. */
@@ -283,9 +284,9 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
             }
             perform={() =>
               rail
-                ? validatedMutation(
+                ? validatedRecordMutation(
                     pay,
-                    'payment.create',
+                    PAY_PAYMENT_CREATE,
                     { merchantId, amount, assetId, method, railAdapter, ...(customerRef ? { customerRef } : {}) },
                     z.object({
                       merchantId: s.id,
@@ -295,7 +296,6 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
                       railAdapter: z.string().min(1),
                       customerRef: z.string().optional(),
                     }),
-                    s.paymentSchema,
                     'pay:write',
                     'payment-create',
                   )

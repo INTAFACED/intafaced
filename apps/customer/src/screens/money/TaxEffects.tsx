@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { ACTIVITY_KINDS, Button, refusalCopy, StateBlock, type ActivityKind } from './deps';
+import { Button, StateBlock } from './ui-deps';
+import { ACTIVITY_KINDS, refusalCopy, type ActivityKind } from './deps';
 import { moneyCopy } from './copy';
 import { titleOf } from './activity-view';
 import { groupKindsByEffect, type KnownEffect } from './tax-effects';

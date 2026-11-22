@@ -278,18 +278,6 @@ export const subscriptionPostureSchema = z.object({
   preChargeNotify: z.object({ status: z.literal('unwired'), notified: z.literal(false), merchantReadable: z.string() }),
   card: z.object({ status: z.literal('refuse_closed'), code: z.literal('pay.mandate_rail_absent') }),
 });
-export const submerchantSchema = z.object({
-  id,
-  userId: z.string(),
-  parentMerchantId: id.nullable(),
-  mode: z.enum(['gateway', 'psp', 'payfac']),
-  status: z.enum(['pending', 'active', 'suspended', 'closed']),
-  kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
-  settlingParty: z.string(),
-  feeBps: z.number().int().nullable(),
-  depth: z.number().int(),
-  createdAt: z.string(),
-});
 export const permissionEventSchema = z.object({
   id,
   seq: z.string(),
@@ -302,18 +290,6 @@ export const permissionEventSchema = z.object({
   actorMerchantId: id,
   actorScope: z.string(),
   createdAt: z.string(),
-});
-export const keySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  prefix: z.string(),
-  scopes: z.array(z.string()),
-  lastUsedAt: z.string().nullable(),
-  revoked: z.boolean(),
-  mode: z.enum(['live', 'sandbox']),
-  requireSignature: z.boolean(),
-  requireNonEmptyIpAllowlist: z.boolean(),
-  ipAllowlist: z.array(z.string()),
 });
 export const webhookSchema = z.object({
   id,

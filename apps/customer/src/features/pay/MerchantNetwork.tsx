@@ -8,9 +8,9 @@ import { Button, DataTable, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
-import { validatedMutation } from './BusinessPay';
+import { validatedMutation, validatedRecordMutation } from './BusinessPay';
 import * as s from './schemas';
-import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET } from '@intafaced/contracts/pay-submerchant-procedures';
+import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET, PAY_SUBMERCHANT_CREATE } from '@intafaced/contracts/pay-submerchant-procedures';
 import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
   PAY_SUBMERCHANT_PERMISSION_LIST,
@@ -148,9 +148,9 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
               />
             }
             perform={() =>
-              validatedMutation(
+              validatedRecordMutation(
                 pay,
-                'submerchant.create',
+                PAY_SUBMERCHANT_CREATE,
                 {
                   parentMerchantId: node,
                   userId: user,
@@ -163,7 +163,6 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
                   pricing: z.object({ feeBps: z.number().int().min(0).max(10_000) }),
                   settlingParty: z.literal('self'),
                 }),
-                s.submerchantSchema,
                 'pay:write',
                 'submerchant-create',
               )
