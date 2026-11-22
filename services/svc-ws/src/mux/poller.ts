@@ -25,6 +25,14 @@ import type { TickerHub, TickerRow } from './ticker-hub.js';
 /** The newest two buckets: the open one, and the one before it so a rollover can finalise it. */
 export const CANDLE_POLL_BUCKETS = 2;
 
+/**
+ * The `limit` a candle read asks for: the two buckets plus one. svc-trade refuses a read whose `since`→now covers
+ * more buckets than `limit`, by its own clock. A read sent just before a bucket boundary and answered just after it
+ * covers three, so asking for exactly two turned a healthy read into `candles.unavailable` at the turn of a bucket.
+ * The hub keeps only the newest two whatever comes back.
+ */
+const CANDLE_POLL_LIMIT = CANDLE_POLL_BUCKETS + 1;
+
 export interface MuxPollerOptions {
   readonly tickerPollMs: number;
   readonly candlePollMs: number;
@@ -180,7 +188,7 @@ export class MuxPoller {
         const now = this.#clock();
         const span = MUX_INTERVAL_MS[interval];
         const since = Math.floor(now / span) * span - span;
-        const candles = await this.#candleSource.latest(symbol, interval, since, CANDLE_POLL_BUCKETS);
+        const candles = await this.#candleSource.latest(symbol, interval, since, CANDLE_POLL_LIMIT);
         this.#candleLast.set(key, { at: now, candles });
         this.#candles.ingest(marketId, interval, candles, now);
       } catch (err) {

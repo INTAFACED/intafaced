@@ -152,6 +152,101 @@ describe("postRecipeRequest: svc-bank's recipes are the registry's, key and body
   });
 });
 
+const POOL = '99999999-9999-4999-8999-999999999999';
+const POSITION = {
+  positionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  poolId: POOL,
+  userId: USER,
+  assetId: 'USDT',
+  amount: '100',
+} as const;
+const FUND = { poolId: POOL, fundingId: 'treasury-2026-11', assetId: 'USDT', amount: '50' } as const;
+const INTEREST = {
+  poolId: POOL,
+  date: '2026-11-22',
+  assetId: 'USDT',
+  payouts: [
+    { userId: USER, amount: '0.013698630136986301' },
+    { userId: PAYEE, amount: '0.5' },
+  ],
+} as const;
+
+describe("postRecipeRequest: svc-bank's earn recipes are the registry's, key and body", () => {
+  it('earnDeposit and earnWithdraw are exactly the registry recipes, keyed on the position', () => {
+    const amount = 100_000_000_000_000_000_000n;
+    const deposit = postRecipeRequest({ recipe: 'earnDeposit', input: POSITION }).request;
+    expect(deposit).toEqual(recipes.earnDeposit({ ...POSITION, amount }));
+    expect(deposit.idempotencyKey).toBe(`bank.earn.deposit:${POSITION.positionId}`);
+    const withdraw = postRecipeRequest({ recipe: 'earnWithdraw', input: POSITION }).request;
+    expect(withdraw).toEqual(recipes.earnWithdraw({ ...POSITION, amount }));
+    expect(withdraw.idempotencyKey).toBe(`bank.earn.withdraw:${POSITION.positionId}`);
+  });
+
+  it("earnPoolFund is the registry recipe from the bank's own fee revenue; the wire names no other source", () => {
+    const { request } = postRecipeRequest({ recipe: 'earnPoolFund', input: FUND });
+    expect(request).toEqual(recipes.earnPoolFund({ ...FUND, amount: 50_000_000_000_000_000_000n }));
+    expect(request.idempotencyKey).toBe(`bank.earn.fund:${POOL}:${FUND.fundingId}`);
+    expect(request.entries[0]?.account).toEqual({ ownerType: 'house', ownerId: 'fees:bank', assetId: 'USDT', kind: 'available' });
+    refusesInput({
+      recipe: 'earnPoolFund',
+      input: { ...FUND, from: { ownerType: 'user', ownerId: USER, assetId: 'USDT', kind: 'available' } },
+    });
+  });
+
+  it("earnInterest is the registry recipe: one key per pool and day, the reserve down by the total, each person's payout up", () => {
+    const { request } = postRecipeRequest({ recipe: 'earnInterest', input: INTEREST });
+    expect(request).toEqual(
+      recipes.earnInterest({
+        ...INTEREST,
+        payouts: [
+          { userId: USER, amount: 13_698_630_136_986_301n },
+          { userId: PAYEE, amount: 500_000_000_000_000_000n },
+        ],
+      }),
+    );
+    expect(request.idempotencyKey).toBe(`bank.interest:${POOL}:2026-11-22`);
+    expect(request.entries.map((e) => [e.direction, e.account.ownerId, formatAmount(e.amount)])).toEqual([
+      ['credit', `bank:earn:${POOL}`, '0.513698630136986301'],
+      ['debit', USER, '0.013698630136986301'],
+      ['debit', PAYEE, '0.5'],
+    ]);
+  });
+
+  it('refuses a zero amount, a day the calendar does not have, no payouts, a zero payout, and a total the book cannot hold', () => {
+    refusesInput({ recipe: 'earnDeposit', input: { ...POSITION, amount: '0' } });
+    refusesInput({ recipe: 'earnWithdraw', input: { ...POSITION, amount: '0' } });
+    refusesInput({ recipe: 'earnPoolFund', input: { ...FUND, amount: '0' } });
+    refusesInput({ recipe: 'earnInterest', input: { ...INTEREST, date: '2026-02-31' } });
+    refusesInput({ recipe: 'earnInterest', input: { ...INTEREST, date: '2026-2-1' } });
+    refusesInput({ recipe: 'earnInterest', input: { ...INTEREST, payouts: [] } });
+    refusesInput({
+      recipe: 'earnInterest',
+      input: {
+        ...INTEREST,
+        payouts: [
+          { userId: USER, amount: '1' },
+          { userId: PAYEE, amount: '0' },
+        ],
+      },
+    });
+    const max = `${'9'.repeat(20)}.${'9'.repeat(18)}`;
+    refusesInput({
+      recipe: 'earnInterest',
+      input: {
+        ...INTEREST,
+        payouts: [
+          { userId: USER, amount: max },
+          { userId: PAYEE, amount: max },
+        ],
+      },
+    });
+    // A leap day is a real day.
+    expect(postRecipeRequest({ recipe: 'earnInterest', input: { ...INTEREST, date: '2028-02-29' } }).request.idempotencyKey).toBe(
+      `bank.interest:${POOL}:2028-02-29`,
+    );
+  });
+});
+
 describe('postRecipeRequest: the post the door books', () => {
   it('is exactly the registry recipe over the converted inputs', () => {
     const { recipe, request } = postRecipeRequest(CALL);

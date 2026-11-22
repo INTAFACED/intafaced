@@ -5,12 +5,20 @@ import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { Button, Field } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
-import { useBankRead, useBankRecord } from '../components';
-import { bankWrites, type cardSchema } from '../contracts';
+import { useBankRecord } from '../components';
+import { type cardSchema } from '../contracts';
 import { Panel, ResourceView } from '../bank-settings/parts';
 import { Refusal } from './CardJourney';
 import { cardDisputesCopy } from '../card-disputes-copy';
 import { withPlainRefusal } from '../money-refusal-copy';
+import {
+  BANK_CARDS_DISPUTES_LIST,
+  BANK_CARDS_DISPUTES_FORM,
+  BANK_CARDS_DISPUTES_OPEN,
+  BANK_CARDS_DISPUTES_GET,
+  BANK_CARDS_DISPUTES_EVIDENCE,
+  BANK_CARDS_DISPUTES_WITHDRAW,
+} from '@intafaced/contracts/bank-cards-disputes-procedures';
 
 /**
  * A cardholder's own card disputes (J-bank-15; BK-cdisp-01, svc-bank `cards.disputes.*`). Pressing Dispute this charge on
@@ -28,7 +36,7 @@ const timeOf = (iso: string) =>
 export function CardDisputesPanel({ card }: { card: CardRecord }) {
   const { t } = cardDisputesCopy.useCopy();
   const payments = useBankRecord(BANK_CARDS_AUTHORIZATIONS, { cardId: card.id, limit: 50 });
-  const cases = useBankRead('cards.disputes.list', { cardId: card.id });
+  const cases = useBankRecord(BANK_CARDS_DISPUTES_LIST, { cardId: card.id });
   const [chosen, setChosen] = useState<string | null>(null);
   return (
     <Panel level={3} title={t('title')} lead={t('lead')}>
@@ -104,7 +112,7 @@ function DisputeForm({
 }) {
   const { api } = useSession();
   const { t } = cardDisputesCopy.useCopy();
-  const form = useBankRead('cards.disputes.form', { cardId: card.id, authorizationRef });
+  const form = useBankRecord(BANK_CARDS_DISPUTES_FORM, { cardId: card.id, authorizationRef });
   const [amount, setAmount] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -120,12 +128,12 @@ function DisputeForm({
             event.preventDefault();
             setBusy(true);
             setFailure(null);
-            const done = await api.mutate(
-              'bank',
-              'cards.disputes.open',
-              { cardId: card.id, authorizationRef, amount: amount ?? f.charge.disputable, reason },
-              bankWrites['cards.disputes.open'],
-            );
+            const done = await api.call(BANK_CARDS_DISPUTES_OPEN, {
+              cardId: card.id,
+              authorizationRef,
+              amount: amount ?? f.charge.disputable,
+              reason,
+            });
             setBusy(false);
             if (!done.ok) return setFailure(withPlainRefusal(done));
             onFiled();
@@ -205,16 +213,16 @@ function DisputeForm({
 function DisputeTracker({ disputeId, onChange }: { disputeId: string; onChange: () => void }) {
   const { api } = useSession();
   const { t } = cardDisputesCopy.useCopy();
-  const read = useBankRead('cards.disputes.get', { disputeId });
+  const read = useBankRecord(BANK_CARDS_DISPUTES_GET, { disputeId });
   const [evidence, setEvidence] = useState('');
   const [why, setWhy] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
 
-  async function act(procedure: 'cards.disputes.evidence' | 'cards.disputes.withdraw', input: Record<string, string>) {
+  async function act(send: () => Promise<ApiResult<unknown>>) {
     setBusy(true);
     setFailure(null);
-    const done = await api.mutate('bank', procedure, { disputeId, ...input }, bankWrites[procedure]);
+    const done = await send();
     setBusy(false);
     if (!done.ok) return setFailure(withPlainRefusal(done));
     setEvidence('');
@@ -269,7 +277,7 @@ function DisputeTracker({ disputeId, onChange }: { disputeId: string; onChange: 
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    void act('cards.disputes.evidence', { description: evidence });
+                    void act(() => api.call(BANK_CARDS_DISPUTES_EVIDENCE, { disputeId, description: evidence }));
                   }}
                 >
                   <Field label={t('evidence')} name="evidence" value={evidence} onChange={(e) => setEvidence(e.target.value)} required />
@@ -280,7 +288,7 @@ function DisputeTracker({ disputeId, onChange }: { disputeId: string; onChange: 
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    void act('cards.disputes.withdraw', { reason: why });
+                    void act(() => api.call(BANK_CARDS_DISPUTES_WITHDRAW, { disputeId, reason: why }));
                   }}
                 >
                   <Field label={t('withdrawReason')} name="withdraw-reason" value={why} onChange={(e) => setWhy(e.target.value)} required />

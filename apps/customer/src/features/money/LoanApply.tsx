@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { Button, Loading } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
-import { amount, bps, date, positiveMoney, useBankRead, type ActionSpec, useBankRecord } from './components';
+import { amount, bps, date, positiveMoney, type ActionSpec, useBankRecord } from './components';
 import { LOAN_ELIGIBILITY_KEYS, type LoanEligibility, type LoanFees, type LoanQuote } from './contracts';
 import { DepthPanel, DisabledAction } from './DepthParts';
 import { loanApplyCopy } from './loan-apply-copy';
 import './bank-depth.css';
 import { BANK_LOANS_PRODUCTS, BANK_LOANS_ELIGIBILITY } from '@intafaced/contracts/bank-loans-procedures';
+import { BANK_LOANS_QUOTE, BANK_LOANS_FEES } from '@intafaced/contracts/bank-loans-2-procedures';
 
 /**
  * `/bank/loans/apply?product=<id>` (J-bank-09 #1 to #4, BK-loan-01): choose a loan, see its limits, work out the
@@ -154,9 +155,9 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
   const [typed, setTyped] = useState('');
   const [asked, setAsked] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
-  const quote = useBankRead('loans.quote', { productId, principal: asked ?? '0' }, asked !== null);
+  const quote = useBankRecord(BANK_LOANS_QUOTE, { productId, principal: asked ?? '0' }, asked !== null);
   const eligibility = useBankRecord(BANK_LOANS_ELIGIBILITY, { productId });
-  const fees = useBankRead('loans.fees', asked === null ? { productId } : { productId, principal: asked });
+  const fees = useBankRecord(BANK_LOANS_FEES, asked === null ? { productId } : { productId, principal: asked });
 
   if (products.resource.status === 'loading') return <Loading />;
   if (products.resource.status === 'failed') return <Refused failure={products.resource.failure} retry={products.reload} />;

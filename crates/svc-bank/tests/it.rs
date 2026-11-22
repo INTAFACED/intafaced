@@ -6,6 +6,8 @@
 mod closure_body;
 #[path = "credit_previews.rs"]
 mod credit_previews;
+#[path = "earn_db.rs"]
+mod earn_db;
 #[path = "env_parity.rs"]
 mod env_parity;
 #[path = "guard_grid.rs"]

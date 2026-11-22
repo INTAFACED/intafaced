@@ -1,8 +1,11 @@
+// volt-room: /money/pnl
 import { useMemo, useState, type ReactNode } from 'react';
-import { InfoTip } from './InfoTip';
-import { moneyCopy } from './copy';
-import { Amount, Button, Skeleton, StateBlock, Switch, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy } from './deps';
+import { Button, Field, InfoTip, Select, Switch } from '@intafaced/ui/lit';
+import { MonitorTemplate, Skeleton } from '@intafaced/ui/lit/templates';
+import { moneyCopy } from '../copy';
+import { fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy } from '../deps';
 import { MissingCost, basisRefusalWords } from './MissingCost';
+import { Amount, EmptyNote, ErrorNote, Pressed, RefusedNote } from './parts';
 import {
   LOT_METHODS,
   coinMethod,
@@ -33,14 +36,14 @@ import {
   type LotMethodSource,
   type UnknownReason,
   unknownShareOf,
-} from './pnl-model';
-import { useBasisOverride, useLotBook, useMissingBasis, useSaveLotChoice, type BasisOutcome, type LotChoice } from './pnl-source';
+} from '../pnl-model';
+import { useBasisOverride, useLotBook, useMissingBasis, useSaveLotChoice, type BasisOutcome, type LotChoice } from '../pnl-source';
 import { PnlOverTimeCards } from './PnlOverTime';
-import { firstActivity } from './pnl-time-model';
+import { firstActivity } from '../pnl-time-model';
 import { ValueOverTimeCards } from './ValueOverTime';
-import { useMoneyPortfolio } from './portfolio-source';
-import { stamp } from './time';
-import { usePreferences } from '../../shared/preferences';
+import { useMoneyPortfolio } from '../portfolio-source';
+import { stamp } from '../time';
+import { usePreferences } from '../../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -171,13 +174,13 @@ function usd(value: string | null, copy: Copy, signed = false): string {
 function MethodSwitch({ method, onChange, copy }: { method: LotMethod | null; onChange: (next: LotMethod) => void; copy: Copy }) {
   const { t } = copy;
   return (
-    <div className="money-alloc__switch" role="group" aria-label={t('Matching method')}>
-      {LOT_METHODS.map((option) => (
-        <button key={option} type="button" className="money-alloc__opt" aria-pressed={method === option} onClick={() => onChange(option)}>
-          {t(METHOD_COPY[option])}
-        </button>
-      ))}
-    </div>
+    <Pressed
+      label={t('Matching method')}
+      options={LOT_METHODS}
+      value={method}
+      words={(option) => t(METHOD_COPY[option])}
+      onChoose={onChange}
+    />
   );
 }
 
@@ -220,27 +223,27 @@ function ViewCard({
   const figure = view === 'last' ? figures.last.figure : figures[view];
   const trade = figures.last.trade;
   return (
-    <section data-testid="money-card" className="money-card" aria-label={t('Result view')}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section data-testid="money-card" aria-label={t('Result view')}>
+      <header data-testid="money-card__head">
         <h2>{t('Result view')}</h2>
       </header>
-      <div className="money-alloc__switch" role="group" aria-label={t('Show the result as')}>
-        {PNL_VIEWS.map((option) => (
-          <button key={option} type="button" className="money-alloc__opt" aria-pressed={view === option} onClick={() => choose(option)}>
-            {t(VIEW_COPY[option])}
-          </button>
-        ))}
-      </div>
-      <p data-testid="money-total" className="money-total" data-figure="view" data-view={view}>
+      <Pressed
+        label={t('Show the result as')}
+        options={PNL_VIEWS}
+        value={view}
+        words={(option) => t(VIEW_COPY[option])}
+        onChoose={choose}
+      />
+      <p data-testid="money-total" className="lt-figure" data-figure="view" data-view={view}>
         <FigureText figure={figure} hidden={hidden} copy={copy} />
       </p>
       {view === 'last' && trade !== null ? (
-        <p data-testid="money-note" className="money-note" data-label="last-trade" data-kind={trade.kind}>
+        <p data-testid="money-note" className="lt-hint" data-label="last-trade" data-kind={trade.kind}>
           {t(trade.kind === 'sale' ? 'Last sale line' : 'Last buy line', { asset: trade.assetId, time: stamp(trade.at, timeZone) })}
         </p>
       ) : null}
       {view === 'realised' || view === 'all' ? (
-        <p data-testid="money-note" className="money-note" data-figure="sale-fees">
+        <p data-testid="money-note" className="lt-hint" data-figure="sale-fees">
           {saleFees === null ? (
             t('Sale fees unknown')
           ) : (
@@ -250,7 +253,7 @@ function ViewCard({
           )}
         </p>
       ) : null}
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t(VIEW_RULE[view])}
       </p>
     </section>
@@ -277,28 +280,28 @@ function TransfersCard({
   const { t } = copy;
   const on = book.includeTransfers;
   return (
-    <section data-testid="money-card" className="money-card" aria-label={t('Transfers in results')}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section data-testid="money-card" aria-label={t('Transfers in results')}>
+      <header data-testid="money-card__head">
         <h2>{t('Transfers in results')}</h2>
       </header>
-      <label data-testid="money-note" className="money-note">
+      <label data-testid="money-note" className="lt-hint">
         <Switch
-          aria-label={t('Include transfers')}
+          label={t('Include transfers')}
           checked={on}
           disabled={save === null || busy}
-          onCheckedChange={(include: boolean) => void save?.({ procedure: 'setIncludeTransfers', input: { include } })}
+          onChange={(include: boolean) => void save?.({ procedure: 'setIncludeTransfers', input: { include } })}
         />{' '}
         {t('Include transfers')}
       </label>
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t(on ? 'Transfers on rule' : 'Transfers off rule')}
       </p>
       {save === null && !book.preview ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t(book.choices.status === 'unavailable' ? 'Choices unreadable' : 'Choices not saved here')}
         </p>
       ) : null}
-      <p data-testid="money-note" className="money-note" role="status">
+      <p data-testid="money-note" className="lt-hint" role="status">
         {message}
       </p>
     </section>
@@ -308,27 +311,27 @@ function TransfersCard({
 function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidden: boolean; copy: Copy }) {
   const { t } = copy;
   return (
-    <section data-testid="money-card" className="money-card" aria-label={t('Open positions')}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section data-testid="money-card" aria-label={t('Open positions')}>
+      <header data-testid="money-card__head">
         <h2>{t('Open positions')}</h2>
       </header>
-      <table data-testid="money-table" className="money-table">
+      <table data-testid="money-table" className="lt-table">
         <thead>
           <tr>
             <th scope="col">{t('Coin')}</th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Bought quantity')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Average price')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Cost')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Worth now')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Unrealised')}
             </th>
           </tr>
@@ -339,37 +342,37 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
               <th scope="row">
                 {a.asset}
                 {a.venueAccount !== undefined ? (
-                  <span data-testid="money-note" className="money-note" data-label="venue">
+                  <span data-testid="money-note" className="lt-hint" data-label="venue">
                     {' '}
                     {t('In your venue account')}
                   </span>
                 ) : null}
                 {a.otherQty !== '0' ? (
-                  <span data-testid="money-note" className="money-note">
+                  <span data-testid="money-note" className="lt-hint">
                     {' '}
                     {t('Other quantity', { qty: fmtAmount(a.otherQty), asset: a.asset })}
                   </span>
                 ) : null}
                 {a.uncountedQty !== '0' ? (
-                  <span data-testid="money-note" className="money-note" data-label="not-counted">
+                  <span data-testid="money-note" className="lt-hint" data-label="not-counted">
                     {' '}
                     {t('Uncounted quantity', { qty: fmtAmount(a.uncountedQty), asset: a.asset })}
                   </span>
                 ) : null}
               </th>
-              <td className="money-num">
+              <td data-label={t('Bought quantity')} data-align="end">
                 <Amount value={fmtAmount(a.knownQty)} hidden={hidden} />
               </td>
-              <td className="money-num" data-col="average">
+              <td data-label={t('Average price')} data-align="end" data-col="average">
                 {a.reason === 'not_counted' ? t('Not counted') : <Amount value={usd(a.avgPriceUsd, copy)} hidden={hidden} />}
               </td>
-              <td className="money-num" data-col="cost">
+              <td data-label={t('Cost')} data-align="end" data-col="cost">
                 {a.reason === 'not_counted' ? t('Not counted') : <Amount value={usd(a.costUsd, copy)} hidden={hidden} />}
               </td>
-              <td className="money-num">
+              <td data-label={t('Worth now')} data-align="end">
                 <Amount value={usd(a.valueUsd, copy)} hidden={hidden} />
               </td>
-              <td className="money-num" data-col="unrealised">
+              <td data-label={t('Unrealised')} data-align="end" data-col="unrealised">
                 {a.unrealisedUsd === null ? (
                   <span>{t(REASON_COPY[a.reason ?? 'cost_unknown'])}</span>
                 ) : (
@@ -405,32 +408,32 @@ function SaleRows({
   const { t } = copy;
   const { timeZone } = usePreferences();
   return (
-    <section data-testid="money-card" className="money-card" aria-label={t('Sales')}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section data-testid="money-card" aria-label={t('Sales')}>
+      <header data-testid="money-card__head">
         <h2>{t('Sales')}</h2>
       </header>
       {book.sales.length === 0 ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('No sales yet')}
         </p>
       ) : (
-        <table data-testid="money-table" className="money-table">
+        <table data-testid="money-table" className="lt-table">
           <thead>
             <tr>
               <th scope="col">{t('Sold')}</th>
-              <th scope="col" className="money-num">
+              <th scope="col" data-align="end">
                 {t('Quantity')}
               </th>
-              <th scope="col" className="money-num">
+              <th scope="col" data-align="end">
                 {t('Received')}
               </th>
-              <th scope="col" className="money-num">
+              <th scope="col" data-align="end">
                 {t('Cost')}
               </th>
-              <th scope="col" className="money-num">
+              <th scope="col" data-align="end">
                 {t('Result')}
               </th>
-              <th scope="col" className="money-num">
+              <th scope="col" data-align="end">
                 {t('Fee column')}
               </th>
               <th scope="col">{t('Matched by')}</th>
@@ -441,39 +444,39 @@ function SaleRows({
               <tr key={`${sale.txId}:${sale.assetId}`} data-sale={sale.txId}>
                 <th scope="row" data-kind={sale.kind} data-counted={sale.counted}>
                   {sale.assetId}{' '}
-                  <span data-testid="money-note" className="money-note">
+                  <span data-testid="money-note" className="lt-hint">
                     {stamp(sale.disposedAt, timeZone)}
                   </span>
                   {sale.kind === 'moved_out' ? (
-                    <span data-testid="money-note" className="money-note" data-label="moved-out">
+                    <span data-testid="money-note" className="lt-hint" data-label="moved-out">
                       {' '}
                       {t('Moved out')}
                     </span>
                   ) : null}
                   {sale.counted !== 'all' ? (
-                    <span data-testid="money-note" className="money-note" data-label="not-counted">
+                    <span data-testid="money-note" className="lt-hint" data-label="not-counted">
                       {' '}
                       {t(sale.counted === 'none' ? 'Not counted' : 'Partly counted')}
                     </span>
                   ) : null}
                 </th>
-                <td className="money-num">
+                <td data-label={t('Quantity')} data-align="end">
                   <Amount value={fmtAmount(sale.qty)} hidden={hidden} />
                 </td>
-                <td className="money-num">
+                <td data-label={t('Received')} data-align="end">
                   <Amount value={usd(sale.proceedsUsd, copy)} hidden={hidden} />
                 </td>
-                <td className="money-num">
+                <td data-label={t('Cost')} data-align="end">
                   <Amount value={usd(sale.costUsd, copy)} hidden={hidden} />
                 </td>
-                <td className="money-num" data-col="result">
+                <td data-label={t('Result')} data-align="end" data-col="result">
                   {sale.realizedUsd === null ? (
                     <span>{sale.unmatchedQty !== '0' ? t('Part has no cost') : t('Cost unknown')}</span>
                   ) : (
                     <Amount value={usd(sale.realizedUsd, copy, true)} hidden={hidden} />
                   )}
                   {sale.basisSource === 'customer-entered' ? (
-                    <span data-testid="money-note" className="money-note" data-label="customer-entered">
+                    <span data-testid="money-note" className="lt-hint" data-label="customer-entered">
                       {' '}
                       {t('Customer-entered')}
                     </span>
@@ -483,7 +486,7 @@ function SaleRows({
                         <span
                           key={`${part.lotId ?? 'no-lot'}:${index}`}
                           data-testid="money-note"
-                          className="money-note"
+                          className="lt-hint"
                           data-effect="unknown-share"
                         >
                           {' '}
@@ -492,12 +495,12 @@ function SaleRows({
                       ))
                     : null}
                 </td>
-                <td className="money-num" data-col="fee">
+                <td data-label={t('Fee column')} data-align="end" data-col="fee">
                   <SaleFee sale={sale} hidden={hidden} copy={copy} />
                 </td>
-                <td data-col="method">
+                <td data-label={t('Matched by')} data-col="method">
                   <span data-method={sale.method}>{t(METHOD_COPY[sale.method])}</span>{' '}
-                  <span data-testid="money-note" className="money-note">
+                  <span data-testid="money-note" className="lt-hint">
                     {t(METHOD_SOURCE_COPY[sale.methodSource])}
                   </span>
                   {/* At the average cost no one lot sets the cost, so no pick is offered; a saved one can still be cleared. */}
@@ -505,7 +508,7 @@ function SaleRows({
                     <LotPick book={book} sale={sale} save={save} busy={busy} copy={copy} />
                   ) : null}
                   {!book.preview && sale.pickedLotId === null && savedPick(book, sale) ? (
-                    <span data-testid="money-note" className="money-note">
+                    <span data-testid="money-note" className="lt-hint">
                       {' '}
                       {t('Pick not used')}
                     </span>
@@ -533,7 +536,7 @@ function SaleFee({ sale, hidden, copy }: { sale: LotBookSale; hidden: boolean; c
     <span data-fee="known">
       <Amount value={t('Fee in coin', { amount: fmtAmount(fee.amount), asset: fee.assetId })} hidden={hidden} />
       {fee.usd !== null ? (
-        <span data-testid="money-note" className="money-note">
+        <span data-testid="money-note" className="lt-hint">
           {' '}
           <Amount value={fmtUsd(fee.usd)} hidden={hidden} />
         </span>
@@ -557,29 +560,30 @@ function LotPick({ book, sale, save, busy, copy }: { book: LotBook; sale: LotBoo
   const lots = pickableLots(book, sale);
   // A saved pick that can no longer be used stays listed, so the control shows what is saved and can clear it.
   const stale = saved && !lots.some((lot) => lot.id === saved.lotId) ? book.lots.find((lot) => lot.id === saved.lotId) : undefined;
+  const options = [
+    { value: '', label: t('By method') },
+    ...(stale ? [...lots, stale] : lots).map((lot) => ({
+      value: lot.id,
+      label: t('Lot option', { time: stamp(lot.acquiredAt, timeZone), qty: fmtAmount(lot.qty), source: t(SOURCE_COPY[lot.source]) }),
+    })),
+    // A saved lot that is no longer in the book at all still shows, so it can be cleared.
+    ...(saved && !stale && !lots.some((lot) => lot.id === saved.lotId) ? [{ value: saved.lotId, label: t('Lot gone') }] : []),
+  ];
   return (
-    <select
+    <Select
       data-testid="money-note"
-      className="money-note"
+      label={t('Lot for this sale')}
       aria-label={t('Lot for this sale')}
+      options={options}
       value={saved?.lotId ?? ''}
       disabled={busy}
-      onChange={(event) =>
+      onChange={(value) =>
         void save({
           procedure: 'pickSaleLot',
-          input: { saleTxId: sale.txId, assetId: sale.assetId, lotId: event.target.value === '' ? null : event.target.value },
+          input: { saleTxId: sale.txId, assetId: sale.assetId, lotId: value === '' ? null : value },
         })
       }
-    >
-      <option value="">{t('By method')}</option>
-      {(stale ? [...lots, stale] : lots).map((lot) => (
-        <option key={lot.id} value={lot.id}>
-          {t('Lot option', { time: stamp(lot.acquiredAt, timeZone), qty: fmtAmount(lot.qty), source: t(SOURCE_COPY[lot.source]) })}
-        </option>
-      ))}
-      {/* A saved lot that is no longer in the book at all still shows, so it can be cleared. */}
-      {saved && !stale && !lots.some((lot) => lot.id === saved.lotId) ? <option value={saved.lotId}>{t('Lot gone')}</option> : null}
-    </select>
+    />
   );
 }
 
@@ -591,92 +595,78 @@ function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save:
   const [dayMethod, setDayMethod] = useState<LotMethod>('FIFO');
   const choices = book.choices;
   return (
-    <section data-testid="money-card" className="money-card" aria-label={t('Your matching choices')}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section data-testid="money-card" aria-label={t('Your matching choices')}>
+      <header data-testid="money-card__head">
         <h2>{t('Your matching choices')}</h2>
       </header>
       {choices.status !== 'saved' ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t(choices.status === 'unavailable' ? 'Choices unreadable' : 'Choices not saved here')}
         </p>
       ) : (
         <>
-          <label data-testid="money-note" className="money-note">
-            {t('Method for all coins')}{' '}
-            <select
-              aria-label={t('Method for all coins')}
-              value={choices.accountMethod ?? book.method}
-              disabled={busy}
-              onChange={(event) =>
-                void save({ procedure: 'setLotMethod', input: { assetId: null, method: event.target.value as LotMethod } })
-              }
-            >
-              {LOT_METHODS.map((m) => (
-                <option key={m} value={m}>
-                  {t(METHOD_COPY[m])}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p data-testid="money-note" className="money-note">
+          <Select
+            data-testid="money-note"
+            label={t('Method for all coins')}
+            aria-label={t('Method for all coins')}
+            options={LOT_METHODS.map((m) => ({ value: m, label: t(METHOD_COPY[m]) }))}
+            value={choices.accountMethod ?? book.method}
+            disabled={busy}
+            onChange={(value) => void save({ procedure: 'setLotMethod', input: { assetId: null, method: value as LotMethod } })}
+          />
+          <p data-testid="money-note" className="lt-hint">
             {t('Choices rule')}
           </p>
           <form
             data-testid="money-note-form"
-            className="money-note-form"
+            className="lt-actions"
             aria-label={t('Method for one day')}
             onSubmit={(event) => {
               event.preventDefault();
               void save({ procedure: 'setDayMethod', input: { day, assetId: dayAsset === '' ? null : dayAsset, method: dayMethod } });
             }}
           >
-            <span data-testid="money-note" className="money-note">
+            <span data-testid="money-note" className="lt-hint">
               {t('Method for one day')}
             </span>{' '}
-            <input type="date" aria-label={t('Day in UTC')} value={day} required onChange={(event) => setDay(event.target.value)} />{' '}
-            <select aria-label={t('Coin for that day')} value={dayAsset} onChange={(event) => setDayAsset(event.target.value)}>
-              <option value="">{t('All coins')}</option>
-              {lotAssets(book).map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>{' '}
-            <select
+            <Field label={t('Day in UTC')} type="date" value={day} required onChange={(event) => setDay(event.target.value)} />
+            <Select
+              label={t('Coin for that day')}
+              aria-label={t('Coin for that day')}
+              options={[{ value: '', label: t('All coins') }, ...lotAssets(book).map((a) => ({ value: a, label: a }))]}
+              value={dayAsset}
+              onChange={setDayAsset}
+            />
+            <Select
+              label={t('Method for that day')}
               aria-label={t('Method for that day')}
+              options={LOT_METHODS.map((m) => ({ value: m, label: t(METHOD_COPY[m]) }))}
               value={dayMethod}
-              onChange={(event) => setDayMethod(event.target.value as LotMethod)}
-            >
-              {LOT_METHODS.map((m) => (
-                <option key={m} value={m}>
-                  {t(METHOD_COPY[m])}
-                </option>
-              ))}
-            </select>{' '}
-            <Button type="submit" variant="secondary" size={40} disabled={busy}>
+              onChange={(value) => setDayMethod(value as LotMethod)}
+            />
+            <Button type="submit" tone="secondary" disabled={busy}>
               {t('Save day method')}
             </Button>
           </form>
           {choices.days.length > 0 ? (
-            <ul data-testid="money-note" className="money-note" aria-label={t('Saved day methods')}>
+            <ul data-testid="money-note" className="lt-hint" aria-label={t('Saved day methods')}>
               {choices.days.map((d) => (
                 <li key={`${d.day}:${d.assetId ?? '*'}`} data-day={d.day}>
                   {t('Day method line', { day: d.day, coin: d.assetId ?? t('All coins'), method: t(METHOD_COPY[d.method]) })}{' '}
-                  <button
-                    type="button"
-                    className="money-alloc__opt"
+                  <Button
+                    tone="quiet"
                     disabled={busy}
                     onClick={() => void save({ procedure: 'setDayMethod', input: { day: d.day, assetId: d.assetId, method: null } })}
                   >
                     {t('Remove')}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
           ) : null}
         </>
       )}
-      <p data-testid="money-note" className="money-note" role="status">
+      <p data-testid="money-note" className="lt-hint" role="status">
         {message}
       </p>
     </section>
@@ -746,96 +736,84 @@ function LotRows({
   const carried = book.lots.some((lot) => lot.carriedFrom !== undefined && lot.venueAccount === undefined);
   const carriedVenue = book.lots.some((lot) => lot.carriedFrom !== undefined && lot.venueAccount !== undefined);
   return (
-    <section data-testid="money-card" className="money-card" aria-label={t('Lots')}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section data-testid="money-card" aria-label={t('Lots')}>
+      <header data-testid="money-card__head">
         <h2>{t('Lots')}</h2>
-        <label data-testid="money-note" className="money-note">
-          {t('Lots for')}{' '}
-          <select value={asset} onChange={(event) => choose(event.target.value)} aria-label={t('Coin for lots')}>
-            {assets.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          data-testid="money-note"
+          label={t('Lots for')}
+          aria-label={t('Coin for lots')}
+          options={assets.map((a) => ({ value: a, label: a }))}
+          value={asset}
+          onChange={choose}
+        />
         {accounts.length > 1 ? (
-          <label data-testid="money-note" className="money-note">
-            {t('Lots in')}{' '}
-            <select value={account} onChange={(event) => chooseAccount(event.target.value)} aria-label={t('Account for lots')}>
-              <option value="all">{t('All accounts')}</option>
-              {accounts.map((id) => (
-                <option key={id} value={id}>
-                  {accountName(id)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            data-testid="money-note"
+            label={t('Lots in')}
+            aria-label={t('Account for lots')}
+            options={[{ value: 'all', label: t('All accounts') }, ...accounts.map((id) => ({ value: id, label: accountName(id) }))]}
+            value={account}
+            onChange={chooseAccount}
+          />
         ) : null}
         {save !== null ? (
-          <label data-testid="money-note" className="money-note">
-            {t('Method for coin', { asset })}{' '}
-            <select
-              aria-label={t('Method for coin', { asset })}
-              value={coinMethod(book, asset) ?? ''}
-              disabled={busy}
-              onChange={(event) =>
-                void save({
-                  procedure: 'setLotMethod',
-                  input: { assetId: asset, method: event.target.value === '' ? null : (event.target.value as LotMethod) },
-                })
-              }
-            >
-              <option value="">{t('Same as all coins')}</option>
-              {LOT_METHODS.map((m) => (
-                <option key={m} value={m}>
-                  {t(METHOD_COPY[m])}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            data-testid="money-note"
+            label={t('Method for coin', { asset })}
+            aria-label={t('Method for coin', { asset })}
+            options={[{ value: '', label: t('Same as all coins') }, ...LOT_METHODS.map((m) => ({ value: m, label: t(METHOD_COPY[m]) }))]}
+            value={coinMethod(book, asset) ?? ''}
+            disabled={busy}
+            onChange={(value) =>
+              void save({
+                procedure: 'setLotMethod',
+                input: { assetId: asset, method: value === '' ? null : (value as LotMethod) },
+              })
+            }
+          />
         ) : null}
       </header>
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t('Lots rule')}
       </p>
       {carried ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('Carried rule')}
         </p>
       ) : null}
       {carriedVenue ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('Carried rule venue')}
         </p>
       ) : null}
       {book.spaces !== undefined && book.spaces.status !== 'read' ? (
-        <p data-testid="money-note" className="money-note" data-refusal={book.spaces.code}>
+        <p data-testid="money-note" className="lt-hint" data-refusal={book.spaces.code}>
           {t('Spaces not followed')} ({book.spaces.code})
         </p>
       ) : null}
-      <table data-testid="money-table" className="money-table">
+      <table data-testid="money-table" className="lt-table">
         <thead>
           <tr>
             <th scope="col">{t('Acquired')}</th>
             <th scope="col">{t('Source')}</th>
             <th scope="col">{t('Account')}</th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Quantity')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Left')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Cost')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Cost of what is left')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Value on arrival')}
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" data-align="end">
               {t('Days held')}
             </th>
           </tr>
@@ -844,64 +822,64 @@ function LotRows({
           {lots.map((lot) => (
             <tr key={lot.id} data-lot={lot.id} data-source={lot.source}>
               <th scope="row">{stamp(lot.acquiredAt, timeZone)}</th>
-              <td data-col="source">
+              <td data-label={t('Source')} data-col="source">
                 {t(SOURCE_COPY[lot.source])}
                 {lot.counted ? null : (
-                  <span data-testid="money-note" className="money-note" data-label="not-counted">
+                  <span data-testid="money-note" className="lt-hint" data-label="not-counted">
                     {' '}
                     {t('Not counted')}
                   </span>
                 )}
               </td>
-              <td data-col="account" data-space={lot.spaceId ?? 'main'} data-venue={lot.venueAccount}>
+              <td data-label={t('Account')} data-col="account" data-space={lot.spaceId ?? 'main'} data-venue={lot.venueAccount}>
                 {accountName(lotAccountOf(lot))}
                 {lot.carriedFrom !== undefined ? (
-                  <span data-testid="money-note" className="money-note" data-label="carried">
+                  <span data-testid="money-note" className="lt-hint" data-label="carried">
                     {' '}
                     {t('Moved between your accounts')} · {stamp(lot.carriedFrom.movedAt, timeZone)}
                   </span>
                 ) : null}
               </td>
-              <td className="money-num" data-col="qty">
+              <td data-label={t('Quantity')} data-align="end" data-col="qty">
                 <Amount value={fmtAmount(lot.qty)} hidden={hidden} />
               </td>
-              <td className="money-num" data-col="left">
+              <td data-label={t('Left')} data-align="end" data-col="left">
                 <Amount value={fmtAmount(lot.remaining)} hidden={hidden} />
               </td>
-              <td className="money-num" data-col="cost">
+              <td data-label={t('Cost')} data-align="end" data-col="cost">
                 {lot.costUsd === null ? <span>{t('Cost unknown')}</span> : <Amount value={usd(lot.costUsd, copy)} hidden={hidden} />}
                 {lot.basisSource === 'customer-entered' ? (
                   <CustomerEntered lotId={lot.basisLotId ?? lot.id} copy={copy} onRemove={onRemove} />
                 ) : null}
               </td>
-              <td className="money-num" data-col="cost-left">
+              <td data-label={t('Cost of what is left')} data-align="end" data-col="cost-left">
                 {lot.remainingCostUsd === null ? (
                   <span>{t('Cost unknown')}</span>
                 ) : (
                   <Amount value={usd(lot.remainingCostUsd, copy)} hidden={hidden} />
                 )}
               </td>
-              <td className="money-num" data-col="arrival">
+              <td data-label={t('Value on arrival')} data-align="end" data-col="arrival">
                 {lot.valuedAt === null ? (
                   <span>{lot.source === 'trade' ? t('Bought, cost is what was paid') : t('No price at that time')}</span>
                 ) : (
                   <>
                     <Amount value={usd(lot.valuedAt.usd, copy)} hidden={hidden} />
-                    <span data-testid="money-note" className="money-note" data-col="price-source">
+                    <span data-testid="money-note" className="lt-hint" data-col="price-source">
                       {' '}
                       {priceSource(lot, copy, timeZone)}
                     </span>
                   </>
                 )}
               </td>
-              <td className="money-num" data-col="days">
+              <td data-label={t('Days held')} data-align="end" data-col="days">
                 {lot.daysHeld === null ? t('Sold') : String(lot.daysHeld)}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t('Term rule unset')}
       </p>
     </section>
@@ -918,7 +896,7 @@ function VenueNotes({ book, copy }: { book: LotBook; copy: Copy }) {
   const venue = book.venue;
   if (venue?.status === 'unavailable')
     return (
-      <p data-testid="money-note" className="money-note" data-refusal={venue.code}>
+      <p data-testid="money-note" className="lt-hint" data-refusal={venue.code}>
         {t('Venue not read')} ({venue.code})
       </p>
     );
@@ -929,7 +907,7 @@ function VenueNotes({ book, copy }: { book: LotBook; copy: Copy }) {
       {venue.accounts
         .filter((a) => shown.has(a.account))
         .map((a) => (
-          <p key={a.account} data-testid="money-note" className="money-note" data-venue={a.account} data-as-of={a.asOf}>
+          <p key={a.account} data-testid="money-note" className="lt-hint" data-venue={a.account} data-as-of={a.asOf}>
             {t(venue.test ? 'Venue as of TEST' : 'Venue as of', { time: stamp(a.asOf, timeZone) })}
           </p>
         ))}
@@ -944,13 +922,12 @@ function CustomerEntered({ lotId, copy, onRemove }: { lotId: string; copy: Copy;
   // A removal takes this label away, and the page says so above; only a refusal is said here.
   const [message, setMessage] = useState<string | null>(null);
   return (
-    <span data-testid="money-note" className="money-note" data-label="customer-entered">
+    <span data-testid="money-note" className="lt-hint" data-label="customer-entered">
       {' '}
       {t('Customer-entered')} · {t('Our record unknown')}{' '}
       <Button
         type="button"
-        variant="ghost"
-        size={28}
+        tone="quiet"
         disabled={busy}
         onClick={async () => {
           setBusy(true);
@@ -1004,42 +981,16 @@ export default function Pnl({ search = '' }: { search?: string }) {
   // What follows the value cards; they keep one place on the page, so a book that loads never re-mounts them.
   let after: ReactNode = null;
   let pnlShown = false;
+  // The realised and unrealised results, as the room's key figures, once the book has trades to measure.
+  let keyFigures: ReactNode[] = [];
   if (book.status === 'loading') {
-    body = <Skeleton width="100%" height={160} className="bg-field" />;
+    body = <Skeleton shape="figure" />;
   } else if (book.status === 'error') {
-    body = (
-      <StateBlock
-        kind="error"
-        testId="money-state"
-        className="money-state"
-        title={t('Couldn’t load your profit and loss')}
-        onRetry={book.retry}
-        retryLabel={t('Try again')}
-      />
-    );
+    body = <ErrorNote title={t('Couldn’t load your profit and loss')} onRetry={book.retry} retryLabel={t('Try again')} />;
   } else if (book.status === 'refused' && ask === null) {
-    body = (
-      <StateBlock
-        kind="refused"
-        testId="money-state"
-        className="money-state"
-        title={t('Method not offered')}
-        body={t('Method not offered body')}
-      />
-    );
+    body = <RefusedNote words={{ title: t('Method not offered'), body: t('Method not offered body') }} />;
   } else if (book.status === 'refused') {
-    const words = refusalCopy(book.code);
-    body = (
-      <StateBlock
-        kind="refused"
-        testId="money-state"
-        className="money-state"
-        title={words.title}
-        body={words.body}
-        code={words.reference}
-        action={words.action}
-      />
-    );
+    body = <RefusedNote words={refusalCopy(book.code)} />;
   } else if (
     book.status === 'empty' ||
     !view ||
@@ -1050,10 +1001,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
       book.data.venue?.status !== 'unavailable')
   ) {
     body = (
-      <StateBlock
-        kind="empty"
-        testId="money-state"
-        className="money-state"
+      <EmptyNote
         title={t('No trades to measure yet')}
         body={t('No trades to measure body')}
         action={{ label: t('Go to Money'), href: '/money' }}
@@ -1066,16 +1014,35 @@ export default function Pnl({ search = '' }: { search?: string }) {
     // Choices are made on the saved book, never on a preview, and only where they can be saved.
     const canChoose = !data.preview && data.choices.status === 'saved';
     const save = canChoose ? saver.save : null;
+    keyFigures = [
+      <div key="realised">
+        <div data-testid="money-label" className="lt-actions">
+          <span>{t('Realised')}</span>
+          <InfoTip data-testid="if-tip" text={t('Realised rule')} label={t('How realised is worked out')} side="end" />
+        </div>
+        <p data-testid="money-total" className="lt-figure" data-figure="realised">
+          <Amount value={usd(view.realisedUsd, copy, true)} hidden={hideBalances} />
+        </p>
+      </div>,
+      <div key="unrealised">
+        <div data-testid="money-label" className="lt-actions">
+          <span>{t('Unrealised')}</span>
+          <InfoTip data-testid="if-tip" text={t('Unrealised rule')} label={t('How unrealised is worked out')} side="end" />
+        </div>
+        <p data-testid="money-total" className="lt-figure" data-figure="unrealised">
+          <Amount value={usd(view.unrealisedUsd, copy, true)} hidden={hideBalances} />
+        </p>
+      </div>,
+    ];
     body = (
       <>
         {data.preview ? (
-          <div data-testid="money-note" className="money-note" role="note" aria-label={t('Preview')}>
-            <p>{t('Preview note', { method: t(METHOD_COPY[data.method]) })}</p>
+          <div data-testid="money-note" className="lt-actions" role="note" aria-label={t('Preview')}>
+            <p className="lt-hint">{t('Preview note', { method: t(METHOD_COPY[data.method]) })}</p>
             {data.choices.status === 'saved' ? (
               <Button
                 type="button"
-                variant="secondary"
-                size={40}
+                tone="secondary"
                 disabled={saver.busy}
                 onClick={() =>
                   void saver.save({ procedure: 'setLotMethod', input: { assetId: null, method: data.method } }).then((saved) => {
@@ -1087,6 +1054,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
               </Button>
             ) : null}{' '}
             <a
+              className="lt-link"
               href="/money/pnl"
               onClick={(event) => {
                 event.preventDefault();
@@ -1097,27 +1065,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
             </a>
           </div>
         ) : null}
-        <div data-testid="money-head" className="money-head">
-          <div className="money-head__main">
-            <div data-testid="money-label" className="money-label">
-              <span>{t('Realised')}</span>
-              <InfoTip text={t('Realised rule')} label={t('How realised is worked out')} side="right" />
-            </div>
-            <p data-testid="money-total" className="money-total" data-figure="realised">
-              <Amount value={usd(view.realisedUsd, copy, true)} hidden={hideBalances} />
-            </p>
-          </div>
-          <div className="money-head__main">
-            <div data-testid="money-label" className="money-label">
-              <span>{t('Unrealised')}</span>
-              <InfoTip text={t('Unrealised rule')} label={t('How unrealised is worked out')} side="right" />
-            </div>
-            <p data-testid="money-total" className="money-total" data-figure="unrealised">
-              <Amount value={usd(view.unrealisedUsd, copy, true)} hidden={hideBalances} />
-            </p>
-          </div>
-        </div>
-        <p data-testid="money-note" className="money-note" data-figure="fees">
+        <p data-testid="money-note" className="lt-hint" data-figure="fees">
           {t('Trading fees')}{' '}
           {data.feesUsd === null ? t('Trading fees unknown') : <Amount value={fmtUsd(data.feesUsd)} hidden={hideBalances} />}{' '}
           {t('Trading fees rule')}
@@ -1132,23 +1080,23 @@ export default function Pnl({ search = '' }: { search?: string }) {
     after = (
       <>
         {reasons.length > 0 ? (
-          <ul data-testid="money-note" className="money-note" aria-label={t('Why some figures are not known')}>
+          <ul data-testid="money-note" className="lt-hint" aria-label={t('Why some figures are not known')}>
             {[...new Set(reasons)].map((key) => (
               <li key={key}>{t(key)}</li>
             ))}
           </ul>
         ) : null}
-        <p className="money-note" role="status" data-testid="basis-notice">
+        <p className="lt-hint" role="status" data-testid="basis-notice">
           {notice ?? ''}
         </p>
         {missingData ? (
           <MissingCost book={book.data} missing={missingData} hidden={hideBalances} copy={copy} onSave={setPrice} />
         ) : missing.status === 'refused' || missing.status === 'error' ? (
-          <section data-testid="money-card" className="money-card" aria-label={t('Missing cost')}>
-            <header data-testid="money-card__head" className="money-card__head">
+          <section data-testid="money-card" aria-label={t('Missing cost')}>
+            <header data-testid="money-card__head">
               <h2>{t('Missing cost')}</h2>
             </header>
-            <p data-testid="money-note" className="money-note">
+            <p data-testid="money-note" className="lt-hint">
               {t('Missing cost unreadable')}
               {missing.status === 'refused' ? ` ${refusalCopy(missing.code).reference}` : ''}
             </p>
@@ -1163,37 +1111,47 @@ export default function Pnl({ search = '' }: { search?: string }) {
   }
 
   return (
-    <div data-testid="if-money" className="if-money if-money--pnl">
-      <h1 className="money-title">{t('Profit and loss')}</h1>
-      <p data-testid="money-note" className="money-note" data-indicator="true">
-        {t('Pnl indicator label')}
-      </p>
-      {book.status === 'ready' ? <VenueNotes book={book.data} copy={copy} /> : null}
-      <MethodSwitch method={method} onChange={pick} copy={copy} />
-      <p data-testid="money-note" className="money-note">
-        {t('Pnl method rule')}
-      </p>
-      {body}
-      {/* What the money was worth comes from the bank alone, so it shows without trades or when the lot book cannot be read;
-          it carries the range switch itself when the profit and loss cards are not shown. */}
-      <ValueOverTimeCards
-        search={search}
-        first={book.status === 'ready' ? firstActivity(book.data) : null}
-        picker={!pnlShown}
-        hidden={hideBalances}
+    <div data-testid="if-money">
+      <MonitorTemplate
+        title={t('Profit and loss')}
+        state={{ kind: 'ready' }}
+        mode="pro"
+        figures={keyFigures}
+        panels={
+          <>
+            <p data-testid="money-note" className="lt-hint" data-indicator="true">
+              {t('Pnl indicator label')}
+            </p>
+            {book.status === 'ready' ? <VenueNotes book={book.data} copy={copy} /> : null}
+            <MethodSwitch method={method} onChange={pick} copy={copy} />
+            <p data-testid="money-note" className="lt-hint">
+              {t('Pnl method rule')}
+            </p>
+            {body}
+            {/* What the money was worth comes from the bank alone, so it shows without trades or when the lot book cannot be
+                read; it carries the range switch itself when the profit and loss cards are not shown. */}
+            <ValueOverTimeCards
+              search={search}
+              first={book.status === 'ready' ? firstActivity(book.data) : null}
+              picker={!pnlShown}
+              hidden={hideBalances}
+            />
+            {after}
+            <p data-testid="money-note" className="lt-hint">
+              <a
+                className="lt-link"
+                href="/money"
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigate('/money');
+                }}
+              >
+                {t('Back to Money')}
+              </a>
+            </p>
+          </>
+        }
       />
-      {after}
-      <p data-testid="money-note" className="money-note">
-        <a
-          href="/money"
-          onClick={(event) => {
-            event.preventDefault();
-            navigate('/money');
-          }}
-        >
-          {t('Back to Money')}
-        </a>
-      </p>
     </div>
   );
 }

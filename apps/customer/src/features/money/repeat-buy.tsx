@@ -25,6 +25,7 @@ import {
   useBankRecord,
 } from './components';
 import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
+import { BANK_AUTO_INVEST_CREATE_DCA } from '@intafaced/contracts/bank-auto-invest-2-procedures';
 
 type Rule = z.infer<typeof ruleSchema>;
 const validAsset = (asset: string) => asset.trim().length > 0 && asset === asset.trim() && asset.length <= 16;
@@ -112,7 +113,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
         function setup(): ActionSpec {
           return {
             title: t('title', { asset }),
-            procedure: 'autoInvest.createDca',
+            record: BANK_AUTO_INVEST_CREATE_DCA,
             fields: [positiveMoney(spendAsset, 'amount', t('budget')), cadenceField, startsField],
             facts: [
               [t('buy'), asset],
