@@ -7,7 +7,7 @@ import { fmtAmount, fmtPctPoints, fmtPrice } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import { positionsCopy } from './positions-copy';
 import { STALE_AFTER_MS, useFuturesRefresh, type MarginCalls, type RiskStops } from './data';
-import { isStale, closeAllPlan, stableOrder, type Band } from './model';
+import { isStale, closeAllPlan, stableOrder } from './model';
 import { CloseAllDialog, PositionRowActions } from './PositionDialogs';
 import { barWidth, freeFor, rowOf, signedAmount } from './positions-logic';
 import { futuresRefusal, isPlaneOff } from './refusals';
