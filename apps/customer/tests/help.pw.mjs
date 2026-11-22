@@ -492,7 +492,7 @@ test('native refresh changes owner discards held old public context and clears p
   await expect(ready(page)).toContainText(body);
   gate.release();
   await expect(page.getByRole('heading', { name: 'Order status', exact: true })).toHaveCount(0);
-  await page.getByRole('link', { name: '← Published answers', exact: true }).click();
+  await page.getByRole('link', { name: 'Published answers', exact: true }).click();
   await expect(page.getByLabel('Search loaded answers', { exact: true })).toHaveValue('');
   await expect(page.locator('[data-testid="help__row"]')).toHaveCount(1);
   expect(s.posts).toEqual([]);
