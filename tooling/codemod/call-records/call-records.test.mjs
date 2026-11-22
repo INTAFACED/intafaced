@@ -885,7 +885,7 @@ test("a guard behind the service's own function or const options is copied whole
   writeFileSync(
     join(dir, 'src/router.ts'),
     [
-      "import { scopedProcedure, TRPCError } from '@intafaced/contracts';",
+      "import { personProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';",
       "import { executeProcedure, opsProcedure as sharedOps } from './procedures.js';",
       "const guards = { module: 'core-ops' as const, plane: 'fiat' as const };",
       "const opsScope = 'admin:compliance' as const;",
@@ -899,6 +899,8 @@ test("a guard behind the service's own function or const options is copied whole
       "  const auditedOps = scopedProcedure('campaigns:ops', guards).use(({ ctx, next }) => { requireMfa(ctx); requireMfa(ctx); return next(); });",
       '  const jobProcedure = publicProcedure.use(({ ctx, next }) => { requireMfa(ctx); return next(); });',
       '  const merchantApi = async () => {};',
+      "  const JOB_FORBIDDEN = 'token job is callable only as svc-token';",
+      "  const tokenJob = serviceProcedureFor(['svc-token'], { forbidden: JOB_FORBIDDEN });",
       "  const merchantApiProcedure = (scope: 'p2p:read' | 'p2p:write') => scopedProcedure(scope, { module: 'p2p', check: merchantApi });",
       '  return router({',
       "    desk: operator('admin:read').output(o).query(h),",
@@ -912,6 +914,10 @@ test("a guard behind the service's own function or const options is copied whole
       '    audited: auditedOps.output(o).query(h),',
       '    job: jobProcedure.output(o).mutation(h),',
       "    dispute: merchantApiProcedure('p2p:write').output(o).mutation(h),",
+      '    logoutAll: personProcedure().output(o).mutation(h),',
+      "    revoke: personProcedure('identity:write', { module: 'identity' }).output(o).mutation(h),",
+      '    mint: tokenJob.output(o).mutation(h),',
+      "    ping: serviceProcedureFor(['svc-trade']).output(o).query(h),",
       '  });',
       '}',
       '',
@@ -934,12 +940,19 @@ test("a guard behind the service's own function or const options is copied whole
     shared: "{ caller: 'scope', scope: 'campaigns:ops', module: 'campaigns', check: 'requireOpsMfa' }",
     // One statement more is not one check: it stays.
     audited: 'guard use() chained: not one a record names',
-    job: "guard jobProcedure kept by hand: it is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
+    // A guard on publicProcedure with a check of its own: no record says that, so it stays.
+    job: 'guard use() chained: not one a record names',
     // The service's own check is named on the record, which mounts it from the service's parts.
     dispute: "{ caller: 'scope', scope: 'p2p:write', module: 'p2p', check: 'merchantApi' }",
+    // The person's own session only, with no scope or with one and its guards.
+    logoutAll: "{ caller: 'person' }",
+    revoke: "{ caller: 'person', scope: 'identity:write', module: 'identity' }",
+    // A service door keeps its own wording for an unlisted caller; without it, the list alone.
+    mint: "{ caller: 'service', callers: ['svc-token'], forbidden: 'token job is callable only as svc-token' }",
+    ping: "{ caller: 'service', callers: ['svc-trade'] }",
   });
   const { reasonOf } = await import('./report.mjs');
-  assert.equal(reasonOf(access.job), 'guard kept by hand (named, with its reason)');
+  assert.equal(reasonOf(access.job), 'guard chained with .use()');
   assert.equal(reasonOf(access.audited), 'guard chained with .use()');
 });
 
