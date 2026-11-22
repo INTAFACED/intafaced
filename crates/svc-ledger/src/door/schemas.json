@@ -2099,7 +2099,6 @@
       ],
       "catchall": "strict"
     },
-    { "t": "dunion", "disc": "recipe", "options": [270, 287, 290, 298, 304, 554, 558, 561, 564] },
     {
       "t": "object",
       "shape": [
@@ -2112,7 +2111,7 @@
         ["balanceAfter", 17]
       ]
     },
-    { "t": "array", "el": 566 },
+    { "t": "array", "el": 565 },
     {
       "t": "object",
       "shape": [
@@ -2122,9 +2121,87 @@
         ["reason", 17],
         ["hash", 2],
         ["postedAt", 17],
-        ["entries", 567]
+        ["entries", 566]
       ]
-    }
+    },
+    { "t": "literal", "values": ["earnDeposit"] },
+    {
+      "t": "object",
+      "shape": [
+        ["positionId", 274],
+        ["poolId", 274],
+        ["userId", 274],
+        ["assetId", 544],
+        ["amount", 277]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 568],
+        ["input", 569]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["earnWithdraw"] },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 571],
+        ["input", 569]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["earnPoolFund"] },
+    {
+      "t": "object",
+      "shape": [
+        ["poolId", 274],
+        ["fundingId", 50],
+        ["assetId", 544],
+        ["amount", 277]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 573],
+        ["input", 574]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["earnInterest"] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 274],
+        ["amount", 277]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "array", "el": 578 },
+    {
+      "t": "object",
+      "shape": [
+        ["poolId", 274],
+        ["date", 577],
+        ["assetId", 544],
+        ["payouts", 579]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 576],
+        ["input", 580]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "dunion", "disc": "recipe", "options": [270, 287, 290, 298, 304, 554, 558, 561, 564, 570, 572, 575, 581] }
   ],
   "inputs": {
     "post": 0,
@@ -2162,10 +2239,10 @@
     "transactionsExist": 259,
     "reconciliationEvaluations": 262,
     "restoreWatermark": 268,
-    "postRecipe": 565,
+    "postRecipe": 582,
     "controlRun": 307,
     "evaluationFeed": 363,
-    "postRecipeReply": 568,
+    "postRecipeReply": 567,
     "controlView": 373,
     "controlRunList": 441,
     "controlAccountSet": 414,
