@@ -417,7 +417,7 @@ test('check 7: earlierFailures reads only failed Tests jobs on earlier heads of 
           { id: 3, head_sha: 'b'.repeat(40), head_repository: { full_name: 'fork/r' } },
         ],
       };
-    if (path.endsWith('/runs/2/jobs?per_page=100'))
+    if (path.endsWith('/runs/2/jobs?per_page=30&page=1'))
       return {
         jobs: [
           { id: 20, name: 'Tests (changed)', conclusion: 'failure' },
