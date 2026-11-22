@@ -11,11 +11,10 @@ import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
 import { AgentsTeam } from './AgentsTeam';
-import { AgentApprovals } from './AgentApprovals';
+import { AgentApprovalsRoom } from './agent-approvals/AgentApprovalsRoom';
 import { AgentConnect } from './AgentConnect';
 import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
-import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
 import { BlueprintSharedRoom } from './BlueprintSharedCard';
@@ -107,6 +106,8 @@ function MoreRooms({ path }: { path: string }) {
         initialPath={url.searchParams.get('path') ?? undefined}
       />
     );
+    // The signed-in course-team inbox is on its Volt template; a signed-out visitor gets the public Academy.
+    if (academy.kind === 'messages' && !academy.conversationId && userId) volt = content;
   } else if (p === '/agents') {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
@@ -126,9 +127,7 @@ function MoreRooms({ path }: { path: string }) {
     title = <OwnAgentTitle id={id} />;
     content = <OwnAgentPage key={id} id={id} />;
   } else if (p === '/agents/approvals') {
-    title = <agentApprovalsCopy.Copy k="title" />;
-    description = <agentApprovalsCopy.Copy k="description" />;
-    content = <AgentApprovals />;
+    volt = <AgentApprovalsRoom />;
   } else if (p === '/agents/team') {
     title = <agentsTeamCopy.Copy k="title" />;
     description = <agentsTeamCopy.Copy k="description" />;

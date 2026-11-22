@@ -740,7 +740,12 @@ import {
   IDENTITY_PROFILE_ANTI_PHISHING_SET,
 } from './identity-profile-procedures.js';
 
-import { IDENTITY_RECEIVE_CONTACTS_LIST } from './identity-receive-contacts-procedures.js';
+import {
+  IDENTITY_RECEIVE_CONTACTS_LIST,
+  IDENTITY_RECEIVE_CONTACTS_ADD,
+  IDENTITY_RECEIVE_CONTACTS_VERIFY,
+  IDENTITY_RECEIVE_CONTACTS_REMOVE,
+} from './identity-receive-contacts-procedures.js';
 
 import { IDENTITY_RECIPIENTS_LIST, IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_REMOVE } from './identity-recipients-procedures.js';
 
@@ -2397,7 +2402,12 @@ const part_identity_profile_procedures: readonly ProcedureRecord[] = [
   IDENTITY_PROFILE_ANTI_PHISHING_SET,
 ];
 
-const part_identity_receive_contacts_procedures: readonly ProcedureRecord[] = [IDENTITY_RECEIVE_CONTACTS_LIST];
+const part_identity_receive_contacts_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_RECEIVE_CONTACTS_LIST,
+  IDENTITY_RECEIVE_CONTACTS_ADD,
+  IDENTITY_RECEIVE_CONTACTS_VERIFY,
+  IDENTITY_RECEIVE_CONTACTS_REMOVE,
+];
 
 const part_identity_recipients_procedures: readonly ProcedureRecord[] = [
   IDENTITY_RECIPIENTS_LIST,
