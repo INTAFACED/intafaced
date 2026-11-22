@@ -24,15 +24,11 @@ import { voltMarks } from './volt-count';
 const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
-/** A route's pattern as a person opens it: a `:pair` is a real market. */
-// A parameter the router checks the shape of gets a well-formed TEST value (a campaign id starts `cmp_`; a More record id
-// starts with a letter or digit, more-room-routes.ts).
-const opened = (route: string) =>
-  route
-    .replace(':pair', 'BTC-USDT')
-    .replace(':campaignId', 'cmp_TEST')
-    .replace(':listingId', 'TEST-listing')
-    .replace(':projectId', 'TEST-launch');
+/** A route's pattern as a person opens it: its registry row's `sample` where it names one. */
+// Else a parameter the router checks the shape of gets a well-formed TEST value (a campaign id starts `cmp_`; a More
+// record id starts with a letter or digit, more-room-routes.ts).
+const opened = (route: string, entry: RoomTemplate) =>
+  entry.sample ?? route.replace(':campaignId', 'cmp_TEST').replace(':listingId', 'TEST-listing').replace(':projectId', 'TEST-launch');
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 /** The screen file whose `// volt-room:` line says the room has moved onto its template (volt-count.ts). */
 const marks = voltMarks();
@@ -75,7 +71,7 @@ describe('room templates registry', () => {
       for (const [room, entry] of Object.entries(ROUTE_TEMPLATES)) {
         const file = marks.get(room)?.[0];
         if (!isRoom(entry) || !file) continue;
-        const html = await renderPart({ name: room, route: opened(room) });
+        const html = await renderPart({ name: room, route: opened(room, entry) });
         expect(html.startsWith('<!-- never settled -->'), `${room} settles`).toBe(false);
         const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
         expect(drawn, `${room} (${file}) draws the ${entry.template} template`).toContain(entry.template);

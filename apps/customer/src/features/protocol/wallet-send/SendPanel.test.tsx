@@ -17,7 +17,10 @@ const wallet = {
 const representationStatus = vi.fn();
 const TOKEN = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', symbol: 'TESTA', decimals: 6 };
 const ammPairs = vi.fn();
-vi.mock('./WalletProvider', async (original) => ({ ...(await original<typeof import('./WalletProvider')>()), useWallet: () => wallet }));
+vi.mock('../wallet/WalletProvider', async (original) => ({
+  ...(await original<typeof import('../wallet/WalletProvider')>()),
+  useWallet: () => wallet,
+}));
 vi.mock('../api', () => ({ createProtocolApi: () => ({ representationStatus, representationAccept: vi.fn(), ammPairs }) }));
 vi.mock('../../session/session', () => ({ useApi: () => ({}) }));
 
@@ -25,8 +28,8 @@ vi.mock('../../session/session', () => ({ useApi: () => ({}) }));
 let host: HTMLDivElement, root: Root;
 
 const field = (label: RegExp) => {
-  const span = [...host.ownerDocument.querySelectorAll('label span')].find((node) => label.test(node.textContent ?? ''));
-  return span?.parentElement?.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
+  const named = [...host.ownerDocument.querySelectorAll('label')].find((node) => label.test(node.textContent ?? ''));
+  return host.ownerDocument.getElementById(named?.htmlFor ?? '') as HTMLInputElement | HTMLSelectElement;
 };
 const type = async (element: HTMLInputElement | HTMLSelectElement, value: string) => {
   await act(async () => {
