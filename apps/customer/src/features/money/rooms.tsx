@@ -17,8 +17,8 @@ import { BusinessPayoutsRoom, ContractorJoinRoom } from './business-payouts/Busi
 import { BusinessCardsRoom } from './business-cards/BusinessCardsRoom';
 import { BusinessBooksRoom } from './business-books/BusinessBooksRoom';
 import { CardOrderRoom } from './CardOrder';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Button, EmptyState, Field, Page } from '../../shared/ui';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { Button, EmptyState, Page } from '../../shared/ui';
 import { decimalSchema } from '../../shared/money';
 import { useSession } from '../session';
 import { validateTransfer, type Space } from './client';
@@ -58,7 +58,7 @@ import { DirectDebitsRoom } from './direct-debits/DirectDebitsRoom';
 import { directDebitsCopy } from './direct-debits-copy';
 import { RecoveryClaim } from './RecoveryClaim';
 import { recoveryClaimCopy } from './recovery-claim-copy';
-import { MoneyCalendar } from './Calendar';
+import { CalendarRoom } from './calendar/Calendar';
 import { calendarCopy } from './calendar-copy';
 import { RulesRoom } from './rules-room/RulesRoom';
 import { rulesCopy } from './rules-copy';
@@ -71,28 +71,23 @@ import { BankRailSend } from './BankRailSend';
 import { PlanRule, overBalanceProblem, usePlanTerms } from './PlanRule';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
-import { categoryLabel } from './analytics-copy';
-import { splitAnalytics } from './analytics-model';
-import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
+import { AnalyticsRoom } from './analytics/AnalyticsRoom';
 import { LimitsPage } from './limits/LimitsRoom';
 import { BankAccountPage } from './bank-account/BankAccountRoom';
-import { MovementBars } from './spaces/GoalAndMovement';
 import { RecipientPicker } from './RecipientPicker';
 import { BusinessBankRoom } from './business-bank/BusinessBankRoom';
 import { RampsRoom } from './ramps/RampsRoom';
-import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
 import type { Payee } from './payees';
 import { transferDepthCopy } from './transfer-depth-copy';
 import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
-import { assetSelectField, useHoldings } from './holdings';
+import { assetSelectField } from './holdings';
 import { StatementCentre } from './StatementCentre';
 import { SalaryRoom } from './Salary';
 import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 import { bankLabels, bankRoomHref, bankRooms } from './bank-frame/bank-rooms';
-import { BANK_ANALYTICS_SPEND } from '@intafaced/contracts/bank-analytics-procedures';
 import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 
 export function BankNavigation({ current }: { current: string }) {
@@ -766,15 +761,6 @@ function LoanDetailPage({ search }: { search: string }) {
   const loanId = new URLSearchParams(search).get('loan');
   return <LoanDetailRoom loanId={loanId && loanId.trim() !== '' ? loanId : null} />;
 }
-/** `/bank/calendar`: everything dated, inside the Transfers room (J-bank-06 #5). */
-function CalendarRoom() {
-  const { t } = calendarCopy.useCopy();
-  return (
-    <BankPage room="Transfers" title={t('title')} description={t('description')}>
-      <MoneyCalendar />
-    </BankPage>
-  );
-}
 /** `/bank/salary`: salary paid in by direct deposit, inside the Overview room (J-bank-30). */
 function SalaryPage({ open }: { open: (spec: ActionSpec) => void }) {
   return (
@@ -795,187 +781,12 @@ function StatementsRoom() {
     </BankPage>
   );
 }
-/** The way into the statement and export centre from Analytics. */
-function StatementsLink() {
-  const { t } = statementCentreCopy.useCopy();
-  return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/statements">
-        {t('open')}
-      </a>{' '}
-      {t('openHint')}
-    </p>
-  );
-}
 /** `/bank/ramps/cash-out`: cash out to a linked bank account, inside the Ramps room. */
 function CashOutRoom() {
   const { t } = cashOutCopy.useCopy();
   return (
     <BankPage room="Ramps" title={t('title')} description={t('description')}>
       <CashOut />
-    </BankPage>
-  );
-}
-/** A range is sent only while the read is on; this stands in for it while the read is off, and is never sent. */
-const NO_RANGE = { assetId: '', from: '', to: '' };
-function Analytics() {
-  const depth = transferDepthCopy.useCopy();
-  const held = useHoldings();
-  const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
-  const [chosen, setChosen] = useState('');
-  const [preset, setPreset] = useState<PeriodPreset>('30d');
-  const [custom, setCustom] = useState({ from: '', to: '' });
-  const [useCustom, setUseCustom] = useState(false);
-  const assetId = chosen || assets[0]?.assetId || '';
-  const range = useMemo(() => {
-    if (!assetId) return null;
-    if (useCustom) {
-      if (!Number.isFinite(Date.parse(custom.from)) || !Number.isFinite(Date.parse(custom.to))) return null;
-      if (Date.parse(custom.from) >= Date.parse(custom.to)) return null;
-      return { assetId, from: iso(custom.from), to: iso(custom.to) };
-    }
-    return { assetId, ...periodRange(preset, new Date(Math.floor(Date.now() / 60_000) * 60_000)) };
-  }, [assetId, preset, useCustom, custom.from, custom.to]);
-  const query = useBankRecord(BANK_ANALYTICS_SPEND, range ?? NO_RANGE, range !== null);
-  const presetLabel = (value: PeriodPreset) =>
-    depth.t(value === '7d' ? 'period7d' : value === '30d' ? 'period30d' : value === 'month' ? 'periodMonth' : 'periodLastMonth');
-  return (
-    <BankPage room="Analytics" description={copyText('rooms.ledger.movements.by.asset.and.date.movement')}>
-      <StatementsLink />
-      {assetId && (
-        <>
-          <AnalyticsBudgets assetId={assetId} />
-          <AnalyticsCompare assetId={assetId} />
-        </>
-      )}
-      <Section title={copyText('rooms.movement.window')}>
-        <div className="money-analytics-form">
-          <label className="field">
-            <span>{depth.t('assetPicker')}</span>
-            <select value={assetId} onChange={(event) => setChosen(event.target.value)} disabled={assets.length === 0}>
-              {assets.length === 0 && <option value="">—</option>}
-              {assets.map((asset) => (
-                <option key={asset.assetId} value={asset.assetId}>
-                  {asset.assetId}
-                </option>
-              ))}
-            </select>
-            <small>{assets.length === 0 && held.resource.status === 'ready' ? depth.t('noAssets') : depth.t('assetPickerHint')}</small>
-          </label>
-          <div className="bd-periods" role="group" aria-label={depth.t('period')}>
-            {PERIOD_PRESETS.map((value) => (
-              <button
-                key={value}
-                type="button"
-                className="bd-chip"
-                aria-pressed={!useCustom && preset === value}
-                onClick={() => {
-                  setUseCustom(false);
-                  setPreset(value);
-                }}
-              >
-                {presetLabel(value)}
-              </button>
-            ))}
-            <button type="button" className="bd-chip" aria-pressed={useCustom} onClick={() => setUseCustom(true)}>
-              {depth.t('periodCustom')}
-            </button>
-          </div>
-          {useCustom && (
-            <>
-              <Field
-                label={copyText('rooms.from')}
-                type="datetime-local"
-                value={custom.from}
-                onChange={(event) => setCustom({ ...custom, from: event.target.value })}
-              />
-              <Field
-                label={copyText('rooms.to')}
-                type="datetime-local"
-                value={custom.to}
-                onChange={(event) => setCustom({ ...custom, to: event.target.value })}
-              />
-              {!range && custom.from && custom.to && (
-                <p className="error-text" role="alert">
-                  {copyText('rooms.choose.a.valid.start.before.the.end')}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      </Section>
-      {range ? (
-        <ResourceView resource={query.resource} reload={query.reload}>
-          {(summary) => (
-            <>
-              <Section
-                title={copyText('rooms.movement', { value1: summary.assetId })}
-                description={copyText('rooms.to.2', { value1: date(summary.from), value2: date(summary.to) })}
-              >
-                <div data-testid="money-movement-stats" className="money-movement-stats">
-                  <div>
-                    <span>
-                      <Text k="rooms.inflow" />
-                    </span>
-                    <strong className="numeric">{funds(summary.totalInflow, summary.assetId)}</strong>
-                  </div>
-                  <div>
-                    <span>
-                      <Text k="rooms.outflow" />
-                    </span>
-                    <strong className="numeric">{funds(summary.totalOutflow, summary.assetId)}</strong>
-                  </div>
-                  <div>
-                    <span>
-                      <Text k="rooms.net.movement" />
-                    </span>
-                    <strong className="numeric">{funds(summary.net, summary.assetId)}</strong>
-                  </div>
-                </div>
-                <MovementBars inflow={summary.totalInflow} outflow={summary.totalOutflow} net={summary.net} assetId={summary.assetId} />
-                <p className="money-caption">
-                  {summary.movements}
-                  <Text k="rooms.ledger.movements.transfers.between.your.spaces.may" />
-                </p>
-              </Section>
-              {(() => {
-                const split = splitAnalytics(summary);
-                return (
-                  <>
-                    <Section title={copyText('rooms.outflow.categories')}>
-                      {split.outflow.length ? (
-                        split.outflow.map((row) => (
-                          <div data-testid="money-space-row" className="money-space-row" key={row.category}>
-                            <span>{row.category === 'deposits' ? copyText('rooms.deposit.outflow') : categoryLabel(row.category)}</span>
-                            <strong className="numeric">{funds(row.amount, summary.assetId)}</strong>
-                          </div>
-                        ))
-                      ) : (
-                        <NoRows title={copyText('rooms.no.outflow.categories.returned')}>
-                          <Text k="rooms.the.service.returned.no.categorized.outflow.for" />
-                        </NoRows>
-                      )}
-                    </Section>
-                    {split.moneyInDeposits !== null && (
-                      <Section title={copyText('rooms.money.in.deposits')}>
-                        <div data-testid="money-space-row" className="money-space-row">
-                          <span>{categoryLabel('deposits')}</span>
-                          <strong className="numeric">{funds(split.moneyInDeposits, summary.assetId)}</strong>
-                        </div>
-                        <p className="money-caption">{copyText(split.exact ? 'rooms.money.in.note' : 'rooms.money.in.inexact')}</p>
-                      </Section>
-                    )}
-                  </>
-                );
-              })()}
-            </>
-          )}
-        </ResourceView>
-      ) : (
-        <NoRows title={copyText('rooms.choose.an.asset.and.time.window')}>
-          <Text k="rooms.this.view.does.not.invent.a.default" />
-        </NoRows>
-      )}
     </BankPage>
   );
 }
@@ -1058,7 +869,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/ramps/cash-out':
       return <CashOutRoom />;
     case '/bank/analytics':
-      return <Analytics />;
+      return <AnalyticsRoom />;
     case '/bank/statements':
       return <StatementsRoom />;
     case '/bank/limits':
