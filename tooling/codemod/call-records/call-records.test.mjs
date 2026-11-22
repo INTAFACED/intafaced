@@ -50,6 +50,27 @@ test('a service whose Rust port is in flight is refused, by name, before anythin
   assert.equal(portInFlight('svc-academy', root), null, 'switched: its TypeScript is gone, the door path (--from-rev) runs');
 });
 
+test('the report plans a door service from the commit before its TypeScript was deleted, refuses one in flight, and skips a name no service has', async () => {
+  const { howToPlan } = await import('./report.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-how-'));
+  for (const d of [
+    'crates/svc-agents',
+    'services/svc-agents/src',
+    'services/svc-ops/src',
+    'crates/svc-academy/src/door',
+    'crates/svc-ledger/src',
+  ])
+    mkdirSync(join(root, d), { recursive: true });
+  writeFileSync(join(root, 'services/svc-ops/src/router.ts'), '');
+  writeFileSync(join(root, 'crates/svc-academy/src/door/calls.rs'), '');
+  const deleted = (s) => (s === 'svc-academy' ? 'abc123' : '');
+  assert.deepEqual(howToPlan('svc-academy', root, deleted), { door: 'crates/svc-academy', fromRev: 'abc123^' });
+  assert.deepEqual(howToPlan('svc-ops', root, deleted), {});
+  assert.match(howToPlan('svc-agents', root, deleted).refused, /svc-agents's Rust port is in flight/);
+  assert.equal(howToPlan('svc-ledger', root, deleted), undefined, 'a crate with no door and no TypeScript service: nothing to plan');
+  assert.equal(howToPlan('svc-merchant', root, deleted), undefined);
+});
+
 test('an import read only as a JSX tag or a re-export stays; one nothing reads goes', () => {
   const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
   const file = join(dir, 'a.tsx');
