@@ -104,6 +104,7 @@ const BLOCKS = [
   'balance',
   'object',
   'money-parts',
+  'pay-parts',
   'buttons',
   'inputs',
   'controls',
@@ -320,5 +321,93 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     const hero = block.querySelector('[data-slot="hero-figure"][data-hidden]');
     expect(hero?.getAttribute('aria-label'), 'hidden, the figure is masked and said so').toBe('Balance hidden');
     expect(hero?.textContent).not.toContain('12,468');
+  });
+  it('/kit shows the pay parts issue 9563 adds: the money box keeps a decimal string, Max fills it, and a confirmation is announced and closes', async () => {
+    await open('/kit');
+    const block = host.querySelector('[data-testid="volt-kit"] [data-block="pay-parts"]')!;
+    const box = block.querySelector<HTMLElement>('[data-testid="kit-amount"]')!;
+    const input = box.querySelector<HTMLInputElement>('input')!;
+    expect(input.getAttribute('inputmode'), 'a decimal keyboard, never type=number').toBe('decimal');
+    expect(input.type).toBe('text');
+    expect(box.querySelector('[data-part="unit"]')?.textContent?.trim(), 'its unit beside it').toBe('USDT');
+    expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent, 'what is available describes it').toMatch(
+      /^Available 9,218\.50 USDT/,
+    );
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    const type = (text: string) =>
+      act(async () => {
+        setValue.call(input, text);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    await type('12.3');
+    expect(input.value).toBe('12.3');
+    await type('12.345');
+    expect(input.value, 'a decimal past the asset’s is refused').toBe('12.3');
+    await type('12.3.');
+    expect(input.value, 'a second mark is refused').toBe('12.3');
+    await type('7.');
+    await act(async () => {
+      input.focus();
+      input.blur();
+    });
+    expect(input.value, 'an unfinished mark is dropped on leaving').toBe('7');
+    const paste = new Event('paste', { bubbles: true, cancelable: true }) as Event & { clipboardData: { getData: () => string } };
+    paste.clipboardData = { getData: () => '1,234.567 USDT' };
+    await act(async () => input.dispatchEvent(paste));
+    expect(input.value, 'a paste drops separators and words, cut down to two decimals').toBe('1234.56');
+    await act(async () => box.querySelector<HTMLButtonElement>('[data-part="max"]')!.click());
+    expect(input.value, 'Max fills in what is available').toBe('9218.50');
+
+    const refused = block.querySelectorAll('.lit-amount')[1]!;
+    expect(refused.querySelector('input')?.getAttribute('aria-invalid'), 'a refused amount is marked invalid').toBe('true');
+    expect(refused.querySelector('[role="alert"]')?.textContent).toMatch(/^More than your/);
+
+    const handle = block.querySelector('.lit-field-control [data-part="box"]')!;
+    expect(handle.querySelector('[data-part="before"][aria-hidden="true"]')?.textContent, 'the handle box shows its @').toBe('@');
+    expect(handle.querySelector('button')?.textContent, 'and its Paste key inside it').toBe('Paste');
+
+    const payee = block.querySelector('[data-testid="kit-payee"]')!;
+    expect(payee.querySelector('[data-part="face"]')?.textContent).toBe('M');
+    expect(payee.querySelector('[data-part="tick"]'), 'confirmed').not.toBeNull();
+    expect(
+      [...block.querySelectorAll('.lit-note')].map((n) => n.getAttribute('role')),
+      'polite unless it failed',
+    ).toEqual(['status', 'status', 'alert']);
+
+    const region = document.querySelector('[data-slot="toast-region"]')!;
+    expect(region.getAttribute('aria-live'), 'the polite region is in the page before any toast').toBe('polite');
+    expect(region.children).toHaveLength(0);
+    await act(async () => block.querySelector<HTMLButtonElement>('[data-kit="show-volt-toast"]')!.click());
+    expect(region.querySelector('[data-part="title"]')?.textContent, 'a confirmation arrives in it').toBe('Link copied');
+    await act(async () => region.querySelector<HTMLButtonElement>('[data-part="close"]')!.click());
+    expect(region.children, 'and its close key closes it').toHaveLength(0);
+  });
+
+  it('a confirmation closes by itself after its time', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ToastProvider, useToast } = await import('@intafaced/ui/lit');
+      let raise: ReturnType<typeof useToast>['add'] = () => '';
+      function Raiser() {
+        raise = useToast().add;
+        return null;
+      }
+      await act(async () =>
+        root.render(
+          <ToastProvider closeLabel="Dismiss">
+            <Raiser />
+          </ToastProvider>,
+        ),
+      );
+      const region = host.querySelector('[data-slot="toast-region"]')!;
+      await act(async () => void raise({ title: 'Copied', timeout: 2000 }));
+      expect(region.textContent).toContain('Copied');
+      await act(async () => void vi.advanceTimersByTime(1999));
+      expect(region.textContent, 'still there just before its time').toContain('Copied');
+      await act(async () => void vi.advanceTimersByTime(1));
+      expect(region.children, 'gone at its time').toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

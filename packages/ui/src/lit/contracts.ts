@@ -287,7 +287,7 @@ export const components = {
   Segmented: 'Ranges, Buy/Sell, Simple/Pro: a named group of pressed buttons, one pressed, the arrow keys moving focus between them',
   ToggleChips:
     "A list's filter chips: a named group of pressed buttons, one on at a time, optionally pressed off; the arrow keys move between them",
-  Field: 'Input with label, hint and typed error',
+  Field: 'Input with label, hint and typed error; a decorative mark before the text (the @ of a handle) and a control after it (Paste)',
   SelectField: 'A labelled native list to pick from, in the field look',
   TextField: 'A labelled box of several lines, with hint and typed error, in the field look',
   Choice: 'A tick or round choice with its words on one row',
@@ -341,6 +341,13 @@ export const components = {
   HeroFigure: 'The one large figure a room is about: masked when balances are hidden, a dash when there is none, never animated',
   Fold: 'A group closed until opened (small balances), with its count: the native disclosure',
   CardStack: 'The account as two cards you hold, each a link: matte black metal in front, the lit card behind',
+  AmountField:
+    'The box an amount of money is typed into: a decimal string (inputMode decimal, never a number), its unit beside it, what is available and a Max key under it, a refusal announced',
+  Toast:
+    'A short confirmation at the top of the screen (ToastProvider once, useToast().add), announced politely; never the only place a result is shown',
+  Payee: 'The person money is about to go to, as the lookup found them: face, name, handle, a confirmed badge and a tick; nothing guessed',
+  StatusNote:
+    'Where something stands, in the flow (still confirming, held for review, could not load): title, words, the caller’s actions; polite, an alert only for a failure',
 } as const;
 export type ComponentName = keyof typeof components;
 
