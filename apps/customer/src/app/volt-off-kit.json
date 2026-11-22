@@ -244,7 +244,6 @@
   "/uc/innovation/myorders",
   "/oauth/authorize",
   "/uc/safe/api-keys/new",
-  "/uc/trading-permissions",
   "/verification",
   "/identbusiness",
   "/notifications",
