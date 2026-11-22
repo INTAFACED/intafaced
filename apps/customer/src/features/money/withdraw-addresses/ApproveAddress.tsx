@@ -1,12 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
+
 import { Button } from '@intafaced/ui/lit';
+
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
+
 import { useSession } from '../../session';
+
 import { date } from '../components';
-import { destinationSchema, type Destination } from '../contracts';
+
+import type { Destination } from '../contracts';
 import { moneyRefusalWords } from '../money-refusal-copy';
+
 import { shortenAddress } from '../withdraw-model';
+
+import { confirmApprovalLink } from '../withdraw-step-up';
+
 import { withdrawalCopy } from '../withdrawal-copy';
+
 import { StepUpSheet } from './StepUpSheet';
 
 /** Refusals that mean this link can never work, so the page says so instead of offering Approve again. */
@@ -74,9 +84,7 @@ export function ApproveAddress({ search }: { search: string }) {
             <StepUpSheet
               why={t('aApproveWhy')}
               run={async (bearer) => {
-                const answer = await api.mutate('bank', 'ramps.destinations.approval.confirmLink', { token }, destinationSchema, {
-                  bearer,
-                });
+                const answer = await confirmApprovalLink(api, token, bearer);
                 if (answer.ok) {
                   answered.current = answer.data;
                   return answer;

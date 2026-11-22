@@ -1,6 +1,7 @@
 import { stepUpTokenSchema } from '@intafaced/contracts/identity-account-room';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session';
+import { destinationSchema } from './contracts';
 
 /** What the person answers with: a 6-digit authenticator code, a recovery code, or a passkey. */
 export type WithdrawStepUpMethod = { code: string } | { passkey: true };
@@ -37,4 +38,9 @@ export async function mintWithdrawToken(
   if (!result.data.scopes.includes('trade:withdraw'))
     return { ok: false, reason: 'invalid_response', message: 'stepUp.scope_missing', code: 'stepUp.scope_missing' };
   return { ok: true, data: { accessToken: result.data.accessToken, expiresAt: result.data.expiresAt } };
+}
+
+/** Confirms a withdrawal address from its emailed approval link, with the step-up token as that one call's bearer. */
+export function confirmApprovalLink(api: ApiClient, token: string, bearer: string) {
+  return api.mutate('bank', 'ramps.destinations.approval.confirmLink', { token }, destinationSchema, { bearer });
 }
