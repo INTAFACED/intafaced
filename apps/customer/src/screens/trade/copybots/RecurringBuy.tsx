@@ -30,6 +30,7 @@ import { createRoomApi } from './api';
 import { roomCopy } from './copy';
 import type { Failure } from './guard';
 import { InfoNote, RefusalNote } from './parts';
+import './copybots.css';
 
 /**
  * The recurring buy of a basket on the person's own venue account (J-copy-bots-otc-16; svc-trade

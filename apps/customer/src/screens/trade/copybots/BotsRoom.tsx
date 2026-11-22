@@ -29,7 +29,8 @@ import { botName } from './bot-name';
 import { roomCopy } from './copy';
 import { algoServiceId, useWriteGuard, type Failure } from './guard';
 import { useLive } from './live';
-import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
+import { AccountBadge, Freshness, InfoNote, PendingBanner, RefusalNote } from './parts';
+import { ModeNav } from './ModeNav';
 import { TwapWizard, type BotKind } from './TwapWizard';
 import { GRID_TONE, GRID_WORD, GridRoom } from './GridRoom';
 import { WebhooksRoom } from './WebhooksRoom';
@@ -37,6 +38,7 @@ import { SignalsRoom } from './SignalsRoom';
 import { RecurringRoom } from './RecurringBuy';
 import type { GridBot } from './api';
 import { roomRefusal } from './refusals';
+import './copybots.css';
 
 type TabId = 'catalogue' | 'paper';
 const TABS: readonly TabId[] = ['catalogue', 'paper'];

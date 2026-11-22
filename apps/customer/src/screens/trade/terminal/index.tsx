@@ -5,12 +5,13 @@
  * part is the room that already owns it (the Execution blotter and algo list, the Copy room's copied positions).
  */
 import { useMemo, useState } from 'react';
+import { Tag } from '@intafaced/ui/lit';
+import { DeskTemplate, TabPanel, Tabs, Table, TestTag, type Column, type RoomState } from '@intafaced/ui/lit/templates';
 import type { ScreenProps } from '../../../app/screen-types';
-import { Badge, EmptyState, Table, Tabs, TabsList, TabsPanel, TabsTab, useSession, type TableColumn } from '../rooms/ui';
-import { RoomFrame } from '../rooms/RoomFrame';
+import { TradeSubNav } from '../TradeSubNav';
+import { useSession } from '../rooms/ui';
 import { useRoomApi } from '../rooms/read';
 import { useRoomWriter } from '../rooms/write';
-import { WriteNotice } from '../rooms/RoomNotices';
 import type { AlgoParent } from '../rooms/api';
 import { useClosedOrders, useFills, useOpenOrders, useRefreshPrivate } from '../desk/data';
 import { buildBlotter, childParents, filterBlotter } from '../execution/blotter';
@@ -18,7 +19,7 @@ import { BlotterTable, useCancelFlow } from '../execution/OrdersView';
 import { AlgoDetail, AlgoList, type AlgoAction } from '../execution/AlgoList';
 import { execCopy } from '../execution/copy';
 import { useAlgoIds, useParents, useRefreshParents, type ParentRead } from '../execution/data';
-import { ConfirmDialog, Gate, Why, signInHref } from '../execution/parts';
+import { ConfirmDialog, Empty, Gate, Why, WriteNotice, signInHref } from '../execution/parts';
 import { useApi } from '../../../features/session/session';
 import { createRoomApi } from '../copybots/api';
 import { CopiedPositions } from '../copybots/FollowCopies';
@@ -38,7 +39,7 @@ function OrdersTab({ parents }: { parents: readonly ParentRead[] }) {
   const childOf = useMemo(() => childParents(parents.flatMap((p) => (p.ok ? [{ id: p.id, children: p.parent.children }] : []))), [parents]);
   const rows = useMemo(() => buildBlotter(open.status === 'ready' ? open.data : [], [], [], [], childOf), [open, childOf]);
   return (
-    <div className="flex flex-col gap-3">
+    <div className="lt-body">
       <Gate load={open}>
         {() => (
           <BlotterTable
@@ -72,7 +73,7 @@ function HistoryTab({ parents }: { parents: readonly ParentRead[] }) {
     [closed, fills, childOf],
   );
   return (
-    <div className="flex flex-col gap-4">
+    <div className="lt-body">
       {closed.status === 'ready' && fills.status !== 'ready' && fills.status !== 'loading' ? <Why>{t('History partly unread')}</Why> : null}
       <Gate load={closed}>
         {() => <BlotterTable rows={orders} label={t('Order history')} emptyText={t('No ended orders')} showOrderId />}
@@ -91,14 +92,13 @@ function PositionsTab() {
   const follows = useLive((signal) => api.follows(signal), `terminal-follows:${session ? 'in' : 'out'}`, 15_000);
   if (follows.status === 'error' && follows.failure) return <RefusalNote failure={follows.failure} retry={follows.reload} />;
   if (follows.data === null) return <Gate load={{ status: 'loading' }}>{() => null}</Gate>;
-  if (follows.data.length === 0)
-    return <EmptyState variant="empty" size="inline" title={t('No follows')} reason={t('No follows reason')} />;
+  if (follows.data.length === 0) return <Empty title={t('No follows')} body={t('No follows reason')} />;
   return (
-    <div className="flex flex-col gap-4">
+    <div className="lt-body">
       {guard.pending?.kind === 'copy' ? (
         <Why>
           {t('Check in Copy')}{' '}
-          <a className="text-link" href="/trade/copy?tab=follows">
+          <a className="lt-link" href="/trade/copy?tab=follows">
             {t('Open Copy')}
           </a>
         </Why>
@@ -109,9 +109,7 @@ function PositionsTab() {
           key={follow.followId}
           aria-label={t('Copied from {leader}', { leader: follow.leaderRef ?? follow.leaderId ?? follow.followId })}
         >
-          <h3 className="m-0 mb-2 text-sm font-medium">
-            {t('Copied from {leader}', { leader: follow.leaderRef ?? follow.leaderId ?? follow.followId })}
-          </h3>
+          <h3>{t('Copied from {leader}', { leader: follow.leaderRef ?? follow.leaderId ?? follow.followId })}</h3>
           <CopiedPositions follow={follow} api={api} guard={guard} />
         </section>
       ))}
@@ -167,7 +165,7 @@ function AlgoTab({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="lt-body">
       <WriteNotice writer={writer} onCheck={() => refreshParents()} done={exec.t('Done, the list shows the new state')} />
       <section aria-label={t('Algo orders')}>
         <AlgoList
@@ -184,7 +182,7 @@ function AlgoTab({
       {selected ? (
         <BlotterTable rows={children} label={t('Child orders of {id}', { id: selected })} emptyText={t('No child orders')} showOrderId />
       ) : ids.length > 0 ? (
-        <p className="m-0 text-sm text-fg-2">{t('Pick a schedule')}</p>
+        <p className="lt-hint">{t('Pick a schedule')}</p>
       ) : null}
       <ConfirmDialog
         open={action !== null}
@@ -220,27 +218,27 @@ const SAMPLE_LEVELS: ReadonlyArray<{ id: string; side: 'ask' | 'bid'; price: str
 
 function DomTab() {
   const { t } = terminalCopy.useCopy();
-  const columns: TableColumn<(typeof SAMPLE_LEVELS)[number]>[] = [
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'ask' ? t('Ask') : t('Bid')) },
-    { id: 'price', header: t('Price'), numeric: true, value: (r) => r.price },
-    { id: 'size', header: t('Size'), numeric: true, value: (r) => r.size },
-    { id: 'tag', header: '', cell: () => <Badge variant="outline">{t('Sample level')}</Badge> },
+  const columns: Column<(typeof SAMPLE_LEVELS)[number]>[] = [
+    { key: 'side', label: t('Side'), cell: (r) => (r.side === 'ask' ? t('Ask') : t('Bid')) },
+    { key: 'price', label: t('Price'), align: 'end', cell: (r) => r.price },
+    { key: 'size', label: t('Size'), align: 'end', cell: (r) => r.size },
+    { key: 'tag', label: '', cell: () => <Tag tone="neutral">{t('Sample level')}</Tag> },
   ];
   return (
-    <section aria-label={t('Depth of market')} className="flex flex-col gap-3">
-      <div role="note" className="flex flex-col gap-1 rounded-md border border-line bg-panel p-3">
-        <p className="m-0 font-medium">{t('DOM preview title')}</p>
-        <p className="m-0 text-sm">{t('DOM preview engine')}</p>
-        <p className="m-0 text-sm text-fg-2">{t('DOM preview reason')}</p>
-        <a className="text-link text-sm" href="/trade/spot/BTC-USDT">
+    <section aria-label={t('Depth of market')} className="lt-body">
+      <div role="note" className="lt-empty">
+        <p className="lt-empty-title">{t('DOM preview title')}</p>
+        <p>{t('DOM preview engine')}</p>
+        <p className="lt-empty-body">{t('DOM preview reason')}</p>
+        <a className="lt-link" href="/trade/spot/BTC-USDT">
           {t('DOM live link')}
         </a>
       </div>
-      <div className="flex items-center gap-2">
-        <p className="m-0 text-sm font-medium">{t('Preview · sample data')}</p>
-        <Badge tone="warn">{t('TEST')}</Badge>
+      <div className="lt-toolbar">
+        <p>{t('Preview · sample data')}</p>
+        <TestTag />
       </div>
-      <Table label={t('Preview · sample data')} density="dense" columns={columns} rows={SAMPLE_LEVELS} getRowId={(r) => r.id} />
+      <Table caption={t('Preview · sample data')} mode="pro" columns={columns} rows={SAMPLE_LEVELS} rowKey={(r) => r.id} />
     </section>
   );
 }
@@ -250,47 +248,64 @@ export default function Screen({ search }: ScreenProps) {
   const { userId } = useSession();
   const requested = new URLSearchParams(search).get('tab');
   const initial: TabId = TABS.find((id) => id === requested) ?? 'orders';
+  const [tab, setTab] = useState<TabId>(initial);
   const { ids, list } = useAlgoIds(userId);
   const parents = useParents(ids);
   const parentRows = parents.status === 'ready' ? parents.data : [];
+  const state: RoomState = userId
+    ? { kind: 'ready' }
+    : {
+        kind: 'refused',
+        refusal: {
+          variant: 'refused',
+          title: t('Sign in title'),
+          body: t('Sign in reason'),
+          action: { label: t('Sign in'), href: signInHref() },
+        },
+      };
 
   return (
-    <RoomFrame mode="Execution" title={t('Terminal')} description={t('Terminal description')}>
-      {!userId ? (
-        <EmptyState
-          variant="refused"
-          title={t('Sign in title')}
-          reason={t('Sign in reason')}
-          action={{ label: t('Sign in'), href: signInHref(), variant: 'primary' }}
-        />
-      ) : (
-        <Tabs defaultValue={initial}>
-          <TabsList divider aria-label={t('Terminal tabs')} className="overflow-x-auto">
-            <TabsTab value="orders">{t('Orders')}</TabsTab>
-            <TabsTab value="history">{t('History')}</TabsTab>
-            <TabsTab value="positions">{t('Positions')}</TabsTab>
-            <TabsTab value="algo">{t('Algo orders')}</TabsTab>
-            <TabsTab value="dom">{t('DOM')}</TabsTab>
-          </TabsList>
-          <div className="pt-4">
-            <TabsPanel value="orders">
-              <OrdersTab parents={parentRows} />
-            </TabsPanel>
-            <TabsPanel value="history">
-              <HistoryTab parents={parentRows} />
-            </TabsPanel>
-            <TabsPanel value="positions">
-              <PositionsTab />
-            </TabsPanel>
-            <TabsPanel value="algo">
-              <AlgoTab ids={ids} parents={parents} listing={list} />
-            </TabsPanel>
-            <TabsPanel value="dom">
-              <DomTab />
-            </TabsPanel>
-          </div>
-        </Tabs>
-      )}
-    </RoomFrame>
+    <DeskTemplate
+      mode="pro"
+      title={t('Terminal')}
+      description={t('Terminal description')}
+      state={state}
+      instrument={undefined}
+      chart={undefined}
+      ticket={undefined}
+      orders={
+        <div className="lt-body">
+          <TradeSubNav active="execution" />
+          <Tabs
+            id="terminal"
+            label={t('Terminal tabs')}
+            value={tab}
+            onChange={(next) => setTab(next as TabId)}
+            items={[
+              { value: 'orders', label: t('Orders') },
+              { value: 'history', label: t('History') },
+              { value: 'positions', label: t('Positions') },
+              { value: 'algo', label: t('Algo orders') },
+              { value: 'dom', label: t('DOM') },
+            ]}
+          />
+          <TabPanel id="terminal" value="orders" current={tab}>
+            <OrdersTab parents={parentRows} />
+          </TabPanel>
+          <TabPanel id="terminal" value="history" current={tab}>
+            <HistoryTab parents={parentRows} />
+          </TabPanel>
+          <TabPanel id="terminal" value="positions" current={tab}>
+            <PositionsTab />
+          </TabPanel>
+          <TabPanel id="terminal" value="algo" current={tab}>
+            <AlgoTab ids={ids} parents={parents} listing={list} />
+          </TabPanel>
+          <TabPanel id="terminal" value="dom" current={tab}>
+            <DomTab />
+          </TabPanel>
+        </div>
+      }
+    />
   );
 }

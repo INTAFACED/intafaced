@@ -1,9 +1,12 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, Tabs, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, FreshnessChip, Tabs, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
+import { asOfIso, formatAsOf, freshnessOf, type AsOf, type Freshness } from '../../components/freshness.js';
+import { useFreshnessClock } from '../../components/use-freshness-clock.js';
+import { blurDecimalValue, nextDecimalValue, pastedDecimalValue } from '../../components/input-logic.js';
 
 /**
  * Two or more choices of the same size, style and level (COBS 4.12A.18R(2); Directive 2023/2673 Art 16e(1)(a)).
@@ -107,7 +110,7 @@ export function KeyValue({ rows, label }: { rows: readonly KeyValueRow[]; label?
   return (
     <dl className="lt-kv" aria-label={label}>
       {rows.map((r) => (
-        <div key={r.label} data-total={r.total || undefined} data-unset={r.unset || undefined}>
+        <div key={r.label} data-slot="key-value-row" data-total={r.total || undefined} data-unset={r.unset || undefined}>
           <dt>{r.label}</dt>
           <dd>
             <bdi className={r.ltr ? 'lt-mono' : undefined} dir={r.ltr ? 'ltr' : undefined} data-ltr={r.ltr ? '' : undefined}>
@@ -142,49 +145,406 @@ export function StatusChip({ status, label, returned = false }: { status: MoneyS
 }
 
 /** A door's room row: links, with the open room marked for assistive tech as well as by look. */
-export function Tabs({ items, current, label }: { items: readonly { label: string; href: string }[]; current: string; label: string }) {
+export type TabsProps =
+  | { items: readonly { label: string; href: string }[]; current: string; label: string }
+  | {
+      /** In-page tabs: each item names the panel it shows. */
+      items: readonly { label: string; value: string }[];
+      value: string;
+      onChange: (value: string) => void;
+      label: string;
+      /** Prefix for the tab and panel ids, shared with each `TabPanel`. */
+      id: string;
+    };
+
+/**
+ * One row of tabs. With `href`s it is a door's room row: links, the open room marked `aria-current`. With `value`s and
+ * `onChange` it is in-page tabs: a `tablist` of `tab`s, the shown one `aria-selected`, one Tab stop, and the arrow keys,
+ * Home and End move and show (the panel is a `TabPanel` with the same `id`).
+ */
+export function Tabs(props: TabsProps) {
+  const refs = React.useRef<(HTMLButtonElement | null)[]>([]);
+  if (!('onChange' in props)) {
+    const { items, current, label } = props;
+    return (
+      <nav className="lt-tabs" aria-label={label}>
+        {items.map((t) => (
+          <a key={t.href} href={t.href} className="lt-tab" aria-current={t.href === current ? 'page' : undefined}>
+            {t.label}
+          </a>
+        ))}
+      </nav>
+    );
+  }
+  const { items, value, onChange, label, id } = props;
+  const at = Math.max(
+    0,
+    items.findIndex((t) => t.value === value),
+  );
+  const move = (event: React.KeyboardEvent, index: number) => {
+    const next = nextTabIndex(index, event.key, items.length);
+    if (next === null) return;
+    const item = items[next];
+    if (!item) return;
+    event.preventDefault();
+    onChange(item.value);
+    refs.current[next]?.focus();
+  };
   return (
-    <nav className="lt-tabs" aria-label={label}>
-      {items.map((t) => (
-        <a key={t.href} href={t.href} className="lt-tab" aria-current={t.href === current ? 'page' : undefined}>
+    <div className="lt-tabs" role="tablist" aria-label={label}>
+      {items.map((t, i) => (
+        <button
+          key={t.value}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          type="button"
+          role="tab"
+          id={`${id}-tab-${t.value}`}
+          aria-controls={`${id}-panel-${t.value}`}
+          aria-selected={i === at}
+          tabIndex={i === at ? 0 : -1}
+          className="lt-tab"
+          onClick={() => onChange(t.value)}
+          onKeyDown={(e) => move(e, i)}
+        >
           {t.label}
-        </a>
+        </button>
       ))}
-    </nav>
+    </div>
+  );
+}
+
+/** The tab an arrow, Home or End key moves to from `index` (wrapping), or null for any other key. */
+export function nextTabIndex(index: number, key: string, count: number): number | null {
+  if (count === 0) return null;
+  if (key === 'ArrowRight' || key === 'ArrowDown') return (index + 1) % count;
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return (index - 1 + count) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
+}
+
+/** What a keyboard can reach inside a panel. */
+const PANEL_CONTROL = 'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Whether a tab's panel is itself a Tab stop: only while it holds nothing a keyboard can reach, so Tab from the tab
+ * still lands in it. A panel with controls leaves the stop to its first control, never to the whole (often tall) panel,
+ * whose focus ring would run under the phone's dock.
+ */
+export function panelIsTabStop(panel: Pick<ParentNode, 'querySelector'>): boolean {
+  return panel.querySelector(PANEL_CONTROL) === null;
+}
+
+/** The panel an in-page tab shows. Only the shown panel is rendered, so a hidden one reads nothing. */
+export function TabPanel({ id, value, current, children }: { id: string; value: string; current: string; children: React.ReactNode }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [stop, setStop] = React.useState(true);
+  const shown = value === current;
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const read = () => setStop(panelIsTabStop(el));
+    read();
+    const watch = new MutationObserver(read);
+    watch.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['tabindex', 'href'] });
+    return () => watch.disconnect();
+  }, [shown]);
+  if (!shown) return null;
+  return (
+    <div
+      ref={ref}
+      className="lt-tab-panel"
+      role="tabpanel"
+      id={`${id}-panel-${value}`}
+      aria-labelledby={`${id}-tab-${value}`}
+      tabIndex={stop ? 0 : undefined}
+    >
+      {children}
+    </div>
   );
 }
 
 /**
  * A bottom sheet on a phone, a side sheet on a computer: one of the two layers allowed glass. It is a modal
- * dialog (focus stays inside, Escape closes), built on the native <dialog> element.
+ * dialog (focus stays inside, Escape closes), built on the native <dialog> element. As an `alertdialog` it asks for
+ * an answer: it draws no Close button of its own (its own buttons answer it), Escape asks `onClose` and the sheet
+ * stays open until `open` turns false. An element inside marked `data-autofocus` takes the focus when it opens.
  */
 export function Sheet({
   open,
   title,
   onClose,
+  role = 'dialog',
+  closeButton = role !== 'alertdialog',
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
+  role?: 'dialog' | 'alertdialog';
+  /** The sheet's own Close button; off for a sheet whose own buttons answer it (a form with Not now). */
+  closeButton?: boolean;
   children: React.ReactNode;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
+  const alert = role === 'alertdialog';
   React.useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal?.();
+    if (open && !d.open) {
+      d.showModal?.();
+      d.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    }
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog ref={ref} className="lt-sheet" aria-label={title} onClose={onClose} onCancel={onClose}>
+    <dialog
+      ref={ref}
+      className="lt-sheet"
+      role={alert ? 'alertdialog' : undefined}
+      aria-modal={alert || undefined}
+      aria-label={title}
+      onClose={alert ? undefined : onClose}
+      onCancel={(e) => {
+        if (alert) e.preventDefault();
+        onClose();
+      }}
+    >
       <header className="lt-sheet-head">
         <h2 className="lt-sheet-title">{title}</h2>
-        <button type="button" className="lt-button lt-button-secondary" onClick={onClose}>
-          Close
-        </button>
+        {closeButton ? (
+          <button type="button" className="lt-button lt-button-secondary" onClick={onClose}>
+            Close
+          </button>
+        ) : null}
       </header>
       <div className="lt-sheet-body">{children}</div>
     </dialog>
+  );
+}
+
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * One choice from a list, as a button that opens a list: a `combobox` with a `listbox` of `option`s. Focus stays on
+ * the button; the arrow keys, Home and End move through the open list, Enter or Space picks, Escape and Tab close.
+ * A value not among the options is shown as itself, so a choice in force is never hidden; an empty one shows `placeholder`.
+ */
+export function Select({
+  label,
+  options,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+}: {
+  label: string;
+  options: readonly SelectOption[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  /** Shown while nothing is chosen (an empty value). */
+  placeholder?: string;
+}) {
+  const id = React.useId();
+  const [open, setOpen] = React.useState(false);
+  const [active, setActive] = React.useState(0);
+  const selected = options.findIndex((o) => o.value === value);
+  const shown = options[selected]?.label ?? (value === '' && placeholder ? placeholder : value);
+  const show = () => {
+    setActive(Math.max(0, selected));
+    setOpen(true);
+  };
+  const pick = (index: number) => {
+    const option = options[index];
+    setOpen(false);
+    if (option && option.value !== value) onChange(option.value);
+  };
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    const step = selectKey(event.key, open);
+    if (step === null) return;
+    if (step !== 'close') event.preventDefault();
+    if (step === 'open') show();
+    else if (step === 'close') setOpen(false);
+    else if (step === 'pick') pick(active);
+    else setActive((i) => nextOptionIndex(i, step, options.length));
+  };
+  return (
+    <div className="lt-select">
+      <button
+        type="button"
+        role="combobox"
+        className="lt-select-button"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${id}-list`}
+        aria-activedescendant={open && options.length > 0 ? `${id}-${active}` : undefined}
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : show())}
+        onKeyDown={onKeyDown}
+        onBlur={() => setOpen(false)}
+      >
+        <span>{shown}</span>
+        <span className="lt-select-mark" aria-hidden="true" />
+      </button>
+      {open ? (
+        <ul className="lt-select-list" role="listbox" id={`${id}-list`} aria-label={label}>
+          {options.map((o, i) => (
+            <li
+              key={o.value}
+              id={`${id}-${i}`}
+              role="option"
+              aria-selected={o.value === value}
+              data-active={i === active || undefined}
+              // Keep the focus on the button, so the list closes on blur only when focus really leaves.
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(i)}
+            >
+              {o.label}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+type SelectStep = 'open' | 'close' | 'pick' | 'next' | 'previous' | 'first' | 'last';
+
+/** What a key does to a Select, closed or open; null for a key it leaves alone. */
+export function selectKey(key: string, open: boolean): SelectStep | null {
+  if (!open) return key === 'ArrowDown' || key === 'ArrowUp' || key === 'Enter' || key === ' ' ? 'open' : null;
+  if (key === 'Escape' || key === 'Tab') return 'close';
+  if (key === 'Enter' || key === ' ') return 'pick';
+  if (key === 'ArrowDown') return 'next';
+  if (key === 'ArrowUp') return 'previous';
+  if (key === 'Home') return 'first';
+  if (key === 'End') return 'last';
+  return null;
+}
+
+/** The option a move lands on, held at the ends of the list. */
+export function nextOptionIndex(index: number, step: 'next' | 'previous' | 'first' | 'last', count: number): number {
+  if (count === 0) return 0;
+  if (step === 'first') return 0;
+  if (step === 'last') return count - 1;
+  return Math.min(count - 1, Math.max(0, index + (step === 'next' ? 1 : -1)));
+}
+
+/**
+ * A text box for an amount or a quantity: the value is a decimal string ("0.1", never a number). A keystroke that
+ * would make it invalid or longer than `precision` decimals is refused, a paste is cleaned and cut down to it, and an
+ * unfinished "." is dropped on blur. Put it in an `lt-field` with its label.
+ */
+export function DecimalInput({
+  value,
+  onValueChange,
+  precision,
+  onBlur,
+  ...rest
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'inputMode'> & {
+  value: string;
+  onValueChange: (value: string) => void;
+  precision: number;
+}) {
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      spellCheck={false}
+      value={value}
+      onChange={(e) => {
+        const next = nextDecimalValue(value, e.currentTarget.value, { precision });
+        if (next !== value) onValueChange(next);
+      }}
+      onPaste={(e) => {
+        if (rest.readOnly || rest.disabled) return;
+        e.preventDefault();
+        const next = pastedDecimalValue(value, e.clipboardData.getData('text'), { precision });
+        if (next !== value) onValueChange(next);
+      }}
+      onBlur={(e) => {
+        const cleaned = blurDecimalValue(value);
+        if (cleaned !== value) onValueChange(cleaned);
+        onBlur?.(e);
+      }}
+    />
+  );
+}
+
+/** A checkbox with its words, as one row: the box, then the label (`lt-field`). */
+export function Checkbox({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="lt-field">
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.currentTarget.checked)} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+/** The TEST label an illustrative figure or sample list carries (AGENTS.md: an illustrative figure says TEST). */
+export function TestTag() {
+  return <span className="lt-test">TEST</span>;
+}
+
+const FRESHNESS_WORDS: Record<Freshness, string> = { live: 'Live', stale: 'Stale', unknown: 'Unknown', refused: 'Refused' };
+
+/**
+ * How fresh a polled read is, as a shape and a word (Live, Stale, Unknown, Refused), never colour alone, with its
+ * "as of" time when `showAsOf`. It keeps its own clock, so Live turns Stale by itself; pass `now` only for screenshots.
+ */
+export function FreshnessChip({
+  asOf,
+  staleAfterMs,
+  refused = false,
+  showAsOf = false,
+  now,
+  reason,
+}: {
+  asOf: AsOf;
+  staleAfterMs: number;
+  refused?: boolean;
+  showAsOf?: boolean;
+  now?: number;
+  /** Why it is unknown, refused or behind: in the title and read out (a title alone is not read reliably). */
+  reason?: string;
+}) {
+  const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused });
+  const kind = freshnessOf({ asOf, now: clock, staleAfterMs, refused });
+  const iso = showAsOf ? asOfIso(asOf) : null;
+  const shown = iso ? formatAsOf(asOf, { now: clock }) : null;
+  return (
+    <span className="lt-chip" role="status" data-freshness={kind} title={reason}>
+      <span className="lt-chip-mark" aria-hidden="true" />
+      <span>
+        <span data-part="word">{FRESHNESS_WORDS[kind]}</span>
+        {iso && shown ? (
+          <span className="lt-chip-when">
+            {' · as of '}
+            <time dateTime={iso}>{shown}</time>
+          </span>
+        ) : null}
+      </span>
+      {reason ? <span className="lt-sr">{reason}</span> : null}
+    </span>
   );
 }
