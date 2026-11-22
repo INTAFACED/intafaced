@@ -1,0 +1,505 @@
+// Records, from `@intafaced/ledger-client` in this checkout, what the Rust ledger's `postRecipe` door is held to now
+// that the TypeScript svc-ledger is gone (`record-door.mjs` recorded the rest before it was deleted, and its files are
+// the reference for what they hold):
+//
+// - `src/door/schemas.json`: the `postRecipe` input and the `postRecipeReply` output, as the record
+//   (`post-recipe-record.ts`) writes them, in the tree of zod 4 parts the kit's schema engine runs. Every other part is
+//   kept as recorded; a part nothing names any more is dropped.
+// - `tests/fixtures/input-parity.golden.json`: zod's verdict on each `postRecipe` and `postRecipeReply` input there,
+//   and on the record's own samples.
+// - `tests/fixtures/post-recipe-bank.golden.jsonl`: what the door answers each caller for bodies made to reach each
+//   check of svc-bank's recipes (`bankTransfer`, `payReceivedHold`, `payReceivedRelease`, `payReceivedReturn`): its
+//   refusal on the wire, or the post it hands the ledger. Same shape as `post-recipe.golden.jsonl`.
+//
+// The door is `handleS2sPostRecipe` as the deleted service ran it up to `ledger.post` (read it in git history:
+// `git show 653924e16^:services/svc-ledger/src/s2s-http.ts`), over this package's own record, gate and recipes. Before
+// it writes anything, it replays every body of the frozen `post-recipe.golden.jsonl` and stops unless it gives each
+// recorded caller the very answer the TypeScript service gave: the stand-in is held to the service it replaces.
+//
+// Run from the repository root, with the workspace packages built (`pnpm --filter "@intafaced/ledger-client^..." build`):
+//   TZ=UTC node --import tsx crates/svc-ledger/scripts/record-post-recipe.mjs          writes the files
+//   TZ=UTC node --import tsx crates/svc-ledger/scripts/record-post-recipe.mjs --check  fails when a written file is stale
+
+import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+const CRATE = fileURLToPath(new URL('../', import.meta.url));
+const NAME = 'record-post-recipe';
+const CHECK = process.argv.includes('--check');
+if (process.env.TZ !== 'UTC') {
+  console.error(`${NAME}: run with TZ=UTC`);
+  process.exit(2);
+}
+
+// Literal paths, so the dead-code scan (knip.jsonc) sees what this reads.
+const record = await import('../../../packages/ledger-client/src/post-recipe-record.ts');
+const gate = await import('../../../packages/ledger-client/src/gate/index.ts');
+const { LedgerError, postRequestSchema } = await import('../../../packages/ledger-client/src/types.ts');
+const { ledgerPostWire } = await import('../../../packages/ledger-client/src/http-client.ts');
+const { formatAmount, parseAmount } = await import('../../../packages/ledger-client/src/money.ts');
+// zod as the ledger client resolves it, so a refusal of its schemas is this zod's error.
+const { z } = await import(
+  pathToFileURL(createRequire(fileURLToPath(new URL('../../../packages/ledger-client/src/types.ts', import.meta.url))).resolve('zod')).href
+);
+
+const { LEDGER_POST_RECIPE, POST_RECIPE_NAMES, POST_RECIPE_UNKNOWN, POST_RECIPE_INPUT_INVALID, isPostRecipeName, postRecipeRequest } =
+  record;
+const { CALLER_FORBIDDEN, CALLER_UNBOUND, RECIPE_REQUIRED_CODE, assertKnownRecipePost, grantFor, judgeCallerPost } = gate;
+
+// ── The door, up to `ledger.post` ──────────────────────────────────────────────────────────────────────────────────
+
+const isRecord = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** `caller-binding.ts` `violationMessage`. */
+function violationMessage(v) {
+  if (v.code === CALLER_UNBOUND) return 'Ledger post requires a per-service key.';
+  if (v.reason === 'module') return `Caller ${v.service} may not post module ${v.module}${v.recipe ? ` as ${v.recipe}` : ''}.`;
+  return `Caller ${v.service} may not post recipe ${v.recipe ?? 'unknown'} (module ${v.module}).`;
+}
+
+/**
+ * `handleS2sPostRecipe` then `postChecked` up to `ledger.post`, with no binding options (no keys configured): only a
+ * proven caller is held to the allowlist. The four binding checks that read the book act on reasons none of the door's
+ * recipes books; the frozen replay below would show it if one did.
+ */
+function door(caller, body) {
+  const named = isRecord(body) ? body.recipe : undefined;
+  if (!isPostRecipeName(named)) throw new LedgerError(`postRecipe does not post ${JSON.stringify(named ?? null)}.`, POST_RECIPE_UNKNOWN);
+  const grant = caller?.kind === 'bound' ? grantFor(caller.service, named) : undefined;
+  if (caller?.kind === 'bound' && !grant) throw new LedgerError(`Caller ${caller.service} may not post recipe ${named}.`, CALLER_FORBIDDEN);
+  const { request } = postRecipeRequest(body);
+  if (caller?.kind === 'bound' && grant?.module !== request.module) {
+    throw new LedgerError(`Caller ${caller.service} may not post module ${request.module} as ${named}.`, CALLER_FORBIDDEN);
+  }
+  const input = postRequestSchema.parse(ledgerPostWire(request));
+  if (caller) {
+    const judged = judgeCallerPost(caller, input);
+    if (!judged.ok && caller.kind === 'bound') throw new LedgerError(violationMessage(judged.violation), judged.violation.code);
+  }
+  assertKnownRecipePost(input);
+  // What `ledger.post` was handed, written as the recording writes it.
+  return {
+    post: {
+      idempotencyKey: input.idempotencyKey,
+      module: input.module,
+      reason: input.reason,
+      entries: input.entries.map((e) => ({ account: e.account, direction: e.direction, amount: formatAmount(parseAmount(e.amount)) })),
+      ...(input.meta ? { meta: input.meta } : {}),
+      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+    },
+  };
+}
+
+/** `s2s-http.ts` `httpError`, for the refusals the door raises before the ledger; any other stops the recording. */
+const STATUS = {
+  [POST_RECIPE_UNKNOWN]: 400,
+  [POST_RECIPE_INPUT_INVALID]: 400,
+  [RECIPE_REQUIRED_CODE]: 400,
+  'ledger.owner_identity_space': 400,
+  [CALLER_UNBOUND]: 401,
+  [CALLER_FORBIDDEN]: 403,
+};
+function answer(caller, body) {
+  try {
+    return JSON.stringify(door(caller, body));
+  } catch (err) {
+    if (err instanceof z.ZodError) return JSON.stringify({ status: 400, body: { message: err.message } });
+    if (err instanceof LedgerError && STATUS[err.code]) {
+      return JSON.stringify({ status: STATUS[err.code], body: { message: err.message, code: err.code } });
+    }
+    throw err;
+  }
+}
+
+// ── The frozen recording, replayed ─────────────────────────────────────────────────────────────────────────────────
+
+const FROZEN = `${CRATE}tests/fixtures/post-recipe.golden.jsonl`;
+{
+  const [head, ...lines] = readFileSync(FROZEN, 'utf8').trimEnd().split('\n');
+  const { callers, answers } = JSON.parse(head);
+  let replayed = 0;
+  for (const line of lines) {
+    const [text, said] = JSON.parse(line);
+    const body = text === null ? undefined : JSON.parse(text);
+    callers.forEach((caller, i) => {
+      const got = answer(caller, body);
+      if (got !== answers[said[i]]) {
+        console.error(
+          `${NAME}: the door no longer answers as the TypeScript service did\n  body ${text}\n  caller ${JSON.stringify(caller)}`,
+        );
+        console.error(`  then ${answers[said[i]]}\n  now  ${got}`);
+        process.exit(1);
+      }
+      replayed++;
+    });
+  }
+  console.log(`${replayed} frozen answers replayed, all the same`);
+}
+
+// ── svc-bank's bodies ──────────────────────────────────────────────────────────────────────────────────────────────
+
+const BANK_RECIPES = ['bankTransfer', 'payReceivedHold', 'payReceivedRelease', 'payReceivedReturn'];
+const CALLERS = [
+  { kind: 'bound', service: 'svc-bank' },
+  { kind: 'bound', service: 'svc-academy' },
+  { kind: 'bound', service: 'svc-pay' },
+  { kind: 'legacy', claimed: 'svc-bank' },
+  { kind: 'legacy', claimed: null },
+  null,
+];
+const USER = '22222222-2222-4222-8222-222222222222';
+const PAYEE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const SPACE = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const user = (ownerId, assetId = 'USDC') => ({ ownerType: 'user', ownerId, assetId, kind: 'available' });
+const space = (ownerId, assetId = 'USDC') => ({ ownerType: 'subaccount', ownerId, assetId, kind: 'available' });
+const rail = (railId, assetId = 'USDC') => ({ ownerType: 'treasury', ownerId: `rail:${railId}`, assetId, kind: 'available' });
+const TRANSFER = {
+  transferId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  occurrence: 0,
+  from: user(USER),
+  to: user(PAYEE),
+  amount: '12.5',
+  kind: 'manual',
+  keySpace: 'p2p',
+};
+const HOLD = { holdId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', userId: PAYEE, assetId: 'USDC', amount: '12.5' };
+const OUTCOME = { ...HOLD, heldAmount: '12.5' };
+const RETURN = { ...OUTCOME, payerUserId: USER };
+
+const AMOUNTS = [
+  '0',
+  '0.0',
+  '00',
+  '01',
+  '1.',
+  '.5',
+  '+1',
+  '-1',
+  '1e3',
+  ' 1',
+  '12.50',
+  '0.000000000000000001',
+  '1.0000000000000000001',
+  '9'.repeat(20),
+  `${'9'.repeat(20)}.${'9'.repeat(18)}`,
+  `1${'0'.repeat(20)}`,
+  '9'.repeat(64),
+  '9'.repeat(65),
+  '',
+  12.5,
+  null,
+];
+const IDS = [USER.toUpperCase(), USER.replaceAll('-', ''), `${USER}0`, 'x', '', 7, null];
+const ACCOUNTS = [
+  user(USER),
+  user(PAYEE),
+  space(SPACE),
+  space(USER),
+  rail('card-sandbox'),
+  rail('crypto-native:base'),
+  rail('A_b.c'),
+  user(PAYEE, 'USDT'),
+  user(PAYEE, 'U'.repeat(16)),
+  user(PAYEE, 'U'.repeat(17)),
+  user(PAYEE, ' USDC'),
+  user(PAYEE, ''),
+  user(PAYEE.toUpperCase()),
+  user('fees:bank'),
+  space('rail:x'),
+  { ...rail('x'), ownerId: 'rail:' },
+  { ...rail('x'), ownerId: 'rail:a b' },
+  { ...rail('x'), ownerId: `rail:${'r'.repeat(123)}` },
+  { ...rail('x'), ownerId: `rail:${'r'.repeat(124)}` },
+  { ...rail('x'), ownerId: 'fees:bank' },
+  { ...rail('x'), ownerId: PAYEE },
+  { ...user(PAYEE), ownerType: 'house', ownerId: 'fees:bank' },
+  { ...user(PAYEE), ownerType: 'module', ownerId: 'bank:x' },
+  { ...user(PAYEE), kind: 'hold', purpose: 'x' },
+  { ...user(PAYEE), purpose: '' },
+  { ...user(PAYEE), extra: 1 },
+  { ownerType: 'user', ownerId: PAYEE, assetId: 'USDC' },
+  { ownerId: PAYEE, assetId: 'USDC', kind: 'available' },
+  'user',
+  null,
+];
+const FIELDS = {
+  bankTransfer: {
+    transferId: ['x', 'a:b', 'a b', '', ' x', 'x ', 't'.repeat(160), 't'.repeat(161), 7, null],
+    occurrence: [1, 2_147_483_647, 2_147_483_648, -1, 1.5, '0', true, null],
+    from: ACCOUNTS,
+    to: ACCOUNTS,
+    amount: AMOUNTS,
+    kind: ['scheduled', 'auto', '', null],
+    keySpace: ['own', 'sched', 'rail', 'recovery', 'legacy', '', null],
+  },
+  payReceivedHold: {
+    holdId: ['x', 'a:b', 'a b', '', ' h', 'h'.repeat(119), 'h'.repeat(120), 7, null],
+    userId: IDS,
+    assetId: ['BTC', '', 'U'.repeat(16), 'U'.repeat(17), ' USDC', 'US DC', 'ü', 7, null],
+    amount: AMOUNTS,
+  },
+};
+FIELDS.payReceivedRelease = { ...FIELDS.payReceivedHold, heldAmount: [...AMOUNTS, '5'] };
+FIELDS.payReceivedReturn = { ...FIELDS.payReceivedRelease, payerUserId: [PAYEE, ...IDS] };
+
+const BODIES = [
+  // Every key space as svc-bank books it, in the kind that goes with it.
+  { recipe: 'bankTransfer', input: { ...TRANSFER, keySpace: 'own', to: space(SPACE) } },
+  { recipe: 'bankTransfer', input: { ...TRANSFER, keySpace: 'own', from: space(SPACE), to: user(USER) } },
+  { recipe: 'bankTransfer', input: { ...TRANSFER, occurrence: 4, kind: 'scheduled', keySpace: 'sched' } },
+  { recipe: 'bankTransfer', input: { ...TRANSFER, keySpace: 'rail', to: rail('card-sandbox') } },
+  { recipe: 'bankTransfer', input: { ...TRANSFER, occurrence: 1, keySpace: 'rail', from: rail('card-sandbox'), to: user(USER) } },
+  {
+    recipe: 'bankTransfer',
+    input: {
+      ...TRANSFER,
+      transferId: `ffffffff-ffff-4fff-8fff-ffffffffffff:user:${USER}:USDC:available:`,
+      occurrence: 2,
+      keySpace: 'recovery',
+    },
+  },
+  { recipe: 'bankTransfer', input: { ...TRANSFER, occurrence: 4, kind: 'scheduled', keySpace: 'p2p' } },
+  { recipe: 'bankTransfer', input: { ...TRANSFER, kind: 'manual', keySpace: 'sched' } },
+  // A longest key: the record's widest transfer id and occurrence.
+  { recipe: 'bankTransfer', input: { ...TRANSFER, transferId: 't'.repeat(160), occurrence: 2_147_483_647, keySpace: 'recovery' } },
+  { recipe: 'payReceivedHold', input: { ...HOLD, holdId: 'h'.repeat(119), assetId: 'U'.repeat(16) } },
+  { recipe: 'payReceivedRelease', input: { ...OUTCOME, amount: '5' } },
+  { recipe: 'payReceivedReturn', input: { ...RETURN, amount: '12.50', heldAmount: '12.5' } },
+  { recipe: 'payReceivedReturn', input: { ...RETURN, payerUserId: PAYEE } },
+  // Another service's recipe and body, and svc-bank's recipe with another's inputs.
+  { recipe: 'academyPurchase', input: { ...TRANSFER } },
+  { recipe: 'bankTransfer', input: HOLD },
+  { recipe: 'payReceivedHold', input: TRANSFER },
+  { recipe: 'payReceivedHold', input: OUTCOME },
+  { recipe: 'payReceivedRelease', input: RETURN },
+];
+for (const [recipe, base] of [
+  ['bankTransfer', TRANSFER],
+  ['payReceivedHold', HOLD],
+  ['payReceivedRelease', OUTCOME],
+  ['payReceivedReturn', RETURN],
+]) {
+  BODIES.push({ recipe, input: base });
+  for (const [field, values] of Object.entries(FIELDS[recipe])) {
+    const without = { ...base };
+    delete without[field];
+    BODIES.push({ recipe, input: without });
+    for (const v of values) BODIES.push({ recipe, input: { ...base, [field]: v } });
+  }
+  BODIES.push({ recipe, input: { ...base, extra: 1 } }, { recipe, input: base, idempotencyKey: 'mine' });
+}
+
+const answers = [];
+const answerIndex = new Map();
+const cases = [];
+const seen = new Set();
+for (const body of BODIES) {
+  const text = JSON.stringify(body);
+  if (seen.has(text)) continue;
+  seen.add(text);
+  const said = CALLERS.map((caller) => {
+    const a = answer(caller, JSON.parse(text));
+    if (!answerIndex.has(a)) answerIndex.set(a, answers.push(a) - 1);
+    return answerIndex.get(a);
+  });
+  cases.push([text, said]);
+}
+const posts = answers.filter((a) => a.startsWith('{"post"')).length;
+for (const recipe of BANK_RECIPES) {
+  if (!POST_RECIPE_NAMES.includes(recipe)) throw new Error(`${NAME}: the door does not post ${recipe}`);
+  const booked = cases.some(([text, said]) => JSON.parse(text).recipe === recipe && answers[said[0]].startsWith('{"post"'));
+  if (!booked) throw new Error(`${NAME}: no body books ${recipe} for svc-bank`);
+}
+
+// ── The record's schemas, in the door's tree ───────────────────────────────────────────────────────────────────────
+
+const SCHEMAS = `${CRATE}src/door/schemas.json`;
+const tree = JSON.parse(readFileSync(SCHEMAS, 'utf8'));
+const canon = (v) => JSON.stringify(v);
+const byContent = new Map();
+tree.nodes.forEach((n, i) => {
+  if (!byContent.has(canon(n))) byContent.set(canon(n), i);
+});
+/** A part already in the tree with this content, or a new one at its end. */
+function place(n) {
+  const key = canon(n);
+  if (!byContent.has(key)) byContent.set(key, tree.nodes.push(n) - 1);
+  return byContent.get(key);
+}
+
+function checkOf(c) {
+  const d = c._zod.def;
+  if (d.when && !(['min_length', 'max_length'].includes(d.check) && d.when.toString().includes('val.length !== undefined'))) {
+    throw new Error(`a check with its own when: ${d.check}`);
+  }
+  if (d.error || d.abort) throw new Error(`a check with its own error or abort: ${d.check}`);
+  switch (d.check) {
+    case 'min_length':
+      return { k: 'min_length', n: d.minimum };
+    case 'max_length':
+      return { k: 'max_length', n: d.maximum };
+    case 'string_format':
+      if (d.format === 'regex') return { k: 'regex', src: d.pattern.toString() };
+      throw new Error(`string format ${d.format}`);
+    case 'greater_than':
+      return { k: 'gt', v: d.value, incl: d.inclusive };
+    case 'less_than':
+      return { k: 'lt', v: d.value, incl: d.inclusive };
+    case 'number_format':
+      if (d.format !== 'safeint') throw new Error(`number format ${d.format}`);
+      return { k: 'int' };
+    default:
+      // A record is portable: no refine reaches here (`defineProcedure` refuses one).
+      throw new Error(`check ${d.check}`);
+  }
+}
+
+/** One schema as the door's flat parts (`record-door.mjs` `build`, for what a portable record holds). */
+function node(s) {
+  const d = s._zod.def;
+  if (d.error) throw new Error(`a ${d.type} schema with its own error`);
+  const self = s._zod.traits.has('$ZodCheck') && d.type === 'string' ? [s] : [];
+  const checks = [...self, ...(d.checks ?? [])].map(checkOf);
+  const withChecks = (o) => place(checks.length ? { ...o, checks } : o);
+  switch (d.type) {
+    case 'string':
+    case 'number':
+    case 'boolean':
+      if (d.coerce) throw new Error('a coerced schema');
+      return withChecks({ t: d.type });
+    case 'unknown':
+      return withChecks({ t: 'unknown' });
+    case 'enum':
+      return withChecks({ t: 'enum', values: s.options });
+    case 'literal':
+      return withChecks({ t: 'literal', values: d.values });
+    case 'object': {
+      const shape = Object.entries(d.shape).map(([k, v]) => [k, node(v)]);
+      let catchall = null;
+      if (d.catchall) {
+        const t = d.catchall._zod.def.type;
+        if (t === 'never') catchall = 'strict';
+        else if (t === 'unknown') catchall = 'passthrough';
+        else throw new Error(`catchall ${t}`);
+      }
+      return withChecks({ t: 'object', shape, ...(catchall ? { catchall } : {}) });
+    }
+    case 'array':
+      return withChecks({ t: 'array', el: node(d.element) });
+    case 'optional':
+    case 'nullable':
+      return withChecks({ t: d.type, in: node(d.innerType) });
+    case 'union':
+      if (d.discriminator !== undefined) {
+        if (d.unionFallback) throw new Error('a discriminated union with a fallback');
+        return withChecks({ t: 'dunion', disc: d.discriminator, options: d.options.map(node) });
+      }
+      if (d.inclusive === false) throw new Error('an exclusive union');
+      return withChecks({ t: 'union', options: d.options.map(node) });
+    default:
+      throw new Error(`schema type ${d.type}`);
+  }
+}
+
+tree.inputs.postRecipe = node(LEDGER_POST_RECIPE.input);
+tree.inputs.postRecipeReply = node(LEDGER_POST_RECIPE.output);
+
+// Drop the parts no input reaches any more, keeping the order of the rest.
+const reached = new Set();
+const visit = (id) => {
+  if (reached.has(id)) return;
+  reached.add(id);
+  const n = tree.nodes[id];
+  for (const [, c] of n.shape ?? []) visit(c);
+  for (const c of n.options ?? []) visit(c);
+  for (const k of ['el', 'in', 'key']) if (n[k] !== undefined) visit(n[k]);
+  if (n.t === 'record' || n.t === 'pipe') {
+    if (n.value !== undefined) visit(n.value);
+    if (n.out !== undefined) visit(n.out);
+  }
+};
+Object.values(tree.inputs).forEach(visit);
+const renumber = new Map();
+const nodes = [];
+tree.nodes.forEach((n, i) => {
+  if (reached.has(i)) renumber.set(i, nodes.push(n) - 1);
+});
+const re = (id) => renumber.get(id);
+const nodesOut = nodes.map((n) => {
+  const o = { ...n };
+  if (o.shape) o.shape = o.shape.map(([k, c]) => [k, re(c)]);
+  if (o.options) o.options = o.options.map(re);
+  for (const k of ['el', 'in', 'key']) if (o[k] !== undefined) o[k] = re(o[k]);
+  if (o.t === 'record' || o.t === 'pipe') {
+    if (o.value !== undefined) o.value = re(o.value);
+    if (o.out !== undefined) o.out = re(o.out);
+  }
+  return o;
+});
+const inputsOut = Object.fromEntries(Object.entries(tree.inputs).map(([k, id]) => [k, re(id)]));
+
+// ── zod's verdicts on the door's inputs ────────────────────────────────────────────────────────────────────────────
+
+/** `record-door.mjs` `verdict`: `ok <output>` (`ok =` when the output is the input as sent), `issues <zod's issues>`. */
+function verdict(schema, text) {
+  const input = text === null ? undefined : JSON.parse(text);
+  let r;
+  try {
+    r = schema.safeParse(input);
+  } catch (err) {
+    return `throws ${err.message}`;
+  }
+  if (!r.success) return `issues ${JSON.stringify(r.error.issues)}`;
+  const out = JSON.stringify(r.data) ?? 'undefined';
+  return out === text ? 'ok =' : `ok ${out}`;
+}
+const PARITY = `${CRATE}tests/fixtures/input-parity.golden.json`;
+const parity = JSON.parse(readFileSync(PARITY, 'utf8'));
+const SCHEMA_OF = { postRecipe: LEDGER_POST_RECIPE.input, postRecipeReply: LEDGER_POST_RECIPE.output };
+const parityCases = parity.cases.map(([door, text, i]) => [door, text, SCHEMA_OF[door] ? null : parity.verdicts[i]]);
+const known = new Set(parityCases.filter(([door]) => door === 'postRecipe').map(([, text]) => text));
+for (const { input } of LEDGER_POST_RECIPE.samples) {
+  const text = JSON.stringify(input);
+  if (!known.has(text)) (parityCases.push(['postRecipe', text, null]), known.add(text));
+}
+const verdictsOut = [];
+const verdictIndex = new Map();
+const casesOut = parityCases.map(([door, text, kept]) => {
+  const v = kept ?? verdict(SCHEMA_OF[door], text);
+  if (!verdictIndex.has(v)) verdictIndex.set(v, verdictsOut.push(v) - 1);
+  return [door, text, verdictIndex.get(v)];
+});
+
+// ── Writing ────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+const PRETTIER = fileURLToPath(new URL('../../../node_modules/.bin/prettier', import.meta.url));
+const pretty = (file, text) => execFileSync(PRETTIER, ['--stdin-filepath', file], { input: text, encoding: 'utf8', maxBuffer: 1 << 28 });
+const outputs = [
+  [SCHEMAS, pretty(SCHEMAS, `${JSON.stringify({ nodes: nodesOut, inputs: inputsOut })}\n`)],
+  [PARITY, pretty(PARITY, `${JSON.stringify({ verdicts: verdictsOut, cases: casesOut })}\n`)],
+  // One line each: the recipes, the callers and the distinct answers, then one body a line (`[body, [answer per caller]]`).
+  [
+    `${CRATE}tests/fixtures/post-recipe-bank.golden.jsonl`,
+    `${[JSON.stringify({ recipes: BANK_RECIPES, callers: CALLERS, answers }), ...cases.map((c) => JSON.stringify(c))].join('\n')}\n`,
+  ],
+];
+let stale = 0;
+for (const [file, text] of outputs) {
+  if (CHECK) {
+    let was = '';
+    try {
+      was = readFileSync(file, 'utf8');
+    } catch {}
+    if (was !== text) {
+      console.error(`stale: ${file.slice(ROOT.length)}`);
+      stale++;
+    }
+  } else writeFileSync(file, text);
+}
+console.log(
+  `${cases.length} svc-bank bodies (${posts} distinct posts) for ${CALLERS.length} callers, ${nodesOut.length} schema parts, ${casesOut.length} input cases`,
+);
+if (stale) process.exit(1);
