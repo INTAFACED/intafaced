@@ -89,7 +89,7 @@ export function IdentityPage({ agent }: { agent: OwnAgent }) {
 
   return (
     <Panel title={t('identityTitle')} role="region" aria-label={t('identityTitle')}>
-      <p className="muted">{t('identityIntro')}</p>
+      <p className="lt-muted">{t('identityIntro')}</p>
       <Read resource={loaded.resource} retry={loaded.reload}>
         {(read) => {
           const token = changed ?? read.token;
@@ -205,7 +205,7 @@ export function AssistantPanel() {
       ) : engine === 'live' ? (
         <p role="note">{t('assistantLive')}</p>
       ) : engine === 'test' ? (
-        <p className="muted">{t('assistantTest')}</p>
+        <p className="lt-muted">{t('assistantTest')}</p>
       ) : state.resource.status === 'failed' ? (
         <Read resource={state.resource} retry={state.reload}>
           {() => null}
@@ -218,7 +218,7 @@ export function AssistantPanel() {
       {proposal ? (
         <section aria-label={t('proposalTitle')}>
           <h3>{t('proposalTitle')}</h3>
-          <p className="muted">{t('proposalSaved')}</p>
+          <p className="lt-muted">{t('proposalSaved')}</p>
           <dl>
             <dt>{t('name')}</dt>
             <dd data-testid="proposal-name">{proposal.name}</dd>

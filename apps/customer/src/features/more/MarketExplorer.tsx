@@ -32,14 +32,14 @@ export function MarketDoors() {
   const { t } = marketListingCopy.useCopy();
   return (
     <nav aria-label={t('doorsTitle')}>
-      <p className="muted">{t('doorsNote')}</p>
+      <p className="lt-muted">{t('doorsNote')}</p>
       <ul className="market-doors">
         {MARKET_DOORS.map((door) => (
           <li key={door.key}>
-            <a className="text-link" href={door.href}>
+            <a className="lt-link" href={door.href}>
               {t(door.key)}
             </a>
-            <small className="muted">{t(door.note)}</small>
+            <small className="lt-muted">{t(door.note)}</small>
           </li>
         ))}
       </ul>
@@ -146,7 +146,7 @@ export function MarketFilters({
         />
       </div>
       <div data-testid="more-toolbar" className="more-toolbar">
-        <span className="muted" role="status">
+        <span className="lt-muted" role="status">
           {t('showing', { shown, total: rows.length })}
           {filter.vendorId ? ` · ${t('sellerFilter')}` : ''}
         </span>
@@ -204,7 +204,7 @@ export function ListingDetail({
       />
       {children}
       {row.offerType === 'subscription' ? (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="recurringNote" />
         </p>
       ) : null}
@@ -212,7 +212,7 @@ export function ListingDetail({
         <Copy k="seller" />
       </h3>
       {seller.resource.status === 'failed' && seller.resource.failure.reason === 'not_mounted' ? (
-        <p className="muted" role="status">
+        <p className="lt-muted" role="status">
           <Copy k="sellerNotListed" />
         </p>
       ) : (
@@ -229,7 +229,7 @@ export function ListingDetail({
         </Read>
       )}
       <div className="depth-card-actions">
-        <a className="text-link" href={`/market/${encodeURIComponent(row.id)}`}>
+        <a className="lt-link" href={`/market/${encodeURIComponent(row.id)}`}>
           {listingCopy.t('openPage')}
         </a>
         <Button variant="secondary" onClick={() => onSeller(row.vendorId)}>
@@ -263,7 +263,7 @@ export function ListingDetail({
               ) : null}
             </>
           ) : (
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="accessOneTime" />
             </p>
           )}
@@ -279,7 +279,7 @@ export function SellerDirectory({ onSeller }: { onSeller: (vendorId: string) => 
   const sellers = useResource((signal) => api.call(MARKET_LISTED, { limit: 20 }, { signal }), 'market-sellers');
   return (
     <Panel title={t('directoryTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="directoryNote" />
       </p>
       <Read resource={sellers.resource} retry={sellers.reload} empty={t('directoryEmpty')}>

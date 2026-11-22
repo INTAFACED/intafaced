@@ -4,7 +4,7 @@ import { payCopy, PayCopy, payRefusal } from './copy';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { EmptyState, Field, Page } from './ui-kit';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
 import { PayAmount, PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
@@ -31,6 +31,9 @@ import { OwnCompletion } from './personal/CompletionRates';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
 import { MethodsRoom } from './personal/MethodsRoom';
+import { P2PBoard } from './p2p-board/Board';
+// The other P2P rooms still draw the offer list's old look until they move to Volt.
+import './p2p-offer.css';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -58,6 +61,18 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   // Payment methods is on its settings template, which draws its own title and the P2P rooms.
   if (showMethods && !tradeId && current !== '/chat' && !showOrders && !publish && !showAccess)
     return <MethodsRoom pay={pay} userId={userId} />;
+  // The offer board is on its overview template, which draws its own title and the P2P rooms.
+  if (
+    !tradeId &&
+    current !== '/chat' &&
+    current !== '/checkuser' &&
+    !showOrders &&
+    !publish &&
+    !showAccess &&
+    !showMine &&
+    !(current === '/uc/ad/update')
+  )
+    return <P2PBoard pay={pay} userId={userId} offerOpen={Boolean(params.get('offerId'))} />;
   return (
     <Page
       eyebrow={payCopy.t('personalPay')}
@@ -108,7 +123,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <EmptyState
           title={p2pDepth.t('chatPickTitle')}
           action={
-            <a className="button button--primary" href="/uc/order">
+            <a className="lt-button lt-button-primary" href="/uc/order">
               {p2pDepth.t('chatPickAction')}
             </a>
           }
@@ -122,12 +137,12 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
       ) : current === '/uc/ad/update' && !id.safeParse(params.get('offerId')).success ? (
         <OfferForm pay={pay} userId={userId} mode="edit" offerId={null} />
       ) : publish ? (
-        <div className="stack">
+        <div className="lt-stack">
           <OfferForm pay={pay} userId={userId} mode={current === '/uc/ad/update' ? 'edit' : 'create'} offerId={params.get('offerId')} />
           <PublishAvailability pay={pay} />
         </div>
       ) : showAccess ? (
-        <div className="stack">
+        <div className="lt-stack">
           <P2PEligibilityPanel pay={pay} userId={userId} />
           <OwnCompletion pay={pay} userId={userId} />
           <TradingProgramme pay={pay} userId={userId} />
@@ -135,7 +150,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
       ) : showMine ? (
         <P2POffers pay={pay} userId={userId} mine />
       ) : (
-        <div className="stack">
+        <div className="lt-stack">
           {/* An open ad has the same checks beside its take form; the hub lists them all. */}
           {params.get('offerId') ? null : <P2PEligibilityPanel pay={pay} userId={userId} />}
           <P2POffers pay={pay} userId={userId} mine={false} />
@@ -148,7 +163,7 @@ function PublishAvailability({ pay }: { pay: PersonalPayApi }) {
   const health = useResource((signal) => pay.health(signal), 'pay:p2p-health');
   const methods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={payCopy.t('serviceReadiness')}>
         <PayState resource={health.resource} retry={health.reload}>
           {(data) => (
@@ -268,7 +283,7 @@ export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay:
                 ]}
               />
               {isBuyer ? (
-                <p className="muted" data-testid="order-payee-name-rule">
+                <p className="lt-muted" data-testid="order-payee-name-rule">
                   {order.t('payeeNameRule')}
                 </p>
               ) : null}
@@ -277,7 +292,7 @@ export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay:
         </PayState>
       ) : (
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={!['escrowed', 'fiat_sent', 'disputed'].includes(trade.status)}
           onClick={() => setRequested(true)}
         >
@@ -358,8 +373,8 @@ export function OrderActions({
     return result;
   };
   return (
-    <div className="stack">
-      <div className="actions">
+    <div className="lt-stack">
+      <div className="lt-actions">
         {trade.buyerId === userId && trade.status === 'escrowed' && (
           <ReviewedAction
             title={payCopy.t('markPaymentSent')}
@@ -427,7 +442,7 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
   const dispute = useResource((signal) => pay.dispute(trade.id, signal), `pay:dispute:${trade.id}:${trade.status}`);
   return (
     <PaySection title={payCopy.t('disputeAndEvidence')}>
-      <p className="muted">
+      <p className="lt-muted">
         <PayCopy k="anUnattendedDisputeEscalatesAndKeepsEscrow" />
       </p>
       {trade.status === 'disputed' ? (
@@ -447,7 +462,7 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
               />
               {data.evidence.map((item) => (
                 <div className="pay-evidence" key={item.seq}>
-                  <small className="muted">{item.submittedAt ?? payCopy.t('timeNotRecorded')}</small>
+                  <small className="lt-muted">{item.submittedAt ?? payCopy.t('timeNotRecorded')}</small>
                   <p>{typeof item.item === 'string' ? item.item : JSON.stringify(item.item)}</p>
                 </div>
               ))}
@@ -496,7 +511,7 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
           />
         </>
       ) : (
-        <p className="muted">
+        <p className="lt-muted">
           <PayCopy k="noOpenDisputeActionIsAvailableFor" />
         </p>
       )}
@@ -512,14 +527,14 @@ function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string
     access.reload();
   }
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PayNotice title={payCopy.t('p2pTradingStanding')}>
         <PayCopy k="thisProgrammeIsYourPersonalP2pTrading" />
       </PayNotice>
       <PaySection
         title={payCopy.t('yourProgrammeStatus')}
         action={
-          <Button variant="secondary" onClick={refresh}>
+          <Button tone="secondary" onClick={refresh}>
             <PayCopy k="refreshStanding" />
           </Button>
         }
@@ -527,7 +542,7 @@ function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string
         <PayState resource={standing.resource} retry={standing.reload}>
           {(data) =>
             data ? (
-              <div className="form-stack">
+              <div className="lt-stack">
                 <PayDetails
                   values={[
                     [payCopy.t('standing'), data.status],
@@ -559,8 +574,8 @@ function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string
                 )}
               </div>
             ) : (
-              <div className="stack">
-                <p className="muted">
+              <div className="lt-stack">
+                <p className="lt-muted">
                   <PayCopy k="noP2pProgrammeApplicationExistsForThis" />
                 </p>
                 <ReviewedAction

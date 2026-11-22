@@ -49,8 +49,8 @@ function Standing({ status, chainId, hidden, pro }: { status: VenueUp; chainId: 
   const owner = useOwner();
   if (!owner)
     return (
-      <div data-testid="home-standing-connect" className="form-stack">
-        <p className="muted">{t('Connect first')}</p>
+      <div data-testid="home-standing-connect" className="lt-stack">
+        <p className="lt-muted">{t('Connect first')}</p>
         <WalletBar />
       </div>
     );

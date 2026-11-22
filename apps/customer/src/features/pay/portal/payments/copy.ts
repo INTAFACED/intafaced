@@ -10,7 +10,7 @@ import { layoutCopy as sharedLayoutCopy } from '../home-layout/copy';
  * file or in a shared one, never both. Plain English: what happened, why, what to do next.
  */
 const en = {
-  pageDashboard: 'Merchant dashboard',
+  pageDashboard: 'Business overview',
   purposeDashboard: 'Your payments, fees and balances at a glance, with the time each number was last updated.',
   actCreateLink: 'Create a payment link',
   pageDisputes: 'Disputes',

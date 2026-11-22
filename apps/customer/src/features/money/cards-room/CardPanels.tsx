@@ -27,6 +27,7 @@ import { bps, positiveMoney, type ActionSpec } from '../components';
 import type { cardSchema } from '../contracts';
 import { assetSelectField, type HeldAsset } from '../holdings';
 import { t as copyText } from '../copy';
+import { BANK_CARDS_ISSUE } from '@intafaced/contracts/bank-cards-2-procedures';
 
 type CardRecord = z.infer<typeof cardSchema>;
 
@@ -95,7 +96,7 @@ export function orderSpec(copy: CardCopy, assets: HeldAsset[], cardType: CardTyp
   const physical = cardType === 'physical';
   return {
     title: t('orderTitle'),
-    procedure: 'cards.issue',
+    record: BANK_CARDS_ISSUE,
     fields: [
       assetSelectField(t('orderFunding'), t('orderFundingHint'), assets, 'assetId'),
       {

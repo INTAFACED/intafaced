@@ -1,10 +1,15 @@
+// volt-room: /dex/pools/:poolId
 import { useRef, useState, type ReactNode } from 'react';
+import { Button, Segmented } from '@intafaced/ui/lit';
+import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useResource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
+import { usePreferences } from '../../../shared/preferences';
 import { isServiceNotConnected, networkLabel } from '../blockers';
 import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from '../explorer/parts';
-import { WatchShell } from '../watch/WatchShell';
+import { Banner } from '../volt/frame';
+import { DataTable, EmptyState, Loading, Panel } from '../volt/parts';
+import { watchCopy } from '../watch/copy';
 import { PriceChart } from './PriceChart';
 import { reservesWords } from './PoolsList';
 import { useExplorerWords } from './refusal';
@@ -31,6 +36,7 @@ import type { ChainRef } from '../NetworkPanels';
  */
 export function PoolPage({ address }: { address: string }) {
   const { t, api, when } = usePools();
+  const { language } = usePreferences();
   const words = useExplorerWords();
   const chain = useChainRef('pools:pool');
   const chainId = chain.status === 'ready' ? chain.chainId : null;
@@ -67,7 +73,7 @@ export function PoolPage({ address }: { address: string }) {
         <BlockerNote
           title={t('poolRefused', { reason: refusalWords(resource.failure, words) })}
           action={
-            <Button variant="secondary" onClick={day.reload}>
+            <Button tone="secondary" onClick={day.reload}>
               {t('retry')}
             </Button>
           }
@@ -85,18 +91,12 @@ export function PoolPage({ address }: { address: string }) {
         <PoolFacts pool={pool} t={t} />
         <FeesPanel key={pool.address} pool={pool.address} indexedFeeBps={pool.feeBps} t={t} />
         <Panel title={t('chartTitle')}>
-          <div role="group" aria-label={t('chartWidthGroup')} className="pool-chart-widths">
-            {(['5m', '1h'] as const).map((width) => (
-              <Button
-                key={width}
-                variant={width === interval ? 'primary' : 'secondary'}
-                aria-pressed={width === interval}
-                onClick={() => setWidth(width)}
-              >
-                {t(width === '5m' ? 'chartWidth5m' : 'chartWidth1h')}
-              </Button>
-            ))}
-          </div>
+          <Segmented
+            label={t('chartWidthGroup')}
+            options={(['5m', '1h'] as const).map((width) => ({ value: width, label: t(width === '5m' ? 'chartWidth5m' : 'chartWidth1h') }))}
+            value={interval}
+            onChange={setWidth}
+          />
           {charting ? (
             <Loading label={t('chartTitle')} />
           ) : shown.candles === null ? (
@@ -123,7 +123,7 @@ export function PoolPage({ address }: { address: string }) {
               ? t('volumeRaw', { amount: shown.volume1, symbol: quote, swaps: shown.swaps })
               : t('volumeDay', { amount: tokenAmount(shown.volume1, pool.token1, t), symbol: quote, swaps: shown.swaps })}
           </p>
-          <p className="muted">{t('asOf', { time: when(new Date(shown.asOf)) })}</p>
+          <p className="lt-hint">{t('asOf', { time: when(new Date(shown.asOf)) })}</p>
         </Panel>
         <Panel title={t('tradesTitle')}>
           <Trades chain={chain} pool={pool} t={t} />
@@ -132,12 +132,24 @@ export function PoolPage({ address }: { address: string }) {
     );
   }
   return (
-    <WatchShell title={title}>
-      {body}
-      <Button variant="secondary" onClick={() => navigate('/dex/pools')}>
-        {t('backToPools')}
-      </Button>
-    </WatchShell>
+    <div lang={watchCopy.forLocale(language).renderedLocale}>
+      <MonitorTemplate
+        title={title}
+        state={{ kind: 'ready' }}
+        figures={[]}
+        panels={
+          <>
+            <Banner />
+            {body}
+          </>
+        }
+        related={
+          <Button tone="secondary" onClick={() => navigate('/dex/pools')}>
+            {t('backToPools')}
+          </Button>
+        }
+      />
+    </div>
   );
 }
 
@@ -177,7 +189,7 @@ function PoolFacts({ pool, t }: { pool: Pool; t: PoolsTranslate }) {
   ];
   return (
     <Panel title={t('poolFacts')}>
-      <dl className="protocol-facts" aria-label={t('poolFacts')}>
+      <dl className="lt-kv" aria-label={t('poolFacts')}>
         {rows.map(([label, value]) => (
           <div key={label}>
             <dt>{label}</dt>
@@ -223,7 +235,7 @@ function FeesPanel({ pool, indexedFeeBps, t }: { pool: string; indexedFeeBps: nu
               : t('feesRefused', { reason: protocolRefusalWords(resource.failure, t) })
           }
         />
-        <Button variant="secondary" onClick={fees.reload}>
+        <Button tone="secondary" onClick={fees.reload}>
           {t('retry')}
         </Button>
       </div>
@@ -242,15 +254,15 @@ function FeesPanel({ pool, indexedFeeBps, t }: { pool: string; indexedFeeBps: nu
           ))}
         </ul>
         {!data.thirdShare && <p data-testid="pool-fee-third">{t('feesNoThird')}</p>}
-        <p className="muted">{t('feesReadAt', { height: data.blockNumber })}</p>
+        <p className="lt-hint">{t('feesReadAt', { height: data.blockNumber })}</p>
       </>
     );
   }
   return (
     <Panel title={t('feesTitle')} aria-label={t('feesTitle')}>
       {read}
-      <p className="muted">{t('feesRequestNote')}</p>
-      <Button variant="secondary" disabled={request.state === 'sending'} onClick={() => void ask()}>
+      <p className="lt-hint">{t('feesRequestNote')}</p>
+      <Button tone="secondary" disabled={request.state === 'sending'} onClick={() => void ask()}>
         {t('feesRequest')}
       </Button>
       {request.state === 'answered' && <p role="alert">{request.words}</p>}
@@ -307,7 +319,7 @@ function Trades({ chain, pool, t }: { chain: ChainRef; pool: Pool; t: PoolsTrans
         <BlockerNote
           title={t('tradesRefused', { reason: refusalWords(resource.failure, words) })}
           action={
-            <Button variant="secondary" onClick={swaps.reload}>
+            <Button tone="secondary" onClick={swaps.reload}>
               {t('retry')}
             </Button>
           }
@@ -341,7 +353,7 @@ function Trades({ chain, pool, t }: { chain: ChainRef; pool: Pool; t: PoolsTrans
         {body}
       </DataTable>
       {next !== null && (
-        <Button variant="secondary" onClick={() => setCursor(next)}>
+        <Button tone="secondary" onClick={() => setCursor(next)}>
           {t('tradesMore')}
         </Button>
       )}

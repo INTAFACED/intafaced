@@ -37,9 +37,9 @@ export function RouteOptions({
       <DataTable label={t('routesTitle')} headers={[t('routePool'), t('routeFee'), t('routeOut'), t('routeStatus'), t('routeExclude')]}>
         {routes.legs.map((leg) => (
           <tr key={leg.pool} data-route-status={leg.status}>
-            <td className="numeric">{shortContract(leg.pool)}</td>
-            <td className="numeric">{bpsToPercent(leg.feeBps)}%</td>
-            <td className="numeric">
+            <td className="lt-num">{shortContract(leg.pool)}</td>
+            <td className="lt-num">{bpsToPercent(leg.feeBps)}%</td>
+            <td className="lt-num">
               {leg.quote === null ? '—' : `${formatUnits(BigInt(leg.quote.amountOut), tokenOut.decimals)} ${tokenOut.name}`}
             </td>
             <td>{status(leg)}</td>

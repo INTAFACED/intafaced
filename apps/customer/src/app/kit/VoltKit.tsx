@@ -47,6 +47,7 @@ import {
   TypeRoles,
 } from './KitParts';
 import { TimeLines } from './KitTimeLine';
+import { ChartBoxes } from './KitChartBox';
 import './kit.css';
 
 /**
@@ -537,6 +538,14 @@ export default function VoltKit() {
         note="TEST profit and loss placed by time, so a gap keeps its width, with its dashed zero line. Point at it, or focus it and use the arrow keys, to read a point. Below, its empty line."
       >
         <TimeLines />
+      </Block>
+
+      <Block
+        id="chart-box"
+        title="A box for a drawn chart"
+        note="A definite size a charting library draws into, the coin page's: TEST drawing, and a state in its place at the same size."
+      >
+        <ChartBoxes />
       </Block>
 
       <Block

@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
+import { onboardingDraftFieldsSchema, onboardingDraftSchema, onboardingDraftSaveInputSchema } from '@intafaced/contracts/pay-call-schemas';
 
 /**
  * THE BUSINESS STEP'S SAVED DRAFT (M-plat-org-13; J-merchant-02 #1).
@@ -13,25 +14,8 @@ import { z } from 'zod';
  * repeated request) changes nothing, so the newest text always wins and a retry stores nothing twice.
  */
 
-/** The step's text fields, with the same limits the form puts on them. A field left out is stored blank. */
-export const onboardingDraftFieldsSchema = z
-  .object({
-    legalName: z.string().max(120).default(''),
-    displayName: z.string().max(120).default(''),
-    country: z.string().max(2).default(''),
-    businessType: z.string().max(80).default(''),
-    website: z.string().max(300).default(''),
-    contactEmail: z.string().max(320).default(''),
-    expectedVolume: z.string().max(200).default(''),
-  })
-  .strict();
 export type OnboardingDraftFields = z.infer<typeof onboardingDraftFieldsSchema>;
 
-export const onboardingDraftSaveInputSchema = z
-  .object({ fields: onboardingDraftFieldsSchema, seq: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER) })
-  .strict();
-
-export const onboardingDraftSchema = z.object({ fields: onboardingDraftFieldsSchema, updatedAt: z.string() }).nullable();
 export type OnboardingDraft = z.infer<typeof onboardingDraftSchema>;
 
 interface DraftRow {
@@ -70,3 +54,4 @@ export class OnboardingDraftStore {
     await this.sql`DELETE FROM pay.merchant_onboarding_drafts WHERE user_id = ${userId}`;
   }
 }
+export { onboardingDraftFieldsSchema, onboardingDraftSaveInputSchema };

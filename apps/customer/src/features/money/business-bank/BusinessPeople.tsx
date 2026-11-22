@@ -1,5 +1,10 @@
 import { useRef, useState } from 'react';
-import { BANK_BUSINESS_MEMBERS } from '@intafaced/contracts/bank-business-procedures';
+import {
+  BANK_BUSINESS_MEMBERS,
+  BANK_BUSINESS_SET_MEMBER_ROLE,
+  BANK_BUSINESS_REMOVE_MEMBER,
+  BANK_BUSINESS_ADD_MEMBER,
+} from '@intafaced/contracts/bank-business-procedures';
 import { BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE } from '@intafaced/contracts/bank-business-procedures';
 import type { z } from 'zod';
 import { Button, Field, Tag } from '@intafaced/ui/lit';
@@ -23,6 +28,7 @@ import { funds, positiveMoney, type ActionSpec, useBankRecordAs } from '../compo
 import { teamSchema, type businessSchema } from '../contracts';
 import { moneyRefusalWords, withPlainRefusal } from '../money-refusal-copy';
 import type { Resource } from '../../../shared/resource';
+import { BANK_BUSINESS_PROPOSE_TRANSFER } from '@intafaced/contracts/bank-business-2-procedures';
 
 type Business = z.infer<typeof businessSchema>;
 type OwnSpace = { id: string; name: string; assetId: string; balance: string };
@@ -137,7 +143,7 @@ export function personPaymentSpec(copy: BusinessCopy, account: Business, own: re
   const { t } = copy;
   return {
     title: t('sendPersonTitle'),
-    procedure: 'business.proposeTransfer',
+    record: BANK_BUSINESS_PROPOSE_TRANSFER,
     fields: [
       {
         name: 'fromSpaceId',
@@ -275,7 +281,7 @@ export function changeRoleSpec(copy: BusinessCopy, account: Business, member: Me
   const { t } = copy;
   return {
     title: t('changeRoleTitle', { handle: member.handle }),
-    procedure: 'business.setMemberRole',
+    record: BANK_BUSINESS_SET_MEMBER_ROLE,
     fields: [
       {
         name: 'role',
@@ -303,7 +309,7 @@ export function removeMemberSpec(copy: BusinessCopy, account: Business, member: 
   const { t } = copy;
   return {
     title: t('removeMemberTitle', { handle: member.handle }),
-    procedure: 'business.removeMember',
+    record: BANK_BUSINESS_REMOVE_MEMBER,
     facts: [
       [t('membersTitle'), `@${member.handle}`],
       [t('roleCurrent'), t(ROLE_KEY[member.role])],
@@ -327,7 +333,7 @@ export function TeamPanel({ account, role, open }: { account: Business; role: Ro
     if (!person) return;
     open({
       title: t('addMemberTitle', { name: account.name }),
-      procedure: 'business.addMember',
+      record: BANK_BUSINESS_ADD_MEMBER,
       fields: [
         {
           name: 'role',

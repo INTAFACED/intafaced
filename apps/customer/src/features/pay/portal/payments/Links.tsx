@@ -2,11 +2,11 @@ import { useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../../session';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { EmptyState, Field } from '../../ui-kit';
 import { PayDetails, PaySection } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
-import { validatedMutation } from '../../BusinessPay';
+import { validatedRecordMutation } from '../../BusinessPay';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import * as s from '../../schemas';
 import { BackLink, Facts, Gate, Kpi, KpiGrid, Money, PortalFailure, PortalLoading, ReadAt, SelectField, Timeline } from '../components';
@@ -33,7 +33,11 @@ import { LinkAddress } from './LinkAddress';
 import { CopyReference } from '../ui/CopyReference';
 import { definite } from './not-available';
 import { linkRowSchema } from './schemas';
-import { PAY_MERCHANT_DEACTIVATE_LINK, PAY_MERCHANT_GET_LINK } from '@intafaced/contracts/pay-merchant-procedures';
+import {
+  PAY_MERCHANT_DEACTIVATE_LINK,
+  PAY_MERCHANT_GET_LINK,
+  PAY_MERCHANT_CREATE_LINK,
+} from '@intafaced/contracts/pay-merchant-procedures';
 
 type Link = z.infer<typeof linkRowSchema>;
 export function linkState(link: Link, now: number) {
@@ -133,7 +137,7 @@ export function Links({
   const loadedAt = useReadAt(query.resource.status === 'ready', query.resource);
   const { t } = w3cCopy.useCopy();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <BackLink href={create || linkId ? '/pay/links' : '/pay/merchant'}>{t(create || linkId ? 'backLinks' : 'lk_backHome')}</BackLink>
       {create ? (
         <PaymentLinkForm pay={pay} merchantId={merchantId} portal={portal} />
@@ -187,7 +191,7 @@ export function LinksView({
         const selected = linkId ? links.find((link) => link.id === linkId) : null;
         if (linkId && !selected)
           return (
-            <div className="stack">
+            <div className="lt-stack">
               <FetchedLinkDetail pay={pay} merchantId={merchantId} linkId={linkId} now={now} portal={portal} retry={retry} />
             </div>
           );
@@ -199,14 +203,14 @@ export function LinksView({
           )
           .sort((a, b) => (sort === 'oldest' ? 1 : -1) * (Date.parse(a.createdAt) - Date.parse(b.createdAt)));
         return (
-          <div className="stack">
+          <div className="lt-stack">
             <ReadAt at={loadedAt} />
             {loadedAt && now - Date.parse(loadedAt) > 300_000 && (
               <p className="pp-callout" role="status">
                 {t('staleLinks')}
               </p>
             )}
-            <Button variant="secondary" onClick={retry}>
+            <Button tone="secondary" onClick={retry}>
               {t('lk_refresh')}
             </Button>
             {selected ? (
@@ -264,7 +268,7 @@ export function LinksView({
                         header: t('linkLabel'),
                         cell: (link) => (
                           <>
-                            <a className="text-link" href={`/pay/links/${encodeURIComponent(link.id)}`}>
+                            <a className="lt-link" href={`/pay/links/${encodeURIComponent(link.id)}`}>
                               {link.label}
                             </a>
                             <small data-testid="pp-mono" className="pay-cell-note pp-mono">
@@ -312,15 +316,15 @@ export function LinksView({
                     {t(links.length ? 'linkNoMatchesBody' : 'linkEmptyBody')}
                   </EmptyState>
                 )}
-                <div className="pp-actions">
+                <div className="lt-actions">
                   {links.length >= limit && limit < 200 && (
-                    <Button variant="secondary" onClick={more}>
+                    <Button tone="secondary" onClick={more}>
                       {t('loadMoreLinks')}
                     </Button>
                   )}
                   {rows.length > 0 && (
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       onClick={() =>
                         downloadText(
                           'payment-links.csv',
@@ -445,7 +449,7 @@ function LinkDetail({ selected, now, pay, merchantId, portal, retry }: LinkDetai
           {selected.embedSnippet ? (
             <CopyReference value={fullSnippet(selected.embedSnippet)} what={t('lk_embedWhat')} />
           ) : (
-            <p className="muted">{t('lk_embedNone')}</p>
+            <p className="lt-muted">{t('lk_embedNone')}</p>
           )}
         </PaySection>
       )}
@@ -594,11 +598,11 @@ function DeactivateLink({
         onConfirmed={retry}
       />
       {uncertain && (
-        <div className="stack">
+        <div className="lt-stack">
           <p className="pp-callout" role="status">
             {t('lk_deactivateUnresolved')}
           </p>
-          <Button variant="secondary" disabled={busy || noWrite} onClick={() => void check()}>
+          <Button tone="secondary" disabled={busy || noWrite} onClick={() => void check()}>
             {t('lk_deactivateCheck')}
           </Button>
         </div>
@@ -644,7 +648,7 @@ function LinkPayments({ portal, merchantId, linkId }: { portal: PortalApi; merch
               })}
             />
             {list.state.hasMore && (
-              <Button variant="secondary" onClick={list.loadMore} disabled={list.state.more === 'loading'}>
+              <Button tone="secondary" onClick={list.loadMore} disabled={list.state.more === 'loading'}>
                 {t('loadMoreLinkPayments')}
               </Button>
             )}
@@ -685,12 +689,12 @@ function LinkRecovery({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <p className="pp-callout" role="status">
         {t('lk_unresolved')}
       </p>
       <Button
-        variant="secondary"
+        tone="secondary"
         disabled={busy}
         onClick={async () => {
           const body = original();
@@ -701,7 +705,7 @@ function LinkRecovery({
           setBusy(true);
           try {
             const result = definite(
-              await validatedMutation(pay, 'merchant.createLink', body, createLinkInputSchema, s.newLinkSchema, 'pay:write', 'link-create'),
+              await validatedRecordMutation(pay, PAY_MERCHANT_CREATE_LINK, body, createLinkInputSchema, 'pay:write', 'link-create'),
             );
             if (result.ok) onFinished(result.data);
             else setMessage(result.reason === 'uncertain' || result.reason === 'aborted' ? t('lk_stillUnresolved') : result.message);
@@ -872,7 +876,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
             />
           )}
         </fieldset>
-        {!parsed.success && <p className="muted">{t('invalidForm')}</p>}
+        {!parsed.success && <p className="lt-muted">{t('invalidForm')}</p>}
         <div title={noWrite ? t('linkOwnerOnly') : !parsed.success ? t('invalidForm') : undefined}>
           <PortalReview
             key={recovered}
@@ -902,12 +906,11 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
             perform={async () => {
               if (parsed.success) original.current = parsed.data;
               const result = definite(
-                await validatedMutation(
+                await validatedRecordMutation(
                   pay,
-                  'merchant.createLink',
+                  PAY_MERCHANT_CREATE_LINK,
                   parsed.success ? parsed.data : {},
                   createLinkInputSchema,
-                  s.newLinkSchema,
                   'pay:write',
                   'link-create',
                 ),
@@ -949,7 +952,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
                 [t('maxUses'), created.maxUses ?? t('noUseCap')],
               ]}
             />
-            <Button variant="secondary" onClick={() => setCreated(null)}>
+            <Button tone="secondary" onClick={() => setCreated(null)}>
               {t('hideUrl')}
             </Button>
           </PaySection>

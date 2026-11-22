@@ -11,3 +11,5 @@ export { HeroFigure, HIDDEN_MASK, type HeroFigureProps } from './components/hero
 export { Fold, type FoldProps } from './components/fold.js';
 export { CardStack, CardStackLoading, type CardStackProps, type StackCard } from './components/card-stack.js';
 export { contrastRatio, deltaE2000, hue, luminance, parseColour, toHex } from './colour.js';
+export { heldStateOf, totalFreshness, type HeldState } from '../components/freshness.js';
+export { useFreshnessClock } from '../components/use-freshness-clock.js';

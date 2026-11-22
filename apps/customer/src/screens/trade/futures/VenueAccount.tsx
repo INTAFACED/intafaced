@@ -46,7 +46,7 @@ export function VenueAccount({ status, owner }: { status: VenueUp; owner: string
       <h2 className="dk-tab-title">
         {t('Account title')} <TestMark test={status.test} />
       </h2>
-      <p className="muted">{t('Account note')}</p>
+      <p className="lt-muted">{t('Account note')}</p>
       <Tabs
         items={TABS}
         value={tab}
@@ -93,7 +93,7 @@ function FeesPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
   const markets = fees.data?.value.markets ?? null;
   const own = tier.data?.value.account ?? null;
   return (
-    <div className="form-stack" data-testid="venue-my-fees">
+    <div className="lt-stack" data-testid="venue-my-fees">
       <ReadProblem failure={fees.failure ?? tier.failure} venueName={venue.name} />
       {markets !== null && markets.length === 0 ? <p>{t('No markets')}</p> : null}
       {markets !== null
@@ -137,13 +137,13 @@ function FeeRow({ m, t }: { m: VenuePublicFees['value']['markets'][number]; t: T
   return (
     <tr data-market={m.symbol} data-family={m.kind}>
       <th scope="row">{m.symbol}</th>
-      <td className="numeric" data-cell="maker" data-value={m.makerFeeBps.known ? m.makerFeeBps.value : ''}>
+      <td className="lt-num" data-cell="maker" data-value={m.makerFeeBps.known ? m.makerFeeBps.value : ''}>
         <Rate bps={m.makerFeeBps} t={t} />
       </td>
-      <td className="numeric" data-cell="taker" data-value={m.takerFeeBps.known ? m.takerFeeBps.value : ''}>
+      <td className="lt-num" data-cell="taker" data-value={m.takerFeeBps.known ? m.takerFeeBps.value : ''}>
         <Rate bps={m.takerFeeBps} t={t} />
       </td>
-      <td className="numeric" data-cell="builder" data-value={m.builderFeeBps.known ? m.builderFeeBps.value : ''}>
+      <td className="lt-num" data-cell="builder" data-value={m.builderFeeBps.known ? m.builderFeeBps.value : ''}>
         {m.builderFeeBps.known
           ? m.kind === 'spot'
             ? t('On sells', { pct: bpsToPercent(m.builderFeeBps.value) })
@@ -162,7 +162,7 @@ function VipPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
   const tier = usePolled((signal) => api.feeTier(owner, signal, venue.id), `acct-tier:${venue.id}:${owner}`, ACCOUNT_POLL_MS);
   const other = tier.data?.value.otherFees ?? null;
   return (
-    <div className="form-stack" data-testid="venue-vip">
+    <div className="lt-stack" data-testid="venue-vip">
       <ReadProblem failure={tier.failure} venueName={venue.name} />
       {tier.data ? <VenueTierView tier={tier.data} /> : null}
       {tier.data ? (
@@ -190,7 +190,7 @@ function OtherFeeRow({ f, t }: { f: VenueOtherFee; t: T }) {
         {t(`kind_${f.kind}`)}: {f.name}
       </th>
       <td data-cell="applies">{f.symbol ?? t('Every market')}</td>
-      <td className="numeric" data-cell="rate" data-value={f.feeBps}>
+      <td className="lt-num" data-cell="rate" data-value={f.feeBps}>
         {t('Pct', { pct: bpsToPercent(f.feeBps) })}
       </td>
       <td data-cell="rule">{f.rule}</td>
@@ -214,7 +214,7 @@ function AccountPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
   const s = summary.data?.value ?? null;
   const perps = (markets.data?.value ?? []).filter((m) => m.kind === 'perpetual');
   return (
-    <div className="form-stack" data-testid="venue-account-summary">
+    <div className="lt-stack" data-testid="venue-account-summary">
       <ReadProblem failure={balances.failure ?? markets.failure} venueName={venue.name} />
       <h4 className="dk-tab-title">{t('Balances title')}</h4>
       {rows !== null && rows.length === 0 ? <p>{t('No balances')}</p> : null}
@@ -223,13 +223,13 @@ function AccountPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
           {rows.map((b) => (
             <tr key={b.asset} data-asset={b.asset}>
               <th scope="row">{b.asset}</th>
-              <td className="numeric" data-cell="free">
+              <td className="lt-num" data-cell="free">
                 {b.free}
               </td>
-              <td className="numeric" data-cell="locked">
+              <td className="lt-num" data-cell="locked">
                 {b.locked}
               </td>
-              <td className="numeric" data-cell="total">
+              <td className="lt-num" data-cell="total">
                 {b.total}
               </td>
             </tr>
@@ -263,7 +263,7 @@ function SummaryLine({ name, label, value }: { name: string; label: string; valu
   return (
     <div>
       <dt>{label}</dt>
-      <dd className="numeric" data-line={name}>
+      <dd className="lt-num" data-line={name}>
         {value}
       </dd>
     </div>
@@ -285,7 +285,7 @@ function ConfigRow({ market, venue, owner }: { market: VenueMarket; venue: Venue
     <tr data-market={market.symbol} data-margin-mode={set?.marginMode ?? ''}>
       <th scope="row">{market.symbol}</th>
       <td data-cell="margin-mode">{lev.data ? (set ? t(`mode_${set.marginMode}`) : t('Not set on venue')) : null}</td>
-      <td className="numeric" data-cell="leverage" data-value={set ? String(set.leverageBps) : ''}>
+      <td className="lt-num" data-cell="leverage" data-value={set ? String(set.leverageBps) : ''}>
         {set ? t('Leverage value', { times: String(set.leverageBps / 10_000) }) : null}
       </td>
       <td data-cell="collateral">
@@ -325,9 +325,9 @@ function BillsPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
     : null;
   const failure = funding.failure ?? fills.failure ?? liquidations.failure ?? ours.failure;
   return (
-    <div className="form-stack" data-testid="venue-bills">
+    <div className="lt-stack" data-testid="venue-bills">
       <ReadProblem failure={failure} venueName={venue.name} />
-      <p className="muted">{t('Bills note')}</p>
+      <p className="lt-muted">{t('Bills note')}</p>
       {bills !== null && bills.length === 0 ? <p data-testid="venue-bills-none">{t('Bills none')}</p> : null}
       {bills !== null && bills.length > 0 ? (
         <DataTable
@@ -357,7 +357,7 @@ function BillRow({ b, t }: { b: VenueBill; t: T }) {
       </td>
       <td data-cell="type">{t(`bill_${b.kind}`)}</td>
       <td data-cell="market">{b.symbol}</td>
-      <td className="numeric" data-cell="amount">
+      <td className="lt-num" data-cell="amount">
         {t('Amount value', { amount: b.amount, asset: b.asset })}
       </td>
       <td data-cell="venue-id">{b.venueRef}</td>
@@ -385,9 +385,9 @@ function EligiblePanel({ venue }: { venue: VenueRef }) {
   const e = read.data?.value ?? null;
   const settle = e ? [...new Set(e.instruments.map((i) => i.settleAsset))] : [];
   return (
-    <div className="form-stack" data-testid="venue-eligible">
+    <div className="lt-stack" data-testid="venue-eligible">
       <ReadProblem failure={read.failure} venueName={venue.name} />
-      <p className="muted">{t('Eligible note')}</p>
+      <p className="lt-muted">{t('Eligible note')}</p>
       {e && e.instruments.length === 0 ? (
         <p data-testid="venue-eligible-none" data-code={e.reason?.code ?? ''}>
           {t('Eligible none')} {e.reason?.message ?? ''}
@@ -401,7 +401,7 @@ function EligiblePanel({ venue }: { venue: VenueRef }) {
               <tr key={i.symbol} data-instrument={i.symbol}>
                 <th scope="row">{i.symbol}</th>
                 <td data-cell="settle">{i.settleAsset}</td>
-                <td className="numeric" data-cell="max-leverage">
+                <td className="lt-num" data-cell="max-leverage">
                   {i.maxLeverageBps === null ? t('No limit') : t('Leverage value', { times: String(i.maxLeverageBps / 10_000) })}
                 </td>
               </tr>

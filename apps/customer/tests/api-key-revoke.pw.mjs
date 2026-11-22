@@ -136,7 +136,7 @@ async function scenario(browser, name, run, init = null) {
 }
 async function login(page, destination = '/uc/safe', newDocument = true) {
   if (newDocument) await page.goto('/login?redirect=' + encodeURIComponent(destination));
-  else await page.locator('a.button[href^="/login?redirect="]').click();
+  else await page.locator(':is(a.button, a.lt-button)[href^="/login?redirect="]').click();
   await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
@@ -320,7 +320,7 @@ test('unverified response shapes and status/code pairs retain the original; 401 
       const marker = await saved(page);
       if (name === '401') {
         await expect(section(page)).toHaveCount(0);
-        await expect(page.locator('a.button[href^="/login?redirect="]')).toHaveAttribute(
+        await expect(page.locator(':is(a.button, a.lt-button)[href^="/login?redirect="]')).toHaveAttribute(
           'href',
           '/login?redirect=' + encodeURIComponent(destination),
         );

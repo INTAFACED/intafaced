@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { moneyCopy } from './copy';
-import { Amount, Button, fmtAmount, refusalCopy } from './deps';
-import { lotsMissingCost, type LotBook, type LotBookLot, type MissingBasis } from './pnl-model';
-import type { BasisOutcome } from './pnl-source';
-import { dayIn, stamp } from './time';
-import { usePreferences } from '../../shared/preferences';
+import { Button, Field } from '@intafaced/ui/lit';
+import { moneyCopy } from '../copy';
+import { fmtAmount, refusalCopy } from '../deps';
+import { lotsMissingCost, type LotBook, type LotBookLot, type MissingBasis } from '../pnl-model';
+import type { BasisOutcome } from '../pnl-source';
+import { dayIn, stamp } from '../time';
+import { usePreferences } from '../../../shared/preferences';
+import { Amount } from './parts';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -65,23 +67,20 @@ function BasisForm({
   return (
     <form
       data-testid="money-note-form"
-      className="money-note-form"
+      className="lt-stack"
       aria-label={t('Enter a cost for this lot')}
       onSubmit={(event) => {
         event.preventDefault();
         void save();
       }}
     >
-      <p className="money-detail__note">{t('Basis our record')}</p>
+      <p className="lt-hint">{t('Basis our record')}</p>
       {lot.valuedAt !== null ? (
-        <p className="money-detail__note">{t('Basis arrival hint', { value: `$${lot.valuedAt.usd}`, market: lot.valuedAt.market })}</p>
+        <p className="lt-hint">{t('Basis arrival hint', { value: `$${lot.valuedAt.usd}`, market: lot.valuedAt.market })}</p>
       ) : null}
-      <label className="money-note-form__label" htmlFor={`${id}-price`}>
-        {t('Price per coin', { asset: lot.assetId })}
-      </label>
-      <input
+      <Field
+        label={t('Price per coin', { asset: lot.assetId })}
         id={`${id}-price`}
-        className="money-note-form__input"
         inputMode="decimal"
         autoComplete="off"
         value={price}
@@ -91,12 +90,9 @@ function BasisForm({
           setMessage(null);
         }}
       />
-      <label className="money-note-form__label" htmlFor={`${id}-day`}>
-        {t('Day acquired')}
-      </label>
-      <input
+      <Field
+        label={t('Day acquired')}
         id={`${id}-day`}
-        className="money-note-form__input"
         type="date"
         value={day}
         max={dayIn(new Date().toISOString(), timeZone)}
@@ -105,12 +101,9 @@ function BasisForm({
           setMessage(null);
         }}
       />
-      <label className="money-note-form__label" htmlFor={`${id}-note`}>
-        {t('Price note')}
-      </label>
-      <input
+      <Field
+        label={t('Price note')}
         id={`${id}-note`}
-        className="money-note-form__input"
         type="text"
         maxLength={200}
         autoComplete="off"
@@ -120,12 +113,12 @@ function BasisForm({
           setMessage(null);
         }}
       />
-      <div className="money-note-form__row">
-        <Button type="submit" variant="primary" size={40} disabled={busy}>
+      <div className="lt-actions">
+        <Button type="submit" tone="primary" disabled={busy}>
           {t('Save price')}
         </Button>
       </div>
-      <p className="money-detail__note" role="status">
+      <p className="lt-hint" role="status">
         {message ?? ''}
       </p>
     </form>
@@ -158,14 +151,14 @@ export function MissingCost({
   const noLot = missing.items.filter((item) => item.kind === 'disposal' && item.lotId === null);
   if (lots.length === 0 && noLot.length === 0) return null;
   return (
-    <section data-testid="money-card" className="money-card" aria-label={t('Missing cost')}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section data-testid="money-card" aria-label={t('Missing cost')}>
+      <header data-testid="money-card__head">
         <h2>{t('Missing cost')}</h2>
       </header>
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t('Missing cost lead')}
       </p>
-      <ul className="money-missing">
+      <ul className="lt-rows">
         {lots.map((item) => {
           const lot = book.lots.find((row) => row.id === item.lotId);
           const sales = missing.items.filter((other) => other.kind === 'disposal' && other.lotId === item.lotId);
@@ -184,7 +177,7 @@ export function MissingCost({
                 <Amount value={`${fmtAmount(item.qty)} ${item.assetId}`} hidden={hidden} /> {t('Missing lot left')}
               </p>
               {sales.map((sale, index) => (
-                <p key={`${sale.saleTxId}:${index}`} data-testid="money-note" className="money-note" data-effect="unknown-share">
+                <p key={`${sale.saleTxId}:${index}`} data-testid="money-note" className="lt-hint" data-effect="unknown-share">
                   {t('Unknown share', { qty: `${masked(sale.qty)} ${sale.assetId}` })}
                 </p>
               ))}
@@ -192,7 +185,7 @@ export function MissingCost({
                 open === lot.id ? (
                   <BasisForm lot={lot} copy={copy} onSave={(input) => onSave({ lotId: lot.id, ...input })} />
                 ) : (
-                  <Button type="button" variant="secondary" size={32} onClick={() => setOpen(lot.id)}>
+                  <Button type="button" tone="secondary" onClick={() => setOpen(lot.id)}>
                     {t('Enter a cost')}
                   </Button>
                 )
@@ -206,7 +199,7 @@ export function MissingCost({
           </li>
         ))}
       </ul>
-      <p data-testid="money-note" className="money-note">
+      <p data-testid="money-note" className="lt-hint">
         {t('Missing cost rule')}
       </p>
     </section>

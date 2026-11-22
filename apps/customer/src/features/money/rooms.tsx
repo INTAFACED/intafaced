@@ -88,7 +88,14 @@ import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 import { bankLabels, bankRoomHref, bankRooms } from './bank-frame/bank-rooms';
-import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
+import {
+  BANK_TRANSFERS_CANCEL,
+  BANK_TRANSFERS_LIST_SCHEDULES,
+  BANK_TRANSFERS_TO_USER,
+} from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_SPACES_ARCHIVE } from '@intafaced/contracts/bank-spaces-procedures';
+import { BANK_SPACES_CREATE } from '@intafaced/contracts/bank-spaces-2-procedures';
+import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
 
 export function BankNavigation({ current }: { current: string }) {
   return (
@@ -119,7 +126,7 @@ function BankPage({
       description={description}
       actions={
         room !== 'Ramps' ? (
-          <a className="button button--secondary" href="/bank">
+          <a className="lt-button lt-button-secondary" href="/bank">
             <Text k="rooms.bank.overview" />
           </a>
         ) : undefined
@@ -144,7 +151,7 @@ function spaceName(space: Space) {
 export function archiveSpaceSpec(space: Space): ActionSpec {
   return {
     title: copyText('rooms.archive.space'),
-    procedure: 'spaces.archive',
+    record: BANK_SPACES_ARCHIVE,
     facts: [
       [copyText('rooms.space'), space.name],
       [copyText('rooms.available.quantity'), amount(space.balance, space.assetId)],
@@ -158,7 +165,7 @@ export function archiveSpaceSpec(space: Space): ActionSpec {
 export function createSpaceSpec(assetField: ReturnType<typeof assetSelectField>): ActionSpec {
   return {
     title: copyText('rooms.create.space'),
-    procedure: 'spaces.create',
+    record: BANK_SPACES_CREATE,
     fields: [
       assetField,
       {
@@ -204,7 +211,7 @@ function ScheduleActions({
     if (!disabled && current()) open(spec);
   };
   return (
-    <div className="actions">
+    <div className="lt-actions">
       {' '}
       {row.status !== 'cancelled' && (
         <>
@@ -215,7 +222,7 @@ function ScheduleActions({
               onClick={() =>
                 protectedOpen({
                   title: copyText('rooms.edit.standing.order'),
-                  procedure: 'transfers.updateSchedule',
+                  record: BANK_TRANSFERS_UPDATE_SCHEDULE,
                   fields: [positiveMoney(row.assetId), ...(row.cadence === 'once' ? [] : [endsField])],
                   initial: { amount: row.amount, ...(row.endsAt ? { endsAt: localInput(row.endsAt) } : {}) },
                   formFacts: [[copyText('rooms.revision'), String(row.revision)]],
@@ -274,7 +281,7 @@ function ScheduleActions({
             onClick={() =>
               protectedOpen({
                 title: copyText('rooms.cancel.standing.order'),
-                procedure: 'transfers.cancel',
+                record: BANK_TRANSFERS_CANCEL,
                 notes: [copyText('rooms.cancel.future.occurrences.this.does.not.reverse')],
                 facts: [[copyText('rooms.schedule'), row.id]],
                 input: () => ({ scheduleId: row.id }),
@@ -398,11 +405,11 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                           </span>
                         </p>
                       </div>
-                      <strong className="numeric" lang="zxx" dir="ltr">
+                      <strong className="lt-num" lang="zxx" dir="ltr">
                         {funds(row.amount, row.assetId)}
                       </strong>
                     </header>
-                    <div className="actions">
+                    <div className="lt-actions">
                       <Button
                         variant="secondary"
                         aria-label={t('inspect', { reference: row.id })}
@@ -438,7 +445,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                   if (current()) setLimit(Math.min(200, limit + 50));
                 }}
               />
-              <p className="money-caption">
+              <p className="lt-muted">
                 <Copy k="listWindow" />
               </p>
             </>
@@ -486,12 +493,12 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
             return spaces.length ? (
               <>
                 {context.status === 'invalid' && !fromId && (
-                  <p className="money-caption">
+                  <p className="lt-muted">
                     <spaceCopy.Copy k="fromInvalid" />
                   </p>
                 )}
                 <div className="money-transfer-setup">
-                  <label className="field">
+                  <label className="lt-field">
                     <span id="bank-transfer-source-label">
                       <Text k="rooms.from.your.space" />
                     </span>
@@ -512,7 +519,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         ))}
                     </select>
                   </label>
-                  <label className="field">
+                  <label className="lt-field">
                     <span>
                       <Text k="rooms.destination" />
                     </span>
@@ -524,15 +531,15 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                   {destination === 'user' && (
                     <>
                       <RecipientPicker value={recipient} onChange={setRecipient} />
-                      <p className="money-caption">{depth.t('personNote')}</p>
+                      <p className="lt-muted">{depth.t('personNote')}</p>
                     </>
                   )}
                   {destination === 'space' && (
-                    <p className="money-caption">
+                    <p className="lt-muted">
                       {from && ownSpaces(spaces, from, userId ?? '').length === 0 ? depth.t('noOtherSpace') : depth.t('spaceNote')}
                     </p>
                   )}
-                  <label className="field">
+                  <label className="lt-field">
                     <span>{depth.t('noteField')}</span>
                     <input
                       name="note"
@@ -547,7 +554,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                       {scheduled ? depth.t('messageScheduledReason') : (noteWords ?? depth.t('noteHint'))}
                     </small>
                   </label>
-                  <label className="field">
+                  <label className="lt-field">
                     <span>{depth.t('referenceField')}</span>
                     <input
                       name="reference"
@@ -580,13 +587,13 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                       if (destination === 'user' && !recipient) return;
                       open({
                         title: scheduled ? copyText('rooms.schedule.transfer') : copyText('rooms.transfer'),
-                        procedure: scheduled
+                        ...(scheduled
                           ? destination === 'space'
-                            ? 'transfers.schedule'
-                            : 'transfers.scheduleToUser'
+                            ? { record: BANK_TRANSFERS_SCHEDULE }
+                            : { procedure: 'transfers.scheduleToUser' as const }
                           : destination === 'space'
-                            ? 'transfers.create'
-                            : 'transfers.toUser',
+                            ? { procedure: 'transfers.create' as const }
+                            : { record: BANK_TRANSFERS_TO_USER }),
                         initial: { fromSpaceId: from.id },
                         fields: [
                           ...(destination === 'space'
@@ -704,8 +711,8 @@ function AddMoneyRoom() {
 function DirectDebitsLink() {
   const { t } = directDebitsCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/direct-debits">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/direct-debits">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -726,8 +733,8 @@ function RecoveryClaimRoom() {
 function CalendarLink() {
   const { t } = calendarCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/calendar">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/calendar">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -738,8 +745,8 @@ function CalendarLink() {
 function RulesLink() {
   const { t } = rulesCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/rules">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/rules">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -888,7 +895,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
           <EmptyState
             title={copyText('rooms.this.bank.address.is.not.registered')}
             action={
-              <a className="button button--secondary" href="/bank">
+              <a className="lt-button lt-button-secondary" href="/bank">
                 <Text k="rooms.bank.overview" />
               </a>
             }

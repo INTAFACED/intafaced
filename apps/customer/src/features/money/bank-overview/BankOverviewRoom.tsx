@@ -39,12 +39,12 @@ function RecoveryClaimLink() {
   const { t } = recoveryClaimCopy.useCopy();
   return (
     <li>
-      <a className="lt-row-link" href="/bank/recovery">
+      <a className="lt-row-link" data-span="row" href="/bank/recovery">
         <span className="lt-lines">
           <strong>{t('open')}</strong>
           <small className="lt-hint">{t('openHint')}</small>
         </span>
-        <span aria-hidden="true">↗</span>
+        <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
       </a>
     </li>
   );
@@ -125,8 +125,15 @@ export function BankOverview() {
                   <ul className="lt-rows">
                     {overview.holdings.map((holding) => (
                       <li key={holding.assetId}>
-                        <a data-testid="money-holding" className="lt-row-link" href={`/portfolio/${encodeURIComponent(holding.assetId)}`}>
-                          <span aria-hidden="true">{holding.assetId.slice(0, 1)}</span>
+                        <a
+                          data-testid="money-holding"
+                          className="lt-row-link"
+                          data-span="row"
+                          href={`/portfolio/${encodeURIComponent(holding.assetId)}`}
+                        >
+                          <span className="lt-person-face" aria-hidden="true">
+                            {holding.assetId.slice(0, 1)}
+                          </span>
                           <span className="lt-lines">
                             <strong lang="und">{holding.assetId}</strong>
                             <small className="lt-hint">
@@ -137,7 +144,7 @@ export function BankOverview() {
                               )}
                             </small>
                           </span>
-                          <span className="lt-lines">
+                          <span data-part="figures">
                             <strong className="lt-figure" dir="ltr">
                               <span>{hideBalances ? '••••' : displayAmount(holding.quantity ?? holding.available)}</span>
                               {!hideBalances && <span lang="und"> {holding.assetId}</span>}
@@ -161,7 +168,7 @@ export function BankOverview() {
                               </div>
                             </dl>
                           </span>
-                          <span aria-hidden="true">↗</span>
+                          <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
                         </a>
                       </li>
                     ))}
@@ -197,6 +204,7 @@ export function BankOverview() {
                             </span>
                             {row.total !== null && (
                               <small className="lt-hint">
+                                {' '}
                                 {hideBalances ? '' : copyText('index.spaces.plus', { amount: amount(row.inSpaces, row.assetId) })}
                               </small>
                             )}
@@ -234,6 +242,7 @@ export function BankOverview() {
                             <a
                               data-testid="money-space-row"
                               className="lt-row-link"
+                              data-span="row"
                               href={`/bank/spaces?space=${encodeURIComponent(space.id)}`}
                             >
                               <span className="lt-lines">
@@ -246,7 +255,7 @@ export function BankOverview() {
                                   )}
                                 </small>
                               </span>
-                              <span className="lt-mono" dir="ltr">
+                              <span data-part="figures" className="lt-mono" dir="ltr">
                                 {funds(space.balance, space.assetId)}
                               </span>
                             </a>
@@ -272,7 +281,7 @@ export function BankOverview() {
               <ul className="lt-rows">
                 {bankServices.map((service) => (
                   <li key={service.href}>
-                    <a className="lt-row-link" href={service.href}>
+                    <a className="lt-row-link" data-span="row" href={service.href}>
                       <span className="lt-lines">
                         <strong>
                           <Text k={service.label} />
@@ -281,7 +290,7 @@ export function BankOverview() {
                           <Text k={service.note} />
                         </small>
                       </span>
-                      <span aria-hidden="true">↗</span>
+                      <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
                     </a>
                   </li>
                 ))}

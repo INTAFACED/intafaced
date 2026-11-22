@@ -603,7 +603,8 @@ describe('the chat header, quick replies and warning', () => {
 
   it('marks a dispute with the warning colour, not the neutral one', () => {
     expect(renderToString(<TradeStatus status="disputed" />)).toContain('data-status="pending"');
-    expect(renderToString(<TradeStatus status="escrowed" />)).toContain('data-status="working"');
+    // The kit's neutral chip is "unknown" (the old kit called it "working").
+    expect(renderToString(<TradeStatus status="escrowed" />)).toContain('data-status="unknown"');
   });
 
   it('says how many unread messages wait below while the chat is out of view', () => {

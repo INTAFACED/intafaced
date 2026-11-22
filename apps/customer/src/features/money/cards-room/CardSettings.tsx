@@ -24,6 +24,7 @@ import {
 } from '../card-limits';
 import { t as copyText } from '../copy';
 import { useSession } from '../../session';
+import { BANK_CARDS_SET_LIMITS, BANK_CARDS_SET_CHANNELS } from '@intafaced/contracts/bank-cards-2-procedures';
 
 type CardRecord = z.infer<typeof cardSchema>;
 
@@ -78,7 +79,7 @@ export function limitsSpec(card: CardRecord, copy: CardCopy, freshCard: Fresh): 
   });
   return {
     title: t('limitEditTitle'),
-    procedure: 'cards.setLimits',
+    record: BANK_CARDS_SET_LIMITS,
     initial: Object.fromEntries(LIMIT_KEYS_ALL.map((key) => [key, card[key] ?? ''])),
     fields: [field('perAuthorizationLimit', false), field('dailyLimit', true), field('monthlyLimit', true), field('cashLimit', true)],
     facts: [
@@ -167,7 +168,7 @@ export function channelSpec(card: CardRecord, key: ChannelKey, copy: CardCopy, f
   const name = t(CHANNEL_LABEL[key]);
   return {
     title: turningOn ? t('channelTurnOnTitle', { channel: name }) : t('channelTurnOffTitle', { channel: name }),
-    procedure: 'cards.setChannels',
+    record: BANK_CARDS_SET_CHANNELS,
     // Turning a channel off only protects the card, so its confirmation is short: one row and one line, one button.
     // Turning one on loosens the card, so it keeps the full confirmation.
     facts: turningOn

@@ -50,3 +50,32 @@ export const IDENTITY_API_KEYS_CREATE = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/** Limit required — omit never dumps API keys. */
+export const IDENTITY_API_KEYS_LIST = defineProcedure({
+  ...base,
+  name: 'identity.apiKeys.list',
+  kind: 'query',
+  path: 'apiKeys.list',
+  access: { caller: 'scope', scope: 'identity:read' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(200) }),
+  output: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      prefix: z.string(),
+      scopes: z.array(z.string()),
+      lastUsedAt: z.string().nullable(),
+      revoked: z.boolean(),
+      mode: z.enum(['live', 'sandbox']),
+      requireSignature: z.boolean(),
+      requireNonEmptyIpAllowlist: z.boolean(),
+      ipAllowlist: z.array(z.string()),
+    }),
+  ),
+  samples: [
+    { verdict: 'accept', input: { limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

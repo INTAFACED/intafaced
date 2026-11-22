@@ -33,7 +33,9 @@ test(`${J} #1 More opens Business Pay at /pay/merchant from the registry row bus
   expect(rows.map((r) => r.id)).toEqual(['business-pay']);
   const [row] = rows;
   expect(row.status).toBe('live');
-  const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Money and pay', level: 2 }) });
+  // The section named by its own heading: the room's template wraps its sections in a region of its own, which also
+  // holds this heading, so a filter on any section with it would take that region (and the All services index) too.
+  const section = page.getByRole('region', { name: 'Money and pay', exact: true });
   const tile = section.getByRole('link', { name: /^Merchant\b/ });
   await expect(tile).toHaveCount(1);
   await expect(tile).toHaveAttribute('href', '/pay/merchant');
@@ -161,7 +163,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
         as.map((a) => ({
           label: a.querySelector('span')?.textContent?.split(' · ')[0],
           value: a.querySelector('strong')?.textContent?.trim(),
-          none: a.querySelector('strong .pp-none')?.getAttribute('title') ?? null,
+          none: a.querySelector('strong [data-testid="pp-none"]')?.getAttribute('title') ?? null,
         })),
       );
     const expected = [
@@ -181,7 +183,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   for (const list of refundLists) expect(list.items).toEqual([]);
 
   // Pending settlement draws no figure for a business with no balance, with today's as-of.
-  const pending = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Pending settlement', level: 2 }) });
+  const pending = page.getByRole('heading', { name: 'Pending settlement', level: 2 }).locator('xpath=ancestor::section[1]');
   const pendingText = await pending.evaluate((el) => {
     const copy = el.cloneNode(true);
     copy.querySelectorAll('[role="status"]').forEach((n) => n.remove());

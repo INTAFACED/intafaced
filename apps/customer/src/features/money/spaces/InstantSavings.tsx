@@ -6,11 +6,12 @@ import { ReadFailure as Failure, ReadLoading as Loading } from '../../../shared/
 import { parseAmount } from '../../../shared/money';
 import { amount, bps, funds, positiveMoney, type ActionSpec, useBankRecord } from '../components';
 import { NoRows, BankSection as Section } from '../bank-frame/BankFrame';
-import { bankWrites, type poolSchema, type positionSchema } from '../contracts';
+import { type poolSchema, type positionSchema } from '../contracts';
 import { earnCopy } from '../earn-copy';
 import { useSession } from '../../session';
 import { instantSavingsCopy } from '../instant-savings-copy';
 import { BANK_EARN_POOLS, BANK_EARN_POSITIONS, BANK_EARN_INTEREST_HISTORY } from '@intafaced/contracts/bank-earn-procedures';
+import { BANK_EARN_DEPOSIT, BANK_EARN_WITHDRAW } from '@intafaced/contracts/bank-earn-2-procedures';
 
 type Pool = z.infer<typeof poolSchema>;
 type Position = z.infer<typeof positionSchema>;
@@ -38,7 +39,7 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
   const openSavings = (pool: Pool) =>
     open({
       title: t('openTitle', { asset: pool.assetId }),
-      procedure: 'earn.deposit',
+      record: BANK_EARN_DEPOSIT,
       unit: pool.assetId,
       fields: [positiveMoney(pool.assetId)],
       facts: [
@@ -50,7 +51,7 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
       preflight: () => checkPool(pool),
       validate: (input) => (parseAmount(String(input.amount)) >= parseAmount(pool.minDeposit) ? null : t('belowMinimum')),
       verifyOutcome: (data, input) => {
-        const returned = data as z.infer<(typeof bankWrites)['earn.deposit']>;
+        const returned = data as z.infer<(typeof BANK_EARN_DEPOSIT)['output']>;
         return returned.positionId === input.positionId && returned.maturesAt === null;
       },
       input: (values, requestId) => ({ poolId: pool.id, positionId: requestId, amount: values.amount }),
@@ -147,7 +148,7 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
   const withdraw = (position: Position) =>
     open({
       title: t('withdrawTitle', { amount: amount(position.principal, position.assetId) }),
-      procedure: 'earn.withdraw',
+      record: BANK_EARN_WITHDRAW,
       unit: position.assetId,
       facts: [
         [t('pool'), pool.name],
@@ -156,7 +157,7 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
       notes: [t('withdrawNote')],
       preflight: () => checkPosition(position),
       verifyOutcome: (data) => {
-        const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
+        const returned = data as z.infer<(typeof BANK_EARN_WITHDRAW)['output']>;
         return (
           returned.positionId === position.id &&
           returned.status === 'closed' &&

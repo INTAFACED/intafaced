@@ -25,6 +25,8 @@ import { spaceInflowCopy } from '../space-inflow-copy';
 import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
 import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_STATEMENTS_EXPORT } from '@intafaced/contracts/bank-statements-procedures';
+import { BANK_TRANSFERS_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
+import { BANK_AUTO_INVEST_CREATE_ROUND_UP } from '@intafaced/contracts/bank-auto-invest-2-procedures';
 
 const LIST_LIMIT = 50;
 
@@ -59,7 +61,7 @@ export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Sp
     main &&
     open({
       title: t('saveTitle'),
-      procedure: 'transfers.schedule',
+      record: BANK_TRANSFERS_SCHEDULE,
       unit: space.assetId,
       fields: [positiveMoney(space.assetId), scheduleCadenceField, startsField, endsField],
       facts: [
@@ -81,7 +83,7 @@ export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Sp
   const addRoundUp = () =>
     open({
       title: t('roundupTitle'),
-      procedure: 'autoInvest.createRoundUp',
+      record: BANK_AUTO_INVEST_CREATE_ROUND_UP,
       unit: space.assetId,
       fields: [{ ...positiveMoney(space.assetId, 'granularity', t('roundupField')), hint: t('roundupHint') }],
       facts: [[t('into'), space.name]],

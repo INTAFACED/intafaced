@@ -270,11 +270,6 @@ function declText(q, b) {
  * True when `file` already declares `name` at its top level exactly as `text` (a moved declaration's `declText`)
  * writes it, docs and spacing aside: the copy is already there, so it is imported, never declared a second time.
  */
-/** True when a file declares `name` at its top level, however it is written. */
-export function declaresName(file, name) {
-  return existsSync(file) && !!topLevel(load(file), name);
-}
-
 export function declaresSame(file, name, text) {
   if (!existsSync(file)) return false;
   const q = load(file);
