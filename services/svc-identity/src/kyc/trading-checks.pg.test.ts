@@ -1,5 +1,5 @@
 /**
- * The trading checks against Postgres (J-cex-spot-01 #3, OWNER 258 (4)). A clear grants level basic for trading in one
+ * The trading checks against Postgres (J-cex-spot-01 #3). A clear grants level basic for trading in one
  * transaction with its case and capabilities; a hit holds the account behind a pending record and grants nothing; a
  * blank owner list refuses kyc.screening_list_unset and writes nothing; a repeat answers the first outcome by its
  * business key and never screens again; the name and date of birth are never stored in plaintext.
@@ -59,7 +59,24 @@ const LIST = parseSanctionsPersonsList(
   'test',
 )!;
 const KEY = randomBytes(32);
+
+/** Every stored column but the user id, bytes read as text, so a plaintext value would show however it was written. */
+function storedText(rows: ReadonlyArray<Record<string, unknown>>): string {
+  return JSON.stringify(
+    rows.map(({ user_id: _userId, ...rest }) =>
+      Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, Buffer.isBuffer(v) ? v.toString('latin1') : v])),
+    ),
+  );
+}
 const SCREENING_ENV = ['INTAFACED_SANCTIONS_REGIONS', 'INTAFACED_SANCTIONS_LIST_SOURCE', 'INTAFACED_SCREENING_FAIL_CLOSED', 'APP_ENV'];
+
+describe('the kept-birth-date read', () => {
+  it('ignores a user id that holds the date and finds a date kept in plaintext', () => {
+    const userId = 'b19908cf-4382-4e43-8fca-1990051e1990';
+    expect(storedText([{ user_id: userId, ciphertext: randomBytes(24), nonce: randomBytes(12) }])).not.toContain('1990-05-01');
+    expect(storedText([{ user_id: userId, ciphertext: Buffer.from('1990-05-01'), nonce: randomBytes(12) }])).toContain('1990-05-01');
+  });
+});
 
 const available = await postgresAvailable(DATABASE_URL);
 
@@ -169,7 +186,10 @@ if (!available) {
       // Neither the name nor the date of birth is stored in plaintext.
       const stored = JSON.stringify(await db.sql`SELECT * FROM trading_checks WHERE user_id = ${userId}`);
       expect(stored).not.toContain('Trader');
-      expect(JSON.stringify(await db.sql`SELECT * FROM birth_dates WHERE user_id = ${userId}`)).not.toContain('1990');
+      // The date is kept sealed: one row, and no column of it (the user id aside, a random UUID that may hold '1990') reads it.
+      const kept = await db.sql<Array<Record<string, unknown>>>`SELECT * FROM birth_dates WHERE user_id = ${userId}`;
+      expect(kept).toHaveLength(1);
+      expect(storedText(kept)).not.toContain('1990-05-01');
     });
 
     it("a clear never raises the level that Edge's per-request authority read forwards to every service", async () => {

@@ -1,17 +1,11 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { VALUATION_PRICES_UNSET, type HomeConfig, type ValuationPrices } from '@intafaced/contracts';
+import type { HomeConfig, ValuationPrices } from '@intafaced/contracts';
+import { VALUATION_PRICES_UNSET } from '@intafaced/contracts/valuation-prices';
 import { createHomeConfigRouter, homeConfigFromEnv } from './home-config.js';
 import { createValuationPricesRouter } from './valuation-prices.js';
-import {
-  opsCostEntryInputSchema,
-  opsCostEntrySchema,
-  opsVenueEconomicsSchema,
-  operatorProcedure,
-  publicProcedure,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+import { opsCostEntryInputSchema, opsCostEntrySchema, opsVenueEconomicsSchema } from '@intafaced/contracts/ops-venue-economics';
+import { operatorProcedure, publicProcedure, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   OPS_CONTACTS_LIST_LIMIT_UNSET,
   OPS_CUSTODY_CHAIN_UNWIRED,

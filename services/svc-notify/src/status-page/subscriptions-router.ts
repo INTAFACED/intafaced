@@ -1,9 +1,5 @@
 import { z } from 'zod';
 import {
-  router,
-  publicProcedure,
-  scopedProcedure,
-  TRPCError,
   statusChallengeSchema,
   statusLinkInputSchema,
   statusSubscribeInputSchema,
@@ -11,7 +7,8 @@ import {
   statusSubscriptionPolicySchema,
   statusSubscriptionSchema,
   statusSubscriptionUpdateInputSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/status-subscriptions';
+import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { NoticeBoard } from '../notices/board.js';
 import { StatusSubscriptionError, type StatusSubscriptions } from './subscriptions.js';
 import {

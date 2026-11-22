@@ -1,4 +1,5 @@
-import { OPS_CAPITAL_SOURCE_UNAVAILABLE, opsCapitalVenueSchema, type OpsCapitalVenue, type OpsCapitalVenues } from '@intafaced/contracts';
+import type { OpsCapitalVenue, OpsCapitalVenues } from '@intafaced/contracts';
+import { OPS_CAPITAL_SOURCE_UNAVAILABLE, opsCapitalVenueSchema } from '@intafaced/contracts/ops-capital';
 
 /**
  * THE VENUE PORT for the capital monitor: INTAFACED's own builder account at one venue, as that venue reports it.

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { BankServices } from '../bank-service.js';
 import { assertSelf } from '../assert-self.js';

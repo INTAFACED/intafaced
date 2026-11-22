@@ -8,7 +8,9 @@ import {
   QUANT_VERSION_NOT_FOUND,
   QuantError,
 } from '../errors.js';
-import { QUANT_PAPER_LIST_MAX, QUANT_SUPPORT_GRANT_MAX_SECONDS, QUANT_SUPPORT_GRANT_MIN_SECONDS, router } from '@intafaced/contracts';
+import { QUANT_PAPER_LIST_MAX } from '@intafaced/contracts/quant-algo';
+import { QUANT_SUPPORT_GRANT_MAX_SECONDS, QUANT_SUPPORT_GRANT_MIN_SECONDS } from '@intafaced/contracts/quant-team';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   QUANT_TEAM_GET,

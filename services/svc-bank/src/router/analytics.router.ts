@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { guard } from './errors.js';
 import { amountString } from './shared.js';
 import { BUDGET_CATEGORIES, type BudgetProgress } from '../analytics/budgets.js';

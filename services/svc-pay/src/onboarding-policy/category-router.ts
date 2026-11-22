@@ -8,9 +8,8 @@ import {
   categoryPolicyPreviewSchema,
   categoryPolicySetInputSchema,
   categoryPolicyViewSchema,
-  router,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/business-category';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { ActionApprovalConsumeError, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { DualControlError } from '../dual-control.js';

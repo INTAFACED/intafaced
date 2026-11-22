@@ -1,5 +1,7 @@
 import { formatUnits, getAddress, parseAbi, type Address, type PublicClient } from 'viem';
-import { LENDING_MARKET_UNSET, router, TRPCError, type ProtocolLendingPosition } from '@intafaced/contracts';
+import type { ProtocolLendingPosition } from '@intafaced/contracts';
+import { LENDING_MARKET_UNSET } from '@intafaced/contracts/protocol-lending-position';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { PROTOCOL_LENDING_POSITION } from '@intafaced/contracts/protocol-chain-procedures';
 import { isZeroAddress } from '../chain/availability.js';

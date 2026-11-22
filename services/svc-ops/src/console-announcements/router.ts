@@ -7,9 +7,8 @@ import {
   announcementSaveInputSchema,
   announcementWriteOutputSchema,
   announcementsListOutputSchema,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-console-announcements';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import type { AnnouncementDesk } from './desk.js';
 

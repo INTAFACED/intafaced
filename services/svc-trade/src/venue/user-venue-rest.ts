@@ -74,7 +74,8 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, StepUpCheckError } from '@intafaced/contracts';
+import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts/edge';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import {
   VenueRefusalError,
   hasSubAccountReads,
