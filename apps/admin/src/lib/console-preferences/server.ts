@@ -9,7 +9,8 @@ import {
   type PreferencesSetInput,
 } from '@intafaced/contracts/ops-console-preferences';
 import type { OpsRead } from '@/lib/console-announcements';
-import { founderCall, opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView } from '@/lib/desk';
+import { opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView, founderRecordRead } from '@/lib/desk';
+import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from '@intafaced/contracts/ops-preferences-procedures';
 
 export type PreferencesView = OpsRead<Preferences>;
 
@@ -23,7 +24,7 @@ const parse = (raw: unknown): Preferences | null => {
 
 /** svc-ops `preferences.get` as the signed-in founder. Never throws. */
 export async function loadPreferences(ctx: FounderCallContext): Promise<PreferencesView> {
-  const result = await founderCall(ctx, 'ops', 'preferences.get', 'GET', undefined, parse, { timeoutMs: PREFERENCES_READ_TIMEOUT_MS });
+  const result = await founderRecordRead(ctx, OPS_PREFERENCES_GET, undefined, parse, { timeoutMs: PREFERENCES_READ_TIMEOUT_MS });
   return opsReadOf(result, PREFERENCES_STORAGE_UNCONFIGURED, 'preferences');
 }
 
@@ -38,7 +39,7 @@ export async function setPreferences(
   ctx: FounderCallContext,
   input: PreferencesSetInput,
 ): Promise<{ status: number; reply: { ok: true; preferences: Preferences } | ({ ok: false } & RefusalView) }> {
-  const result = await founderCall(ctx, 'ops', 'preferences.set', 'POST', input, parse);
+  const result = await founderRecordRead(ctx, OPS_PREFERENCES_SET, input, parse);
   if (result.kind === 'ok') return { status: 200, reply: { ok: true, preferences: result.data } };
   return writeRefusalOf(result);
 }

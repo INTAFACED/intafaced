@@ -403,6 +403,14 @@ import {
 
 import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from './identity-account-directory-procedures.js';
 
+import {
+  IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+  IDENTITY_ACCOUNT_COMPROMISED_MINE,
+  IDENTITY_ACCOUNT_COMPROMISED_START,
+  IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+  IDENTITY_ACCOUNT_SAFETY_READ,
+} from './identity-account-procedures.js';
+
 import { IDENTITY_ACTION_APPROVAL_LIST } from './identity-action-approval-procedures.js';
 
 import {
@@ -463,6 +471,7 @@ import {
   IDENTITY_AUTH_SIGN_UP_RESEND,
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
 } from './identity-auth-procedures.js';
 
 import {
@@ -779,7 +788,41 @@ import {
   NOTIFY_STATUS_PAGE_CONFIGURE,
 } from './notify-status-page-procedures.js';
 
+import { OPS_ALERTS_LIST, OPS_ALERTS_PERIODS, OPS_ALERTS_PLATFORM_INCIDENTS, OPS_ALERTS_GET } from './ops-alerts-procedures.js';
+
+import { OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD } from './ops-capital-procedures.js';
+
+import {
+  OPS_COMPLIANCE_INBOXES_SET_FAVOURITE,
+  OPS_COMPLIANCE_INBOXES_DEFINE,
+  OPS_COMPLIANCE_INBOXES_LIST,
+  OPS_COMPLIANCE_CASES_LIST,
+  OPS_COMPLIANCE_INBOXES_ACCESS,
+  OPS_COMPLIANCE_CASES_GET_BY_ID,
+  OPS_COMPLIANCE_CASES_NEXT,
+} from './ops-compliance-procedures.js';
+
+import { OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET } from './ops-console-mode-procedures.js';
+
+import { OPS_OUTREACH_PRIVACY_RETENTION_STATUS, OPS_OUTREACH_OWNERS, OPS_OUTREACH_LIST_WORKFLOW_AUDIT } from './ops-outreach-procedures.js';
+
+import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from './ops-preferences-procedures.js';
+
+import {
+  OPS_PROTOCOL_LISTING_POOLS_LIST,
+  OPS_PROTOCOL_LISTING_MARKETS_LIST,
+  OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+} from './ops-protocol-listing-procedures.js';
+
 import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } from './ops-public-procedures.js';
+
+import { OPS_RECORD_VENUE_COST } from './ops-record-venue-cost-procedures.js';
+
+import { OPS_RESTORE_WATERMARKS } from './ops-restore-procedures.js';
+
+import { OPS_STAFF_HOLDS_LIST } from './ops-staff-holds-procedures.js';
+
+import { OPS_VENUE_ECONOMICS } from './ops-venue-economics-procedures.js';
 
 import {
   P2P_DISPUTES_BACKLOG,
@@ -1307,6 +1350,23 @@ import {
   TAX_EXPORT_PACK,
 } from './tax-procedures.js';
 
+import { TOKEN_DISTRIBUTE_REVENUE } from './token-distribute-revenue-procedures.js';
+
+import {
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+} from './token-launch-procedures.js';
+
+import { TOKEN_NEXT_EMISSION_EPOCH } from './token-next-emission-epoch-procedures.js';
+
 import {
   TOKEN_ACCESS_OF,
   TOKEN_LIST_STAKES,
@@ -1337,11 +1397,62 @@ import {
   TOKEN_GOVERNANCE_SET_ROLE,
 } from './token-procedures.js';
 
+import {
+  TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
+  TRADE_ADMIN_AGENT_DESK_AUDIT,
+  TRADE_ADMIN_AGENT_DESK_CONNECTION,
+  TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+} from './trade-admin-procedures.js';
+
+import { TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT } from './trade-algo-procedures.js';
+
+import {
+  TRADE_BOTS_GRID_SETUP,
+  TRADE_BOTS_GRID_PRESETS,
+  TRADE_BOTS_GRID_STOP,
+  TRADE_BOTS_GRID_TOP_UP_FREE,
+  TRADE_BOTS_GRID_TOP_UP,
+  TRADE_BOTS_GRID_MODIFY,
+  TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+} from './trade-bots-procedures.js';
+
 import { TRADE_BUILDER_ACCOUNT_MODE } from './trade-builder-mode-procedures.js';
+
+import {
+  TRADE_CONVERT_PAIRS,
+  TRADE_CONVERT_LIMITS,
+  TRADE_CONVERT_LIMIT_PLACE,
+  TRADE_CONVERT_LIMIT_CANCEL,
+  TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_LIST,
+} from './trade-convert-procedures.js';
 
 import { COPY_MY_COPY_FEES } from './trade-copy-procedures.js';
 
+import {
+  TRADE_COPY_MY_LEAD_APPLICATION,
+  TRADE_COPY_LEAD_ELIGIBILITY,
+  TRADE_COPY_APPLY_TO_LEAD,
+  TRADE_COPY_MY_LEAD,
+  TRADE_COPY_LEADER_TRADES,
+  TRADE_COPY_FOLLOW,
+  TRADE_COPY_CHECK_VENUE_FOLLOW,
+  TRADE_COPY_AMEND_FOLLOW,
+  TRADE_COPY_GRANT_SESSION_KEY,
+  TRADE_COPY_KILL_SESSION_KEY,
+  TRADE_COPY_CLOSE_COPIED_POSITION,
+  TRADE_COPY_SKIP_LOG,
+  TRADE_COPY_LEAD_EARNINGS,
+  TRADE_COPY_LEAD_LEVEL,
+  TRADE_COPY_LEAD_MISSIONS,
+  TRADE_COPY_LEAD_TRADES,
+  TRADE_COPY_LEAD_COPIERS,
+  TRADE_COPY_PLATFORM_PAUSES,
+} from './trade-copy-records.js';
+
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
+
+import { TRADE_OTC_MAKERS_LIST, TRADE_OTC_ACCEPT, TRADE_OTC_SETTLE, TRADE_OTC_CONVERT_BOUNDS } from './trade-otc-procedures.js';
 
 import {
   RECURRING_CREATE,
@@ -1351,6 +1462,10 @@ import {
   RECURRING_UPDATE,
   RECURRING_TERMINATE,
 } from './trade-recurring-procedures.js';
+
+import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from './trade-rfq-procedures.js';
+
+import { TRADE_SIGNALS_WEBHOOKS_CREATE } from './trade-signals-procedures.js';
 
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 
@@ -1768,6 +1883,14 @@ const part_identity_account_controls_procedures: readonly ProcedureRecord[] = [
 
 const part_identity_account_directory_procedures: readonly ProcedureRecord[] = [IDENTITY_ACCOUNT_DIRECTORY_HANDLES];
 
+const part_identity_account_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+  IDENTITY_ACCOUNT_COMPROMISED_MINE,
+  IDENTITY_ACCOUNT_COMPROMISED_START,
+  IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+  IDENTITY_ACCOUNT_SAFETY_READ,
+];
+
 const part_identity_action_approval_procedures: readonly ProcedureRecord[] = [IDENTITY_ACTION_APPROVAL_LIST];
 
 const part_identity_action_approval_records: readonly ProcedureRecord[] = [
@@ -1828,6 +1951,7 @@ const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_SIGN_UP_RESEND,
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
 ];
 
 const part_identity_developer_keys_procedures: readonly ProcedureRecord[] = [
@@ -2159,7 +2283,50 @@ const part_notify_status_page_procedures: readonly ProcedureRecord[] = [
   NOTIFY_STATUS_PAGE_CONFIGURE,
 ];
 
+const part_ops_alerts_procedures: readonly ProcedureRecord[] = [
+  OPS_ALERTS_LIST,
+  OPS_ALERTS_PERIODS,
+  OPS_ALERTS_PLATFORM_INCIDENTS,
+  OPS_ALERTS_GET,
+];
+
+const part_ops_capital_procedures: readonly ProcedureRecord[] = [OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD];
+
+const part_ops_compliance_procedures: readonly ProcedureRecord[] = [
+  OPS_COMPLIANCE_INBOXES_SET_FAVOURITE,
+  OPS_COMPLIANCE_INBOXES_DEFINE,
+  OPS_COMPLIANCE_INBOXES_LIST,
+  OPS_COMPLIANCE_CASES_LIST,
+  OPS_COMPLIANCE_INBOXES_ACCESS,
+  OPS_COMPLIANCE_CASES_GET_BY_ID,
+  OPS_COMPLIANCE_CASES_NEXT,
+];
+
+const part_ops_console_mode_procedures: readonly ProcedureRecord[] = [OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET];
+
+const part_ops_outreach_procedures: readonly ProcedureRecord[] = [
+  OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+  OPS_OUTREACH_OWNERS,
+  OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+];
+
+const part_ops_preferences_procedures: readonly ProcedureRecord[] = [OPS_PREFERENCES_GET, OPS_PREFERENCES_SET];
+
+const part_ops_protocol_listing_procedures: readonly ProcedureRecord[] = [
+  OPS_PROTOCOL_LISTING_POOLS_LIST,
+  OPS_PROTOCOL_LISTING_MARKETS_LIST,
+  OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+];
+
 const part_ops_public_procedures: readonly ProcedureRecord[] = [OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS];
+
+const part_ops_record_venue_cost_procedures: readonly ProcedureRecord[] = [OPS_RECORD_VENUE_COST];
+
+const part_ops_restore_procedures: readonly ProcedureRecord[] = [OPS_RESTORE_WATERMARKS];
+
+const part_ops_staff_holds_procedures: readonly ProcedureRecord[] = [OPS_STAFF_HOLDS_LIST];
+
+const part_ops_venue_economics_procedures: readonly ProcedureRecord[] = [OPS_VENUE_ECONOMICS];
 
 const part_p2p_disputes_procedures: readonly ProcedureRecord[] = [
   P2P_DISPUTES_BACKLOG,
@@ -2702,6 +2869,23 @@ const part_tax_procedures: readonly ProcedureRecord[] = [
   TAX_EXPORT_PACK,
 ];
 
+const part_token_distribute_revenue_procedures: readonly ProcedureRecord[] = [TOKEN_DISTRIBUTE_REVENUE];
+
+const part_token_launch_procedures: readonly ProcedureRecord[] = [
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+];
+
+const part_token_next_emission_epoch_procedures: readonly ProcedureRecord[] = [TOKEN_NEXT_EMISSION_EPOCH];
+
 const part_token_procedures: readonly ProcedureRecord[] = [
   TOKEN_ACCESS_OF,
   TOKEN_LIST_STAKES,
@@ -2732,11 +2916,67 @@ const part_token_procedures: readonly ProcedureRecord[] = [
   TOKEN_GOVERNANCE_SET_ROLE,
 ];
 
+const part_trade_admin_procedures: readonly ProcedureRecord[] = [
+  TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
+  TRADE_ADMIN_AGENT_DESK_AUDIT,
+  TRADE_ADMIN_AGENT_DESK_CONNECTION,
+  TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+];
+
+const part_trade_algo_procedures: readonly ProcedureRecord[] = [TRADE_ALGO_PROGRESS, TRADE_ALGO_PREVIEW_TWAP_SIZES, TRADE_ALGO_RESULT];
+
+const part_trade_bots_procedures: readonly ProcedureRecord[] = [
+  TRADE_BOTS_GRID_SETUP,
+  TRADE_BOTS_GRID_PRESETS,
+  TRADE_BOTS_GRID_STOP,
+  TRADE_BOTS_GRID_TOP_UP_FREE,
+  TRADE_BOTS_GRID_TOP_UP,
+  TRADE_BOTS_GRID_MODIFY,
+  TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+];
+
 const part_trade_builder_mode_procedures: readonly ProcedureRecord[] = [TRADE_BUILDER_ACCOUNT_MODE];
+
+const part_trade_convert_procedures: readonly ProcedureRecord[] = [
+  TRADE_CONVERT_PAIRS,
+  TRADE_CONVERT_LIMITS,
+  TRADE_CONVERT_LIMIT_PLACE,
+  TRADE_CONVERT_LIMIT_CANCEL,
+  TRADE_CONVERT_ROUTE,
+  TRADE_CONVERT_LIST,
+];
 
 const part_trade_copy_procedures: readonly ProcedureRecord[] = [COPY_MY_COPY_FEES];
 
+const part_trade_copy_records: readonly ProcedureRecord[] = [
+  TRADE_COPY_MY_LEAD_APPLICATION,
+  TRADE_COPY_LEAD_ELIGIBILITY,
+  TRADE_COPY_APPLY_TO_LEAD,
+  TRADE_COPY_MY_LEAD,
+  TRADE_COPY_LEADER_TRADES,
+  TRADE_COPY_FOLLOW,
+  TRADE_COPY_CHECK_VENUE_FOLLOW,
+  TRADE_COPY_AMEND_FOLLOW,
+  TRADE_COPY_GRANT_SESSION_KEY,
+  TRADE_COPY_KILL_SESSION_KEY,
+  TRADE_COPY_CLOSE_COPIED_POSITION,
+  TRADE_COPY_SKIP_LOG,
+  TRADE_COPY_LEAD_EARNINGS,
+  TRADE_COPY_LEAD_LEVEL,
+  TRADE_COPY_LEAD_MISSIONS,
+  TRADE_COPY_LEAD_TRADES,
+  TRADE_COPY_LEAD_COPIERS,
+  TRADE_COPY_PLATFORM_PAUSES,
+];
+
 const part_trade_grid_procedures: readonly ProcedureRecord[] = [GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD];
+
+const part_trade_otc_procedures: readonly ProcedureRecord[] = [
+  TRADE_OTC_MAKERS_LIST,
+  TRADE_OTC_ACCEPT,
+  TRADE_OTC_SETTLE,
+  TRADE_OTC_CONVERT_BOUNDS,
+];
 
 const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
   RECURRING_CREATE,
@@ -2746,6 +2986,10 @@ const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
   RECURRING_UPDATE,
   RECURRING_TERMINATE,
 ];
+
+const part_trade_rfq_procedures: readonly ProcedureRecord[] = [TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE];
+
+const part_trade_signals_procedures: readonly ProcedureRecord[] = [TRADE_SIGNALS_WEBHOOKS_CREATE];
 
 const part_ws_procedures: readonly ProcedureRecord[] = [WS_SBE_CONSUMERS];
 
@@ -2828,6 +3072,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_account_closure_procedures,
   ...part_identity_account_controls_procedures,
   ...part_identity_account_directory_procedures,
+  ...part_identity_account_procedures,
   ...part_identity_action_approval_procedures,
   ...part_identity_action_approval_records,
   ...part_identity_affiliates_procedures,
@@ -2880,7 +3125,18 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_notify_procedures,
   ...part_notify_reconciliation_alert_feed_procedures,
   ...part_notify_status_page_procedures,
+  ...part_ops_alerts_procedures,
+  ...part_ops_capital_procedures,
+  ...part_ops_compliance_procedures,
+  ...part_ops_console_mode_procedures,
+  ...part_ops_outreach_procedures,
+  ...part_ops_preferences_procedures,
+  ...part_ops_protocol_listing_procedures,
   ...part_ops_public_procedures,
+  ...part_ops_record_venue_cost_procedures,
+  ...part_ops_restore_procedures,
+  ...part_ops_staff_holds_procedures,
+  ...part_ops_venue_economics_procedures,
   ...part_p2p_disputes_procedures,
   ...part_p2p_ops_procedures,
   ...part_p2p_procedures,
@@ -2930,10 +3186,21 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_support_views_list_procedures,
   ...part_support_views_save_procedures,
   ...part_tax_procedures,
+  ...part_token_distribute_revenue_procedures,
+  ...part_token_launch_procedures,
+  ...part_token_next_emission_epoch_procedures,
   ...part_token_procedures,
+  ...part_trade_admin_procedures,
+  ...part_trade_algo_procedures,
+  ...part_trade_bots_procedures,
   ...part_trade_builder_mode_procedures,
+  ...part_trade_convert_procedures,
   ...part_trade_copy_procedures,
+  ...part_trade_copy_records,
   ...part_trade_grid_procedures,
+  ...part_trade_otc_procedures,
   ...part_trade_recurring_procedures,
+  ...part_trade_rfq_procedures,
+  ...part_trade_signals_procedures,
   ...part_ws_procedures,
 ];

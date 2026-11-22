@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import type { Principal } from '@intafaced/auth';
+import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
 import { createEdgeContext, encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { createTokenRouter, type TokenRouter } from './router.js';
@@ -145,7 +146,9 @@ describe('token job tRPC HMAC as svc-token (HTTP)', () => {
     expect(src).toMatch(/requireTokenJobService/);
     expect(src).toMatch(/mintEpoch: jobProcedure/);
     expect(src).toMatch(/runWindow: jobProcedure/);
-    expect(src).toMatch(/distributeRevenue: scopedProcedure\('admin:treasury'/);
+    // distributeRevenue mounts its record, whose access the mount turns into scopedProcedure('admin:treasury').
+    expect(src).toMatch(/distributeRevenue: mountRecord\(\s*TOKEN_DISTRIBUTE_REVENUE,/);
+    expect(TOKEN_DISTRIBUTE_REVENUE.access).toEqual({ caller: 'scope', scope: 'admin:treasury' });
     expect(src).toMatch(/recordBuyback: scopedProcedure\('admin:treasury'/);
     expect(src).toMatch(/requireDualControl/);
     const index = readFileSync(join(DIR, 'index.ts'), 'utf8');

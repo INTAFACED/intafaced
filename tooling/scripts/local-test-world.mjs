@@ -3059,7 +3059,7 @@ const OPERATORS_MISSING =
  * A service that predates #5011 has no auth.stepUpPay: that is detected with an empty-input call, which the service rejects
  * before any factor is read, and it is reported as such, never worked around.
  */
-async function ensurePayStepUp(ctx, merchantId) {
+export async function ensurePayStepUp(ctx, merchantId) {
   // A held token is reused only while it has at least 30 s left; a failed answer is kept for the run.
   const held = ctx.payStepUp;
   if (held && (!held.ok || Date.parse(held.expiresAt) - Date.now() >= 30_000)) return held;
@@ -3412,7 +3412,7 @@ const shortRef = (ref) => `${String(ref).slice(0, 6)}...${String(ref).slice(-4)}
  * Order matters: the destination (own TOTP step) comes first, then one step-up token serves refund, request and send.
  * Every refusal is recorded in the service's words, mapped to a plain cause when it is one of the step-up codes.
  */
-async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows, settlements }) {
+export async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows, settlements }) {
   const { user, record } = ctx;
   const userId = user.account.userId;
   const spec = MERCHANT_PAYOUT_DESTINATION;
@@ -3673,7 +3673,7 @@ export function enrolledTestOperatorPair(file) {
 }
 
 /** Operator A and B signed in with their TOTP (replay-safe, through gates). Sessions carry the admin-scoped approval token. */
-async function signInTestOperatorPair(gctx, gates) {
+export async function signInTestOperatorPair(gctx, gates) {
   const pair = enrolledTestOperatorPair(readJson(gctx.paths.operators, null));
   if (!pair) return null;
   let sessions;

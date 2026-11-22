@@ -541,7 +541,7 @@ function offOverridden() {
   return out;
 }
 
-function startProc(name, argv, env, cwd, extra = {}) {
+export function startProc(name, argv, env, cwd, extra = {}) {
   // The maker's record is its own script's (local-test-market.mjs); a service under its name would be read as the maker.
   if (name === MAKER_RECORD) throw new Error(`refusing: ${name} names the TEST market maker's record, not a service`);
   const logPath = path.join(P.logs, `${name}.log`);
@@ -636,7 +636,27 @@ function preparePgPaths(extra = []) {
     );
 }
 
+/**
+ * The throwaway server skips crash durability, as CI's service database and the tests' own containers do
+ * (packages/db/src/test-postgres.ts): on a busy disk durable writes stalled every test start (intafaced#9610). The beta
+ * stack (~/.intafaced/beta) is not started by this script and keeps full durability.
+ */
+const PG_THROWAWAY_FLAGS = '-c fsync=off -c synchronous_commit=off -c full_page_writes=off';
+
+/**
+ * Without crash durability a folder left by an unclean stop may be torn, so it is made again rather than trusted: only a
+ * cluster whose control file says "shut down" is reused.
+ */
+function pgCleanlyStopped() {
+  const r = pgServerTool('pg_controldata', ['-D', P.pgdata], { encoding: 'utf8', env: { ...baseEnv(), LC_ALL: 'C' } });
+  return r.status === 0 && /^Database cluster state:\s+shut down$/mu.test(r.stdout);
+}
+
 function ensurePostgres(secrets) {
+  if (fs.existsSync(path.join(P.pgdata, 'PG_VERSION')) && !pgRunning() && !pgCleanlyStopped()) {
+    say('  postgres: the data directory was not stopped cleanly; without crash durability it is made again');
+    fs.rmSync(P.pgdata, { recursive: true, force: true });
+  }
   if (!fs.existsSync(path.join(P.pgdata, 'PG_VERSION'))) {
     say('  postgres: first run, initialising a dedicated data directory');
     const pwfile = path.join(STATE, 'tmp', 'pg-admin.pw');
@@ -665,7 +685,16 @@ function ensurePostgres(secrets) {
     preparePgPaths();
     const r = pgServerTool(
       'pg_ctl',
-      ['-D', P.pgdata, '-l', path.join(P.logs, 'postgres.log'), '-o', `-p ${PORTS.postgres} -h ${HOST} -k ${P.run}`, '-w', 'start'],
+      [
+        '-D',
+        P.pgdata,
+        '-l',
+        path.join(P.logs, 'postgres.log'),
+        '-o',
+        `-p ${PORTS.postgres} -h ${HOST} -k ${P.run} ${PG_THROWAWAY_FLAGS}`,
+        '-w',
+        'start',
+      ],
       { encoding: 'utf8', env: baseEnv() },
     );
     if (r.status !== 0) fail(`pg_ctl start failed (port ${PORTS.postgres} busy?): ${(r.stderr || r.stdout).slice(0, 500)}`);
@@ -2795,7 +2824,7 @@ async function cmdStart(flags) {
   say(`  state ${STATE}`);
   const free = freeGb();
   if (free < MIN_FREE_GB) fail(`only ${free.toFixed(1)} GB free on / (need >= ${MIN_FREE_GB} GB so free space stays above 12 GB)`);
-  for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`])
+  for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`, `${PG_BIN}/pg_controldata`])
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
   // A first start without the core services leaves a stack the journey helpers refuse (assertActiveLocalStack).
   const only = onlyFlag(flags);
