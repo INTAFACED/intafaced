@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { venueGridSchema } from './trade-grid-procedures.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -241,12 +242,12 @@ export const copySkipLogAnswer = z.object({
 export const leadEarningsAnswer = z.object({
   profitShare: z.string(),
   leaderShareBps: z.string().nullable(),
-  totals: z.array(z.object({ assetId: z.string(), amount: z.string() })),
+  totals: z.array(z.object({ assetId: assetIdSchema, amount: z.string() })),
   items: z.array(
     z.object({
       fillId: z.string(),
       followId: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       feeOnFill: z.string(),
       appliedShareBps: z.number(),
       amount: z.string(),

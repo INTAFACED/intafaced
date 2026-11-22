@@ -8,18 +8,14 @@ import { z } from 'zod';
 import { decimalSchema } from '../../../shared/money';
 import {
   algoParentFields,
-  algoResultSchema,
   algoListSchema,
   algoPolicySchema,
-  otcMakersSchema,
   deskStatusSchema,
   rfqBoardSchema,
-  convertBoundsSchema,
   optionsPolicySchema,
   greeksSchema,
   batchSchema,
   icebergAnswerSchema,
-  previewSizesSchema,
 } from '@intafaced/contracts/trade-rooms';
 import type { ApiClient } from '../../../shared/api';
 import { algoSchema, otcFillSchema, otcQuoteSchema } from '../../../features/trade/tool-api';
@@ -31,19 +27,15 @@ import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 export { otcFillSchema, otcQuoteSchema };
 export {
-  algoResultSchema,
   algoListSchema,
   algoPolicySchema,
-  otcMakersSchema,
   deskStatusSchema,
   rfqBoardSchema,
-  convertBoundsSchema,
   optionsPolicySchema,
   greeksSchema,
   batchItemSchema,
   batchSchema,
   icebergAnswerSchema,
-  previewSizesSchema,
 } from '@intafaced/contracts/trade-rooms';
 export type {
   AlgoResult,
