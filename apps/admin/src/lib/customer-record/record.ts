@@ -6,6 +6,10 @@ import {
 } from '@intafaced/contracts/identity-developer-support-procedures';
 import type { CustomerTab } from './tabs';
 import { IDENTITY_KYC_HISTORY_FOR, IDENTITY_KYC_SELFIE_LIST_FOR } from '@intafaced/contracts/identity-kyc-procedures';
+import {
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 export {
   CUSTOMER_TABS,
@@ -99,9 +103,8 @@ function depositAddresses(userId: string): ReadSpec {
     id: 'money.deposit-addresses',
     title: 'Deposit addresses',
     note: 'Every deposit address svc-pay issued to this account, and whether compliance froze it. A deposit to a frozen address that is not credited yet is on hold and is never credited until a second founder lifts the freeze. Open a row to freeze it, or to ask for the lift.',
-    module: 'pay',
     plainName: 'svc-pay’s deposit addresses',
-    procedure: 'founderAdmin.depositFreezes.addresses',
+    ...readOf(PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES),
     input: { userId },
     shape: 'list',
     idKey: 'id',
@@ -130,9 +133,8 @@ function depositFreezeHistory(userId: string): ReadSpec {
     id: 'money.deposit-freezes',
     title: 'Deposit address freezes',
     note: 'Every compliance freeze on this account’s deposit addresses, newest first: who placed it and why, and for a lifted one who lifted it, which founder approved, and why.',
-    module: 'pay',
     plainName: 'svc-pay’s deposit address freezes',
-    procedure: 'founderAdmin.depositFreezes.history',
+    ...readOf(PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY),
     input: { userId, limit: FREEZE_HISTORY_LIMIT },
     shape: 'list',
     idKey: 'id',
