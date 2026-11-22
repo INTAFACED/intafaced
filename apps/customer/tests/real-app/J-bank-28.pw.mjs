@@ -5,6 +5,7 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, api as stackApi, tool } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { setPartner } from './partner.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
 import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-bank-28, in the running app (docs/roadmap/journeys.json): I watch earn pools, ramps and direct debits (finance), on
@@ -15,16 +16,21 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 //   #3 makes four TEST add-money orders (paid, approved, opened, and one left unapproved until its quote runs out at the
 //      partner, through a TEST age door on the partner's own book: no wall-clock wait), and the
 //      desk's orders by state, partner health and quote expiries match the partner's own report, read on loopback
-//      straight from the stand-in (svc-bank src/ramps/ramp-partner-book.ts), never through the app. For one restart the
+//      straight from the stand-in (svc-bank src/ramps/test-ramp-partner-record.ts) through the outside-record read
+//      (venue.mjs venueRecord), never through the app. For one restart the
 //      stack runs with no pay-in partner (LOCAL_STACK_BANK_ONRAMP_PARTNER=off) and the desk reads "no data", not zero.
 //   #4 sets up three TEST mandates for one person at the TEST partner bank: one collected and then refunded by the
 //      partner (credited once, as it reports, a second refund changing nothing), one blocked by the person (a collection
 //      on it refused with the partner's reason), and one whose collection the partner refuses for want of money. The desk
 //      shows the partner's mandates with state, blocks and refunds, and failures by reason, matching the partner's own
-//      book (svc-bank src/partner/test-partner-record.ts); the ledger posts nothing.
+//      book and its balance (svc-bank src/partner/test-partner-record.ts), read through the outside-record read (venue.mjs
+//      venueRecord and venueBalance); the ledger posts nothing.
 // Steps 1 and 2 (pool rates and status under a second person) are Later (OWNER 226).
 const J = 'J-bank-28';
 const BANK = `http://127.0.0.1:${STACK_PORTS.bank}`;
+/** The TEST ramp partner's own report and the TEST partner bank's own book, on loopback, in the outside-record read's shape. */
+const RAMP_RECORD = `${BANK}/test-ramp-partner`;
+const PARTNER_RECORD = `${BANK}/test-partner`;
 const PARTNER_BANK = 'TEST partner bank';
 const PARTNER_DD_BLOCKED = 'test_partner.dd_mandate_blocked';
 const FUNDS = 'bank.partner_insufficient_funds';
@@ -41,17 +47,17 @@ async function partnerRecord(path, body) {
   });
   return { status: res.status, body: await res.json().catch(() => null) };
 }
-/** The TEST ramp partner's own report: its orders by state, its health and its quote expiries. */
-async function rampReport() {
-  const res = await partnerRecord('/test-ramp-partner/report');
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  return res.body.value;
+/** The TEST ramp partner's own report, read by `reader` (a user id): its orders by state, its health and its quote expiries. */
+async function rampReport(reader) {
+  const body = await venueRecord(reader, '/report', {}, RAMP_RECORD);
+  expect(body.label).toBe('TEST');
+  return body.value;
 }
-/** The TEST partner bank's own direct debit book: its mandates, refusals and refunds. */
-async function ddBook() {
-  const res = await partnerRecord('/test-partner/direct-debits', {});
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  return res.body.value;
+/** The TEST partner bank's own direct debit book, read for `owner`: its mandates, refusals and refunds. */
+async function ddBook(owner) {
+  const body = await venueRecord(owner, '/direct-debits', {}, PARTNER_RECORD);
+  expect(body.label).toBe('TEST');
+  return body.value;
 }
 
 let jobCtx;
@@ -159,7 +165,7 @@ test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expi
   const who = await partnerHeldPerson(browser, 'jb28ramp');
   const own = await customerBank(who);
   expect((await own.mutate('currencies.add', { assetId: 'USDT' })).ok).toBe(true);
-  const before = counts(await rampReport());
+  const before = counts(await rampReport(own.userId));
 
   // Four TEST orders at the partner: one paid, one approved by the payer, one only opened, and one whose quote runs out.
   const paid = await openOrder(own);
@@ -178,7 +184,7 @@ test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expi
   const lapsedId = lapsed.data.onramp.onrampId;
   expect((await partnerRecord('/test-ramp-partner/age', { orderId: lapsedId, seconds: 3600 })).status).toBe(200);
 
-  const report = await rampReport();
+  const report = await rampReport(own.userId);
   const after = counts(report);
   // The partner's own book moved by exactly these four orders.
   expect(after.paid - before.paid).toBe(1);
@@ -211,7 +217,7 @@ test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expi
   // With no pay-in partner at all, the desk says "no data", never zero orders.
   restartBank({ LOCAL_STACK_BANK_ONRAMP_PARTNER: 'off' });
   try {
-    expect((await partnerRecord('/test-ramp-partner/report')).status).toBe(404);
+    expect((await partnerRecord('/test-ramp-partner/venue')).status).toBe(404);
     const none = await desk(browser);
     await expect(none.getByTestId('ramps-no-data')).toContainText('No data');
     await expect(none.getByTestId('ramp-metrics')).toHaveCount(0);
@@ -259,6 +265,7 @@ test(`${J} #4 opens direct debit mandates: the partner's mandates with state, bl
   for (let pass = 0; pass < 20 && !(await decided()); pass += 1) await job('run-due-direct-debits', { limit: 50 });
   expect(await decided()).toBe(true);
   expect(await partnerUsdt()).toBe('15');
+  expect((await venueBalance(owner, 'USDT', PARTNER_RECORD)).total).toBe('15');
 
   // The person blocks the power company with the partner; a collection it presents is refused with the partner's reason.
   const blocked = await own.mutate('directDebits.block', { mandateId: power });
@@ -271,9 +278,12 @@ test(`${J} #4 opens direct debit mandates: the partner's mandates with state, bl
   expect(refund.status, JSON.stringify(refund.body).slice(0, 300)).toBe(200);
   expect(refund.body.value).toMatchObject({ owner, mandateId: gym, collectionId: `${tag}-due`, assetId: 'USDT', amount: '5' });
   expect(await partnerUsdt()).toBe('20');
+  // The partner's own book holds the refund once: its balance is back to 20.
+  expect((await venueBalance(owner, 'USDT', PARTNER_RECORD)).total).toBe('20');
   const again = await partnerRecord('/test-partner/dd-refund', { owner, mandateId: gym, collectionId: `${tag}-due` });
   expect(again.body.value.moveId).toBe(refund.body.value.moveId);
   expect(await partnerUsdt()).toBe('20');
+  expect((await venueBalance(owner, 'USDT', PARTNER_RECORD)).total).toBe('20');
   // A collection the partner never moved has nothing to refund, and nothing moves.
   const none = await partnerRecord('/test-partner/dd-refund', { owner, mandateId: club, collectionId: `${tag}-big` });
   expect(none).toMatchObject({ status: 409, body: { code: 'bank.dd_refund_not_collected' } });
@@ -282,7 +292,7 @@ test(`${J} #4 opens direct debit mandates: the partner's mandates with state, bl
   expect((await (await stackApi(who)).balances()).USDT ?? null).toEqual(ledgerBefore);
 
   // The partner's own book for this person.
-  const book = await ddBook();
+  const book = await ddBook(owner);
   const ours = (list) => list.filter((x) => x.owner === owner);
   expect(
     ours(book.mandates)
