@@ -1,21 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useRef, type ReactNode } from 'react';
 import { Badge, Checkbox } from '@intafaced/ui';
 import { Button, DataTable } from '../../../shared/ui';
-import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
 import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
-import { useSession } from '../../session';
 import { WalletProvider, usePolled, useWallet } from '../../protocol';
 import {
   keys,
-  venueApi,
   walletTypedData,
   type AsOf,
   type MaybeKnown,
   preparedStep,
   type KeptSignature,
   type PreparedAnswer,
-  type VenueApi,
   type VenueBalance,
   type VenueFill,
   type VenueIntent,
@@ -27,9 +23,7 @@ import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
 import { feeShown } from './fee-rates';
 import { VENUE_POLL_MS } from './poll';
-import { SETTLED_STATUSES, outcomeText, useAsOfText, useVenueApi, word } from './venue-words';
-
-type T = ReturnType<typeof venueCopy.useCopy>['t'];
+import { useAsOfText, useVenueApi, word } from './venue-words';
 
 export { VENUE_POLL_MS };
 export { SETTLED_STATUSES, outcomeText, useAsOfText, useVenueApi, word } from './venue-words';

@@ -1,5 +1,5 @@
 // volt-room: /trade/risk
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import { Button, Checkbox } from '@intafaced/ui/lit';
 import { MonitorTemplate } from '@intafaced/ui/lit/templates';
