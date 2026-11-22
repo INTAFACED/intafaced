@@ -8,6 +8,14 @@
  *   node tooling/scripts/local-test-snapshot.mjs key            the snapshot's key: a hash of every input below
  *   node tooling/scripts/local-test-snapshot.mjs files          the inputs, one per line
  *   node tooling/scripts/local-test-snapshot.mjs fresh <file>   exit 0 when the ISO time in <file> is under MAX_AGE_HOURS old
+ *   node tooling/scripts/local-test-snapshot.mjs due <key> <caches.jsonl>    exit 0 when main needs a new snapshot of <key>
+ *   node tooling/scripts/local-test-snapshot.mjs drop <kept> <caches.jsonl>  the ids of the ref's snapshots to delete
+ *
+ * <caches.jsonl> is one Actions cache entry a line (`gh api .../actions/caches --jq '.actions_caches[]'`).
+ * Main's snapshot is kept by journeys-snapshot.yml on each push to main, so a pull request finds one for main's newest
+ * seed inputs about 10 minutes after they merge. Before (project-state#3703), main's Real-app journeys run kept it, and
+ * that run waits behind main's previous full run: 40 to 55 minutes after each of about 17 input changes a day, every
+ * pull request seeded its own (run 45000417817: 8.1 minutes of build, 2.6 on a snapshot).
  *
  * The inputs are what decides the seeded state: the code that writes the seed (the seed scripts and every repository file
  * they import, followed by code, so a new import is an input without anyone listing it), the schemas it is written into
@@ -38,6 +46,8 @@ export const SEED_INPUT_GLOBS = [
   'pnpm-lock.yaml',
   '.node-version',
   '.github/workflows/real-app-journeys.yml',
+  '.github/workflows/journeys-snapshot.yml',
+  '.github/actions/stack-seed/**',
   '.github/actions/nats-server/**',
   'tooling/scripts/local-stack-fixtures/**',
   'services/*/drizzle/**',
@@ -54,6 +64,12 @@ export const SEED_INPUT_GLOBS = [
  * fresh one on each of its runs, about every 30 to 40 minutes on a working day (main's runs of 21 Nov 2026).
  */
 export const MAX_AGE_HOURS = 2;
+
+/** Main keeps a new snapshot once its newest for the key is this old, so one under MAX_AGE_HOURS is always there. */
+export const REFRESH_AFTER_MINUTES = 60;
+
+/** The cache key prefix every snapshot of `key` is kept under (a run keeps its own as `<prefix><run id>-<attempt>`). */
+export const snapshotPrefix = (key) => `real-app-journeys-snapshot-${key}-`;
 
 const IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)['"](\.{1,2}\/[^'"]+)['"]/g;
 
@@ -119,16 +135,55 @@ export function snapshotFresh(seededAt, now = Date.now()) {
   return { fresh: true, why: `it was seeded ${minutes} minutes ago` };
 }
 
+/** Whether main needs a new snapshot of `key`, given its ref's snapshot cache entries ({ key, created_at }). */
+export function snapshotDue(caches, key, now = Date.now()) {
+  const times = caches
+    .filter((c) => String(c.key).startsWith(snapshotPrefix(key)))
+    .map((c) => Date.parse(c.created_at))
+    .filter(Number.isFinite);
+  if (!times.length) return { due: true, why: `no snapshot of ${key} yet` };
+  const minutes = Math.round((now - Math.max(...times)) / 60000);
+  if (minutes >= REFRESH_AFTER_MINUTES) return { due: true, why: `the newest of ${key} was kept ${minutes} minutes ago` };
+  return { due: false, why: `the newest of ${key} was kept ${minutes} minutes ago` };
+}
+
+/**
+ * The snapshot entries to delete once `kept` is kept in the same ref: the older ones of the same key, and every one old
+ * enough that no run takes it any more. A younger one of another key stays: a pull request on an older main uses it.
+ */
+export function snapshotsToDrop(caches, kept, now = Date.now()) {
+  const sameKey = kept.replace(/-\d+-\d+$/, '-');
+  return caches
+    .filter((c) => String(c.key).startsWith('real-app-journeys-snapshot-') && c.key !== kept)
+    .filter((c) => c.key.startsWith(sameKey) || !(now - Date.parse(c.created_at) < MAX_AGE_HOURS * 3600000))
+    .map((c) => c.id);
+}
+
+const readCaches = (file) =>
+  fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l));
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [cmd, arg] = process.argv.slice(2);
+  const [cmd, arg, file] = process.argv.slice(2);
   if (cmd === 'key') process.stdout.write(`${snapshotKey()}\n`);
   else if (cmd === 'files') process.stdout.write(`${snapshotInputs().join('\n')}\n`);
   else if (cmd === 'fresh' && arg) {
     const { fresh, why } = snapshotFresh(fs.existsSync(arg) ? fs.readFileSync(arg, 'utf8') : '');
     process.stdout.write(`snapshot ${fresh ? 'fresh' : 'stale'}: ${why}\n`);
     process.exit(fresh ? 0 : 1);
+  } else if (cmd === 'due' && arg && file) {
+    const { due, why } = snapshotDue(readCaches(file), arg);
+    process.stdout.write(`snapshot ${due ? 'due' : 'not due'}: ${why}\n`);
+    process.exit(due ? 0 : 1);
+  } else if (cmd === 'drop' && arg && file) {
+    for (const id of snapshotsToDrop(readCaches(file), arg)) process.stdout.write(`${id}\n`);
   } else {
-    process.stderr.write('usage: local-test-snapshot.mjs key | files | fresh <seeded-at file>\n');
+    process.stderr.write(
+      'usage: local-test-snapshot.mjs key | files | fresh <seeded-at file> | due <key> <caches> | drop <kept> <caches>\n',
+    );
     process.exit(2);
   }
 }

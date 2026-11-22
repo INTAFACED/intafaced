@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { ReadLoading } from '../../../shared/read-state';
-import { bps, date, funds, useBankRead, type ActionSpec } from '../components';
+import { bps, date, funds, useBankRecord, type ActionSpec } from '../components';
 import type { earnPoolPageSchema, positionSchema, rateHistorySchema } from '../contracts';
 import { earnPoolCopy } from '../earn-pool-copy';
 import { stepChart, utcDay as day } from '../earn-rate-history';
@@ -18,6 +18,12 @@ import {
   PoolEarned,
   PoolWithdraw,
 } from './EarnPoolActions';
+import {
+  BANK_EARN_POOL,
+  BANK_EARN_RATE_HISTORY,
+  BANK_EARN_POSITIONS,
+  BANK_EARN_RISK_DISCLOSURE,
+} from '@intafaced/contracts/bank-earn-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type History = z.infer<typeof rateHistorySchema>;
@@ -67,9 +73,9 @@ export function EarnPool({ poolId, open }: { poolId: string | null; open: Open }
 
 function PoolBody({ poolId, open }: { poolId: string; open: Open }) {
   const { t } = earnPoolCopy.useCopy();
-  const pool = useBankRead('earn.pool', { poolId });
-  const history = useBankRead('earn.rateHistory', { poolId, limit: HISTORY_ROWS });
-  const positions = useBankRead('earn.positions', { limit: POSITIONS, poolId });
+  const pool = useBankRecord(BANK_EARN_POOL, { poolId });
+  const history = useBankRecord(BANK_EARN_RATE_HISTORY, { poolId, limit: HISTORY_ROWS });
+  const positions = useBankRecord(BANK_EARN_POSITIONS, { limit: POSITIONS, poolId });
   if (pool.resource.status === 'loading') return <ReadLoading />;
   if (pool.resource.status === 'failed') return <Refused failure={pool.resource.failure} retry={pool.reload} />;
   const data = pool.resource.data;
@@ -143,7 +149,7 @@ function PoolBody({ poolId, open }: { poolId: string; open: Open }) {
  */
 function RiskDisclosure() {
   const { t } = earnPoolCopy.useCopy();
-  const wording = useBankRead('earn.riskDisclosure', undefined);
+  const wording = useBankRecord(BANK_EARN_RISK_DISCLOSURE, undefined);
   if (wording.resource.status === 'loading') return <ReadLoading />;
   const failure = wording.resource.status === 'failed' ? wording.resource.failure : null;
   if (failure && failure.code !== 'bank.earn_risk_wording_unset') return <Refused failure={failure} retry={wording.reload} />;

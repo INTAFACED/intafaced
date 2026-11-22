@@ -1,17 +1,6 @@
 [
   {
     "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-matching/src/action-approval-consume.ts",
-    "verdict": "rewrite",
-    "asserts": "The approval hash the stack signs for matching is the one svc-matching recomputes, so its open/halt/resume approvals are consumable.",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#matching's hash recipe changed; update matchingPayloadHash"
-    },
-    "why": "Calls svc-matching's matchingActionPayloadHash and the tool's matchingPayloadHash on the same inputs and requires equal hashes."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
     "target": "../../services/svc-identity/src/auth/privileged-dual-control.ts",
     "verdict": "rewrite",
     "asserts": "The approval hash the stack signs for identity's privileged doors is the one svc-identity recomputes.",
@@ -20,17 +9,6 @@
       "ref": "tooling/scripts/local-test-gates.test.mjs#identity's hash recipe changed; update identityPayloadHash"
     },
     "why": "Calls svc-identity's identityActionPayloadHash and the tool's identityPayloadHash on the same inputs and requires equal hashes."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-matching/src/router.ts",
-    "verdict": "rewrite",
-    "asserts": "svc-matching's open, halt and resume doors consume exactly the proposal the stack has approved (target id, hash, version).",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#matching ${action} recipe changed; update bookProposal"
-    },
-    "why": "Mounts svc-matching's routes with a recording consumer, POSTs /markets/m-1/open|halt|resume signed as svc-trade, and requires the consume request to equal bookProposal's."
   },
   {
     "file": "tooling/scripts/local-test-gates.test.mjs",

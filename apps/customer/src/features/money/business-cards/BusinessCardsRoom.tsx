@@ -11,7 +11,6 @@ import {
   businessCardSchema,
   businessExpensePolicySchema,
   businessExpensesOverviewSchema,
-  businessReceiptsZipSchema,
   businessReimbursementSchema,
   type BusinessCard,
   type BusinessCardPurchase,
@@ -23,6 +22,7 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { useHeldId, type HeldId } from '../business-team/held-id';
+import { BANK_BUSINESS_CARDS_RECEIPTS_ZIP } from '@intafaced/contracts/bank-business-cards-procedures';
 
 /**
  * A business gives its team cards and handles their expenses (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02), on the
@@ -271,7 +271,7 @@ function Parts({
 
   async function download() {
     change.setFailed(null);
-    const out = await api.query('bank', 'businessCards.receiptsZip', { accountId }, businessReceiptsZipSchema);
+    const out = await api.call(BANK_BUSINESS_CARDS_RECEIPTS_ZIP, { accountId });
     if (!out.ok) {
       change.setFailed(out);
       return;

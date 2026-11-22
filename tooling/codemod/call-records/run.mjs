@@ -24,8 +24,6 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
-/** A file step 1 writes records into. */
-export const RECORD_FILE = /^packages\/contracts\/src\/.*-(procedures|records)\.ts$/;
 const here = (f) => join(REPO, 'tooling/codemod/call-records', f);
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: REPO, stdio: ['ignore', 'inherit', 'inherit'], ...opts });
 const out = (cmd, args) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8' });
@@ -68,7 +66,7 @@ export function run(argv) {
     out('git', ['status', '--porcelain', '--', 'packages/contracts/src'])
       .split('\n')
       .map((l) => l.slice(3))
-      .filter((f) => RECORD_FILE.test(f));
+      .filter((f) => /-(procedures|records)\.ts$/.test(f));
   const build = () => sh('pnpm', ['--filter', '@intafaced/contracts', 'build'], { stdio: ['ignore', 'ignore', 'inherit'] });
   const putBack = () => {
     sh('git', ['checkout', '--', 'apps', 'services', 'packages/contracts/src']);
@@ -99,9 +97,9 @@ export function run(argv) {
       if (!Object.keys(skipped).length || callersOnly) break;
       const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...door, ...files]));
       if (!fixed.fixed) break;
-      // A record file is step 1's own output, which portable.mjs only names checks in: a put back drops it whole, or a
-      // record refused this round comes back with it; the next round's portable.mjs names the checks again.
-      for (const f of fixed.files) if (tracked.has(f) && !RECORD_FILE.test(f)) kept.add(f);
+      // A record file is written again by the next round's step 1 (and fixed again by portable.mjs), so only the
+      // schema sources it edited are kept: keeping a record file would bring back this round's records after a put back.
+      for (const f of fixed.files) if (tracked.has(f) && !files.includes(f)) kept.add(f);
       build();
     }
     if (!Object.keys(skipped).length) break;

@@ -159,13 +159,17 @@ export function TriggerLog({
                   <span data-testid="nf-body" className="nf-body nf-body--wrap">
                     {copy.t('logRow', { side: copy.t(CONDITION_KEY[row.condition]), price: row.targetPrice, mark: row.markPrice })}
                   </span>
-                  <span className="nf-muted">{copy.t('logWhen', { when: stamp(row.firedAt, timeZone) })}</span>
+                  <span className="nf-muted" data-testid="alert-trigger-when">
+                    {copy.t('logWhen', { when: stamp(row.firedAt, timeZone) })}
+                  </span>
                   <FiringDelivery row={row} zone={timeZone} />
                 </div>
               </li>
             ))}
           </ul>
-          <p className="nf-note">{copy.t('logKept', { days: String(state.page.retentionDays) })}</p>
+          <p className="nf-note" data-testid="alerts-log-kept">
+            {copy.t('logKept', { days: String(state.page.retentionDays) })}
+          </p>
         </>
       )}
     </section>

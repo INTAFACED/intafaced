@@ -11,11 +11,20 @@ export const TEST_NOW = 1_760_000_000_000;
 const iso = (ms: number) => new Date(ms).toISOString();
 
 export const TEST_POLICY_ON: AlgoPolicy = {
-  productKind: 'TEST algo',
-  capability: { createEnabled: true, jobsEnabled: true, icebergs: 'out' },
-  immatureKinds: ['vwap', 'pov'],
-  volumeImmatureCode: 'trade.algo_volume_immature',
+  productKind: 'twap',
+  capability: { createEnabled: true, jobsEnabled: true, jobsDefault: false, icebergs: 'out' },
+  parentHoldsNoBalance: true,
+  progressFromChildFillsOnly: true,
+  cancelIncompleteHalt: 'cancel_incomplete',
   cancelIncompleteCode: 'trade.algo_cancel_incomplete',
+  resumeRefusedOnCancelIncomplete: true,
+  vwapPovImmatureRefused: true,
+  volumeImmatureCode: 'trade.algo_volume_immature',
+  immatureKinds: ['vwap', 'pov'],
+  inventsParentFill: false,
+  inventsVwapCurve: false,
+  inventsPovVolume: false,
+  moneyViaLedgerClientOnly: true,
 };
 export const TEST_POLICY_OFF: AlgoPolicy = { ...TEST_POLICY_ON, capability: { ...TEST_POLICY_ON.capability, jobsEnabled: false } };
 
@@ -51,10 +60,20 @@ function parent(id: string, over: Partial<AlgoParent>): AlgoParent {
     haltReason: null,
     createdAt: iso(TEST_NOW - 1_200_000),
     projectedEndsAt: iso(TEST_NOW + 2_400_000),
+    stopReason: null,
     participationBps: null,
+    povBasis: null,
     startedAt: iso(TEST_NOW - 1_200_000),
     nextDueAt: iso(TEST_NOW + 120_000),
     scheduleStretchReason: null,
+    randomSeed: null,
+    triggerPrice: null,
+    triggeredAt: null,
+    awaitingTrigger: false,
+    chaseMaxDistanceBps: null,
+    chaseStartPrice: null,
+    chasePrice: null,
+    chaseReprices: null,
     ...over,
   };
 }
@@ -70,7 +89,7 @@ function progress(p: AlgoParent, filledQty: string): AlgoProgress {
     nextSliceIndex: p.nextSliceIndex,
     filledQty,
     totalQty: p.totalQty,
-    nextSliceAt: p.nextDueAt ?? null,
+    nextSliceAt: p.status === 'active' ? p.nextDueAt : null,
     scheduler: { running: true, reason: null },
   };
 }
@@ -81,14 +100,13 @@ const partial = parent('TEST-algo-partial', {
   childrenEmitted: 8,
   nextSliceIndex: 9,
   missesRecorded: 2,
-  scheduleStretchReason: 'two slices missed, schedule stretched',
+  scheduleStretchReason: 'tick_outage',
 });
 const halted = parent('TEST-algo-halted', {
   status: 'halted',
   haltReason: 'cancel_incomplete',
   childrenEmitted: 6,
   nextSliceIndex: 6,
-  nextDueAt: null,
 });
 
 /** TEST parents: running, partial (misses) and halted, with their progress reads. */

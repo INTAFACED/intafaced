@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, literal, load, resolveRelative, walk } from './ast.mjs';
 import { fanOut } from './fan.mjs';
 import { handSchemas } from './dead-hand-schemas.mjs';
+import { businessSite } from './pay-business.mjs';
 import { wrapperOut } from './wrapper.mjs';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
@@ -36,7 +37,9 @@ export function findSites(repo) {
         if (!NAMED_AT[name].some((i) => isString(n.arguments[i]))) return;
         const a = n.arguments;
         const site = { file, line: line(n), node: n, shape: name };
-        if (name === 'query' || name === 'mutate') {
+        const business = businessSite(p, n);
+        if (business) Object.assign(site, business);
+        else if (name === 'query' || name === 'mutate') {
           Object.assign(site, { module: literal(a[0]), path: literal(a[1]), kind: name === 'query' ? 'query' : 'mutation' });
           if (a.length < 4 || a.length > 5 || a.some((x) => x.type === 'SpreadElement'))
             site.problem = `${name} with ${a.length} arguments`;
