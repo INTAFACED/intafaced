@@ -14,6 +14,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { parseSync } from 'oxc-parser';
 import {
   applyEdits,
   bindingOf,
@@ -290,12 +291,54 @@ function noInput(s) {
 }
 
 /** The record file a path's first segment lands in. */
-function recordFile(opts, path) {
-  if (opts.file) return join(CONTRACTS, `${opts.file.replace(/\.ts$/, '')}.ts`);
-  const seg = kebab(path.split('.')[0]);
+function recordFile(opts, path, depth = 1) {
+  if (opts.file && depth === 1) return join(CONTRACTS, `${opts.file.replace(/\.ts$/, '')}.ts`);
+  const seg = path.split('.').slice(0, depth).map(kebab).join('-');
   const primary = join(CONTRACTS, `${opts.module}-${seg}-procedures.ts`);
   if (!existsSync(primary) || readFileSync(primary, 'utf8').includes(MARK)) return primary;
   return join(CONTRACTS, `${opts.module}-${seg}-records.ts`);
+}
+
+/** A record's file: its area's, or, once a helper name it needs is taken there, its own sub-area's (`fileDepth` 2). */
+const fileOf = (opts, r) => recordFile(opts, r.path, r.fileDepth ?? 1);
+
+/**
+ * What each top-level name of a file (its text) is bound to: `{ decl: true }` for a declaration, `{ from, imported }`
+ * for an import. A record file or the shared file can take a helper or an import only under a name it leaves free.
+ */
+function bindingsOf(src) {
+  const out = new Map();
+  const { program } = parseSync('bindings.ts', src);
+  for (const stmt of program.body) {
+    if (stmt.type === 'ImportDeclaration') {
+      for (const sp of stmt.specifiers ?? [])
+        out.set(sp.local.name, { from: stmt.source.value, imported: sp.imported?.name ?? sp.imported?.value ?? 'default' });
+      continue;
+    }
+    const decl = stmt.type === 'ExportNamedDeclaration' && stmt.declaration ? stmt.declaration : stmt;
+    if (decl.type === 'VariableDeclaration') {
+      for (const d of decl.declarations) if (d.id.type === 'Identifier') out.set(d.id.name, { decl: true });
+    } else if (decl.id?.name) out.set(decl.id.name, { decl: true });
+  }
+  return out;
+}
+
+/**
+ * The first name `file` (as `src`, or `undefined` while it has no text) already binds otherwise than this group needs:
+ * a declaration it would add under a name taken there, or an import under a name the file declares or imports from
+ * elsewhere. An import from the file itself is the file's own declaration, never a clash.
+ */
+function takenIn(file, src, decls, imports) {
+  if (src === undefined) return undefined;
+  const have = bindingsOf(src);
+  const self = `./${basename(file).replace(/\.ts$/, '.js')}`;
+  for (const name of decls) if (have.has(name)) return name;
+  for (const { local, spec, imported } of imports) {
+    if (spec === self) continue;
+    const b = have.get(local);
+    if (b && !(b.from === spec && b.imported === imported)) return local;
+  }
+  return undefined;
 }
 
 function build(opts, planned) {
@@ -303,7 +346,7 @@ function build(opts, planned) {
   const created = new Map();
   const groups = new Map();
   for (const r of planned.records) {
-    const file = recordFile(opts, r.path);
+    const file = fileOf(opts, r);
     if (!groups.has(file)) groups.set(file, []);
     groups.get(file).push(r);
   }
@@ -331,12 +374,14 @@ function build(opts, planned) {
       if (good.length === 0) continue;
       if (good.length < recs.length) {
         groups.set(file, good);
-        return build(opts, { ...planned, records: planned.records.filter((r) => good.includes(r) || recordFile(opts, r.path) !== file) });
+        return build(opts, { ...planned, records: planned.records.filter((r) => good.includes(r) || fileOf(opts, r) !== file) });
       }
     }
     // Two different declarations under one name (svc-bank's routers each keep their own `amountString`, some with a
-    // message, some without) cannot land in one file. Keep the records whose helpers agree; the rest go back to their
-    // router, named, and a rerun places them beside their own record, where the name is free.
+    // message, some without; svc-pay's registries and deposit freezes each their own `networkIdSchema`) cannot land in
+    // one file. Keep the records whose helpers agree; the rest go to their own sub-area's file in this same run
+    // (`founderAdmin.depositFreezes.*` to pay-founder-admin-deposit-freezes-procedures.ts), where the name is free. A
+    // record already in its sub-area's file that still clashes stays by name, named.
     // Mid-port the router is never edited, so two of its files declaring one helper the same way (svc-agents' `idInput`
     // in own/routes.ts and own/automation-routes.ts) give contracts one copy; elsewhere each declaration is its file's.
     const keyOfMoved = (m) =>
@@ -353,6 +398,7 @@ function build(opts, planned) {
       });
     if (clashing(closure.moved)) {
       const keep = [];
+      const moved = [];
       const seen = new Map();
       for (const r of recs) {
         const c = closureOf(
@@ -362,15 +408,27 @@ function build(opts, planned) {
         const trial = new Map(seen);
         const bad = clashing(c.moved, trial);
         if (bad && keep.length) {
+          if (!r.fileDepth && r.path.split('.').length > 2) {
+            moved.push(r);
+            continue;
+          }
           for (const site of r.sites)
-            planned.hand.push({ site, why: `helper ${bad.name} clashes with another ${bad.name} in this record file: a rerun places it` });
+            planned.hand.push({ site, why: `helper ${bad.name} clashes with another ${bad.name} in this record file and its sub-area's` });
           continue;
         }
         keep.push(r);
         for (const [k, v] of trial) seen.set(k, v);
       }
       groups.set(file, keep);
-      return build(opts, { ...planned, records: planned.records.filter((r) => keep.includes(r) || recordFile(opts, r.path) !== file) });
+      return build(opts, {
+        ...planned,
+        records: planned.records
+          .filter((r) => keep.includes(r) || moved.includes(r) || fileOf(opts, r) !== file)
+          .map((r) => {
+            if (moved.includes(r)) r.fileDepth = 2;
+            return r;
+          }),
+      });
     }
     // Each moved declaration lands once: in the service's shared schema file, or, when its name is taken there by
     // another declaration, with all of this file's new ones in the record file itself.
@@ -395,6 +453,15 @@ function build(opts, planned) {
         movedTo.set(k, shared);
         taken.set(m.name, k);
       }
+    // A helper the record file already declares as written (an earlier run put svc-pay's `userIdSchema` there) is that
+    // copy: the record reads it where it stands, and its old home imports it from there.
+    const reused = [];
+    for (const m of closure.moved) {
+      const k = keyOf(m);
+      if (!m.q || movedTo.has(k) || !declaresSame(file, m.name, m.text)) continue;
+      movedTo.set(k, file);
+      reused.push(m);
+    }
     const fresh = [...new Map(closure.moved.filter((m) => !movedTo.has(keyOf(m))).map((m) => [keyOf(m), m])).values()];
     const clash =
       fresh.some((m) => taken.has(m.name) && taken.get(m.name) !== keyOf(m)) ||
@@ -402,7 +469,50 @@ function build(opts, planned) {
       closure.moved.some(
         (m) => !fresh.includes(m) && movedTo.get(keyOf(m)) !== shared && taken.has(m.name) && taken.get(m.name) !== keyOf(m),
       );
-    const target = clash ? file : shared;
+    // Every name the group adds to a file must be free there, or bound there to the same thing: svc-pay's mandateView
+    // reads pay-subscription-procedures' `amountSchema`, which the shared file can't import beside its own.
+    const textOf = (f) => created.get(f) ?? (existsSync(f) ? readFileSync(f, 'utf8') : undefined);
+    const specOf = (f) => `./${basename(f).replace(/\.ts$/, '.js')}`;
+    const fromContracts = [...closure.fromContracts].map(([local, c]) => ({ local, spec: specOf(c.file), imported: c.imported }));
+    const fromHomes = (target) =>
+      closure.moved
+        .map((m) => movedTo.get(keyOf(m)) ?? target)
+        .flatMap((home, i) =>
+          home === file ? [] : [{ local: closure.moved[i].name, spec: specOf(home), imported: closure.moved[i].name }],
+        );
+    const names = fresh.map((m) => m.name);
+    const sharedTaken = clash
+      ? (fresh.find((m) => taken.has(m.name) && taken.get(m.name) !== keyOf(m))?.name ?? 'a helper')
+      : (takenIn(shared, textOf(shared), names, fromContracts) ??
+        takenIn(file, textOf(file), [], [...fromContracts, ...fromHomes(shared)]));
+    const fileTaken = sharedTaken && takenIn(file, textOf(file), names, [...fromContracts, ...fromHomes(file)]);
+    if (fileTaken) {
+      // Neither file has the name free: the group goes to its sub-area's file, or, already there, stays by name.
+      // Only the records that need the name move: the rest of the group stays in its file.
+      for (const m of reused) movedTo.delete(keyOf(m));
+      const needs = recs.filter((r) => {
+        const c = closureOf(
+          REPO,
+          roots.filter((x) => x.where.startsWith(`${r.path} `)),
+        );
+        return c.moved.some((m) => m.name === fileTaken) || c.fromContracts.has(fileTaken);
+      });
+      const offenders = needs.length ? needs : recs;
+      const stay = offenders.filter((r) => r.fileDepth || r.path.split('.').length < 3);
+      for (const r of stay)
+        for (const site of r.sites)
+          planned.hand.push({ site, why: `helper ${fileTaken} clashes with another ${fileTaken} in this record file and its sub-area's` });
+      return build(opts, {
+        ...planned,
+        records: planned.records
+          .filter((r) => !stay.includes(r))
+          .map((r) => {
+            if (offenders.includes(r)) r.fileDepth = 2;
+            return r;
+          }),
+      });
+    }
+    const target = sharedTaken ? file : shared;
     for (const m of fresh) {
       movedTo.set(keyOf(m), target);
       if (target === shared) taken.set(m.name, keyOf(m));
@@ -420,7 +530,7 @@ function build(opts, planned) {
       created.set(shared, writeSchemas(opts, shared, { ...closure, moved: fresh, fromRecords }, created.get(shared)));
     }
     // Moved declarations: their old home imports them from contracts.
-    for (const m of fresh) {
+    for (const m of [...fresh, ...reused]) {
       if (m.inline || !m.q) continue;
       // Mid-port, the service's own declaration stays where it is: contracts gets a copy, and the router reads its own.
       if (opts.callersOnly && serviceFiles([m.q.file]).length) continue;
@@ -431,7 +541,7 @@ function build(opts, planned) {
         continue;
       }
       changes.edit(m.q.file, statementStart(m.q, stmt), statementEnd(m.q, stmt), '');
-      changes.imp(m.q.file, contractsSpec(target), b.kind === 'type' ? `type ${m.name}` : m.name);
+      changes.imp(m.q.file, contractsSpec(movedTo.get(keyOf(m))), b.kind === 'type' ? `type ${m.name}` : m.name);
       // Re-exported only for a file that imports it from here; anyone else reads it from contracts.
       if (b.exported && importersOf(m.q.file, m.name).length > 0)
         changes.of(m.q.file).exports.add(b.kind === 'type' ? `type ${m.name}` : m.name);
@@ -694,7 +804,10 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
         `import { ${[...names].sort((x, y) => (x === 'z' ? -1 : y === 'z' ? 1 : x.localeCompare(y))).join(', ')} } from '${spec}';`,
     )
     .join('\n');
-  const area = recs[0].path.split('.')[0];
+  const area = recs[0].path
+    .split('.')
+    .slice(0, recs[0].fileDepth ?? 1)
+    .join('.');
   if (fresh) {
     lines.push(
       importText,
