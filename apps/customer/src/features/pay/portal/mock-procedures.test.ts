@@ -43,6 +43,7 @@ function calledProcedures(): Map<string, string[]> {
     join(payRoot, 'merchant-refund-api.ts'),
     join(payRoot, 'pay-api.ts'),
     join(payRoot, 'MerchantBilling.tsx'),
+    join(payRoot, 'mandate-form.ts'),
     join(payRoot, '..', 'account', 'IdentitySessions.tsx'),
   ];
   const found = new Map<string, string[]>();

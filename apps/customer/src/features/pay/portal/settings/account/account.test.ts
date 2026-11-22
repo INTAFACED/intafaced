@@ -12,6 +12,8 @@ import { accountMessages } from './copy';
 import './refusals';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+/** The onboarding room's kit view, which draws these words, lives with the portal's flow rooms. */
+const flow = fileURLToPath(new URL('../../flow', import.meta.url));
 const sources = (dir: string): string[] =>
   readdirSync(dir).flatMap((name) => {
     const full = join(dir, name);
@@ -51,9 +53,7 @@ describe('account copy', () => {
     expect(Object.keys(accountMessages).filter((k) => others.has(k))).toEqual([]);
   });
   it('has no key that nothing refers to', () => {
-    const text = sources(root)
-      .map((f) => readFileSync(f, 'utf8'))
-      .join('\n');
+    const text = [...sources(root), ...sources(flow)].map((f) => readFileSync(f, 'utf8')).join('\n');
     const prefixes = [...text.matchAll(/`([A-Za-z0-9_]+)\$\{/g)].map((m) => m[1]!);
     const dead = Object.keys(accountMessages).filter(
       (key) => !new RegExp(`['"\`]${key}['"\`]`).test(text) && !prefixes.some((p) => key.startsWith(p)),

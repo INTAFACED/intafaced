@@ -10,6 +10,7 @@ import { MerchantAccessContext, type MerchantAccessValue } from '../features/pay
 import { allows, type Access } from '../features/pay/portal/access/resolve';
 import { ROLE_CAPABILITIES } from '../features/pay/portal/access/capabilities';
 import type { PortalApi } from '../features/pay/portal/api';
+import { SessionProvider } from '../features/session';
 import { rooms } from './navigation';
 import { renderPart } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
@@ -108,7 +109,10 @@ describe('room templates registry', () => {
         { room: room as PortalRoom },
         { portal, authority: null, access: value, starterFee: null },
       );
-      const html = renderToStaticMarkup(createElement(MerchantAccessContext.Provider, { value }, page));
+      // A page that builds its own Pay client reads the session, as the app's root provides it (signed out here).
+      const html = renderToStaticMarkup(
+        createElement(SessionProvider, null, createElement(MerchantAccessContext.Provider, { value }, page)),
+      );
       const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
       expect(drawn, `portal:${room} (${entry.migrated.file}) draws the ${entry.template} template`).toContain(entry.template);
     }

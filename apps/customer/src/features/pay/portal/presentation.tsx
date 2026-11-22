@@ -7,6 +7,10 @@ import { formatMoney, isRounded } from './ui/format';
 
 /** Full precision is an explicit choice in a detail, statement or review, never the headline default. */
 export const ExactMoneyContext = createContext(false);
+/** Whether this page offers "Show exact" on a rounded amount (the context above), for a kit view of `MoneyDisplay`. */
+export function useCanShowExact(): boolean {
+  return useContext(ExactMoneyContext);
+}
 /** The portal's one money formatter (ui/format.ts), kept under this name for the pages that already import it. */
 export function portalAmount(value: string, asset: string): string {
   return formatMoney(value, asset);
