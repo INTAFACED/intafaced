@@ -51,20 +51,7 @@ export function SandboxKeyNew({ id }: { id: string }) {
         }
       />
     );
-  if (resource.status === 'failed' && resource.failure.code === 'identity.sandbox_not_found')
-    return (
-      <FlowTemplate
-        title={t('notFoundTitle')}
-        description={t('eyebrow')}
-        state={{
-          kind: 'empty',
-          title: t('notFoundTitle'),
-          body: t('notFoundBody'),
-          action: { label: t('back'), href: '/developers/sandbox' },
-        }}
-        step={null}
-      />
-    );
+  if (resource.status === 'failed' && resource.failure.code === 'identity.sandbox_not_found') return <SandboxKeyNotFound />;
   // Loading or refused, the room keeps its heading and its way back.
   if (resource.status === 'failed')
     return (
@@ -103,6 +90,24 @@ export function SandboxKeyNew({ id }: { id: string }) {
         }
       />
     </div>
+  );
+}
+
+/** No such sandbox: an id that is not a sandbox's, or one the service does not know. The same words as the other sandbox rooms' not-found page. */
+export function SandboxKeyNotFound() {
+  const { t } = sandboxCopy.useCopy();
+  return (
+    <FlowTemplate
+      title={t('notFoundTitle')}
+      description={t('eyebrow')}
+      state={{
+        kind: 'empty',
+        title: t('notFoundTitle'),
+        body: t('notFoundBody'),
+        action: { label: t('back'), href: '/developers/sandbox' },
+      }}
+      step={null}
+    />
   );
 }
 

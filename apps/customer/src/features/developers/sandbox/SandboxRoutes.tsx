@@ -14,7 +14,7 @@ import { useSession } from '../../session';
 import { sandboxCopy, sandboxRefusalKey } from './sandbox-copy';
 import { createSandbox, fundSandbox, readSandboxBalance, resetSandbox, readSandboxes, sandboxRoute } from './sandbox-api';
 import { useSandbox } from './sandbox-read';
-import { SandboxKeyNew } from './SandboxKeyNew';
+import { SandboxKeyNew, SandboxKeyNotFound } from './SandboxKeyNew';
 import '../apps/apps.css';
 
 type T = ReturnType<typeof sandboxCopy.useCopy>['t'];
@@ -427,5 +427,7 @@ export function SandboxRoutes({ path }: { path: string }) {
   if (route.kind === 'test-values') return <TestValues />;
   if (route.kind === 'sandbox') return <SandboxPage id={route.id} />;
   if (route.kind === 'new-key') return <SandboxKeyNew id={route.id} />;
+  // A key form under an address that names no sandbox is the key room's own not-found state.
+  if (/\/keys\/new\/?$/.test(path.split(/[?#]/)[0]!)) return <SandboxKeyNotFound />;
   return <Unknown />;
 }
