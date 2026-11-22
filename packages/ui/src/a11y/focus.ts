@@ -5,7 +5,7 @@
  *
  * A fixed bar says which edge it covers with `data-obscures="top"` or `data-obscures="bottom"`. Their
  * real heights are measured, not assumed, because the risk band grows with text size (200% text must
- * not hide the field under it).
+ * not hide the field under it), and so is the gap between a floating fixed bar and its edge.
  */
 
 export const OBSCURES_ATTRIBUTE = 'data-obscures';
@@ -30,6 +30,22 @@ export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: numb
 }
 
 /**
+ * A fixed bar that floats off its edge (the phone dock sits 0.875rem above the screen's bottom) still hides the page
+ * from the edge to its far side, so the gap between the edge and the outermost fixed bar counts too. A bar that is not
+ * fixed, or not drawn, adds no gap.
+ */
+function edgeGap(bars: readonly { el: HTMLElement; edge: string | null; rect: DOMRect }[], edge: 'top' | 'bottom'): number {
+  const view = bars[0]?.el.ownerDocument.defaultView;
+  if (!view) return 0;
+  const gaps = bars
+    .filter((bar) => bar.edge === edge && bar.rect.height > 0)
+    .map(({ el, rect }) =>
+      view.getComputedStyle(el).position === 'fixed' ? Math.max(0, edge === 'top' ? rect.top : view.innerHeight - rect.bottom) : 0,
+    );
+  return gaps.length ? Math.min(...gaps) : 0;
+}
+
+/**
  * Keep the two custom properties on `root` equal to the bars' real heights, as bars come, go and
  * resize. Returns the function that stops it. Does nothing where there is no DOM.
  */
@@ -39,9 +55,10 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   let bars: HTMLElement[] = [];
   let last = '';
   const measure = (): void => {
-    const { top, bottom } = obscuredInsets(
-      bars.map((el) => ({ edge: el.getAttribute(OBSCURES_ATTRIBUTE), height: el.getBoundingClientRect().height })),
-    );
+    const measured = bars.map((el) => ({ el, edge: el.getAttribute(OBSCURES_ATTRIBUTE), rect: el.getBoundingClientRect() }));
+    const stacked = obscuredInsets(measured.map(({ edge, rect }) => ({ edge, height: rect.height })));
+    const top = stacked.top + edgeGap(measured, 'top');
+    const bottom = stacked.bottom + edgeGap(measured, 'bottom');
     const next = `${top}|${bottom}`;
     if (next === last) return;
     last = next;
