@@ -1,4 +1,4 @@
-import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import {
   limitDeskOutputSchema,
   limitRequestCreateInputSchema,

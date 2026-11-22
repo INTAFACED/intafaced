@@ -1,5 +1,5 @@
 import { formatAmount } from '@intafaced/ledger-client/money';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import {
   INDEXER_PROCEDURES,

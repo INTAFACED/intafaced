@@ -1,4 +1,4 @@
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 
 /**
  * Running an agent spends the person's money, so only the person runs one (OWNER 107): their own signed-in session,

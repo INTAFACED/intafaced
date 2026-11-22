@@ -29,7 +29,7 @@
  * serialise: the second sees the first's factor and now needs MFA.
  */
 import type { Queryable } from '@intafaced/db';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
 import { AuthError } from './auth-service.js';
 

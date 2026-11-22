@@ -1,4 +1,6 @@
-import { serviceCallSigner, unwrapTrpcData, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { unwrapTrpcData } from '@intafaced/contracts/action-approval-client';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 /**
  * svc-agents' own gate for one action of a person's own agent on one account (`own.policy.forService`; svc-agents

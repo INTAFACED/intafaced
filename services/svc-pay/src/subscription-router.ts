@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { PayError, type PayService } from './payment-service.js';

@@ -6,14 +6,9 @@
  * balance, a key, an alert, or a completed restore.
  */
 import { createHash } from 'node:crypto';
-import {
-  createIdentityApprovalClient,
-  founderAttestationVerdict,
-  type ActionApproval,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type ActionApprovalConsumeInput,
-} from '@intafaced/contracts';
+import type { ActionApproval, ServiceAuthMode, ServiceSigner, ActionApprovalConsumeInput } from '@intafaced/contracts';
+import { founderAttestationVerdict } from '@intafaced/contracts/action-approval';
+import { createIdentityApprovalClient } from '@intafaced/contracts/action-approval-client';
 import {
   OPS_APPROVAL_MISSING,
   OPS_APPROVAL_NOT_FOUNDERS,

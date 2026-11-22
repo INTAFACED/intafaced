@@ -1,13 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
-import {
-  retainRawBody,
-  verifyServiceRequest,
-  type RestoreWatermarkRead,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+import type { RestoreWatermarkRead, ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 
 /**
  * Pay's `restore.watermark.read` (OPS-ledger-desk-05). This service keeps no single write sequence, so the

@@ -1,7 +1,7 @@
 import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   depositFreezeResultSchema,
   depositFreezeViewSchema,

@@ -1,14 +1,13 @@
 import { QUANT_DISCLOSURE_UNSET, QUANT_DISCLOSURE_VERSION_STALE, QuantError } from '../errors.js';
 import {
-  publicJurisdictionProcedure,
   quantDisclosureAcceptInputSchema,
   quantDisclosureAcceptKey,
   quantDisclosureAcceptOutputSchema,
   quantDisclosureCurrentSchema,
   quantDisclosureStatusInputSchema,
   quantDisclosureStatusOutputSchema,
-  router,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/quant-disclosure';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
 import { withQuantSpan } from '../tracing.js';
 import { toTrpc, type QuantCore } from './core.js';
 

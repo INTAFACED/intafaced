@@ -1,14 +1,6 @@
-import {
-  AGENT_KEY_CALLS_PATH,
-  AGENT_KEY_READ_PATH,
-  agentKeyCallsSchema,
-  agentKeyReadSchema,
-  type AgentKeyCalls,
-  serviceCallSigner,
-  type AgentKeyRead,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { AgentKeyCalls, AgentKeyRead, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { AGENT_KEY_CALLS_PATH, AGENT_KEY_READ_PATH, agentKeyCallsSchema, agentKeyReadSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 /**
  * Identity's read of one of a person's own API keys (`POST /internal/agent-keys/read`; svc-identity agent-key-read.ts),

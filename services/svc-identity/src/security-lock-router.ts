@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { router, scopedProcedure, securityLockSchema, TRPCError } from '@intafaced/contracts';
+import { securityLockSchema } from '@intafaced/contracts/identity';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { SecurityLockError, type SecurityLock } from './auth/security-lock.js';
 import { SecurityStepUpError, toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
 import { userCopy } from './user-copy.js';

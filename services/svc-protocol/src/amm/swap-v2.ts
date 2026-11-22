@@ -10,6 +10,18 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
+import type {
+  ProtocolApprovalRoute,
+  ProtocolApprovalRouteOutput,
+  ProtocolBuildPermitInput,
+  ProtocolBuildPermitOutput,
+  ProtocolBuildSwapV2Input,
+  ProtocolBuildSwapV2Output,
+  ProtocolPathOutput,
+  ProtocolPathsInput,
+  ProtocolSwapPairs,
+  ProtocolTypedData,
+} from '@intafaced/contracts';
 import {
   DEADLINE_PAST,
   DEADLINE_REQUIRED,
@@ -23,18 +35,8 @@ import {
   ROUTE_NO_PATH,
   ROUTE_OVER_MAX_HOPS,
   ROUTER_V2_UNSET,
-  type ProtocolApprovalRoute,
-  type ProtocolApprovalRouteOutput,
-  type ProtocolBuildPermitInput,
-  type ProtocolBuildPermitOutput,
-  type ProtocolBuildSwapV2Input,
-  type ProtocolBuildSwapV2Output,
-  type ProtocolPathOutput,
-  type ProtocolPathsInput,
-  type ProtocolSwapPairs,
-  type ProtocolTypedData,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-swap-v2';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import {
   PROTOCOL_AMM_V2_SETTINGS,
   PROTOCOL_AMM_APPROVAL_ROUTE,
