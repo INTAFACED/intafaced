@@ -438,50 +438,6 @@ export const BANK_OPS_RAMP_HEALTH = defineProcedure({
   ],
 });
 
-export const BANK_OPS_TRANSFER_HEALTH = defineProcedure({
-  ...base,
-  name: 'bank.ops.transferHealth',
-  kind: 'query',
-  path: 'ops.transferHealth',
-  access: { caller: 'scope', scope: 'admin:read' },
-  refusals: {},
-  input: z.object({ windowHours: z.number().int().optional() }),
-  output: z.object({
-    asOf: z.string(),
-    standingOrders: standingOutput,
-    oneOff: z.object({
-      available: z.literal(true),
-      reserved: z.number().int().nonnegative(),
-      posted: z.number().int().nonnegative(),
-      total: z.number().int().nonnegative(),
-      failureRate: z.null(),
-      failureRateReason: z.literal('failures_not_recorded'),
-      oldestPendingAgeSeconds: z.number().int().nonnegative().nullable(),
-    }),
-    p2p: z
-      .object({
-        available: z.literal(false),
-        reason: z.literal('served_by_p2p_ops'),
-      })
-      .strict(),
-    bills: z.object({
-      available: z.literal(true),
-      submitted: z.number().int().nonnegative(),
-      accepted: z.number().int().nonnegative(),
-      paid: z.number().int().nonnegative(),
-      failed: z.number().int().nonnegative(),
-      returned: z.number().int().nonnegative(),
-      total: z.number().int().nonnegative(),
-      failureRate: ratioString.nullable(),
-      oldestPendingAgeSeconds: z.number().int().nonnegative().nullable(),
-    }),
-  }),
-  samples: [
-    { verdict: 'accept', input: {} },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
-
 export const BANK_OPS_CUSTOMER_BALANCES = defineProcedure({
   ...base,
   name: 'bank.ops.customerBalances',

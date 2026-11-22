@@ -37,7 +37,6 @@ import { BANK_GLOBAL_OPS_SUMMARY, BANK_GLOBAL_OPS_FAILED, BANK_GLOBAL_OPS_RECALL
 import {
   BANK_OPS_CARD_PARTNER_TERMS,
   BANK_OPS_RAMP_HEALTH,
-  BANK_OPS_TRANSFER_HEALTH,
   BANK_OPS_CUSTOMER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
 } from '@intafaced/contracts/bank-ops-procedures';
@@ -708,7 +707,8 @@ function payHealth(hours: 24 | 168): { standing: ReadSpec; oneOff: ReadSpec; bil
   const when = hours === 24 ? 'last 24 hours' : 'last 7 days';
   const key = hours === 24 ? '24h' : '7d';
   const base = {
-    ...readOf(BANK_OPS_TRANSFER_HEALTH),
+    module: 'bank',
+    procedure: 'ops.transferHealth',
     input: { windowHours: hours },
     shape: 'record',
     emptyText: '',
@@ -800,8 +800,9 @@ const payP2pPointer: ReadSpec = {
   id: 'pay.p2p-pointer',
   title: 'P2P transfers',
   note: 'svc-bank states that it does not count P2P trades and gives no number for them. They are counted by svc-p2p on the P2P desk.',
+  module: 'bank',
   plainName: 'the P2P pointer',
-  ...readOf(BANK_OPS_TRANSFER_HEALTH),
+  procedure: 'ops.transferHealth',
   input: { windowHours: 24 },
   shape: 'record',
   columns: [
