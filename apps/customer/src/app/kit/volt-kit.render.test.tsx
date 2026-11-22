@@ -114,6 +114,7 @@ const BLOCKS = [
   'rail',
   'icons',
   'chart',
+  'chart-box',
   'candles',
   'book',
   'people',
@@ -174,6 +175,17 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
       'its 32 TEST candles, eight left out as a gap',
     ).toHaveLength(32);
     expect(small[1]!.querySelector('[role="status"]')?.textContent, 'its honest empty line').toMatch(/^No trades/);
+    const boxes = block('chart-box').querySelectorAll('.lt-chart-box');
+    expect(boxes, 'the chart box, drawn and holding a state').toHaveLength(2);
+    expect(
+      boxes[0]!.querySelector('[role="img"][aria-label] > [data-testid="kit-chart-host"]'),
+      'the named picture and its drawing element',
+    ).not.toBeNull();
+    expect(
+      boxes[0]!.querySelector('[data-testid="kit-chart-host"] canvas'),
+      'the library was handed the element and drew into it',
+    ).not.toBeNull();
+    expect(boxes[1]!.querySelector('[role="status"]')?.textContent, 'the state in its place').toMatch(/^No trades yet/);
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
   });
 

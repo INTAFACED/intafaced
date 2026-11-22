@@ -12,6 +12,7 @@ export { formatMoney, isDecimal, reconcileParts, sumDecimals, sumMoney, subtract
 export * from './types.js';
 export * from '../components/b2-basics.js';
 export * from '../components/b2-charts.js';
+export { ChartBox, ChartCanvas } from '../components/b2-chart-box.js';
 export * from '../components/b2-table.js';
 export * from '../components/b2-people.js';
 export * from '../components/b2-fields.js';

@@ -33,6 +33,7 @@ import type { HomePortfolio } from '../../screens/home/deps';
 import { MobileTabs } from '../TopBar';
 import { useResolvedColours } from '../../shared/resolved-colours';
 import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, SmallCandles, StepsAndSpark, TypeRoles } from './KitParts';
+import { ChartBoxes } from './KitChartBox';
 import './kit.css';
 
 /**
@@ -507,6 +508,14 @@ export default function VoltKit() {
             <span>21 Nov</span>
           </p>
         </div>
+      </Block>
+
+      <Block
+        id="chart-box"
+        title="A box for a drawn chart"
+        note="A definite size a charting library draws into, the coin page's: TEST drawing, and a state in its place at the same size."
+      >
+        <ChartBoxes />
       </Block>
 
       <Block

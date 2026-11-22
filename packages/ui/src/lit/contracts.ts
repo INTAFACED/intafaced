@@ -324,6 +324,8 @@ export const components = {
     "(B2) Candles over time: rise and fall from role tokens and in words (data-rising, each candle's title), placed by time so a gap stays a gap; an honest empty line for none",
   Bars: '(B2) Bars (volume, monthly totals)',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
+  ChartBox: "(B2) A chart's box of definite size (22.5rem high, full width) for a library that draws into it, or a state in its place",
+  ChartCanvas: '(B2) The named picture inside a ChartBox and the element a charting library draws into, filling the box',
 } as const;
 export type ComponentName = keyof typeof components;
 
