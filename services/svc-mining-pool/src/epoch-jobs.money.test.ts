@@ -13,7 +13,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryLedger } from '@intafaced/ledger-client';
@@ -37,7 +37,7 @@ async function openQMineAdmin(): Promise<{ url: string; stop: () => Promise<void
     return { url: envUrl, stop: async () => undefined };
   }
   try {
-    const container = await new PostgreSqlContainer(Q_MINE_IMAGE)
+    const container = await testPostgres(Q_MINE_IMAGE)
       .withDatabase('intafaced_qmine_test')
       .withUsername('intafaced')
       .withPassword('intafaced')

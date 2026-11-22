@@ -2,7 +2,7 @@
 //! the route (`/trpc/<path>`), the method a query or a mutation takes, the input (`?input=` for a query, the body for
 //! a mutation), and the error envelope `packages/contracts/src/trpc.ts`'s formatter writes: message, JSON-RPC code, and
 //! `data` with the tRPC code, HTTP status, the stack outside production, the path, the request id, `intafacedCode` for a
-//! guard's refusal and `cause.code` for a refusal that names one.
+//! guard's refusal, `cause.code` for a refusal that names one and `preview` for the typed Preview refusal.
 //!
 //! Not served: tRPC batching (`?batch=1`), HTTP methods other than GET and POST, and V8's own wording of a JSON syntax
 //! error. A service's wire replay sends none of them.
@@ -20,6 +20,54 @@ pub struct TrpcError {
     pub intafaced_code: Option<String>,
     /// `cause.code`: the refusal's own code, when its cause names one.
     pub cause: Option<String>,
+    /// `data.preview`: the typed Preview refusal (`previewRefusalOf`), when the cause is one.
+    pub preview: Option<Box<Preview>>,
+}
+
+/// `PREVIEW_REFUSAL_CODE` (`packages/contracts/src/preview-refusal.ts`).
+pub const PREVIEW_REFUSAL_CODE: &str = "preview.engine_not_built";
+/// `PREVIEW_LABEL`: the banner every preview page and refusal carries.
+pub const PREVIEW_LABEL: &str = "Preview · sample data";
+
+/// The typed Preview refusal (`previewRefusal(engine, action)`): an engine that is not built refuses its action and
+/// nothing is read or written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Preview {
+    /// `<module>.<engine>`, e.g. `bank.credit_card`.
+    pub engine: String,
+    pub action: String,
+}
+
+impl Preview {
+    pub fn new(engine: impl Into<String>, action: impl Into<String>) -> Preview {
+        Preview {
+            engine: engine.into(),
+            action: action.into(),
+        }
+    }
+
+    /// `{ kind, code, engine, action, label }`, in the schema's order: a read's answer, and `data.preview`.
+    pub fn to_json(&self) -> Json {
+        Json::obj([
+            ("kind", Json::str("preview")),
+            ("code", Json::str(PREVIEW_REFUSAL_CODE)),
+            ("engine", Json::str(self.engine.clone())),
+            ("action", Json::str(self.action.clone())),
+            ("label", Json::str(PREVIEW_LABEL)),
+        ])
+    }
+
+    /// `throwPreviewRefusal`: PRECONDITION_FAILED `preview.engine_not_built — <engine>:<action>`, the refusal as the
+    /// cause.
+    pub fn refuse(self) -> TrpcError {
+        TrpcError {
+            code: "PRECONDITION_FAILED",
+            message: format!("{PREVIEW_REFUSAL_CODE} — {}:{}", self.engine, self.action),
+            intafaced_code: None,
+            cause: Some(PREVIEW_REFUSAL_CODE.to_owned()),
+            preview: Some(Box::new(self)),
+        }
+    }
 }
 
 impl TrpcError {
@@ -30,6 +78,7 @@ impl TrpcError {
             message: message.into(),
             intafaced_code: None,
             cause: None,
+            preview: None,
         }
     }
 
@@ -44,6 +93,7 @@ impl TrpcError {
             message: message.into(),
             intafaced_code: None,
             cause: Some(cause.into()),
+            preview: None,
         }
     }
 
@@ -59,6 +109,7 @@ impl TrpcError {
             message: refused.message,
             intafaced_code: Some(refused.code.clone()),
             cause: Some(refused.code),
+            preview: None,
         }
     }
 
@@ -119,6 +170,9 @@ pub fn render(e: &TrpcError, path: &str, request_id: &str, service: &str, dev: b
             "cause".to_owned(),
             Json::obj([("code", Json::str(code.clone()))]),
         ));
+    }
+    if let Some(preview) = &e.preview {
+        data.push(("preview".to_owned(), preview.to_json()));
     }
     let body = Json::obj([(
         "error",
@@ -272,5 +326,25 @@ mod tests {
         };
         assert_eq!(TrpcError::guard(r("mfa.required")).code, "UNAUTHORIZED");
         assert_eq!(TrpcError::guard(r("scope.denied")).code, "FORBIDDEN");
+    }
+
+    /// `throwPreviewRefusal` through the formatter (`trpc-error-shape.test.ts`, "surfaces kind, code, engine, action
+    /// and label on data.preview"): the code as `data.cause`, then the refusal as `data.preview`.
+    #[test]
+    fn a_preview_refusal_is_precondition_failed_with_the_refusal_on_data_preview() {
+        let e = Preview::new("bank.loan_schedule", "change_repayment_date").refuse();
+        assert_eq!(
+            render(&e, "loans.changeRepaymentDate", "r-1", "svc-bank", false).body,
+            "{\"error\":{\"message\":\"preview.engine_not_built — bank.loan_schedule:change_repayment_date\",\
+             \"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\
+             \"path\":\"loans.changeRepaymentDate\",\"requestId\":\"r-1\",\
+             \"cause\":{\"code\":\"preview.engine_not_built\"},\"preview\":{\"kind\":\"preview\",\
+             \"code\":\"preview.engine_not_built\",\"engine\":\"bank.loan_schedule\",\
+             \"action\":\"change_repayment_date\",\"label\":\"Preview · sample data\"}}}}"
+        );
+        assert_eq!(
+            TrpcError::caused("PRECONDITION_FAILED", "m", "x").preview,
+            None
+        );
     }
 }

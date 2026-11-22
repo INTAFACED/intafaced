@@ -51,7 +51,8 @@
       "dependsOn": ["^build", "@intafaced/db#build"],
       "outputs": ["coverage/**"],
       "cache": false,
-      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"],
+      "passThroughEnv": ["GITHUB_BASE_REF"]
     },
     "@intafaced/svc-ws#test": {
       "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
@@ -164,6 +165,7 @@
         "$TURBO_ROOT$/services/svc-protocol/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -206,6 +208,7 @@
         "$TURBO_ROOT$/services/svc-protocol/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -232,6 +235,16 @@
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/services/svc-edge/**",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/connect-data-lake#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -346,6 +359,26 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
+    "@intafaced/execution-house-tenant#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/execution-mm#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
     "@intafaced/i18n#typecheck": {
       "outputs": [],
       "dependsOn": [
@@ -446,6 +479,17 @@
         "$TURBO_ROOT$/services/svc-mining-pool/**",
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/quant-honesty#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -676,6 +720,16 @@
         "$TURBO_ROOT$/tooling/scripts/look-codemod.*",
         "$TURBO_ROOT$/tooling/trade/inside.*",
         "$TURBO_ROOT$/tooling/trade/inside/**",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/venue-adapter#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
