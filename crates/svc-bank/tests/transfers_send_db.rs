@@ -292,6 +292,7 @@ impl Ledger for Book {
         *st.balances.entry(from.clone()).or_default() -= amount;
         *st.balances.entry(to.clone()).or_default() += amount;
         let tx = LedgerTx {
+            key: String::new(),
             id: format!("tx-{}", st.journal.len() + 1),
             posted_at: door::system_now(),
             entries: vec![

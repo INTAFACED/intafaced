@@ -38,7 +38,7 @@ export function CertificateShelf() {
   const [reference, setReference] = useState(param('verify'));
   // The verify box needs only the code, so a failed or empty tracking read never hides it.
   return (
-    <div className="academy-lms-stack">
+    <div className="lt-stack">
       <Read resource={overview.resource} retry={overview.reload}>
         {(data) => (
           <Shelf
@@ -71,9 +71,9 @@ function Shelf({
   const [viewId, setViewId] = useState(param('view') || earned[0]?.definition.id || '');
   const view = cards.find((c) => c.definition.id === viewId);
   return (
-    <div className="academy-lms-stack">
+    <div className="lt-stack">
       <Panel title={t('shelfTitle')}>
-        <section className="academy-lms-stack" data-certificates="courses" aria-labelledby="academy-course-certificates">
+        <section className="lt-stack" data-certificates="courses" aria-labelledby="academy-course-certificates">
           <h3 id="academy-course-certificates">{t('coursesTitle')}</h3>
           <p role="status">
             {cards.length === 0 ? (
@@ -89,7 +89,7 @@ function Shelf({
             <UnpublishedPaths />
           </div>
         </section>
-        <section className="academy-lms-stack" data-certificates="programmes" aria-labelledby="academy-programme-certificates">
+        <section className="lt-stack" data-certificates="programmes" aria-labelledby="academy-programme-certificates">
           <h3 id="academy-programme-certificates">{t('programmeCertsTitle')}</h3>
           <ProgrammeCertificates />
         </section>
@@ -151,7 +151,7 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
         <Copy k="requiredRecorded" params={{ completed: card.progress?.completedCount ?? 0, required }} />
       </p>
       {card.grant && (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="issuedOn" params={{ date: formatDay(card.grant.grantedAt, language) }} />
         </p>
       )}
@@ -169,7 +169,7 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
           </a>
         )}
         {card.state === 'ready' && (
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="readyHint" />
           </p>
         )}
@@ -197,7 +197,7 @@ function IssueLine({ progress }: { progress: CertificateCard['progress'] }) {
   }
   if (issue.mode === 'automatic') {
     return (
-      <p className="muted" data-testid="certificate-issue">
+      <p className="lt-muted" data-testid="certificate-issue">
         {t('issueAutomatic')}
       </p>
     );
@@ -221,7 +221,7 @@ function CertificateSheet({
   if (!doc)
     return (
       <Panel title={card.definition.title}>
-        <div className="academy-lms-stack">
+        <div className="lt-stack">
           <p>
             <Copy k="sheetNotIssued" />
           </p>
@@ -239,13 +239,13 @@ function CertificateSheet({
     );
   return (
     <Panel title={t('sheetPanel')}>
-      <div className="academy-lms-stack" data-certificate-sheet={doc.certId}>
+      <div className="lt-stack" data-certificate-sheet={doc.certId}>
         <article
           className="academy-cert-sheet"
           aria-label={t('sheetLabel', { title: doc.design?.title ?? doc.title })}
           data-design-revision={doc.design?.revision ?? ''}
         >
-          <small className="muted">
+          <small className="lt-muted">
             <Copy k="sheetIssuer" />
           </small>
           {doc.design ? (
@@ -267,7 +267,7 @@ function CertificateSheet({
               <p data-testid="certificate-serial">
                 {t('sheetSerial')} <code lang="zxx">{doc.code}</code>
               </p>
-              <small className="muted">
+              <small className="lt-muted">
                 <Copy k="sheetVerifyHint" />
               </small>
             </>
@@ -283,7 +283,7 @@ function CertificateSheet({
           </div>
         )}
         {/* Outside the printed sheet on purpose: the account id and the grant reference are private record keys. */}
-        <details className="muted">
+        <details className="lt-muted">
           <summary>
             <Copy k="sheetPrivate" />
           </summary>
@@ -303,18 +303,18 @@ function CertificateSheet({
 function SheetDesign({ design }: { design: NonNullable<CertGrant['design']> }) {
   const { t } = copy.useCopy();
   return (
-    <div className="academy-lms-stack" data-testid="certificate-design">
+    <div className="lt-stack" data-testid="certificate-design">
       <h2 lang={design.language}>{design.title}</h2>
       <p lang={design.language}>{design.body}</p>
       {design.effortHours && <p>{t('sheetEffort', { hours: design.effortHours })}</p>}
       {design.signatories.length > 0 && (
         <div data-testid="certificate-signatories">
-          <small className="muted">{t('sheetSignedBy')}</small>
+          <small className="lt-muted">{t('sheetSignedBy')}</small>
           <ul className="academy-lms-rows">
             {design.signatories.map((s, i) => (
               <li key={i}>
                 <strong lang="und">{s.name}</strong>{' '}
-                <span className="muted" lang={design.language}>
+                <span className="lt-muted" lang={design.language}>
                   {s.role}
                 </span>
               </li>
@@ -323,11 +323,11 @@ function SheetDesign({ design }: { design: NonNullable<CertGrant['design']> }) {
         </div>
       )}
       {design.disclaimer && (
-        <small className="muted" lang={design.language} data-testid="certificate-disclaimer">
+        <small className="lt-muted" lang={design.language} data-testid="certificate-disclaimer">
           {design.disclaimer}
         </small>
       )}
-      <small className="muted" data-testid="certificate-design-revision">
+      <small className="lt-muted" data-testid="certificate-design-revision">
         {t('sheetRevision', { revision: design.revision })}
       </small>
     </div>
@@ -366,8 +366,8 @@ function ShareCertificate({ code }: { code: string | null }) {
   const [copied, setCopied] = useState<'idle' | 'copied' | 'refused'>('idle');
   const link = code ? `${window.location.origin}${academyVerifyHref(code)}` : null;
   return (
-    <div className="academy-lms-stack" data-testid="certificate-share">
-      <p className="muted">{t('shareTargetsNone')}</p>
+    <div className="lt-stack" data-testid="certificate-share">
+      <p className="lt-muted">{t('shareTargetsNone')}</p>
       <div className="academy-learning-actions">
         {link && (
           <Button
@@ -399,8 +399,8 @@ export function CertificateVerifyPage({ code }: { code: string | undefined }) {
   const parsed = parseVerifyCode(code ?? '');
   return (
     <Panel title={t('verifyPageTitle')}>
-      <div className="academy-lms-stack" data-certificate-verify={parsed.kind === 'code' ? parsed.code : ''}>
-        <p className="muted">{t('verifyPageIntro')}</p>
+      <div className="lt-stack" data-certificate-verify={parsed.kind === 'code' ? parsed.code : ''}>
+        <p className="lt-muted">{t('verifyPageIntro')}</p>
         {parsed.kind === 'code' ? (
           <VerifyAnswer code={parsed.code} />
         ) : (
@@ -434,7 +434,7 @@ export function SheetHolder({ code }: { code: string }) {
   const name = holder.resource.data.holderName;
   return (
     <p>
-      <small className="muted">{t('verifyHolder')}</small>
+      <small className="lt-muted">{t('verifyHolder')}</small>
       <br />
       {name ? <span lang="und">{name}</span> : t('holderNotShared')}
     </p>
@@ -506,13 +506,13 @@ export function VerifyPanel({ reference, onReference }: { reference: string; onR
   return (
     <Panel title={t('verifyTitle')}>
       <form
-        className="academy-lms-stack"
+        className="lt-stack"
         onSubmit={(event) => {
           event.preventDefault();
           if (parsed.kind === 'code' && lookup.status !== 'checking') void check(parsed.code);
         }}
       >
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="verifyIntro" />
         </p>
         <Field

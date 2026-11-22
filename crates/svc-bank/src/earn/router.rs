@@ -75,6 +75,16 @@ pub fn consume_ops(
     action: &str,
     fields: &[(String, String)],
 ) -> Result<Approved, Refusal> {
+    consume_approval(d.approvals, input, action, fields)
+}
+
+/// [`consume_ops`] on any slice's approvals port.
+pub fn consume_approval(
+    approvals: &dyn crate::transfers::Approvals,
+    input: &Value,
+    action: &str,
+    fields: &[(String, String)],
+) -> Result<Approved, Refusal> {
     let approval_id = js_trim(opt_text(input, "approvalId").unwrap_or_default());
     let operation_id = js_trim(opt_text(input, "operationId").unwrap_or_default());
     if approval_id.is_empty() || operation_id.is_empty() {
@@ -84,8 +94,7 @@ pub fn consume_ops(
         ));
     }
     let hash = payload_hash(action, fields);
-    let consumed = d
-        .approvals
+    let consumed = approvals
         .consume(
             &ConsumeInput {
                 approval_id,
@@ -134,7 +143,7 @@ pub fn consume_ops(
     })
 }
 
-fn f(k: &str, v: impl Into<String>) -> (String, String) {
+pub fn f(k: &str, v: impl Into<String>) -> (String, String) {
     (k.to_owned(), v.into())
 }
 

@@ -68,7 +68,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
   return (
     <Panel title={t('title')}>
       <div data-testid="quant-templates">
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
         <Read resource={first.resource} retry={reload}>
           {(data) => {
             const rows = [...data.templates, ...(later?.rows ?? [])];
@@ -134,7 +134,7 @@ function TemplateSource(props: { name: string; versions: QuantTemplateVersionSou
       <p lang="und" data-testid="quant-template-source-note">
         {shown.releaseNote}
       </p>
-      <p className="muted">{t('readOnly', { version: newest.version })}</p>
+      <p className="lt-muted">{t('readOnly', { version: newest.version })}</p>
       <pre lang="zxx" className="quant-source" tabIndex={0} data-testid="quant-template-source" data-version={shown.version}>
         {shown.source}
       </pre>

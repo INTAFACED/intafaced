@@ -82,7 +82,7 @@ export function HandleRecovery() {
   return (
     <section className="pub-step" aria-labelledby={`${problemId}-title`}>
       <h2 id={`${problemId}-title`}>{t('title')}</h2>
-      <p className="muted">{t('body')}</p>
+      <p className="lt-muted">{t('body')}</p>
       <form ref={field} method="post" className="pub-form" onSubmit={ask} noValidate>
         <Field
           label={t('emailField')}
@@ -99,7 +99,7 @@ export function HandleRecovery() {
         </Button>
       </form>
       {sent && (
-        <p role="status" className="muted">
+        <p role="status" className="lt-muted">
           {t('sent')}
         </p>
       )}

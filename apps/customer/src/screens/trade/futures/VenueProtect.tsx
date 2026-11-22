@@ -76,9 +76,9 @@ function RefusalAlert({ refusal }: { refusal: Refusal | null }) {
   const { t } = venueProtectCopy.useCopy();
   if (!refusal) return null;
   return (
-    <div className="failure" role="alert" data-testid="protection-refusal">
+    <div className="lt-refusal" role="alert" data-testid="protection-refusal">
       <p>{refusal.message}</p>
-      {refusal.code ? <p className="muted">{t('Code', { code: refusal.code })}</p> : null}
+      {refusal.code ? <p className="lt-muted">{t('Code', { code: refusal.code })}</p> : null}
     </div>
   );
 }
@@ -168,7 +168,7 @@ export function ProtectDialog({
 
   return (
     <Dialog title={t('Protect title', { symbol: market.symbol })} onClose={onClose}>
-      <div className="form-stack" data-testid="protect-dialog">
+      <div className="lt-stack" data-testid="protect-dialog">
         <div role="group" aria-label={t('Protection kind')}>
           {PROTECTION_KINDS.map((k) => (
             <Button key={k} variant={kind === k ? 'primary' : 'secondary'} aria-pressed={kind === k} onClick={() => setKind(k)}>
@@ -207,16 +207,16 @@ export function ProtectDialog({
             {outcome}
           </p>
         ) : null}
-        <section className="form-stack" aria-label={t('Listed title')} data-testid="protection-list">
+        <section className="lt-stack" aria-label={t('Listed title')} data-testid="protection-list">
           <h3 className="dk-tab-title">{t('Listed title')}</h3>
           {list.failure ? (
-            <p className="failure">{list.failure.message}</p>
+            <p className="lt-refusal">{list.failure.message}</p>
           ) : mine.length === 0 ? (
             list.data ? (
-              <p className="muted">{t('Listed empty')}</p>
+              <p className="lt-muted">{t('Listed empty')}</p>
             ) : null
           ) : (
-            <ul className="form-stack">
+            <ul className="lt-stack">
               {mine.map((p) => (
                 <ProtectionItem key={p.id} protection={p} position={position} base={market.baseAsset} run={run} onDone={list.reload} />
               ))}
@@ -241,7 +241,7 @@ function positive(value: string): boolean {
 
 function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <label className="field">
+    <label className="lt-field">
       <span>{label}</span>
       <input inputMode="decimal" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
@@ -299,14 +299,14 @@ function ProtectionItem({
         {p.kind === 'stop_limit' && p.limitPrice ? `; ${t('Item limit', { price: canonical(p.limitPrice) })}` : ''}
         {p.kind === 'trailing_stop' && p.currentTrigger ? `; ${t('Item trails now', { price: canonical(p.currentTrigger) })}` : ''}
       </p>
-      <p className="muted">{p.label}</p>
-      {p.parentClientOrderId ? <p className="muted">{t('Item attached')}</p> : null}
+      <p className="lt-muted">{p.label}</p>
+      {p.parentClientOrderId ? <p className="lt-muted">{t('Item attached')}</p> : null}
       {covers ? (
         <p>{covers.whole ? t('Covers whole') : t('Covers part', { covers: covers.covers, of: covers.of, rest: covers.rest })}</p>
       ) : null}
       {p.status === 'failed' ? (
         <>
-          <p className="failure">{t('Item failed', { failure: p.failure ?? '' })}</p>
+          <p className="lt-refusal">{t('Item failed', { failure: p.failure ?? '' })}</p>
           {position ? <p>{t('Item still open', { size: canonical(position.size), base, side: sideWords(t, position.side) })}</p> : null}
         </>
       ) : null}
@@ -362,7 +362,7 @@ function AgentPermission({ owner }: { owner: string }) {
 
   const approved = agent.data?.approved === true || accepted;
   return (
-    <section className="form-stack" aria-label={t('Agent permission')} data-testid="protection-agent">
+    <section className="lt-stack" aria-label={t('Agent permission')} data-testid="protection-agent">
       <h3 className="dk-tab-title">{t('Agent permission')}</h3>
       <p>{t('Agent note')}</p>
       {approved ? (
@@ -372,7 +372,7 @@ function AgentPermission({ owner }: { owner: string }) {
       ) : agent.data ? (
         <Button onClick={() => void approve()}>{t('Agent approve')}</Button>
       ) : (
-        <p className="muted">{t('Agent checking')}</p>
+        <p className="lt-muted">{t('Agent checking')}</p>
       )}
       {!approved && agent.failure ? null : <RefusalAlert refusal={refusal} />}
     </section>
@@ -476,12 +476,12 @@ export function ReverseDialog({
   const now = opened && live && live.side === opposite ? live : null;
   return (
     <Dialog title={t('Reverse title', { symbol: snapshot.symbol })} onClose={onClose}>
-      <div className="form-stack" data-testid="reverse-dialog">
+      <div className="lt-stack" data-testid="reverse-dialog">
         <p>{t('Reverse plan', { size, base: market.baseAsset, side: sideWords(t, snapshot.side), opposite: sideWords(t, opposite) })}</p>
-        <p className="muted">{t(together ? 'Reverse note together' : 'Reverse note')}</p>
+        <p className="lt-muted">{t(together ? 'Reverse note together' : 'Reverse note')}</p>
         <Button onClick={() => void reverse()}>{t('Reverse sign')}</Button>
         {problem ? (
-          <p className="failure" role="alert">
+          <p className="lt-refusal" role="alert">
             {problem}
           </p>
         ) : null}

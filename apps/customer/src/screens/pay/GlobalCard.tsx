@@ -148,14 +148,14 @@ function HoldPanel({
   return (
     <div className="pay-block" role="status" data-testid="global-hold">
       <h4 className="pay-section-title">{g('holdTitle')}</h4>
-      <p className="pay-hint">{g('holdBody')}</p>
-      {hold.state === 'failed' ? <p className="pay-hint">{sayFor(hold.code, hold.message).title}</p> : null}
+      <p className="lt-hint">{g('holdBody')}</p>
+      {hold.state === 'failed' ? <p className="lt-hint">{sayFor(hold.code, hold.message).title}</p> : null}
       {data?.infoRequest ? (
         <p data-testid="global-hold-ask">
           {g('holdAsk')} {data.infoRequest}
         </p>
       ) : null}
-      {data && data.state === 'under_review' && data.proofUploaded ? <p className="pay-hint">{g('holdUploaded')}</p> : null}
+      {data && data.state === 'under_review' && data.proofUploaded ? <p className="lt-hint">{g('holdUploaded')}</p> : null}
       {data && data.state === 'requested' && data.infoRequest && !data.proofUploaded ? (
         data.proofLimits ? (
           <label className="pay-field__label">
@@ -168,11 +168,11 @@ function HoldPanel({
             />
           </label>
         ) : (
-          <p className="pay-hint">{g('holdOff')}</p>
+          <p className="lt-hint">{g('holdOff')}</p>
         )
       ) : null}
       {data ? (
-        <p className="pay-hint" data-testid="global-hold-autocancel">
+        <p className="lt-hint" data-testid="global-hold-autocancel">
           {data.autoCancel.state === 'published' && data.autoCancel.at
             ? g('holdCancelAt', { time: data.autoCancel.at })
             : g('holdCancelUnset', { code: 'bank.global_hold_cancel_unset' })}
@@ -218,7 +218,7 @@ function ReceiptPanel({ sendId, global }: { sendId: string; global: ReturnType<t
         {g('receipt')}
       </Button>
       {receipt?.state === 'ready' ? (
-        <p className="pay-hint">
+        <p className="lt-hint">
           <span data-testid="global-receipt-ledger">{g('receiptLedger', { id: receipt.data.ledgerTxId })}</span>
           <br />
           <span data-testid="global-receipt-hash">{g('receiptHash', { hash: receipt.data.sha256 })}</span>
@@ -265,7 +265,7 @@ function RecallPanel({ send, global, onAsked }: { send: GlobalSend; global: Retu
   const [problem, setProblem] = useState<Say | null>(null);
   if (send.recallReason) {
     return (
-      <p className="pay-hint" data-testid="global-recall-status">
+      <p className="lt-hint" data-testid="global-recall-status">
         {canRecall(send.status) ? g('recallAsked', { reason: send.recallReason }) : g('recallAnswered', { reason: send.recallReason })}
       </p>
     );
@@ -285,7 +285,7 @@ function RecallPanel({ send, global, onAsked }: { send: GlobalSend; global: Retu
       {open ? (
         <form className="pay-block" noValidate onSubmit={(event) => void ask(event)}>
           <h4 className="pay-section-title">{g('recallTitle')}</h4>
-          <p className="pay-hint" data-testid="global-recall-what">
+          <p className="lt-hint" data-testid="global-recall-what">
             {g('recallWhat')}
           </p>
           <label className="pay-field__label" htmlFor={id}>
@@ -620,7 +620,7 @@ export function GlobalCard() {
     <div className="pay-body" data-testid="global-card">
       {unavailable ? <Reason title={unavailable.title}>{unavailable.body}</Reason> : null}
       {standIn ? (
-        <p className="pay-hint" role="note" data-testid="global-stand-in">
+        <p className="lt-hint" role="note" data-testid="global-stand-in">
           {g('standIn', { label: standIn })}
         </p>
       ) : null}
@@ -634,11 +634,11 @@ export function GlobalCard() {
           t('globalStepTrack'),
         ]}
       />
-      {corridors.state === 'loading' ? <p className="pay-hint">{g('loading')}</p> : null}
+      {corridors.state === 'loading' ? <p className="lt-hint">{g('loading')}</p> : null}
       {sent ? (
         <div className="pay-block" role="status" data-testid="global-sent">
           <h3 className="pay-section-title">{g('sentTitle')}</h3>
-          <p className="pay-hint">{g('sentBody')}</p>
+          <p className="lt-hint">{g('sentBody')}</p>
           <Button variant="secondary" onClick={() => setSent(null)}>
             {g('sendAnother')}
           </Button>
@@ -667,12 +667,12 @@ export function GlobalCard() {
               ))}
             </select>
             {destination && !destination.paysOut ? (
-              <p className="pay-hint" role="note" data-testid="global-no-payout">
+              <p className="lt-hint" role="note" data-testid="global-no-payout">
                 {g('destinationNoPayout')}
               </p>
             ) : null}
             {limits ? (
-              <p className="pay-hint" data-testid="global-limits">
+              <p className="lt-hint" data-testid="global-limits">
                 {[
                   limits.minAmount ? g('destinationMin', { min: limits.minAmount }) : null,
                   limits.maxAmount ? g('destinationMax', { max: limits.maxAmount }) : null,
@@ -709,7 +709,7 @@ export function GlobalCard() {
               {g('checkButton')}
             </Button>
             {checked ? (
-              <p className="pay-hint" role="note" data-testid={`global-country-${checked.state}`}>
+              <p className="lt-hint" role="note" data-testid={`global-country-${checked.state}`}>
                 {checked.state === 'bad'
                   ? g('checkBad')
                   : g(checked.state === 'supported' ? 'checkSupported' : 'checkUnsupported', { country: checked.country })}
@@ -732,7 +732,7 @@ export function GlobalCard() {
                 ))}
             </select>
             {recipients.state === 'failed' ? <p className="pay-problem">{sayFor(recipients.code, recipients.message).title}</p> : null}
-            {recipients.state === 'ready' && saved.length === 0 ? <p className="pay-hint">{g('recipientNone')}</p> : null}
+            {recipients.state === 'ready' && saved.length === 0 ? <p className="lt-hint">{g('recipientNone')}</p> : null}
             {recipient ? (
               <Button type="button" variant="ghost" onClick={() => void removeRecipient(recipient)}>
                 {g('recipientRemove')}
@@ -804,7 +804,7 @@ export function GlobalCard() {
             {recipientBusy ? g('confirming') : g('recipientSave')}
           </Button>
           {recipientNote ? (
-            <p className="pay-hint" role="status">
+            <p className="lt-hint" role="status">
               {recipientNote}
             </p>
           ) : null}
@@ -861,9 +861,9 @@ export function GlobalCard() {
           </dl>
           {liveQuote ? (
             <>
-              <p className="pay-hint">{g('quoteValidUntil', { time: liveQuote.validUntil })}</p>
+              <p className="lt-hint">{g('quoteValidUntil', { time: liveQuote.validUntil })}</p>
               {lockText ? (
-                <p className="pay-hint" role="timer" data-testid="global-lock">
+                <p className="lt-hint" role="timer" data-testid="global-lock">
                   {g('lockLeft', { time: lockText })}
                 </p>
               ) : (
@@ -873,7 +873,7 @@ export function GlobalCard() {
               )}
             </>
           ) : (
-            <p className="pay-hint">{t('quoteNone')}</p>
+            <p className="lt-hint">{t('quoteNone')}</p>
           )}
           {quoteFailed ? (
             <p className="pay-problem" role="alert" data-testid="global-quote-refused">
@@ -892,7 +892,7 @@ export function GlobalCard() {
         </div>
         {asked.length > 0 ? (
           <fieldset className="pay-fieldset" disabled={stepUpOpen}>
-            <p className="pay-hint">{g('askedHint')}</p>
+            <p className="lt-hint">{g('askedHint')}</p>
             {asked.map((field) => (
               <div className="pay-field" key={field}>
                 <label className="pay-field__label" htmlFor={`global-${field}`}>
@@ -911,11 +911,11 @@ export function GlobalCard() {
             ))}
           </fieldset>
         ) : null}
-        {need && ready ? <p className="pay-hint">{need}</p> : null}
+        {need && ready ? <p className="lt-hint">{need}</p> : null}
         {failure ? (
           <p className="pay-problem" role="alert" data-testid="global-failure">
             {failure.title} {failure.body}
-            {failure.blocker ? <small className="pay-hint"> {g('failedNeeds', { blocker: failure.blocker })}</small> : null}
+            {failure.blocker ? <small className="lt-hint"> {g('failedNeeds', { blocker: failure.blocker })}</small> : null}
           </p>
         ) : null}
         <Button
@@ -969,11 +969,11 @@ export function GlobalCard() {
             ) : null}
           </dl>
           {liveQuote && lockText ? (
-            <p className="pay-hint" role="timer" data-testid="global-confirm-lock">
+            <p className="lt-hint" role="timer" data-testid="global-confirm-lock">
               {g('lockLeft', { time: lockText })}
             </p>
           ) : null}
-          <p className="pay-hint">{g('confirmWhy')}</p>
+          <p className="lt-hint">{g('confirmWhy')}</p>
           <Button type="button" variant="primary" disabled={busy !== null} onClick={() => void confirm('passkey')}>
             {busy === 'send' ? g('sending') : busy === 'passkey' ? g('confirming') : g('confirmPasskey')}
           </Button>
@@ -992,7 +992,7 @@ export function GlobalCard() {
               disabled={busy !== null}
               onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
             />
-            <p className="pay-hint">{g('confirmCodeHint')}</p>
+            <p className="lt-hint">{g('confirmCodeHint')}</p>
           </div>
           <Button type="button" variant="secondary" disabled={busy !== null || code.length < 6} onClick={() => void confirm('code')}>
             {busy === 'code' ? g('confirming') : g('confirmCode')}
@@ -1017,7 +1017,7 @@ export function GlobalCard() {
       ) : null}
       <div className="pay-block" data-testid="global-receive">
         <h3 className="pay-section-title">{g('receiveTitle')}</h3>
-        <p className="pay-hint">{g('receiveLead')}</p>
+        <p className="lt-hint">{g('receiveLead')}</p>
         <AccountDetailsByCurrency />
       </div>
       <div className="pay-block">

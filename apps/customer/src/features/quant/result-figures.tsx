@@ -10,7 +10,7 @@ export function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
   const { t } = backtestCopy.useCopy();
   return (
     <div data-testid="quant-bar-checks">
-      <p className="muted">{t('checksIntro')}</p>
+      <p className="lt-muted">{t('checksIntro')}</p>
       <ul className="quant-checks">
         {checks.map((check) => (
           <li
@@ -25,7 +25,7 @@ export function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
               <strong>{t(`s_${check.status}`)}</strong>
             </p>
             <p>{checkDetail(t, check)}</p>
-            {check.threshold !== null && <p className="muted">{t('checkThreshold', { threshold: check.threshold })}</p>}
+            {check.threshold !== null && <p className="lt-muted">{t('checkThreshold', { threshold: check.threshold })}</p>}
           </li>
         ))}
       </ul>
@@ -41,7 +41,7 @@ export function MetricsTab({ metrics }: { metrics: QuantBacktestMetrics }) {
   const { t } = backtestCopy.useCopy();
   return (
     <div data-testid="quant-bar-metrics">
-      <p className="muted">{t('metricsIntro')}</p>
+      <p className="lt-muted">{t('metricsIntro')}</p>
       {metricGroups(metrics).map(([group, figures]) => (
         <section key={group} aria-label={t(group)}>
           <h4>{t(group)}</h4>
@@ -53,7 +53,7 @@ export function MetricsTab({ metrics }: { metrics: QuantBacktestMetrics }) {
                 <div key={key} data-testid={`quant-metric-${key}`} data-value={view.value} data-reason={view.reason}>
                   <dt>{t(`m_${name}`)}</dt>
                   <dd lang={view.reason ? undefined : 'zxx'}>{view.text}</dd>
-                  <dd className="muted">{t(`m_${name}_help`)}</dd>
+                  <dd className="lt-muted">{t(`m_${name}_help`)}</dd>
                 </div>
               );
             })}

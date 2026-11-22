@@ -79,7 +79,7 @@ function StatusLinkPage({ mode }: { mode: 'confirm' | 'unsubscribe' }) {
         </p>
       ) : !view ? (
         <>
-          <p className="muted">{mode === 'confirm' ? t('confirmIntro') : t('leaveIntro')}</p>
+          <p className="lt-muted">{mode === 'confirm' ? t('confirmIntro') : t('leaveIntro')}</p>
           <Button variant={mode === 'unsubscribe' ? 'danger' : 'primary'} onClick={() => void act()} disabled={busy}>
             {mode === 'confirm' ? (busy ? t('confirming') : t('confirm')) : busy ? t('leaving') : t('leave')}
           </Button>
@@ -95,7 +95,7 @@ function StatusLinkPage({ mode }: { mode: 'confirm' | 'unsubscribe' }) {
         <p role="status">{t('manageLoading')}</p>
       )}
       <p>
-        <a className="text-link" href="/status">
+        <a className="lt-link" href="/status">
           {t('toStatus')}
         </a>
       </p>

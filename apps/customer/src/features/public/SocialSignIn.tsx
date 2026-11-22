@@ -51,7 +51,7 @@ export function SocialSignIn({ onWallet }: { onWallet?: () => Promise<boolean> }
   const code = (WORDED as readonly string[]).includes(refusal?.code ?? '') ? (refusal!.code as (typeof WORDED)[number]) : undefined;
   return (
     <div className="public-auth-social">
-      <p className="muted">{t('or')}</p>
+      <p className="lt-muted">{t('or')}</p>
       {(['social', 'wallet'] as const).map((kind) => (
         <Button key={kind} variant="secondary" disabled={busy !== null} onClick={() => void start(kind)}>
           {busy === kind ? t('starting') : t(kind)}

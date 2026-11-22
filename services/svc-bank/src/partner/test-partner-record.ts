@@ -19,11 +19,17 @@ import { TEST_PARTNER_LABEL } from './test-partner-book.js';
  * (J-bank-28 #4), `POST <base>/onboarding` its onboarding record of one person (J-bank-17 #1: its requirements, whether it
  * accepts our identity case, and the information requests it opened), `POST <base>/account-details` with `currency` the
  * account details it issued that person in that currency and the holder name it keeps the account in (J-bank-30 #2), and `POST <base>/dd-refund` with `{ owner, mandateId, collectionId }` is the stand-in giving a collected
- * debit back under the scheme's refund guarantee, once.
+ * debit back under the scheme's refund guarantee, once. `POST <base>/accounts` answers every account it holds for the person,
+ * main balances and spaces, with the amount in each, and `POST <base>/open-orders` the orders it reports open for them
+ * (J-bank-01 #3 #5).
  *
  * Mounted only with the TEST partner (`BANK_TEST_PARTNER=test`, which refuses to start outside `dev`/`test`), and only
  * for a caller on loopback. Never part of a real environment.
  */
+
+/** The paths below the base that read one person's page of the book. */
+export const TEST_PARTNER_PERSON_PATHS = ['/balances', '/accounts', '/moves', '/open-orders', '/onboarding', '/account-details'] as const;
+const PERSON_PATHS: ReadonlySet<string> = new Set(TEST_PARTNER_PERSON_PATHS);
 
 /** Where svc-bank serves the stand-in's record. */
 export const TEST_PARTNER_RECORD_BASE = '/test-partner';
@@ -118,8 +124,7 @@ export async function answerTestPartnerRecord(
       throw err;
     }
   }
-  if (path !== '/balances' && path !== '/moves' && path !== '/onboarding' && path !== '/account-details')
-    return [404, { error: 'no such path' }];
+  if (!PERSON_PATHS.has(path)) return [404, { error: 'no such path' }];
   if (method !== 'POST') return [405, { error: 'POST only' }];
   const account = (body as { account?: { venueId?: unknown; owner?: unknown; subAccount?: unknown } } | null)?.account;
   if (account?.venueId !== TEST_PARTNER_RECORD_ID) return [400, { error: `account.venueId must be ${TEST_PARTNER_RECORD_ID}` }];
@@ -132,7 +137,17 @@ export async function answerTestPartnerRecord(
       return [400, { error: 'currency (three capital letters) is required' }];
     return [200, { label: 'TEST', value: accountDetailsLines(partner, account.owner, currency) }];
   }
+  if (path === '/open-orders') {
+    // The one TEST order the stand-in reports open for the person, from its own switch (as its `openOrders` answers).
+    const asset = partner.switches(account.owner).openOrder;
+    return [200, { label: 'TEST', value: asset === null ? [] : [{ id: `TEST-order:${account.owner}:${asset}`, asset }] }];
+  }
   const book = partner.record(account.owner);
+  if (path === '/accounts') {
+    // Every account it holds for the person, main balances and spaces, each once, with the amount in it (J-bank-01 #3 #5).
+    const value = book.accounts.map((a) => ({ asset: a.account.assetId, spaceId: a.account.spaceId, amount: formatAmount(a.amount) }));
+    return [200, { label: 'TEST', value }];
+  }
   if (path === '/moves') return [200, { label: 'TEST', value: book.moves.map(moveLine) }];
   // The person's main balance in each currency, in the venue read's row shape: nothing is locked at the partner.
   const value = book.accounts

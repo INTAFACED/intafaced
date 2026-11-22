@@ -1663,6 +1663,12 @@ button.lt-tab {
   min-inline-size: 0;
 }
 
+/* A field that gives way in a narrow row wraps its words instead of running past its edge (/uc/recharge's filters, at
+   130% text on a phone). */
+.lt-field > span {
+  overflow-wrap: anywhere;
+}
+
 /* The control fills its field and gives way when the row it sits in is narrower than its own width, so a row of fields
    on a phone, or at twice the text size, never runs past the screen. */
 .lt-field input:not([type='checkbox'], [type='radio']),
