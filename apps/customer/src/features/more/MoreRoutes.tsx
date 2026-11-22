@@ -5,6 +5,7 @@ import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
 import { AcademyDiscussionThreadRoom } from './AcademyDiscussion';
 import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
+import { AcademyCourseRoom } from './AcademyCourseRoom';
 import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
@@ -29,11 +30,9 @@ import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant';
 import { quantModeRoute } from './quant-mode-route';
-import { Support, supportPageTitleKey } from './Support';
+import { Support } from './Support';
 import { SupportChatRoom } from './SupportChat';
 import { chatCopy } from './support-chat-copy';
-import { supportRoute } from './support-desk';
-import { deskCopy } from './support-desk-copy';
 import { Token, type TokenTab } from './Token';
 import { launchCopy } from './launch-copy';
 import { LaunchDetail } from './LaunchCatalogue';
@@ -83,6 +82,8 @@ function MoreRooms({ path }: { path: string }) {
     volt = <AcademyDiscussionThreadRoom key={academy.postId} courseSlug={academy.courseSlug} postId={academy.postId} />;
   } else if (userId && academy?.kind === 'messages' && academy.conversationId) {
     volt = <AcademyCourseConversationRoom key={academy.conversationId} conversationId={academy.conversationId} />;
+  } else if (academy?.kind === 'course') {
+    volt = <AcademyCourseRoom key={`${p}:${url.search}`} slug={academy.slug} signedIn={Boolean(userId)} />;
   } else if (academy) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
@@ -181,10 +182,8 @@ function MoreRooms({ path }: { path: string }) {
     description = <chatCopy.Copy k="pageDescription" />;
     content = <SupportChatRoom />;
   } else if (p === '/support' || p.startsWith('/support/')) {
-    const key = supportPageTitleKey(supportRoute(p, url.search));
-    title = key ? <deskCopy.Copy k={key} /> : copyText('moreroutes.support');
-    description = copyText('moreroutes.help.requests.and.your.conversation.with.the');
-    content = <Support path={p + url.search} />;
+    // The support desk is drawn on its reading template, with its own title for each of its addresses.
+    volt = <Support path={p + url.search} />;
   } else {
     // A section or a record of one of the six rooms: /mining/workers, /market/:listingId and so on.
     const hit = matchMoreRoute(p);

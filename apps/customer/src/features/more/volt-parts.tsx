@@ -9,6 +9,7 @@ import type { ApiResult } from '../../shared/api';
 import { useFailureWords } from '../../shared/failure-words';
 import type { Resource } from '../../shared/resource';
 import { uiCopy } from '../../shared/ui-copy';
+import { t as copyText } from './copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -102,6 +103,42 @@ export function ScrollTable({ label, headers, children }: { label: string; heade
         </thead>
         <tbody>{children}</tbody>
       </table>
+    </div>
+  );
+}
+
+/** How many rows a read returned of the window asked for, and a larger window while the service's cap allows one. */
+export function KitLimit({
+  count,
+  limit,
+  cap,
+  onChange,
+}: {
+  count: number;
+  limit: number;
+  cap: number;
+  onChange: (limit: number) => void;
+}) {
+  return (
+    <div className="lt-stack">
+      <small className="lt-hint">
+        {copyText('common.showing')}
+        {count}
+        {copyText('common.requested.limit')}
+        {limit}
+        {copyText('common.this.service.publishes.no.continuation.cursor')}
+      </small>
+      {count >= limit && limit < cap ? (
+        <Button tone="secondary" onClick={() => onChange(Math.min(cap, limit + 50))}>
+          {copyText('common.load.a.larger.window')}
+        </Button>
+      ) : count >= cap ? (
+        <small className="lt-hint">
+          {copyText('common.the.published.limit.is')}
+          {cap}
+          {copyText('common.older.rows.cannot.be.requested.here')}
+        </small>
+      ) : null}
     </div>
   );
 }
