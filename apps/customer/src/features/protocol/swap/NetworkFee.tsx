@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import type { ProtocolSwapFees, ProtocolSwapToken } from '@intafaced/contracts/protocol-swap';
-import { formatAsOf } from '@intafaced/ui';
-import { Failure, Field } from '../../../shared/ui';
+import { Field, formatAsOf } from '@intafaced/ui/lit';
+import { Failure } from '../../../shared/failure';
 import { usePreferences } from '../../../shared/preferences';
 import type { Resource } from '../../../shared/resource';
 import { swapCopy } from './copy';
@@ -65,7 +65,7 @@ export function NetworkFee({
   const time = ready ? (formatAsOf(ready.asOf, { locale: language, now: Date.now() }) ?? ready.asOf) : '';
   return (
     <div data-swap-fee>
-      <div role="radiogroup" aria-label={t('networkFee')} className="protocol-actions">
+      <div role="radiogroup" aria-label={t('networkFee')} className="lt-actions">
         {[...FEE_LEVELS, 'custom' as const].map((entry) => {
           const level = ready && entry !== 'custom' ? ready.levels[entry] : null;
           const hint =
@@ -80,9 +80,9 @@ export function NetworkFee({
                   ? t('feeNotRead')
                   : t('feeReading');
           return (
-            <label key={entry} className="field field--check">
+            <label key={entry} className="lt-field">
               <input type="radio" name="swap-fee" value={entry} checked={choice === entry} onChange={() => onChoice(entry)} />
-              <span>{t(`fee_${entry}`)}</span> <small className="muted numeric">{hint}</small>
+              <span>{t(`fee_${entry}`)}</span> <small>{hint}</small>
             </label>
           );
         })}
@@ -102,10 +102,10 @@ export function NetworkFee({
         />
       )}
       {fees.status === 'failed' && <Failure result={fees.failure} retry={retry} />}
-      {ready && <p className="muted">{t('feeFrom', { blocks: String(ready.blocks), asOf: time })}</p>}
+      {ready && <p className="lt-hint">{t('feeFrom', { blocks: String(ready.blocks), asOf: time })}</p>}
       {refusal && <p role="alert">{refusal}</p>}
       {payIn && (
-        <label className="field">
+        <label className="lt-field">
           <span id={payInId}>{t('payIn')}</span>
           <select value={payIn.value} onChange={(event) => payIn.onChange(event.target.value)} aria-labelledby={payInId}>
             <option value={NATIVE}>{t('payInNative')}</option>
@@ -120,14 +120,14 @@ export function NetworkFee({
       {payIn?.refusal && <p role="alert">{payIn.refusal}</p>}
       {tokenFee?.status === 'ready' ? (
         <>
-          <p className="numeric" data-testid="fee-line">
+          <p data-testid="fee-line">
             {t('feeInToken', {
               charge: formatUnits(BigInt(tokenFee.quote.charge), tokenFee.token.decimals, tokenFee.token.decimals),
               token: tokenFee.token.name,
               markup: bpsToPercent(tokenFee.quote.markupBps),
             })}
           </p>
-          <p className="muted numeric" data-testid="fee-token-basis">
+          <p className="lt-hint" data-testid="fee-token-basis">
             {t('feeInTokenBasis', {
               gas: formatUnits(BigInt(tokenFee.quote.gasWei), 18, 18),
               limit: tokenFee.quote.gasLimit,

@@ -354,7 +354,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/uc/paydividends': { template: 'record-list' },
   '/ops': 'operator',
   '/platform': 'operator',
-  '/dex': { template: 'desk' },
+  '/dex': { template: 'desk', migrated: { file: 'features/protocol/swap/SwapForm.tsx' } },
   '/dex/pools': { template: 'record-list' },
   '/dex/pools/new': { template: 'flow' },
   '/dex/pools/:poolId': { template: 'monitor' },
