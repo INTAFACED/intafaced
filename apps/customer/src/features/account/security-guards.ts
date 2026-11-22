@@ -4,12 +4,11 @@ import {
   credentialIdSchema as credentialId,
   credentialReference,
   passkeySchema as passkey,
-  totpSetupSchema as setupResponse,
 } from '@intafaced/contracts/identity-account-room';
 import type { ApiResult } from '../../shared/api';
 import type { SecurityJournal, SecurityKind } from './security-journal';
 
-export { credentialBytes, credentialId, credentialReference, setupResponse };
+export { credentialBytes, credentialId, credentialReference };
 export {
   finishSecurity,
   prepareSecurity,

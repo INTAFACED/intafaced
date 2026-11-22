@@ -27,39 +27,21 @@ import { SecurityLockError } from './auth/security-lock.js';
 import { toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
 import { SocialError, type SocialSignin } from './social/social-signin.js';
 import { userCopy } from './user-copy.js';
-
-const methodsOutput = z.object({
-  password: z.boolean(),
-  emailCode: z.object({ on: z.boolean(), address: z.string().nullable(), proved: z.boolean() }),
-  passkeys: z.number().int(),
-  wallets: z.array(z.object({ address: z.string(), linkedAt: z.string() })),
-  providers: z.array(z.string()),
-  phone: z.string().nullable(),
-});
-
-/** A wallet's signed answer, for linking it here and for signing in with it (`auth.walletSignIn`): one shape for both. */
-export const walletAnswerFields = {
-  flowId: z.string().guid(),
-  message: z.string().min(1).max(2000),
-  signature: z.string().min(1).max(4000),
-};
-const walletAnswer = z.object(walletAnswerFields).strict();
-/** The wallet asking for a message to sign, to link it or to sign in with it. */
-export const walletChallengeInput = z
-  .object({
-    address: z.string().min(1).max(64),
-    chainId: z
-      .number()
-      .int()
-      .positive()
-      .max(2 ** 53 - 1),
-    origin: z.string().max(256).optional(),
-  })
-  .strict();
-export const walletChallengeOutput = z.object({ flowId: z.string(), message: z.string(), expiresAt: z.string() });
-const clientRequestId = z.string().min(1).max(128);
-const stepUpApprovalId = z.string().min(1).max(128).nullish();
-const phone = z.string().regex(/^\+[1-9][0-9]{6,14}$/);
+import {
+  methodsOutput,
+  clientRequestId,
+  stepUpApprovalId,
+  walletAnswerFields,
+  walletChallengeInput,
+  walletChallengeOutput,
+} from '@intafaced/contracts/identity-call-schemas';
+import { IDENTITY_SIGNIN_METHODS } from '@intafaced/contracts/identity-signin-methods-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
+import { IDENTITY_LINK_SIGNIN_METHOD } from '@intafaced/contracts/identity-link-signin-method-procedures';
+import { IDENTITY_UNLINK_SIGNIN_METHOD } from '@intafaced/contracts/identity-unlink-signin-method-procedures';
+import { IDENTITY_WALLET_LINK_CHALLENGE } from '@intafaced/contracts/identity-wallet-link-challenge-procedures';
+import { IDENTITY_LINK_PROVIDER_START } from '@intafaced/contracts/identity-link-provider-start-procedures';
 
 /** A refused sign-in method change as the wire answer, or null for any other error. The code travels in `cause.code`. */
 export function signinMethodTrpc(err: unknown): TRPCError | null {
@@ -111,22 +93,22 @@ export function createSigninMethodsRouter(
   const requireLink = (principal: Parameters<SecurityStepUp['require']>[0], method: string, request: string, approval?: string | null) =>
     stepUp.require(principal, 'identity.step_up.link_method', { method, clientRequestId: request }, approval);
   return router({
-    signinMethods: scopedProcedure('identity:read')
-      .input(z.object({}).strict().optional())
-      .output(methodsOutput)
-      .query(async ({ ctx }) => {
+    signinMethods: mountRecord(
+      IDENTITY_SIGNIN_METHODS,
+      async ({ ctx }) => {
         try {
           return await listSigninMethods(sql, ctx.principal.userId);
         } catch (err) {
           return signinMethodTrpcError(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
 
     /** The message a wallet signs to be linked: single use, for this account and this wallet only. */
-    walletLinkChallenge: scopedProcedure('identity:write')
-      .input(walletChallengeInput)
-      .output(walletChallengeOutput)
-      .mutation(async ({ ctx, input }) => {
+    walletLinkChallenge: mountRecord(
+      IDENTITY_WALLET_LINK_CHALLENGE,
+      async ({ ctx, input }) => {
         try {
           return await startWalletChallenge(sql, options.wallet, {
             purpose: 'link',
@@ -138,25 +120,13 @@ export function createSigninMethodsRouter(
         } catch (err) {
           return signinMethodTrpcError(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
 
-    linkSigninMethod: scopedProcedure('identity:write')
-      .input(
-        z
-          .object({
-            method: z.string().min(1).max(64),
-            clientRequestId,
-            stepUpApprovalId,
-            password: z.string().max(1024).optional(),
-            phone: phone.optional(),
-            /** The six-digit code texted to `phone`. Without it, a phone link texts one. */
-            code: z.string().max(16).optional(),
-            wallet: walletAnswer.optional(),
-          })
-          .strict(),
-      )
-      .output(methodsOutput)
-      .mutation(async ({ ctx, input }): Promise<SigninMethods> => {
+    linkSigninMethod: mountRecord(
+      IDENTITY_LINK_SIGNIN_METHOD,
+      async ({ ctx, input }): Promise<SigninMethods> => {
         try {
           const method = parseSigninMethod(input.method);
           const userId = ctx.principal.userId;
@@ -192,12 +162,13 @@ export function createSigninMethodsRouter(
         } catch (err) {
           return signinMethodTrpcError(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
 
-    unlinkSigninMethod: scopedProcedure('identity:write')
-      .input(z.object({ method: z.string().min(1).max(64), clientRequestId, stepUpApprovalId }).strict())
-      .output(methodsOutput)
-      .mutation(async ({ ctx, input }) => {
+    unlinkSigninMethod: mountRecord(
+      IDENTITY_UNLINK_SIGNIN_METHOD,
+      async ({ ctx, input }) => {
         try {
           const method = parseSigninMethod(input.method);
           // The last way in is refused before the step-up, so it spends no confirmation.
@@ -212,13 +183,14 @@ export function createSigninMethodsRouter(
         } catch (err) {
           return signinMethodTrpcError(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
 
     /** Link a provider account. With no provider registered this answers the allowlisted `idp.social`. */
-    linkProviderStart: scopedProcedure('identity:write')
-      .input(z.object({ provider: z.string().regex(/^[a-z0-9-]{1,32}$/) }).strict())
-      .output(z.object({ provider: z.string(), authorizationUrl: z.string(), expiresAt: z.string() }).strict())
-      .mutation(async ({ ctx, input }) => {
+    linkProviderStart: mountRecord(
+      IDENTITY_LINK_PROVIDER_START,
+      async ({ ctx, input }) => {
         try {
           if (!options.social) {
             throw new SocialError(
@@ -231,7 +203,9 @@ export function createSigninMethodsRouter(
         } catch (err) {
           return signinMethodTrpcError(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
 
     /**
      * Link a provider account, back from the provider: the security step-up first (it binds `social:<provider>`), so a
@@ -270,3 +244,4 @@ export function createSigninMethodsRouter(
       }),
   });
 }
+export { walletAnswerFields, walletChallengeInput, walletChallengeOutput };

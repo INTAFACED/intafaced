@@ -1,12 +1,12 @@
 // hand-declared-ok: the accountClosure answers are declared in svc-identity, not in packages/contracts yet
 import { z } from 'zod';
 
-export const closureBlocker = z.object({ code: z.string(), count: z.number().int() });
-export const closureBalance = z.object({ assetId: z.string(), amount: z.string() });
+const closureBlocker = z.object({ code: z.string(), count: z.number().int() });
+const closureBalance = z.object({ assetId: z.string(), amount: z.string() });
 export const closureCheck = z.object({ blockers: z.array(closureBlocker), balances: z.array(closureBalance) });
 export type ClosureCheck = z.infer<typeof closureCheck>;
 
-export const closureView = z.object({
+const closureView = z.object({
   id: z.string().guid(),
   status: z.enum(['requested', 'cancelled', 'blocked', 'closed']),
   requestedAt: z.string(),
