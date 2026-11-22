@@ -90,6 +90,59 @@ fn not_ported(slice: Slice) -> Response {
     }
 }
 
+const RUN_DUE_TRANSFERS: &str = "/internal/jobs/run-due-transfers";
+
+/// A thrown error that is no `BankError`: Fastify's 500 with its message.
+fn thrown(message: &str) -> Response {
+    Response {
+        status: 500,
+        body: Json::obj([
+            ("statusCode", Json::int(500)),
+            ("error", Json::str("Internal Server Error")),
+            ("message", Json::str(message)),
+        ])
+        .compact(),
+    }
+}
+
+/// `POST /internal/jobs/run-due-transfers`: past the signature, 503 `bank.transfers_disabled` when standing orders are
+/// off (so the difference between 401 and 503 tells an unsigned caller nothing), else one pass of the owner's batch.
+fn run_due_transfers(door: &BankDoor) -> Response {
+    let w = &door.transfers;
+    if !w.settings.scheduled_transfers {
+        return reply(
+            503,
+            "scheduled transfers are disabled",
+            "bank.transfers_disabled",
+        );
+    }
+    let custody = door.partner.custody(&door.store);
+    let d = crate::transfers::Deps {
+        store: &door.store,
+        ledger: door.spaces.ledger.as_ref(),
+        custody: &custody,
+        partner: &door.partner,
+        spaces: &door.spaces,
+        w,
+        now: door.now(),
+    };
+    #[allow(clippy::cast_precision_loss, reason = "a batch size of at most 10000")]
+    let limit = w.settings.batch_size.map(|b| b as f64);
+    match crate::transfers::schedules::run_due(
+        &d,
+        limit,
+        crate::transfers::calendar::MAX_CATCH_UP_PER_PASS,
+    ) {
+        Ok(report) => Response {
+            status: 200,
+            body: report.json().compact(),
+        },
+        Err(crate::errors::Refusal::Bank(e)) => job_refuse(&e),
+        Err(crate::errors::Refusal::Trpc(e)) => thrown(&e.message),
+        Err(crate::errors::Refusal::Other(m)) => thrown(&m),
+    }
+}
+
 /// `requireService`: the signing service, when it may call a job door (`jobCaller`: never svc-edge).
 fn job_caller(door: &BankDoor, req: &Request<'_>) -> Option<String> {
     door.service(req, BodyBind::Require)
@@ -114,6 +167,9 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         return Some(unauthenticated());
     };
     if let Some(j) = job {
+        if j.path == RUN_DUE_TRANSFERS {
+            return Some(run_due_transfers(door));
+        }
         return Some(not_ported(j.slice));
     }
     if caller != "svc-ops" {

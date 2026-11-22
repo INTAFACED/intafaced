@@ -10,6 +10,7 @@
 pub mod calendar;
 pub mod holds;
 pub mod limits;
+pub mod moves;
 pub mod notices;
 pub mod personal;
 pub mod ports;
@@ -27,7 +28,7 @@ use ports::{Bus, ExtraControls, NoBus, NoIdentity, PartyHandles, RecipientState,
 
 /// The owner's values the slice reads, each as `index.ts` hands it in; blank is `None`. Each is checked at start-up by
 /// `env.rs`, and parsed where it is used, so a refusal names it as the TypeScript's does.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Settings {
     /// `BANK_PERSONAL_SEND_REVIEW_JSON`.
     pub send_review: Option<String>,
@@ -41,12 +42,29 @@ pub struct Settings {
     pub step_up_required: bool,
     /// `BANK_BLOCKED_REGION_NOTICE`.
     pub blocked_region_notice: Option<String>,
-    /// `SCHEDULED_TRANSFERS_ENABLED`.
+    /// `SCHEDULED_TRANSFERS_ENABLED`: on unless the owner turns it off (`env.ts`'s default).
     pub scheduled_transfers: bool,
     /// `TRANSFER_BATCH_SIZE`.
     pub batch_size: Option<i64>,
     /// `SERVICE_NAME`: the producer each notice names.
     pub producer: String,
+}
+
+impl Default for Settings {
+    /// Every value blank, and standing orders running, as `env.ts` defaults `SCHEDULED_TRANSFERS_ENABLED` to on.
+    fn default() -> Settings {
+        Settings {
+            send_review: None,
+            remind_policy: None,
+            stranger_hold_days: None,
+            schedule_edit_cutoff: None,
+            step_up_required: false,
+            blocked_region_notice: None,
+            scheduled_transfers: true,
+            batch_size: None,
+            producer: String::new(),
+        }
+    }
 }
 
 /// `ActionApprovalConsumer`: svc-identity's consume of a person's own approval.
