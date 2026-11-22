@@ -1580,3 +1580,18 @@ button.lt-row-link {
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
 }
+
+/* A group of controls under one name (a fieldset and its legend), with no box of its own. */
+.lt-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.lt-group > legend {
+  padding: 0;
+  margin-block-end: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
