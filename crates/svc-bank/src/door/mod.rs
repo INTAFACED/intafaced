@@ -16,11 +16,15 @@
 //! 3. the input, read only now and checked by the call's zod schema;
 //! 4. then the call's slice answers.
 //!
+//! The job doors and svc-ops' reads (`jobs`) are answered after the REST doors and before tRPC, as `index.ts` mounts
+//! them beside it.
+//!
 //! Every call is in [`calls::CALLS`], generated from the TypeScript router by running its middlewares on probe callers
 //! (`scripts/record-door.mjs`). `tests/wire_replay.rs` holds the door to the TypeScript's recorded answers.
 
 pub mod calls;
 pub mod inputs;
+pub mod jobs;
 pub mod rest;
 
 use std::collections::BTreeMap;
@@ -34,6 +38,8 @@ use service_kit::schema::Value;
 use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
+
+use crate::db::Store;
 
 pub use calls::Slice;
 
@@ -207,6 +213,8 @@ pub struct DoorConfig {
     pub env: BTreeMap<String, String>,
     /// The clock.
     pub now: fn() -> Instant,
+    /// The `bank` schema, opened once by the binary (`db::open`).
+    pub store: Store,
 }
 
 pub struct BankDoor {
@@ -218,6 +226,7 @@ pub struct BankDoor {
     now: fn() -> Instant,
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
+    store: Store,
 }
 
 /// The system clock.
@@ -258,7 +267,23 @@ impl BankDoor {
             now: config.now,
             requests: RequestIds::new(),
             edge_key: None,
+            store: config.store,
         })
+    }
+
+    /// The database every slice reads and writes through.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// `sql.end()`: closes the pool once the server has stopped.
+    pub fn end(&self) {
+        self.store.end();
+    }
+
+    /// The clock the door reads.
+    pub fn now(&self) -> Instant {
+        (self.now)()
     }
 
     /// Also believes principals the edge signed with its key (`EDGE_PRINCIPAL_PUBLIC_KEY`).
@@ -289,6 +314,9 @@ impl BankDoor {
         if let Some(res) = rest::answer(self, req) {
             return res;
         }
+        if let Some(res) = jobs::answer(self, req) {
+            return res;
+        }
         let Some((path, query)) = trpc::route(req.url) else {
             return trpc::route_not_found(req);
         };
@@ -299,7 +327,7 @@ impl BankDoor {
     }
 
     /// The verified service on a request, binding the body as `bind` says.
-    fn service(&self, req: &Request<'_>, bind: BodyBind) -> Option<String> {
+    pub(crate) fn service(&self, req: &Request<'_>, bind: BodyBind) -> Option<String> {
         self.services
             .service(req, bind, (self.now)().0.div_euclid(1000))
     }
@@ -447,8 +475,8 @@ impl Door for BankDoor {
         BankDoor::handle_as(self, req, request_id)
     }
 
-    /// `/health` is the server's own `{ ok, service }`, as `index.ts` answers it; `/ready` is the store's (slice
-    /// `store`).
+    /// `/health` is the server's own `{ ok, service }`, as `index.ts` answers it, and `/ready` the app's fixed body,
+    /// read once at boot (`ready::body`).
     fn status(&self, _req: &Request<'_>) -> Option<Response> {
         None
     }
