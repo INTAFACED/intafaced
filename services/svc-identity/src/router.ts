@@ -159,7 +159,6 @@ import {
   lapseOutput,
   rebindForCustomer,
 } from '@intafaced/contracts/identity-call-schemas';
-import { authenticationOptions, registrationOptions } from '@intafaced/contracts/identity-call-schemas';
 import {
   IDENTITY_AUTH_CHALLENGE,
   IDENTITY_AUTH_DEVICE_APPROVE,
@@ -231,7 +230,11 @@ import {
   IDENTITY_AFFILIATES_WITHDRAW_REBIND,
   IDENTITY_AFFILIATES_SHARE_TAG_HIT,
 } from '@intafaced/contracts/identity-affiliates-procedures';
-import { IDENTITY_WEBAUTHN_REMOVE } from '@intafaced/contracts/identity-webauthn-procedures';
+import {
+  IDENTITY_WEBAUTHN_REMOVE,
+  IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+} from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
 import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
 
@@ -2355,14 +2358,18 @@ export function createIdentityRouter(
      * the same session tokens as password login, with `mfa: true`.
      */
     webauthn: router({
-      registerOptions: protectedProcedure.output(registrationOptions).mutation(async ({ ctx }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
-        } catch (err) {
-          throw toFactorError(err);
-        }
-      }),
+      registerOptions: mountRecord(
+        IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+        async ({ ctx }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
+          } catch (err) {
+            throw toFactorError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       registerVerify: protectedProcedure
         .input(
@@ -2388,17 +2395,18 @@ export function createIdentityRouter(
           }
         }),
 
-      authOptions: publicProcedure
-        .input(z.object({ identifier: z.string().min(1) }))
-        .output(authenticationOptions)
-        .mutation(async ({ input }) => {
+      authOptions: mountRecord(
+        IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+        async ({ input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
             return await auth.startWebauthnAuthentication(input.identifier);
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       authVerify: publicProcedure
         .input(

@@ -1022,7 +1022,11 @@ import { IDENTITY_WAITLIST_WAVES_LIST, IDENTITY_WAITLIST_WAVES_RELEASE, IDENTITY
 
 import { IDENTITY_WALLET_LINK_CHALLENGE } from './identity-wallet-link-challenge-procedures.js';
 
-import { IDENTITY_WEBAUTHN_REMOVE } from './identity-webauthn-procedures.js';
+import {
+  IDENTITY_WEBAUTHN_REMOVE,
+  IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+} from './identity-webauthn-procedures.js';
 
 import {
   INDEXER_EXPLORER_BLOCKS_LIST,
@@ -3028,7 +3032,11 @@ const part_identity_waitlist_procedures: readonly ProcedureRecord[] = [
 
 const part_identity_wallet_link_challenge_procedures: readonly ProcedureRecord[] = [IDENTITY_WALLET_LINK_CHALLENGE];
 
-const part_identity_webauthn_procedures: readonly ProcedureRecord[] = [IDENTITY_WEBAUTHN_REMOVE];
+const part_identity_webauthn_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_WEBAUTHN_REMOVE,
+  IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+];
 
 const part_indexer_procedures: readonly ProcedureRecord[] = [
   INDEXER_EXPLORER_BLOCKS_LIST,
