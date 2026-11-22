@@ -268,7 +268,9 @@ const inputArg = (s) =>
     ? s.inputProp?.value
     : s.shape === 'ops-entry'
       ? s.dispatchers[0].arguments[4]
-      : s.node.arguments[INPUT_AT[s.shape] ?? 2];
+      : s.shape === 'write-spec'
+        ? undefined // the spec's `input` builds it from the form; the record's input type holds it at the typecheck
+        : s.node.arguments[INPUT_AT[s.shape] ?? 2];
 function noInput(s) {
   const a = inputArg(s);
   return !a || (a.type === 'Identifier' && a.name === 'undefined') || (a.type === 'ObjectExpression' && a.properties.length === 0);
@@ -471,7 +473,7 @@ function tables(changes, planned, done) {
 
 /** The schema a caller parses the answer with, or undefined. */
 export function schemaArgOf(s) {
-  if (s.shape === 'desk-read' || s.shape === 'ops-entry') return undefined;
+  if (s.shape === 'desk-read' || s.shape === 'ops-entry' || s.shape === 'write-spec') return undefined;
   const a = s.node.arguments;
   if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
   if (s.shape === 'payCall') return s.reader ? undefined : a[4]?.arguments?.[0];
@@ -614,6 +616,12 @@ export function rewriteSite(changes, s, name, spec, takesNone) {
     f.tables ??= new Map();
     if (!f.tables.has(s.table)) f.tables.set(s.table, { site: s, moved: [] });
     f.tables.get(s.table).moved.push({ s, edit, takesNone });
+    return;
+  }
+  if (s.shape === 'write-spec') {
+    // `procedure: 'x.y'` becomes `record: RECORD`: the dialog sends a spec by its record (features/money/write-flow.ts).
+    changes.edit(s.file, n.start, n.end, `record: ${name}`);
+    changes.imp(s.file, spec, name);
     return;
   }
   // One value of a call named by a `? :` or a closed set: written once every value has its record (`fanIn`).
