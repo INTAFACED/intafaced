@@ -100,7 +100,7 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
           <Field label={t('presenceZone')} value={timezone} onChange={(event) => setTimezone(event.target.value)} />
           {windows.map((row, index) => (
             <div className="lt-actions" key={index} data-testid="presence-window">
-              <Select label={t('presenceDay')} value={row.day} onChange={(event) => change(index, { day: Number(event.target.value) })}>
+              <Select label={t('presenceDay')} value={row.day} onChange={(value) => change(index, { day: Number(value) })}>
                 {DAYS.map((day) => (
                   <option key={day} value={day}>
                     {t(dayKey(day))}

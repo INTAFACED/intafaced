@@ -121,7 +121,7 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                     onChange={(event) => setAsset(event.target.value.toUpperCase())}
                     maxLength={16}
                   />
-                  <Select label={payCopy.t('fiatCurrency')} value={fiat} onChange={(event) => setFiat(event.target.value)}>
+                  <Select label={payCopy.t('fiatCurrency')} value={fiat} onChange={(value) => setFiat(value)}>
                     <option value="">{payCopy.t('allReturnedCurrencies')}</option>
                     {currencies.resource.status === 'ready' &&
                       currencies.resource.data.map((currency) => (
@@ -130,12 +130,12 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                         </option>
                       ))}
                   </Select>
-                  <Select label={payCopy.t('makerSide')} value={side} onChange={(event) => setSide(event.target.value)}>
+                  <Select label={payCopy.t('makerSide')} value={side} onChange={(value) => setSide(value)}>
                     <option value="">{payCopy.t('buyAndSell')}</option>
                     <option value="sell">{payCopy.t('sellingAsset')}</option>
                     <option value="buy">{payCopy.t('buyingAsset')}</option>
                   </Select>
-                  <Select label={p2pDepth.t('filterMethod')} value={method} onChange={(event) => setMethod(event.target.value)}>
+                  <Select label={p2pDepth.t('filterMethod')} value={method} onChange={(value) => setMethod(value)}>
                     <option value="">{p2pDepth.t('anyMethod')}</option>
                     {registeredMethods.resource.status === 'ready' &&
                       [...new Map(registeredMethods.resource.data.map((entry) => [entry.methodId, entry.label])).entries()].map(
@@ -153,11 +153,7 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                     onChange={(event) => setFiatAmount(event.target.value)}
                     maxLength={40}
                   />
-                  <Select
-                    label={t('sort')}
-                    value={sort}
-                    onChange={(event) => setSort(event.target.value === 'price_desc' ? 'price_desc' : 'price_asc')}
-                  >
+                  <Select label={t('sort')} value={sort} onChange={(value) => setSort(value === 'price_desc' ? 'price_desc' : 'price_asc')}>
                     <option value="price_asc">{t('sortPriceAsc')}</option>
                     <option value="price_desc">{t('sortPriceDesc')}</option>
                   </Select>

@@ -230,7 +230,7 @@ function GlobalDetailsByCurrency({ read }: { read: { resource: Resource<{ curren
   const chosen = rows.find((row) => row.currency === currency);
   return (
     <div className="lt-review" data-testid="receive-details">
-      <Select label={t('receiveCurrency')} value={currency} onChange={(event) => setCurrency(event.target.value)}>
+      <Select label={t('receiveCurrency')} value={currency} onChange={(value) => setCurrency(value)}>
         <option value="">{t('receiveChoose')}</option>
         {rows.map((row) => (
           <option key={row.currency} value={row.currency}>

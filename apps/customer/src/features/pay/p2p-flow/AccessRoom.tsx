@@ -207,7 +207,7 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
           >
             <h3 id={formId}>{t('appealForm')}</h3>
             <p className="lt-hint">{t('appealOnce')}</p>
-            <Select label={t('appealOrder')} value={tradeId} onChange={(event) => setTradeId(event.target.value)} required>
+            <Select label={t('appealOrder')} value={tradeId} onChange={(value) => setTradeId(value)} required>
               <option value="">{t('appealPick')}</option>
               {list.map((trade) => (
                 <option key={trade.id} value={trade.id}>
@@ -219,13 +219,7 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
                 </option>
               ))}
             </Select>
-            <TextArea
-              label={t('appealReason')}
-              value={reason}
-              maxLength={2000}
-              required
-              onChange={(event) => setReason(event.target.value)}
-            />
+            <TextArea label={t('appealReason')} value={reason} maxLength={2000} required onChange={(value) => setReason(value)} />
             <Button type="submit" tone="primary" disabled={!ready}>
               {busy ? t('appealSending') : t('appealSend')}
             </Button>

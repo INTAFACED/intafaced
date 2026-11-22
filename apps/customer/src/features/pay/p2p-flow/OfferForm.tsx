@@ -402,7 +402,7 @@ function Fields({
               label={t('fieldFiat')}
               error={shown('fiatCurrency')}
               value={values.fiatCurrency}
-              onChange={(event) => set('fiatCurrency', event.target.value)}
+              onChange={(value) => set('fiatCurrency', value)}
             >
               <option value="">{t('fieldFiatPick')}</option>
               {fiat.resource.data.map((currency) => (
@@ -490,7 +490,7 @@ function Fields({
           error={shown('terms')}
           value={values.terms}
           maxLength={4100}
-          onChange={(event) => set('terms', event.target.value)}
+          onChange={(value) => set('terms', value)}
         />
       </fieldset>
       {mode === 'edit' ? (
