@@ -284,8 +284,9 @@ export const components = {
   Button: 'tone primary (metal, one per view) | secondary (dark pill) | quiet',
   ActionKey: 'Icon key with caption (Add, Send, Buy); `lit` for the one key that is the light',
   Switch: 'Glass disc knob toggle',
-  Segmented: 'Ranges, Buy/Sell, Simple/Pro',
-  ToggleChips: "A list's filter chips: a named group of pressed buttons, one on at a time, optionally pressed off",
+  Segmented: 'Ranges, Buy/Sell, Simple/Pro: a named group of pressed buttons, one pressed, the arrow keys moving focus between them',
+  ToggleChips:
+    "A list's filter chips: a named group of pressed buttons, one on at a time, optionally pressed off; the arrow keys move between them",
   Field: 'Input with label, hint and typed error; a decorative mark before the text (the @ of a handle) and a control after it (Paste)',
   SelectField: 'A labelled native list to pick from, in the field look',
   TextField: 'A labelled box of several lines, with hint and typed error, in the field look',
@@ -316,7 +317,10 @@ export const components = {
   KeyValue: '(B2) Label and value rows (review, receipt, details)',
   StatusChip: '(B2) Money status: pending, failed, done, unknown, with words not colour alone',
   Tabs: "(B2) A door's room row",
-  SectionTabs: "(B2) A room's own sections as pressed buttons, the Tabs row for sections the room switches itself",
+  SectionTabs:
+    "(B2) A room's own sections as pressed buttons, the Tabs row for sections the room switches itself; the arrow keys move between them",
+  RoomBar:
+    "(B2) A room's own bar (an asset's name, price and sections), drawn first by the frame and staying under the top bar's measured bottom edge as the page scrolls",
   Disclosure: '(B2) Sections that fold: a heading button each, the open body a region named by it',
   Checkbox: '(B2) A tick with its words on one row',
   LineChart: '(B2) Price or value over time',

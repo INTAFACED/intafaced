@@ -94,7 +94,7 @@ fn not_ported(slice: Slice) -> Response {
 const RUN_DUE_TRANSFERS: &str = "/internal/jobs/run-due-transfers";
 
 /// A thrown error that is no `BankError`: Fastify's 500 with its message.
-fn thrown(message: &str) -> Response {
+pub(crate) fn thrown(message: &str) -> Response {
     Response {
         status: 500,
         body: Json::obj([
@@ -141,7 +141,7 @@ const RESUME_PENDING_EARN: &str = "/internal/jobs/resume-pending-earn";
 
 /// A job's work failed as Fastify answers a throw: a `BankError` with its code (Fastify's 500 carries an error's
 /// `code`), anything else with its message alone.
-fn thrown_refusal(r: crate::errors::Refusal) -> Response {
+pub(crate) fn thrown_refusal(r: crate::errors::Refusal) -> Response {
     match r {
         crate::errors::Refusal::Bank(e) => {
             fastify_error(500, e.row.code, "Internal Server Error", &e.message)
@@ -173,7 +173,7 @@ fn accrue_interest(door: &BankDoor) -> Response {
 }
 
 /// `bodyLimit`: the body's `limit` when it is a number, else none.
-fn body_limit(body: &Value) -> Option<f64> {
+pub(crate) fn body_limit(body: &Value) -> Option<f64> {
     body.get("limit").as_number()
 }
 
@@ -223,7 +223,7 @@ const RUN_RISK_SWEEP: &str = "/internal/jobs/run-risk-sweep";
 const RESUME_PENDING_LOANS: &str = "/internal/jobs/resume-pending-loans";
 const RECOVER_LOAN_REPAYMENTS: &str = "/internal/jobs/recover-loan-repayments";
 
-fn ok(body: &Json) -> Response {
+pub(crate) fn ok(body: &Json) -> Response {
     Response {
         status: 200,
         body: body.compact(),
@@ -231,7 +231,7 @@ fn ok(body: &Json) -> Response {
 }
 
 /// A job's work that `sendBankJobRefuse` wraps: a `BankError` is its 400, anything else Fastify's 500.
-fn job_failed(r: crate::errors::Refusal) -> Response {
+pub(crate) fn job_failed(r: crate::errors::Refusal) -> Response {
     match r {
         crate::errors::Refusal::Bank(e) => job_refuse(&e),
         r => thrown_refusal(r),
@@ -377,6 +377,14 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         }
         if j.slice == Slice::Loans {
             return Some(loan_job(door, j.path, &body));
+        }
+        if j.slice == Slice::Automations {
+            return Some(
+                door.automations_deps(door.now(), |d| {
+                    crate::automations::router::job(d, j.path, &body)
+                })
+                .unwrap_or_else(|| not_ported(Slice::Automations)),
+            );
         }
         return Some(not_ported(j.slice));
     }

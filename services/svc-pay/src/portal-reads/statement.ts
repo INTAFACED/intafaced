@@ -374,7 +374,7 @@ function ambiguousLine(draft: Draft): Lined {
   };
 }
 
-/** How far a dispute's last event may trail its ledger posting and still name its keys. */
+/** How far a dispute's or refund's event may sit from its ledger posting and still name its keys. */
 const STATEMENT_DISPUTE_CLOCK_MARGIN_MS = 15 * 60_000;
 
 /**
@@ -474,13 +474,19 @@ async function readStatementWindow(
          OR (sent_at >= ${from} AND sent_at < ${to})
          OR (failed_at >= ${from} AND failed_at < ${to})
        )`;
+  // A refund's reversal posts when the rail refuses it, which can be long after
+  // the refund itself posted. So a refund is a candidate when its posting or its
+  // reversal was recorded in the window, widened by the clock margin both ways:
+  // each event is stamped at its transaction's start, before or after the
+  // ledger's own clock reads. Each transaction's own posting time decides the window.
   const refunds = await sql<Array<{ payment_id: string; refund_id: string; currency: string }>>`
-    SELECT e.payment_id, e.payload->>'refundId' AS refund_id, p.currency
+    SELECT DISTINCT e.payment_id, e.payload->>'refundId' AS refund_id, p.currency
       FROM pay.payment_events e
       JOIN pay.payments p ON p.id = e.payment_id
-     WHERE p.merchant_id = ${input.merchantId} AND e.event = 'refund.posted'
+     WHERE p.merchant_id = ${input.merchantId} AND e.event IN ('refund.posted', 'refund.reversed')
        AND e.payload->>'refundId' IS NOT NULL
-       AND e.ts >= ${from} AND e.ts < ${to}`;
+       AND e.ts >= ${new Date(from.getTime() - STATEMENT_DISPUTE_CLOCK_MARGIN_MS)}
+       AND e.ts < ${new Date(to.getTime() + STATEMENT_DISPUTE_CLOCK_MARGIN_MS)}`;
   // A dispute's outcome (won, shortfall recovered) can post inside the window
   // long after it opened. So a dispute is a candidate when it opened before `to`
   // and any event of it (opening, outcome, ledger effect) is at or after `from`,
