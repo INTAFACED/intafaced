@@ -147,7 +147,7 @@ function PublishSignal() {
           <EmptyState variant="refused" title={t('You are signed out')} reason={t('Sign in to publish a signal.')} />
         ) : (
           <form
-            className="cb-form"
+            className="lt-stack"
             aria-label={t('Publish a signal')}
             onSubmit={(e) => {
               e.preventDefault();

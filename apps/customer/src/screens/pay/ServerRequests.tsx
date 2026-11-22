@@ -120,7 +120,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
       <div className="pay-block" data-testid="request-sent" data-request-id={sent.requestId}>
         <h3 className="pay-section-title">{t('sentTitle', { handle: who(sent.payerHandle, sent.payerUserId) })}</h3>
         <p className="lt-hint">{t('sentBody')}</p>
-        <div className="pay-row-actions">
+        <div className="lt-actions">
           <Button variant="primary" size={40} nativeButton={false} render={<a href={`/pay/request/${sent.requestId}`} />}>
             {t('sentOpen')}
           </Button>
@@ -172,7 +172,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
             {problem}
           </p>
         ) : null}
-        <div className="pay-row-actions">
+        <div className="lt-actions">
           <Button variant="primary" size={48} onClick={() => void send()} disabled={busy} data-testid="request-send">
             {t('reviewSend')}
           </Button>
@@ -598,7 +598,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
       ) : null}
 
       {iPay && open && !confirming && !reporting ? (
-        <div className="pay-row-actions">
+        <div className="lt-actions">
           <Button variant="primary" size={48} onClick={() => setConfirming(true)} disabled={busy} data-testid="request-pay">
             {t('pay', { amount: shownAmount, asset: request.assetId })}
           </Button>
@@ -642,7 +642,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
               </Button>
             </div>
           ) : (
-            <div className="pay-row-actions">
+            <div className="lt-actions">
               <Button variant="primary" size={48} onClick={() => void payNow()} disabled={busy} data-testid="request-pay-confirm">
                 {t('payConfirm')}
               </Button>
@@ -683,7 +683,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
             />
             <span>{t('reportBlock', { handle: payee })}</span>
           </label>
-          <div className="pay-row-actions">
+          <div className="lt-actions">
             <Button variant="primary" size={48} onClick={() => void report()} disabled={busy} data-testid="request-report-send">
               {t('reportSend')}
             </Button>
@@ -710,7 +710,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
               ) : null}
             </>
           ) : null}
-          <div className="pay-row-actions">
+          <div className="lt-actions">
             <Button
               variant="primary"
               size={40}

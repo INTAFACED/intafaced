@@ -224,7 +224,7 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
 
   if (saved) {
     return frame(
-      <div className="cb-form">
+      <div className="lt-stack">
         <p role="status" className="cb-note-body">
           {saved.status === 'signing'
             ? t('Saved. Nothing is bought until your wallet signs the permission.')
@@ -277,7 +277,7 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
   }
 
   return frame(
-    <div className="cb-form">
+    <div className="lt-stack">
       <WalletBar />
       <InfoNote>
         {t(
@@ -286,7 +286,7 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
         )}{' '}
         <TestMark test={status.test} />
       </InfoNote>
-      <fieldset className="cb-form" aria-label={t('Pay with')}>
+      <fieldset className="lt-stack" aria-label={t('Pay with')}>
         <legend className="cb-label">{t('Pay with')}</legend>
         <label className="cb-check">
           <input type="radio" name="recurring-funding" checked={funding === 'venue'} onChange={() => setFunding('venue')} />{' '}
@@ -304,7 +304,7 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
       {rows.map((row, i) => {
         const n = String(i + 1);
         return (
-          <fieldset key={i} className="cb-form" aria-label={t('Coin {n} in the basket', { n })}>
+          <fieldset key={i} className="lt-stack" aria-label={t('Coin {n} in the basket', { n })}>
             <label className="cb-selectfield">
               <span className="cb-label">{t('Coin {n}', { n })}</span>
               <select
@@ -685,7 +685,7 @@ function RecurringShare({ ruleId }: { ruleId: string }) {
   ].join('\n');
   return (
     <PageSection title={basketLine(rule)}>
-      <section role="region" aria-label={t('Recurring buy result')} className="cb-form">
+      <section role="region" aria-label={t('Recurring buy result')} className="lt-stack">
         <KeyValue items={lines} />
         {value === null ? <InfoNote>{t('Value is Not set while a coin in the basket has no price on the venue.')}</InfoNote> : null}
         <TestMark test={rule.venue.test} />

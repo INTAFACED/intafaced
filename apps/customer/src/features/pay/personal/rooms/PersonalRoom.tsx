@@ -89,7 +89,7 @@ function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
               [t('requestStatus'), t('requestStatusBody')],
             ]}
           />
-          <div className="pay-row-actions">
+          <div className="lt-actions">
             <Button variant="secondary" size={40} nativeButton={false} render={<a href={entry.path} />}>
               {t('requestOpen')}
             </Button>
@@ -217,7 +217,7 @@ function ScanRoom({ slice }: { slice: string }) {
 
   return (
     <Frame title={t('scanTitle')} line={t('scanLine')}>
-      <div className="pay-row-actions">
+      <div className="lt-actions">
         <Button
           type="button"
           variant="secondary"

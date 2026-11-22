@@ -103,7 +103,7 @@ export function WaitingForYou() {
                 <p className="lt-hint">{payCopy.t('Waiting reason stranger')}</p>
                 {hold.note ? <p className="lt-hint">{hold.note}</p> : null}
                 <p className="lt-hint">{payCopy.t('Waiting goes back {date}', { date })}</p>
-                <div className="pay-row-actions">
+                <div className="lt-actions">
                   <Button
                     variant="primary"
                     size={40}

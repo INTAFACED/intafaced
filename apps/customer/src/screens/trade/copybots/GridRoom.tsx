@@ -258,7 +258,7 @@ function GridWizard({
   return (
     <form
       aria-label={t('Spot grid')}
-      className="cb-form"
+      className="lt-stack"
       onSubmit={(event) => {
         event.preventDefault();
         create();

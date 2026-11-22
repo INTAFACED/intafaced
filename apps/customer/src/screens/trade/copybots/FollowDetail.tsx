@@ -338,7 +338,7 @@ export function EditLimits({
       onDone,
     );
   return (
-    <section ref={takeFocus} tabIndex={-1} aria-label={t('Edit limits')} className="cb-form">
+    <section ref={takeFocus} tabIndex={-1} aria-label={t('Edit limits')} className="lt-stack">
       {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
       <SizingChoices value={sizing} onChange={setSizing} name={`sizing-${follow.followId}`} />
       <Field label={t('Most per contract ({asset})', { asset })} hint={t('Optional. The most copied into one market.')}>

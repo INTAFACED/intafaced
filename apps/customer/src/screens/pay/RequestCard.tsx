@@ -158,7 +158,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
               {t('copyLinkFailed')}
             </p>
           ) : null}
-          <div className="pay-row-actions">
+          <div className="lt-actions">
             <Button variant="primary" size={40} onClick={() => void copy(made)}>
               <Link2 size={16} aria-hidden="true" />
               {t('copyLink')}
@@ -259,7 +259,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
                 </div>
                 {entry.note ? <div className="pay-list__sub">{entry.note}</div> : null}
                 {shownCode === entry.id ? <QrCode value={absoluteLink(entry.path)} /> : null}
-                <div className="pay-row-actions">
+                <div className="lt-actions">
                   <Button variant="secondary" size={32} nativeButton={false} render={<a href={requestRoomHref(entry.id)} />}>
                     {t('reqDetails')}
                   </Button>
