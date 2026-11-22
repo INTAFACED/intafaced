@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Fold } from '@intafaced/ui/lit';
 import { useDataEnv } from '../../../data/hooks';
 import type { OrderChange } from '../../../features/trade/trade-api';
 import { usePreferences } from '../../../shared/preferences';
@@ -11,7 +12,7 @@ import { dayTime } from './time';
 type State = { status: 'idle' } | { status: 'loading' } | { status: 'failed' } | { status: 'ready'; rows: OrderChange[] };
 
 /**
- * What was changed on one order, read when the person opens it (the page's own disclosure, so it opens in place). An
+ * What was changed on one order, read when the person opens it (the kit's `Fold`, the page's own disclosure, so it opens in place). An
  * unchanged order says so; a failed read says so.
  */
 export function OrderChanges({ orderId, tick }: { orderId: string; tick?: string }) {
@@ -40,8 +41,7 @@ export function OrderChanges({ orderId, tick }: { orderId: string; tick?: string
   const lines = state.status === 'ready' ? state.rows.flatMap((row) => changeLine(row) ?? []) : [];
   const unreadable = state.status === 'ready' ? state.rows.length - lines.length : 0;
   return (
-    <details onToggle={(event) => void load(event.currentTarget.open)}>
-      <summary className="lt-link">{t('Order changes open')}</summary>
+    <Fold title={t('Order changes open')} onOpenChange={(open) => void load(open)}>
       <div className="lt-stack">
         <p className="lt-hint">{t('Order changes title')}</p>
         {state.status === 'loading' ? <p className="lt-hint">{t('Order changes loading')}</p> : null}
@@ -61,6 +61,6 @@ export function OrderChanges({ orderId, tick }: { orderId: string; tick?: string
         ) : null}
         {unreadable > 0 ? <p className="lt-hint">{t('Order changes unreadable')}</p> : null}
       </div>
-    </details>
+    </Fold>
   );
 }
