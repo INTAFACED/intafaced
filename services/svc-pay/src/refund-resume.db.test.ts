@@ -211,4 +211,43 @@ describe('refund resumed after a lost rail reply', { timeout: 30_000 }, () => {
     expect(chain.outboundTransfers()).toHaveLength(1);
     expect((await pay.history(payment.id, 50)).filter((e) => e.event === 'refunded')).toHaveLength(1);
   });
+
+  it('shows a refund reversal inside the statement window', async () => {
+    const { merchant, payment } = await capturedPayment();
+    const options = { refundId: 'statement-late-reversal' };
+
+    crypto.refund = async () => {
+      throw new Error('before send');
+    };
+    await expect(pay.refund(payment.id, amt('4'), options)).rejects.toThrow('before send');
+    // The refund posted before the window opens; only its reversal posts inside it.
+    const from = new Date();
+
+    crypto.refund = async (railRef, amount) =>
+      railFailure({
+        railRef,
+        amount,
+        assetId: 'USDT',
+        failureCode: 'refund.refused',
+        failureReason: 'Refund refused',
+      });
+    await expect(pay.refund(payment.id, amt('4'), options)).rejects.toMatchObject({ code: 'pay.rail_failed' });
+    const post = await ledger.getTxByKey(`payment.refund.reverse:${payment.id}:${options.refundId}`);
+    expect(post).not.toBeNull();
+
+    const page = await pay.listStatement({
+      merchantId: merchant.id,
+      limit: 20,
+      from: from.toISOString(),
+      to: new Date(post!.postedAt.getTime() + 1).toISOString(),
+    });
+    expect(page.items).toContainEqual(
+      expect.objectContaining({
+        kind: 'refund',
+        account: 'clearing',
+        windowNet: '4',
+        ledgerTxId: post!.id,
+      }),
+    );
+  });
 });
