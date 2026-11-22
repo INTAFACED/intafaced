@@ -43,10 +43,12 @@ export const CLASSES = {
   'form-stack': 'lt-stack',
   'bd-stack': 'lt-stack',
   'academy-lms-stack': 'lt-stack',
+  'cb-form': 'lt-stack',
   // A wrapping row of controls.
   actions: 'lt-actions',
   'pp-actions': 'lt-actions',
   'cb-action-row': 'lt-actions',
+  'pay-row-actions': 'lt-actions',
   // Something that did not happen, with its reason and a way on: the kit's refusal box.
   failure: 'lt-refusal',
   // A small secondary line under a control or a figure.
