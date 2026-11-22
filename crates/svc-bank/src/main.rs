@@ -400,7 +400,7 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
             spend_assets: cards::terms::parse_spend_assets(raw("BANK_CARD_SPEND_ASSETS")),
             pin_try_limit: cards::terms::parse_try_limit(raw("BANK_CARD_PIN_TRY_LIMIT")),
             three_ds_try_limit: cards::terms::parse_try_limit(raw("BANK_CARD_3DS_TRY_LIMIT")),
-            dispute_cap: None,
+            dispute_cap: cards::terms::parse_dispute_cap(raw("BANK_CARD_DISPUTE_CAP_JSON"))?,
         },
     })
 }

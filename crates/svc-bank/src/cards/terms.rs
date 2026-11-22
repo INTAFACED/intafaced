@@ -683,6 +683,37 @@ pub fn amount(s: &str) -> Result<Amount, String> {
     parse_amount(s)
 }
 
+/// `parseDisputeCap`: `{"USDC":"100.00"}`, one to fifty assets, each a decimal above zero. Blank is `None` (not
+/// published); malformed refuses to start, naming the variable.
+pub fn parse_dispute_cap(raw: Option<&str>) -> Result<Option<Vec<(String, String)>>, String> {
+    const ENV: &str = "BANK_CARD_DISPUTE_CAP_JSON";
+    let Some(raw) = raw.filter(|r| !service_kit::money::js_trim(r).is_empty()) else {
+        return Ok(None);
+    };
+    let v = json::parse(raw).map_err(|_| format!("{ENV} is not JSON"))?;
+    let shape = |why: &str| format!("{ENV} is not in shape: {why}");
+    let fields = obj(&v).ok_or_else(|| shape("not an object"))?;
+    // JSON.parse keeps the last of a repeated key.
+    let mut cap: Vec<(String, String)> = Vec::new();
+    for (k, x) in fields {
+        let Json::String(amount) = x else {
+            return Err(shape("a cap is a decimal string"));
+        };
+        if !is_asset_id(k) {
+            return Err(shape("an asset id"));
+        }
+        if !is_decimal(amount) || !above_zero(amount) {
+            return Err(shape("a cap is above zero"));
+        }
+        cap.retain(|(a, _)| a != k);
+        cap.push((k.clone(), amount.clone()));
+    }
+    if cap.is_empty() || cap.len() > 50 {
+        return Err(shape("one to fifty assets"));
+    }
+    Ok(Some(cap))
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, reason = "a test")]
@@ -748,5 +779,33 @@ mod tests {
         );
         assert!(parse_cashback_rates(Some(r#"{"assetId":"IFC","rates":{}}"#)).is_none());
         assert!(parse_cashback_rates(Some(r#"{"assetId":"IFC","rates":{"gold":1}}"#)).is_none());
+    }
+
+    #[test]
+    fn a_dispute_cap_is_blank_for_none_and_refuses_to_start_when_malformed() {
+        assert_eq!(parse_dispute_cap(None), Ok(None));
+        assert_eq!(parse_dispute_cap(Some("  ")), Ok(None));
+        assert_eq!(
+            parse_dispute_cap(Some(r#"{"USDC":"100.00","USDT":"5"}"#)),
+            Ok(Some(vec![
+                ("USDC".to_owned(), "100.00".to_owned()),
+                ("USDT".to_owned(), "5".to_owned())
+            ]))
+        );
+        for bad in [
+            "nope",
+            "{}",
+            r#"{"USDC":"0"}"#,
+            r#"{"USDC":100}"#,
+            r#"{"usdc":"1"}"#,
+            r#"{"USDC":"1.1234567890123456789"}"#,
+            "[]",
+        ] {
+            let err = parse_dispute_cap(Some(bad)).unwrap_err();
+            assert!(
+                err.starts_with("BANK_CARD_DISPUTE_CAP_JSON is not"),
+                "{bad}: {err}"
+            );
+        }
     }
 }
