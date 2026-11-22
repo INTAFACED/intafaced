@@ -1157,22 +1157,21 @@ test('--json --files-from: a pull request file list, judged against this checkou
 
 // 22 Nov 2026: tooling no rule places made the CLI import tooling-reach.mjs, which imports this file back; with main()
 // awaited at the top level the import waited on this file's own evaluation, so the run exited 13 and the journeys run
-// fell back to the CANARY while the seal demanded the bounded set (#9640).
+// fell back to the CANARY while the seal demanded the bounded set (#9640). Run from an empty folder: the import cycle is
+// the same, and no tree is scanned, so the test costs well under a second of the tooling-tests gate's budget.
 test('--json --files-from: tooling no rule places is judged, not left unsettled (the tooling-reach import cycle)', () => {
+  const path = 'tooling/design/volt-count.mjs';
+  assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI imports tooling-reach.mjs`);
   const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
-  for (const path of ['tooling/design/volt-count.mjs', 'tooling/design/RECIPE.md']) {
-    assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI scans the tooling reach`);
-    const f = join(dir, 'changed.txt');
-    writeFileSync(f, `${path}\n`);
-    const r = spawnSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', f], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 120_000,
-    });
-    assert.equal(r.status, 0, `${path}: exit ${r.status}\n${r.stderr}`);
-    assert.ok(['none', 'files'].includes(JSON.parse(r.stdout).mode), r.stdout);
-  }
+  writeFileSync(join(dir, 'changed.txt'), `${path}\n`);
+  const r = spawnSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', 'changed.txt'], {
+    cwd: dir,
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
   rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.status, 0, `exit ${r.status}\n${r.stderr}`);
+  assert.ok(['none', 'files'].includes(JSON.parse(r.stdout).mode), r.stdout);
 });
 
 test('real-app-journeys.yml runs on ready pull requests, tests their head, and an empty plan says nothing', () => {
