@@ -779,7 +779,39 @@ import {
   NOTIFY_STATUS_PAGE_CONFIGURE,
 } from './notify-status-page-procedures.js';
 
+import { OPS_ALERTS_LIST, OPS_ALERTS_PERIODS, OPS_ALERTS_PLATFORM_INCIDENTS, OPS_ALERTS_GET } from './ops-alerts-procedures.js';
+
+import { OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD } from './ops-capital-procedures.js';
+
+import {
+  OPS_COMPLIANCE_INBOXES_SET_FAVOURITE,
+  OPS_COMPLIANCE_INBOXES_DEFINE,
+  OPS_COMPLIANCE_INBOXES_LIST,
+  OPS_COMPLIANCE_CASES_LIST,
+  OPS_COMPLIANCE_INBOXES_ACCESS,
+  OPS_COMPLIANCE_CASES_GET_BY_ID,
+  OPS_COMPLIANCE_CASES_NEXT,
+} from './ops-compliance-procedures.js';
+
+import { OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET } from './ops-console-mode-procedures.js';
+
+import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from './ops-preferences-procedures.js';
+
+import {
+  OPS_PROTOCOL_LISTING_POOLS_LIST,
+  OPS_PROTOCOL_LISTING_MARKETS_LIST,
+  OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+} from './ops-protocol-listing-procedures.js';
+
 import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } from './ops-public-procedures.js';
+
+import { OPS_RECORD_VENUE_COST } from './ops-record-venue-cost-procedures.js';
+
+import { OPS_RESTORE_WATERMARKS } from './ops-restore-procedures.js';
+
+import { OPS_STAFF_HOLDS_LIST } from './ops-staff-holds-procedures.js';
+
+import { OPS_VENUE_ECONOMICS } from './ops-venue-economics-procedures.js';
 
 import {
   P2P_DISPUTES_BACKLOG,
@@ -1306,6 +1338,23 @@ import {
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
 } from './tax-procedures.js';
+
+import { TOKEN_DISTRIBUTE_REVENUE } from './token-distribute-revenue-procedures.js';
+
+import {
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+} from './token-launch-procedures.js';
+
+import { TOKEN_NEXT_EMISSION_EPOCH } from './token-next-emission-epoch-procedures.js';
 
 import {
   TOKEN_ACCESS_OF,
@@ -2159,7 +2208,44 @@ const part_notify_status_page_procedures: readonly ProcedureRecord[] = [
   NOTIFY_STATUS_PAGE_CONFIGURE,
 ];
 
+const part_ops_alerts_procedures: readonly ProcedureRecord[] = [
+  OPS_ALERTS_LIST,
+  OPS_ALERTS_PERIODS,
+  OPS_ALERTS_PLATFORM_INCIDENTS,
+  OPS_ALERTS_GET,
+];
+
+const part_ops_capital_procedures: readonly ProcedureRecord[] = [OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD];
+
+const part_ops_compliance_procedures: readonly ProcedureRecord[] = [
+  OPS_COMPLIANCE_INBOXES_SET_FAVOURITE,
+  OPS_COMPLIANCE_INBOXES_DEFINE,
+  OPS_COMPLIANCE_INBOXES_LIST,
+  OPS_COMPLIANCE_CASES_LIST,
+  OPS_COMPLIANCE_INBOXES_ACCESS,
+  OPS_COMPLIANCE_CASES_GET_BY_ID,
+  OPS_COMPLIANCE_CASES_NEXT,
+];
+
+const part_ops_console_mode_procedures: readonly ProcedureRecord[] = [OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET];
+
+const part_ops_preferences_procedures: readonly ProcedureRecord[] = [OPS_PREFERENCES_GET, OPS_PREFERENCES_SET];
+
+const part_ops_protocol_listing_procedures: readonly ProcedureRecord[] = [
+  OPS_PROTOCOL_LISTING_POOLS_LIST,
+  OPS_PROTOCOL_LISTING_MARKETS_LIST,
+  OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+];
+
 const part_ops_public_procedures: readonly ProcedureRecord[] = [OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS];
+
+const part_ops_record_venue_cost_procedures: readonly ProcedureRecord[] = [OPS_RECORD_VENUE_COST];
+
+const part_ops_restore_procedures: readonly ProcedureRecord[] = [OPS_RESTORE_WATERMARKS];
+
+const part_ops_staff_holds_procedures: readonly ProcedureRecord[] = [OPS_STAFF_HOLDS_LIST];
+
+const part_ops_venue_economics_procedures: readonly ProcedureRecord[] = [OPS_VENUE_ECONOMICS];
 
 const part_p2p_disputes_procedures: readonly ProcedureRecord[] = [
   P2P_DISPUTES_BACKLOG,
@@ -2702,6 +2788,23 @@ const part_tax_procedures: readonly ProcedureRecord[] = [
   TAX_EXPORT_PACK,
 ];
 
+const part_token_distribute_revenue_procedures: readonly ProcedureRecord[] = [TOKEN_DISTRIBUTE_REVENUE];
+
+const part_token_launch_procedures: readonly ProcedureRecord[] = [
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+];
+
+const part_token_next_emission_epoch_procedures: readonly ProcedureRecord[] = [TOKEN_NEXT_EMISSION_EPOCH];
+
 const part_token_procedures: readonly ProcedureRecord[] = [
   TOKEN_ACCESS_OF,
   TOKEN_LIST_STAKES,
@@ -2880,7 +2983,17 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_notify_procedures,
   ...part_notify_reconciliation_alert_feed_procedures,
   ...part_notify_status_page_procedures,
+  ...part_ops_alerts_procedures,
+  ...part_ops_capital_procedures,
+  ...part_ops_compliance_procedures,
+  ...part_ops_console_mode_procedures,
+  ...part_ops_preferences_procedures,
+  ...part_ops_protocol_listing_procedures,
   ...part_ops_public_procedures,
+  ...part_ops_record_venue_cost_procedures,
+  ...part_ops_restore_procedures,
+  ...part_ops_staff_holds_procedures,
+  ...part_ops_venue_economics_procedures,
   ...part_p2p_disputes_procedures,
   ...part_p2p_ops_procedures,
   ...part_p2p_procedures,
@@ -2930,6 +3043,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_support_views_list_procedures,
   ...part_support_views_save_procedures,
   ...part_tax_procedures,
+  ...part_token_distribute_revenue_procedures,
+  ...part_token_launch_procedures,
+  ...part_token_next_emission_epoch_procedures,
   ...part_token_procedures,
   ...part_trade_builder_mode_procedures,
   ...part_trade_copy_procedures,
