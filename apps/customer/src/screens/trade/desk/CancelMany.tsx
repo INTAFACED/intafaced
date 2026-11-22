@@ -155,9 +155,27 @@ export function CancelMany({
         {t('Cancel orders')}
       </Button>
       {open ? (
-        <Sheet open role="alertdialog" title={t('Cancel orders title')} description={t('Cancel orders intro')} onClose={close}>
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Cancel orders title')}
+          description={t('Cancel orders intro')}
+          onClose={close}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
+                {outcome ? t('Edit close') : t('Keep orders')}
+              </Button>
+              {outcome ? null : (
+                <Button busy={busy} tone="primary" size="md" disabled={!canConfirm} onClick={() => void confirm()}>
+                  {t('Cancel orders confirm')}
+                </Button>
+              )}
+            </>
+          }
+        >
           {outcome ? null : (
-            <fieldset className="lt-stack-tight" aria-label={t('Cancel orders title')}>
+            <fieldset className="lt-stack-tight lt-tight" aria-label={t('Cancel orders title')}>
               {option(
                 'selected',
                 chosen.length > 0 ? t('Cancel scope selected', { count: chosen.length }) : t('Cancel scope selected none'),
@@ -185,7 +203,7 @@ export function CancelMany({
               >
                 {t('Cancel batch summary', { done: outcome.done, count: outcome.count })}
               </p>
-              <ul className="lt-list lt-list-tight">
+              <ul className="lt-list lt-tight">
                 {outcome.rows.map((row) => (
                   <li key={row.key} className={NOTE[row.tone]}>
                     {row.label}: {row.text}
@@ -194,16 +212,6 @@ export function CancelMany({
               </ul>
             </div>
           ) : null}
-          <div className="lt-actions">
-            <Button tone="secondary" size="md" disabled={busy} onClick={close}>
-              {outcome ? t('Edit close') : t('Keep orders')}
-            </Button>
-            {outcome ? null : (
-              <Button loading={busy} tone="primary" size="md" disabled={!canConfirm} onClick={() => void confirm()}>
-                {t('Cancel orders confirm')}
-              </Button>
-            )}
-          </div>
         </Sheet>
       ) : null}
     </>

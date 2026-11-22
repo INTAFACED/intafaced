@@ -347,14 +347,11 @@
     "apps/customer/src/screens/trade/futures/OrdersTab.tsx": 2,
     "apps/customer/src/screens/trade/futures/OrderStatus.tsx": 1,
     "apps/customer/src/screens/trade/futures/PositionDetail.tsx": 3,
-    "apps/customer/src/screens/trade/futures/PositionDialogs.tsx": 22,
     "apps/customer/src/screens/trade/futures/PositionsTable.tsx": 4,
     "apps/customer/src/screens/trade/futures/RiskSummary.tsx": 5,
     "apps/customer/src/screens/trade/futures/Ticket.tsx": 31,
     "apps/customer/src/screens/trade/futures/TiersTab.tsx": 2,
-    "apps/customer/src/screens/trade/futures/TriggerFacts.tsx": 1,
     "apps/customer/src/screens/trade/futures/TriggersTable.tsx": 2,
-    "apps/customer/src/screens/trade/margin/index.tsx": 14,
     "apps/customer/src/screens/trade/rooms/RoomNotices.tsx": 5
   }
 }

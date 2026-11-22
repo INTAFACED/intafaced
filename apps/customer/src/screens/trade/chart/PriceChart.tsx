@@ -335,7 +335,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
   const legend = focus ? legendValues(focus, tickSize, language) : null;
 
   return (
-    <div className="lt-stack-tight">
+    <div className="lt-stack-tight lt-tight">
       {/* The named picture is the legend's strip; the plot stays outside it, because the engine draws the attribution
           link the licence asks for inside the plot, and an image may hold no link (axe nested-interactive). */}
       <div role="img" aria-label={labels.chart}>

@@ -160,7 +160,37 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
         {label}
       </Button>
       {open ? (
-        <Sheet open role="alertdialog" title={t('Dead man title')} description={t('Dead man intro')} onClose={close}>
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Dead man title')}
+          description={t('Dead man intro')}
+          onClose={close}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
+                {t('Dead man close')}
+              </Button>
+              {state?.armed ? (
+                <Button busy={busy} tone="secondary" size="md" onClick={() => void send(0)}>
+                  {t('Dead man disarm')}
+                </Button>
+              ) : null}
+              {choices.length > 0 ? (
+                <Button
+                  busy={busy}
+                  tone="primary"
+
+                  size="md"
+                  disabled={picked === null}
+                  onClick={() => picked !== null && void send(picked)}
+                >
+                  {state?.armed ? t('Dead man refresh') : t('Dead man arm')}
+                </Button>
+              ) : null}
+            </>
+          }
+        >
           {state === null ? (
             <p className="lt-note" role={unreadable ? 'alert' : 'status'}>
               {unreadable ? t('Dead man unreadable') : t('Dead man loading')}
@@ -170,7 +200,7 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
               {t('Dead man not published')}
             </p>
           ) : (
-            <fieldset className="lt-stack-tight" aria-label={t('Dead man after')}>
+            <fieldset className="lt-stack-tight lt-tight" aria-label={t('Dead man after')}>
               {choices.map((s) => (
                 <label key={s} className="lt-field">
                   <input type="radio" name="dead-man" checked={picked === s && choice !== 'other'} onChange={() => setChoice(s)} />
@@ -211,28 +241,6 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
               {note.text}
             </p>
           ) : null}
-          <div className="lt-actions">
-            <Button tone="secondary" size="md" disabled={busy} onClick={close}>
-              {t('Dead man close')}
-            </Button>
-            {state?.armed ? (
-              <Button loading={busy} tone="secondary" size="md" onClick={() => void send(0)}>
-                {t('Dead man disarm')}
-              </Button>
-            ) : null}
-            {choices.length > 0 ? (
-              <Button
-                loading={busy}
-                tone="primary"
-
-                size="md"
-                disabled={picked === null}
-                onClick={() => picked !== null && void send(picked)}
-              >
-                {state?.armed ? t('Dead man refresh') : t('Dead man arm')}
-              </Button>
-            ) : null}
-          </div>
         </Sheet>
       ) : null}
     </>

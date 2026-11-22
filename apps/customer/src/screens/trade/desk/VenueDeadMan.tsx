@@ -111,6 +111,29 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
           title={t('Dead man title')}
           description={t('Dead man intro', { venue: status.venue.displayName })}
           onClose={close}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
+                {t('Dead man close')}
+              </Button>
+              {offered && armed ? (
+                <Button busy={busy} tone="secondary" size="md" onClick={() => void send(0)}>
+                  {t('Dead man disarm')}
+                </Button>
+              ) : null}
+              {offered && choices.length > 0 ? (
+                <Button
+                  busy={busy}
+                  tone="primary"
+                  size="md"
+                  disabled={picked === null || !owner}
+                  onClick={() => picked !== null && void send(picked)}
+                >
+                  {armed ? t('Dead man refresh') : t('Dead man arm')}
+                </Button>
+              ) : null}
+            </>
+          }
         >
           {!offered ? (
             <p className="lt-note lt-note-bad" role="status" data-testid="venue-dead-man-not-offered">
@@ -152,27 +175,6 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
               {shown.text}
             </p>
           ) : null}
-          <div className="lt-actions">
-            <Button tone="secondary" size="md" disabled={busy} onClick={close}>
-              {t('Dead man close')}
-            </Button>
-            {offered && armed ? (
-              <Button loading={busy} tone="secondary" size="md" onClick={() => void send(0)}>
-                {t('Dead man disarm')}
-              </Button>
-            ) : null}
-            {offered && choices.length > 0 ? (
-              <Button
-                loading={busy}
-                tone="primary"
-                size="md"
-                disabled={picked === null || !owner}
-                onClick={() => picked !== null && void send(picked)}
-              >
-                {armed ? t('Dead man refresh') : t('Dead man arm')}
-              </Button>
-            ) : null}
-          </div>
         </Sheet>
       ) : null}
     </>

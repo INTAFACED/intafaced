@@ -7,7 +7,7 @@ import { usePreferences } from '../../../shared/preferences';
 import { CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../chart/candles';
 import { PriceChart, type ChartOrderLine } from '../chart/PriceChart';
 import { deskCopy } from './copy';
-import { Menu, MenuContent, MenuItem, MenuTrigger, refusalCopy, Skeleton, StateBlock, type Loadable } from './deps';
+import { Menu, refusalCopy, Skeleton, StateBlock, type Loadable } from './deps';
 import { TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import type { DeskMarket } from './market';
 import { placesOf } from './text';
@@ -137,19 +137,23 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, 
                   {intervalLabel(id)}
                 </button>
               ))}
-              <Menu>
-                <MenuTrigger data-testid="dk-more" data-active={moreActive || undefined}>
-                  {moreActive ? intervalLabel(interval) : t('More intervals')}
-                  <span aria-hidden="true"> ▾</span>
-                </MenuTrigger>
-                <MenuContent align="start">
-                  {MORE_INTERVALS.map((id) => (
-                    <MenuItem key={id} onClick={() => setSetting({ ...setting, interval: id })}>
-                      {intervalLabel(id)}
-                    </MenuItem>
-                  ))}
-                </MenuContent>
-              </Menu>
+              <Menu
+                size="sm"
+                align="start"
+                testId="dk-more"
+                active={moreActive}
+                label={
+                  <>
+                    {moreActive ? intervalLabel(interval) : t('More intervals')}
+                    <span aria-hidden="true"> ▾</span>
+                  </>
+                }
+                items={MORE_INTERVALS.map((id) => ({
+                  key: id,
+                  label: intervalLabel(id),
+                  onSelect: () => setSetting({ ...setting, interval: id }),
+                }))}
+              />
             </div>
             <div className="lt-row">
               {onToggleDom ? (

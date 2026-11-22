@@ -625,7 +625,7 @@
   color: var(--lit-text-2);
 }
 
-/* ---- Overlays (b2-controls.tsx): popover, menu, tooltip. Base UI places them; these draw them. ---- */
+/* ---- Overlays (b2-controls.tsx): popover and tooltip. Base UI places them; these draw them. ---- */
 .lt-layer {
   isolation: isolate;
   z-index: 50;
@@ -654,50 +654,6 @@
   margin: 0 0 0.5rem;
   font-size: var(--lit-type-heading-size);
   font-weight: 600;
-}
-.lt-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px;
-  min-inline-size: var(--anchor-width, 12rem);
-}
-.lt-menu-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-block-size: 32px;
-  padding-inline: 10px 32px;
-  border-radius: calc(var(--lit-radius-control) - 4px);
-  color: var(--lit-text-1);
-  cursor: pointer;
-  outline: none;
-  user-select: none;
-  text-decoration: none;
-}
-.lt-menu-item[data-highlighted] {
-  background: var(--lit-solid-bg-sunken);
-}
-.lt-menu-item[data-disabled] {
-  color: var(--lit-text-disabled);
-  cursor: not-allowed;
-}
-.lt-menu-tick {
-  position: absolute;
-  inset-inline-end: 10px;
-  display: inline-flex;
-  color: var(--lit-accent-text);
-}
-.lt-menu-label {
-  padding: 6px 10px;
-  color: var(--lit-text-2);
-  font-size: var(--lit-type-label-size);
-}
-.lt-menu-rule {
-  block-size: 1px;
-  margin-block: 4px;
-  background: var(--lit-line);
 }
 .lt-tip {
   max-inline-size: 18rem;

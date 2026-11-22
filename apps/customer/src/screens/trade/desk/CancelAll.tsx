@@ -67,6 +67,18 @@ export function CancelAll({ symbol, orders, onDone }: { symbol: string; orders: 
           title={t('Cancel all title', { pair: symbol })}
           description={t('Cancel all intro', { count: here.length, pair: symbol })}
           onClose={close}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
+                {finished ? t('Edit close') : t('Keep orders')}
+              </Button>
+              {finished ? null : (
+                <Button busy={busy} tone="primary" size="md" onClick={() => void confirm()}>
+                  {t('Cancel all confirm')}
+                </Button>
+              )}
+            </>
+          }
         >
           {note ? (
             <p
@@ -77,16 +89,6 @@ export function CancelAll({ symbol, orders, onDone }: { symbol: string; orders: 
               {note.text}
             </p>
           ) : null}
-          <div className="lt-actions">
-            <Button tone="secondary" size="md" disabled={busy} onClick={close}>
-              {finished ? t('Edit close') : t('Keep orders')}
-            </Button>
-            {finished ? null : (
-              <Button loading={busy} tone="primary" size="md" onClick={() => void confirm()}>
-                {t('Cancel all confirm')}
-              </Button>
-            )}
-          </div>
         </Sheet>
       ) : null}
     </>

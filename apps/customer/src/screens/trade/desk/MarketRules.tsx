@@ -42,7 +42,7 @@ export function MarketRulesList({ market }: { market: DeskMarket }) {
 export function TicketRules({ market }: { market: DeskMarket }) {
   const { t } = deskCopy.useCopy();
   return (
-    <details data-testid="dk-rules" className="lt-stack-tight">
+    <details data-testid="dk-rules" className="lt-stack-tight lt-tight">
       <summary className="lt-note">{t('Ticket rules', { pair: market.symbol })}</summary>
       <MarketRulesList market={market} />
     </details>

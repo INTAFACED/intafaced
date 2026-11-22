@@ -88,6 +88,21 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
           title={t('Statement title')}
           description={t('Statement intro', { venue: status.venue.displayName })}
           onClose={() => setOpen(false)}
+          footer={
+            <>
+              <Button tone="secondary" onClick={() => setOpen(false)}>
+                {d('Dead man close')}
+              </Button>
+              {job?.status === 'finished' ? (
+                <Button tone="secondary" onClick={() => void save(job)}>
+                  {d('Statement download')}
+                </Button>
+              ) : null}
+              <Button busy={asked.status === 'busy'} tone="primary" onClick={() => void ask()}>
+                {job?.status === 'pending' ? d('Statement check again') : d('Statement request')}
+              </Button>
+            </>
+          }
         >
           <div className="lt-cols-2">
             <label className="lt-field">
@@ -120,19 +135,6 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
               {saved}
             </p>
           ) : null}
-          <div className="lt-actions">
-            <Button tone="secondary" onClick={() => setOpen(false)}>
-              {d('Dead man close')}
-            </Button>
-            {job?.status === 'finished' ? (
-              <Button tone="secondary" onClick={() => void save(job)}>
-                {d('Statement download')}
-              </Button>
-            ) : null}
-            <Button loading={asked.status === 'busy'} tone="primary" onClick={() => void ask()}>
-              {job?.status === 'pending' ? d('Statement check again') : d('Statement request')}
-            </Button>
-          </div>
         </Sheet>
       ) : null}
     </>

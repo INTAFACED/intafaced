@@ -907,7 +907,7 @@ function SideForm({
           tone={side === 'buy' ? 'up' : 'down'}
           size="md"
           block
-          loading={busy && !review}
+          busy={busy && !review}
           disabled={!canSend}
           aria-describedby={`dk-reason-${side}`}
         >
@@ -918,7 +918,7 @@ function SideForm({
           {t('Log in to trade')}
         </a>
       )}
-      <div className="lt-stack-tight" id={`dk-reason-${side}`} aria-live="polite">
+      <div className="lt-stack-tight lt-tight" id={`dk-reason-${side}`} aria-live="polite">
         {hint ? <p className="lt-note">{hint}</p> : null}
         {signedIn && !market.open ? <p className="lt-note">{t('Market is closed')}</p> : null}
         {signedIn && market.open && exitOff ? (
@@ -973,16 +973,18 @@ function SideForm({
           onClose={() => {
             if (!busyRef.current) setReview(null);
           }}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={busy} onClick={() => setReview(null)}>
+                {t('Cancel')}
+              </Button>
+              <Button tone={side === 'buy' ? 'up' : 'down'} size="md" busy={busy} onClick={() => void confirm()}>
+                {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
+              </Button>
+            </>
+          }
         >
           <ReviewRows market={market} review={review} side={side} tokenChoice={tokenChoice} />
-          <div className="lt-actions">
-            <Button tone="secondary" size="md" disabled={busy} onClick={() => setReview(null)}>
-              {t('Cancel')}
-            </Button>
-            <Button tone={side === 'buy' ? 'up' : 'down'} size="md" loading={busy} onClick={() => void confirm()}>
-              {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
-            </Button>
-          </div>
         </Sheet>
       ) : null}
     </form>

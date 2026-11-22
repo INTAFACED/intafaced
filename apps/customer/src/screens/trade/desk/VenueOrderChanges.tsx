@@ -212,6 +212,30 @@ export function VenueEditOrder({
       onClose={() => {
         if (!busy) onClose();
       }}
+      footer={
+        <>
+          <Button tone="secondary" disabled={busy} onClick={onClose}>
+            {t('Close')}
+          </Button>
+          {review ? (
+            <Button tone="primary" disabled={busy} onClick={() => void confirm()}>
+              {t('Confirm replace')}
+            </Button>
+          ) : samePrice && inPlace ? (
+            <Button tone="primary" disabled={busy || !amountOk} onClick={() => void changeAmount()}>
+              {t('Change amount')}
+            </Button>
+          ) : samePrice ? (
+            <Button tone="primary" disabled={busy || !amountOk} onClick={() => void startReview()}>
+              {t('Review new amount')}
+            </Button>
+          ) : (
+            <Button tone="primary" disabled={busy || !amountOk || price.trim() === ''} onClick={() => void startReview()}>
+              {t('Review new price')}
+            </Button>
+          )}
+        </>
+      }
     >
       {review ? (
         <div data-testid="venue-replace-review">
@@ -264,28 +288,6 @@ export function VenueEditOrder({
           {note.text}
         </p>
       ) : null}
-      <div className="lt-actions">
-        <Button tone="secondary" disabled={busy} onClick={onClose}>
-          {t('Close')}
-        </Button>
-        {review ? (
-          <Button tone="primary" disabled={busy} onClick={() => void confirm()}>
-            {t('Confirm replace')}
-          </Button>
-        ) : samePrice && inPlace ? (
-          <Button tone="primary" disabled={busy || !amountOk} onClick={() => void changeAmount()}>
-            {t('Change amount')}
-          </Button>
-        ) : samePrice ? (
-          <Button tone="primary" disabled={busy || !amountOk} onClick={() => void startReview()}>
-            {t('Review new amount')}
-          </Button>
-        ) : (
-          <Button tone="primary" disabled={busy || !amountOk || price.trim() === ''} onClick={() => void startReview()}>
-            {t('Review new price')}
-          </Button>
-        )}
-      </div>
     </Sheet>
   ) : null;
 }
@@ -452,7 +454,26 @@ export function VenueCancelMany({
         </p>
       ) : null}
       {scope !== null && !signing ? (
-        <Sheet open role="alertdialog" title={title} description={intro} testId="venue-cancel-ask" onClose={close}>
+        <Sheet
+          open
+          role="alertdialog"
+          title={title}
+          description={intro}
+          testId="venue-cancel-ask"
+          onClose={close}
+          footer={
+            <>
+              <Button tone="secondary" disabled={busy} onClick={close}>
+                {lines ? t('Close') : t('Keep orders')}
+              </Button>
+              {lines ? null : (
+                <Button tone="primary" disabled={busy || chosen.length === 0 || chosen.length > most} onClick={() => void confirm()}>
+                  {t('Confirm cancel', { count: chosen.length })}
+                </Button>
+              )}
+            </>
+          }
+        >
           {chosen.length > most ? (
             <p className="lt-note lt-note-bad" role="alert">
               {t('Cancel too many', { count: chosen.length, most, venue: status.venue.displayName })}
@@ -472,16 +493,6 @@ export function VenueCancelMany({
               {note.text}
             </p>
           ) : null}
-          <div className="lt-actions">
-            <Button tone="secondary" disabled={busy} onClick={close}>
-              {lines ? t('Close') : t('Keep orders')}
-            </Button>
-            {lines ? null : (
-              <Button tone="primary" disabled={busy || chosen.length === 0 || chosen.length > most} onClick={() => void confirm()}>
-                {t('Confirm cancel', { count: chosen.length })}
-              </Button>
-            )}
-          </div>
         </Sheet>
       ) : null}
     </div>

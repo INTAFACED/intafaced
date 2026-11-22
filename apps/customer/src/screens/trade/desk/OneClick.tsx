@@ -105,8 +105,18 @@ function InstantSwitch({ instant, zone }: { instant: InstantControl; zone: Zone 
           onClose={() => {
             if (!saving) setAsking(false);
           }}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={saving} onClick={() => setAsking(false)}>
+                {t('Instant keep off')}
+              </Button>
+              <Button busy={saving} tone="primary" size="md" disabled={!agreed} onClick={() => void accept()}>
+                {t('Instant turn on')}
+              </Button>
+            </>
+          }
         >
-          <ul className="lt-stack-tight">
+          <ul className="lt-stack-tight lt-tight">
             <li>{t('Instant summary sends')}</li>
             <li>{t('Instant summary market')}</li>
             <li>{t('Instant summary one click')}</li>
@@ -117,14 +127,6 @@ function InstantSwitch({ instant, zone }: { instant: InstantControl; zone: Zone 
             <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
             <span>{t('Instant agree')}</span>
           </label>
-          <div className="lt-actions">
-            <Button tone="secondary" size="md" disabled={saving} onClick={() => setAsking(false)}>
-              {t('Instant keep off')}
-            </Button>
-            <Button loading={saving} tone="primary" size="md" disabled={!agreed} onClick={() => void accept()}>
-              {t('Instant turn on')}
-            </Button>
-          </div>
         </Sheet>
       ) : null}
     </div>
@@ -298,22 +300,24 @@ export function RowCancelView<O extends CancelRow>({
           onClose={() => {
             if (state !== 'busy') setAsking(false);
           }}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={state === 'busy'} onClick={() => setAsking(false)}>
+                {t('Keep orders')}
+              </Button>
+              <Button busy={state === 'busy'} tone="primary" size="md" onClick={() => void cancel()}>
+                {t(orders.length === 1 ? 'Cancel review confirm one' : 'Cancel review confirm many', { n: orders.length })}
+              </Button>
+            </>
+          }
         >
-          <ul className="lt-stack-tight">
+          <ul className="lt-stack-tight lt-tight">
             {orders.map((order) => (
               <li key={order.id} data-testid="of-cancel-line" data-order-id={order.id}>
                 {describe(order)}
               </li>
             ))}
           </ul>
-          <div className="lt-actions">
-            <Button tone="secondary" size="md" disabled={state === 'busy'} onClick={() => setAsking(false)}>
-              {t('Keep orders')}
-            </Button>
-            <Button loading={state === 'busy'} tone="primary" size="md" onClick={() => void cancel()}>
-              {t(orders.length === 1 ? 'Cancel review confirm one' : 'Cancel review confirm many', { n: orders.length })}
-            </Button>
-          </div>
         </Sheet>
       ) : null}
     </>

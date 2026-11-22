@@ -505,7 +505,7 @@ export function VenueSideForm({
         </p>
       ) : null}
       <Button
-        loading={busy}
+        busy={busy}
         type="submit"
         tone={side === 'buy' ? 'up' : 'down'}
         size="md"
@@ -515,7 +515,7 @@ export function VenueSideForm({
       >
         {verb}
       </Button>
-      <div className="lt-stack-tight" id={`dk-reason-${side}`} aria-live="polite">
+      <div className="lt-stack-tight lt-tight" id={`dk-reason-${side}`} aria-live="polite">
         {access === 'verify' ? (
           <VerifyNote />
         ) : access === 'loading' ? (
@@ -592,6 +592,21 @@ export function VenueSideForm({
           onClose={() => {
             if (!sending.current) setReview(null);
           }}
+          footer={
+            <>
+              <Button tone="secondary" size="md" onClick={() => setReview(null)}>
+                {t('Cancel')}
+              </Button>
+              <Button
+                tone={side === 'buy' ? 'up' : 'down'}
+                size="md"
+                disabled={carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) !== true}
+                onClick={() => void confirm()}
+              >
+                {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
+              </Button>
+            </>
+          }
         >
           {moved ? (
             <p className="lt-note lt-note-bad" role="alert" data-testid="venue-review-moved">
@@ -625,19 +640,6 @@ export function VenueSideForm({
             </Button>
           ) : null}
           <OutcomeLine result={approving} owner={owner} />
-          <div className="lt-actions">
-            <Button tone="secondary" size="md" onClick={() => setReview(null)}>
-              {t('Cancel')}
-            </Button>
-            <Button
-              tone={side === 'buy' ? 'up' : 'down'}
-              size="md"
-              disabled={carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) !== true}
-              onClick={() => void confirm()}
-            >
-              {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
-            </Button>
-          </div>
         </Sheet>
       ) : null}
     </form>

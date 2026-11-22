@@ -458,6 +458,30 @@ describe('b2 controls the desk rooms use', () => {
     expect(html(<B2.DecimalInput aria-label="Size" value="1" onValueChange={() => undefined} precision={2} />)).toMatch(/^<input /);
   });
 
+  it('Sheet draws its buttons in a footer at its end and its Close can say more than its word', () => {
+    const out = html(
+      <B2.Sheet
+        open={false}
+        title="Add margin"
+        closeLabel="Close dialog"
+        footer={<button type="button">Add</button>}
+        onClose={() => undefined}
+      >
+        <p>Body</p>
+      </B2.Sheet>,
+    );
+    expect(out).toContain('aria-label="Close dialog"');
+    expect(out).toContain('>Close</button>');
+    expect(out).toMatch(/<\/div><footer class="lt-sheet-foot"><button type="button">Add<\/button><\/footer><\/dialog>$/);
+    const bare = html(
+      <B2.Sheet open={false} title="Details" onClose={() => undefined}>
+        x
+      </B2.Sheet>,
+    );
+    expect(bare).not.toContain('<footer');
+    expect(bare).not.toContain('aria-label="Close');
+  });
+
   it('Sheet with a description draws it under the title and is described by it', () => {
     const out = html(
       <B2.Sheet open={false} role="alertdialog" title="Place this order?" description="Buy 1 at 500" onClose={() => undefined}>
@@ -567,14 +591,16 @@ describe('b2 parts carry what the spot desk needs, so it uses them and no second
     ).toBe('');
   });
 
-  it('Sheet carries a test id and says Close in the room’s words', () => {
+  it('Sheet carries a test id, and its Close button’s spoken name says in which language it is', () => {
     const out = html(
-      <B2.Sheet open={false} title="Account" closeLabel="Schließen" closeLang="de" testId="venue-account" onClose={() => undefined}>
+      <B2.Sheet open={false} title="Account" closeLabel="Dialog schließen" closeLang="de" testId="venue-account" onClose={() => undefined}>
         <p>Body</p>
       </B2.Sheet>,
     );
     expect(out).toContain('data-testid="venue-account"');
-    expect(out).toContain('<button type="button" class="lt-button lt-button-secondary" lang="de">Schließen</button>');
+    expect(out).toContain(
+      '<button type="button" class="lt-button lt-button-secondary" aria-label="Dialog schließen" lang="de">Close</button>',
+    );
   });
 
   it('Checkbox may keep its name for assistive tech only (a row’s pick box)', () => {

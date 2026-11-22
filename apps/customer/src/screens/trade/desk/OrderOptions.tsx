@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react';
 import { deskCopy } from './copy';
-import { Menu, MenuContent, MenuItem, MenuTrigger } from '@intafaced/ui/lit';
+import { Menu } from '@intafaced/ui/lit';
 import { Select } from '@intafaced/ui/lit/templates';
 import type { OrderType } from './order-math';
 import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
@@ -14,22 +14,19 @@ const TYPE_KEY = REFUSED_TAB_KEY;
 export function MoreOrderTypes() {
   const { t } = deskCopy.useCopy();
   return (
-    <Menu>
-      <MenuTrigger className="lt-icon-button" aria-label={t('More order types label')}>
-        {t('More order types')}
-        <ChevronDown size={14} aria-hidden="true" />
-      </MenuTrigger>
-      <MenuContent align="start">
-        <p className="lt-note" role="note">
-          {t('Order type unavailable')}
-        </p>
-        {UNSUPPORTED_TYPES.map((kind) => (
-          <MenuItem key={kind} disabled>
-            {t(TYPE_KEY[kind])}
-          </MenuItem>
-        ))}
-      </MenuContent>
-    </Menu>
+    <Menu
+      size="sm"
+      align="start"
+      triggerLabel={t('More order types label')}
+      label={
+        <>
+          {t('More order types')}
+          <ChevronDown size={14} aria-hidden="true" />
+        </>
+      }
+      note={t('Order type unavailable')}
+      items={UNSUPPORTED_TYPES.map((kind) => ({ key: kind, label: t(TYPE_KEY[kind]), disabled: true, onSelect: () => undefined }))}
+    />
   );
 }
 

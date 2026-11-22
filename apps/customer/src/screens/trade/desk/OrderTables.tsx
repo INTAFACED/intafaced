@@ -146,7 +146,7 @@ export function LoadState<T>({
   const { userId } = useSession();
   if (load.status === 'loading' || load.status === 'empty')
     return (
-      <div className="lt-stack-tight" role="status" aria-busy="true">
+      <div className="lt-stack-tight lt-tight" role="status" aria-busy="true">
         {Array.from({ length: 4 }, (_, i) => (
           <Bone key={i} />
         ))}
@@ -201,7 +201,7 @@ export function CancelButton({ order, onDone }: { order: Order; onDone: () => vo
   return (
     <span className="lt-row">
       <Button
-        loading={state === 'busy'}
+        busy={state === 'busy'}
         tone="secondary"
         size="sm"
         onClick={() => void cancel()}
@@ -465,7 +465,7 @@ export function FillsTable({
         <td className="lt-num">{dayTime(fill.timestamp, timeZone)}</td>
         {activity ? (
           <td>
-            <span className="lt-stack-tight">
+            <span className="lt-stack-tight lt-tight">
               <span data-testid="dk-trade-what" className="lt-strong" data-side={fill.side}>
                 {t(fill.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', { amount, asset: baseOf(fill.symbol) })}
               </span>
@@ -540,7 +540,7 @@ export function FillsTable({
                   <tr key={`order:${group.order}`} data-order={group.order ?? undefined}>
                     <td className="lt-num">{dayTime(first.timestamp, timeZone)}</td>
                     <td>
-                      <span className="lt-stack-tight">
+                      <span className="lt-stack-tight lt-tight">
                         <span data-testid="dk-trade-what" className="lt-strong" data-side={first.side}>
                           {t(first.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', {
                             amount: fmtAmount(group.amount, { places: 8 }),

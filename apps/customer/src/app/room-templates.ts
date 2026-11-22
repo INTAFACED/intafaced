@@ -128,7 +128,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/charts': { template: 'desk' },
   '/charts/:symbol': { template: 'desk' },
   '/trade/buy': { template: 'flow' },
-  '/trade/margin': { template: 'desk' },
+  '/trade/margin': { template: 'desk', migrated: { file: 'screens/trade/margin/index.tsx' } },
   '/trade/futures': { template: 'desk' },
   '/trade/options': { template: 'desk', migrated: { file: 'screens/trade/options/index.tsx' } },
   '/trade/copy': { template: 'catalogue' },

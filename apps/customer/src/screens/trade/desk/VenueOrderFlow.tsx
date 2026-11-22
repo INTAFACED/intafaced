@@ -155,12 +155,12 @@ function VenueQueue({
   const fillWindow = ownerValue(owner, 'queueFillWindowSeconds');
   const resting = mine.filter((row) => row.order.type === 'limit');
   return (
-    <section className="lt-stack-tight" aria-label={t('My queue')} data-testid="of-queue">
+    <section className="lt-stack-tight lt-tight" aria-label={t('My queue')} data-testid="of-queue">
       <h3 className="lt-label">{t('My queue')}</h3>
       {resting.length === 0 ? (
         <p className="lt-note">{t('My queue none')}</p>
       ) : (
-        <ul className="lt-list lt-list-tight lt-list-rule">
+        <ul className="lt-list lt-tight lt-list-rule">
           {resting.map((row) => (
             <VenueQueueRow
               key={row.id}
@@ -204,7 +204,7 @@ function VenueQueueRow({
   });
   if (!book || !prints || tapeAsOfMs === null || (!fillWindow.ok && fillWindow.why === 'loading'))
     return (
-      <li className="lt-stack-tight" data-testid="of-queue-row" data-order-id={row.id} data-state="loading">
+      <li className="lt-stack-tight lt-tight" data-testid="of-queue-row" data-order-id={row.id} data-state="loading">
         <span className="lt-strong">{head}</span>
         <span className="lt-note">{t('My queue loading')}</span>
       </li>
@@ -223,7 +223,7 @@ function VenueQueueRow({
   });
   if (q.kind === 'not_in_book')
     return (
-      <li className="lt-stack-tight" data-testid="of-queue-row" data-order-id={row.id} data-state="not-in-book">
+      <li className="lt-stack-tight lt-tight" data-testid="of-queue-row" data-order-id={row.id} data-state="not-in-book">
         <span className="lt-strong">{head}</span>
         <span className="lt-note" role="status">
           {t('My queue venue past book')}
@@ -234,7 +234,7 @@ function VenueQueueRow({
   const ahead = q.sizeAheadAtMost === '0' ? null : q.sizeAheadAtMost;
   return (
     <li
-      className="lt-stack-tight"
+      className="lt-stack-tight lt-tight"
       data-testid="of-queue-row"
       data-state="ready"
       data-order-id={row.id}

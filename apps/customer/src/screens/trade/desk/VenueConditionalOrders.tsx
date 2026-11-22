@@ -471,7 +471,7 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
           </Button>
         ) : null}
         {editing ? (
-          <span className="lt-stack-tight">
+          <span className="lt-stack-tight lt-tight">
             <NumberField label={t('Modify trigger')} value={trigger} onChange={setTrigger} />
             {o.kind === 'stop_limit' || o.limitPrice !== null ? (
               <NumberField label={t('Modify limit')} value={limit} onChange={setLimit} />

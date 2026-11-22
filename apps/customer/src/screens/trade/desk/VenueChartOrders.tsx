@@ -470,7 +470,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
       : null;
 
   return (
-    <div className="lt-stack-tight" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
+    <div className="lt-stack-tight lt-tight" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
       {overlay}
       {refusal !== null ? (
         <p className="lt-note" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
@@ -485,7 +485,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
         {t('Order on chart')}
       </Button>
       {open && (
-        <form className="lt-stack-tight" aria-label={t('Ticket title')} onSubmit={place}>
+        <form className="lt-stack-tight lt-tight" aria-label={t('Ticket title')} onSubmit={place}>
           <fieldset className="lt-row" disabled={locked || busy}>
             <label className="lt-field">
               <span>{t('Side')}</span>

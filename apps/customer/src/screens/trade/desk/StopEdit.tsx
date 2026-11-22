@@ -190,6 +190,22 @@ export function StopEdit({
         quote: market.quote,
       })}
       onClose={close}
+      footer={
+        <>
+          <Button tone="secondary" size="md" disabled={busy} onClick={close}>
+            {finished ? t('Edit close') : t('Edit keep order')}
+          </Button>
+          {finished ? null : review ? (
+            <Button tone="primary" size="md" busy={busy} onClick={() => void confirmReplacement()}>
+              {t('Edit confirm replace')}
+            </Button>
+          ) : (
+            <Button tone="primary" size="md" busy={busy} disabled={!checked.ok || unchanged} onClick={() => void reviewReplacement()}>
+              {t('Edit review replace')}
+            </Button>
+          )}
+        </>
+      }
     >
       {review ? (
         <dl className="lt-kv">
@@ -277,20 +293,6 @@ export function StopEdit({
           {note.text}
         </p>
       ) : null}
-      <div className="lt-actions">
-        <Button tone="secondary" size="md" disabled={busy} onClick={close}>
-          {finished ? t('Edit close') : t('Edit keep order')}
-        </Button>
-        {finished ? null : review ? (
-          <Button tone="primary" size="md" loading={busy} onClick={() => void confirmReplacement()}>
-            {t('Edit confirm replace')}
-          </Button>
-        ) : (
-          <Button tone="primary" size="md" loading={busy} disabled={!checked.ok || unchanged} onClick={() => void reviewReplacement()}>
-            {t('Edit review replace')}
-          </Button>
-        )}
-      </div>
     </Sheet>
   );
 }

@@ -115,7 +115,7 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
             </p>
           ) : null}
           {read.next ? (
-            <Button loading={read.more} tone="secondary" size="sm" onClick={() => void load(read.entries, read.next)}>
+            <Button busy={read.more} tone="secondary" size="sm" onClick={() => void load(read.entries, read.next)}>
               {t('Ledger more')}
             </Button>
           ) : (
@@ -230,7 +230,28 @@ function Statement() {
         {t('Statement open')}
       </Button>
       {open ? (
-        <Sheet open role="alertdialog" title={t('Statement title')} description={t('Statement intro')} onClose={() => setOpen(false)}>
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Statement title')}
+          description={t('Statement intro')}
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <Button tone="secondary" size="md" onClick={() => setOpen(false)}>
+                {t('Dead man close')}
+              </Button>
+              {job?.status === 'finished' ? (
+                <Button tone="secondary" size="md" onClick={() => void save(job)}>
+                  {t('Statement download')}
+                </Button>
+              ) : null}
+              <Button busy={asked.status === 'busy'} tone="primary" size="md" onClick={() => void ask()}>
+                {job?.status === 'pending' ? t('Statement check again') : t('Statement request')}
+              </Button>
+            </>
+          }
+        >
           <div className="lt-cols-2">
             <label className="lt-field">
               <span>{t('Statement from')}</span>
@@ -262,19 +283,6 @@ function Statement() {
               {saved}
             </p>
           ) : null}
-          <div className="lt-actions">
-            <Button tone="secondary" size="md" onClick={() => setOpen(false)}>
-              {t('Dead man close')}
-            </Button>
-            {job?.status === 'finished' ? (
-              <Button tone="secondary" size="md" onClick={() => void save(job)}>
-                {t('Statement download')}
-              </Button>
-            ) : null}
-            <Button loading={asked.status === 'busy'} tone="primary" size="md" onClick={() => void ask()}>
-              {job?.status === 'pending' ? t('Statement check again') : t('Statement request')}
-            </Button>
-          </div>
         </Sheet>
       ) : null}
     </>

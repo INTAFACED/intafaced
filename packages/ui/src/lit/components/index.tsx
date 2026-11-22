@@ -63,30 +63,24 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   /** sm: a dense desk or table control. */
   size?: 'sm' | 'md' | 'lg';
   block?: boolean;
-  /** Its action is under way: it stays focusable but answers no click (aria-disabled, aria-busy). */
-  loading?: boolean;
+  /** Working: the button stays in focus order, says it is busy and takes no click (no second submit, no second action). */
+  busy?: boolean;
 };
 
-export function Button({
-  tone = 'secondary',
-  size = 'md',
-  block,
-  loading = false,
-  className,
-  type = 'button',
-  onClick,
-  ...rest
-}: ButtonProps) {
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { tone = 'secondary', size = 'md', block, busy = false, className, type = 'button', onClick, ...rest },
+  ref,
+) {
   return (
     <button
       {...rest}
+      ref={ref}
       type={type}
-      disabled={rest.disabled && !loading}
-      aria-disabled={loading || rest['aria-disabled'] || undefined}
-      aria-busy={loading || rest['aria-busy'] || undefined}
-      data-loading={loading || undefined}
+      disabled={rest.disabled && !busy}
+      aria-busy={busy || rest['aria-busy'] || undefined}
+      aria-disabled={busy || rest['aria-disabled'] || undefined}
       onClick={
-        loading
+        busy
           ? (event) => {
               // Busy: no second submit and no second action, while focus stays where it was.
               event.preventDefault();
@@ -101,7 +95,7 @@ export function Button({
       data-block={block || undefined}
     />
   );
-}
+});
 
 export type ActionKeyProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: React.ReactNode; label: string; lit?: boolean };
 

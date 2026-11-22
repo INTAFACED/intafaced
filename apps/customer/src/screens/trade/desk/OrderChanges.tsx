@@ -46,7 +46,7 @@ export function OrderChanges({ orderId, tick }: { orderId: string; tick?: string
         {state.status === 'failed' ? <p className="lt-note">{t('Order changes failed')}</p> : null}
         {state.status === 'ready' && state.rows.length === 0 ? <p className="lt-note">{t('Order changes none')}</p> : null}
         {lines.length > 0 ? (
-          <ul className="lt-list lt-list-tight">
+          <ul className="lt-list lt-tight">
             {lines.map((line, index) => (
               <li key={`${line.at}:${index}`}>
                 <span className="lt-num">{Number.isNaN(Date.parse(line.at)) ? '—' : dayTime(Date.parse(line.at), timeZone)}</span>{' '}

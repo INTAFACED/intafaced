@@ -39,7 +39,7 @@ export function HistoryFilters({ filter, onFilter }: { filter: HistoryFilter; on
       {OPTIONS.map(({ key, values }) => {
         const id = `dk-hfilter-${key}`;
         return (
-          <div className="lt-stack-tight" key={key}>
+          <div className="lt-stack-tight lt-tight" key={key}>
             <span className="lt-label" id={id}>
               {heading[key]}
             </span>

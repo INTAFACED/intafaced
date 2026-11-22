@@ -176,7 +176,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   let grid = false;
   if (book.status === 'loading') {
     content = (
-      <div data-testid="dk-bk-skeleton" className="lt-stack-tight" role="status" aria-busy="true" aria-label={t('Order book')}>
+      <div data-testid="dk-bk-skeleton" className="lt-stack-tight lt-tight" role="status" aria-busy="true" aria-label={t('Order book')}>
         {Array.from({ length: 16 }, (_, i) => (
           <Bone key={i} size="row" />
         ))}
@@ -258,7 +258,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
         {share ? (
           <div
             data-testid="dk-bk-ratio"
-            className="lt-stack-tight"
+            className="lt-stack-tight lt-tight"
             role="img"
             aria-label={t('Buy and sell share', { buy: share.buy, sell: share.sell })}
           >
@@ -314,7 +314,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
         />
       </div>
       {grid ? (
-        <div className="lt-stack-tight" role="grid" aria-label={t('Order book')}>
+        <div className="lt-stack-tight lt-tight" role="grid" aria-label={t('Order book')}>
           {content}
         </div>
       ) : (
@@ -341,7 +341,7 @@ export function Tape({
   const amountDecimals = placesOf(market.lotSize);
   if (tape.status === 'loading' || tape.status === 'empty')
     return (
-      <div data-testid="dk-bk-skeleton" className="lt-stack-tight" role="status" aria-busy="true" aria-label={t('Last trades')}>
+      <div data-testid="dk-bk-skeleton" className="lt-stack-tight lt-tight" role="status" aria-busy="true" aria-label={t('Last trades')}>
         {Array.from({ length: 16 }, (_, i) => (
           <Bone key={i} size="row" />
         ))}

@@ -83,7 +83,7 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
   let list: React.ReactNode;
   if (markets.status === 'loading' || markets.status === 'empty') {
     list = (
-      <div className="lt-stack-tight" role="status" aria-busy="true" aria-label={t('Markets')}>
+      <div className="lt-stack-tight lt-tight" role="status" aria-busy="true" aria-label={t('Markets')}>
         {Array.from({ length: 8 }, (_, i) => (
           <Bone key={i} size="row" />
         ))}
@@ -107,7 +107,7 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
     );
   } else {
     list = (
-      <ul data-testid="dk-mk-list" className="lt-list lt-list-tight lt-list-rule">
+      <ul data-testid="dk-mk-list" className="lt-list lt-tight lt-list-rule">
         {rows.map((market) => {
           const ticker = tickerMap?.[market.symbol];
           const favorite = isFavorite(market.symbol);
@@ -137,7 +137,7 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
                 aria-current={market.symbol === selected ? 'true' : undefined}
                 onClick={onChoose}
               >
-                <span data-testid="dk-mk-name" className="lt-stack-tight">
+                <span data-testid="dk-mk-name" className="lt-stack-tight lt-tight">
                   <span data-testid="dk-mk-pair" className="lt-strong">
                     {market.symbol}
                   </span>
@@ -147,7 +147,7 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
                     </span>
                   ) : null}
                 </span>
-                <span data-testid="dk-mk-figures" className="lt-stack-tight lt-end">
+                <span data-testid="dk-mk-figures" className="lt-stack-tight lt-tight lt-end">
                   <span data-testid="dk-mk-price" className="lt-num">
                     {fmtPrice(ticker?.last ?? null, market.tickSize)}
                   </span>

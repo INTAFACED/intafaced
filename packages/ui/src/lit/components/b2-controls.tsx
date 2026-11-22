@@ -1,13 +1,12 @@
 /**
- * Volt's overlays: popover, menu and tooltip, and the marks over a drawn chart. Behaviour (focus, Escape, positioning,
- * roles) is Base UI's, as in the older kit; the look is `components.css` (`lt-pop`, `lt-menu`, `lt-tip`), which reads
- * only `--lit-*` roles. Rooms never restyle them. Select, tabs, the sheet, checkbox, the decimal field and the table are
- * the templates' own (`b2-basics.tsx`, `b2-table.tsx`): one kit, one part per role.
+ * Volt's popover and tooltip, and the marks over a drawn chart. Behaviour (focus, Escape, positioning, roles) is Base
+ * UI's, as in the older kit; the look is `components.css` (`lt-pop`, `lt-tip`), which reads only `--lit-*` roles. Rooms
+ * never restyle them. The menu is `Menu` in `./controls.tsx`; select, tabs, the sheet, checkbox, the decimal field and
+ * the table are the templates' own (`b2-basics.tsx`, `b2-table.tsx`): one kit, one part per role.
  */
 import * as React from 'react';
 import { clsx } from 'clsx';
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import { Menu as MenuPrimitive } from '@base-ui/react/menu';
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip';
 
 // ---- Popover -------------------------------------------------------------------------------------------------
@@ -59,86 +58,6 @@ export const PopoverClose = PopoverPrimitive.Close;
 
 export function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
   return <PopoverPrimitive.Title data-slot="popover-title" className={clsx('lt-pop-title', className)} {...props} />;
-}
-
-// ---- Menu ----------------------------------------------------------------------------------------------------
-
-export function Menu(props: MenuPrimitive.Root.Props) {
-  return <MenuPrimitive.Root data-slot="menu" {...props} />;
-}
-
-export function MenuTrigger(props: MenuPrimitive.Trigger.Props) {
-  return <MenuPrimitive.Trigger data-slot="menu-trigger" {...props} />;
-}
-
-export function MenuContent({
-  className,
-  side = 'bottom',
-  sideOffset = 8,
-  align = 'end',
-  alignOffset = 0,
-  ...props
-}: MenuPrimitive.Popup.Props & Pick<MenuPrimitive.Positioner.Props, 'side' | 'sideOffset' | 'align' | 'alignOffset'>) {
-  return (
-    <MenuPrimitive.Portal>
-      <MenuPrimitive.Positioner side={side} sideOffset={sideOffset} align={align} alignOffset={alignOffset} className="lt-layer">
-        <MenuPrimitive.Popup data-slot="menu-content" className={clsx('lt-pop lt-menu', className)} {...props} />
-      </MenuPrimitive.Positioner>
-    </MenuPrimitive.Portal>
-  );
-}
-
-export function MenuGroup(props: MenuPrimitive.Group.Props) {
-  return <MenuPrimitive.Group data-slot="menu-group" {...props} />;
-}
-
-/** Must sit inside a MenuGroup (Base UI throws otherwise). */
-export function MenuLabel({ className, ...props }: MenuPrimitive.GroupLabel.Props) {
-  return <MenuPrimitive.GroupLabel data-slot="menu-label" className={clsx('lt-menu-label', className)} {...props} />;
-}
-
-export function MenuItem({ className, ...props }: MenuPrimitive.Item.Props) {
-  return <MenuPrimitive.Item data-slot="menu-item" className={clsx('lt-menu-item', className)} {...props} />;
-}
-
-export function MenuLinkItem({ className, ...props }: MenuPrimitive.LinkItem.Props) {
-  return <MenuPrimitive.LinkItem data-slot="menu-link-item" className={clsx('lt-menu-item', className)} {...props} />;
-}
-
-const Tick = () => (
-  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-    <path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-export function MenuCheckboxItem({ className, children, ...props }: MenuPrimitive.CheckboxItem.Props) {
-  return (
-    <MenuPrimitive.CheckboxItem data-slot="menu-checkbox-item" className={clsx('lt-menu-item', className)} {...props}>
-      {children}
-      <MenuPrimitive.CheckboxItemIndicator className="lt-menu-tick">
-        <Tick />
-      </MenuPrimitive.CheckboxItemIndicator>
-    </MenuPrimitive.CheckboxItem>
-  );
-}
-
-export function MenuRadioGroup(props: MenuPrimitive.RadioGroup.Props) {
-  return <MenuPrimitive.RadioGroup data-slot="menu-radio-group" {...props} />;
-}
-
-export function MenuRadioItem({ className, children, ...props }: MenuPrimitive.RadioItem.Props) {
-  return (
-    <MenuPrimitive.RadioItem data-slot="menu-radio-item" className={clsx('lt-menu-item', className)} {...props}>
-      {children}
-      <MenuPrimitive.RadioItemIndicator className="lt-menu-tick">
-        <Tick />
-      </MenuPrimitive.RadioItemIndicator>
-    </MenuPrimitive.RadioItem>
-  );
-}
-
-export function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props) {
-  return <MenuPrimitive.Separator data-slot="menu-separator" className={clsx('lt-menu-rule', className)} {...props} />;
 }
 
 // ---- Tooltip -------------------------------------------------------------------------------------------------

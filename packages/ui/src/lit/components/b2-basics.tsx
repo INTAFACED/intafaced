@@ -291,7 +291,8 @@ export function TabPanel({
  * As an `alertdialog` it asks for an answer: it draws no Close button of its own (its own buttons answer it), Escape
  * asks `onClose` and the sheet stays open until `open` turns false. An element inside marked `data-autofocus` takes
  * the focus when it opens.
- * A `description` (what the answer does) is drawn under the title and describes the sheet.
+ * A `description` (what the answer does) is drawn under the title and describes the sheet; a `footer` holds its buttons,
+ * at its end.
  */
 export function Sheet({
   open,
@@ -300,8 +301,9 @@ export function Sheet({
   onClose,
   role = 'dialog',
   closeButton = role !== 'alertdialog',
-  closeLabel = 'Close',
+  closeLabel,
   closeLang,
+  footer,
   testId,
   children,
 }: {
@@ -313,9 +315,12 @@ export function Sheet({
   role?: 'dialog' | 'alertdialog';
   /** The sheet's own Close button; off for a sheet whose own buttons answer it (a form with Not now). */
   closeButton?: boolean;
-  /** The Close button's word, from the room's copy; `closeLang` when that copy fell back to another language. */
+  /** The Close button's spoken name, when it says more than its word ("Close dialog"). */
   closeLabel?: string;
+  /** The language of `closeLabel`, when the room's copy fell back to another one than the page's. */
   closeLang?: string;
+  /** The sheet's buttons, at its end. */
+  footer?: React.ReactNode;
   testId?: string;
   children: React.ReactNode;
 }) {
@@ -361,8 +366,8 @@ export function Sheet({
       <header className="lt-sheet-head">
         <h2 className="lt-sheet-title">{title}</h2>
         {closeButton ? (
-          <button type="button" className="lt-button lt-button-secondary" lang={closeLang} onClick={onClose}>
-            {closeLabel}
+          <button type="button" className="lt-button lt-button-secondary" aria-label={closeLabel} lang={closeLang} onClick={onClose}>
+            Close
           </button>
         ) : null}
       </header>
@@ -374,6 +379,7 @@ export function Sheet({
         ) : null}
         {children}
       </div>
+      {footer ? <footer className="lt-sheet-foot">{footer}</footer> : null}
     </dialog>
   );
 }

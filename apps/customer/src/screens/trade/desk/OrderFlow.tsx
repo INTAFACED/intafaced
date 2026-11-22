@@ -198,7 +198,7 @@ function QueueRow({ market, order }: { market: FlowMarket; order: Order }) {
   });
   if (read.status !== 'ready')
     return (
-      <li className="lt-stack-tight" data-testid="of-queue-row" data-order-id={order.id} data-state={read.status}>
+      <li className="lt-stack-tight lt-tight" data-testid="of-queue-row" data-order-id={order.id} data-state={read.status}>
         <span className="lt-strong">{head}</span>
         <span className="lt-note" role={read.status === 'loading' ? undefined : 'status'}>
           {read.status === 'loading'
@@ -216,7 +216,7 @@ function QueueRow({ market, order }: { market: FlowMarket; order: Order }) {
   const chance = view.chance.kind === 'estimate' ? view.chance : null;
   return (
     <li
-      className="lt-stack-tight"
+      className="lt-stack-tight lt-tight"
       data-testid="of-queue-row"
       data-state="ready"
       data-order-id={q.orderId}
@@ -266,7 +266,7 @@ function MyQueue({ market, mine }: { market: FlowMarket; mine: readonly Order[] 
       {resting.length === 0 ? (
         <p className="lt-note">{t('My queue none')}</p>
       ) : (
-        <ul className="lt-list lt-list-tight lt-list-rule">
+        <ul className="lt-list lt-tight lt-list-rule">
           {resting.map((order) => (
             <QueueRow key={order.id} market={market} order={order} />
           ))}
