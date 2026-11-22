@@ -206,6 +206,36 @@ describe('venue Convert: cash through a coin (#11)', () => {
     expect(p.held()).toBe(a('90'));
   });
 
+  it('recovers an already-carried cash leg after the quote window closes', async () => {
+    const p = partner({ loseNext: 1 });
+    let t = Date.now();
+    const { door, converts } = desk(p.port, { now: () => new Date(t) });
+    const q = await converts.quote(door, principal, {
+      owner,
+      from: 'EUR',
+      to: 'BTC',
+      amount: a('10'),
+      quoteKey: nextKey(),
+    });
+    const input = { owner, quoteId: q.quoteId };
+    await expect(converts.accept(door, principal, input)).rejects.toMatchObject({
+      code: 'trade.convert_cash_leg_unknown',
+    });
+    expect(p.held()).toBe(a('90'));
+    t = q.freshUntil.getTime() + 1;
+    const recovered = await converts.accept(door, principal, input);
+    expect(recovered).toMatchObject({
+      cashLeg: { legKey: cashLegKey(owner, q.quoteId), state: 'delivered', paid: '10' },
+    });
+    expect(p.legs.size).toBe(1);
+    expect(p.held()).toBe(a('90'));
+    // The venue order at the stale price is still never sent: past the window an unsigned action is refused.
+    const signature = await sign(recovered.prepared);
+    await expect(converts.submit(door, principal, { actionKey: recovered.actionKey, signature })).rejects.toMatchObject({
+      code: 'trade.convert_quote_expired',
+    });
+  });
+
   it('a price past its window asks the partner for nothing', async () => {
     const p = partner();
     let t = Date.now();

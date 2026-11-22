@@ -605,7 +605,8 @@ export class VenueConverts {
   /**
    * Accept a quote: its one venue order, prepared for the owner's wallet to sign under `convert:<owner>:<quoteId>`. The
    * same quote accepted again is that same action. Past the window, an action not yet signed is refused and nothing is
-   * prepared; one already signed is the conversion it was, and is answered as it stands.
+   * prepared; one already signed is the conversion it was, and is answered as it stands. A cash leg already asked for is
+   * read back under its key past the window too, since the partner may have moved the cash.
    */
   async accept(
     door: UserVenueDoor,
@@ -618,7 +619,9 @@ export class VenueConverts {
     if (owner !== q.owner) refuse('no such quote for this venue account', 'trade.convert_quote_unknown', 404);
     const key = convertKey(q.owner, q.quoteId);
     const stored = await door.stored(principal, key);
-    if (!stored?.signature) this.assertFresh(q);
+    // A cash leg already asked for may have moved the person's cash: past the window it is still read back under its
+    // key (Check again), never refused unread. Its venue order is still never sent unsigned past the window (submit).
+    if (!stored?.signature && !q.cashLeg?.acceptedAt) this.assertFresh(q);
     if (q.cashLeg) {
       const cashLeg = await this.carryCash(door, principal, { q, leg: q.cashLeg });
       const prepared = await door.prepare(
