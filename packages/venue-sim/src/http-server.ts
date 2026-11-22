@@ -58,6 +58,11 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/account-mode {account,mode?,actionsToday?,unreported?,refuseSwitch?}   the account's mode (J-derivatives-29),
  *                                                         the day's action count, the mode withheld from reads, a mode
  *                                                         switch the venue refuses with that reason (null: takes it)
+ *        /staking, /staking-account {account}             the venue's staking terms, and one account's staking (J-cex-spot-21)
+ *        /test/staking-published {rewardRate}             the venue withholds its staking reward rate, or publishes it again
+ *        /test/staking {account,passLockUp?,passQueue?,reward?,fillPending?}   one account's staking, moved as the venue's
+ *                                                         clock or the venue would (a lock-up passed, the queue arrived, a
+ *                                                         reward paid, withdrawals queued up to the venue's limit)
  *        /test/vault-lockup {account,vault}               the venue's clock passes one account's lock-up in one vault
  *                                                         (J-derivatives-31 #5); every other position keeps its own
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
@@ -1069,6 +1074,10 @@ async function route(
       return sim.vaults();
     case '/vault-holdings':
       return sim.vaultHoldings(account(body));
+    case '/staking':
+      return sim.staking();
+    case '/staking-account':
+      return sim.stakingAccount(account(body));
     case '/sub-accounts':
       return sim.subAccounts(account(body));
     case '/transfer':
@@ -1222,6 +1231,31 @@ async function route(
       const vault = str(body, 'vault');
       const endedAt = sim.testVaultLockUpPassed(account(body), vault);
       return { label: 'TEST', lockUpEndsAt: endedAt.toISOString(), ...(await sim.vaultHoldings(account(body))) };
+    }
+    case '/test/staking-published': {
+      // J-cex-spot-21 #1: the venue withholds its reward rate (rewardRate: false) or publishes it again (true).
+      if (typeof body.rewardRate !== 'boolean') throw new VenueWireError('rewardRate must be true or false');
+      sim.testStakingPublished({ rewardRate: body.rewardRate });
+      return { label: 'TEST', ...(await sim.staking()) };
+    }
+    case '/test/staking': {
+      // J-cex-spot-21 #6 #7 #8 #9: one account's staking, as the venue's clock or the venue itself moves it.
+      const reward = body.reward as Record<string, unknown> | undefined;
+      sim.testStaking(account(body), {
+        ...(typeof body.passLockUp === 'string' ? { passLockUp: body.passLockUp } : {}),
+        ...(body.passQueue === true ? { passQueue: true } : {}),
+        ...(reward
+          ? {
+              reward: {
+                validator: str(reward, 'validator'),
+                amount: parseAmount(str(reward, 'amount')),
+                rewardRef: str(reward, 'rewardRef'),
+              },
+            }
+          : {}),
+        ...(typeof body.fillPending === 'string' ? { fillPending: parseAmount(body.fillPending) } : {}),
+      });
+      return { label: 'TEST', ...(await sim.stakingAccount(account(body))) };
     }
     case '/test/account-switches':
       return { ...setAccountSwitches(sim, body), label: 'TEST' };

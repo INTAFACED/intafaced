@@ -45,6 +45,15 @@ export const venueFeesCopy = defineCopy('venue-fees', {
   nextLine: '{name} from {from} {asset}',
   topTier: 'You are in the venue’s top tier',
   notReported: 'not reported by the venue',
+  stakingTitle: 'Your staking discount on the venue’s fee',
+  stakingLine: 'The venue counts {amount} {asset} staked: tier {tier}, {pct}% off the venue’s own fee.',
+  stakingNone: 'The venue counts {amount} {asset} staked: below its first staking tier, so no discount.',
+  stakingBuilderNote: 'Our builder fee is not the venue’s fee. The staking discount leaves it as it is.',
+  colVenueMakerBefore: 'Venue maker fee',
+  colVenueMakerAfter: 'With your discount',
+  colVenueTakerBefore: 'Venue taker fee',
+  colVenueTakerAfter: 'With your discount',
+  stakingMore: 'Stake or unstake on Staking',
   updateRule:
     'The venue moves your tier at its own next update, with the figures it reports then; trading past a threshold does not change it before that.',
 });
