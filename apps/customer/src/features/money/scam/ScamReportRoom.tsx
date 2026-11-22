@@ -1,3 +1,4 @@
+// volt-room: /bank/safety/scam
 import { useState, type FormEvent } from 'react';
 import { Button } from '@intafaced/ui';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';

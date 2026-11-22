@@ -1,10 +1,12 @@
 // The Volt ratchet: n never falls and no new room starts off the kit. `volt-off-kit.json` lists the rooms
-// allowed off the kit today; it only shrinks (`node tooling/design/volt-count.mjs --write` drops a room once it is in Volt).
+// allowed off the kit today; it only shrinks (`node tooling/design/volt-count.mjs --write` drops a room once it is in Volt;
+// tooling/design/volt-lists.test.mjs fails a list that gains a room). On a batch PR into a Volt layer a stale entry does
+// not fail, so no batch edits the list; the layer's PR into main holds it exact (intafaced #9727).
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { offKitFindings, voltCount } from './volt-count';
+import { intoVoltLayer, offKitFindings, ratchet, voltCount, type VoltSource } from './volt-count';
 import allowedOffKit from './volt-off-kit.json';
 
 const count = voltCount();
@@ -18,17 +20,17 @@ describe('customer rooms in Volt', () => {
   });
 
   it('starts no room off the kit, and lets no room in Volt fall off it', () => {
-    const allowed = new Set<string>(allowedOffKit);
-    const off = count.rooms
-      .filter((r) => r.state !== 'volt' && !allowed.has(r.key))
-      .map((r) => `${r.key}: ${r.reason}${r.findings.map((f) => `\n    ${f.kind} at ${f.at}: ${f.text}`).join('')}`);
-    expect(off, 'a room not in Volt that volt-off-kit.json does not allow (build it on its template from the kit)').toEqual([]);
+    const problems = ratchet(count, allowedOffKit, true);
+    expect(problems, 'a room not in Volt that volt-off-kit.json does not allow (build it on its template from the kit)').toEqual([]);
   });
 
-  it('keeps the list of rooms allowed off the kit tight', () => {
-    const off = new Set(count.rooms.filter((r) => r.state !== 'volt').map((r) => r.key));
-    const stale = allowedOffKit.filter((key) => !off.has(key));
-    expect(stale, 'in Volt now, or no longer a room: run `node tooling/design/volt-count.mjs --write`').toEqual([]);
+  it('keeps the list of rooms allowed off the kit tight, except on a batch into a Volt layer', () => {
+    const stale = ratchet(count, allowedOffKit, intoVoltLayer()).filter((p) => p.startsWith('stale:'));
+    if (intoVoltLayer())
+      console.info(
+        `A batch into ${process.env.GITHUB_BASE_REF}: ${count.rooms.filter((r) => r.state === 'volt' && allowedOffKit.includes(r.key)).length} listed rooms now in Volt, tightened on the layer's PR into main`,
+      );
+    expect(stale).toEqual([]);
   });
 
   it('names every reason a room is out', () => {
@@ -117,5 +119,80 @@ describe('the off-kit rule', () => {
     const found = offKitFindings(join(dir, 'room/Room.tsx'));
     expect(found.map((f) => `${f.kind} ${f.at.split('/').slice(-1)[0]}`)).toEqual(['outside-component Room.tsx:3']);
     expect(found[0]!.text).toMatch(/^Dirty from \.\.\/parts\/Dirty, which draws off the kit: own-class at .*Helper\.tsx:1$/);
+  });
+});
+
+describe('batches side by side (intafaced #9727)', () => {
+  const plantTree = (files: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), 'volt-batches-'));
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(join(dir, name, '..'), { recursive: true });
+      writeFileSync(join(dir, name), text);
+    }
+    return dir;
+  };
+  const old = (name: string) => `import { Card } from '@intafaced/ui';\nexport const ${name} = () => <Card className="old" />;\n`;
+  const volt = (route: string, name: string) =>
+    `// volt-room: ${route}\nimport { FlowTemplate } from '@intafaced/ui/lit/templates';\nexport const ${name} = () => <FlowTemplate />;\n`;
+  // Three rooms of one area on one template: /m/a is in Volt already; batch A moves /m/b, batch B moves /m/c.
+  const main = {
+    'features/m/a/A.tsx': volt('/m/a', 'A'),
+    'features/m/b/B.tsx': old('B'),
+    'features/m/c/C.tsx': old('C'),
+  };
+  const batchA = { 'features/m/b/B.tsx': volt('/m/b', 'B') };
+  const batchB = { 'features/m/c/C.tsx': volt('/m/c', 'C') };
+  const source = (files: Record<string, string>): VoltSource => ({
+    src: plantTree(files),
+    rooms: ['/m/a', '/m/b', '/m/c'].map((path) => ({ path, title: path, area: 'm' })),
+    routeTemplates: { '/m/a': { template: 'flow' }, '/m/b': { template: 'flow' }, '/m/c': { template: 'flow' } },
+    portalRooms: [],
+    portalTemplates: {},
+  });
+  const offKit = ['/m/b', '/m/c'];
+
+  it('two batches that move different rooms of one area change no common file', () => {
+    const common = Object.keys(batchA).filter((f) => f in batchB);
+    expect(common).toEqual([]);
+    for (const batch of [batchA, batchB]) expect(Object.keys(batch).every((f) => f.startsWith('features/'))).toBe(true);
+  });
+
+  it('each passes on its layer alone, and after the other merges, with volt-off-kit.json untouched', () => {
+    for (const [label, files] of [
+      ['batch A', { ...main, ...batchA }],
+      ['batch B', { ...main, ...batchB }],
+      ['A after B', { ...main, ...batchB, ...batchA }],
+    ] as const) {
+      const c = voltCount(source(files));
+      expect(ratchet(c, offKit, true), label).toEqual([]);
+    }
+    expect(voltCount(source({ ...main, ...batchA, ...batchB })).n).toBe(3);
+  });
+
+  it("the layer's PR into main holds the list exact, and --write's list passes it", () => {
+    const both = voltCount(source({ ...main, ...batchA, ...batchB }));
+    expect(ratchet(both, offKit, false).map((p) => p.split(':')[0])).toEqual(['stale', 'stale']);
+    const written = offKit.filter((key) => both.rooms.some((r) => r.key === key && r.state !== 'volt'));
+    expect(ratchet(both, written, false)).toEqual([]);
+  });
+
+  it('a planted fault still fails a batch: a room in Volt moved off the kit', () => {
+    const fault = { ...main, ...batchA, 'features/m/a/A.tsx': volt('/m/a', 'A').replace('<FlowTemplate />', '<div className="card" />') };
+    const problems = ratchet(voltCount(source(fault)), offKit, true);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/^off: \/m\/a: on its template, but draws off the kit: own-class/);
+    const unmarked = { ...main, 'features/m/a/A.tsx': old('A') };
+    expect(ratchet(voltCount(source(unmarked)), offKit, true)[0]).toMatch(/^off: \/m\/a: not on its flow template yet/);
+  });
+
+  it('fails a volt-room line that names no room, or a room two files claim', () => {
+    const bad = { ...main, 'features/m/x/X.tsx': volt('/m/nowhere', 'X'), 'features/m/y/Y.tsx': volt('/m/a', 'Y') };
+    expect(ratchet(voltCount(source(bad)), offKit, true).map((p) => p.split(':')[0])).toEqual(['mark', 'mark']);
+  });
+
+  it('reads a batch PR into a Volt layer from the base branch only', () => {
+    expect(intoVoltLayer({ GITHUB_BASE_REF: 'volt/overview' })).toBe(true);
+    expect(intoVoltLayer({ GITHUB_BASE_REF: 'main' })).toBe(false);
+    expect(intoVoltLayer({})).toBe(false);
   });
 });
