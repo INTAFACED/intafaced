@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, fund, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-bank-15, in the running app (docs/roadmap/journeys.json): I dispute a card charge. One test per step, titled
 // "J-bank-15 #<n>", run in order on one TEST cardholder. The card and its money are the partner's (OWNER 226); no partner
@@ -19,7 +21,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 //   #4 reads three decisions. A: the partner's provisional credit of 10 (available rises once by exactly 10, as the
 //      partner reports), then lost for the merchant with support's reason and the credit reversed (available back). B:
 //      the partner's credit, then won for the cardholder with the reason, the credit final. C: withdrawn by the cardholder
-//      with their reason. The ledger posts nothing at any step.
+//      with their reason. The ledger posts nothing at any step. Every credit figure is read from the TEST card partner's
+//      own book on loopback (svc-bank src/cards/test-card-partner-record.ts) through the outside-record read (venue.mjs
+//      venueRecord and venueBalance), never only through our own door, and the app's figure must equal it.
 const J = 'J-bank-15';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -78,12 +82,24 @@ async function customerBank(who) {
     mutate: (procedure, input) => own.post(`/api/bank/trpc/${procedure}`, input),
   };
 }
-/** What the partner reports this cardholder can spend in USDC (Pay from), in 18-decimal units. */
+/** The TEST card partner's own record, on loopback (svc-bank src/cards/test-card-partner-record.ts). */
+const CARD_PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-card-partner`;
+/**
+ * What the card partner's own book says this cardholder can spend in USDC, in 18-decimal units; the app's Pay from figure
+ * must be that same figure.
+ */
 async function partnerAvailable(who) {
+  const own = await api(who);
+  const book = units((await venueBalance(own.userId, 'USDC', CARD_PARTNER_RECORD)).total);
   const res = await (await customerBank(who)).query('cards.payFrom');
   const row = res?.body?.result?.data?.assets?.find((a) => a.assetId === 'USDC');
   expect(row?.partnerBalance, JSON.stringify(res?.body ?? {}).slice(0, 300)).toBeTruthy();
-  return units(row.partnerBalance);
+  expect(units(row.partnerBalance)).toBe(book);
+  return book;
+}
+/** The provisional credits the card partner's own book holds for this cardholder. */
+async function partnerCredits(who) {
+  return (await venueRecord((await api(who)).userId, '/credits', {}, CARD_PARTNER_RECORD, null)).value;
 }
 async function disputeOf(who, disputeId) {
   const res = await (await customerBank(who)).query('cards.disputes.get', { disputeId });
@@ -370,6 +386,15 @@ test(`${J} #4 reads the decision: won, lost or withdrawn with its reason, and an
   await expect(caseC.getByTestId('dispute-decision')).toContainText('Reason: TEST: I found it was my own purchase');
   await expect(caseC.getByTestId('dispute-credit')).toHaveText('No provisional credit.');
   for (const t of [caseA, caseB, caseC]) await expect(t.getByTestId('dispute-state')).toHaveText('Now: Decided');
+  // The partner's own book holds exactly the two credits the page names: A's 10, reversed, and B's 25, final; none for C.
+  const book = await partnerCredits(who);
+  expect(book).toHaveLength(2);
+  expect(book).toEqual(
+    expect.arrayContaining([
+      { partnerRef: lost.provisionalCredit.partnerRef, assetId: 'USDC', amount: '10', reversed: true },
+      { partnerRef: won.provisionalCredit.partnerRef, assetId: 'USDC', amount: '25', reversed: false },
+    ]),
+  );
 
   // The ledger posted nothing for any dispute: the cardholder's ledger balances are as the journey started.
   expect(await ledgerOf(who)).toEqual(ledger);

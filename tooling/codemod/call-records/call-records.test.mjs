@@ -14,6 +14,7 @@ import {
   portInFlight,
   pruneImports,
   pruneReExports,
+  pruneBuilders,
   pruneSchemas,
   recordName,
   rewriteSite,
@@ -313,6 +314,14 @@ test('the report sorts each hand reason into the kind one script change or one d
   assert.equal(
     reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
     'helper name clash (a rerun places it)',
+  );
+  assert.equal(
+    reasonOf("r: s comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it"),
+    'schema from a package that depends on contracts (it stays)',
+  );
+  assert.equal(
+    reasonOf('r: s comes from @intafaced/money-math, which contracts does not depend on'),
+    'answer or input schema from another package or generic',
   );
   assert.equal(reasonOf('something new'), 'other');
 });
@@ -849,6 +858,59 @@ test('a schema const the moved call left unread goes, and the one it read after 
   assert.match(out, /const impure = makeSchema\(\);/);
 });
 
+test('a builder or guard object only the moved calls read goes; one still read, exported or not plain stays', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'call-records-builders-')), 'router.ts');
+  writeFileSync(
+    file,
+    [
+      "const guards = { module: 'core-ops' as const, plane: 'fiat' as const };",
+      "const kept = { module: 'core-ops' as const };",
+      'const built = { at: Date.now() };',
+      "export const shown = { module: 'x' };",
+      'export function make() {',
+      "  const reader = scopedProcedure('admin:read', guards);",
+      "  const writer = scopedProcedure('admin:write', kept);",
+      '  return router({ a: writer.query(() => built) });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  pruneBuilders(file);
+  const out = readFileSync(file, 'utf8');
+  assert.doesNotMatch(out, /const (reader|guards) =/);
+  assert.match(out, /const writer = scopedProcedure/);
+  assert.match(out, /const kept = /);
+  assert.match(out, /const built = /);
+  assert.match(out, /export const shown = /);
+});
+
+test('a schema built on an imported schema, and the literal list only it read, go once no one reads them', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'call-records-imported-')), 'screen.tsx');
+  writeFileSync(
+    file,
+    [
+      "import { z } from 'zod';",
+      "import { decimalSchema } from '../money';",
+      "import { makeThing } from '../thing';",
+      "const KINDS = ['a', 'b'] as const;",
+      "const KEPT = ['c'] as const;",
+      'const dead = z.object({ kind: z.enum(KINDS), cap: decimalSchema.nullable() });',
+      'const impure = makeThing().nullable();',
+      'export const use = () => KEPT[0];',
+      '',
+    ].join('\n'),
+  );
+  for (let was = ''; was !== readFileSync(file, 'utf8');) {
+    was = readFileSync(file, 'utf8');
+    pruneSchemas(file);
+    pruneBuilders(file);
+  }
+  const out = readFileSync(file, 'utf8');
+  assert.doesNotMatch(out, /const (dead|KINDS) =/);
+  assert.match(out, /const KEPT = /);
+  assert.match(out, /const impure = makeThing\(\)/);
+});
+
 test('a name a service file re-exports is followed to where it is declared, renamed or not, and a renamed declaration is named', () => {
   const repo = mkdtempSync(join(tmpdir(), 'call-records-reexport-'));
   const put = (path, lines) => {
@@ -890,6 +952,42 @@ test('a name a service file re-exports is followed to where it is declared, rena
   assert.deepEqual(b.problems, []);
   assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: local is re-exported as renamed']);
   assert.deepEqual(closureOf(repo, [root(3)]).problems, ['r: keyField is imported as passed']);
+});
+
+test('a generic helper moves with its own type parameter; a package import moves when contracts depends on it, and one that depends on contracts stays, named', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-outside-'));
+  const put = (path, lines) => {
+    mkdirSync(dirname(join(repo, path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  put('packages/contracts/src/wire.ts', ['export const unused = 1;']);
+  put('packages/contracts/package.json', [JSON.stringify({ dependencies: { zod: '^4', '@intafaced/config': 'workspace:*' } })]);
+  put('packages/cyc/package.json', [JSON.stringify({ dependencies: { '@intafaced/contracts': 'workspace:*' } })]);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { sideSchema } from '@intafaced/cyc';",
+    "import { cfgSchema } from '@intafaced/config';",
+    'function wireEnum<T extends string>(values: readonly [T, ...T[]]) { return z.enum(values as [T, ...T[]]); }',
+    "const a = z.object({ state: wireEnum(['ON', 'OFF'] as const), cfg: cfgSchema });",
+    'const b = z.object({ side: sideSchema });',
+    'const c = z.object({ t: z.custom<T>() });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const root = (i) => ({ p, node: p.program.body[4 + i].declarations[0].init, where: 'r' });
+  const a = closureOf(repo, [root(0)]);
+  assert.deepEqual(a.problems, []);
+  assert.deepEqual(
+    a.moved.map((m) => m.name),
+    ['wireEnum'],
+  );
+  assert.deepEqual(
+    [...a.fromPackages].map(([s, n]) => [s, [...n]]),
+    [['@intafaced/config', ['cfgSchema']]],
+  );
+  assert.deepEqual(closureOf(repo, [root(1)]).problems, [
+    "r: sideSchema comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it",
+  ]);
+  assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: T is not declared anywhere it can be read'], 'a T no helper declares stays');
 });
 
 test("portable: a door answer's Date becomes its ISO string; a mounted service's stays named", async () => {
