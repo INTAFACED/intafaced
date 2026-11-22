@@ -21,8 +21,8 @@
 mod support;
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use service_kit::edge;
 use service_kit::http::{Fetch, FetchError, HttpRequest, HttpResponse};
@@ -34,15 +34,17 @@ use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth};
 use svc_agents::gateway::Gateway;
 use svc_agents::gateway::desk::GatewaySlice;
 use svc_agents::gateway::providers::{
-    MockOptions, MockProvider, Provider, UpstreamConfig, UpstreamProvider,
+    CompletionRequest, CompletionResult, EmbedRequest, EmbedResult, Failure, Health, MockOptions,
+    MockProvider, Provider, UpstreamConfig, UpstreamProvider,
 };
 use svc_agents::gateway::readiness::ReadyInput;
-use svc_agents::gateway::routing::parse_routing_table;
+use svc_agents::gateway::routing::{self, Capability, parse_routing_table};
 use svc_agents::metering::Metering;
-use svc_agents::metering::ports::{Ledger, LedgerError, Recipe};
+use svc_agents::metering::ports::{Bus, Ledger, LedgerError, Recipe};
 use svc_agents::own::gates::parse_policy_baseline;
 use svc_agents::own::{Own, catalog};
 use svc_agents::runtime::Runtime;
+use svc_agents::self_freeze::{Reading, SelfFreezeRead, Unavailable};
 
 const USER: &str = "11111111-1111-4111-8111-111111111111";
 const OTHER: &str = "22222222-2222-4222-8222-222222222222";
@@ -80,6 +82,51 @@ impl Fetch for CountingFetch {
     }
 }
 
+/// The mock engine, with every system prompt it is asked under kept (the TypeScript's `systems`, read off the
+/// gateway's `complete`).
+struct Recording {
+    inner: Arc<MockProvider>,
+    systems: Arc<Mutex<Vec<Option<String>>>>,
+}
+
+impl Provider for Recording {
+    fn id(&self) -> &str {
+        self.inner.id()
+    }
+    fn capabilities(&self) -> &[Capability] {
+        self.inner.capabilities()
+    }
+    fn engine(&self) -> routing::Engine {
+        self.inner.engine()
+    }
+    fn health(&self, now: Instant) -> Health {
+        self.inner.health(now)
+    }
+    fn complete(&self, request: &CompletionRequest) -> Result<CompletionResult, Failure> {
+        self.systems.lock().unwrap().push(request.system.clone());
+        self.inner.complete(request)
+    }
+    fn embed(&self, request: &EmbedRequest) -> Option<Result<EmbedResult, Failure>> {
+        self.inner.embed(request)
+    }
+}
+
+/// `MemoryEventBus`, as far as these tests read it: every event taken.
+struct Sink;
+impl Bus for Sink {
+    fn publish(&self, _: &str, _: &str, _: &Json) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// `MemorySelfFreezeRead`: nobody frozen.
+struct Open;
+impl SelfFreezeRead for Open {
+    fn read(&self, _: &str) -> Result<Reading, Unavailable> {
+        Ok(Reading::Open)
+    }
+}
+
 fn now() -> Instant {
     svc_agents::door::system_now()
 }
@@ -96,6 +143,7 @@ struct World {
     db: TestDb,
     ledger: CountingLedger,
     mock: Arc<MockProvider>,
+    systems: Arc<Mutex<Vec<Option<String>>>>,
     fetched: Arc<CountingFetch>,
 }
 
@@ -114,6 +162,7 @@ impl World {
                 },
                 now,
             )),
+            systems: Arc::new(Mutex::new(Vec::new())),
             fetched: Arc::new(CountingFetch::default()),
         })
     }
@@ -132,7 +181,10 @@ impl World {
         ))
         .unwrap();
         let provider: Arc<dyn Provider> = match engine {
-            Engine::Sandbox => self.mock.clone(),
+            Engine::Sandbox => Arc::new(Recording {
+                inner: self.mock.clone(),
+                systems: self.systems.clone(),
+            }),
             Engine::Live => Arc::new(UpstreamProvider::new(
                 UpstreamConfig {
                     id: "primary".to_owned(),
@@ -164,9 +216,13 @@ impl World {
         let mut metering = Metering::unwired("USDT", 60);
         metering.enabled = true;
         metering.ledger = Box::new(self.ledger.clone());
+        metering.bus = Box::new(Sink);
         let mut own = Own::unwired();
         own.templates = catalog::template_ids();
         own.baseline = parse_policy_baseline(Some(baseline)).unwrap();
+        // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+        let mut runtime = Runtime::unwired();
+        runtime.self_freeze = Some(Box::new(Open));
         AgentsDoor::new(DoorConfig {
             edge_secret: SECRET.to_owned(),
             services: ServiceAuth {
@@ -184,7 +240,7 @@ impl World {
             },
             ready: ReadyInput::unwired(),
             metering,
-            runtime: Runtime::unwired(),
+            runtime,
             advisors: svc_agents::advisors::Advisors::unwired(),
             background: svc_agents::background::Settings::default(),
             own,
@@ -249,22 +305,6 @@ impl World {
              VALUES ($1::text::uuid, $2::text, $3::text, $4::text)",
             &[&id, &owner, &data_class, &key],
         );
-    }
-
-    /// `own.session.open({ id })`, as the row it writes: a session of `own.<id>` on the agent's version (own-runs' call).
-    fn open_session(&self, owner: &str, id: &str) -> String {
-        let agent_ref = format!("own.{id}");
-        self.db
-            .client()
-            .query_one(
-                "INSERT INTO agents.agent_sessions (user_id, agent_id, guardrail, guardrail_version, opened_at)
-                 SELECT $1::text, $2::text, jsonb_build_object('limits', '{}'::jsonb), version, clock_timestamp()
-                   FROM agents.own_agents WHERE id = $3::text::uuid
-                 RETURNING id::text",
-                &[&owner, &agent_ref, &id],
-            )
-            .unwrap()
-            .get(0)
     }
 
     /// `own.memory.setEnabled({ id, enabled })`, as the row it writes (own-controls' call).
@@ -488,6 +528,33 @@ fn id_input(id: &str) -> Json {
     Json::obj([("id", Json::str(id))])
 }
 
+/// `own.session.open({ id })`: the session's id and the version it opened on.
+fn session_open(p: &Caller<'_>, id: &str) -> (String, f64) {
+    let opened = data(&p.mutate("own.session.open", &id_input(id)));
+    (text_at(&opened, "sessionId"), num(at(&opened, "version")))
+}
+
+/// `own.run({ id, sessionId, requestId, ask: 'TEST question' })`.
+fn own_run(p: &Caller<'_>, id: &str, session: &str, request_id: &str) -> Answer {
+    p.mutate(
+        "own.run",
+        &Json::obj([
+            ("id", Json::str(id)),
+            ("sessionId", Json::str(session)),
+            ("requestId", Json::str(request_id)),
+            ("ask", Json::str("TEST question")),
+        ]),
+    )
+}
+
+/// `own.runs({ id, limit: 50 })`.
+fn own_runs(p: &Caller<'_>, id: &str) -> Json {
+    data(&p.query(
+        "own.runs",
+        &Json::obj([("id", Json::str(id)), ("limit", Json::int(50))]),
+    ))
+}
+
 // ── publishing.test.ts ──────────────────────────────────────────────────────
 
 /// `agentWith(person, cap, name)`.
@@ -638,21 +705,22 @@ fn version_1_never_changes_the_edit_is_version_2_a_draft_republishing_moves_only
     );
 }
 
-/// The publication half of "a session keeps the version it opened on, and its runs read that version's instructions":
-/// each open session is listed with the version it opened on. The sessions are written as `own.session.open` writes
-/// them; that its runs read that version's instructions is `own.run`'s, owed to own-runs.
+/// `a session keeps the version it opened on, and its runs read that version’s instructions`. Closing a session drops
+/// it from the open ones, as the publication reads them.
 #[test]
-fn a_session_keeps_the_version_it_opened_on() {
+fn a_session_keeps_the_version_it_opened_on_and_its_runs_read_that_versions_instructions() {
     let w = world_or_skip!();
     let door = w.sandbox();
     let person = caller(&door, USER);
     let id = agent_with(&person, Some("1"), "TEST helper");
     w.limits_set(USER, &id, "0.5", "1", "5");
     data(&publish(&person, &id, &["my_agents"]));
-    let v1 = w.open_session(USER, &id);
+    let (v1, version) = session_open(&person, &id);
+    assert_eq!(version, 1.0);
     edit(&person, &id, V2);
     data(&publish(&person, &id, &["my_agents"]));
-    let v2 = w.open_session(USER, &id);
+    let (v2, version) = session_open(&person, &id);
+    assert_eq!(version, 2.0);
     assert_eq!(
         at(
             &data(&person.query("own.publication", &id_input(&id))),
@@ -660,6 +728,12 @@ fn a_session_keeps_the_version_it_opened_on() {
         )
         .compact(),
         format!(r#"[{{"sessionId":"{v1}","version":1}},{{"sessionId":"{v2}","version":2}}]"#)
+    );
+    data(&own_run(&person, &id, &v1, "publish:run:v1"));
+    data(&own_run(&person, &id, &v2, "publish:run:v2"));
+    assert_eq!(
+        *w.systems.lock().unwrap(),
+        [Some(V1.to_owned()), Some(V2.to_owned())]
     );
     // A closed session is no longer open.
     w.sql(
@@ -674,6 +748,30 @@ fn a_session_keeps_the_version_it_opened_on() {
         .compact(),
         format!(r#"[{{"sessionId":"{v2}","version":2}}]"#)
     );
+}
+
+/// `a session opened on a draft keeps the instructions it opened on, though the draft is edited after`.
+#[test]
+fn a_session_opened_on_a_draft_keeps_the_instructions_it_opened_on() {
+    let w = world_or_skip!();
+    let door = w.sandbox();
+    let person = caller(&door, USER);
+    let id = agent_with(&person, Some("1"), "TEST helper");
+    w.limits_set(USER, &id, "0.5", "1", "5");
+    let (opened, version) = session_open(&person, &id);
+    assert_eq!(version, 1.0);
+    edit(&person, &id, V2);
+    let got = data(&person.query("own.get", &id_input(&id)));
+    assert_eq!(
+        (
+            num(at(&got, "version")),
+            text_at(&got, "state"),
+            text_at(&got, "instructions")
+        ),
+        (1.0, "draft".to_owned(), V2.to_owned())
+    );
+    data(&own_run(&person, &id, &opened, "publish:run:draft"));
+    assert_eq!(*w.systems.lock().unwrap(), [Some(V1.to_owned())]);
 }
 
 #[test]
@@ -780,7 +878,7 @@ fn deletes_a_draft_only_with_the_confirmation_for_good_a_published_agent_or_one_
 
     let ran = agent_with(&person, Some("1"), "TEST helper");
     w.limits_set(USER, &ran, "0.5", "1", "5");
-    w.open_session(USER, &ran);
+    session_open(&person, &ran);
     assert_eq!(
         message(&delete(&person, &ran, CONFIRM)),
         "agents.own.delete_has_sessions"
@@ -1067,21 +1165,14 @@ fn dry(answer: &Answer) -> Json {
     run
 }
 
-/// `own.holds({ id })`, read from the tables it reads (own-controls' call): sessions, reservations, intents.
-fn holds(w: &World, id: &str) -> (i64, i64, i64) {
-    let agent_ref = format!("own.{id}");
-    let mut c = w.db.client();
-    let row = c
-        .query_one(
-            "SELECT (SELECT count(*) FROM agents.agent_sessions s WHERE s.user_id = $1::text AND s.agent_id = $2::text),
-                    (SELECT count(*) FROM agents.spend_reservations r JOIN agents.agent_sessions s ON s.id = r.session_id
-                      WHERE r.user_id = $1::text AND s.agent_id = $2::text),
-                    (SELECT count(*) FROM agents.agent_place_intents i JOIN agents.agent_sessions s ON s.id = i.session_id
-                      WHERE s.user_id = $1::text AND s.agent_id = $2::text)",
-            &[&USER, &agent_ref],
-        )
-        .unwrap();
-    (row.get(0), row.get(1), row.get(2))
+/// `own.holds({ id })`: sessions, reservations, intents.
+fn holds(p: &Caller<'_>, id: &str) -> (f64, f64, f64) {
+    let held = data(&p.query("own.holds", &id_input(id)));
+    (
+        num(at(&held, "sessions")),
+        num(at(&held, "reservations")),
+        num(at(&held, "intents")),
+    )
 }
 
 #[test]
@@ -1118,7 +1209,7 @@ fn passes_every_check_and_says_it_would_run_the_tool_once_no_session_entry_inten
         r#"{"kind":"run","tool":"support.kb.search","module":"support","dataClass":"own_data","input":{"limit":"5","kbQuery":"TEST question"}}"#
     );
     w.untouched();
-    assert_eq!(holds(&w, &id), (0, 0, 0));
+    assert_eq!(holds(&person, &id), (0.0, 0.0, 0.0));
     assert_eq!(test_runs(&person, &id), Json::Array(vec![run]));
 }
 
@@ -1325,8 +1416,8 @@ fn the_same_request_id_again_is_the_same_dry_run_another_call_under_it_is_refuse
     assert_eq!(w.count("own_agent_test_runs"), 1);
 }
 
-/// `keeps one person's dry runs, test runs, holds and analytics from another`: `own.holds` and `own.analytics` are
-/// own-controls' calls, owed there; the dry run and the test runs are held here.
+/// `keeps one person's dry runs, test runs, holds and analytics from another`: `own.analytics` is own-controls' call,
+/// owed there.
 #[test]
 fn keeps_one_persons_dry_runs_and_test_runs_from_another() {
     let w = world_or_skip!();
@@ -1344,6 +1435,10 @@ fn keeps_one_persons_dry_runs_and_test_runs_from_another() {
         )),
         "agents.own.not_found"
     );
+    assert_eq!(
+        message(&other.query("own.holds", &id_input(&id))),
+        "agents.own.not_found"
+    );
     assert_eq!(w.count("own_agent_test_runs"), 0);
 }
 
@@ -1359,8 +1454,8 @@ fn test_run(p: &Caller<'_>, fields: &[(&str, &str)]) -> Answer {
     )
 }
 
-/// `answers on the test engine ...`: `own.usage`, `own.runs` and `own.analytics` are own-controls' and own-runs'
-/// calls, owed there; the tables they read are held untouched here, and `own.holds` is read from its tables.
+/// `answers on the test engine ...`: `own.usage` and `own.analytics` are own-controls' calls, owed there; the tables
+/// they read are held untouched here.
 #[test]
 fn answers_on_the_test_engine_mode_test_cost_0_the_reply_and_every_log_row_test() {
     let w = world_or_skip!();
@@ -1384,12 +1479,12 @@ fn answers_on_the_test_engine_mode_test_cost_0_the_reply_and_every_log_row_test(
         )
     );
     w.untouched();
-    assert_eq!(holds(&w, &id), (0, 0, 0));
+    assert_eq!(holds(&person, &id), (0.0, 0.0, 0.0));
+    assert_eq!(own_runs(&person, &id), Json::Array(Vec::new()));
     assert_eq!(test_runs(&person, &id), Json::Array(vec![run]));
 }
 
-/// The first half of `on a live-engine deployment the test still uses the test engine and the live engine is never
-/// asked`: that the same deployment's live run does reach the live engine is `own.run`'s, owed to own-runs.
+/// `on a live-engine deployment the test still uses the test engine and the live engine is never asked`.
 #[test]
 fn on_a_live_engine_deployment_the_test_still_uses_the_test_engine_and_the_live_engine_is_never_asked()
  {
@@ -1421,6 +1516,10 @@ fn on_a_live_engine_deployment_the_test_still_uses_the_test_engine_and_the_live_
     );
     assert_eq!(w.fetched.0.load(Ordering::SeqCst), 0);
     w.untouched();
+    // The same deployment's live run does go to the live engine, which nobody answers: the test did not.
+    let (session, _) = session_open(&person, &id);
+    message(&own_run(&person, &id, &session, "live:run:0002"));
+    assert!(w.fetched.0.load(Ordering::SeqCst) > 0);
 }
 
 #[test]
@@ -1522,7 +1621,7 @@ fn a_value_tool_test_reports_what_it_would_do_and_that_a_real_call_is_refused_no
         )
     );
     w.untouched();
-    assert_eq!(holds(&w, &id), (0, 0, 0));
+    assert_eq!(holds(&person, &id), (0.0, 0.0, 0.0));
     assert_eq!(test_runs(&person, &id), Json::Array(vec![tested]));
 }
 
@@ -1571,6 +1670,37 @@ fn keeps_one_persons_test_runs_and_tool_tests_from_another() {
         "agents.own.not_found"
     );
     assert_eq!(w.count("own_agent_test_runs"), 0);
+}
+
+/// `lists test runs apart from live runs; live analytics leave test runs out unless they are included`: the analytics
+/// half (`own.analytics`) is own-controls' call, owed there.
+#[test]
+fn lists_test_runs_apart_from_live_runs() {
+    let w = world_or_skip!();
+    let door = w.sandbox();
+    let person = caller(&door, USER);
+    let id = dry_draft(&w, &person, true);
+    let (session, _) = session_open(&person, &id);
+    let ran = data(&own_run(&person, &id, &session, "live:run:0001"));
+    let dry = dry(&dry_run(&person, &id, "dry:apart:0001", KB_TOOL, KB_INPUT));
+    let live = own_runs(&person, &id);
+    let live = items(&live);
+    assert_eq!(live.len(), 1);
+    assert_eq!(
+        (
+            text_at(&live[0], "sessionId"),
+            text_at(&live[0], "status"),
+            text_at(&live[0], "cost")
+        ),
+        (session, "executed".to_owned(), text_at(&ran, "cost"))
+    );
+    assert_eq!(test_runs(&person, &id), Json::Array(vec![dry]));
+    // The live run holds its session's reservation; the dry run added none.
+    let (sessions, reservations, intents) = holds(&person, &id);
+    assert_eq!((sessions, intents), (1.0, 0.0));
+    #[allow(clippy::cast_precision_loss, reason = "a handful of rows")]
+    let reserved = w.count("spend_reservations") as f64;
+    assert_eq!(reservations, reserved);
 }
 
 // ── hostile content and output guards (dry-run.test.ts) ─────────────────────
