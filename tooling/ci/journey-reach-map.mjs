@@ -223,7 +223,8 @@ export function unbuiltSteps(baseline) {
  * doesn't hold the file). `unbuilt`: unbuiltSteps of the baseline. A run counts when the file is not broken in it and
  * every test of it passed there, or when each test that didn't pass is excused:
  *   - it is a numbered step of this file the baseline calls unbuilt, a test with no step title (`starts:`, `ends:`,
- *     `outside:`, `part of #n`), or a test skipped after such an unbuilt step in the same file and project; and
+ *     `outside:`, `part of #n`) that ran and failed, or a test skipped after such an unbuilt step in the same file and
+ *     project; and
  *   - it didn't pass in any whole run, and every whole run the map is built from (at least MIN_RUNS) holds the file.
  * A test with no step title that never passed is, to the journey verdict, work not built yet that stays out until it
  * first passes (journey-verdict.mjs), as an unbuilt step is; and the tests that did pass ran whole and are recorded.
@@ -259,7 +260,7 @@ export function speaksFor(whole, f, unbuilt = new Map()) {
     for (const [key, t] of o.tests) {
       if (t.passed) continue;
       const isUnbuilt = !!t.step && unbuilt.get(t.step) === f;
-      if (!persistent(key) || !(isUnbuilt || !t.step || (t.skipped && after.has(t.project)))) return false;
+      if (!persistent(key) || !(isUnbuilt || (!t.step && !t.skipped) || (t.skipped && after.has(t.project)))) return false;
       if (isUnbuilt) after.add(t.project);
     }
     return true;

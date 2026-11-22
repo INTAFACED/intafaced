@@ -401,8 +401,19 @@ test('planted: a test with no step title red in every run excuses its run; one r
   ]);
   assert.equal(some.full[TAX], undefined);
   assert.ok(!reachOf(some, 'services', 'services/svc-support').includes(TAX), 'a flaky red run adds nothing');
-  // Red in one run and absent from the others' green runs is the same; red in every run with its steps skipped: full.
+  // Red in every run with its steps skipped: full. So is a red `starts:` followed by a skipped test with no step title:
+  // a skip is excused only after an unbuilt step.
   assert.match(every({ [TAX]: { fail: ['starts:'], skip: ['#'] } }).full[TAX], /no run the map is built from speaks for it/);
+  const STEPLESS = { [TAX]: { fail: ['starts:'], skip: ['#3'] } };
+  const stepless = build(
+    [3, 2, 1].map((id) => {
+      const r = stepsRun(id, STEPLESS);
+      const spec = r.report.suites.find((x) => x.file === TAX).suites[0].specs.find((x) => x.title.includes('#3'));
+      spec.title = spec.title.replace('#3 step', 'ends: the stack');
+      return r;
+    }),
+  );
+  assert.match(stepless.full[TAX], /no run the map is built from speaks for it/, 'a skipped `ends:` is not excused');
   // A red step beside it still needs its own excuse: #1 is not in the baseline.
   assert.match(every({ [TAX]: { fail: ['starts:', '#1'] } }).full[TAX], /speaks for it/);
 });
