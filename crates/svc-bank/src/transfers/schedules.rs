@@ -1333,7 +1333,7 @@ fn iso(t: Option<Instant>) -> Json {
 }
 
 /// `assertSelf`.
-fn assert_self(user_id: &str, owner: &str) -> Result<(), Refusal> {
+pub fn assert_self(user_id: &str, owner: &str) -> Result<(), Refusal> {
     if user_id == owner {
         return Ok(());
     }

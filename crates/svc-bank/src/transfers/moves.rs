@@ -306,7 +306,7 @@ pub fn custody_mismatch() -> Refusal {
 }
 
 /// `partnerPathNotBuilt`.
-fn partner_path_not_built() -> Refusal {
+pub fn partner_path_not_built() -> Refusal {
     refuse(
         "bank.partner_path_not_built",
         "This payment is not yet made through the partner bank that holds this money, so it was not sent. Nothing was sent or changed.",
@@ -408,18 +408,41 @@ pub fn transfer(d: &Deps<'_>, ask: &MoveAsk<'_>) -> Result<Moved, Refusal> {
     move_between(d, ask, false)
 }
 
+/// A move that failed: the refusal, and svc-ledger's own failure when the post itself failed, so a caller can tell a
+/// refusal that proves nothing was booked from one that may yet land (`provesPostNotCommitted`).
+#[derive(Debug)]
+pub struct Failed {
+    pub refusal: Refusal,
+    pub post: Option<PostFailure>,
+}
+
+impl From<Refusal> for Failed {
+    fn from(refusal: Refusal) -> Failed {
+        Failed {
+            refusal,
+            post: None,
+        }
+    }
+}
+
 /// `moveBetweenSpaces` (`partner_allowed`) and `move`.
 pub fn move_between(
     d: &Deps<'_>,
     ask: &MoveAsk<'_>,
     partner_allowed: bool,
 ) -> Result<Moved, Refusal> {
+    move_between_outcome(d, ask, partner_allowed).map_err(|f| f.refusal)
+}
+
+/// [`move_between`], keeping svc-ledger's failure when the post failed.
+pub fn move_between_outcome(
+    d: &Deps<'_>,
+    ask: &MoveAsk<'_>,
+    partner_allowed: bool,
+) -> Result<Moved, Failed> {
     let now = d.now;
     if ask.from_space_id == ask.to_space_id {
-        return Err(refuse(
-            "bank.same_space",
-            "A transfer needs two different spaces",
-        ));
+        return Err(refuse("bank.same_space", "A transfer needs two different spaces").into());
     }
     let from = with(d.store, |c| resolve_for_debit(c, ask.from_space_id, now))?;
     let key = bank_transfer_key(ask.key_space, ask.transfer_id, 0);
@@ -440,15 +463,16 @@ pub fn move_between(
                 "Cannot transfer {} into a {} space — convert first",
                 from.asset_id, to.asset_id
             ),
-        ));
+        )
+        .into());
     }
     let to_partner = d.custody.bank_for(&to.user_id);
     if partner.is_some() || to_partner.is_some() {
         let (Some(p), Some(_)) = (&partner, &to_partner) else {
-            return Err(custody_mismatch());
+            return Err(custody_mismatch().into());
         };
         if !partner_allowed {
-            return Err(partner_path_not_built());
+            return Err(partner_path_not_built().into());
         }
         bind_message(
             d,
@@ -505,10 +529,13 @@ pub fn move_between(
         ask.amount,
         ask.key_space,
     )
-    .map_err(|f| post_refusal(&f))?;
+    .map_err(|f| Failed {
+        refusal: post_refusal(&f),
+        post: Some(f),
+    })?;
     // A ledger answering a reused key with the ORIGINAL transaction: never report this one booked unless it is this move.
     if !booked_matches(d, &tx, &from_account, &to_account, ask.amount)? {
-        return Err(booked_conflict(ask.transfer_id));
+        return Err(booked_conflict(ask.transfer_id).into());
     }
     if ask.note.is_some() || ask.reference.is_some() {
         attach_message_tx(d, ask.transfer_id, &tx.id)?;
@@ -529,6 +556,18 @@ pub fn transfer_to_user(
     to_user_id: &str,
     amount: Amount,
 ) -> Result<Moved, Refusal> {
+    transfer_to_user_outcome(d, transfer_id, from_space_id, to_user_id, amount)
+        .map_err(|f| f.refusal)
+}
+
+/// [`transfer_to_user`], keeping svc-ledger's failure when the post failed.
+pub fn transfer_to_user_outcome(
+    d: &Deps<'_>,
+    transfer_id: &str,
+    from_space_id: &str,
+    to_user_id: &str,
+    amount: Amount,
+) -> Result<Moved, Failed> {
     let dest_user = to_user_id.trim();
     let from = with(d.store, |c| resolve_for_debit(c, from_space_id, d.now))?;
     let dest = if dest_user.is_empty() {
@@ -540,9 +579,10 @@ pub fn transfer_to_user(
         return Err(refuse(
             "bank.recipient_cannot_receive",
             RECIPIENT_CANNOT_RECEIVE_MESSAGE,
-        ));
+        )
+        .into());
     };
-    move_between(
+    move_between_outcome(
         d,
         &MoveAsk {
             transfer_id,
