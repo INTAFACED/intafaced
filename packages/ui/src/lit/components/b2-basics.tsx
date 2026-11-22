@@ -153,7 +153,7 @@ export function Tabs(props: TabsProps) {
     items.findIndex((t) => t.value === value),
   );
   const move = (event: React.KeyboardEvent<HTMLElement>, index: number) => {
-    const next = nextTabIndex(index, event.key, items.length, isRightToLeft(event.currentTarget));
+    const next = nextTabIndex(index, readingArrow(event.key, isRightToLeft(event.currentTarget)), items.length);
     if (next === null) return;
     const item = items[next];
     if (!item) return;
@@ -186,19 +186,23 @@ export function Tabs(props: TabsProps) {
   );
 }
 
-/**
- * The tab an arrow, Home or End key moves to from `index` (wrapping), or null for any other key. On a right-to-left
- * page the row reads from the right, so ArrowLeft moves to the next tab and ArrowRight to the one before.
- */
-export function nextTabIndex(index: number, key: string, count: number, rtl = false): number | null {
+/** The tab an arrow, Home or End key moves to from `index` (wrapping), or null for any other key. */
+export function nextTabIndex(index: number, key: string, count: number): number | null {
   if (count === 0) return null;
-  const forward = rtl ? 'ArrowLeft' : 'ArrowRight';
-  const back = rtl ? 'ArrowRight' : 'ArrowLeft';
-  if (key === forward || key === 'ArrowDown') return (index + 1) % count;
-  if (key === back || key === 'ArrowUp') return (index - 1 + count) % count;
+  if (key === 'ArrowRight' || key === 'ArrowDown') return (index + 1) % count;
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return (index - 1 + count) % count;
   if (key === 'Home') return 0;
   if (key === 'End') return count - 1;
   return null;
+}
+
+/**
+ * A key as the row reads it: on a right-to-left page the row reads from the right, so ArrowLeft goes to the next tab and
+ * ArrowRight to the one before. Every other key is itself.
+ */
+export function readingArrow(key: string, rtl: boolean): string {
+  if (!rtl) return key;
+  return key === 'ArrowLeft' ? 'ArrowRight' : key === 'ArrowRight' ? 'ArrowLeft' : key;
 }
 
 /** Whether an element sits in a right-to-left run: the nearest `dir` on it or an ancestor says `rtl`. */

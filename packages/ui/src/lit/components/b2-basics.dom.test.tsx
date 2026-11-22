@@ -6,7 +6,7 @@ import * as React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DecimalInput, Tabs, isRightToLeft, nextTabIndex } from './b2-basics.js';
+import { DecimalInput, Tabs, isRightToLeft, nextTabIndex, readingArrow } from './b2-basics.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -63,8 +63,9 @@ describe('Tabs on a right-to-left page', () => {
     expect(shown(page)).toBe('Info');
     press(page.querySelector('[aria-selected="true"]')!, 'Home');
     expect(shown(page)).toBe('Book');
-    expect(nextTabIndex(0, 'ArrowDown', 3, true)).toBe(1);
-    expect(nextTabIndex(0, 'End', 3, true)).toBe(2);
+    expect(nextTabIndex(0, readingArrow('ArrowDown', true), 3)).toBe(1);
+    expect(nextTabIndex(0, readingArrow('End', true), 3)).toBe(2);
+    expect(readingArrow('ArrowLeft', false)).toBe('ArrowLeft');
   });
 
   it('reads the nearest dir: a left-to-right island inside a right-to-left page is left to right', () => {
