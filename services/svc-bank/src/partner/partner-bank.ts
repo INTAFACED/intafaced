@@ -411,6 +411,8 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
         ...(bank.openOrders ? { openOrders: (userId: string) => bank.openOrders!(userId) } : {}),
+        // Opening a currency account moves nothing, so it stays open (J-bank-01 #3).
+        ...(bank.openCurrency ? { openCurrency: bank.openCurrency.bind(bank) } : {}),
         ...(bank.statement
           ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }
           : {}),
