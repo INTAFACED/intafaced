@@ -2,7 +2,7 @@ import { Failure, Loading } from '../../shared/ui';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { useSession } from '../session';
 import { AccountDetailsList } from './AccountDetails';
-import { IncomeSorter } from './IncomeSorter';
+import { IncomeSorter } from './spaces/IncomeSorter';
 import { amount, date, NoRows, ResourceView, Section, useBankRead, useSpaces, type ActionSpec, useBankRecord } from './components';
 import type { AccountDetailsRow, SalaryCredit } from './contracts';
 import { salaryCopy } from './salary-copy';

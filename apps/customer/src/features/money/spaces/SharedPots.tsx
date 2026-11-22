@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import type { z } from 'zod';
-import { Button } from '../../shared/ui';
-import type { Space } from './client';
-import { date, funds, NoRows, positiveMoney, ResourceView, Section, type ActionSpec, useBankRecord } from './components';
-import type { sharedPotActivitySchema, sharedPotCardSchema, sharedPotsSchema } from './contracts';
-import { maskedPan } from './card-controls';
-import { sharedPotsCopy } from './shared-pots-copy';
+import { Button } from '@intafaced/ui/lit';
+import type { Space } from '../client';
+import { date, funds, positiveMoney, type ActionSpec, useBankRecord } from '../components';
+import { NoRows, BankSection as Section } from '../bank-frame/BankFrame';
+import { ReadView as ResourceView } from '../../../shared/read-state';
+import type { sharedPotActivitySchema, sharedPotCardSchema, sharedPotsSchema } from '../contracts';
+import { maskedPan } from '../card-controls';
+import { sharedPotsCopy } from '../shared-pots-copy';
 import { BANK_CARDS_LIST } from '@intafaced/contracts/bank-cards-procedures';
 import { BANK_SHARED_POTS_LIST, BANK_SHARED_POTS_ACTIVITY } from '@intafaced/contracts/bank-shared-pots-procedures';
 
@@ -71,13 +73,18 @@ export function SharedPots({ spaces, open }: { spaces: Space[]; open: (spec: Act
         title={t('title')}
         description={t('description')}
         actions={
-          <Button onClick={share} disabled={pots.length === 0} aria-describedby={pots.length === 0 ? 'shared-pots-why' : undefined}>
+          <Button
+            tone="primary"
+            onClick={share}
+            disabled={pots.length === 0}
+            aria-describedby={pots.length === 0 ? 'shared-pots-why' : undefined}
+          >
             {t('share')}
           </Button>
         }
       >
         {pots.length === 0 && (
-          <p id="shared-pots-why" className="money-caption">
+          <p id="shared-pots-why" className="lt-hint">
             {t('noPots')}
           </p>
         )}
@@ -127,17 +134,11 @@ const freezeSpec = (
 function Terms({ terms }: { terms: SharedPots['terms'] }) {
   const { t } = sharedPotsCopy.useCopy();
   return terms.inviteMinutes === null || terms.peopleCap === null ? (
-    <p className="money-caption" data-testid="shared-pots-terms" data-state="unset">
+    <p className="lt-hint" data-testid="shared-pots-terms" data-state="unset">
       {t('termsUnset')}
     </p>
   ) : (
-    <p
-      className="money-caption"
-      data-testid="shared-pots-terms"
-      data-state="set"
-      data-minutes={terms.inviteMinutes}
-      data-cap={terms.peopleCap}
-    >
+    <p className="lt-hint" data-testid="shared-pots-terms" data-state="set" data-minutes={terms.inviteMinutes} data-cap={terms.peopleCap}>
       {t('terms', { minutes: terms.inviteMinutes, cap: terms.peopleCap })}
     </p>
   );
@@ -149,16 +150,16 @@ function Invites({ invites, open, name, roleName }: { invites: SharedPots['invit
   return (
     <section aria-label={t('invitesTitle')}>
       <h3>{t('invitesTitle')}</h3>
-      <ul className="money-list">
+      <ul className="lt-rows">
         {invites.map((invite) => (
           <li key={invite.inviteId} data-testid="shared-pot-invite" data-invite={invite.inviteId} data-expired={invite.expired}>
             <p>
               {t('invite', { owner: name(invite.owner), pot: invite.pot.name, asset: invite.pot.assetId, role: roleName(invite.role) })}{' '}
               {invite.expired ? t('endedAt', { time: date(invite.expiresAt) }) : t('openUntil', { time: date(invite.expiresAt) })}
             </p>
-            <div className="actions">
+            <div className="lt-actions">
               <Button
-                variant="secondary"
+                tone="secondary"
                 onClick={() =>
                   open({
                     title: t('acceptTitle', { pot: invite.pot.name }),
@@ -177,7 +178,7 @@ function Invites({ invites, open, name, roleName }: { invites: SharedPots['invit
                 {t('accept')}
               </Button>
               <Button
-                variant="ghost"
+                tone="quiet"
                 onClick={() =>
                   open({
                     title: t('declineTitle', { pot: invite.pot.name }),
@@ -234,17 +235,17 @@ function SharedWithMe({
             submit: t('addMoney'),
           });
         return (
-          <article className="money-record" key={row.pot.id} data-testid="shared-pot-shared" data-pot={row.pot.id} data-role={row.role}>
+          <article className="lt-stack" key={row.pot.id} data-testid="shared-pot-shared" data-pot={row.pot.id} data-role={row.role}>
             <header>
               <div>
                 <h4 lang="und" dir="auto">
                   {row.pot.name}
                 </h4>
-                <p className="money-caption">
+                <p className="lt-hint">
                   {t('owner')}: {name(row.owner)} · {t('yourRole')}: {roleName(row.role)}
                 </p>
               </div>
-              <strong className="numeric" data-testid="shared-pot-balance" data-amount={row.pot.balance}>
+              <strong className="lt-mono" data-testid="shared-pot-balance" data-amount={row.pot.balance}>
                 {funds(row.pot.balance, row.pot.assetId)}
               </strong>
             </header>
@@ -254,13 +255,13 @@ function SharedWithMe({
                 <>
                   <CardLine card={row.card} />
                   {row.card.status === 'frozen' ? (
-                    <p className="money-caption">
+                    <p className="lt-hint">
                       {row.card.frozenBy === 'operator' ? t('frozenByBank') : t('frozenNote', { owner: name(row.owner) })}
                     </p>
                   ) : (
                     row.card.status === 'active' && (
                       <Button
-                        variant="secondary"
+                        tone="secondary"
                         onClick={() => open(freezeSpec(t, row.pot, row.card!, t('freezeNote', { owner: name(row.owner) })))}
                       >
                         {t('freezeCard')}
@@ -269,16 +270,16 @@ function SharedWithMe({
                   )}
                 </>
               ) : (
-                <p className="money-caption">{t('noCardShared')}</p>
+                <p className="lt-hint">{t('noCardShared')}</p>
               )}
             </div>
-            {!account && <p className="money-caption">{t('noAccount', { asset: row.pot.assetId })}</p>}
-            <div className="actions">
-              <Button variant="secondary" onClick={add} disabled={!account}>
+            {!account && <p className="lt-hint">{t('noAccount', { asset: row.pot.assetId })}</p>}
+            <div className="lt-actions">
+              <Button tone="secondary" onClick={add} disabled={!account}>
                 {t('addMoney')}
               </Button>
               <Button
-                variant="ghost"
+                tone="quiet"
                 onClick={() =>
                   open({
                     title: t('leaveTitle', { pot: row.pot.name }),
@@ -311,16 +312,16 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
     <section aria-label={t('ownedTitle')}>
       <h3>{t('ownedTitle')}</h3>
       {rows.map((row) => (
-        <article className="money-record" key={row.pot.id} data-testid="shared-pot-owned" data-pot={row.pot.id}>
+        <article className="lt-stack" key={row.pot.id} data-testid="shared-pot-owned" data-pot={row.pot.id}>
           <h4 lang="und" dir="auto">
             {row.pot.name}
           </h4>
-          <ul className="money-list">
+          <ul className="lt-rows">
             {row.members.map((member) => (
               <li key={member.userId} data-testid="shared-pot-member" data-role={member.role}>
                 {t('member', { person: name(member), role: roleName(member.role) })}{' '}
                 <Button
-                  variant="ghost"
+                  tone="quiet"
                   onClick={() =>
                     open({
                       title: t('removeTitle', { pot: row.pot.name, person: name(member) }),
@@ -343,7 +344,7 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
                   time: date(invite.expiresAt),
                 })}{' '}
                 <Button
-                  variant="ghost"
+                  tone="quiet"
                   onClick={() =>
                     open({
                       title: t('cancelTitle', { person: name(invite.invitee) }),
@@ -364,16 +365,16 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
             {row.card ? (
               <>
                 <CardLine card={row.card} />
-                <div className="actions">
+                <div className="lt-actions">
                   {row.card.status === 'active' && (
-                    <Button variant="secondary" onClick={() => open(freezeSpec(t, row.pot, row.card!, t('freezeOwnNote')))}>
+                    <Button tone="secondary" onClick={() => open(freezeSpec(t, row.pot, row.card!, t('freezeOwnNote')))}>
                       {t('freezeCard')}
                     </Button>
                   )}
-                  {row.card.status === 'frozen' && row.card.frozenBy === 'operator' && <p className="money-caption">{t('frozenByBank')}</p>}
+                  {row.card.status === 'frozen' && row.card.frozenBy === 'operator' && <p className="lt-hint">{t('frozenByBank')}</p>}
                   {row.card.status === 'frozen' && row.card.frozenBy !== 'operator' && (
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       onClick={() =>
                         open({
                           title: t('unfreezeTitle', { card: maskedPan(row.card!.panTail) }),
@@ -389,7 +390,7 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
                     </Button>
                   )}
                   <Button
-                    variant="ghost"
+                    tone="quiet"
                     onClick={() =>
                       open({
                         title: t('unlinkTitle', { pot: row.pot.name }),
@@ -407,10 +408,10 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
               </>
             ) : (
               <>
-                <p className="money-caption">{t('noCard')}</p>
-                {cards.resource.status === 'ready' && linkable.length === 0 && <p className="money-caption">{t('noCards')}</p>}
+                <p className="lt-hint">{t('noCard')}</p>
+                {cards.resource.status === 'ready' && linkable.length === 0 && <p className="lt-hint">{t('noCards')}</p>}
                 <Button
-                  variant="secondary"
+                  tone="secondary"
                   disabled={linkable.length === 0}
                   onClick={() =>
                     open({
@@ -445,7 +446,7 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
 function People({ members, name, roleName }: { members: SharedPots['shared'][number]['members'] } & Named) {
   const { t } = sharedPotsCopy.useCopy();
   return (
-    <p className="money-caption">
+    <p className="lt-hint">
       {t('people')}: {members.map((member) => t('member', { person: name(member), role: roleName(member.role) })).join('; ')}
     </p>
   );
@@ -481,7 +482,7 @@ function LogEntries({ spaceId, name, roleName }: { spaceId: string } & Named) {
     <ResourceView resource={log.resource} reload={log.reload}>
       {(entries) =>
         entries.length ? (
-          <ul className="money-list">
+          <ul className="lt-rows">
             {entries.map((entry) => (
               <li key={entry.id} data-testid="shared-pot-log-entry" data-kind={entry.kind}>
                 {line(entry)}
