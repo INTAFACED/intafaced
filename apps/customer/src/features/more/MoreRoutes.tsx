@@ -13,7 +13,6 @@ import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
 import { agentRunCopy } from './agent-run-copy';
 import { agentApprovalsCopy } from './agent-approvals-copy';
-import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-catalogue';
@@ -108,10 +107,6 @@ function MoreRooms({ path }: { path: string }) {
     title = <agentApprovalsCopy.Copy k="title" />;
     description = <agentApprovalsCopy.Copy k="description" />;
     content = <AgentApprovals />;
-  } else if (p === '/agents/team') {
-    title = <agentsTeamCopy.Copy k="title" />;
-    description = <agentsTeamCopy.Copy k="description" />;
-    content = <AgentsTeam />;
   } else if (p === '/blueprint') {
     room = 'blueprint';
     title = copyText('moreroutes.identity.blueprint');
@@ -209,6 +204,8 @@ function MoreRooms({ path }: { path: string }) {
       </PaperRoom>
     );
   }
+  // The Team room is on its settings template: it draws its own title, so it is not put inside the old page.
+  if (p === '/agents/team') return <AgentsTeam key={userId ?? 'anonymous'} />;
   return (
     <div className="more-feature">
       <Page
