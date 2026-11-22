@@ -20,11 +20,20 @@ export function Panel({
   framed?: boolean;
 }) {
   const heading = useId();
-  return (
-    <section className={framed ? 'lt-region lt-stack' : 'lt-stack'} aria-labelledby={heading} id={id}>
+  const body = (
+    <>
       <h3 id={heading}>{title}</h3>
       {lead && <p className="lt-hint">{lead}</p>}
       {children}
+    </>
+  );
+  return framed ? (
+    <section className="lt-region lt-stack" aria-labelledby={heading} id={id}>
+      {body}
+    </section>
+  ) : (
+    <section className="lt-stack" aria-labelledby={heading} id={id}>
+      {body}
     </section>
   );
 }
