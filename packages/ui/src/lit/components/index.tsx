@@ -158,8 +158,12 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
-/** The words under a control: its hint, then its error. One id each, so the control names both. */
-function ControlNotes({ id, hint, error }: { id: string; hint?: string; error?: string }) {
+/** Ids a labelled control describes itself by: the caller's own, then its hint, then its error. */
+function describedByOf({ own, id, hint, error }: { own?: string; id: string; hint?: string; error?: string }) {
+  return [own, hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(' ') || undefined;
+}
+
+function FieldNotes({ id, hint, error }: { id: string; hint?: string; error?: string }) {
   return (
     <>
       {hint && (
@@ -176,47 +180,57 @@ function ControlNotes({ id, hint, error }: { id: string; hint?: string; error?: 
   );
 }
 
-const describedBy = ({ id, own, hint, error }: { id: string; own?: string; hint?: string; error?: string }) =>
-  [own, hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(' ') || undefined;
+export type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string };
 
-export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & { label: string; hint?: string; error?: string };
-
-/** A native select drawn as a Field: its label, the choices the caller passes (options and groups), hint and error. */
-export function Select({ label, hint, error, id, className, children, ...rest }: SelectProps) {
+/** Several lines of text with a label, hint and typed error: Field's twin for answers and descriptions. */
+export function TextArea({ label, hint, error, id, className, rows = 5, ...rest }: TextAreaProps) {
   const auto = React.useId();
-  const selectId = id ?? auto;
+  const inputId = id ?? auto;
   return (
     <div className={clsx('lit-field-control', className)}>
-      <label htmlFor={selectId}>{label}</label>
-      <select
+      <label htmlFor={inputId}>{label}</label>
+      <textarea
         {...rest}
-        id={selectId}
+        id={inputId}
+        rows={rows}
         aria-invalid={error ? true : rest['aria-invalid']}
-        aria-describedby={describedBy({ id: selectId, own: rest['aria-describedby'], hint, error })}
-      >
-        {children}
-      </select>
-      <ControlNotes id={selectId} hint={hint} error={error} />
+        aria-describedby={describedByOf({ own: rest['aria-describedby'], id: inputId, hint, error })}
+      />
+      <FieldNotes id={inputId} hint={hint} error={error} />
     </div>
   );
 }
 
-export type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string; error?: string };
+export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+  /** The choices. A caller whose choices need groups or their own attributes passes `<option>`s as children instead. */
+  options?: readonly { value: string; label: React.ReactNode }[];
+  hint?: string;
+  error?: string;
+};
 
-/** A text box of several lines drawn as a Field. */
-export function TextArea({ label, hint, error, id, className, ...rest }: TextAreaProps) {
+/** One choice from a list, as a native select with a label, hint and typed error. */
+export function Select({ label, options, hint, error, id, className, children, ...rest }: SelectProps) {
   const auto = React.useId();
-  const areaId = id ?? auto;
+  const inputId = id ?? auto;
   return (
     <div className={clsx('lit-field-control', className)}>
-      <label htmlFor={areaId}>{label}</label>
-      <textarea
+      <label htmlFor={inputId}>{label}</label>
+      <select
         {...rest}
-        id={areaId}
+        id={inputId}
         aria-invalid={error ? true : rest['aria-invalid']}
-        aria-describedby={describedBy({ id: areaId, own: rest['aria-describedby'], hint, error })}
-      />
-      <ControlNotes id={areaId} hint={hint} error={error} />
+        aria-describedby={describedByOf({ own: rest['aria-describedby'], id: inputId, hint, error })}
+      >
+        {options
+          ? options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))
+          : children}
+      </select>
+      <FieldNotes id={inputId} hint={hint} error={error} />
     </div>
   );
 }
