@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import {
   paymentUnmaskedSchema,
   paymentUnmaskInputSchema,

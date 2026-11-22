@@ -1,14 +1,13 @@
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
   conversionQuoteInputSchema,
   conversionQuoteSchema,
   conversionExecuteInputSchema,
   conversionOrderSchema,
   conversionGetInputSchema,
   conversionListInputSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/conversion';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { Principal } from '@intafaced/auth';
 import { ControlError } from '../control/errors.js';
 import { mapConversionError } from '../conversion/errors.js';

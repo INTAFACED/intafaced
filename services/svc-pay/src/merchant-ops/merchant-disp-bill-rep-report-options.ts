@@ -1,4 +1,5 @@
-import { PAY_EXPORT_KINDS, type PayExportKind } from '@intafaced/contracts';
+import type { PayExportKind } from '@intafaced/contracts';
+import { PAY_EXPORT_KINDS } from '@intafaced/contracts/pay-portal-reads';
 import { resolveExportColumns, type ExportFilters } from './exports.js';
 import { MerchantOpsError } from './errors.js';
 import { assertPermission, type MerchantCaller } from './roles.js';

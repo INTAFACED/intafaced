@@ -1,4 +1,4 @@
-import { CHECKOUT_LOGO_MAX_BYTES_CEILING } from '@intafaced/contracts';
+import { CHECKOUT_LOGO_MAX_BYTES_CEILING } from '@intafaced/contracts/merchant-checkout-branding';
 import { readImageByteRule } from '../catalog/image-rules.js';
 
 /**

@@ -8,7 +8,7 @@
  * pool's rate and writes its history record in one transaction (`earn/rate-history.ts`); a fixed-term pool's rate never
  * changes.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';

@@ -17,7 +17,8 @@ import {
   QUANT_RUN_NOT_FOUND,
   QuantError,
 } from '../errors.js';
-import { QUANT_RUN_LABEL_MAX, publicJurisdictionProcedure, router } from '@intafaced/contracts';
+import { QUANT_RUN_LABEL_MAX } from '@intafaced/contracts/quant-algo';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   QUANT_BACKTEST_ACCOUNT_RULES,

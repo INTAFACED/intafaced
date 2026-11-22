@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { baseEnvSchema, otelEnvSchema } from '@intafaced/config';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { miningHealthHonesty } from './health-honesty.js';
