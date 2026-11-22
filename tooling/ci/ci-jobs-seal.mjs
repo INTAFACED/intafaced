@@ -19,6 +19,7 @@
  *   (CI sets GH_TOKEN; run by hand, it reads through the logged-in gh: github-fetch.mjs)
  */
 import { fileURLToPath } from 'node:url';
+import { runJobs } from './run-jobs.mjs';
 import { SHARD_COUNT, classify, narrowCandidates, sealNeeded, shardMatrix } from './ci-affected.mjs';
 import { MODEL_JOB, START_JOB, isModelDown, pullFiles } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
@@ -333,14 +334,8 @@ async function main() {
   const runs = (await get(`/repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${sha}&event=${event}&per_page=100`))?.workflow_runs;
   if (!Array.isArray(runs)) throw new Error(`ci.yml runs on ${sha}: not a list`);
   const run = ciRunFor(runs, { sha, event });
-  const jobs = [];
-  if (run)
-    for (let page = 1; page <= 10; page++) {
-      const r = (await get(`/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest&per_page=100&page=${page}`))?.jobs;
-      if (!Array.isArray(r)) throw new Error(`run ${run.id}'s jobs: not a list`);
-      jobs.push(...r);
-      if (r.length < 100) break;
-    }
+  const jobs = run ? await runJobs(`/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest`, get) : [];
+  if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
   const files = queue ? [] : await changedFiles(get, REPO, PR_NUMBER);
   // The head's tree, for a change that only tooling could narrow: read through git by main's tooling-reach.mjs. A tree
   // that can't be read leaves today's rules.
@@ -366,7 +361,7 @@ async function main() {
     )?.workflow_runs;
     if (!Array.isArray(mruns)) throw new Error(`customer-money-browser.yml runs on ${sha}: not a list`);
     const newest = mruns.filter((r) => r?.head_sha === sha).sort((a, b) => b.id - a.id)[0];
-    const mjobs = newest ? (await get(`/repos/${REPO}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs : [];
+    const mjobs = newest ? await runJobs(`/repos/${REPO}/actions/runs/${newest.id}/jobs?filter=latest`, get) : [];
     if (!Array.isArray(mjobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
     money = moneyVerdict({ runs: mruns, jobs: mjobs, files, sha });
   } else if (!queue) money = moneyVerdict({ runs: [], jobs: [], files, sha });
@@ -377,7 +372,7 @@ async function main() {
       ?.workflow_runs;
     if (!Array.isArray(xruns)) throw new Error(`model-check.yml runs on ${sha}: not a list`);
     const newest = xruns.filter((r) => r?.head_sha === sha).sort((a, b) => b.id - a.id)[0];
-    const xjobs = newest ? (await get(`/repos/${REPO}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs : [];
+    const xjobs = newest ? await runJobs(`/repos/${REPO}/actions/runs/${newest.id}/jobs?filter=latest`, get) : [];
     if (!Array.isArray(xjobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
     model = modelVerdict({ runs: xruns, jobs: xjobs, sha });
   }

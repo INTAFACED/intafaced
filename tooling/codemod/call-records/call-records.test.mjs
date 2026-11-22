@@ -893,3 +893,52 @@ test('a customer call whose own schema only refuses an answer moves through call
   assert.deepEqual([...(f.imports.get('../../shared/api') ?? [])], ['callAs']);
   assert.ok(!(f.schemas ?? new Map()).has('mine'), 'the checked schema is kept as written, not retyped');
 });
+
+test('a re-run whose records already exist (no record file changes) skips the file-list steps and still runs the rest', () => {
+  // The failure it prevents: on 22 Nov 2026 a layer branch re-ran the identity run after main's (#9593) had written the
+  // record; prettier was handed no paths and failed, and build, procedures:write and doubles were skipped.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-rerun-'));
+  const dir = join(root, 'tooling/codemod/call-records');
+  const bin = join(root, 'bin');
+  const log = join(root, 'calls.log');
+  for (const d of [dir, bin, join(root, 'node_modules/.bin'), join(root, 'packages/contracts/src')]) mkdirSync(d, { recursive: true });
+  writeFileSync(join(dir, 'run.mjs'), readFileSync(new URL('./run.mjs', import.meta.url)));
+  const stub = (body) =>
+    `#!/usr/bin/env node\nconst { appendFileSync, writeFileSync } = process.getBuiltinModule('node:fs');\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, process.getBuiltinModule('node:path').basename(process.argv[1]) + ' ' + a.join(' ') + '\\n');\n${body}\n`;
+  const flagOut = (flag, json) => `const i = a.indexOf('${flag}'); if (i >= 0) writeFileSync(a[i + 1], '${json}');`;
+  writeFileSync(join(dir, 'index.mjs'), stub(flagOut('--json', '{"records":[],"rewritten":1,"hand":[]}')));
+  writeFileSync(join(dir, 'samples.mjs'), stub(flagOut('--unportable', '{}')));
+  for (const f of ['portable.mjs', 'refusals.mjs', 'door-check.mjs', 'doubles.mjs']) writeFileSync(join(dir, f), stub(''));
+  // Like the real prettier: no paths is an error.
+  writeFileSync(
+    join(root, 'node_modules/.bin/prettier'),
+    stub("if (!a.some((x) => !x.startsWith('--') && x !== 'warn')) process.exit(2);"),
+  );
+  writeFileSync(join(bin, 'pnpm'), stub(''));
+  for (const f of [join(root, 'node_modules/.bin/prettier'), join(bin, 'pnpm')]) execFileSync('chmod', ['+x', f]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\nbin\ncalls.log\n');
+  writeFileSync(join(root, 'packages/contracts/src/identity-procedures.ts'), 'export {};\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, stdio: 'ignore' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'records already written');
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  execFileSync('node', [join(dir, 'run.mjs'), '--module', 'identity', '--service', 'svc-identity', '--refusals', '--door', 'x'], {
+    cwd: root,
+    env,
+    stdio: 'pipe',
+  });
+  const calls = readFileSync(log, 'utf8').trim().split('\n');
+  assert.ok(
+    !calls.some((c) => /^(prettier|samples|portable|refusals|door-check)\.mjs? /.test(c) || c.startsWith('prettier ')),
+    calls.join('\n'),
+  );
+  assert.ok(
+    calls.some((c) => c.startsWith('pnpm procedures:write')),
+    calls.join('\n'),
+  );
+  assert.ok(
+    calls.some((c) => c.startsWith('doubles.mjs --write')),
+    calls.join('\n'),
+  );
+});

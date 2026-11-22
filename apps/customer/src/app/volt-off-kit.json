@@ -15,7 +15,6 @@
   "/support/guest/verify",
   "/developers/sandbox/:sandboxId",
   "/developers/sandbox/:sandboxId/keys/new",
-  "/developers/:section",
   "/home",
   "/money",
   "/money/activity",
