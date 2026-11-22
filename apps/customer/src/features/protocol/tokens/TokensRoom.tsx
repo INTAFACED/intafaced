@@ -1,7 +1,10 @@
+// volt-room: /dex/tokens
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import type { TokenBasics, TokenListRow, TokensBrief, TokensLeaderboard } from '@intafaced/contracts/protocol-tokens';
 import { navigate } from '../../../app/location';
-import { DataTable, EmptyState, Failure, Page, Panel } from '../../../shared/ui';
+import { DataTable, EmptyState, Failure, Panel } from '../volt/parts';
+import { Tag } from '@intafaced/ui/lit';
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
@@ -15,8 +18,6 @@ import { TabList } from './TabList';
 import { tokensCopy, type TokensTranslate } from './copy';
 import { exactUnits, isoTime, percentFromBps, shortAddress } from './format';
 import { readWindow, saveWindow, TOKEN_WINDOWS, type TokenWindow } from './storage';
-import '../protocol.css';
-import './tokens.css';
 
 export type TokensTab = 'trending' | 'top' | 'new' | 'brief' | 'stablecoins' | 'leaderboard' | 'stocks';
 const TABS: readonly TokensTab[] = ['trending', 'top', 'new', 'brief', 'stablecoins', 'leaderboard', 'stocks'];
@@ -57,13 +58,11 @@ function TokenName({ row, t }: { row: TokenListRow; t: TokensTranslate }) {
       <a href={`/dex/tokens/${token.address}`}>{lookalikeOf ? shortAddress(token.address) : token.name || t('noName')}</a>{' '}
       {lookalikeOf ? (
         // A copied name or symbol is masked, never hidden: the row stays, and says what it copies.
-        <span className="badge" data-testid="token-symbol-masked">
-          {t('symbolMasked', { name: lookalikeOf.name })}
-        </span>
+        <Tag data-testid="token-symbol-masked">{t('symbolMasked', { name: lookalikeOf.name })}</Tag>
       ) : (
         <>
-          <span className="muted">{token.symbol || t('noSymbol')}</span>{' '}
-          <span className="muted tokens-address">{shortAddress(token.address)}</span>
+          <span className="lt-hint">{token.symbol || t('noSymbol')}</span>{' '}
+          <span className="lt-hint lt-mono">{shortAddress(token.address)}</span>
         </>
       )}
     </>
@@ -104,7 +103,7 @@ function TokenList({
   if (resource.status === 'loading')
     rows = (
       <tr>
-        <td colSpan={headers.length} className="muted">
+        <td colSpan={headers.length} className="lt-hint">
           {t('reading')}
         </td>
       </tr>
@@ -121,7 +120,7 @@ function TokenList({
     const { quote, tokens, blockNumber } = resource.data;
     const shown = rowsFor(tab, tokens, query);
     asOf = (
-      <p className="muted" data-testid="tokens-as-of" data-block={blockNumber}>
+      <p className="lt-hint" data-testid="tokens-as-of" data-block={blockNumber}>
         {t('asOfBlock', { block: blockNumber, time: clockTime(resource.data.asOf * 1000, currentPreferences().timeZone) })}{' '}
         {t('pricesIn', { symbol: quote.symbol })}
       </p>
@@ -169,7 +168,6 @@ function TokenList({
       <form role="search" onSubmit={submit}>
         <input
           type="search"
-          className="tokens-search"
           aria-label={t('search')}
           placeholder={t('searchPlaceholder')}
           value={query}
@@ -185,7 +183,7 @@ function TokenList({
           <p>
             <a href="#how-trending">{t('howTrending')}</a>
           </p>
-          <section id="how-trending" aria-label={t('howTrending')} className="tokens-note">
+          <section id="how-trending" aria-label={t('howTrending')}>
             <h3>{t('howTrending')}</h3>
             <p data-testid="trending-formula">{t('howTrendingBody')}</p>
           </section>
@@ -222,7 +220,7 @@ const TOKEN_SLOT = '\u0000';
 function BriefLines({ brief, quote, t }: { brief: Brief; quote: TokensBrief['quote']; t: TokensTranslate }) {
   const { topGainer, topLoser, mostTraded, newListings } = brief;
   return (
-    <ul className="tokens-plain">
+    <ul>
       <li data-testid="brief-trades" data-trades={brief.trades} data-pools={brief.pools}>
         {t('briefTrades', { trades: String(brief.trades), pools: String(brief.pools) })}
       </li>
@@ -253,12 +251,12 @@ function BriefLines({ brief, quote, t }: { brief: Brief; quote: TokensBrief['quo
       <li data-testid="brief-new" data-count={newListings.length}>
         {t('briefNew', { count: String(newListings.length) })}
         {newListings.length > 0 && (
-          <ul className="tokens-plain">
+          <ul>
             {newListings.map((token) => (
               <li key={token.address} data-token={token.address}>
                 <a href={`/dex/tokens/${token.address}`}>{token.name || t('noName')}</a>{' '}
-                <span className="muted">{token.symbol || t('noSymbol')}</span>{' '}
-                <span className="muted tokens-address">{shortAddress(token.address)}</span>
+                <span className="lt-hint">{token.symbol || t('noSymbol')}</span>{' '}
+                <span className="lt-hint lt-mono">{shortAddress(token.address)}</span>
               </li>
             ))}
           </ul>
@@ -275,11 +273,11 @@ function BriefLines({ brief, quote, t }: { brief: Brief; quote: TokensBrief['quo
 function MarketBrief({ t }: { t: TokensTranslate }) {
   const protocol = useProtocol();
   const { resource, reload } = useResource((signal) => protocol.tokensBrief(signal), 'tokens:brief');
-  if (resource.status === 'loading') return <p className="muted">{t('reading')}</p>;
+  if (resource.status === 'loading') return <p className="lt-hint">{t('reading')}</p>;
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
   const { brief, blockNumber, asOf, day, quote } = resource.data;
   const asOfLine = (
-    <p className="muted" data-testid="brief-as-of" data-block={blockNumber}>
+    <p className="lt-hint" data-testid="brief-as-of" data-block={blockNumber}>
       <time dateTime={isoTime(asOf)}>
         {t('briefWindow', { block: blockNumber, time: clockTime(asOf * 1000, currentPreferences().timeZone) })}
       </time>
@@ -297,7 +295,7 @@ function MarketBrief({ t }: { t: TokensTranslate }) {
       <h3>{t('briefTitle', { day })}</h3>
       {asOfLine}
       <BriefLines brief={brief} quote={quote} t={t} />
-      <p className="muted">{t('briefSources', { symbol: quote.symbol || t('noSymbol') })}</p>
+      <p className="lt-hint">{t('briefSources', { symbol: quote.symbol || t('noSymbol') })}</p>
     </article>
   );
 }
@@ -332,13 +330,13 @@ function Leaderboard({ t }: { t: TokensTranslate }) {
   const { resource, reload } = useResource((signal) => protocol.tokensLeaderboard(signal), 'tokens:leaderboard');
   const [open, setOpen] = useState<string | null>(null);
   const headers = [t('hdrWallet'), t('hdrRealised'), t('hdrTrades')];
-  if (resource.status === 'loading') return <p className="muted">{t('reading')}</p>;
+  if (resource.status === 'loading') return <p className="lt-hint">{t('reading')}</p>;
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
   const { rows, quote } = resource.data;
   const chosen = rows.find((row) => row.wallet === open) ?? null;
   return (
     <>
-      <p className="muted">{t('leaderboardRule', { symbol: quote.symbol })}</p>
+      <p className="lt-hint">{t('leaderboardRule', { symbol: quote.symbol })}</p>
       <DataTable label={t('tableLeaderboard')} headers={headers}>
         {rows.length === 0 ? (
           <tr>
@@ -405,43 +403,46 @@ export function TokensRoom() {
       </div>
     );
   return (
-    <div className="legacy-room protocol-room tokens-room" lang={renderedLocale}>
-      <Page
+    <div lang={renderedLocale}>
+      <RecordListTemplate
         title={t('title')}
         description={t('description')}
-        eyebrow={
+        state={{ kind: 'ready' }}
+        summary={
+          <p className="lt-hint">
+            <span>{room('bannerLine')}</span> <Tag>{room('bannerPill')}</Tag>
+          </p>
+        }
+        list={
           <>
-            <span>{room('bannerLine')}</span>
-            <span className="badge protocol-pill">{room('bannerPill')}</span>
+            <Panel title={t(`tab_${tab}`)}>
+              {listed && (
+                <label className="lt-field">
+                  <span>{t('window')}</span>
+                  <select
+                    value={span}
+                    onChange={(event) => {
+                      const next = event.target.value as TokenWindow;
+                      setSpan(next);
+                      saveWindow(next);
+                    }}
+                  >
+                    {TOKEN_WINDOWS.map((entry) => (
+                      <option key={entry} value={entry}>
+                        {t(`window_${entry}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <TabList label={t('sections')} tabs={TABS.map((id) => ({ id, label: t(`tab_${id}`) }))} value={tab} onChange={setTab}>
+                {body}
+              </TabList>
+            </Panel>
+            <ImportWatchlist t={t} />
           </>
         }
-      >
-        <Panel title={t(`tab_${tab}`)}>
-          {listed && (
-            <label className="tokens-window">
-              <span>{t('window')}</span>
-              <select
-                value={span}
-                onChange={(event) => {
-                  const next = event.target.value as TokenWindow;
-                  setSpan(next);
-                  saveWindow(next);
-                }}
-              >
-                {TOKEN_WINDOWS.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {t(`window_${entry}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <TabList label={t('sections')} tabs={TABS.map((id) => ({ id, label: t(`tab_${id}`) }))} value={tab} onChange={setTab}>
-            {body}
-          </TabList>
-        </Panel>
-        <ImportWatchlist t={t} />
-      </Page>
+      />
     </div>
   );
 }
@@ -451,7 +452,7 @@ export function TokensNav() {
   const { language } = usePreferences();
   const { t } = tokensCopy.forLocale(language);
   return (
-    <nav aria-label={t('marketsNav')} className="tokens-nav">
+    <nav aria-label={t('marketsNav')}>
       <a href="/dex/tokens">{t('navTokens')}</a>
     </nav>
   );
