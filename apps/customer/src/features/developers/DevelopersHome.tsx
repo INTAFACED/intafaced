@@ -31,9 +31,9 @@ export function DevelopersHome() {
             <p>{t('accessBody')}</p>
           </section>
         }
-        toc={<DocsSearch />}
         body={
           <>
+            <DocsSearch />
             <section aria-labelledby="dev-hosts">
               <h2 id="dev-hosts">{t('hostsTitle')}</h2>
               <p>{t('hostsLead')}</p>
@@ -93,7 +93,13 @@ function DocsSearch() {
     <section aria-labelledby="dev-search">
       <h2 id="dev-search">{t('searchTitle')}</h2>
       <form role="search" className="lt-actions" onSubmit={submit}>
-        <Field type="search" label={t('searchLabel')} value={draft} onChange={(event) => setDraft(event.target.value)} />
+        <Field
+          type="search"
+          label={t('searchLabel')}
+          aria-label={t('searchLabel')}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
         <Button type="submit" tone="secondary">
           {t('searchButton')}
         </Button>
