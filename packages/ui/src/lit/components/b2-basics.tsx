@@ -1,6 +1,6 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, Tabs, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, Tabs, SectionTabs, Checkbox, Sheet. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
@@ -151,6 +151,32 @@ export function Tabs({ items, current, label }: { items: readonly { label: strin
         </a>
       ))}
     </nav>
+  );
+}
+
+/**
+ * A room's own sections, one button each, the open one pressed: the same row as Tabs, for sections a room switches
+ * itself (it navigates in `onChange`) rather than by link. Scrolls when it overflows, as Tabs do.
+ */
+export function SectionTabs<T extends string>({
+  items,
+  value,
+  onChange,
+  label,
+}: {
+  items: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  label: string;
+}) {
+  return (
+    <div className="lt-tabs" role="group" aria-label={label}>
+      {items.map((t) => (
+        <button key={t.value} type="button" className="lt-tab" aria-pressed={t.value === value} onClick={() => onChange(t.value)}>
+          {t.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

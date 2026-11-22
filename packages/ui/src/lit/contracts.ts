@@ -310,6 +310,7 @@ export const components = {
   KeyValue: '(B2) Label and value rows (review, receipt, details)',
   StatusChip: '(B2) Money status: pending, failed, done, unknown, with words not colour alone',
   Tabs: "(B2) A door's room row",
+  SectionTabs: "(B2) A room's own sections as pressed buttons, the Tabs row for sections the room switches itself",
   LineChart: '(B2) Price or value over time',
   AreaChart: '(B2) Value over time with a lit fill',
   Bars: '(B2) Bars (volume, monthly totals)',
