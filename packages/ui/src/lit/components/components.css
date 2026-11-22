@@ -885,7 +885,14 @@
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
 }
+/* A hero amount takes the row it is given and never sizes the row by its own default width (20 characters at figure
+   size is wider than a phone card). */
+.lit-field-control[data-size='hero'] {
+  min-inline-size: 0;
+}
 .lit-field-control[data-size='hero'] input {
+  inline-size: 100%;
+  min-inline-size: 0;
   min-block-size: calc(var(--lit-control-h) * 1.5);
   font-family: var(--lit-font-figure);
   font-size: var(--lit-type-figure-size);
