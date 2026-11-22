@@ -23,7 +23,7 @@ import {
 } from '@intafaced/contracts/academy-learner-procedures';
 import { AcademyLearning, definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
-import { AcademyCoursePage, AcademyHub } from './AcademyHub';
+import { AcademyHub } from './AcademyHub';
 import { AcademyAssignment } from './AcademyAssignment';
 import { AcademyProgrammePage } from './AcademyCourseProgrammes';
 import { AcademyDiscussionCourses, AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
@@ -108,9 +108,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         label={copyText('academy.academy.sections')}
       />
       {route.kind === 'tab' && route.hub && <AcademyHub />}
-      {route.kind === 'course' ? (
-        <AcademyCoursePage slug={route.slug} signedIn />
-      ) : route.kind === 'assignment' ? (
+      {route.kind === 'assignment' ? (
         <AcademyAssignment key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />
       ) : route.kind === 'discussion' ? (
         route.postId ? (

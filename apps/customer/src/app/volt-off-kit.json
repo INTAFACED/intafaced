@@ -193,7 +193,6 @@
   "/academy/videos",
   "/academy/programmes",
   "/academy/progress",
-  "/academy/learning/course/:slug",
   "/academy/learning/course/:slug/assignment/:itemId",
   "/academy/programmes/:slug",
   "/academy/rooms/discussion/:courseSlug",

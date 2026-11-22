@@ -258,7 +258,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/academy/videos': { template: 'catalogue' },
   '/academy/programmes': { template: 'catalogue' },
   '/academy/progress': { template: 'monitor' },
-  '/academy/learning/course/:slug': { template: 'reading' },
+  '/academy/learning/course/:slug': { template: 'reading', migrated: { file: 'features/more/AcademyCourseRoom.tsx' } },
   '/academy/learning/course/:slug/assignment/:itemId': { template: 'flow' },
   '/academy/programmes/:slug': { template: 'catalogue' },
   '/academy/rooms/discussion/:courseSlug': { template: 'record-list' },

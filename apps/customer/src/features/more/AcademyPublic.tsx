@@ -13,7 +13,7 @@ import { academyTabHref, academyTabs, isAcademyPath, type AcademyRoute } from '.
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { LessonBody } from './AcademyLearning';
 import { VerifyPanel } from './AcademyCertificates';
-import { AcademyCoursePage, AcademyCourseCards, AcademyHub } from './AcademyHub';
+import { AcademyCourseCards, AcademyHub } from './AcademyHub';
 import { ACADEMY_PUBLIC_CURRICULUM } from '@intafaced/contracts/academy-public-curriculum-procedures';
 import { ACADEMY_PUBLIC_CURRICULUM_ITEM } from '@intafaced/contracts/academy-public-curriculum-item-procedures';
 import { ACADEMY_PUBLIC_CURRICULUM_RELATED } from '@intafaced/contracts/academy-public-curriculum-related-procedures';
@@ -67,9 +67,7 @@ export function AcademyPublic({ route }: { route: AcademyRoute }) {
         label={copyText('academy.academy.sections')}
       />
       {route.kind === 'tab' && route.hub && <AcademyHub />}
-      {route.kind === 'course' ? (
-        <AcademyCoursePage slug={route.slug} signedIn={false} />
-      ) : route.kind === 'assignment' ? (
+      {route.kind === 'assignment' ? (
         <Panel title={copyText('academy.learning')}>
           <EmptyState title={t('asgSignIn')} action={<SignIn />} />
         </Panel>
