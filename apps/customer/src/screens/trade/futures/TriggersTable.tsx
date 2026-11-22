@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Amount, Badge, Button, StatusTag, type StatusKind } from '@intafaced/ui/lit';
+import { Amount, Tag, Button, StatusTag, type StatusKind } from '@intafaced/ui/lit';
 import { Table, type Column } from '@intafaced/ui/lit/templates';
 import { fmtAmount } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
@@ -55,7 +55,7 @@ export function TriggersTable({
     {
       key: 'side',
       label: t('Col side'),
-      cell: (o) => <Badge tone={o.side === 'buy' ? 'up' : 'down'}>{o.side === 'buy' ? t('Buy') : t('Sell')}</Badge>,
+      cell: (o) => <Tag tone={o.side === 'buy' ? 'up' : 'down'}>{o.side === 'buy' ? t('Buy') : t('Sell')}</Tag>,
     },
     { key: 'size', label: t('Col size'), align: 'end', cell: (o) => <Amount value={fmtAmount(o.quantity, { places: 8 })} /> },
     { key: 'trigger', label: t('Col trigger'), cell: (o) => triggerLine(o, t) ?? '' },
@@ -139,7 +139,7 @@ function EntryProtections({ entries }: { entries: Loadable<EntryProtection[]> })
     {
       key: 'order',
       label: t('Col order'),
-      cell: (e) => <Badge tone={e.side === 'buy' ? 'up' : 'down'}>{e.side === 'buy' ? t('Buy') : t('Sell')}</Badge>,
+      cell: (e) => <Tag tone={e.side === 'buy' ? 'up' : 'down'}>{e.side === 'buy' ? t('Buy') : t('Sell')}</Tag>,
     },
     { key: 'tp', label: t('Col take profit'), align: 'end', cell: (e) => e.takeProfit ?? t('None') },
     { key: 'sl', label: t('Col stop loss'), align: 'end', cell: (e) => e.stopLoss ?? t('None') },

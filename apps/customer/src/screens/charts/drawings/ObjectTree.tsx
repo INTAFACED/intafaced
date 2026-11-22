@@ -101,8 +101,8 @@ function DrawingRow({
       </label>
       <button type="button" className="lt-link" aria-pressed={selected} onClick={() => api.select(selected ? null : drawing.id)}>
         {name}
-        {drawing.locked ? <span className="lt-badge"> {t('Locked')}</span> : null}
-        {!visible ? <span className="lt-badge"> {t('Hidden')}</span> : null}
+        {drawing.locked ? <span className="lit-tag"> {t('Locked')}</span> : null}
+        {!visible ? <span className="lit-tag"> {t('Hidden')}</span> : null}
       </button>
       <span className="lt-note" data-testid="drawing-pane">
         {drawing.pane ? t('On pane', { n: String(drawing.pane) }) : t('On price pane')}

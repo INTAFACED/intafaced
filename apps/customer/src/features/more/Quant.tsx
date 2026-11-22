@@ -297,7 +297,7 @@ export function Quant({ mode, paper = false, bars }: { mode: 'sandbox' | 'studio
   const intro = (
     <div className="lt-col-main">
       <QuantRooms active={mode} paper={paper} />
-      <p className="lt-badge">
+      <p className="lit-tag">
         <Text k="quant.simulated.no.live.trading.authority" />
       </p>
       {action.dialog}

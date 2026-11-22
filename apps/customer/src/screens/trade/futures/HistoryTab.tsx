@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Amount, Badge, Button, ChangeText, Price, StateBlock } from '@intafaced/ui/lit';
+import { Amount, Tag, Button, ChangeText, Price, StateBlock } from '@intafaced/ui/lit';
 import { FreshnessChip, Table, type Column } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
@@ -79,7 +79,7 @@ export function TabHeader({
 
 export function SideBadge({ side }: { side: 'long' | 'short' }) {
   const { t } = tabsCopy.useCopy();
-  return <Badge>{side === 'long' ? t('Long') : t('Short')}</Badge>;
+  return <Tag>{side === 'long' ? t('Long') : t('Short')}</Tag>;
 }
 
 /** Hand the text to the browser as a file. Client side only: nothing is sent anywhere. */
@@ -117,9 +117,9 @@ export function HistoryTab({ closed }: { closed: Loadable<Position[]> }) {
       cell: (p) => {
         const state = stateOf(p);
         return state === 'liquidated' ? (
-          <Badge tone="error">{t('Liquidated')}</Badge>
+          <Tag tone="error">{t('Liquidated')}</Tag>
         ) : (
-          <Badge>{state === 'closed' ? t('Closed') : t('Closing')}</Badge>
+          <Tag>{state === 'closed' ? t('Closed') : t('Closing')}</Tag>
         );
       },
     },

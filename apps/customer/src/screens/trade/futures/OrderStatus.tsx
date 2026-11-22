@@ -1,4 +1,4 @@
-import { Badge, StatusTag, type StatusKind } from '@intafaced/ui/lit';
+import { Tag, StatusTag, type StatusKind } from '@intafaced/ui/lit';
 import { isPositive } from '../../../data/decimal';
 import type { FuturesOrder, FuturesOrderOrigin } from './api';
 import { futuresRefusal } from './refusals';
@@ -52,8 +52,8 @@ export function FuturesOrderOrigin({ origin, label }: { origin: FuturesOrderOrig
   const kind = origin ?? 'user';
   return (
     <span className="lt-row" data-origin={kind}>
-      <Badge tone={kind === 'liquidation' ? 'down' : 'neutral'}>{t(`Origin ${kind}`)}</Badge>
-      {label ? <Badge data-label={label}>{label}</Badge> : null}
+      <Tag tone={kind === 'liquidation' ? 'down' : 'neutral'}>{t(`Origin ${kind}`)}</Tag>
+      {label ? <Tag data-label={label}>{label}</Tag> : null}
     </span>
   );
 }

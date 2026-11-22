@@ -73,7 +73,7 @@ export function MonteCarloPanel({ runId }: { runId: string }) {
       {failure && <KitFailure result={failure} />}
       {result && (
         <div data-testid="quant-montecarlo-result" data-runs={result.runs} data-seed={result.seed} data-trips={result.roundTrips}>
-          <p className="lt-badge" data-testid="quant-montecarlo-label">
+          <p className="lit-tag" data-testid="quant-montecarlo-label">
             {result.claimLabel}
           </p>
           <p>{t('mcPaths', { runs: result.runs, trips: result.roundTrips, seed: result.seed, cash: result.startCash })}</p>

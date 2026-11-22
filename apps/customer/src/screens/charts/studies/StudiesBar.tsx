@@ -516,7 +516,7 @@ export function StudiesBar({
                       {!here ? (
                         <>
                           {' '}
-                          <span className="lt-badge" data-tone="warn">
+                          <span className="lit-tag" data-tone="warn">
                             {word('Hidden on this interval')}
                           </span>
                         </>

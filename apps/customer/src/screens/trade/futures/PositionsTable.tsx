@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Amount, Badge, Button, ChangeText, Price, StateBlock } from '@intafaced/ui/lit';
+import { Amount, Tag, Button, ChangeText, Price, StateBlock } from '@intafaced/ui/lit';
 import { FreshnessChip, Table, type Column } from '@intafaced/ui/lit/templates';
 import type { BalanceEntry } from '../../../data/derive';
 import { fmtAmount, fmtPctPoints, fmtPrice } from '../../../data/format';
@@ -62,7 +62,7 @@ function StateCell({ position, called, t }: { position: Position; called: boolea
   return (
     <span className="lt-stack-tight lt-tight">
       <FreshnessChip asOf={null} staleAfterMs={0} kind={kind} labels={{ [kind]: word }} reason={row.closingReason ?? undefined} />
-      {called ? <Badge tone="warn">{t('Positions margin call badge')}</Badge> : null}
+      {called ? <Tag tone="warn">{t('Positions margin call badge')}</Tag> : null}
     </span>
   );
 }
@@ -111,10 +111,10 @@ export function PositionsTable({
       cell: (p) => (
         <span className="lt-row lt-row-nowrap">
           <span className="lt-strong">{p.symbol}</span>
-          <Badge tone={p.side === 'long' ? 'up' : 'down'}>
+          <Tag tone={p.side === 'long' ? 'up' : 'down'}>
             {p.side === 'long' ? t('Side long') : t('Side short')}
             {p.leverage === null ? '' : ` ${fmtAmount(p.leverage, { places: 2 })}x`}
-          </Badge>
+          </Tag>
         </span>
       ),
     },

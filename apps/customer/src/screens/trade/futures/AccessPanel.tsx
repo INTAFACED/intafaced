@@ -1,4 +1,4 @@
-import { Badge, StateBlock } from '@intafaced/ui/lit';
+import { Tag, StateBlock } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import type { Loadable } from '../../../data/types';
 import { accessCopy } from './access-copy';
@@ -37,7 +37,7 @@ function GateLine({ gated, symbol }: { gated: Loadable<GatedList>; symbol: strin
     <div className="lt-stack-tight" data-testid="futures-gate">
       <div className="lt-row lt-row-between">
         <h3 className="lt-panel-title">{t('Access')}</h3>
-        <Badge tone={contract.open ? 'accent' : 'warn'}>{contract.open ? t('Access open') : t('Access blocked')}</Badge>
+        <Tag tone={contract.open ? 'accent' : 'warn'}>{contract.open ? t('Access open') : t('Access blocked')}</Tag>
       </div>
       {contract.blockers.length > 0 ? (
         <ul aria-label={t('Access reasons')} className="lt-list">
